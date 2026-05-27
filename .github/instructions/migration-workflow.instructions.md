@@ -1,5 +1,5 @@
 ---
-applyTo: "src/database/migrations/**/*.ts"
+applyTo: "apps/api/database/migrations/**/*.ts"
 ---
 
 # Migration Instructions

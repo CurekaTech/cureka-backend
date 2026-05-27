@@ -1,5 +1,5 @@
 ---
-applyTo: "src/modules/**/*.service.ts"
+applyTo: "modules/**/*.service.ts"
 ---
 
 # Service Layer Instructions

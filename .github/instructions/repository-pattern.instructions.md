@@ -1,5 +1,5 @@
 ---
-applyTo: "src/modules/**/*.repository.ts"
+applyTo: "modules/**/*.repository.ts"
 ---
 
 # Repository Pattern Instructions

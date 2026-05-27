@@ -1,5 +1,5 @@
 ---
-applyTo: "src/modules/**/*.dto.ts"
+applyTo: "modules/**/*.dto.ts"
 ---
 
 # DTO Validation Instructions

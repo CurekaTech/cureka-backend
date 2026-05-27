@@ -30,4 +30,4 @@ Generate all files under `src/modules/{{moduleName}}/`:
 - Never return raw entities — always use mapper
 - Use `ParseUUIDPipe` for ID params
 - Use `PaginationQueryDto` for list endpoints
-- Remind me to run `npm run migration:generate -- src/database/migrations/Create{{PascalModuleName}}`
+- Remind me to run `npm run migration:generate -- apps/api/src/database/migrations/Create{{PascalModuleName}}`

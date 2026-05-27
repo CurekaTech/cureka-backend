@@ -12,6 +12,7 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
+    "ignoreDeprecations": "5.0",
     "strictNullChecks": true,
     "noImplicitAny": true,
     "strictBindCallApply": true,
@@ -19,11 +20,22 @@
     "noFallthroughCasesInSwitch": true,
     "strict": true,
     "paths": {
-      "@config/*": ["src/config/*"],
-      "@common/*": ["src/common/*"],
-      "@database/*": ["src/database/*"],
-      "@shared/*": ["src/shared/*"],
-      "@modules/*": ["src/modules/*"]
+      "@config/*": ["apps/api/config/*"],
+      "@common/*": ["apps/api/common/*"],
+      "@database/*": ["apps/api/database/*"],
+      "@modules/*": ["modules/*"],
+      "@packages/database": ["packages/database/src/index"],
+      "@packages/database/*": ["packages/database/src/*"],
+      "@packages/queue": ["packages/queue/src/index"],
+      "@packages/queue/*": ["packages/queue/src/*"],
+      "@packages/cache": ["packages/cache/src/index"],
+      "@packages/cache/*": ["packages/cache/src/*"],
+      "@packages/events": ["packages/events/src/index"],
+      "@packages/events/*": ["packages/events/src/*"],
+      "@packages/logger": ["packages/logger/src/index"],
+      "@packages/logger/*": ["packages/logger/src/*"],
+      "@packages/common": ["packages/common/src/index"],
+      "@packages/common/*": ["packages/common/src/*"]
     }
   }
 }
