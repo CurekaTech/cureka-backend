@@ -35,7 +35,9 @@
       "@packages/logger": ["packages/logger/src/index"],
       "@packages/logger/*": ["packages/logger/src/*"],
       "@packages/common": ["packages/common/src/index"],
-      "@packages/common/*": ["packages/common/src/*"]
+      "@packages/common/*": ["packages/common/src/*"],
+      "@packages/storage": ["packages/storage/src/index"],
+      "@packages/storage/*": ["packages/storage/src/*"]
     }
   }
 }

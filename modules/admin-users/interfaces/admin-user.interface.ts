@@ -8,6 +8,7 @@ export interface IAdminUser {
   role: AdminUserRole;
   isActive: boolean;
   lastLoginAt?: Date;
+  createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;
@@ -15,9 +16,4 @@ export interface IAdminUser {
 
 export interface IAdminUserWithPassword extends IAdminUser {
   password: string;
-}
-
-export interface ILoginResponse {
-  accessToken: string;
-  user: IAdminUser;
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LoggerOptions } from 'typeorm';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
           url,
           autoLoadEntities: true,
           synchronize: false,
-          logging: configService.get<string>('app.nodeEnv') === 'development' ? ['query', 'error'] : ['error'],
+          logging: configService.get<LoggerOptions>('database.logging') ?? ['error'],
           ssl:
             configService.get<string>('app.nodeEnv') === 'production'
               ? { rejectUnauthorized: false }

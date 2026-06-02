@@ -4,3 +4,4 @@ export { buildSuccessResponse } from './api-response.type';
 export type { ApiResponse, ApiErrorResponse } from './api-response.type';
 export { hashPassword, comparePasswords } from './hash.util';
 export { APP_CONSTANTS } from './app.constants';
+export { generateRefId } from './ref-id.util';

@@ -1,20 +1,36 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import fastifyCookie from '@fastify/cookie';
+import fastifyCors from '@fastify/cors';
+import fastifyMultipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
-import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { resolveUploadDir } from './config/storage.config';
 import { APP_CONSTANTS } from '@packages/common';
 
 async function bootstrap(): Promise<void> {
+  // Read CORS config from process.env before the NestJS app is created so
+  // @fastify/cors is registered on the raw Fastify instance BEFORE NestJS
+  // mounts its routes. This is the only reliable way to apply CORS to all
+  // routes in Fastify's plugin-scoped lifecycle. 
+  const nodeEnv = process.env['NODE_ENV'] ?? 'development';
+  const corsOriginsEnv = process.env['CORS_ORIGINS'];
+  const uploadDir = resolveUploadDir(process.env['UPLOAD_DIR']);
+  const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_FILE_SIZE'] ?? '5242880', 10);
+  const corsOrigin: string[] | true = corsOriginsEnv
+    ? corsOriginsEnv
+        .split(',')
+        .map((o) => o.trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+    : true; // when unset, reflect any origin (safe for development)
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({
-      logger: false, // Pino handles logging
-    }),
+    new FastifyAdapter({ logger: false }),
     // Suppress verbose NestJS bootstrap noise (InstanceLoader, RoutesResolver, etc.).
     // Pino takes over at info level after app.useLogger() is called below.
     { logger: ['warn', 'error'] },
@@ -23,13 +39,38 @@ async function bootstrap(): Promise<void> {
   // Use Pino logger
   app.useLogger(app.get(Logger));
 
+  // @fastify/cors uses fastify-plugin internally, which breaks Fastify's
+  // encapsulation — registering here (after create, before listen) makes it
+  // global and applies to every route NestJS has registered.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (app as any).register(fastifyCors, {
+    origin: corsOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'ngrok-skip-browser-warning'],
+    exposedHeaders: ['Set-Cookie'],
+  });
+
   // Register cookie plugin — cast needed due to @fastify/cookie v11 type mismatch with @nestjs/platform-fastify
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await app.register(fastifyCookie as any);
+  await (app as any).register(fastifyCookie);
+
+  // Multipart uploads (Fastify-native; swap storage provider for GCS later)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (app as any).register(fastifyMultipart, {
+    limits: { fileSize: uploadMaxFileSize, files: 5 },
+  });
+
+  // Serve locally stored files — URL prefix /uploads/ (outside /api/v1)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (app as any).register(fastifyStatic, {
+    root: uploadDir,
+    prefix: '/uploads/',
+    decorateReply: false,
+  });
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
-  const nodeEnv = configService.get<string>('app.nodeEnv') ?? 'development';
 
   // Global prefix
   app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX);
@@ -48,19 +89,6 @@ async function bootstrap(): Promise<void> {
 
   // Global filters
   app.useGlobalFilters(new AllExceptionsFilter());
-
-  // Global interceptors
-  app.useGlobalInterceptors(new TransformInterceptor());
-
-  // CORS
-  if (nodeEnv !== 'production') {
-    app.enableCors({
-      origin: true,
-      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-      credentials: true,
-    });
-  }
 
   // Graceful shutdown
   app.enableShutdownHooks();

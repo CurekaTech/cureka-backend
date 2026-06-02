@@ -11,4 +11,10 @@ export const envValidationSchema = Joi.object({
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_EXPIRES_IN: Joi.string().default('7d'),
   LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug', 'trace').default('info'),
+  CORS_ORIGINS: Joi.string().optional(),
+  DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),
+  STORAGE_DRIVER: Joi.string().valid('local', 'gcs').default('local'),
+  UPLOAD_DIR: Joi.string().optional(),
+  UPLOAD_MAX_FILE_SIZE: Joi.number().default(5242880),
+  UPLOAD_ALLOWED_MIME_TYPES: Joi.string().optional(),
 });

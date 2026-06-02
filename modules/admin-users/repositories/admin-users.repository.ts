@@ -45,15 +45,31 @@ export class AdminUsersRepository {
   async findAllPaginated(
     options: PaginationOptions,
   ): Promise<{ data: AdminUserEntity[]; total: number }> {
-    const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
+    const { skip, take } = buildSkipTake(options.page, options.limit);
 
-    const [data, total] = await this.repo
+    // Allowlist prevents SQL injection from sortBy input
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'admin_user.createdAt',
+      fullName: 'admin_user.fullName',
+      email: 'admin_user.email',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'admin_user.createdAt';
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo
       .createQueryBuilder('admin_user')
-      .orderBy('admin_user.created_at', 'DESC')
+      .orderBy(sortColumn, sortOrder)
       .skip(skip)
-      .take(take)
-      .getManyAndCount();
+      .take(take);
 
+    if (options.search) {
+      qb.where(
+        'admin_user.full_name ILIKE :search OR admin_user.email ILIKE :search',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 

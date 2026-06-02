@@ -1,0 +1,90 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { BrandEntity } from '../entities/brand.entity';
+import { PaginationOptions } from '@packages/common';
+import { buildSkipTake } from '@packages/database';
+
+@Injectable()
+export class BrandsRepository {
+  constructor(
+    @InjectRepository(BrandEntity)
+    private readonly repo: Repository<BrandEntity>,
+  ) {}
+
+  async create(data: Partial<BrandEntity>): Promise<BrandEntity> {
+    const entity = this.repo.create(data);
+    return this.repo.save(entity);
+  }
+
+  async findById(id: string): Promise<BrandEntity | null> {
+    return this.repo.findOne({ where: { id } });
+  }
+
+  async update(id: string, data: Partial<BrandEntity>): Promise<BrandEntity | null> {
+    await this.repo.update(id, data);
+    return this.findById(id);
+  }
+
+  async softDelete(id: string): Promise<void> {
+    await this.repo.softDelete(id);
+  }
+
+  async findAllPaginated(
+    options: PaginationOptions,
+  ): Promise<{ data: BrandEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'brand.createdAt',
+      name: 'brand.name',
+      slug: 'brand.slug',
+      status: 'brand.status',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'brand.createdAt';
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo
+      .createQueryBuilder('brand')
+      .orderBy(sortColumn, sortOrder)
+      .skip(skip)
+      .take(take);
+
+    if (options.search) {
+      qb.where('(brand.name ILIKE :search OR brand.slug ILIKE :search)', {
+        search: `%${options.search}%`,
+      });
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
+  async existsByName(name: string): Promise<boolean> {
+    const count = await this.repo.count({ where: { name } });
+    return count > 0;
+  }
+
+  async existsByNameExcluding(name: string, excludeId: string): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('brand')
+      .where('brand.name = :name', { name })
+      .andWhere('brand.id != :excludeId', { excludeId })
+      .getCount();
+    return count > 0;
+  }
+
+  async existsBySlug(slug: string): Promise<boolean> {
+    const count = await this.repo.count({ where: { slug } });
+    return count > 0;
+  }
+
+  async existsBySlugExcluding(slug: string, excludeId: string): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.id != :excludeId', { excludeId })
+      .getCount();
+    return count > 0;
+  }
+}

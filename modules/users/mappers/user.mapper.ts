@@ -10,6 +10,7 @@ export const mapUserEntityToResponse = (entity: UserEntity): IUser => ({
   dob: entity.dob,
   isActive: entity.isActive,
   lastLoginAt: entity.lastLoginAt,
+  createdBy: entity.createdBy,
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,

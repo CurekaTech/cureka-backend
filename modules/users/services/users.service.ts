@@ -13,6 +13,7 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
+  generateRefId,
 } from '@packages/common';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 
@@ -31,6 +32,8 @@ export class UsersService {
       ...dto,
       dob: dto.dob ? new Date(dto.dob) : undefined,
       password: hashedPassword,
+      refId: generateRefId(dto.fullName),
+      createdBy: dto.email,
     });
 
     return mapUserEntityToResponse(entity);

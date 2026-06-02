@@ -9,6 +9,7 @@ export const mapAdminUserEntityToResponse = (entity: AdminUserEntity): IAdminUse
   role: entity.role,
   isActive: entity.isActive,
   lastLoginAt: entity.lastLoginAt,
+  createdBy: entity.createdBy,
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
+import { resolveDatabaseLogging } from '../config/database.config';
 
 dotenv.config();
 
@@ -15,7 +16,7 @@ export const AppDataSource = new DataSource({
   type: 'postgres',
   url: DATABASE_URL,
   synchronize: false,
-  logging: process.env['NODE_ENV'] === 'development' ? ['query', 'error'] : ['error'],
+  logging: resolveDatabaseLogging(),
   ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : false,
     entities: [join(__dirname, '..', '..', '..', 'modules', '**', 'entities', '*.entity.{ts,js}')],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],

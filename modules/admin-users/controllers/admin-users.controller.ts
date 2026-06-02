@@ -10,60 +10,28 @@ import {
   Patch,
   Post,
   Query,
-  Res,
   UseGuards,
 } from '@nestjs/common';
-import { FastifyReply } from 'fastify';
 import { AdminUsersService } from '../services/admin-users.service';
-import { CreateAdminUserDto, UpdateAdminUserDto, LoginAdminUserDto } from '../dto/admin-user.dto';
+import { CreateAdminUserDto, UpdateAdminUserDto } from '../dto/admin-user.dto';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
-import { RolesGuard } from '@common/guards/roles.guard';
-import { Roles } from '@common/decorators/roles.decorator';
+import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@modules/auth/guards/roles.guard';
+import { Roles } from '@modules/auth/decorators/roles.decorator';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
-
-// 7 days in seconds — must match JWT expiresIn
-const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+import { CurrentUser } from '@modules/auth/decorators/current-user.decorator';
+import { IJwtPayload } from '@modules/auth/interfaces/auth.interface';
 
 @Controller('admin-users')
 export class AdminUsersController {
   constructor(private readonly adminUsersService: AdminUsersService) {}
 
-  // ─── Auth ────────────────────────────────────────────────────────────────
-
-  @Post('auth/login')
-  @HttpCode(HttpStatus.OK)
-  async login(
-    @Body() dto: LoginAdminUserDto,
-    @Res({ passthrough: true }) res: FastifyReply,
-  ) {
-    const result = await this.adminUsersService.login(dto);
-
-    res.setCookie('admin_token', result.accessToken, {
-      httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: COOKIE_MAX_AGE_SECONDS,
-    });
-
-    return result;
-  }
-
-  @Post('auth/logout')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@Res({ passthrough: true }) res: FastifyReply) {
-    res.clearCookie('admin_token', { path: '/' });
-  }
-
-  // ─── CRUD (protected) ────────────────────────────────────────────────────
-
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateAdminUserDto) {
-    return this.adminUsersService.create(dto);
+  create(@Body() dto: CreateAdminUserDto, @CurrentUser() user: IJwtPayload) {
+    return this.adminUsersService.create(dto, user.email);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

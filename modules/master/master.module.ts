@@ -1,0 +1,98 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { UploadsModule } from '@modules/uploads/uploads.module';
+import { AttributeEntity } from './entities/attribute.entity';
+import { BrandEntity } from './entities/brand.entity';
+import { CategoryEntity } from './entities/category.entity';
+import { CountryEntity } from './entities/country.entity';
+import { StateEntity } from './entities/state.entity';
+import { CityEntity } from './entities/city.entity';
+import { HealthConcernEntity } from './entities/health-concern.entity';
+import { AgeGroupEntity } from './entities/age-group.entity';
+import { AttributesRepository } from './repositories/attributes.repository';
+import { BrandsRepository } from './repositories/brands.repository';
+import { CategoriesRepository } from './repositories/categories.repository';
+import { CountriesRepository } from './repositories/countries.repository';
+import { StatesRepository } from './repositories/states.repository';
+import { CitiesRepository } from './repositories/cities.repository';
+import { HealthConcernsRepository } from './repositories/health-concerns.repository';
+import { AgeGroupsRepository } from './repositories/age-groups.repository';
+import { AttributesService } from './services/attributes.service';
+import { BrandsService } from './services/brands.service';
+import { CategoriesService } from './services/categories.service';
+import { CountriesService } from './services/countries.service';
+import { StatesService } from './services/states.service';
+import { CitiesService } from './services/cities.service';
+import { HealthConcernsService } from './services/health-concerns.service';
+import { AgeGroupsService } from './services/age-groups.service';
+import { AttributesController } from './controllers/attributes.controller';
+import { BrandsController } from './controllers/brands.controller';
+import { CategoriesController } from './controllers/categories.controller';
+import { CountriesController } from './controllers/countries.controller';
+import { StatesController } from './controllers/states.controller';
+import { CitiesController } from './controllers/cities.controller';
+import { HealthConcernsController } from './controllers/health-concerns.controller';
+import { AgeGroupsController } from './controllers/age-groups.controller';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      AttributeEntity,
+      BrandEntity,
+      CategoryEntity,
+      CountryEntity,
+      StateEntity,
+      CityEntity,
+      HealthConcernEntity,
+      AgeGroupEntity,
+    ]),
+    UploadsModule,
+  ],
+  controllers: [
+    AttributesController,
+    BrandsController,
+    CategoriesController,
+    CountriesController,
+    StatesController,
+    CitiesController,
+    HealthConcernsController,
+    AgeGroupsController,
+  ],
+  providers: [
+    AttributesService,
+    AttributesRepository,
+    BrandsService,
+    BrandsRepository,
+    CategoriesService,
+    CategoriesRepository,
+    CountriesService,
+    CountriesRepository,
+    StatesService,
+    StatesRepository,
+    CitiesService,
+    CitiesRepository,
+    HealthConcernsService,
+    HealthConcernsRepository,
+    AgeGroupsService,
+    AgeGroupsRepository,
+  ],
+  exports: [
+    AttributesService,
+    AttributesRepository,
+    BrandsService,
+    BrandsRepository,
+    CategoriesService,
+    CategoriesRepository,
+    CountriesService,
+    CountriesRepository,
+    StatesService,
+    StatesRepository,
+    CitiesService,
+    CitiesRepository,
+    HealthConcernsService,
+    HealthConcernsRepository,
+    AgeGroupsService,
+    AgeGroupsRepository,
+  ],
+})
+export class MasterModule {}

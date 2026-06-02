@@ -9,6 +9,7 @@ export interface IUser {
   dob?: Date;
   isActive: boolean;
   lastLoginAt?: Date;
+  createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;

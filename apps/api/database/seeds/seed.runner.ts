@@ -32,6 +32,7 @@ async function run(): Promise<void> {
       password: hashed,
       role: AdminUserRole.SUPER_ADMIN,
       isActive: true,
+      createdBy: 'system',
     });
 
     await repo.save(admin);

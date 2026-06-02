@@ -30,3 +30,7 @@ yarn-error.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Uploaded files (local storage)
+/uploads/**
+!/uploads/.gitkeep

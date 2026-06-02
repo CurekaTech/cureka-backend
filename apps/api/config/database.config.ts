@@ -1,5 +1,13 @@
 import { registerAs } from '@nestjs/config';
-import { DataSourceOptions } from 'typeorm';
+import { DataSourceOptions, LoggerOptions } from 'typeorm';
+
+/** Set DATABASE_LOGGING=false in .env to suppress SQL query logs in development. */
+export function resolveDatabaseLogging(): LoggerOptions {
+  const override = process.env['DATABASE_LOGGING'];
+  if (override === 'false') return ['error'];
+  if (override === 'true') return ['query', 'error'];
+  return process.env['NODE_ENV'] === 'development' ? ['query', 'error'] : ['error'];
+}
 
 export const databaseConfig = registerAs('database', (): Partial<DataSourceOptions> => {
   const url = process.env['DATABASE_URL'];
@@ -22,7 +30,7 @@ export const databaseConfig = registerAs('database', (): Partial<DataSourceOptio
     connectTimeoutMS: 10000,
     // Never use synchronize in production
     synchronize: false,
-    logging: process.env['NODE_ENV'] === 'development' ? ['query', 'error'] : ['error'],
+    logging: resolveDatabaseLogging(),
     ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : false,
   };
 });

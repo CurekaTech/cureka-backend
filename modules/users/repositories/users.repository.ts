@@ -49,7 +49,7 @@ export class UsersRepository {
 
     const [data, total] = await this.repo
       .createQueryBuilder('user')
-      .orderBy('user.created_at', 'DESC')
+      .orderBy('user.createdAt', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
