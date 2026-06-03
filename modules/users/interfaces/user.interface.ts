@@ -2,6 +2,7 @@ import { UserGender } from '../enums/user-gender.enum';
 
 export interface IUser {
   id: string;
+  refId: string;
   fullName: string;
   email: string;
   phone?: string;

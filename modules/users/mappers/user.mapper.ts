@@ -3,6 +3,7 @@ import { IUser } from '../interfaces/user.interface';
 
 export const mapUserEntityToResponse = (entity: UserEntity): IUser => ({
   id: entity.id,
+  refId: entity.refId,
   fullName: entity.fullName,
   email: entity.email,
   phone: entity.phone,

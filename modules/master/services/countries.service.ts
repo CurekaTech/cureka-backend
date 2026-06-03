@@ -18,7 +18,7 @@ import {
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  generateRefId,
+  generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
@@ -44,7 +44,9 @@ export class CountriesService {
       code,
       phoneCode: dto.phoneCode ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
-      refId: generateRefId(dto.name),
+      refId: await generateUniqueRefId(dto.name, (refId) =>
+        this.countriesRepository.existsByRefId(refId),
+      ),
       createdBy,
     });
 
@@ -57,34 +59,34 @@ export class CountriesService {
     return buildPaginatedResult(mapCountryEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findOne(id: string): Promise<ICountry> {
-    const entity = await this.countriesRepository.findById(id);
+  async findOne(refId: string): Promise<ICountry> {
+    const entity = await this.countriesRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`Country with id ${id} not found`);
+      throw new NotFoundException(`Country with refId ${refId} not found`);
     }
     return mapCountryEntityToResponse(entity);
   }
 
-  async update(id: string, dto: UpdateCountryDto, updatedBy: string): Promise<ICountry> {
-    const existing = await this.countriesRepository.findById(id);
+  async update(refId: string, dto: UpdateCountryDto, updatedBy: string): Promise<ICountry> {
+    const existing = await this.countriesRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Country with id ${id} not found`);
+      throw new NotFoundException(`Country with refId ${refId} not found`);
     }
 
     if (dto.name && dto.name !== existing.name) {
-      if (await this.countriesRepository.existsByNameExcluding(dto.name, id)) {
+      if (await this.countriesRepository.existsByNameExcluding(dto.name, existing.id)) {
         throw new ConflictException(`A country with name "${dto.name}" already exists`);
       }
     }
 
     const code = dto.code?.toUpperCase();
     if (code && code !== existing.code) {
-      if (await this.countriesRepository.existsByCodeExcluding(code, id)) {
+      if (await this.countriesRepository.existsByCodeExcluding(code, existing.id)) {
         throw new ConflictException(`A country with code "${code}" already exists`);
       }
     }
 
-    const updated = await this.countriesRepository.update(id, {
+    const updated = await this.countriesRepository.updateByRefId(refId, {
       ...dto,
       code,
       phoneCode: dto.phoneCode !== undefined ? dto.phoneCode ?? null : undefined,
@@ -92,45 +94,45 @@ export class CountriesService {
     });
 
     if (!updated) {
-      throw new NotFoundException(`Country with id ${id} not found after update`);
+      throw new NotFoundException(`Country with refId ${refId} not found after update`);
     }
 
     return mapCountryEntityToResponse(updated);
   }
 
   async updateStatus(
-    id: string,
+    refId: string,
     dto: UpdateCountryStatusDto,
     updatedBy: string,
   ): Promise<ICountry> {
-    const existing = await this.countriesRepository.findById(id);
+    const existing = await this.countriesRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Country with id ${id} not found`);
+      throw new NotFoundException(`Country with refId ${refId} not found`);
     }
 
-    const updated = await this.countriesRepository.update(id, {
+    const updated = await this.countriesRepository.updateByRefId(refId, {
       status: dto.status,
       updatedBy,
     });
 
     if (!updated) {
-      throw new NotFoundException(`Country with id ${id} not found after status update`);
+      throw new NotFoundException(`Country with refId ${refId} not found after status update`);
     }
 
     return mapCountryEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.countriesRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.countriesRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Country with id ${id} not found`);
+      throw new NotFoundException(`Country with refId ${refId} not found`);
     }
 
-    const stateCount = await this.countriesRepository.countStates(id);
+    const stateCount = await this.countriesRepository.countStates(existing.id);
     if (stateCount > 0) {
       throw new BadRequestException('Cannot delete a country that has states');
     }
 
-    await this.countriesRepository.softDelete(id);
+    await this.countriesRepository.softDeleteByRefId(refId);
   }
 }

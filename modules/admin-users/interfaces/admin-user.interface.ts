@@ -2,6 +2,7 @@ import { AdminUserRole } from '../enums/admin-user-role.enum';
 
 export interface IAdminUser {
   id: string;
+  refId: string;
   fullName: string;
   email: string;
   phone?: string;

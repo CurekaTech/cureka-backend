@@ -20,7 +20,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   refId: entity.refId,
   name: entity.name,
   hierarchyId: entity.hierarchyId,
-  parentCategoryId: entity.parentCategoryId,
+  parentCategoryRefId: entity.parent?.refId ?? null,
   position: entity.position,
   hierarchyLevel: entity.hierarchyLevel,
   image: entity.image,

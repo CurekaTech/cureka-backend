@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -14,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
+import { RefIdPipe } from '@common/pipes/ref-id.pipe';
 import { HealthConcernsService } from '../services/health-concerns.service';
 import { UpdateHealthConcernStatusDto } from '../dto/health-concern.dto';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
@@ -47,38 +47,38 @@ export class HealthConcernsController {
 
   @ResponseMessage('Health concern retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.healthConcernsService.findOne(id);
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.healthConcernsService.findOne(refId);
   }
 
   @ResponseMessage('Health concern status updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @Patch(':id/status')
+  @Patch(':refId/status')
   updateStatus(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('refId', RefIdPipe) refId: string,
     @Body() dto: UpdateHealthConcernStatusDto,
     @CurrentUser() user: IJwtPayload,
   ) {
-    return this.healthConcernsService.updateStatus(id, dto, user.email);
+    return this.healthConcernsService.updateStatus(refId, dto, user.email);
   }
 
   @ResponseMessage('Health concern updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @Patch(':id')
+  @Patch(':refId')
   update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('refId', RefIdPipe) refId: string,
     @Req() req: FastifyRequest,
     @CurrentUser() user: IJwtPayload,
   ) {
-    return this.healthConcernsService.updateFromRequest(id, req, user.email);
+    return this.healthConcernsService.updateFromRequest(refId, req, user.email);
   }
 
   @ResponseMessage('Health concern deleted successfully')
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Delete(':id')
+  @Delete(':refId')
   @HttpCode(HttpStatus.OK)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.healthConcernsService.remove(id);
+  remove(@Param('refId', RefIdPipe) refId: string) {
+    return this.healthConcernsService.remove(refId);
   }
 }

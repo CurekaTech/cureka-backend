@@ -6,12 +6,12 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { RefIdPipe } from '@common/pipes/ref-id.pipe';
 import { AdminUsersService } from '../services/admin-users.service';
 import { CreateAdminUserDto, UpdateAdminUserDto } from '../dto/admin-user.dto';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
@@ -43,24 +43,23 @@ export class AdminUsersController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminUsersService.findOne(id);
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.adminUsersService.findOne(refId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAdminUserDto) {
-    return this.adminUsersService.update(id, dto);
+  @Patch(':refId')
+  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateAdminUserDto) {
+    return this.adminUsersService.update(refId, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Delete(':id')
+  @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminUsersService.remove(id);
+  remove(@Param('refId', RefIdPipe) refId: string) {
+    return this.adminUsersService.remove(refId);
   }
 }
-

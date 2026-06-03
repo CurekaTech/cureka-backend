@@ -8,10 +8,10 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
+import { IsRefId } from '@common/validators/is-ref-id.decorator';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
@@ -37,8 +37,8 @@ export class CreateCategoryDto {
   name!: string;
 
   @IsOptional()
-  @IsUUID('4')
-  parentCategoryId?: string;
+  @IsRefId()
+  parentCategoryRefId?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -65,8 +65,8 @@ export class CreateCategoryDto {
   @IsOptional()
   @Transform(parseJsonArray)
   @IsArray()
-  @IsUUID('4', { each: true })
-  attributeIds?: string[];
+  @IsRefId({ each: true })
+  attributeRefIds?: string[];
 
   @IsOptional()
   @Transform(parseBoolean)
@@ -98,6 +98,6 @@ export class CategoryQueryDto extends PaginationQueryDto {
   hierarchyLevel?: CategoryHierarchyLevel;
 
   @IsOptional()
-  @IsUUID('4')
-  parentCategoryId?: string;
+  @IsRefId()
+  parentCategoryRefId?: string;
 }

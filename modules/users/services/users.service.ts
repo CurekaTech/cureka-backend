@@ -13,7 +13,7 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
-  generateRefId,
+  generateUniqueRefId,
 } from '@packages/common';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 
@@ -32,7 +32,9 @@ export class UsersService {
       ...dto,
       dob: dto.dob ? new Date(dto.dob) : undefined,
       password: hashedPassword,
-      refId: generateRefId(dto.fullName),
+      refId: await generateUniqueRefId(dto.fullName, (refId) =>
+        this.usersRepository.existsByRefId(refId),
+      ),
       createdBy: dto.email,
     });
 
@@ -45,18 +47,18 @@ export class UsersService {
     return buildPaginatedResult(mapUserEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findOne(id: string): Promise<IUser> {
-    const entity = await this.usersRepository.findById(id);
+  async findOne(refId: string): Promise<IUser> {
+    const entity = await this.usersRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`User with id ${id} not found`);
+      throw new NotFoundException(`User with refId ${refId} not found`);
     }
     return mapUserEntityToResponse(entity);
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<IUser> {
-    const existing = await this.usersRepository.findById(id);
+  async update(refId: string, dto: UpdateUserDto): Promise<IUser> {
+    const existing = await this.usersRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`User with id ${id} not found`);
+      throw new NotFoundException(`User with refId ${refId} not found`);
     }
 
     const updateData = {
@@ -64,19 +66,19 @@ export class UsersService {
       dob: dto.dob ? new Date(dto.dob) : undefined,
     };
 
-    const updated = await this.usersRepository.update(id, updateData);
+    const updated = await this.usersRepository.updateByRefId(refId, updateData);
     if (!updated) {
-      throw new NotFoundException(`User with id ${id} not found after update`);
+      throw new NotFoundException(`User with refId ${refId} not found after update`);
     }
 
     return mapUserEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.usersRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.usersRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`User with id ${id} not found`);
+      throw new NotFoundException(`User with refId ${refId} not found`);
     }
-    await this.usersRepository.softDelete(id);
+    await this.usersRepository.softDeleteByRefId(refId);
   }
 }

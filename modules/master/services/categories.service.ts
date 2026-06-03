@@ -21,7 +21,7 @@ import {
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  generateRefId,
+  generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
@@ -57,14 +57,14 @@ export class CategoriesService {
     );
   }
 
-  async updateFromRequest(id: string, req: FastifyRequest, updatedBy: string): Promise<ICategory> {
+  async updateFromRequest(refId: string, req: FastifyRequest, updatedBy: string): Promise<ICategory> {
     const { dto, uploadedUrls } = await this.multipartFormService.parseAndValidate(
       req,
       UpdateCategoryDto,
       CATEGORY_UPLOAD_FIELDS,
     );
 
-    return this.update(id, dto, updatedBy, {
+    return this.update(refId, dto, updatedBy, {
       image: uploadedUrls['image'],
       banner: uploadedUrls['banner'],
     });
@@ -76,26 +76,28 @@ export class CategoriesService {
     createdBy: string,
   ): Promise<ICategory> {
     let hierarchyLevel = CategoryHierarchyLevel.ROOT;
+    let parentCategoryId: string | null = null;
 
-    if (dto.parentCategoryId) {
-      const parent = await this.categoriesRepository.findById(dto.parentCategoryId);
+    if (dto.parentCategoryRefId) {
+      const parent = await this.categoriesRepository.findByRefId(dto.parentCategoryRefId);
       if (!parent) {
         throw new NotFoundException(
-          `Parent category with id "${dto.parentCategoryId}" not found`,
+          `Parent category with refId "${dto.parentCategoryRefId}" not found`,
         );
       }
       hierarchyLevel = this.getNextHierarchyLevel(parent.hierarchyLevel);
+      parentCategoryId = parent.id;
     }
 
     const hierarchyId = await this.categoriesRepository.getNextHierarchyId();
     const slug = await this.generateUniqueSlug(dto.name, hierarchyId, null);
-    const attributes = await this.resolveAttributes(dto.attributeIds ?? []);
+    const attributes = await this.resolveAttributes(dto.attributeRefIds ?? []);
 
     const entity = await this.categoriesRepository.createCategory(
       {
         name: dto.name,
         hierarchyId,
-        parentCategoryId: dto.parentCategoryId ?? null,
+        parentCategoryId,
         position: dto.position ?? 0,
         hierarchyLevel,
         image: media.image ?? null,
@@ -105,7 +107,9 @@ export class CategoriesService {
         metaDescription: dto.metaDescription ?? null,
         metaKeywords: dto.metaKeywords ?? null,
         status: dto.status ?? MasterStatus.ACTIVE,
-        refId: generateRefId(dto.name),
+        refId: await generateUniqueRefId(dto.name, (refId) =>
+          this.categoriesRepository.existsByRefId(refId),
+        ),
         createdBy,
       },
       attributes,
@@ -115,10 +119,26 @@ export class CategoriesService {
   }
 
   async findAll(query: CategoryQueryDto): Promise<PaginatedResult<ICategory>> {
+    let parentCategoryId: string | null | undefined;
+
+    if (query.parentCategoryRefId !== undefined) {
+      if (!query.parentCategoryRefId) {
+        parentCategoryId = null;
+      } else {
+        const parent = await this.categoriesRepository.findByRefId(query.parentCategoryRefId);
+        if (!parent) {
+          throw new NotFoundException(
+            `Parent category with refId "${query.parentCategoryRefId}" not found`,
+          );
+        }
+        parentCategoryId = parent.id;
+      }
+    }
+
     const options = {
       ...buildPaginationOptions(query),
       hierarchyLevel: query.hierarchyLevel,
-      parentCategoryId: query.parentCategoryId,
+      parentCategoryId,
     };
     const { data, total } = await this.categoriesRepository.findAllPaginated(options);
     return buildPaginatedResult(mapCategoryEntitiesToResponse(data), total, options);
@@ -129,36 +149,37 @@ export class CategoriesService {
     return this.buildTree(categories);
   }
 
-  async findOne(id: string): Promise<ICategory> {
-    const entity = await this.categoriesRepository.findById(id);
+  async findOne(refId: string): Promise<ICategory> {
+    const entity = await this.categoriesRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`Category with id "${id}" not found`);
+      throw new NotFoundException(`Category with refId ${refId} not found`);
     }
     return mapCategoryEntityToResponse(entity);
   }
 
   async update(
-    id: string,
+    refId: string,
     dto: UpdateCategoryDto,
     updatedBy: string,
     media: { image?: string; banner?: string } = {},
   ): Promise<ICategory> {
-    const existing = await this.categoriesRepository.findById(id);
+    const existing = await this.categoriesRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Category with id "${id}" not found`);
+      throw new NotFoundException(`Category with refId ${refId} not found`);
     }
 
     // Re-determine hierarchy level if parent is changing
     let hierarchyLevel = existing.hierarchyLevel;
-    if (
-      dto.parentCategoryId !== undefined &&
-      dto.parentCategoryId !== existing.parentCategoryId
-    ) {
-      await this.validateParentChange(id, dto.parentCategoryId ?? null);
-      if (dto.parentCategoryId) {
-        // validateParentChange already confirmed the parent exists
-        const newParent = await this.categoriesRepository.findById(dto.parentCategoryId);
-        // non-null assertion is safe — existence confirmed above
+    let parentCategoryId = existing.parentCategoryId;
+
+    if (dto.parentCategoryRefId !== undefined) {
+      parentCategoryId = dto.parentCategoryRefId
+        ? (await this.requireCategoryByRefId(dto.parentCategoryRefId)).id
+        : null;
+
+      await this.validateParentChange(existing.id, parentCategoryId);
+      if (parentCategoryId) {
+        const newParent = await this.categoriesRepository.findById(parentCategoryId);
         hierarchyLevel = this.getNextHierarchyLevel(newParent!.hierarchyLevel);
       } else {
         hierarchyLevel = CategoryHierarchyLevel.ROOT;
@@ -168,13 +189,13 @@ export class CategoriesService {
     // Regenerate slug only when name changes
     let slug = existing.slug;
     if (dto.name && dto.name !== existing.name) {
-      slug = await this.generateUniqueSlug(dto.name, existing.hierarchyId, id);
+      slug = await this.generateUniqueSlug(dto.name, existing.hierarchyId, existing.id);
     }
 
     // Resolve attribute relations when attributeIds explicitly provided
     let attributes: AttributeEntity[] | undefined;
-    if (dto.attributeIds !== undefined) {
-      attributes = await this.resolveAttributes(dto.attributeIds);
+    if (dto.attributeRefIds !== undefined) {
+      attributes = await this.resolveAttributes(dto.attributeRefIds);
     }
 
     const updatePayload: Partial<CategoryEntity> = {
@@ -183,8 +204,7 @@ export class CategoriesService {
       updatedBy,
     };
     if (dto.name !== undefined) updatePayload.name = dto.name;
-    if (dto.parentCategoryId !== undefined)
-      updatePayload.parentCategoryId = dto.parentCategoryId ?? null;
+    if (dto.parentCategoryRefId !== undefined) updatePayload.parentCategoryId = parentCategoryId;
     if (dto.position !== undefined) updatePayload.position = dto.position;
     if (media.image !== undefined) updatePayload.image = media.image;
     if (media.banner !== undefined) updatePayload.banner = media.banner;
@@ -196,51 +216,55 @@ export class CategoriesService {
     if (dto.isInShopBy !== undefined) updatePayload.isInShopBy = dto.isInShopBy;
     if (dto.status !== undefined) updatePayload.status = dto.status;
 
-    const updated = await this.categoriesRepository.updateCategory(id, updatePayload, attributes);
+    const updated = await this.categoriesRepository.updateCategory(
+      existing.id,
+      updatePayload,
+      attributes,
+    );
     if (!updated) {
-      throw new NotFoundException(`Category with id "${id}" not found after update`);
+      throw new NotFoundException(`Category with refId ${refId} not found after update`);
     }
 
     return mapCategoryEntityToResponse(updated);
   }
 
   async updateStatus(
-    id: string,
+    refId: string,
     dto: UpdateCategoryStatusDto,
     updatedBy: string,
   ): Promise<ICategory> {
-    const existing = await this.categoriesRepository.findById(id);
+    const existing = await this.categoriesRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Category with id "${id}" not found`);
+      throw new NotFoundException(`Category with refId ${refId} not found`);
     }
 
     const updated = await this.categoriesRepository.updateCategory(
-      id,
+      existing.id,
       { status: dto.status, updatedBy },
       undefined,
     );
 
     if (!updated) {
-      throw new NotFoundException(`Category with id "${id}" not found after status update`);
+      throw new NotFoundException(`Category with refId ${refId} not found after status update`);
     }
 
     return mapCategoryEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.categoriesRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.categoriesRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Category with id "${id}" not found`);
+      throw new NotFoundException(`Category with refId ${refId} not found`);
     }
 
-    const childCount = await this.categoriesRepository.countChildren(id);
+    const childCount = await this.categoriesRepository.countChildren(existing.id);
     if (childCount > 0) {
       throw new ConflictException(
         `Cannot delete category "${existing.name}" — it has ${childCount} child ${childCount === 1 ? 'category' : 'categories'}. Delete or reassign children first.`,
       );
     }
 
-    await this.categoriesRepository.softDeleteCategory(id);
+    await this.categoriesRepository.softDeleteByRefId(refId);
   }
 
   // ---------------------------------------------------------------------------
@@ -260,6 +284,14 @@ export class CategoriesService {
           'Maximum hierarchy depth exceeded. A GREAT_GRANDCHILD category cannot have children.',
         );
     }
+  }
+
+  private async requireCategoryByRefId(refId: string): Promise<CategoryEntity> {
+    const category = await this.categoriesRepository.findByRefId(refId);
+    if (!category) {
+      throw new NotFoundException(`Category with refId "${refId}" not found`);
+    }
+    return category;
   }
 
   private async validateParentChange(
@@ -312,16 +344,18 @@ export class CategoriesService {
     );
   }
 
-  private async resolveAttributes(attributeIds: string[]): Promise<AttributeEntity[]> {
-    if (!attributeIds.length) return [];
+  private async resolveAttributes(attributeRefIds: string[]): Promise<AttributeEntity[]> {
+    if (!attributeRefIds.length) return [];
 
     const results = await Promise.all(
-      attributeIds.map((id) => this.attributesRepository.findById(id)),
+      attributeRefIds.map((refId) => this.attributesRepository.findByRefId(refId)),
     );
 
-    const missing = attributeIds.filter((_, i) => !results[i]);
+    const missing = attributeRefIds.filter((_, i) => !results[i]);
     if (missing.length) {
-      throw new NotFoundException(`Attribute(s) not found with id(s): ${missing.join(', ')}`);
+      throw new NotFoundException(
+        `Attribute(s) not found with refId(s): ${missing.join(', ')}`,
+      );
     }
 
     return results as AttributeEntity[];
@@ -331,14 +365,14 @@ export class CategoriesService {
     const map = new Map<string, ICategoryTree>();
 
     for (const cat of categories) {
-      map.set(cat.id, mapCategoryEntityToTree(cat));
+      map.set(cat.refId, mapCategoryEntityToTree(cat));
     }
 
     const roots: ICategoryTree[] = [];
 
     map.forEach((node) => {
-      if (node.parentCategoryId) {
-        const parent = map.get(node.parentCategoryId);
+      if (node.parentCategoryRefId) {
+        const parent = map.get(node.parentCategoryRefId);
         if (parent) {
           parent.children.push(node);
         } else {

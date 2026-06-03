@@ -29,6 +29,27 @@ export class StatesRepository {
       .getOne();
   }
 
+  async findByRefId(refId: string): Promise<StateEntity | null> {
+    return this.repo
+      .createQueryBuilder('state')
+      .leftJoinAndSelect('state.country', 'country')
+      .where('state.refId = :refId', { refId })
+      .getOne();
+  }
+
+  async existsByRefId(refId: string): Promise<boolean> {
+    return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async updateByRefId(refId: string, data: Partial<StateEntity>): Promise<StateEntity | null> {
+    await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async softDeleteByRefId(refId: string): Promise<void> {
+    await this.repo.softDelete({ refId });
+  }
+
   async update(id: string, data: Partial<StateEntity>): Promise<StateEntity | null> {
     await this.repo.update(id, data);
     return this.findById(id);

@@ -16,7 +16,7 @@ export interface ICategory {
   refId: string;
   name: string;
   hierarchyId: number;
-  parentCategoryId: string | null;
+  parentCategoryRefId: string | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   image: string | null;

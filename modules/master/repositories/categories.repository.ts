@@ -36,6 +36,28 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  async findByRefId(refId: string): Promise<CategoryEntity | null> {
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.attributes', 'attribute')
+      .where('category.refId = :refId', { refId })
+      .getOne();
+  }
+
+  async existsByRefId(refId: string): Promise<boolean> {
+    return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async updateByRefId(refId: string, data: Partial<CategoryEntity>): Promise<CategoryEntity | null> {
+    await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async softDeleteByRefId(refId: string): Promise<void> {
+    await this.repo.softDelete({ refId });
+  }
+
   async findAllPaginated(
     options: CategoryFindOptions,
   ): Promise<{ data: CategoryEntity[]; total: number }> {

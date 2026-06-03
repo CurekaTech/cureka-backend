@@ -30,6 +30,27 @@ export class CitiesRepository {
       .getOne();
   }
 
+  async findByRefId(refId: string): Promise<CityEntity | null> {
+    return this.repo
+      .createQueryBuilder('city')
+      .leftJoinAndSelect('city.state', 'state')
+      .where('city.refId = :refId', { refId })
+      .getOne();
+  }
+
+  async existsByRefId(refId: string): Promise<boolean> {
+    return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async updateByRefId(refId: string, data: Partial<CityEntity>): Promise<CityEntity | null> {
+    await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async softDeleteByRefId(refId: string): Promise<void> {
+    await this.repo.softDelete({ refId });
+  }
+
   async update(id: string, data: Partial<CityEntity>): Promise<CityEntity | null> {
     await this.repo.update(id, data);
     return this.findById(id);

@@ -6,7 +6,7 @@ export const mapCityEntityToResponse = (entity: CityEntity): ICity => ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
-  stateId: entity.stateId,
+  stateRefId: entity.state?.refId ?? '',
   state: entity.state ? mapStateEntityToSummary(entity.state) : null,
   status: entity.status,
   createdBy: entity.createdBy,

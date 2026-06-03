@@ -21,6 +21,23 @@ export class AttributesRepository {
     return this.repo.findOne({ where: { id } });
   }
 
+  async findByRefId(refId: string): Promise<AttributeEntity | null> {
+    return this.repo.findOne({ where: { refId } });
+  }
+
+  async existsByRefId(refId: string): Promise<boolean> {
+    return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async updateByRefId(refId: string, data: Partial<AttributeEntity>): Promise<AttributeEntity | null> {
+    await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async softDeleteByRefId(refId: string): Promise<void> {
+    await this.repo.softDelete({ refId });
+  }
+
   async update(id: string, data: Partial<AttributeEntity>): Promise<AttributeEntity | null> {
     await this.repo.update(id, data);
     return this.findById(id);

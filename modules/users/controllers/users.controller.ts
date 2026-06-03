@@ -6,11 +6,11 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
+import { RefIdPipe } from '@common/pipes/ref-id.pipe';
 import { UsersService } from '../services/users.service';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
@@ -31,19 +31,19 @@ export class UsersController {
     return this.usersService.findAll(query);
   }
 
-  @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.findOne(id);
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.usersService.findOne(refId);
   }
 
-  @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.update(id, dto);
+  @Patch(':refId')
+  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateUserDto) {
+    return this.usersService.update(refId, dto);
   }
 
-  @Delete(':id')
+  @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.remove(id);
+  remove(@Param('refId', RefIdPipe) refId: string) {
+    return this.usersService.remove(refId);
   }
 }

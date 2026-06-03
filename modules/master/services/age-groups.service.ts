@@ -18,7 +18,7 @@ import {
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  generateRefId,
+  generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
@@ -42,7 +42,9 @@ export class AgeGroupsService {
       toYears: dto.toYears,
       toMonths: dto.toMonths,
       status: dto.status ?? MasterStatus.ACTIVE,
-      refId: generateRefId(dto.name),
+      refId: await generateUniqueRefId(dto.name, (refId) =>
+        this.ageGroupsRepository.existsByRefId(refId),
+      ),
       createdBy,
     });
 
@@ -55,18 +57,18 @@ export class AgeGroupsService {
     return buildPaginatedResult(mapAgeGroupEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findOne(id: string): Promise<IAgeGroup> {
-    const entity = await this.ageGroupsRepository.findById(id);
+  async findOne(refId: string): Promise<IAgeGroup> {
+    const entity = await this.ageGroupsRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`Age group with id ${id} not found`);
+      throw new NotFoundException(`Age group with refId ${refId} not found`);
     }
     return mapAgeGroupEntityToResponse(entity);
   }
 
-  async update(id: string, dto: UpdateAgeGroupDto, updatedBy: string): Promise<IAgeGroup> {
-    const existing = await this.ageGroupsRepository.findById(id);
+  async update(refId: string, dto: UpdateAgeGroupDto, updatedBy: string): Promise<IAgeGroup> {
+    const existing = await this.ageGroupsRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Age group with id ${id} not found`);
+      throw new NotFoundException(`Age group with refId ${refId} not found`);
     }
 
     const fromYears = dto.fromYears ?? existing.fromYears;
@@ -76,51 +78,51 @@ export class AgeGroupsService {
     this.validateAgeRange(fromYears, fromMonths, toYears, toMonths);
 
     if (dto.name && dto.name !== existing.name) {
-      if (await this.ageGroupsRepository.existsByNameExcluding(dto.name, id)) {
+      if (await this.ageGroupsRepository.existsByNameExcluding(dto.name, existing.id)) {
         throw new ConflictException(`An age group with name "${dto.name}" already exists`);
       }
     }
 
-    const updated = await this.ageGroupsRepository.update(id, {
+    const updated = await this.ageGroupsRepository.updateByRefId(refId, {
       ...dto,
       updatedBy,
     });
 
     if (!updated) {
-      throw new NotFoundException(`Age group with id ${id} not found after update`);
+      throw new NotFoundException(`Age group with refId ${refId} not found after update`);
     }
 
     return mapAgeGroupEntityToResponse(updated);
   }
 
   async updateStatus(
-    id: string,
+    refId: string,
     dto: UpdateAgeGroupStatusDto,
     updatedBy: string,
   ): Promise<IAgeGroup> {
-    const existing = await this.ageGroupsRepository.findById(id);
+    const existing = await this.ageGroupsRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Age group with id ${id} not found`);
+      throw new NotFoundException(`Age group with refId ${refId} not found`);
     }
 
-    const updated = await this.ageGroupsRepository.update(id, {
+    const updated = await this.ageGroupsRepository.updateByRefId(refId, {
       status: dto.status,
       updatedBy,
     });
 
     if (!updated) {
-      throw new NotFoundException(`Age group with id ${id} not found after status update`);
+      throw new NotFoundException(`Age group with refId ${refId} not found after status update`);
     }
 
     return mapAgeGroupEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.ageGroupsRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.ageGroupsRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Age group with id ${id} not found`);
+      throw new NotFoundException(`Age group with refId ${refId} not found`);
     }
-    await this.ageGroupsRepository.softDelete(id);
+    await this.ageGroupsRepository.softDeleteByRefId(refId);
   }
 
   private validateAgeRange(

@@ -6,7 +6,7 @@ export interface IState {
   refId: string;
   name: string;
   code: string | null;
-  countryId: string;
+  countryRefId: string;
   country: ICountrySummary | null;
   status: MasterStatus;
   createdBy?: string;
@@ -21,5 +21,5 @@ export interface IStateSummary {
   refId: string;
   name: string;
   code: string | null;
-  countryId: string;
+  countryRefId: string;
 }

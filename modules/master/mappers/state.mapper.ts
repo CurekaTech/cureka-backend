@@ -7,7 +7,7 @@ export const mapStateEntityToResponse = (entity: StateEntity): IState => ({
   refId: entity.refId,
   name: entity.name,
   code: entity.code,
-  countryId: entity.countryId,
+  countryRefId: entity.country?.refId ?? '',
   country: entity.country ? mapCountryEntityToSummary(entity.country) : null,
   status: entity.status,
   createdBy: entity.createdBy,
@@ -22,7 +22,7 @@ export const mapStateEntityToSummary = (entity: StateEntity): IStateSummary => (
   refId: entity.refId,
   name: entity.name,
   code: entity.code,
-  countryId: entity.countryId,
+  countryRefId: entity.country?.refId ?? '',
 });
 
 export const mapStateEntitiesToResponse = (entities: StateEntity[]): IState[] =>

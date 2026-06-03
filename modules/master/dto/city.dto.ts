@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { IsRefId } from '@common/validators/is-ref-id.decorator';
 import { MasterStatus } from '../enums/master-status.enum';
 
 export class CreateCityDto {
@@ -10,8 +11,8 @@ export class CreateCityDto {
   name!: string;
 
   @IsNotEmpty()
-  @IsUUID('4')
-  stateId!: string;
+  @IsRefId()
+  stateRefId!: string;
 
   @IsOptional()
   @IsEnum(MasterStatus)
@@ -28,10 +29,10 @@ export class UpdateCityStatusDto {
 
 export class CityQueryDto extends PaginationQueryDto {
   @IsOptional()
-  @IsUUID('4')
-  stateId?: string;
+  @IsRefId()
+  stateRefId?: string;
 
   @IsOptional()
-  @IsUUID('4')
-  countryId?: string;
+  @IsRefId()
+  countryRefId?: string;
 }

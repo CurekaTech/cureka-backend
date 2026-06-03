@@ -11,7 +11,7 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
-  generateRefId,
+  generateUniqueRefId,
 } from '@packages/common';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 
@@ -29,7 +29,9 @@ export class AdminUsersService {
     const entity = await this.adminUsersRepository.create({
       ...dto,
       password: hashedPassword,
-      refId: generateRefId(dto.fullName),
+      refId: await generateUniqueRefId(dto.fullName, (refId) =>
+        this.adminUsersRepository.existsByRefId(refId),
+      ),
       createdBy,
     });
 
@@ -42,33 +44,33 @@ export class AdminUsersService {
     return buildPaginatedResult(mapAdminUserEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findOne(id: string): Promise<IAdminUser> {
-    const entity = await this.adminUsersRepository.findById(id);
+  async findOne(refId: string): Promise<IAdminUser> {
+    const entity = await this.adminUsersRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`Admin user with id ${id} not found`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
     return mapAdminUserEntityToResponse(entity);
   }
 
-  async update(id: string, dto: UpdateAdminUserDto): Promise<IAdminUser> {
-    const existing = await this.adminUsersRepository.findById(id);
+  async update(refId: string, dto: UpdateAdminUserDto): Promise<IAdminUser> {
+    const existing = await this.adminUsersRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Admin user with id ${id} not found`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
 
-    const updated = await this.adminUsersRepository.update(id, dto);
+    const updated = await this.adminUsersRepository.updateByRefId(refId, dto);
     if (!updated) {
-      throw new NotFoundException(`Admin user with id ${id} not found after update`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found after update`);
     }
 
     return mapAdminUserEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.adminUsersRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.adminUsersRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Admin user with id ${id} not found`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
-    await this.adminUsersRepository.softDelete(id);
+    await this.adminUsersRepository.softDeleteByRefId(refId);
   }
 }

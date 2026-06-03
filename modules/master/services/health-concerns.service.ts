@@ -14,7 +14,7 @@ import {
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  generateRefId,
+  generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
@@ -54,7 +54,7 @@ export class HealthConcernsService {
   }
 
   async updateFromRequest(
-    id: string,
+    refId: string,
     req: FastifyRequest,
     updatedBy: string,
   ): Promise<IHealthConcern> {
@@ -64,7 +64,7 @@ export class HealthConcernsService {
       HEALTH_CONCERN_UPLOAD_FIELDS,
     );
 
-    return this.update(id, dto, updatedBy, {
+    return this.update(refId, dto, updatedBy, {
       icon: uploadedUrls['icon'],
       banner: uploadedUrls['banner'],
     });
@@ -91,7 +91,9 @@ export class HealthConcernsService {
       banner: media.banner ?? null,
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
-      refId: generateRefId(dto.name),
+      refId: await generateUniqueRefId(dto.name, (refId) =>
+        this.healthConcernsRepository.existsByRefId(refId),
+      ),
       createdBy,
     });
 
@@ -105,34 +107,34 @@ export class HealthConcernsService {
     return buildPaginatedResult(mapHealthConcernEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findOne(id: string): Promise<IHealthConcern> {
-    const entity = await this.healthConcernsRepository.findById(id);
+  async findOne(refId: string): Promise<IHealthConcern> {
+    const entity = await this.healthConcernsRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`Health concern with id ${id} not found`);
+      throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
     return mapHealthConcernEntityToResponse(entity);
   }
 
   async update(
-    id: string,
+    refId: string,
     dto: UpdateHealthConcernDto,
     updatedBy: string,
     media: { icon?: string; banner?: string } = {},
   ): Promise<IHealthConcern> {
-    const existing = await this.healthConcernsRepository.findById(id);
+    const existing = await this.healthConcernsRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Health concern with id ${id} not found`);
+      throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
 
     if (dto.name && dto.name !== existing.name) {
-      if (await this.healthConcernsRepository.existsByNameExcluding(dto.name, id)) {
+      if (await this.healthConcernsRepository.existsByNameExcluding(dto.name, existing.id)) {
         throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
       }
     }
 
     const slug = dto.slug ?? existing.slug;
     if (dto.slug && dto.slug !== existing.slug) {
-      if (await this.healthConcernsRepository.existsBySlugExcluding(dto.slug, id)) {
+      if (await this.healthConcernsRepository.existsBySlugExcluding(dto.slug, existing.id)) {
         throw new ConflictException(`A health concern with slug "${dto.slug}" already exists`);
       }
     }
@@ -142,41 +144,41 @@ export class HealthConcernsService {
     if (media.icon !== undefined) payload.icon = media.icon;
     if (media.banner !== undefined) payload.banner = media.banner;
 
-    const result = await this.healthConcernsRepository.update(id, payload);
+    const result = await this.healthConcernsRepository.updateByRefId(refId, payload);
     if (!result) {
-      throw new NotFoundException(`Health concern with id ${id} not found after update`);
+      throw new NotFoundException(`Health concern with refId ${refId} not found after update`);
     }
 
     return mapHealthConcernEntityToResponse(result);
   }
 
   async updateStatus(
-    id: string,
+    refId: string,
     dto: UpdateHealthConcernStatusDto,
     updatedBy: string,
   ): Promise<IHealthConcern> {
-    const existing = await this.healthConcernsRepository.findById(id);
+    const existing = await this.healthConcernsRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Health concern with id ${id} not found`);
+      throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
 
-    const updated = await this.healthConcernsRepository.update(id, {
+    const updated = await this.healthConcernsRepository.updateByRefId(refId, {
       status: dto.status,
       updatedBy,
     });
 
     if (!updated) {
-      throw new NotFoundException(`Health concern with id ${id} not found after status update`);
+      throw new NotFoundException(`Health concern with refId ${refId} not found after status update`);
     }
 
     return mapHealthConcernEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.healthConcernsRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.healthConcernsRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Health concern with id ${id} not found`);
+      throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
-    await this.healthConcernsRepository.softDelete(id);
+    await this.healthConcernsRepository.softDeleteByRefId(refId);
   }
 }

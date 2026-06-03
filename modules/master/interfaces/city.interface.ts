@@ -5,7 +5,7 @@ export interface ICity {
   id: string;
   refId: string;
   name: string;
-  stateId: string;
+  stateRefId: string;
   state: IStateSummary | null;
   status: MasterStatus;
   createdBy?: string;
