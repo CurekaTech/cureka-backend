@@ -9,6 +9,7 @@ import { StateEntity } from './entities/state.entity';
 import { CityEntity } from './entities/city.entity';
 import { HealthConcernEntity } from './entities/health-concern.entity';
 import { AgeGroupEntity } from './entities/age-group.entity';
+import { ManufacturerEntity } from './entities/manufacturer.entity';
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -17,6 +18,7 @@ import { StatesRepository } from './repositories/states.repository';
 import { CitiesRepository } from './repositories/cities.repository';
 import { HealthConcernsRepository } from './repositories/health-concerns.repository';
 import { AgeGroupsRepository } from './repositories/age-groups.repository';
+import { ManufacturersRepository } from './repositories/manufacturers.repository';
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -25,6 +27,7 @@ import { StatesService } from './services/states.service';
 import { CitiesService } from './services/cities.service';
 import { HealthConcernsService } from './services/health-concerns.service';
 import { AgeGroupsService } from './services/age-groups.service';
+import { ManufacturersService } from './services/manufacturers.service';
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -33,6 +36,7 @@ import { StatesController } from './controllers/states.controller';
 import { CitiesController } from './controllers/cities.controller';
 import { HealthConcernsController } from './controllers/health-concerns.controller';
 import { AgeGroupsController } from './controllers/age-groups.controller';
+import { ManufacturersController } from './controllers/manufacturers.controller';
 
 @Module({
   imports: [
@@ -45,6 +49,7 @@ import { AgeGroupsController } from './controllers/age-groups.controller';
       CityEntity,
       HealthConcernEntity,
       AgeGroupEntity,
+      ManufacturerEntity,
     ]),
     UploadsModule,
   ],
@@ -57,6 +62,7 @@ import { AgeGroupsController } from './controllers/age-groups.controller';
     CitiesController,
     HealthConcernsController,
     AgeGroupsController,
+    ManufacturersController,
   ],
   providers: [
     AttributesService,
@@ -75,6 +81,8 @@ import { AgeGroupsController } from './controllers/age-groups.controller';
     HealthConcernsRepository,
     AgeGroupsService,
     AgeGroupsRepository,
+    ManufacturersService,
+    ManufacturersRepository,
   ],
   exports: [
     AttributesService,
@@ -93,6 +101,8 @@ import { AgeGroupsController } from './controllers/age-groups.controller';
     HealthConcernsRepository,
     AgeGroupsService,
     AgeGroupsRepository,
+    ManufacturersService,
+    ManufacturersRepository,
   ],
 })
 export class MasterModule {}

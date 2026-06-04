@@ -23,9 +23,9 @@ async function bootstrap(): Promise<void> {
   const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_FILE_SIZE'] ?? '5242880', 10);
   const corsOrigin: string[] | true = corsOriginsEnv
     ? corsOriginsEnv
-        .split(',')
-        .map((o) => o.trim().replace(/\/+$/, ''))
-        .filter(Boolean)
+      .split(',')
+      .map((o) => o.trim().replace(/\/+$/, ''))
+      .filter(Boolean)
     : true; // when unset, reflect any origin (safe for development)
 
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -36,8 +36,7 @@ async function bootstrap(): Promise<void> {
     { logger: ['warn', 'error'] },
   );
 
-  // Use Pino logger
-  app.useLogger(app.get(Logger));
+
 
   // @fastify/cors uses fastify-plugin internally, which breaks Fastify's
   // encapsulation — registering here (after create, before listen) makes it
@@ -94,7 +93,9 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   await app.listen(port, '0.0.0.0');
-
+  // Use Pino logger
+  app.useLogger(app.get(Logger));
+  
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port} in ${nodeEnv} mode`);
   logger.log(`API available at http://0.0.0.0:${port}/${APP_CONSTANTS.API_PREFIX}`);

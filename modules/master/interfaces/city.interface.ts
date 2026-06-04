@@ -1,6 +1,13 @@
 import { MasterStatus } from '../enums/master-status.enum';
 import { IStateSummary } from './state.interface';
 
+export interface ICitySummary {
+  id: string;
+  refId: string;
+  name: string;
+  stateId: string;
+}
+
 export interface ICity {
   id: string;
   refId: string;

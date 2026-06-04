@@ -1,6 +1,13 @@
 import { CityEntity } from '../entities/city.entity';
-import { ICity } from '../interfaces/city.interface';
+import { ICity, ICitySummary } from '../interfaces/city.interface';
 import { mapStateEntityToSummary } from './state.mapper';
+
+export const mapCityEntityToSummary = (entity: CityEntity): ICitySummary => ({
+  id: entity.id,
+  refId: entity.refId,
+  name: entity.name,
+  stateId: entity.stateId,
+});
 
 export const mapCityEntityToResponse = (entity: CityEntity): ICity => ({
   id: entity.id,

@@ -65,15 +65,26 @@ export class MultipartFormService {
       );
     }
 
-    const fields: Record<string, string> = {};
+    const rawFields: Record<string, string[]> = {};
     const uploadedUrls: Record<string, string> = {};
 
     for await (const part of req.parts()) {
       if (part.type === 'file') {
         await this.handleFilePart(part, fileFields, uploadedUrls);
       } else {
-        fields[part.fieldname] = part.value as string;
+        const val = part.value as string;
+        if (rawFields[part.fieldname]) {
+          rawFields[part.fieldname].push(val);
+        } else {
+          rawFields[part.fieldname] = [val];
+        }
       }
+    }
+
+    // Collapse single-value fields to a plain string; multi-value fields to a JSON array string
+    const fields: Record<string, string> = {};
+    for (const [key, values] of Object.entries(rawFields)) {
+      fields[key] = values.length === 1 ? values[0] : JSON.stringify(values);
     }
 
     return { fields, uploadedUrls };
