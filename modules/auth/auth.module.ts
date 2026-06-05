@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppCacheModule } from '@packages/cache';
 import { AuthModule as CoreAuthModule } from '@packages/auth';
 import { AdminUsersModule } from '@modules/admin-users/admin-users.module';
 import { UsersModule } from '@modules/users/users.module';
@@ -14,12 +15,14 @@ import { AuthController } from './controllers/auth.controller';
 import { AdminAuthService } from './services/admin-auth.service';
 import { AuthService } from './services/auth.service';
 import { OtpService } from './services/otp.service';
+import { OtpRateLimitService } from './services/otp-rate-limit.service';
 import { OtpRepository } from './repositories/otp.repository';
 import { VerifiedUserGuard } from './guards/verified-user.guard';
 
 @Global()
 @Module({
   imports: [
+    AppCacheModule.forRoot(),
     CoreAuthModule,
     AdminUsersModule,
     UsersModule,
@@ -30,6 +33,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     AdminAuthService,
     AuthService,
     OtpService,
+    OtpRateLimitService,
     OtpRepository,
     UserSessionsRepository,
     SessionService,

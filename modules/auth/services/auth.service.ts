@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -21,6 +20,8 @@ import { CompleteRegistrationDto } from '../dto/auth.dto';
 import { IUser } from '@modules/users/interfaces/user.interface';
 import { IDeviceContext } from '../interfaces/session.interface';
 import { extractDeviceContext } from '../utils/device-context.util';
+import { parseIndianMobileNumber } from '../utils/mobile-number.util';
+import { OtpRateLimitService } from './otp-rate-limit.service';
 
 @Injectable()
 export class AuthService {
@@ -31,20 +32,33 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly sessionService: SessionService,
     private readonly configService: ConfigService,
+    private readonly otpRateLimitService: OtpRateLimitService,
   ) {}
 
   // ── Unified login (UI: email or mobile) ─────────────────────────────────────
 
-  async login(identifier: string): Promise<{ message: string; otp?: string }> {
-    const mobileNumber = this.parseMobileIdentifier(identifier);
-    return this.sendOtp(mobileNumber);
+  async login(
+    identifier: string,
+    req?: FastifyRequest,
+  ): Promise<{ message: string; otp?: string }> {
+    const mobileNumber = parseIndianMobileNumber(identifier);
+    return this.sendOtp(mobileNumber, req);
   }
 
   // ── OTP flow ─────────────────────────────────────────────────────────────────
 
-  async sendOtp(mobileNumber: string): Promise<{ message: string; otp?: string }> {
-    const plainOtp = await this.otpService.sendOtp(mobileNumber, OtpPurpose.LOGIN);
-    this.logger.log(`OTP dispatched: ${mobileNumber}`);
+  async sendOtp(
+    mobileNumber: string,
+    req?: FastifyRequest,
+  ): Promise<{ message: string; otp?: string }> {
+    const normalized = parseIndianMobileNumber(mobileNumber);
+    await this.otpRateLimitService.assertCanSendOtp(
+      normalized,
+      req ? extractDeviceContext(req).ipAddress : undefined,
+    );
+
+    const plainOtp = await this.otpService.sendOtp(normalized, OtpPurpose.LOGIN);
+    this.logger.log(`OTP dispatched: ${normalized}`);
     return this.buildOtpSendResponse(plainOtp);
   }
 
@@ -53,15 +67,16 @@ export class AuthService {
     otp: string,
     device: IDeviceContext,
   ): Promise<IUserAuthTokensResult> {
-    await this.otpService.verifyOtp(mobileNumber, otp, OtpPurpose.LOGIN);
+    const normalized = parseIndianMobileNumber(mobileNumber);
+    await this.otpService.verifyOtp(normalized, otp, OtpPurpose.LOGIN);
 
-    let user = await this.usersService.findByMobileNumber(mobileNumber);
+    let user = await this.usersService.findByMobileNumber(normalized);
 
     if (!user) {
-      user = await this.usersService.createFromMobileNumber(mobileNumber);
+      user = await this.usersService.createFromMobileNumber(normalized);
       this.logger.log(`New user created via OTP: ${user.id}`);
     } else if (user.isGuest) {
-      user = await this.usersService.convertGuestToUser(user.id, mobileNumber);
+      user = await this.usersService.convertGuestToUser(user.id, normalized);
       this.logger.log(`Guest converted to registered user: ${user.id}`);
     } else {
       await this.usersService.updateLastLoginAt(user.id);
@@ -180,19 +195,4 @@ export class AuthService {
     return response;
   }
 
-  private parseMobileIdentifier(identifier: string): string {
-    const normalized = identifier.trim().replace(/\s+/g, '');
-
-    if (/^\+?\d{10,15}$/.test(normalized)) {
-      return normalized.replace(/^\+/, '');
-    }
-
-    if (normalized.includes('@')) {
-      throw new BadRequestException(
-        'Email login is not supported yet. Please use your mobile number.',
-      );
-    }
-
-    throw new BadRequestException('Please enter a valid mobile number');
-  }
 }
