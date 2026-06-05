@@ -2,10 +2,9 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from '@n
 import { FastifyReply } from 'fastify';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { AdminLoginDto } from '../dto/auth.dto';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { CurrentUser } from '../decorators/current-user.decorator';
-import { IJwtPayload, IAdminAuthResponse } from '../interfaces/auth.interface';
-import { ResponseMessage } from '@common/decorators/response-message.decorator';
+import { JwtAuthGuard, CurrentUser, IJwtPayload } from '@packages/auth';
+import { IAdminAuthResponse } from '../interfaces/auth.interface';
+import { ResponseMessage } from '@packages/common';
 
 // 7 days in seconds — must match JWT expiresIn
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;

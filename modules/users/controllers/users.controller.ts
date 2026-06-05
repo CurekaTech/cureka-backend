@@ -1,45 +1,30 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Patch,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import { RefIdPipe } from '@common/pipes/ref-id.pipe';
+import { Body, Controller, Patch, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard, CurrentUser, IJwtPayload } from '@packages/auth';
+import { ResponseMessage } from '@packages/common';
+import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { UsersService } from '../services/users.service';
-import { UpdateUserProfileAdminDto } from '../dto/user.dto';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '@modules/auth/guards/roles.guard';
+import { UpdateUserProfileDto } from '../dto/user.dto';
+import { IUser } from '../interfaces/user.interface';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+/**
+ * Website user self-service endpoints.
+ * Profile read is available at GET /auth/me; admin user management is not exposed here.
+ */
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Get()
-  findAll(@Query() query: PaginationQueryDto) {
-    return this.usersService.findAll(query);
-  }
-
-  @Get(':refId')
-  findOne(@Param('refId', RefIdPipe) refId: string) {
-    return this.usersService.findOne(refId);
-  }
-
-  @Patch(':refId')
-  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateUserProfileAdminDto) {
-    return this.usersService.update(refId, dto);
-  }
-
-  @Delete(':refId')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('refId', RefIdPipe) refId: string) {
-    return this.usersService.remove(refId);
+  /**
+   * PATCH /api/v1/users/me
+   * Updates the authenticated user's profile (requires completed registration).
+   */
+  @ResponseMessage('Profile updated successfully')
+  @UseGuards(JwtAuthGuard, VerifiedUserGuard)
+  @Patch('me')
+  updateProfile(
+    @CurrentUser() user: IJwtPayload,
+    @Body() dto: UpdateUserProfileDto,
+  ): Promise<IUser> {
+    return this.usersService.updateProfile(user.sub, dto);
   }
 }

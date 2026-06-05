@@ -9,7 +9,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { IsRefId } from '@common/validators/is-ref-id.decorator';
+import { IsRefId } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 
 const parseJsonArray = ({ value }: { value: unknown }): string[] | undefined => {

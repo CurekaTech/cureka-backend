@@ -1,5 +1,5 @@
 import { BadRequestException, PipeTransform } from '@nestjs/common';
-import { isValidRefId } from '@packages/common';
+import { isValidRefId } from '../ref-id.util';
 
 export class RefIdPipe implements PipeTransform<string, string> {
   transform(value: string): string {

@@ -8,7 +8,7 @@ import {
 import { FastifyRequest } from 'fastify';
 import { UsersService } from '@modules/users/services/users.service';
 import { UserStatus } from '@modules/users/enums/user-status.enum';
-import { IJwtPayload } from '../interfaces/auth.interface';
+import { IJwtPayload } from '@packages/auth';
 
 /**
  * Strict guard for fully onboarded users.

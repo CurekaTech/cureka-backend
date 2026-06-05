@@ -12,7 +12,7 @@ import {
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { PaginationQueryDto } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()

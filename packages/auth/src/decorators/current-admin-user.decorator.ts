@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { IAdminJwtPayload } from '../interfaces/auth.interface';
+import { IAdminJwtPayload } from '../interfaces/jwt-payload.interface';
 
 export const CurrentAdminUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): IAdminJwtPayload => {

@@ -3,18 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { FastifyRequest } from 'fastify';
-import { IJwtPayload } from '../interfaces/auth.interface';
+import { IJwtPayload } from '../interfaces/jwt-payload.interface';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
-        // 1. Try httpOnly cookie first (admin sessions)
         (req: FastifyRequest) => (req?.cookies?.['admin_token'] as string) ?? null,
-        // 2. Try httpOnly cookie (user/guest sessions)
         (req: FastifyRequest) => (req?.cookies?.['user_token'] as string) ?? null,
-        // 3. Fall back to Authorization: Bearer <token>
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,

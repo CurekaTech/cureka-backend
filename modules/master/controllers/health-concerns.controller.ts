@@ -13,17 +13,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { RefIdPipe } from '@common/pipes/ref-id.pipe';
+import { RefIdPipe } from '@packages/common';
 import { HealthConcernsService } from '../services/health-concerns.service';
 import { UpdateHealthConcernStatusDto } from '../dto/health-concern.dto';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '@modules/auth/guards/roles.guard';
-import { Roles } from '@modules/auth/decorators/roles.decorator';
-import { CurrentAdminUser } from '@modules/auth/decorators/current-admin-user.decorator';
-import { IAdminJwtPayload } from '@modules/auth/interfaces/auth.interface';
+import { PaginationQueryDto } from '@packages/common';
+import { JwtAuthGuard } from '@packages/auth';
+import { RolesGuard } from '@packages/auth';
+import { Roles } from '@packages/auth';
+import { CurrentAdminUser } from '@packages/auth';
+import { IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { ResponseMessage } from '@common/decorators/response-message.decorator';
+import { ResponseMessage } from '@packages/common';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('master/health-concerns')

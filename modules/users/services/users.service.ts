@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { UsersRepository } from '../repositories/users.repository';
-import { UpdateUserProfileAdminDto } from '../dto/user.dto';
+import { UpdateUserProfileAdminDto, UpdateUserProfileDto } from '../dto/user.dto';
 import { IUser } from '../interfaces/user.interface';
 import { mapUserEntityToResponse, mapUserEntitiesToResponse } from '../mappers/user.mapper';
 import {
@@ -13,7 +13,7 @@ import {
   PaginatedResult,
   generateUniqueRefId,
 } from '@packages/common';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 
 @Injectable()
@@ -112,6 +112,27 @@ export class UsersService {
 
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
+    return mapUserEntityToResponse(updated);
+  }
+
+  async updateProfile(userId: string, dto: UpdateUserProfileDto): Promise<IUser> {
+    const existing = await this.usersRepository.findById(userId);
+    if (!existing) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
+    if (dto.email && dto.email !== existing.email) {
+      const emailTaken = await this.usersRepository.existsByEmail(dto.email);
+      if (emailTaken) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    const updated = await this.usersRepository.update(userId, dto);
+    if (!updated) {
+      throw new NotFoundException(`User with id ${userId} not found after update`);
     }
 
     return mapUserEntityToResponse(updated);

@@ -86,23 +86,14 @@ import { ManufacturersController } from './controllers/manufacturers.controller'
   ],
   exports: [
     AttributesService,
-    AttributesRepository,
     BrandsService,
-    BrandsRepository,
     CategoriesService,
-    CategoriesRepository,
     CountriesService,
-    CountriesRepository,
     StatesService,
-    StatesRepository,
     CitiesService,
-    CitiesRepository,
     HealthConcernsService,
-    HealthConcernsRepository,
     AgeGroupsService,
-    AgeGroupsRepository,
     ManufacturersService,
-    ManufacturersRepository,
   ],
 })
 export class MasterModule {}

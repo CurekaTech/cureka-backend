@@ -1,20 +1,21 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AdminUsersRepository } from '@modules/admin-users/repositories/admin-users.repository';
+import { AdminUsersService } from '@modules/admin-users/services/admin-users.service';
 import { AdminLoginDto } from '../dto/auth.dto';
-import { IAdminAuthResponse, IJwtPayload } from '../interfaces/auth.interface';
+import { IAdminAuthResponse } from '../interfaces/auth.interface';
+import { IJwtPayload } from '@packages/auth';
 import { comparePasswords } from '@packages/common';
 import { mapAdminUserEntityToResponse } from '@modules/admin-users/mappers/admin-user.mapper';
 
 @Injectable()
 export class AdminAuthService {
   constructor(
-    private readonly adminUsersRepository: AdminUsersRepository,
+    private readonly adminUsersService: AdminUsersService,
     private readonly jwtService: JwtService,
   ) {}
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
-    const entity = await this.adminUsersRepository.findByEmailWithPassword(dto.email);
+    const entity = await this.adminUsersService.findByEmailWithPassword(dto.email);
     if (!entity) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -28,7 +29,7 @@ export class AdminAuthService {
       throw new UnauthorizedException('Account is inactive');
     }
 
-    await this.adminUsersRepository.updateLastLoginAt(entity.id);
+    await this.adminUsersService.recordLogin(entity.id);
 
     const payload: IJwtPayload = {
       sub: entity.id,

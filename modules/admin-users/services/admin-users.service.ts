@@ -13,7 +13,7 @@ import {
   PaginatedResult,
   generateUniqueRefId,
 } from '@packages/common';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { PaginationQueryDto } from '@packages/common';
 
 @Injectable()
 export class AdminUsersService {
@@ -72,5 +72,14 @@ export class AdminUsersService {
       throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
     await this.adminUsersRepository.softDeleteByRefId(refId);
+  }
+
+  /** Used by auth module — never expose password via public API responses. */
+  async findByEmailWithPassword(email: string) {
+    return this.adminUsersRepository.findByEmailWithPassword(email);
+  }
+
+  async recordLogin(id: string): Promise<void> {
+    await this.adminUsersRepository.updateLastLoginAt(id);
   }
 }

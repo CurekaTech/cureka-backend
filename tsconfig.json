@@ -37,7 +37,9 @@
       "@packages/common": ["packages/common/src/index"],
       "@packages/common/*": ["packages/common/src/*"],
       "@packages/storage": ["packages/storage/src/index"],
-      "@packages/storage/*": ["packages/storage/src/*"]
+      "@packages/storage/*": ["packages/storage/src/*"],
+      "@packages/auth": ["packages/auth/src/index"],
+      "@packages/auth/*": ["packages/auth/src/*"]
     }
   }
 }

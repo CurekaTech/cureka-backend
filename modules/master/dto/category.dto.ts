@@ -11,8 +11,8 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { IsRefId } from '@common/validators/is-ref-id.decorator';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { IsRefId } from '@packages/common';
+import { PaginationQueryDto } from '@packages/common';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 

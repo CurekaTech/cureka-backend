@@ -11,16 +11,16 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { RefIdPipe } from '@common/pipes/ref-id.pipe';
+import { RefIdPipe } from '@packages/common';
 import { AdminUsersService } from '../services/admin-users.service';
 import { CreateAdminUserDto, UpdateAdminUserDto } from '../dto/admin-user.dto';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '@modules/auth/guards/roles.guard';
-import { Roles } from '@modules/auth/decorators/roles.decorator';
+import { PaginationQueryDto } from '@packages/common';
+import { JwtAuthGuard } from '@packages/auth';
+import { RolesGuard } from '@packages/auth';
+import { Roles } from '@packages/auth';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
-import { CurrentAdminUser } from '@modules/auth/decorators/current-admin-user.decorator';
-import { IAdminJwtPayload } from '@modules/auth/interfaces/auth.interface';
+import { CurrentAdminUser } from '@packages/auth';
+import { IAdminJwtPayload } from '@packages/auth';
 
 @Controller('admin-users')
 export class AdminUsersController {

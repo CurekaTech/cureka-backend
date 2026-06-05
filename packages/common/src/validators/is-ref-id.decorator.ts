@@ -4,7 +4,7 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator';
-import { isValidRefId } from '@packages/common';
+import { isValidRefId } from '../ref-id.util';
 
 @ValidatorConstraint({ name: 'isRefId', async: false })
 export class IsRefIdConstraint implements ValidatorConstraintInterface {

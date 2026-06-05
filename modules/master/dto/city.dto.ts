@@ -1,7 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { IsRefId } from '@common/validators/is-ref-id.decorator';
+import { PaginationQueryDto } from '@packages/common';
+import { IsRefId } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 
 export class CreateCityDto {

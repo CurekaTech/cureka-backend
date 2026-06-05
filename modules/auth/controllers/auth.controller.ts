@@ -15,11 +15,10 @@ import {
   VerifyOtpDto,
   CompleteRegistrationDto,
 } from '../dto/auth.dto';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { CurrentUser } from '../decorators/current-user.decorator';
-import { IJwtPayload, IUserAuthResponse, IGuestAuthResponse } from '../interfaces/auth.interface';
+import { JwtAuthGuard, CurrentUser, IJwtPayload } from '@packages/auth';
+import { IUserAuthResponse, IGuestAuthResponse } from '../interfaces/auth.interface';
 import { IUser } from '@modules/users/interfaces/user.interface';
-import { ResponseMessage } from '@common/decorators/response-message.decorator';
+import { ResponseMessage } from '@packages/common';
 
 @Controller('auth')
 export class AuthController {
@@ -93,7 +92,6 @@ export class AuthController {
     @CurrentUser() user: IJwtPayload,
     @Body() dto: CompleteRegistrationDto,
   ): Promise<IUser> {
-    console.log("🚀 ~ AuthController ~ completeRegistration ~ user:", user)
     return this.authService.completeRegistration(user.sub, dto);
   }
 

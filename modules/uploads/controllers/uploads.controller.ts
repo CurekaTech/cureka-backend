@@ -9,11 +9,11 @@ import {
 import { FastifyRequest } from 'fastify';
 import { UploadsService } from '../services/uploads.service';
 import { UploadFolder } from '../enums/upload-folder.enum';
-import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '@modules/auth/guards/roles.guard';
-import { Roles } from '@modules/auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '@packages/auth';
+import { RolesGuard } from '@packages/auth';
+import { Roles } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { ResponseMessage } from '@common/decorators/response-message.decorator';
+import { ResponseMessage } from '@packages/common';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('uploads')

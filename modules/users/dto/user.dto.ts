@@ -1,10 +1,8 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { UserStatus } from '../enums/user-status.enum';
 
-/**
- * DTO for admin-facing user profile updates.
- */
-export class UpdateUserProfileAdminDto {
+/** DTO for website users updating their own profile. */
+export class UpdateUserProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -19,7 +17,10 @@ export class UpdateUserProfileAdminDto {
   @IsEmail()
   @MaxLength(255)
   email?: string;
+}
 
+/** DTO for admin-facing user profile updates (includes status). */
+export class UpdateUserProfileAdminDto extends UpdateUserProfileDto {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;

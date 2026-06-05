@@ -12,7 +12,6 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    // No @Roles() decorator — route is accessible to any authenticated user
     if (!requiredRoles || requiredRoles.length === 0) {
       return true;
     }

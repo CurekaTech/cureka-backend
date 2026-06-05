@@ -105,7 +105,7 @@
       "^@config/(.*)$": "<rootDir>/apps/api/config/$1",
       "^@common/(.*)$": "<rootDir>/apps/api/common/$1",
       "^@database/(.*)$": "<rootDir>/apps/api/database/$1",
-      "^@modules/(.*)$": "<rootDir>/apps/api/src/modules/$1",
+      "^@modules/(.*)$": "<rootDir>/modules/$1",
       "^@packages/database$": "<rootDir>/packages/database/src/index",
       "^@packages/database/(.*)$": "<rootDir>/packages/database/src/$1",
       "^@packages/queue$": "<rootDir>/packages/queue/src/index",
@@ -119,7 +119,9 @@
       "^@packages/common$": "<rootDir>/packages/common/src/index",
       "^@packages/common/(.*)$": "<rootDir>/packages/common/src/$1",
       "^@packages/storage$": "<rootDir>/packages/storage/src/index",
-      "^@packages/storage/(.*)$": "<rootDir>/packages/storage/src/$1"
+      "^@packages/storage/(.*)$": "<rootDir>/packages/storage/src/$1",
+      "^@packages/auth$": "<rootDir>/packages/auth/src/index",
+      "^@packages/auth/(.*)$": "<rootDir>/packages/auth/src/$1"
     }
   }
 }

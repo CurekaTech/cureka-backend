@@ -24,7 +24,7 @@ import {
 
 } from '@nestjs/common';
 
-import { RefIdPipe } from '@common/pipes/ref-id.pipe';
+import { RefIdPipe } from '@packages/common';
 
 import { StatesService } from '../services/states.service';
 
@@ -40,19 +40,19 @@ import {
 
 } from '../dto/state.dto';
 
-import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@packages/auth';
 
-import { RolesGuard } from '@modules/auth/guards/roles.guard';
+import { RolesGuard } from '@packages/auth';
 
-import { Roles } from '@modules/auth/decorators/roles.decorator';
+import { Roles } from '@packages/auth';
 
-import { CurrentAdminUser } from '@modules/auth/decorators/current-admin-user.decorator';
+import { CurrentAdminUser } from '@packages/auth';
 
-import { IAdminJwtPayload } from '@modules/auth/interfaces/auth.interface';
+import { IAdminJwtPayload } from '@packages/auth';
 
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 
-import { ResponseMessage } from '@common/decorators/response-message.decorator';
+import { ResponseMessage } from '@packages/common';
 
 
 
