@@ -7,24 +7,20 @@ import {
   HttpStatus,
   Param,
   Patch,
-  Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { RefIdPipe } from '@common/pipes/ref-id.pipe';
 import { UsersService } from '../services/users.service';
-import { CreateUserDto } from '../dto/create-user.dto';
-import { UpdateUserDto } from '../dto/update-user.dto';
+import { UpdateUserProfileAdminDto } from '../dto/user.dto';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@modules/auth/guards/roles.guard';
 
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
-
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateUserDto) {
-    return this.usersService.create(dto);
-  }
 
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
@@ -37,7 +33,7 @@ export class UsersController {
   }
 
   @Patch(':refId')
-  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateUserDto) {
+  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateUserProfileAdminDto) {
     return this.usersService.update(refId, dto);
   }
 

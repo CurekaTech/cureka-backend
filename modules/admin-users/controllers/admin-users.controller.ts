@@ -19,8 +19,8 @@ import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '@modules/auth/guards/roles.guard';
 import { Roles } from '@modules/auth/decorators/roles.decorator';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
-import { CurrentUser } from '@modules/auth/decorators/current-user.decorator';
-import { IJwtPayload } from '@modules/auth/interfaces/auth.interface';
+import { CurrentAdminUser } from '@modules/auth/decorators/current-admin-user.decorator';
+import { IAdminJwtPayload } from '@modules/auth/interfaces/auth.interface';
 
 @Controller('admin-users')
 export class AdminUsersController {
@@ -30,7 +30,7 @@ export class AdminUsersController {
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateAdminUserDto, @CurrentUser() user: IJwtPayload) {
+  create(@Body() dto: CreateAdminUserDto, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.adminUsersService.create(dto, user.email);
   }
 

@@ -20,8 +20,8 @@ import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '@modules/auth/guards/roles.guard';
 import { Roles } from '@modules/auth/decorators/roles.decorator';
-import { CurrentUser } from '@modules/auth/decorators/current-user.decorator';
-import { IJwtPayload } from '@modules/auth/interfaces/auth.interface';
+import { CurrentAdminUser } from '@modules/auth/decorators/current-admin-user.decorator';
+import { IAdminJwtPayload } from '@modules/auth/interfaces/auth.interface';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { ResponseMessage } from '@common/decorators/response-message.decorator';
 
@@ -34,7 +34,7 @@ export class HealthConcernsController {
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Req() req: FastifyRequest, @CurrentUser() user: IJwtPayload) {
+  create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.healthConcernsService.createFromRequest(req, user.email);
   }
 
@@ -58,7 +58,7 @@ export class HealthConcernsController {
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
     @Body() dto: UpdateHealthConcernStatusDto,
-    @CurrentUser() user: IJwtPayload,
+    @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.healthConcernsService.updateStatus(refId, dto, user.email);
   }
@@ -69,7 +69,7 @@ export class HealthConcernsController {
   update(
     @Param('refId', RefIdPipe) refId: string,
     @Req() req: FastifyRequest,
-    @CurrentUser() user: IJwtPayload,
+    @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.healthConcernsService.updateFromRequest(refId, req, user.email);
   }

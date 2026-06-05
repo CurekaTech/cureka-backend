@@ -10,9 +10,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
-        // 1. Try httpOnly cookie first
+        // 1. Try httpOnly cookie first (admin sessions)
         (req: FastifyRequest) => (req?.cookies?.['admin_token'] as string) ?? null,
-        // 2. Fall back to Authorization: Bearer <token>
+        // 2. Try httpOnly cookie (user/guest sessions)
+        (req: FastifyRequest) => (req?.cookies?.['user_token'] as string) ?? null,
+        // 3. Fall back to Authorization: Bearer <token>
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
@@ -21,6 +23,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: IJwtPayload): IJwtPayload {
-    return { sub: payload.sub, email: payload.email, role: payload.role };
+    return {
+      sub: payload.sub,
+      isGuest: payload.isGuest,
+      email: payload.email,
+      role: payload.role,
+    };
   }
 }

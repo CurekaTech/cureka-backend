@@ -25,29 +25,24 @@ export class UsersRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
-  async existsByRefId(refId: string): Promise<boolean> {
-    return (await this.repo.count({ where: { refId } })) > 0;
-  }
-
-  async updateByRefId(refId: string, data: Partial<UserEntity>): Promise<UserEntity | null> {
-    await this.repo.update({ refId }, data);
-    return this.findByRefId(refId);
-  }
-
-  async softDeleteByRefId(refId: string): Promise<void> {
-    await this.repo.softDelete({ refId });
+  async findByMobileNumber(mobileNumber: string): Promise<UserEntity | null> {
+    return this.repo.findOne({ where: { mobileNumber } });
   }
 
   async findByEmail(email: string): Promise<UserEntity | null> {
     return this.repo.findOne({ where: { email } });
   }
 
-  async findByEmailWithPassword(email: string): Promise<UserEntity | null> {
-    return this.repo
-      .createQueryBuilder('user')
-      .addSelect('user.password')
-      .where('user.email = :email', { email })
-      .getOne();
+  async existsByRefId(refId: string): Promise<boolean> {
+    return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async existsByEmail(email: string): Promise<boolean> {
+    return (await this.repo.count({ where: { email } })) > 0;
+  }
+
+  async existsByMobileNumber(mobileNumber: string): Promise<boolean> {
+    return (await this.repo.count({ where: { mobileNumber } })) > 0;
   }
 
   async update(id: string, data: Partial<UserEntity>): Promise<UserEntity | null> {
@@ -55,8 +50,21 @@ export class UsersRepository {
     return this.findById(id);
   }
 
+  async updateByRefId(refId: string, data: Partial<UserEntity>): Promise<UserEntity | null> {
+    await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async updateLastLoginAt(id: string): Promise<void> {
+    await this.repo.update(id, { lastLoginAt: new Date() });
+  }
+
   async softDelete(id: string): Promise<void> {
     await this.repo.softDelete(id);
+  }
+
+  async softDeleteByRefId(refId: string): Promise<void> {
+    await this.repo.softDelete({ refId });
   }
 
   async findAllPaginated(
@@ -73,13 +81,5 @@ export class UsersRepository {
 
     return { data, total };
   }
-
-  async existsByEmail(email: string): Promise<boolean> {
-    const count = await this.repo.count({ where: { email } });
-    return count > 0;
-  }
-
-  async updateLastLoginAt(id: string): Promise<void> {
-    await this.repo.update(id, { lastLoginAt: new Date() });
-  }
 }
+

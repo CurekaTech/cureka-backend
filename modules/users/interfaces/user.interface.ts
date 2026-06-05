@@ -1,21 +1,18 @@
-import { UserGender } from '../enums/user-gender.enum';
+import { UserStatus } from '../enums/user-status.enum';
 
 export interface IUser {
   id: string;
   refId: string;
-  fullName: string;
-  email: string;
-  phone?: string;
-  gender?: UserGender;
-  dob?: Date;
-  isActive: boolean;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  mobileNumber?: string;
+  isGuest: boolean;
+  isRegistered: boolean;
+  status: UserStatus;
   lastLoginAt?: Date;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;
-}
-
-export interface IUserWithPassword extends IUser {
-  password: string;
 }
