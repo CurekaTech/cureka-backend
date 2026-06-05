@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CitiesRepository } from '../repositories/cities.repository';
 import { StatesRepository } from '../repositories/states.repository';
 import { CountriesRepository } from '../repositories/countries.repository';
@@ -30,10 +30,6 @@ export class CitiesService {
     const state = await this.statesRepository.findByRefId(dto.stateRefId);
     if (!state) {
       throw new NotFoundException(`State with refId "${dto.stateRefId}" not found`);
-    }
-
-    if (await this.citiesRepository.existsByNameInState(dto.name, state.id)) {
-      throw new ConflictException(`A city with name "${dto.name}" already exists in this state`);
     }
 
     const entity = await this.citiesRepository.create({
@@ -100,17 +96,6 @@ export class CitiesService {
         throw new NotFoundException(`State with refId "${dto.stateRefId}" not found`);
       }
       stateId = state.id;
-    }
-
-    const name = dto.name ?? existing.name;
-    if (dto.name && dto.name !== existing.name) {
-      if (await this.citiesRepository.existsByNameInStateExcluding(name, stateId, existing.id)) {
-        throw new ConflictException(`A city with name "${name}" already exists in this state`);
-      }
-    } else if (dto.stateRefId && stateId !== existing.stateId) {
-      if (await this.citiesRepository.existsByNameInStateExcluding(name, stateId, existing.id)) {
-        throw new ConflictException(`A city with name "${name}" already exists in the target state`);
-      }
     }
 
     const updated = await this.citiesRepository.updateByRefId(refId, {

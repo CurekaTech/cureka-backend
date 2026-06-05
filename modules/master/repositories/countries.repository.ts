@@ -78,20 +78,6 @@ export class CountriesRepository {
     return { data, total };
   }
 
-  async existsByName(name: string): Promise<boolean> {
-    return (await this.repo.count({ where: { name } })) > 0;
-  }
-
-  async existsByNameExcluding(name: string, excludeId: string): Promise<boolean> {
-    return (
-      (await this.repo
-        .createQueryBuilder('country')
-        .where('country.name = :name', { name })
-        .andWhere('country.id != :excludeId', { excludeId })
-        .getCount()) > 0
-    );
-  }
-
   async existsByCode(code: string): Promise<boolean> {
     return (await this.repo.count({ where: { code } })) > 0;
   }

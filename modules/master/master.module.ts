@@ -37,6 +37,9 @@ import { CitiesController } from './controllers/cities.controller';
 import { HealthConcernsController } from './controllers/health-concerns.controller';
 import { AgeGroupsController } from './controllers/age-groups.controller';
 import { ManufacturersController } from './controllers/manufacturers.controller';
+import { AttributeCacheListener } from './listeners/attribute-cache.listener';
+import { CategoryCacheListener } from './listeners/category-cache.listener';
+import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
 
 @Module({
   imports: [
@@ -83,6 +86,9 @@ import { ManufacturersController } from './controllers/manufacturers.controller'
     AgeGroupsRepository,
     ManufacturersService,
     ManufacturersRepository,
+    CategoriesCacheSyncService,
+    AttributeCacheListener,
+    CategoryCacheListener,
   ],
   exports: [
     AttributesService,

@@ -4,7 +4,6 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { StateEntity } from './state.entity';
 
 @Entity('cities')
-@Index('UQ_cities_state_id_name', ['stateId', 'name'], { unique: true })
 export class CityEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   name!: string;

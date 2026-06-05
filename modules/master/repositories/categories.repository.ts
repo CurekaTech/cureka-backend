@@ -158,18 +158,6 @@ export class CategoriesRepository {
     await Promise.all(updates.map(({ id, position }) => this.repo.update(id, { position })));
   }
 
-  async findBySlug(slug: string): Promise<CategoryEntity | null> {
-    return this.repo.findOne({ where: { slug } });
-  }
-
-  async findBySlugExcluding(slug: string, excludeId: string): Promise<CategoryEntity | null> {
-    return this.repo
-      .createQueryBuilder('category')
-      .where('category.slug = :slug', { slug })
-      .andWhere('category.id != :excludeId', { excludeId })
-      .getOne();
-  }
-
   async getNextHierarchyId(): Promise<number> {
     const result = await this.repo
       .createQueryBuilder('category')

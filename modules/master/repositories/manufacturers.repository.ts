@@ -47,19 +47,6 @@ export class ManufacturersRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
-  async existsByName(name: string): Promise<boolean> {
-    return (await this.repo.count({ where: { name } })) > 0;
-  }
-
-  async existsByNameExcluding(name: string, excludeId: string): Promise<boolean> {
-    const count = await this.repo
-      .createQueryBuilder('manufacturer')
-      .where('manufacturer.name = :name', { name })
-      .andWhere('manufacturer.id != :excludeId', { excludeId })
-      .getCount();
-    return count > 0;
-  }
-
   async existsByCode(code: string): Promise<boolean> {
     return (await this.repo.count({ where: { code } })) > 0;
   }

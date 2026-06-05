@@ -24,7 +24,8 @@
     "migration:run": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run -d apps/api/database/data-source.ts",
     "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert -d apps/api/database/data-source.ts",
     "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create",
-    "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts"
+    "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
+    "redis:dev": "docker compose -f docker-compose.dev.yml up redis -d"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",

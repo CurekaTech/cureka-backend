@@ -1,4 +1,12 @@
-import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { CacheKeys, CacheService } from '@packages/cache';
 import { OtpRepository } from '../repositories/otp.repository';
 import { OtpPurpose } from '../enums/otp-purpose.enum';
 import {
@@ -16,6 +24,8 @@ export class OtpService {
 
   constructor(
     private readonly otpRepository: OtpRepository,
+    private readonly cacheService: CacheService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -25,6 +35,8 @@ export class OtpService {
    * Returns the plain OTP for delivery (never persisted in plain text).
    */
   async sendOtp(mobileNumber: string, purpose: OtpPurpose): Promise<string> {
+    await this.enforceSendCooldown(mobileNumber, purpose);
+
     const plainOtp = generateOtp();
     const hashedOtp = await hashOtp(plainOtp);
     const expiresAt = getOtpExpiry();
@@ -53,8 +65,38 @@ export class OtpService {
       this.logger.log(`OTP created for ${mobileNumber} [${purpose}]`);
     }
 
+    await this.cacheService.set(
+      CacheKeys.otp.sendCooldown(purpose, mobileNumber),
+      Date.now(),
+      this.getOtpResendCooldownSeconds(),
+    );
+
     // Return plain OTP so the caller can dispatch it via SMS provider
     return plainOtp;
+  }
+
+  private async enforceSendCooldown(mobileNumber: string, purpose: OtpPurpose): Promise<void> {
+    const cooldownKey = CacheKeys.otp.sendCooldown(purpose, mobileNumber);
+    const lastSentAt = await this.cacheService.get<number>(cooldownKey);
+
+    if (lastSentAt === undefined) {
+      return;
+    }
+
+    const elapsedSeconds = Math.floor((Date.now() - lastSentAt) / 1000);
+    const cooldownSeconds = this.getOtpResendCooldownSeconds();
+    const remainingSeconds = cooldownSeconds - elapsedSeconds;
+
+    if (remainingSeconds > 0) {
+      throw new HttpException(
+        `Please wait ${remainingSeconds} second(s) before requesting another OTP.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  private getOtpResendCooldownSeconds(): number {
+    return this.configService.get<number>('OTP_RESEND_COOLDOWN_SECONDS', 60);
   }
 
   /**
