@@ -21,6 +21,23 @@ export class AdminUsersRepository {
     return this.repo.findOne({ where: { id } });
   }
 
+  async findByRefId(refId: string): Promise<AdminUserEntity | null> {
+    return this.repo.findOne({ where: { refId } });
+  }
+
+  async existsByRefId(refId: string): Promise<boolean> {
+    return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async updateByRefId(refId: string, data: Partial<AdminUserEntity>): Promise<AdminUserEntity | null> {
+    await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async softDeleteByRefId(refId: string): Promise<void> {
+    await this.repo.softDelete({ refId });
+  }
+
   async findByEmail(email: string): Promise<AdminUserEntity | null> {
     return this.repo.findOne({ where: { email } });
   }
@@ -45,15 +62,31 @@ export class AdminUsersRepository {
   async findAllPaginated(
     options: PaginationOptions,
   ): Promise<{ data: AdminUserEntity[]; total: number }> {
-    const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
+    const { skip, take } = buildSkipTake(options.page, options.limit);
 
-    const [data, total] = await this.repo
+    // Allowlist prevents SQL injection from sortBy input
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'admin_user.createdAt',
+      fullName: 'admin_user.fullName',
+      email: 'admin_user.email',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'admin_user.createdAt';
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo
       .createQueryBuilder('admin_user')
-      .orderBy('admin_user.created_at', 'DESC')
+      .orderBy(sortColumn, sortOrder)
       .skip(skip)
-      .take(take)
-      .getManyAndCount();
+      .take(take);
 
+    if (options.search) {
+      qb.where(
+        'admin_user.full_name ILIKE :search OR admin_user.email ILIKE :search',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 

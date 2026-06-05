@@ -3,12 +3,14 @@ import { IAdminUser } from '../interfaces/admin-user.interface';
 
 export const mapAdminUserEntityToResponse = (entity: AdminUserEntity): IAdminUser => ({
   id: entity.id,
+  refId: entity.refId,
   fullName: entity.fullName,
   email: entity.email,
   phone: entity.phone,
   role: entity.role,
   isActive: entity.isActive,
   lastLoginAt: entity.lastLoginAt,
+  createdBy: entity.createdBy,
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,

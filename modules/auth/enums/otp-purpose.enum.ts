@@ -1,0 +1,5 @@
+export enum OtpPurpose {
+  LOGIN = 'LOGIN',
+  REGISTRATION = 'REGISTRATION',
+  FORGOT_PASSWORD = 'FORGOT_PASSWORD',
+}

@@ -54,13 +54,3 @@ export class UpdateAdminUserDto extends PartialType(
   @IsBoolean()
   isActive?: boolean;
 }
-
-export class LoginAdminUserDto {
-  @IsNotEmpty()
-  @IsEmail()
-  email!: string;
-
-  @IsNotEmpty()
-  @IsString()
-  password!: string;
-}

@@ -1,35 +1,25 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AdminUsersRepository } from '../repositories/admin-users.repository';
-import { CreateAdminUserDto, UpdateAdminUserDto, LoginAdminUserDto } from '../dto/admin-user.dto';
-import { IAdminUser, ILoginResponse } from '../interfaces/admin-user.interface';
+import { CreateAdminUserDto, UpdateAdminUserDto } from '../dto/admin-user.dto';
+import { IAdminUser } from '../interfaces/admin-user.interface';
 import {
   mapAdminUserEntityToResponse,
   mapAdminUserEntitiesToResponse,
 } from '../mappers/admin-user.mapper';
 import {
   hashPassword,
-  comparePasswords,
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
+  generateUniqueRefId,
 } from '@packages/common';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { IJwtPayload } from '@common/interfaces/jwt-payload.interface';
+import { PaginationQueryDto } from '@packages/common';
 
 @Injectable()
 export class AdminUsersService {
-  constructor(
-    private readonly adminUsersRepository: AdminUsersRepository,
-    private readonly jwtService: JwtService,
-  ) {}
+  constructor(private readonly adminUsersRepository: AdminUsersRepository) {}
 
-  async create(dto: CreateAdminUserDto): Promise<IAdminUser> {
+  async create(dto: CreateAdminUserDto, createdBy: string): Promise<IAdminUser> {
     const exists = await this.adminUsersRepository.existsByEmail(dto.email);
     if (exists) {
       throw new ConflictException('An admin user with this email already exists');
@@ -39,6 +29,10 @@ export class AdminUsersService {
     const entity = await this.adminUsersRepository.create({
       ...dto,
       password: hashedPassword,
+      refId: await generateUniqueRefId(dto.fullName, (refId) =>
+        this.adminUsersRepository.existsByRefId(refId),
+      ),
+      createdBy,
     });
 
     return mapAdminUserEntityToResponse(entity);
@@ -50,64 +44,42 @@ export class AdminUsersService {
     return buildPaginatedResult(mapAdminUserEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findOne(id: string): Promise<IAdminUser> {
-    const entity = await this.adminUsersRepository.findById(id);
+  async findOne(refId: string): Promise<IAdminUser> {
+    const entity = await this.adminUsersRepository.findByRefId(refId);
     if (!entity) {
-      throw new NotFoundException(`Admin user with id ${id} not found`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
     return mapAdminUserEntityToResponse(entity);
   }
 
-  async update(id: string, dto: UpdateAdminUserDto): Promise<IAdminUser> {
-    const existing = await this.adminUsersRepository.findById(id);
+  async update(refId: string, dto: UpdateAdminUserDto): Promise<IAdminUser> {
+    const existing = await this.adminUsersRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Admin user with id ${id} not found`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
 
-    const updated = await this.adminUsersRepository.update(id, dto);
+    const updated = await this.adminUsersRepository.updateByRefId(refId, dto);
     if (!updated) {
-      throw new NotFoundException(`Admin user with id ${id} not found after update`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found after update`);
     }
 
     return mapAdminUserEntityToResponse(updated);
   }
 
-  async remove(id: string): Promise<void> {
-    const existing = await this.adminUsersRepository.findById(id);
+  async remove(refId: string): Promise<void> {
+    const existing = await this.adminUsersRepository.findByRefId(refId);
     if (!existing) {
-      throw new NotFoundException(`Admin user with id ${id} not found`);
+      throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
-    await this.adminUsersRepository.softDelete(id);
+    await this.adminUsersRepository.softDeleteByRefId(refId);
   }
 
-  async login(dto: LoginAdminUserDto): Promise<ILoginResponse> {
-    const entity = await this.adminUsersRepository.findByEmailWithPassword(dto.email);
-    if (!entity) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
+  /** Used by auth module — never expose password via public API responses. */
+  async findByEmailWithPassword(email: string) {
+    return this.adminUsersRepository.findByEmailWithPassword(email);
+  }
 
-    const passwordMatches = await comparePasswords(dto.password, entity.password);
-    if (!passwordMatches) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (!entity.isActive) {
-      throw new UnauthorizedException('Account is inactive');
-    }
-
-    await this.adminUsersRepository.updateLastLoginAt(entity.id);
-
-    const payload: IJwtPayload = {
-      sub: entity.id,
-      email: entity.email,
-      role: entity.role,
-    };
-
-    const accessToken = this.jwtService.sign(payload);
-
-    return {
-      accessToken,
-      user: mapAdminUserEntityToResponse(entity),
-    };
+  async recordLogin(id: string): Promise<void> {
+    await this.adminUsersRepository.updateLastLoginAt(id);
   }
 }

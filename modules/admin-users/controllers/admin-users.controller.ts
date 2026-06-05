@@ -6,64 +6,32 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
-  Res,
   UseGuards,
 } from '@nestjs/common';
-import { FastifyReply } from 'fastify';
+import { RefIdPipe } from '@packages/common';
 import { AdminUsersService } from '../services/admin-users.service';
-import { CreateAdminUserDto, UpdateAdminUserDto, LoginAdminUserDto } from '../dto/admin-user.dto';
-import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
-import { RolesGuard } from '@common/guards/roles.guard';
-import { Roles } from '@common/decorators/roles.decorator';
+import { CreateAdminUserDto, UpdateAdminUserDto } from '../dto/admin-user.dto';
+import { PaginationQueryDto } from '@packages/common';
+import { JwtAuthGuard } from '@packages/auth';
+import { RolesGuard } from '@packages/auth';
+import { Roles } from '@packages/auth';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
-
-// 7 days in seconds — must match JWT expiresIn
-const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+import { CurrentAdminUser } from '@packages/auth';
+import { IAdminJwtPayload } from '@packages/auth';
 
 @Controller('admin-users')
 export class AdminUsersController {
   constructor(private readonly adminUsersService: AdminUsersService) {}
 
-  // ─── Auth ────────────────────────────────────────────────────────────────
-
-  @Post('auth/login')
-  @HttpCode(HttpStatus.OK)
-  async login(
-    @Body() dto: LoginAdminUserDto,
-    @Res({ passthrough: true }) res: FastifyReply,
-  ) {
-    const result = await this.adminUsersService.login(dto);
-
-    res.setCookie('admin_token', result.accessToken, {
-      httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: COOKIE_MAX_AGE_SECONDS,
-    });
-
-    return result;
-  }
-
-  @Post('auth/logout')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@Res({ passthrough: true }) res: FastifyReply) {
-    res.clearCookie('admin_token', { path: '/' });
-  }
-
-  // ─── CRUD (protected) ────────────────────────────────────────────────────
-
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateAdminUserDto) {
-    return this.adminUsersService.create(dto);
+  create(@Body() dto: CreateAdminUserDto, @CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.adminUsersService.create(dto, user.email);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -75,24 +43,23 @@ export class AdminUsersController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminUsersService.findOne(id);
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.adminUsersService.findOne(refId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAdminUserDto) {
-    return this.adminUsersService.update(id, dto);
+  @Patch(':refId')
+  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateAdminUserDto) {
+    return this.adminUsersService.update(refId, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Delete(':id')
+  @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminUsersService.remove(id);
+  remove(@Param('refId', RefIdPipe) refId: string) {
+    return this.adminUsersService.remove(refId);
   }
 }
-
