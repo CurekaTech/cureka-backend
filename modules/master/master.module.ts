@@ -10,6 +10,8 @@ import { CityEntity } from './entities/city.entity';
 import { HealthConcernEntity } from './entities/health-concern.entity';
 import { AgeGroupEntity } from './entities/age-group.entity';
 import { ManufacturerEntity } from './entities/manufacturer.entity';
+import { ImporterEntity } from './entities/importer.entity';
+import { PackerEntity } from './entities/packer.entity';
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -19,6 +21,8 @@ import { CitiesRepository } from './repositories/cities.repository';
 import { HealthConcernsRepository } from './repositories/health-concerns.repository';
 import { AgeGroupsRepository } from './repositories/age-groups.repository';
 import { ManufacturersRepository } from './repositories/manufacturers.repository';
+import { ImportersRepository } from './repositories/importers.repository';
+import { PackersRepository } from './repositories/packers.repository';
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -28,6 +32,8 @@ import { CitiesService } from './services/cities.service';
 import { HealthConcernsService } from './services/health-concerns.service';
 import { AgeGroupsService } from './services/age-groups.service';
 import { ManufacturersService } from './services/manufacturers.service';
+import { ImportersService } from './services/importers.service';
+import { PackersService } from './services/packers.service';
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -37,8 +43,12 @@ import { CitiesController } from './controllers/cities.controller';
 import { HealthConcernsController } from './controllers/health-concerns.controller';
 import { AgeGroupsController } from './controllers/age-groups.controller';
 import { ManufacturersController } from './controllers/manufacturers.controller';
+import { ImportersController } from './controllers/importers.controller';
+import { PackersController } from './controllers/packers.controller';
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
+import { ImporterCacheListener } from './listeners/importer-cache.listener';
+import { PackerCacheListener } from './listeners/packer-cache.listener';
 import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
 
 @Module({
@@ -53,6 +63,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
       HealthConcernEntity,
       AgeGroupEntity,
       ManufacturerEntity,
+      ImporterEntity,
+      PackerEntity,
     ]),
     UploadsModule,
   ],
@@ -66,6 +78,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     HealthConcernsController,
     AgeGroupsController,
     ManufacturersController,
+    ImportersController,
+    PackersController,
   ],
   providers: [
     AttributesService,
@@ -86,20 +100,29 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     AgeGroupsRepository,
     ManufacturersService,
     ManufacturersRepository,
+    ImportersService,
+    ImportersRepository,
+    PackersService,
+    PackersRepository,
     CategoriesCacheSyncService,
     AttributeCacheListener,
     CategoryCacheListener,
+    ImporterCacheListener,
+    PackerCacheListener,
   ],
   exports: [
     AttributesService,
     BrandsService,
     CategoriesService,
+    CategoriesRepository,
     CountriesService,
     StatesService,
     CitiesService,
     HealthConcernsService,
     AgeGroupsService,
     ManufacturersService,
+    ImportersService,
+    PackersService,
   ],
 })
 export class MasterModule {}

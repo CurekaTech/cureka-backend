@@ -93,8 +93,12 @@ export class UpdateCategoryStatusDto {
 
 export class CategoryQueryDto extends PaginationQueryDto {
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? value : parsed;
+  })
   @IsEnum(CategoryHierarchyLevel)
-  @Type(() => Number)
   hierarchyLevel?: CategoryHierarchyLevel;
 
   @IsOptional()

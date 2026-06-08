@@ -146,19 +146,20 @@ export class CategoriesService {
       }
     }
 
+    const paginationOptions = buildPaginationOptions(query);
     const options = {
-      ...buildPaginationOptions(query),
+      ...paginationOptions,
       hierarchyLevel: query.hierarchyLevel,
       parentCategoryId,
     };
     const queryHash = buildQueryCacheHash({
-      hierarchyLevel: query.hierarchyLevel ?? '',
-      parentCategoryRefId: query.parentCategoryRefId ?? '',
-      page: query.page ?? 1,
-      limit: query.limit ?? 10,
-      search: query.search ?? '',
-      sortBy: query.sortBy ?? '',
-      sortOrder: query.sortOrder ?? '',
+      hierarchyLevel: query.hierarchyLevel,
+      parentCategoryRefId: query.parentCategoryRefId,
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      search: paginationOptions.search,
+      sortBy: paginationOptions.sortBy,
+      sortOrder: paginationOptions.sortOrder,
     });
 
     return this.cacheStrategy.cacheAside({

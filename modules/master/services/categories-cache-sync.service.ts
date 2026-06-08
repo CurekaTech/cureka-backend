@@ -29,4 +29,10 @@ export class CategoriesCacheSyncService {
       ttlSeconds: this.cacheTtl.forModule(CacheModuleName.CATEGORY),
     });
   }
+
+  async invalidateHomepageCategoryHeaderCache(): Promise<void> {
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.homepage.categoryHeaderPattern(),
+    );
+  }
 }
