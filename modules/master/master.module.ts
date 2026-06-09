@@ -12,6 +12,7 @@ import { AgeGroupEntity } from './entities/age-group.entity';
 import { ManufacturerEntity } from './entities/manufacturer.entity';
 import { ImporterEntity } from './entities/importer.entity';
 import { PackerEntity } from './entities/packer.entity';
+import { ProductNatureEntity } from './entities/product-nature.entity';
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -23,6 +24,7 @@ import { AgeGroupsRepository } from './repositories/age-groups.repository';
 import { ManufacturersRepository } from './repositories/manufacturers.repository';
 import { ImportersRepository } from './repositories/importers.repository';
 import { PackersRepository } from './repositories/packers.repository';
+import { ProductNaturesRepository } from './repositories/product-natures.repository';
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -34,6 +36,7 @@ import { AgeGroupsService } from './services/age-groups.service';
 import { ManufacturersService } from './services/manufacturers.service';
 import { ImportersService } from './services/importers.service';
 import { PackersService } from './services/packers.service';
+import { ProductNaturesService } from './services/product-natures.service';
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -45,6 +48,7 @@ import { AgeGroupsController } from './controllers/age-groups.controller';
 import { ManufacturersController } from './controllers/manufacturers.controller';
 import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
+import { ProductNaturesController } from './controllers/product-natures.controller';
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
 import { ImporterCacheListener } from './listeners/importer-cache.listener';
@@ -65,6 +69,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
       ManufacturerEntity,
       ImporterEntity,
       PackerEntity,
+      ProductNatureEntity,
     ]),
     UploadsModule,
   ],
@@ -80,6 +85,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ManufacturersController,
     ImportersController,
     PackersController,
+    ProductNaturesController,
   ],
   providers: [
     AttributesService,
@@ -104,6 +110,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ImportersRepository,
     PackersService,
     PackersRepository,
+    ProductNaturesService,
+    ProductNaturesRepository,
     CategoriesCacheSyncService,
     AttributeCacheListener,
     CategoryCacheListener,
@@ -123,6 +131,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ManufacturersService,
     ImportersService,
     PackersService,
+    ProductNaturesService,
   ],
 })
 export class MasterModule {}
