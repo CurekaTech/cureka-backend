@@ -2,6 +2,8 @@
  * Centralized cache key factory.
  * Never hardcode cache key strings inside business modules.
  */
+export { buildQueryCacheHash, normalizeCacheFilterValue } from './cache-query-hash.util';
+
 export const CacheKeys = {
   attributes: {
     list: (queryHash: string) => `attributes:list:${queryHash}`,
@@ -10,6 +12,14 @@ export const CacheKeys = {
   brands: {
     list: (queryHash: string) => `brands:list:${queryHash}`,
     listPattern: () => 'brands:list:*',
+  },
+  importers: {
+    list: (queryHash: string) => `importers:list:${queryHash}`,
+    listPattern: () => 'importers:list:*',
+  },
+  packers: {
+    list: (queryHash: string) => `packers:list:${queryHash}`,
+    listPattern: () => 'packers:list:*',
   },
   categories: {
     tree: () => 'categories:tree',
@@ -32,6 +42,8 @@ export const CacheKeys = {
     bannersPattern: () => 'homepage:banners*',
     config: () => 'homepage:config',
     configPattern: () => 'homepage:config*',
+    categoryHeader: () => 'homepage:category:header',
+    categoryHeaderPattern: () => 'homepage:category:header*',
   },
   tags: {
     listPattern: () => 'tags:list:*',
@@ -47,7 +59,3 @@ export const CacheKeys = {
     idPattern: () => 'session:context:id:*',
   },
 } as const;
-
-/** Stable hash for pagination/filter query objects used in list cache keys. */
-export const buildQueryCacheHash = (query: Record<string, unknown>): string =>
-  JSON.stringify(query);

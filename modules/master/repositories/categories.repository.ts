@@ -116,6 +116,15 @@ export class CategoriesRepository {
       .getMany();
   }
 
+  async findActiveCategories(): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.status = :status', { status: 'active' })
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
   async findRootCategories(): Promise<CategoryEntity[]> {
     return this.repo
       .createQueryBuilder('category')

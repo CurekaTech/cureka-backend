@@ -8,6 +8,8 @@ export class CacheTtlService {
     [CacheModuleName.DEFAULT]: 'CACHE_TTL',
     [CacheModuleName.ATTRIBUTE]: 'ATTRIBUTE_CACHE_TTL',
     [CacheModuleName.BRAND]: 'BRAND_CACHE_TTL',
+    [CacheModuleName.IMPORTER]: 'CACHE_TTL',
+    [CacheModuleName.PACKER]: 'CACHE_TTL',
     [CacheModuleName.CATEGORY]: 'CATEGORY_CACHE_TTL',
     [CacheModuleName.PRODUCT]: 'PRODUCT_CACHE_TTL',
     [CacheModuleName.HOMEPAGE]: 'HOMEPAGE_CACHE_TTL',
