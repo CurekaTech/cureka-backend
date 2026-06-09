@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
+import { BannersService } from '@modules/master/services/banners.service';
+import { IHomepageBannersBundle } from '@modules/master/interfaces/banner.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
@@ -10,8 +12,13 @@ import { mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 export class HomepageService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly bannersService: BannersService,
     private readonly cacheStrategy: CacheStrategyService,
   ) {}
+
+  getHomepageBanners(): Promise<IHomepageBannersBundle> {
+    return this.bannersService.getHomepageBanners();
+  }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
     return this.cacheStrategy.cacheAside({

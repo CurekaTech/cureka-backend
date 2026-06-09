@@ -51,7 +51,6 @@ import { HealthConcernsController } from './controllers/health-concerns.controll
 import { AgeGroupsController } from './controllers/age-groups.controller';
 import { ManufacturersController } from './controllers/manufacturers.controller';
 import { BannersController } from './controllers/banners.controller';
-import { StorefrontBannersController } from './controllers/storefront-banners.controller';
 import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
 import { ProductNaturesController } from './controllers/product-natures.controller';
@@ -92,7 +91,6 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     AgeGroupsController,
     ManufacturersController,
     BannersController,
-    StorefrontBannersController,
     ImportersController,
     PackersController,
     ProductNaturesController,
