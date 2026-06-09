@@ -12,3 +12,14 @@ export interface IPublicCategoryTree {
   isInShopBy: boolean;
   children: IPublicCategoryTree[];
 }
+
+export interface IPublicHeaderCategory {
+  refId: string;
+  name: string;
+  slug: string;
+  position: number;
+  hierarchyLevel: CategoryHierarchyLevel;
+  isInHeader: boolean;
+  isInShopBy: boolean;
+  children: IPublicHeaderCategory[];
+}

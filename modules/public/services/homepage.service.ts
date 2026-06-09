@@ -3,8 +3,8 @@ import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cach
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
-import { IPublicCategoryTree } from '../interfaces/public-category.interface';
-import { mapCategoryEntityToPublicTree } from '../mappers/public-category.mapper';
+import { IPublicHeaderCategory } from '../interfaces/public-category.interface';
+import { mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 
 @Injectable()
 export class HomepageService {
@@ -13,7 +13,7 @@ export class HomepageService {
     private readonly cacheStrategy: CacheStrategyService,
   ) {}
 
-  async getHeaderCategoryTree(): Promise<IPublicCategoryTree[]> {
+  async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.categoryHeader(),
       module: CacheModuleName.HOMEPAGE,
@@ -22,12 +22,12 @@ export class HomepageService {
   }
 
   /** Used by cache refresh after category mutations. */
-  async loadHeaderCategoryTreeUncached(): Promise<IPublicCategoryTree[]> {
+  async loadHeaderCategoryTreeUncached(): Promise<IPublicHeaderCategory[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
     return this.buildHeaderCategoryTree(categories);
   }
 
-  private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicCategoryTree[] {
+  private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicHeaderCategory[] {
     const childrenByParentId = new Map<string, CategoryEntity[]>();
 
     for (const category of categories) {
@@ -40,9 +40,9 @@ export class HomepageService {
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
 
-    const buildNode = (entity: CategoryEntity): IPublicCategoryTree => {
+    const buildNode = (entity: CategoryEntity): IPublicHeaderCategory => {
       const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map(buildNode);
-      return mapCategoryEntityToPublicTree(entity, children);
+      return mapHeaderCategoryEntity(entity, children);
     };
 
     return sortCategories(
