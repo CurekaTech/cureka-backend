@@ -7,6 +7,7 @@ import {
 import { FastifyRequest } from 'fastify';
 import { OtpService } from './otp.service';
 import { SessionService } from './session.service';
+import { SessionCacheService } from './session-cache.service';
 import { UsersService } from '@modules/users/services/users.service';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import { OtpPurpose } from '../enums/otp-purpose.enum';
@@ -31,6 +32,7 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly usersService: UsersService,
     private readonly sessionService: SessionService,
+    private readonly sessionCacheService: SessionCacheService,
     private readonly configService: ConfigService,
     private readonly otpRateLimitService: OtpRateLimitService,
   ) {}
@@ -163,6 +165,8 @@ export class AuthService {
       lastName: dto.lastName,
       email: dto.email,
     });
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
 
     this.logger.log(`User registration completed: ${userId}`);
     return user;

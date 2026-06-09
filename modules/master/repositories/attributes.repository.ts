@@ -74,18 +74,4 @@ export class AttributesRepository {
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
-
-  async existsByName(name: string): Promise<boolean> {
-    const count = await this.repo.count({ where: { name } });
-    return count > 0;
-  }
-
-  async existsByNameExcluding(name: string, excludeId: string): Promise<boolean> {
-    const count = await this.repo
-      .createQueryBuilder('attribute')
-      .where('attribute.name = :name', { name })
-      .andWhere('attribute.id != :excludeId', { excludeId })
-      .getCount();
-    return count > 0;
-  }
 }

@@ -5,7 +5,6 @@ import { StateEntity } from './state.entity';
 
 @Entity('countries')
 export class CountryEntity extends BaseEntity {
-  @Index({ unique: true })
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 

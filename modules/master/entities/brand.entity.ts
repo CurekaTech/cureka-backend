@@ -4,7 +4,6 @@ import { MasterStatus } from '../enums/master-status.enum';
 
 @Entity('brands')
 export class BrandEntity extends BaseEntity {
-  @Index({ unique: true })
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 

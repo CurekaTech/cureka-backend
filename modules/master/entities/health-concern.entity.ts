@@ -4,7 +4,6 @@ import { MasterStatus } from '../enums/master-status.enum';
 
 @Entity('health_concerns')
 export class HealthConcernEntity extends BaseEntity {
-  @Index({ unique: true })
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 

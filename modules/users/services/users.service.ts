@@ -16,10 +16,14 @@ import {
 } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
+import { SessionCacheService } from '@modules/auth/services/session-cache.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly usersRepository: UsersRepository) {}
+  constructor(
+    private readonly usersRepository: UsersRepository,
+    private readonly sessionCacheService: SessionCacheService,
+  ) {}
 
   private mapProfileDtoToEntity(dto: UpdateUserProfileDto): Partial<UserEntity> {
     const { dateOfBirth, ...rest } = dto;
@@ -155,6 +159,8 @@ export class UsersService {
       throw new NotFoundException(`User with id ${userId} not found after update`);
     }
 
+    await this.sessionCacheService.invalidateAllForUser(userId);
+
     return mapUserEntityToResponse(updated);
   }
 
@@ -163,6 +169,8 @@ export class UsersService {
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
 
     return mapUserEntityToResponse(updated);
   }

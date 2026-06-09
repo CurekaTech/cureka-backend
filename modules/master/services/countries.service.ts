@@ -31,10 +31,6 @@ export class CountriesService {
   async create(dto: CreateCountryDto, createdBy: string): Promise<ICountry> {
     const code = dto.code.toUpperCase();
 
-    if (await this.countriesRepository.existsByName(dto.name)) {
-      throw new ConflictException(`A country with name "${dto.name}" already exists`);
-    }
-
     if (await this.countriesRepository.existsByCode(code)) {
       throw new ConflictException(`A country with code "${code}" already exists`);
     }
@@ -71,12 +67,6 @@ export class CountriesService {
     const existing = await this.countriesRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Country with refId ${refId} not found`);
-    }
-
-    if (dto.name && dto.name !== existing.name) {
-      if (await this.countriesRepository.existsByNameExcluding(dto.name, existing.id)) {
-        throw new ConflictException(`A country with name "${dto.name}" already exists`);
-      }
     }
 
     const code = dto.code?.toUpperCase();

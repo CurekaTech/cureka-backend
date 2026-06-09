@@ -74,17 +74,4 @@ export class AgeGroupsRepository {
     return { data, total };
   }
 
-  async existsByName(name: string): Promise<boolean> {
-    return (await this.repo.count({ where: { name } })) > 0;
-  }
-
-  async existsByNameExcluding(name: string, excludeId: string): Promise<boolean> {
-    return (
-      (await this.repo
-        .createQueryBuilder('ageGroup')
-        .where('ageGroup.name = :name', { name })
-        .andWhere('ageGroup.id != :excludeId', { excludeId })
-        .getCount()) > 0
-    );
-  }
 }

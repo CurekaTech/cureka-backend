@@ -8,6 +8,7 @@ import { OtpEntity } from './entities/otp.entity';
 import { UserSessionEntity } from './entities/user-session.entity';
 import { UserSessionsRepository } from './repositories/user-sessions.repository';
 import { SessionService } from './services/session.service';
+import { SessionCacheService } from './services/session-cache.service';
 import { SessionCookieGuard } from './guards/session-cookie.guard';
 import { AdminAuthController } from './controllers/admin-auth.controller';
 import { UserAuthController } from './controllers/user-auth.controller';
@@ -37,6 +38,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     OtpRepository,
     UserSessionsRepository,
     SessionService,
+    SessionCacheService,
     VerifiedUserGuard,
     SessionCookieGuard,
   ],
@@ -45,6 +47,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     AdminAuthService,
     AuthService,
     SessionService,
+    SessionCacheService,
     VerifiedUserGuard,
     SessionCookieGuard,
   ],
