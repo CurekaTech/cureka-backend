@@ -53,8 +53,15 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
 
     if (!this.reachable) {
       this.logUnavailableOnce();
-    } else {
-      this.logger.log(`Redis reachable at ${this.host}:${this.port}`);
+      return;
+    }
+
+    this.logger.log(`Redis reachable at ${this.host}:${this.port}`);
+    try {
+      await this.getConnectedClient();
+    } catch {
+      this.reachable = false;
+      this.logUnavailableOnce();
     }
   }
 
@@ -75,41 +82,131 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
 
-    if (!this.client) {
-      this.client = new Redis(
-        buildRedisClientOptions({
-          host: this.host!,
-          port: this.port,
-          password: this.password,
-          username: this.username,
-          tls: this.tls,
-          connectTimeoutMs: this.connectTimeoutMs,
-        }),
-      );
-
-      this.client.on('connect', () => {
-        this.logger.log(`Redis connected (${this.host}:${this.port})`);
-      });
-      this.client.on('ready', () => {
-        this.logger.log('Redis ready');
-      });
-      this.client.on('reconnecting', () => {
-        this.logger.warn('Redis reconnecting...');
-      });
-      this.client.on('error', (error: Error) => {
-        if (error.message.includes('ECONNREFUSED')) {
-          this.reachable = false;
-          this.logUnavailableOnce();
-          return;
-        }
-        this.logger.error(`Redis error: ${error.message}`);
-      });
-      this.client.on('close', () => {
-        this.logger.warn('Redis connection closed');
-      });
+    if (!this.client || this.isClientDead(this.client.status)) {
+      this.client = this.createClient();
     }
 
     return this.client;
+  }
+
+  /** Returns a connected Redis client, or null when Redis is unavailable. */
+  async getConnectedClient(): Promise<Redis | null> {
+    if (!this.isEnabled() || !this.reachable) {
+      return null;
+    }
+
+    if (!this.client || this.isClientDead(this.client.status)) {
+      await this.resetClient();
+    }
+
+    const client = this.getClient();
+    if (!client) {
+      return null;
+    }
+
+    if (client.status === 'ready') {
+      return client;
+    }
+
+    try {
+      if (client.status === 'connecting' || client.status === 'connect') {
+        await this.waitUntilReady(client);
+        return client;
+      }
+
+      await client.connect();
+      return client;
+    } catch (error) {
+      this.reachable = false;
+      this.logger.warn(
+        `Redis connect failed: ${error instanceof Error ? error.message : error}`,
+      );
+      return null;
+    }
+  }
+
+  private createClient(): Redis {
+    const client = new Redis(
+      buildRedisClientOptions({
+        host: this.host!,
+        port: this.port,
+        password: this.password,
+        username: this.username,
+        tls: this.tls,
+        connectTimeoutMs: this.connectTimeoutMs,
+        lazyConnect: false,
+        enableOfflineQueue: true,
+      }),
+    );
+
+    client.on('connect', () => {
+      this.logger.log(`Redis connected (${this.host}:${this.port})`);
+    });
+    client.on('ready', () => {
+      this.logger.log('Redis ready');
+    });
+    client.on('reconnecting', () => {
+      this.logger.warn('Redis reconnecting...');
+    });
+    client.on('error', (error: Error) => {
+      if (error.message.includes('ECONNREFUSED')) {
+        this.reachable = false;
+        this.logUnavailableOnce();
+        return;
+      }
+      this.logger.error(`Redis error: ${error.message}`);
+    });
+    client.on('close', () => {
+      this.logger.warn('Redis connection closed');
+    });
+
+    return client;
+  }
+
+  private isClientDead(status: string): boolean {
+    return status === 'end' || status === 'close';
+  }
+
+  private async resetClient(): Promise<void> {
+    if (!this.client) {
+      return;
+    }
+
+    const staleClient = this.client;
+    this.client = null;
+
+    try {
+      staleClient.removeAllListeners();
+      if (!this.isClientDead(staleClient.status)) {
+        await staleClient.quit();
+      }
+    } catch {
+      staleClient.disconnect();
+    }
+  }
+
+  private waitUntilReady(client: Redis): Promise<void> {
+    if (client.status === 'ready') {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const cleanup = (): void => {
+        client.off('ready', onReady);
+        client.off('error', onError);
+      };
+      const onReady = (): void => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error: Error): void => {
+        cleanup();
+        reject(error);
+      };
+
+      client.once('ready', onReady);
+      client.once('error', onError);
+    });
   }
 
   async withTimeout<T>(operation: () => Promise<T>, label: string): Promise<T> {
@@ -141,7 +238,7 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    const client = this.getClient();
+    const client = await this.getConnectedClient();
     if (!client) {
       return {
         available: false,
@@ -154,9 +251,6 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
 
     const startedAt = Date.now();
     try {
-      if (client.status !== 'ready') {
-        await client.connect();
-      }
       const response = await this.withTimeout(() => client.ping(), 'Redis PING');
       return {
         available: response === 'PONG',

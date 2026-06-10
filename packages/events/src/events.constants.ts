@@ -19,6 +19,7 @@ export const EVENTS = {
   CATEGORY_UPDATED: 'cache.category.updated',
   PRODUCT_UPDATED: 'cache.product.updated',
   BRAND_UPDATED: 'cache.brand.updated',
+  BANNER_UPDATED: 'cache.banner.updated',
   IMPORTER_UPDATED: 'cache.importer.updated',
   PACKER_UPDATED: 'cache.packer.updated',
 } as const;

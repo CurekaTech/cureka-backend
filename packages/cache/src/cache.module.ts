@@ -65,6 +65,7 @@ export class AppCacheModule {
                 username,
                 tls,
                 connectTimeoutMs,
+                lazyConnect: false,
               }),
               ttl: defaultTtl * 1000,
             };

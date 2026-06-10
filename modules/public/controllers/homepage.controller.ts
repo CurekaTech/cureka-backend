@@ -11,4 +11,10 @@ export class HomepageController {
   getHeaderCategoryTree() {
     return this.homepageService.getHeaderCategoryTree();
   }
+
+  @ResponseMessage('Homepage banners retrieved successfully')
+  @Get('banners')
+  getHomepageBanners() {
+    return this.homepageService.getHomepageBanners();
+  }
 }

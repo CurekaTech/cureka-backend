@@ -7,4 +7,6 @@ export enum CacheModuleName {
   CATEGORY = 'category',
   PRODUCT = 'product',
   HOMEPAGE = 'homepage',
+  SESSION = 'session',
+  OTP = 'otp',
 }

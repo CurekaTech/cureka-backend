@@ -38,6 +38,8 @@ export const CacheKeys = {
     featuredPattern: () => 'products:featured*',
   },
   homepage: {
+    banners: () => 'homepage:banners',
+    bannersPattern: () => 'homepage:banners*',
     config: () => 'homepage:config',
     configPattern: () => 'homepage:config*',
     categoryHeader: () => 'homepage:category:header',
@@ -49,5 +51,11 @@ export const CacheKeys = {
   otp: {
     sendCooldown: (purpose: string, mobileNumber: string) =>
       `otp:send:cooldown:${purpose}:${mobileNumber}`,
+  },
+  session: {
+    byToken: (tokenHash: string) => `session:context:token:${tokenHash}`,
+    bySessionId: (sessionId: string) => `session:context:id:${sessionId}`,
+    tokenPattern: () => 'session:context:token:*',
+    idPattern: () => 'session:context:id:*',
   },
 } as const;

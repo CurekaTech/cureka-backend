@@ -10,6 +10,7 @@ import { CityEntity } from './entities/city.entity';
 import { HealthConcernEntity } from './entities/health-concern.entity';
 import { AgeGroupEntity } from './entities/age-group.entity';
 import { ManufacturerEntity } from './entities/manufacturer.entity';
+import { BannerEntity } from './entities/banner.entity';
 import { ImporterEntity } from './entities/importer.entity';
 import { PackerEntity } from './entities/packer.entity';
 import { ProductNatureEntity } from './entities/product-nature.entity';
@@ -22,6 +23,7 @@ import { CitiesRepository } from './repositories/cities.repository';
 import { HealthConcernsRepository } from './repositories/health-concerns.repository';
 import { AgeGroupsRepository } from './repositories/age-groups.repository';
 import { ManufacturersRepository } from './repositories/manufacturers.repository';
+import { BannersRepository } from './repositories/banners.repository';
 import { ImportersRepository } from './repositories/importers.repository';
 import { PackersRepository } from './repositories/packers.repository';
 import { ProductNaturesRepository } from './repositories/product-natures.repository';
@@ -34,6 +36,8 @@ import { CitiesService } from './services/cities.service';
 import { HealthConcernsService } from './services/health-concerns.service';
 import { AgeGroupsService } from './services/age-groups.service';
 import { ManufacturersService } from './services/manufacturers.service';
+import { BannersService } from './services/banners.service';
+import { BannersCacheSyncService } from './services/banners-cache-sync.service';
 import { ImportersService } from './services/importers.service';
 import { PackersService } from './services/packers.service';
 import { ProductNaturesService } from './services/product-natures.service';
@@ -46,11 +50,13 @@ import { CitiesController } from './controllers/cities.controller';
 import { HealthConcernsController } from './controllers/health-concerns.controller';
 import { AgeGroupsController } from './controllers/age-groups.controller';
 import { ManufacturersController } from './controllers/manufacturers.controller';
+import { BannersController } from './controllers/banners.controller';
 import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
 import { ProductNaturesController } from './controllers/product-natures.controller';
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
+import { BannerCacheListener } from './listeners/banner-cache.listener';
 import { ImporterCacheListener } from './listeners/importer-cache.listener';
 import { PackerCacheListener } from './listeners/packer-cache.listener';
 import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
@@ -67,6 +73,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
       HealthConcernEntity,
       AgeGroupEntity,
       ManufacturerEntity,
+      BannerEntity,
       ImporterEntity,
       PackerEntity,
       ProductNatureEntity,
@@ -83,6 +90,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     HealthConcernsController,
     AgeGroupsController,
     ManufacturersController,
+    BannersController,
     ImportersController,
     PackersController,
     ProductNaturesController,
@@ -106,6 +114,9 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     AgeGroupsRepository,
     ManufacturersService,
     ManufacturersRepository,
+    BannersService,
+    BannersRepository,
+    BannersCacheSyncService,
     ImportersService,
     ImportersRepository,
     PackersService,
@@ -115,6 +126,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     CategoriesCacheSyncService,
     AttributeCacheListener,
     CategoryCacheListener,
+    BannerCacheListener,
     ImporterCacheListener,
     PackerCacheListener,
   ],
@@ -129,6 +141,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     HealthConcernsService,
     AgeGroupsService,
     ManufacturersService,
+    BannersService,
     ImportersService,
     PackersService,
     ProductNaturesService,

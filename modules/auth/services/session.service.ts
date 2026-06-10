@@ -11,12 +11,14 @@ import {
 import { mapUserEntityToResponse } from '@modules/users/mappers/user.mapper';
 import { SESSION_ACTIVITY_TOUCH_INTERVAL_MS } from '../constants/session.constants';
 import { generateRefreshToken, hashRefreshToken } from '../utils/refresh-token.util';
+import { SessionCacheService } from './session-cache.service';
 
 @Injectable()
 export class SessionService {
   constructor(
     private readonly userSessionsRepository: UserSessionsRepository,
     private readonly configService: ConfigService,
+    private readonly sessionCacheService: SessionCacheService,
   ) {}
 
   async createSession(
@@ -48,6 +50,12 @@ export class SessionService {
 
   async resolveSessionFromToken(sessionToken: string): Promise<IUserSessionContext> {
     const refreshTokenHash = hashRefreshToken(sessionToken);
+
+    const cached = await this.sessionCacheService.getByTokenHash(refreshTokenHash);
+    if (cached) {
+      return cached;
+    }
+
     const session =
       await this.userSessionsRepository.findActiveSessionWithUserByTokenHash(
         refreshTokenHash,
@@ -59,6 +67,7 @@ export class SessionService {
 
     if (session.expiresAt <= new Date()) {
       await this.userSessionsRepository.revokeById(session.id);
+      await this.sessionCacheService.invalidateBySessionId(session.id);
       throw new UnauthorizedException('Session expired');
     }
 
@@ -72,7 +81,7 @@ export class SessionService {
 
     const profile = mapUserEntityToResponse(session.user);
 
-    return {
+    const context: IUserSessionContext = {
       sub: profile.id,
       sessionId: session.id,
       role: profile.role,
@@ -81,6 +90,10 @@ export class SessionService {
       status: profile.status,
       profile,
     };
+
+    await this.sessionCacheService.setContext(refreshTokenHash, session.id, context);
+
+    return context;
   }
 
   private shouldTouchSessionActivity(lastActivity: Date): boolean {
@@ -99,8 +112,11 @@ export class SessionService {
 
     if (session.expiresAt <= new Date()) {
       await this.userSessionsRepository.revokeById(session.id);
+      await this.sessionCacheService.invalidateBySessionId(session.id);
       throw new UnauthorizedException('Session expired');
     }
+
+    await this.sessionCacheService.invalidateByTokenHash(refreshTokenHash);
 
     const newSessionToken = generateRefreshToken();
     const newTokenHash = hashRefreshToken(newSessionToken);
@@ -124,14 +140,17 @@ export class SessionService {
   }
 
   async logoutCurrentSession(sessionId: string): Promise<void> {
+    await this.sessionCacheService.invalidateBySessionId(sessionId);
     await this.userSessionsRepository.revokeById(sessionId);
   }
 
   async logoutAllSessions(userId: string, exceptSessionId?: string): Promise<void> {
+    await this.sessionCacheService.invalidateAllForUser(userId, exceptSessionId);
     await this.userSessionsRepository.revokeAllByUserId(userId, exceptSessionId);
   }
 
   async revokeAllSessionsForUser(userId: string): Promise<void> {
+    await this.sessionCacheService.invalidateAllForUser(userId);
     await this.userSessionsRepository.revokeAllByUserId(userId);
   }
 

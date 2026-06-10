@@ -26,7 +26,7 @@ export class CacheInvalidationService {
    * Example patterns: products:list:*, categories:tree*
    */
   async invalidateByPattern(pattern: string): Promise<number> {
-    const client = this.redisConnection.getClient();
+    const client = await this.redisConnection.getConnectedClient();
     if (!client) {
       this.logger.warn(`Skipped pattern invalidation — Redis unavailable: ${pattern}`);
       return 0;
@@ -52,9 +52,8 @@ export class CacheInvalidationService {
       this.logger.log(`Cache pattern invalidated: ${pattern} (${deleted} keys)`);
       return deleted;
     } catch (error) {
-      this.logger.error(
-        `Pattern invalidation failed for ${pattern}: ${error instanceof Error ? error.message : error}`,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Pattern invalidation skipped for ${pattern}: ${message}`);
       return deleted;
     }
   }
