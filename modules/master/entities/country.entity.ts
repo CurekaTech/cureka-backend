@@ -8,7 +8,7 @@ export class CountryEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
-  @Index({ unique: true })
+  @Index()
   @Column({ type: 'varchar', length: 3 })
   code!: string;
 

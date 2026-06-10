@@ -1,0 +1,109 @@
+import { ProductEntity } from '../entities/product.entity';
+import { IProduct, IProductVariant, IProductMedia, IProductTag, IProductFaq, IProductBundleItem } from '../interfaces/product.interface';
+
+const toNumber = (value: string | number | null | undefined): number | null => {
+  if (value === null || value === undefined) return null;
+  return typeof value === 'number' ? value : parseFloat(value);
+};
+
+export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => ({
+  id: entity.id,
+  refId: entity.refId,
+  vendorId: entity.vendorId,
+  name: entity.name,
+  slug: entity.slug,
+  description: entity.description,
+  productType: entity.productType,
+  productNatureRefId: entity.productNature?.refId ?? '',
+  productNatureName: entity.productNature?.name ?? '',
+  categoryRefId: entity.category?.refId ?? '',
+  categoryName: entity.category?.name ?? '',
+  subCategoryRefId: entity.subCategory?.refId ?? null,
+  subSubCategoryRefId: entity.subSubCategory?.refId ?? null,
+  subSubSubCategoryRefId: entity.subSubSubCategory?.refId ?? null,
+  brandRefId: entity.brand?.refId ?? null,
+  manufacturerRefId: entity.manufacturer?.refId ?? null,
+  packerRefId: entity.packer?.refId ?? null,
+  importerRefId: entity.importer?.refId ?? null,
+  status: entity.status,
+  creationStep: entity.creationStep,
+  rejectionReason: entity.rejectionReason,
+  subscriptionEnabled: entity.subscriptionEnabled,
+  codAvailable: entity.codAvailable,
+  emiAvailable: entity.emiAvailable,
+  replaceAllowed: entity.replaceAllowed,
+  replaceWindowDays: entity.replaceWindowDays,
+  returnWindowDays: entity.returnWindowDays,
+  metaTitle: entity.metaTitle,
+  metaDescription: entity.metaDescription,
+  metaKeywords: entity.metaKeywords,
+  publishedAt: entity.publishedAt,
+  variants: (entity.variants ?? []).map(mapVariant),
+  media: (entity.media ?? []).map(mapMedia),
+  healthConcernRefIds: (entity.healthConcernMappings ?? []).map(
+    (item) => item.healthConcern?.refId ?? '',
+  ),
+  tags: (entity.tagMappings ?? []).map(mapTag),
+  faqs: (entity.faqMappings ?? []).map(mapFaq),
+  bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
+  createdBy: entity.createdBy,
+  updatedBy: entity.updatedBy,
+  createdAt: entity.createdAt,
+  updatedAt: entity.updatedAt,
+});
+
+export const mapProductEntitiesToResponse = (entities: ProductEntity[]): IProduct[] =>
+  entities.map(mapProductEntityToResponse);
+
+const mapVariant = (variant: ProductEntity['variants'][number]): IProductVariant => ({
+  id: variant.id,
+  sku: variant.sku,
+  vendorSku: variant.vendorSku,
+  barcode: variant.barcode,
+  mrp: toNumber(variant.mrp) ?? 0,
+  sellingPrice: toNumber(variant.sellingPrice) ?? 0,
+  discountPercentage: toNumber(variant.discountPercentage),
+  stock: variant.stock,
+  weight: toNumber(variant.weight),
+  length: toNumber(variant.length),
+  width: toNumber(variant.width),
+  height: toNumber(variant.height),
+  expiresIn: variant.expiresIn,
+  status: variant.status,
+  combinationKey: variant.combinationKey,
+  attributes: (variant.attributeValues ?? []).map((item) => ({
+    attributeRefId: item.attribute?.refId ?? '',
+    attributeName: item.attribute?.name ?? '',
+    value: item.value,
+  })),
+  createdAt: variant.createdAt,
+  updatedAt: variant.updatedAt,
+});
+
+const mapMedia = (media: ProductEntity['media'][number]): IProductMedia => ({
+  id: media.id,
+  type: media.type,
+  url: media.url,
+  sortOrder: media.sortOrder,
+  isPrimary: media.isPrimary,
+  variantId: media.variantId,
+});
+
+const mapTag = (mapping: ProductEntity['tagMappings'][number]): IProductTag => ({
+  refId: mapping.tag?.refId ?? '',
+  name: mapping.tag?.name ?? '',
+  slug: mapping.tag?.slug ?? '',
+});
+
+const mapFaq = (mapping: ProductEntity['faqMappings'][number]): IProductFaq => ({
+  refId: mapping.productFaq?.refId ?? '',
+  question: mapping.productFaq?.question ?? '',
+  answer: mapping.productFaq?.answer ?? '',
+});
+
+const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBundleItem => ({
+  id: item.id,
+  childProductRefId: item.childProduct?.refId ?? '',
+  childProductName: item.childProduct?.name ?? '',
+  quantity: item.quantity,
+});

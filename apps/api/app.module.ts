@@ -14,6 +14,7 @@ import { UploadsModule } from '@modules/uploads/uploads.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { HealthModule } from './health/health.module';
 import { PublicModule } from '@modules/public/public.module';
+import { ProductModule } from '@modules/product/product.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { PublicModule } from '@modules/public/public.module';
     UploadsModule,
     HealthModule,
     PublicModule,
+    ProductModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

@@ -1,0 +1,20 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
+import { CacheKeys, CacheStrategyService } from '@packages/cache';
+import { ProductUpdatedEvent, EVENTS } from '@packages/events';
+
+@Injectable()
+export class ProductCacheListener {
+  private readonly logger = new Logger(ProductCacheListener.name);
+
+  constructor(private readonly cacheStrategy: CacheStrategyService) {}
+
+  @OnEvent(EVENTS.PRODUCT_UPDATED)
+  async handleProductUpdated(event: ProductUpdatedEvent): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [CacheKeys.products.listPattern(), CacheKeys.products.detailPattern()],
+      keys: [CacheKeys.products.detail(event.refId)],
+    });
+    this.logger.log(`Product cache invalidated (${event.action}) for refId=${event.refId}`);
+  }
+}

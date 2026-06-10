@@ -132,6 +132,14 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ImportersService,
     PackersService,
     ProductNaturesService,
+    ProductNaturesRepository,
+    AttributesRepository,
+    CategoriesRepository,
+    BrandsRepository,
+    HealthConcernsRepository,
+    ManufacturersRepository,
+    PackersRepository,
+    ImportersRepository,
   ],
 })
 export class MasterModule {}
