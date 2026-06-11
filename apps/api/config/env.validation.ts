@@ -1,3 +1,26 @@
+// import * as Joi from 'joi';
+
+// export const envValidationSchema = Joi.object({
+//   NODE_ENV: Joi.string().valid('development', 'production', 'test', 'staging').default('development'),
+//   PORT: Joi.number().default(3000),
+//   DATABASE_URL: Joi.string().uri().required(),
+//   REDIS_HOST: Joi.string().default('localhost'),
+//   REDIS_PORT: Joi.number().default(6379),
+//   REDIS_PASSWORD: Joi.string().allow('').optional(),
+//   CACHE_TTL: Joi.number().default(300),
+//   JWT_SECRET: Joi.string().min(32).required(),
+//   JWT_EXPIRES_IN: Joi.string().default('7d'),
+//   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
+//   JWT_REFRESH_EXPIRES_IN_DAYS: Joi.number().integer().min(1).max(365).default(90),
+//   LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug', 'trace').default('info'),
+//   CORS_ORIGINS: Joi.string().optional(),
+//   DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),
+//   STORAGE_DRIVER: Joi.string().valid('local', 'gcs').default('local'),
+//   UPLOAD_DIR: Joi.string().optional(),
+//   UPLOAD_MAX_FILE_SIZE: Joi.number().default(5242880),
+//   UPLOAD_ALLOWED_MIME_TYPES: Joi.string().optional(),
+// });
+
 import * as Joi from 'joi';
 
 export const envValidationSchema = Joi.object({
@@ -25,6 +48,7 @@ export const envValidationSchema = Joi.object({
   JWT_REFRESH_EXPIRES_IN_DAYS: Joi.number().integer().min(1).max(365).default(90),
   LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug', 'trace').default('info'),
   CORS_ORIGINS: Joi.string().optional(),
+  COOKIE_SECURE: Joi.string().valid('true', 'false').optional(),
   DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),
   STORAGE_DRIVER: Joi.string().valid('local', 'gcs').default('local'),
   UPLOAD_DIR: Joi.string().optional(),
