@@ -48,15 +48,21 @@ export class AuthController {
   @ResponseMessage('OTP sent successfully')
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto): Promise<{ message: string; otp?: string }> {
-    return this.authService.login(dto.identifier);
+  login(
+    @Body() dto: LoginDto,
+    @Req() req: FastifyRequest,
+  ): Promise<{ message: string; otp?: string }> {
+    return this.authService.login(dto.identifier, req);
   }
 
   @ResponseMessage('OTP sent successfully')
   @Post('send-otp')
   @HttpCode(HttpStatus.OK)
-  sendOtp(@Body() dto: SendOtpDto): Promise<{ message: string; otp?: string }> {
-    return this.authService.sendOtp(dto.mobileNumber);
+  sendOtp(
+    @Body() dto: SendOtpDto,
+    @Req() req: FastifyRequest,
+  ): Promise<{ message: string; otp?: string }> {
+    return this.authService.sendOtp(dto.mobileNumber, req);
   }
 
   @ResponseMessage('OTP verified successfully')

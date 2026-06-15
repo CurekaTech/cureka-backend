@@ -5,12 +5,16 @@ import { appConfig, databaseConfig, jwtConfig, storageConfig, envValidationSchem
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
+import { AppCacheModule } from '@packages/cache';
 import { AuthModule } from '@modules/auth/auth.module';
 import { AdminUsersModule } from '@modules/admin-users/admin-users.module';
 import { UsersModule } from '@modules/users/users.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { HealthModule } from './health/health.module';
+import { PublicModule } from '@modules/public/public.module';
+import { ProductModule } from '@modules/product/product.module';
 
 @Module({
   imports: [
@@ -28,6 +32,9 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     // Logging (from packages/logger)
     LoggerModule,
 
+    // Redis cache (from packages/cache)
+    AppCacheModule.forRoot(),
+
     // Domain events (from packages/events)
     EventsModule,
 
@@ -42,6 +49,9 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     UsersModule,
     MasterModule,
     UploadsModule,
+    HealthModule,
+    PublicModule,
+    ProductModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

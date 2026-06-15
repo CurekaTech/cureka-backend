@@ -11,6 +11,7 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { resolveUploadDir } from './config/storage.config';
 import { APP_CONSTANTS } from '@packages/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap(): Promise<void> {
   // Read CORS config from process.env before the NestJS app is created so
@@ -73,6 +74,14 @@ async function bootstrap(): Promise<void> {
 
   // Global prefix
   app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX);
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Cureka API')
+    .setDescription('Healthcare eCommerce marketplace backend')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  SwaggerModule.setup(`${APP_CONSTANTS.API_PREFIX}/docs`, app, SwaggerModule.createDocument(app, swaggerConfig));
 
   // Global pipes — validation
   app.useGlobalPipes(

@@ -116,6 +116,15 @@ export class CategoriesRepository {
       .getMany();
   }
 
+  async findActiveCategories(): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.status = :status', { status: 'active' })
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
   async findRootCategories(): Promise<CategoryEntity[]> {
     return this.repo
       .createQueryBuilder('category')
@@ -156,18 +165,6 @@ export class CategoriesRepository {
 
   async reorderCategories(updates: Array<{ id: string; position: number }>): Promise<void> {
     await Promise.all(updates.map(({ id, position }) => this.repo.update(id, { position })));
-  }
-
-  async findBySlug(slug: string): Promise<CategoryEntity | null> {
-    return this.repo.findOne({ where: { slug } });
-  }
-
-  async findBySlugExcluding(slug: string, excludeId: string): Promise<CategoryEntity | null> {
-    return this.repo
-      .createQueryBuilder('category')
-      .where('category.slug = :slug', { slug })
-      .andWhere('category.id != :excludeId', { excludeId })
-      .getOne();
   }
 
   async getNextHierarchyId(): Promise<number> {

@@ -1,0 +1,426 @@
+{
+  "info": {
+    "_postman_id": "cureka-product-wizard-2026",
+    "name": "Cureka — Product Creation Wizard",
+    "description": "5-step product creation wizard API for Cureka backend.\n\n**Setup:**\n1. Set `baseUrl` (default `http://localhost:3000/api/v1`)\n2. Run **Admin Login** — saves `adminToken` automatically\n3. Run **Step 1 — Create Draft** — saves `productRefId` automatically\n4. Continue steps 2–5 in order\n\n**Docs:** `docs/product-wizard-api.md`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "productRefId",
+      "value": ""
+    },
+    {
+      "key": "productFaqRefId",
+      "value": ""
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{adminToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    const token = json.data?.accessToken;",
+                  "    if (token) {",
+                  "        pm.collectionVariables.set('adminToken', token);",
+                  "        pm.test('Token saved to adminToken', () => pm.expect(token).to.be.a('string'));",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@cureka.com\",\n  \"password\": \"your-password\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/admin/login",
+            "description": "Login as admin. Update email/password. Token is auto-saved to `adminToken`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prerequisites",
+      "item": [
+        {
+          "name": "List Product Natures",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/master/product-natures?page=1&limit=20"
+          }
+        },
+        {
+          "name": "List Categories",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/master/categories?page=1&limit=50"
+          }
+        },
+        {
+          "name": "List Brands",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/master/brands?page=1&limit=20"
+          }
+        },
+        {
+          "name": "List Health Concerns",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/master/health-concerns?page=1&limit=20"
+          }
+        },
+        {
+          "name": "List Attributes",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/master/attributes?page=1&limit=20"
+          }
+        },
+        {
+          "name": "Create Product FAQ",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    const refId = pm.response.json().data?.refId;",
+                  "    if (refId) pm.collectionVariables.set('productFaqRefId', refId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What is the dosage?\",\n  \"answer\": \"Take one tablet every 6 hours as directed by physician.\",\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/product-faqs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wizard — Step 1 Identity & Classification",
+      "item": [
+        {
+          "name": "Step 1 — Create Draft (Simple)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    const refId = json.data?.refId || json.data?.product?.refId;",
+                  "    if (refId) {",
+                  "        pm.collectionVariables.set('productRefId', refId);",
+                  "        pm.test('productRefId saved', () => pm.expect(refId).to.match(/^PRO/));",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dolo 650mg Tablets\",\n  \"productType\": \"simple\",\n  \"productNatureRefId\": \"MED20261234\",\n  \"categoryRefId\": \"HEA20260016\",\n  \"brandRefId\": \"DOL20261234\",\n  \"healthConcernRefIds\": [],\n  \"tagNames\": [\"bestseller\", \"new-launch\"],\n  \"metaTitle\": \"Buy Dolo 650mg Online\",\n  \"metaDescription\": \"Fast relief from fever and pain\",\n  \"metaKeywords\": [\"dolo\", \"paracetamol\"]\n}"
+            },
+            "url": "{{baseUrl}}/products/wizard/step-1",
+            "description": "Creates a new draft. Replace refIds with values from Prerequisites. Auto-saves `productRefId`."
+          }
+        },
+        {
+          "name": "Step 1 — Create Draft (Variable)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const refId = pm.response.json().data?.refId || pm.response.json().data?.product?.refId;",
+                  "    if (refId) pm.collectionVariables.set('productRefId', refId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Premium Whey Protein\",\n  \"productType\": \"variable\",\n  \"productNatureRefId\": \"SUP20261234\",\n  \"categoryRefId\": \"HEA20260016\",\n  \"brandRefId\": \"WEL20263616\",\n  \"tagNames\": [\"protein\", \"fitness\"]\n}"
+            },
+            "url": "{{baseUrl}}/products/wizard/step-1"
+          }
+        },
+        {
+          "name": "Step 1 — Update",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dolo 650mg Tablets (Updated)\",\n  \"productType\": \"simple\",\n  \"productNatureRefId\": \"MED20261234\",\n  \"categoryRefId\": \"HEA20260016\",\n  \"tagNames\": [\"bestseller\"]\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/step-1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wizard — Step 2 Content & Media",
+      "item": [
+        {
+          "name": "Step 2 — Save Content & Media",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Dolo 650mg is used for fever and mild pain relief.\",\n  \"manufacturerRefId\": \"MIC20261234\",\n  \"faqRefIds\": [\"{{productFaqRefId}}\"],\n  \"media\": [\n    {\n      \"type\": \"image\",\n      \"url\": \"/uploads/images/dolo-front.jpg\",\n      \"sortOrder\": 0,\n      \"isPrimary\": true\n    },\n    {\n      \"type\": \"size_chart\",\n      \"url\": \"/uploads/images/dolo-size-chart.jpg\",\n      \"sortOrder\": 1\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/step-2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wizard — Step 3 Pricing & Inventory",
+      "item": [
+        {
+          "name": "Step 3 — Simple Product Variants",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"variants\": [\n    {\n      \"sku\": \"DOLO-650-15\",\n      \"vendorSku\": \"V-DOLO-001\",\n      \"barcode\": \"8901234567890\",\n      \"mrp\": 30,\n      \"sellingPrice\": 28,\n      \"stock\": 500,\n      \"expiresIn\": 365\n    }\n  ],\n  \"codAvailable\": true,\n  \"subscriptionEnabled\": false\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/step-3"
+          }
+        },
+        {
+          "name": "Step 3 — Variable Product Variants",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"variants\": [\n    {\n      \"sku\": \"WHEY-CHOC-1KG\",\n      \"mrp\": 2999,\n      \"sellingPrice\": 2499,\n      \"stock\": 50,\n      \"attributes\": [\n        { \"attributeRefId\": \"COL20261234\", \"value\": \"Chocolate\" },\n        { \"attributeRefId\": \"SIZ20264567\", \"value\": \"1kg\" }\n      ]\n    },\n    {\n      \"sku\": \"WHEY-VAN-1KG\",\n      \"mrp\": 2999,\n      \"sellingPrice\": 2499,\n      \"stock\": 30,\n      \"attributes\": [\n        { \"attributeRefId\": \"COL20261234\", \"value\": \"Vanilla\" },\n        { \"attributeRefId\": \"SIZ20264567\", \"value\": \"1kg\" }\n      ]\n    }\n  ],\n  \"subscriptionEnabled\": true\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/step-3"
+          }
+        },
+        {
+          "name": "Step 3 — Bundle Product",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bundleItems\": [\n    { \"childProductRefId\": \"PRO20261111\", \"quantity\": 1 },\n    { \"childProductRefId\": \"PRO20262222\", \"quantity\": 2 }\n  ],\n  \"variants\": [\n    {\n      \"sku\": \"COMBO-IMM-001\",\n      \"mrp\": 1500,\n      \"sellingPrice\": 1299,\n      \"stock\": 100\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/step-3"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wizard — Step 4 Policies",
+      "item": [
+        {
+          "name": "Step 4 — Save Policies",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"replaceAllowed\": true,\n  \"replaceWindowDays\": 7,\n  \"returnWindowDays\": 14\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/step-4"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wizard — Step 5 Review & Publish",
+      "item": [
+        {
+          "name": "Get Wizard State",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard",
+            "description": "Review screen — shows step completion, canSubmit, canPublish, full product."
+          }
+        },
+        {
+          "name": "Submit for Review",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/submit"
+          }
+        },
+        {
+          "name": "Checker — Approve",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/approve",
+            "description": "SUPER_ADMIN only."
+          }
+        },
+        {
+          "name": "Checker — Reject",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Missing compliance images in step 2\"\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/wizard/reject",
+            "description": "SUPER_ADMIN only."
+          }
+        },
+        {
+          "name": "Publish Product",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/products/{{productRefId}}/publish",
+            "description": "Go live after checker approval."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products (CRUD)",
+      "item": [
+        {
+          "name": "List Products",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/products?page=1&limit=20&status=draft",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "draft" },
+                { "key": "productType", "value": "simple", "disabled": true },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Product Detail",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products/{{productRefId}}"
+          }
+        },
+        {
+          "name": "Update Product (non-wizard)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated via PATCH\",\n  \"codAvailable\": true\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}"
+          }
+        },
+        {
+          "name": "Update Product Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"inactive\"\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/status"
+          }
+        },
+        {
+          "name": "Delete Product",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/products/{{productRefId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

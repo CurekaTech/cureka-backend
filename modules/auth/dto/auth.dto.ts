@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsNotEmpty,
@@ -7,6 +8,18 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  INDIAN_MOBILE_REGEX,
+  INDIAN_MOBILE_VALIDATION_MESSAGE,
+  normalizeMobileNumber,
+} from '../utils/mobile-number.util';
+
+const MOBILE_VALIDATION_OPTIONS = {
+  message: INDIAN_MOBILE_VALIDATION_MESSAGE,
+};
+
+const normalizeMobileField = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? normalizeMobileNumber(value) : value;
 
 // ── Admin Auth ───────────────────────────────────────────────────────────────
 
@@ -22,29 +35,28 @@ export class AdminLoginDto {
 
 // ── User Auth (OTP + Session) ────────────────────────────────────────────────
 
-/** Unified login entry — accepts mobile number (email support planned). */
+/** Unified login entry — 10-digit Indian mobile number only. */
 export class LoginDto {
-  @IsNotEmpty()
+  @Transform(normalizeMobileField)
+  @IsNotEmpty({ message: 'Mobile number is required.' })
   @IsString()
-  @MaxLength(255)
+  @Matches(INDIAN_MOBILE_REGEX, MOBILE_VALIDATION_OPTIONS)
   identifier!: string;
 }
 
 export class SendOtpDto {
-  @IsNotEmpty()
+  @Transform(normalizeMobileField)
+  @IsNotEmpty({ message: 'Mobile number is required.' })
   @IsString()
-  @MinLength(10)
-  @MaxLength(15)
-  @Matches(/^\d+$/, { message: 'mobileNumber must contain digits only' })
+  @Matches(INDIAN_MOBILE_REGEX, MOBILE_VALIDATION_OPTIONS)
   mobileNumber!: string;
 }
 
 export class VerifyOtpDto {
-  @IsNotEmpty()
+  @Transform(normalizeMobileField)
+  @IsNotEmpty({ message: 'Mobile number is required.' })
   @IsString()
-  @MinLength(10)
-  @MaxLength(15)
-  @Matches(/^\d+$/, { message: 'mobileNumber must contain digits only' })
+  @Matches(INDIAN_MOBILE_REGEX, MOBILE_VALIDATION_OPTIONS)
   mobileNumber!: string;
 
   @IsNotEmpty()

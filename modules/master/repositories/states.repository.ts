@@ -93,29 +93,6 @@ export class StatesRepository {
     return { data, total };
   }
 
-  async existsByNameInCountry(name: string, countryId: string): Promise<boolean> {
-    return (
-      (await this.repo.count({
-        where: { name, countryId },
-      })) > 0
-    );
-  }
-
-  async existsByNameInCountryExcluding(
-    name: string,
-    countryId: string,
-    excludeId: string,
-  ): Promise<boolean> {
-    return (
-      (await this.repo
-        .createQueryBuilder('state')
-        .where('state.name = :name', { name })
-        .andWhere('state.countryId = :countryId', { countryId })
-        .andWhere('state.id != :excludeId', { excludeId })
-        .getCount()) > 0
-    );
-  }
-
   async countCities(stateId: string): Promise<number> {
     const result = await this.repo.manager
       .createQueryBuilder()

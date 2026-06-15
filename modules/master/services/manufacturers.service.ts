@@ -57,9 +57,6 @@ export class ManufacturersService {
     logo: string | null,
     createdBy: string,
   ): Promise<IManufacturer> {
-    if (await this.manufacturersRepository.existsByName(dto.name)) {
-      throw new ConflictException(`A manufacturer with name "${dto.name}" already exists`);
-    }
     if (await this.manufacturersRepository.existsByCode(dto.code)) {
       throw new ConflictException(`A manufacturer with code "${dto.code}" already exists`);
     }
@@ -155,11 +152,6 @@ export class ManufacturersService {
     const existing = await this.manufacturersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Manufacturer with refId ${refId} not found`);
 
-    if (dto.name && dto.name !== existing.name) {
-      if (await this.manufacturersRepository.existsByNameExcluding(dto.name, existing.id)) {
-        throw new ConflictException(`A manufacturer with name "${dto.name}" already exists`);
-      }
-    }
     if (dto.code && dto.code !== existing.code) {
       if (await this.manufacturersRepository.existsByCodeExcluding(dto.code, existing.id)) {
         throw new ConflictException(`A manufacturer with code "${dto.code}" already exists`);

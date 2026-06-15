@@ -8,7 +8,6 @@ import { CountryEntity } from './country.entity';
 
 @Entity('manufacturers')
 export class ManufacturerEntity extends BaseEntity {
-  @Index({ unique: true })
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 

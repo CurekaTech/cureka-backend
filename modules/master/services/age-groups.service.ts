@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -30,10 +29,6 @@ export class AgeGroupsService {
 
   async create(dto: CreateAgeGroupDto, createdBy: string): Promise<IAgeGroup> {
     this.validateAgeRange(dto.fromYears, dto.fromMonths, dto.toYears, dto.toMonths);
-
-    if (await this.ageGroupsRepository.existsByName(dto.name)) {
-      throw new ConflictException(`An age group with name "${dto.name}" already exists`);
-    }
 
     const entity = await this.ageGroupsRepository.create({
       name: dto.name,
@@ -76,12 +71,6 @@ export class AgeGroupsService {
     const toYears = dto.toYears ?? existing.toYears;
     const toMonths = dto.toMonths ?? existing.toMonths;
     this.validateAgeRange(fromYears, fromMonths, toYears, toMonths);
-
-    if (dto.name && dto.name !== existing.name) {
-      if (await this.ageGroupsRepository.existsByNameExcluding(dto.name, existing.id)) {
-        throw new ConflictException(`An age group with name "${dto.name}" already exists`);
-      }
-    }
 
     const updated = await this.ageGroupsRepository.updateByRefId(refId, {
       ...dto,

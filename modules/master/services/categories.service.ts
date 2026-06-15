@@ -4,6 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  buildQueryCacheHash,
+  CacheKeys,
+  CacheModuleName,
+  CacheStrategyService,
+} from '@packages/cache';
+import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { CategoriesRepository } from '../repositories/categories.repository';
 import { AttributesRepository } from '../repositories/attributes.repository';
@@ -38,6 +46,8 @@ export class CategoriesService {
     private readonly categoriesRepository: CategoriesRepository,
     private readonly attributesRepository: AttributesRepository,
     private readonly multipartFormService: MultipartFormService,
+    private readonly cacheStrategy: CacheStrategyService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
@@ -90,7 +100,7 @@ export class CategoriesService {
     }
 
     const hierarchyId = await this.categoriesRepository.getNextHierarchyId();
-    const slug = await this.generateUniqueSlug(dto.name, hierarchyId, null);
+    const slug = this.generateSlugFromName(dto.name);
     const attributes = await this.resolveAttributes(dto.attributeRefIds ?? []);
 
     const entity = await this.categoriesRepository.createCategory(
@@ -115,6 +125,7 @@ export class CategoriesService {
       attributes,
     );
 
+    await this.emitCategoryUpdated(entity.refId, 'created');
     return mapCategoryEntityToResponse(entity);
   }
 
@@ -135,16 +146,42 @@ export class CategoriesService {
       }
     }
 
+    const paginationOptions = buildPaginationOptions(query);
     const options = {
-      ...buildPaginationOptions(query),
+      ...paginationOptions,
       hierarchyLevel: query.hierarchyLevel,
       parentCategoryId,
     };
-    const { data, total } = await this.categoriesRepository.findAllPaginated(options);
-    return buildPaginatedResult(mapCategoryEntitiesToResponse(data), total, options);
+    const queryHash = buildQueryCacheHash({
+      hierarchyLevel: query.hierarchyLevel,
+      parentCategoryRefId: query.parentCategoryRefId,
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      search: paginationOptions.search,
+      sortBy: paginationOptions.sortBy,
+      sortOrder: paginationOptions.sortOrder,
+    });
+
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.categories.list(queryHash),
+      module: CacheModuleName.CATEGORY,
+      loader: async () => {
+        const { data, total } = await this.categoriesRepository.findAllPaginated(options);
+        return buildPaginatedResult(mapCategoryEntitiesToResponse(data), total, options);
+      },
+    });
   }
 
   async findTree(): Promise<ICategoryTree[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.categories.tree(),
+      module: CacheModuleName.CATEGORY,
+      loader: () => this.loadTreeUncached(),
+    });
+  }
+
+  /** Used by cache listeners for write-through tree synchronization. */
+  async loadTreeUncached(): Promise<ICategoryTree[]> {
     const categories = await this.categoriesRepository.findTree();
     return this.buildTree(categories);
   }
@@ -189,7 +226,7 @@ export class CategoriesService {
     // Regenerate slug only when name changes
     let slug = existing.slug;
     if (dto.name && dto.name !== existing.name) {
-      slug = await this.generateUniqueSlug(dto.name, existing.hierarchyId, existing.id);
+      slug = this.generateSlugFromName(dto.name);
     }
 
     // Resolve attribute relations when attributeIds explicitly provided
@@ -225,6 +262,7 @@ export class CategoriesService {
       throw new NotFoundException(`Category with refId ${refId} not found after update`);
     }
 
+    await this.emitCategoryUpdated(refId, 'updated');
     return mapCategoryEntityToResponse(updated);
   }
 
@@ -248,6 +286,7 @@ export class CategoriesService {
       throw new NotFoundException(`Category with refId ${refId} not found after status update`);
     }
 
+    await this.emitCategoryUpdated(refId, 'status_updated');
     return mapCategoryEntityToResponse(updated);
   }
 
@@ -265,11 +304,22 @@ export class CategoriesService {
     }
 
     await this.categoriesRepository.softDeleteByRefId(refId);
+    await this.emitCategoryUpdated(refId, 'deleted');
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  private async emitCategoryUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.CATEGORY_UPDATED,
+      new CategoryUpdatedEvent(refId, action),
+    );
+  }
 
   private getNextHierarchyLevel(currentLevel: CategoryHierarchyLevel): CategoryHierarchyLevel {
     switch (currentLevel) {
@@ -314,34 +364,13 @@ export class CategoriesService {
     }
   }
 
-  private async generateUniqueSlug(
-    name: string,
-    hierarchyId: number,
-    excludeId: string | null,
-  ): Promise<string> {
-    const baseSlug = name
+  private generateSlugFromName(name: string): string {
+    return name
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, '')
       .trim()
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-');
-
-    const existingBase = excludeId
-      ? await this.categoriesRepository.findBySlugExcluding(baseSlug, excludeId)
-      : await this.categoriesRepository.findBySlug(baseSlug);
-
-    if (!existingBase) return baseSlug;
-
-    const slugWithId = `${baseSlug}-${hierarchyId}`;
-    const existingWithId = excludeId
-      ? await this.categoriesRepository.findBySlugExcluding(slugWithId, excludeId)
-      : await this.categoriesRepository.findBySlug(slugWithId);
-
-    if (!existingWithId) return slugWithId;
-
-    throw new ConflictException(
-      `Could not generate a unique slug for "${name}". Please choose a more specific name.`,
-    );
   }
 
   private async resolveAttributes(attributeRefIds: string[]): Promise<AttributeEntity[]> {

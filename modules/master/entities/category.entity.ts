@@ -45,7 +45,6 @@ export class CategoryEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 500, nullable: true })
   banner!: string | null;
 
-  @Index({ unique: true })
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
 

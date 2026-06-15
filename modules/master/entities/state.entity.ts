@@ -5,7 +5,6 @@ import { CountryEntity } from './country.entity';
 import { CityEntity } from './city.entity';
 
 @Entity('states')
-@Index('UQ_states_country_id_name', ['countryId', 'name'], { unique: true })
 export class StateEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
