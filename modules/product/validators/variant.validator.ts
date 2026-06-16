@@ -53,6 +53,19 @@ export const validateUniqueVariantCombinations = (
   }
 };
 
+export const validateVariantAttributeScope = (
+  variantAttributes: Array<{ attributeRefId: string }>,
+  allowedAttributeRefIds: Set<string>,
+): void => {
+  for (const item of variantAttributes) {
+    if (!allowedAttributeRefIds.has(item.attributeRefId)) {
+      throw new BadRequestException(
+        `Attribute refId "${item.attributeRefId}" is not configured for this product`,
+      );
+    }
+  }
+};
+
 export const computeDiscountPercentage = (mrp: number, sellingPrice: number): number => {
   if (mrp <= 0) return 0;
   return Math.round(((mrp - sellingPrice) / mrp) * 10000) / 100;

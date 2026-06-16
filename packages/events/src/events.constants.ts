@@ -22,6 +22,7 @@ export const EVENTS = {
   BANNER_UPDATED: 'cache.banner.updated',
   IMPORTER_UPDATED: 'cache.importer.updated',
   PACKER_UPDATED: 'cache.packer.updated',
+  SUBSCRIPTION_FREQUENCY_UPDATED: 'cache.subscription-frequency.updated',
 } as const;
 
 export type AppEvent = (typeof EVENTS)[keyof typeof EVENTS];

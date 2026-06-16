@@ -4,6 +4,7 @@ export enum CacheModuleName {
   BRAND = 'brand',
   IMPORTER = 'importer',
   PACKER = 'packer',
+  SUBSCRIPTION_FREQUENCY = 'subscription_frequency',
   CATEGORY = 'category',
   PRODUCT = 'product',
   HOMEPAGE = 'homepage',

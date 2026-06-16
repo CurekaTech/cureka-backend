@@ -28,5 +28,5 @@ export const mapHeaderCategoryEntity = (
   hierarchyLevel: entity.hierarchyLevel,
   isInHeader: entity.isInHeader,
   isInShopBy: entity.isInShopBy,
-  children,
+  children, 
 });
