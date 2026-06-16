@@ -24,6 +24,7 @@ import {
   CreateProductMediaDto,
   CreateVariantDto,
 } from './variant.dto';
+import { CustomProductFaqDto } from './product-support.dto';
 
 export class CreateProductDto {
   @ApiPropertyOptional({ description: 'Nullable until vendor module is live' })
@@ -48,15 +49,15 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ enum: ProductType })
+  @ApiProperty({ enum: ProductType, description: 'simple = Single Product, variable = Variant Product' })
   @IsNotEmpty()
   @IsEnum(ProductType)
   productType!: ProductType;
 
-  @ApiProperty({ example: 'MED20261234' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({ example: 'MED20261234' })
+  @IsOptional()
   @IsRefId()
-  productNatureRefId!: string;
+  productNatureRefId?: string;
 
   @ApiProperty({ example: 'HEA20260016' })
   @IsNotEmpty()
@@ -78,10 +79,10 @@ export class CreateProductDto {
   @IsRefId()
   subSubSubCategoryRefId?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ example: 'BRA20261234' })
+  @IsNotEmpty()
   @IsRefId()
-  brandRefId?: string;
+  brandRefId!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -97,6 +98,93 @@ export class CreateProductDto {
   @IsOptional()
   @IsRefId()
   importerRefId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsRefId()
+  countryOfOriginRefId?: string;
+
+  @ApiPropertyOptional({ type: [String], description: 'Required when productType is variable' })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.VARIABLE)
+  @IsOptional()
+  @IsArray()
+  @IsRefId({ each: true })
+  @ArrayMinSize(1)
+  attributeRefIds?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  highlights?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  expertAdvice?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  keyIngredients?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  otherIngredients?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  preventiveNotes?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  accessoriesSpecifications?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  directionsOfUse?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  feedingTable?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  safetyInformation?: string;
+
+  @ApiPropertyOptional({ example: '30 g' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productWeight?: string;
+
+  @ApiPropertyOptional({ example: '15 x 4 x 3 cm' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productDimensions?: string;
+
+  @ApiPropertyOptional({ example: 24, description: 'Shelf life in months' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expiresInMonths?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  returnAllowed?: boolean;
+
+  @ApiPropertyOptional({ example: '7 Days Return' })
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
 
   @ApiPropertyOptional({ default: false })
   @IsOptional()
@@ -161,7 +249,14 @@ export class CreateProductDto {
   @IsString({ each: true })
   tagNames?: string[];
 
-  @ApiPropertyOptional({ type: [String] })
+  @ApiPropertyOptional({ type: [CustomProductFaqDto], description: 'Inline product FAQs (question + answer)' })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CustomProductFaqDto)
+  customFaqs?: CustomProductFaqDto[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Link existing reusable product FAQs by refId' })
   @IsOptional()
   @IsArray()
   @IsRefId({ each: true })

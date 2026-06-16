@@ -1,9 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, IsArray, ValidateNested } from 'class-validator';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
-import { IsArray } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { CreateVariantDto } from './variant.dto';
+
+export class CustomProductFaqDto {
+  @ApiProperty({ example: 'Can it be used daily?' })
+  @IsNotEmpty()
+  @IsString()
+  question!: string;
+
+  @ApiProperty({ example: 'Yes, as directed on the label.' })
+  @IsNotEmpty()
+  @IsString()
+  answer!: string;
+}
 
 export class CreateProductFaqDto {
   @ApiProperty()

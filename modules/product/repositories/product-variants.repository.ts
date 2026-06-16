@@ -138,11 +138,6 @@ export class ProductVariantsRepository {
     await this.repo.softDelete(variantId);
   }
 
-  async softDeleteByProductId(productId: string, manager?: EntityManager): Promise<void> {
-    const repository = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
-    await repository.softDelete({ productId });
-  }
-
   private async assertUniqueSkus(dto: CreateVariantDto): Promise<void> {
     if (await this.existsBySku(dto.sku)) {
       throw new ConflictException(`SKU "${dto.sku}" already exists`);

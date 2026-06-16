@@ -14,6 +14,7 @@ import { BannerEntity } from './entities/banner.entity';
 import { ImporterEntity } from './entities/importer.entity';
 import { PackerEntity } from './entities/packer.entity';
 import { ProductNatureEntity } from './entities/product-nature.entity';
+import { SubscriptionFrequencyEntity } from './entities/subscription-frequency.entity';
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -27,6 +28,7 @@ import { BannersRepository } from './repositories/banners.repository';
 import { ImportersRepository } from './repositories/importers.repository';
 import { PackersRepository } from './repositories/packers.repository';
 import { ProductNaturesRepository } from './repositories/product-natures.repository';
+import { SubscriptionFrequenciesRepository } from './repositories/subscription-frequencies.repository';
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -41,6 +43,7 @@ import { BannersCacheSyncService } from './services/banners-cache-sync.service';
 import { ImportersService } from './services/importers.service';
 import { PackersService } from './services/packers.service';
 import { ProductNaturesService } from './services/product-natures.service';
+import { SubscriptionFrequenciesService } from './services/subscription-frequencies.service';
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -54,11 +57,13 @@ import { BannersController } from './controllers/banners.controller';
 import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
 import { ProductNaturesController } from './controllers/product-natures.controller';
+import { SubscriptionFrequenciesController } from './controllers/subscription-frequencies.controller';
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
 import { BannerCacheListener } from './listeners/banner-cache.listener';
 import { ImporterCacheListener } from './listeners/importer-cache.listener';
 import { PackerCacheListener } from './listeners/packer-cache.listener';
+import { SubscriptionFrequencyCacheListener } from './listeners/subscription-frequency-cache.listener';
 import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
 
 @Module({
@@ -77,6 +82,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
       ImporterEntity,
       PackerEntity,
       ProductNatureEntity,
+      SubscriptionFrequencyEntity,
     ]),
     UploadsModule,
   ],
@@ -94,6 +100,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ImportersController,
     PackersController,
     ProductNaturesController,
+    SubscriptionFrequenciesController,
   ],
   providers: [
     AttributesService,
@@ -123,19 +130,22 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     PackersRepository,
     ProductNaturesService,
     ProductNaturesRepository,
+    SubscriptionFrequenciesService,
+    SubscriptionFrequenciesRepository,
     CategoriesCacheSyncService,
     AttributeCacheListener,
     CategoryCacheListener,
     BannerCacheListener,
     ImporterCacheListener,
     PackerCacheListener,
+    SubscriptionFrequencyCacheListener,
   ],
   exports: [
     AttributesService,
     BrandsService,
     CategoriesService,
     CategoriesRepository,
-    CountriesService,
+    CountriesRepository,
     StatesService,
     CitiesService,
     HealthConcernsService,
@@ -146,6 +156,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     PackersService,
     ProductNaturesService,
     ProductNaturesRepository,
+    SubscriptionFrequenciesService,
+    SubscriptionFrequenciesRepository,
     AttributesRepository,
     CategoriesRepository,
     BrandsRepository,

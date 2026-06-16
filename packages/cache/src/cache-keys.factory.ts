@@ -21,6 +21,10 @@ export const CacheKeys = {
     list: (queryHash: string) => `packers:list:${queryHash}`,
     listPattern: () => 'packers:list:*',
   },
+  subscriptionFrequencies: {
+    list: (queryHash: string) => `subscription-frequencies:list:${queryHash}`,
+    listPattern: () => 'subscription-frequencies:list:*',
+  },
   categories: {
     tree: () => 'categories:tree',
     treePattern: () => 'categories:tree*',

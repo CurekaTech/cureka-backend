@@ -58,6 +58,11 @@ export interface IProductFaq {
   answer: string;
 }
 
+export interface IProductAttribute {
+  refId: string;
+  name: string;
+}
+
 export interface IProduct {
   id: string;
   refId: string;
@@ -66,30 +71,47 @@ export interface IProduct {
   slug: string;
   description: string | null;
   productType: ProductType;
-  productNatureRefId: string;
-  productNatureName: string;
+  productNatureRefId: string | null;
+  productNatureName: string | null;
   categoryRefId: string;
   categoryName: string;
   subCategoryRefId: string | null;
   subSubCategoryRefId: string | null;
   subSubSubCategoryRefId: string | null;
-  brandRefId: string | null;
+  brandRefId: string;
+  brandName: string;
   manufacturerRefId: string | null;
   packerRefId: string | null;
   importerRefId: string | null;
+  countryOfOriginRefId: string | null;
+  countryOfOriginName: string | null;
   status: ProductStatus;
-  creationStep: number;
   rejectionReason: string | null;
+  highlights: string | null;
+  expertAdvice: string | null;
+  keyIngredients: string | null;
+  otherIngredients: string | null;
+  preventiveNotes: string | null;
+  accessoriesSpecifications: string | null;
+  directionsOfUse: string | null;
+  feedingTable: string | null;
+  safetyInformation: string | null;
+  productWeight: string | null;
+  productDimensions: string | null;
+  expiresInMonths: number | null;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   emiAvailable: boolean;
   replaceAllowed: boolean;
   replaceWindowDays: number | null;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
   returnWindowDays: number | null;
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
   publishedAt: Date | null;
+  attributes: IProductAttribute[];
   variants: IProductVariant[];
   media: IProductMedia[];
   healthConcernRefIds: string[];

@@ -22,6 +22,7 @@ import {
   UpdateProductDto,
   UpdateProductStatusDto,
 } from '../dto/product.dto';
+import { RejectProductDto } from '../dto/reject-product.dto';
 
 @ApiTags('Products')
 @ApiBearerAuth()
@@ -30,8 +31,8 @@ import {
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  @ApiOperation({ summary: 'Create product draft with variants/bundle mappings' })
-  @ResponseMessage('Product draft created successfully')
+  @ApiOperation({ summary: 'Create product and submit for checker review' })
+  @ResponseMessage('Product created and submitted for review')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -45,6 +46,37 @@ export class ProductsController {
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productsService.findAll(query);
+  }
+
+  @ApiOperation({ summary: 'Re-submit product for checker approval (after rejection or draft edits)' })
+  @ResponseMessage('Product submitted for review')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post(':refId/submit-for-review')
+  submitForReview(
+    @Param('refId', RefIdPipe) refId: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.submitForReview(refId, user.email);
+  }
+
+  @ApiOperation({ summary: 'Checker approve product (go live)' })
+  @ResponseMessage('Product approved and published')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':refId/approve')
+  approve(@Param('refId', RefIdPipe) refId: string, @CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.productsService.approve(refId, user.email);
+  }
+
+  @ApiOperation({ summary: 'Checker reject product' })
+  @ResponseMessage('Product rejected')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':refId/reject')
+  reject(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: RejectProductDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.reject(refId, dto, user.email);
   }
 
   @ApiOperation({ summary: 'Get product detail by refId' })
