@@ -131,11 +131,15 @@ export class CreateProductMediaDto {
   @IsEnum(ProductMediaType)
   type!: ProductMediaType;
 
-  @ApiProperty({ example: '/uploads/images/product.png' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({
+    example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
+    description:
+      'Storage path from upload API or omit when sending image files via multipart "images" field',
+  })
+  @IsOptional()
   @IsString()
   @MaxLength(1000)
-  url!: string;
+  url?: string;
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()

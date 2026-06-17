@@ -19,10 +19,12 @@ import {
   CacheStrategyService,
 } from '@packages/cache';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
+import { FastifyRequest } from 'fastify';
 import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { mapSpecificationFields } from '../utils/product-payload.util';
+import { collectProductMedia } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
@@ -38,6 +40,7 @@ import { CategoriesRepository } from '@modules/master/repositories/categories.re
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { ProductMultipartService } from './product-multipart.service';
 
 @Injectable()
 export class ProductsService {
@@ -53,7 +56,18 @@ export class ProductsService {
     private readonly brandsRepository: BrandsRepository,
     private readonly productNaturesRepository: ProductNaturesRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly productMultipartService: ProductMultipartService,
   ) {}
+
+  async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
+    const dto = await this.productMultipartService.parseCreateProduct(req);
+    return this.createDraft(dto, createdBy);
+  }
+
+  async createFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
+    const dto = await this.productMultipartService.validateJsonBody(body);
+    return this.createDraft(dto, createdBy);
+  }
 
   async createDraft(dto: CreateProductDto, createdBy: string): Promise<IProduct> {
     const masters = await this.masterResolver.resolve(dto);
@@ -141,12 +155,13 @@ export class ProductsService {
         masters.attributeIds,
       );
 
-      if (dto.media?.length) {
+      const productMedia = collectProductMedia(dto);
+      if (productMedia.length) {
         const variants = await manager.getRepository(ProductVariantEntity).find({
           where: { productId: created.id },
         });
         const skuToVariantId = new Map(variants.map((v) => [v.sku, v.id]));
-        await this.relationsRepository.createMedia(manager, created.id, dto.media, skuToVariantId);
+        await this.relationsRepository.createMedia(manager, created.id, productMedia, skuToVariantId);
       }
 
       return created;
@@ -456,23 +471,24 @@ export class ProductsService {
   }
 
   private async enrichProduct(product: IProduct): Promise<IProduct> {
-    return {
-      ...product,
-      media: await Promise.all(
-        product.media.map(async (item) => ({
+    const [media, wellnessGoals] = await Promise.all([
+      Promise.all(
+        (product.media ?? []).map(async (item) => ({
           ...item,
           url: (await this.storageUrlEnricher.resolve(item.url)) ?? item.url,
         })),
       ),
-      wellnessGoals: await Promise.all(
-        product.wellnessGoals.map(async (goal) => ({
+      Promise.all(
+        (product.wellnessGoals ?? []).map(async (goal) => ({
           ...goal,
           image: goal.image
             ? ((await this.storageUrlEnricher.resolve(goal.image)) ?? goal.image)
             : null,
         })),
       ),
-    };
+    ]);
+
+    return { ...product, media, wellnessGoals };
   }
 
   private async enrichPaginatedProducts(
