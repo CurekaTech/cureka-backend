@@ -65,4 +65,7 @@ export const envValidationSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
   GCS_SIGNED_URL_TTL_SECONDS: Joi.number().integer().min(60).max(604800).default(3600),
+  // Unicommerce integration credentials — issued by Cureka to Unicommerce per seller
+  UNICOMMERCE_USERNAME: Joi.string().optional(),
+  UNICOMMERCE_PASSWORD: Joi.string().optional(),
 });
