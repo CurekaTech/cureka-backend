@@ -48,6 +48,6 @@ export class UsersController {
     @Req() req: FastifyRequest,
   ): Promise<IUser> {
     const uploaded = await this.uploadsService.uploadFromRequest(UploadFolder.AVATARS, req);
-    return this.usersService.setProfileImageUrl(user.sub, uploaded.url);
+    return this.usersService.setProfileImageUrl(user.sub, uploaded.path);
   }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MasterModule } from '@modules/master/master.module';
+import { UploadsModule } from '@modules/uploads/uploads.module';
 import { ProductEntity } from './entities/product.entity';
 import { ProductVariantEntity } from './entities/product-variant.entity';
 import { VariantAttributeValueEntity } from './entities/variant-attribute-value.entity';
@@ -33,6 +34,7 @@ import { ProductCacheListener } from './listeners/product-cache.listener';
 @Module({
   imports: [
     MasterModule,
+    UploadsModule,
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,

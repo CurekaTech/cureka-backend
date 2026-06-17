@@ -1,25 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createWriteStream } from 'fs';
-import { mkdir, stat } from 'fs/promises';
-import { extname, join } from 'path';
+import { mkdir, stat, unlink } from 'fs/promises';
+import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
-import {
-  IStorageProvider,
-  IUploadFileInput,
-  IUploadFileResult,
-} from './storage.provider.interface';
-
-const MIME_TO_EXTENSION: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'image/gif': '.gif',
-};
+import { IUploadFileInput, IUploadFileResult } from './storage.provider.interface';
+import { IStorageProviderWithAccessibleUrl } from './storage-accessible-url.interface';
+import { resolveUploadExtension } from './mime-extension.util';
 
 @Injectable()
-export class LocalStorageProvider implements IStorageProvider {
+export class LocalStorageProvider implements IStorageProviderWithAccessibleUrl {
   private readonly uploadDir: string;
 
   constructor(private readonly configService: ConfigService) {
@@ -27,7 +18,7 @@ export class LocalStorageProvider implements IStorageProvider {
   }
 
   async upload(input: IUploadFileInput): Promise<IUploadFileResult> {
-    const extension = this.resolveExtension(input.mimetype, input.originalFilename);
+    const extension = resolveUploadExtension(input.mimetype, input.originalFilename);
     const filename = `${randomUUID()}${extension}`;
     const folderDir = join(this.uploadDir, input.folder);
     const absolutePath = join(folderDir, filename);
@@ -38,31 +29,23 @@ export class LocalStorageProvider implements IStorageProvider {
     await pipeline(input.stream, createWriteStream(absolutePath));
 
     const fileStat = await stat(absolutePath);
+    const accessibleUrl = await this.getAccessibleUrl(relativePath);
 
     return {
       path: relativePath,
-      url: `/uploads/${relativePath}`,
+      url: accessibleUrl,
       filename,
       mimetype: input.mimetype,
       size: fileStat.size,
     };
   }
 
-  async delete(relativePath: string): Promise<void> {
-    const { unlink } = await import('fs/promises');
-    const absolutePath = join(this.uploadDir, relativePath);
-    await unlink(absolutePath);
+  async getAccessibleUrl(relativePath: string): Promise<string> {
+    return `/uploads/${relativePath.replace(/^\/+/, '')}`;
   }
 
-  private resolveExtension(mimetype: string, originalFilename: string): string {
-    const fromMime = MIME_TO_EXTENSION[mimetype];
-    if (fromMime) return fromMime;
-
-    const fromName = extname(originalFilename).toLowerCase();
-    if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(fromName)) {
-      return fromName === '.jpeg' ? '.jpg' : fromName;
-    }
-
-    return '.bin';
+  async delete(relativePath: string): Promise<void> {
+    const absolutePath = join(this.uploadDir, relativePath);
+    await unlink(absolutePath);
   }
 }

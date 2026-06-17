@@ -61,18 +61,19 @@ async function bootstrap(): Promise<void> {
     limits: { fileSize: uploadMaxFileSize, files: 5 },
   });
 
-  // Serve locally stored files — URL prefix /uploads/ (outside /api/v1)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (app as any).register(fastifyStatic, {
-    root: uploadDir,
-    prefix: '/uploads/',
-    decorateReply: false,
-  });
+  // Serve locally stored files when using local storage driver
+  if ((process.env['STORAGE_DRIVER'] ?? 'local') === 'local') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (app as any).register(fastifyStatic, {
+      root: uploadDir,
+      prefix: '/uploads/',
+      decorateReply: false,
+    });
+  }
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
 
-  // Global prefix
   app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX);
 
   const swaggerConfig = new DocumentBuilder()

@@ -2,6 +2,7 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { STORAGE_PROVIDER } from './storage.constants';
 import { LocalStorageProvider } from './local-storage.provider';
+import { GcsStorageProvider } from './gcs-storage.provider';
 import { StorageService } from './storage.service';
 import { IStorageProvider } from './storage.provider.interface';
 
@@ -18,9 +19,7 @@ export class StorageModule {
             const driver = configService.get<string>('storage.driver') ?? 'local';
 
             if (driver === 'gcs') {
-              throw new Error(
-                'GCS storage driver is not configured yet. Set STORAGE_DRIVER=local for now.',
-              );
+              return new GcsStorageProvider(configService);
             }
 
             return new LocalStorageProvider(configService);

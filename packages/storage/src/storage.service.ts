@@ -6,6 +6,11 @@ import {
   IUploadFileResult,
 } from './storage.provider.interface';
 import { ALLOWED_IMAGE_MIME_TYPES, STORAGE_PROVIDER } from './storage.constants';
+import { normalizeStorageKey } from './storage-path.util';
+import {
+  hasAccessibleUrlSupport,
+  IStorageProviderWithAccessibleUrl,
+} from './storage-accessible-url.interface';
 
 @Injectable()
 export class StorageService {
@@ -19,11 +24,29 @@ export class StorageService {
     return this.provider.upload(input);
   }
 
+  /** Persist only the object key in the database. */
+  normalizeStorageKey(stored: string | null | undefined): string | null {
+    return normalizeStorageKey(stored);
+  }
+
+  /** Issue a fresh browser-accessible URL (signed for GCS, /uploads for local). */
+  async resolveAccessibleUrl(stored: string | null | undefined): Promise<string | null> {
+    const key = normalizeStorageKey(stored);
+    if (!key) return null;
+
+    if (!hasAccessibleUrlSupport(this.provider)) {
+      return stored ?? null;
+    }
+
+    return (this.provider as IStorageProviderWithAccessibleUrl).getAccessibleUrl(key);
+  }
+
   async delete(relativePath: string): Promise<void> {
-    if (!relativePath || relativePath.includes('..')) {
+    const key = normalizeStorageKey(relativePath);
+    if (!key || key.includes('..')) {
       throw new BadRequestException('Invalid file path');
     }
-    await this.provider.delete(relativePath);
+    await this.provider.delete(key);
   }
 
   private assertAllowedMimeType(mimetype: string): void {

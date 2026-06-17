@@ -16,6 +16,9 @@ import { generateSlug } from '@packages/common/pagination.util';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { BrandEntity } from '../entities/brand.entity';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const BRAND_MEDIA_FIELDS = ['logo', 'banner'] as const;
 
 const BRAND_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
@@ -27,6 +30,7 @@ export class BrandsService {
   constructor(
     private readonly brandsRepository: BrandsRepository,
     private readonly multipartFormService: MultipartFormService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBrand> {
@@ -86,13 +90,14 @@ export class BrandsService {
       createdBy,
     });
 
-    return mapBrandEntityToResponse(entity);
+    return this.enrichBrand(mapBrandEntityToResponse(entity));
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IBrand>> {
     const paginationOptions = buildPaginationOptions(query);
     const { data, total } = await this.brandsRepository.findAllPaginated(paginationOptions);
-    return buildPaginatedResult(mapBrandEntitiesToResponse(data), total, paginationOptions);
+    const result = buildPaginatedResult(mapBrandEntitiesToResponse(data), total, paginationOptions);
+    return this.storageUrlEnricher.enrichPaginated(result, [...BRAND_MEDIA_FIELDS]);
   }
 
   async findOne(refId: string): Promise<IBrand> {
@@ -100,7 +105,7 @@ export class BrandsService {
     if (!entity) {
       throw new NotFoundException(`Brand with refId ${refId} not found`);
     }
-    return mapBrandEntityToResponse(entity);
+    return this.enrichBrand(mapBrandEntityToResponse(entity));
   }
 
   async update(
@@ -135,7 +140,7 @@ export class BrandsService {
       throw new NotFoundException(`Brand with refId ${refId} not found after update`);
     }
 
-    return mapBrandEntityToResponse(result);
+    return this.enrichBrand(mapBrandEntityToResponse(result));
   }
 
   async updateStatus(
@@ -157,7 +162,7 @@ export class BrandsService {
       throw new NotFoundException(`Brand with refId ${refId} not found after status update`);
     }
 
-    return mapBrandEntityToResponse(updated);
+    return this.enrichBrand(mapBrandEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -166,6 +171,10 @@ export class BrandsService {
       throw new NotFoundException(`Brand with refId ${refId} not found`);
     }
     await this.brandsRepository.softDeleteByRefId(refId);
+  }
+
+  private enrichBrand(brand: IBrand): Promise<IBrand> {
+    return this.storageUrlEnricher.enrichFields(brand, [...BRAND_MEDIA_FIELDS]);
   }
 }
 

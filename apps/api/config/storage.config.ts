@@ -7,6 +7,11 @@ export const resolveUploadDir = (dir?: string): string => {
   return isAbsolute(value) ? value : join(process.cwd(), value);
 };
 
+export const resolveGcsCredentialsPath = (pathValue?: string): string | undefined => {
+  if (!pathValue) return undefined;
+  return isAbsolute(pathValue) ? pathValue : join(process.cwd(), pathValue);
+};
+
 export const storageConfig = registerAs('storage', () => ({
   driver: process.env['STORAGE_DRIVER'] ?? 'local',
   uploadDir: resolveUploadDir(),
@@ -14,4 +19,9 @@ export const storageConfig = registerAs('storage', () => ({
   allowedMimeTypes: process.env['UPLOAD_ALLOWED_MIME_TYPES']
     ? process.env['UPLOAD_ALLOWED_MIME_TYPES'].split(',').map((t) => t.trim()).filter(Boolean)
     : [...ALLOWED_IMAGE_MIME_TYPES],
+  gcs: {
+    bucket: process.env['GCS_BUCKET_NAME'],
+    credentialsPath: resolveGcsCredentialsPath(process.env['GCS_CREDENTIALS_PATH']),
+    signedUrlTtlSeconds: parseInt(process.env['GCS_SIGNED_URL_TTL_SECONDS'] ?? '3600', 10),
+  },
 }));
