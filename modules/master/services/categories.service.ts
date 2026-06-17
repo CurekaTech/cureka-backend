@@ -34,6 +34,9 @@ import {
 } from '@packages/common';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const CATEGORY_MEDIA_FIELDS = ['image', 'banner'] as const;
 
 const CATEGORY_UPLOAD_FIELDS = {
   image: UploadFolder.IMAGES,
@@ -48,6 +51,7 @@ export class CategoriesService {
     private readonly multipartFormService: MultipartFormService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
@@ -126,7 +130,7 @@ export class CategoriesService {
     );
 
     await this.emitCategoryUpdated(entity.refId, 'created');
-    return mapCategoryEntityToResponse(entity);
+    return this.enrichCategory(mapCategoryEntityToResponse(entity));
   }
 
   async findAll(query: CategoryQueryDto): Promise<PaginatedResult<ICategory>> {
@@ -169,15 +173,17 @@ export class CategoriesService {
         const { data, total } = await this.categoriesRepository.findAllPaginated(options);
         return buildPaginatedResult(mapCategoryEntitiesToResponse(data), total, options);
       },
-    });
+    }).then((result) => this.storageUrlEnricher.enrichPaginated(result, [...CATEGORY_MEDIA_FIELDS]));
   }
 
   async findTree(): Promise<ICategoryTree[]> {
-    return this.cacheStrategy.cacheAside({
+    const tree = await this.cacheStrategy.cacheAside({
       key: CacheKeys.categories.tree(),
       module: CacheModuleName.CATEGORY,
       loader: () => this.loadTreeUncached(),
     });
+
+    return this.enrichCategoryTree(tree);
   }
 
   /** Used by cache listeners for write-through tree synchronization. */
@@ -191,7 +197,7 @@ export class CategoriesService {
     if (!entity) {
       throw new NotFoundException(`Category with refId ${refId} not found`);
     }
-    return mapCategoryEntityToResponse(entity);
+    return this.enrichCategory(mapCategoryEntityToResponse(entity));
   }
 
   async update(
@@ -263,7 +269,7 @@ export class CategoriesService {
     }
 
     await this.emitCategoryUpdated(refId, 'updated');
-    return mapCategoryEntityToResponse(updated);
+    return this.enrichCategory(mapCategoryEntityToResponse(updated));
   }
 
   async updateStatus(
@@ -287,7 +293,7 @@ export class CategoriesService {
     }
 
     await this.emitCategoryUpdated(refId, 'status_updated');
-    return mapCategoryEntityToResponse(updated);
+    return this.enrichCategory(mapCategoryEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -420,5 +426,20 @@ export class CategoriesService {
     sortByPosition(roots);
 
     return roots;
+  }
+
+  private enrichCategory(category: ICategory): Promise<ICategory> {
+    return this.storageUrlEnricher.enrichFields(category, [...CATEGORY_MEDIA_FIELDS]);
+  }
+
+  private async enrichCategoryTree(nodes: ICategoryTree[]): Promise<ICategoryTree[]> {
+    return Promise.all(
+      nodes.map(async (node) => ({
+        ...(await this.storageUrlEnricher.enrichFields(node, [...CATEGORY_MEDIA_FIELDS])),
+        children: node.children.length
+          ? await this.enrichCategoryTree(node.children)
+          : node.children,
+      })),
+    );
   }
 }

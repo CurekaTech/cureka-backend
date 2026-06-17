@@ -8,10 +8,13 @@ import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity'
 import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity';
 import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductFaqEntity } from '../entities/product-faq.entity';
-import { ProductVariantEntity } from '../entities/product-variant.entity';
+import { ProductAttributeMappingEntity } from '../entities/product-attribute-mapping.entity';
 import { CreateProductMediaDto } from '../dto/variant.dto';
+import { CustomProductFaqDto } from '../dto/product-support.dto';
+import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
+import { normalizeStorageKey } from '@packages/storage';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -30,6 +33,8 @@ export class ProductRelationsRepository {
     private readonly bundleRepo: Repository<ProductBundleEntity>,
     @InjectRepository(ProductFaqEntity)
     private readonly productFaqRepo: Repository<ProductFaqEntity>,
+    @InjectRepository(ProductAttributeMappingEntity)
+    private readonly attributeMappingRepo: Repository<ProductAttributeMappingEntity>,
   ) {}
 
   async syncHealthConcerns(
@@ -80,6 +85,32 @@ export class ProductRelationsRepository {
     );
   }
 
+  async createCustomProductFaqs(
+    manager: EntityManager,
+    customFaqs: CustomProductFaqDto[],
+    createdBy: string,
+  ): Promise<string[]> {
+    const repo = manager.getRepository(ProductFaqEntity);
+    const productFaqIds: string[] = [];
+
+    for (const faq of customFaqs) {
+      const saved = await repo.save(
+        repo.create({
+          question: faq.question.trim(),
+          answer: faq.answer.trim(),
+          status: ProductFaqStatus.ACTIVE,
+          refId: await generateUniqueRefId(faq.question.slice(0, 20), async (refId) => {
+            return (await repo.count({ where: { refId } })) > 0;
+          }),
+          createdBy,
+        }),
+      );
+      productFaqIds.push(saved.id);
+    }
+
+    return productFaqIds;
+  }
+
   async syncProductFaqs(
     manager: EntityManager,
     productId: string,
@@ -112,6 +143,17 @@ export class ProductRelationsRepository {
     );
   }
 
+  async syncProductAttributes(
+    manager: EntityManager,
+    productId: string,
+    attributeIds: string[],
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductAttributeMappingEntity);
+    await repo.delete({ productId });
+    if (!attributeIds.length) return;
+    await repo.save(attributeIds.map((attributeId) => repo.create({ productId, attributeId })));
+  }
+
   async createMedia(
     manager: EntityManager,
     productId: string,
@@ -126,28 +168,12 @@ export class ProductRelationsRepository {
           productId,
           variantId: item.variantSku ? (skuToVariantId.get(item.variantSku) ?? null) : null,
           type: item.type,
-          url: item.url,
+          url: normalizeStorageKey(item.url) ?? item.url,
           sortOrder: item.sortOrder ?? 0,
           isPrimary: item.isPrimary ?? false,
         }),
       ),
     );
-  }
-
-  async replaceMedia(
-    manager: EntityManager,
-    productId: string,
-    media: CreateProductMediaDto[],
-  ): Promise<void> {
-    const repo = manager.getRepository(ProductMediaEntity);
-    await repo.delete({ productId });
-    if (!media.length) return;
-
-    const variants = await manager.getRepository(ProductVariantEntity).find({
-      where: { productId },
-    });
-    const skuToVariantId = new Map(variants.map((variant) => [variant.sku, variant.id]));
-    await this.createMedia(manager, productId, media, skuToVariantId);
   }
 
   async findProductFaqByRefId(refId: string): Promise<ProductFaqEntity | null> {

@@ -7,9 +7,11 @@ import { ManufacturersRepository } from '@modules/master/repositories/manufactur
 import { PackersRepository } from '@modules/master/repositories/packers.repository';
 import { ImportersRepository } from '@modules/master/repositories/importers.repository';
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
+import { CountriesRepository } from '@modules/master/repositories/countries.repository';
 import { CreateProductDto } from '../dto/product.dto';
 import { IResolvedProductMasters } from '../interfaces/product-creation-context.interface';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
+import { ProductType } from '../enums/product-type.enum';
 
 @Injectable()
 export class ProductMasterResolverService {
@@ -22,19 +24,29 @@ export class ProductMasterResolverService {
     private readonly packersRepository: PackersRepository,
     private readonly importersRepository: ImportersRepository,
     private readonly attributesRepository: AttributesRepository,
+    private readonly countriesRepository: CountriesRepository,
     private readonly productRelationsRepository: ProductRelationsRepository,
   ) {}
 
   async resolve(dto: CreateProductDto): Promise<IResolvedProductMasters> {
-    const productNature = await this.requireByRefId(
-      this.productNaturesRepository.findByRefId.bind(this.productNaturesRepository),
-      dto.productNatureRefId,
-      'Product nature',
-    );
+    const productNature = dto.productNatureRefId
+      ? await this.requireByRefId(
+          this.productNaturesRepository.findByRefId.bind(this.productNaturesRepository),
+          dto.productNatureRefId,
+          'Product nature',
+        )
+      : null;
+
     const category = await this.requireByRefId(
       this.categoriesRepository.findByRefId.bind(this.categoriesRepository),
       dto.categoryRefId,
       'Category',
+    );
+
+    const brand = await this.requireByRefId(
+      this.brandsRepository.findByRefId.bind(this.brandsRepository),
+      dto.brandRefId,
+      'Brand',
     );
 
     const healthConcernIds: string[] = [];
@@ -53,8 +65,29 @@ export class ProductMasterResolverService {
       faqIds.push(productFaq.id);
     }
 
+    const attributeIds: string[] = [];
+    for (const refId of dto.attributeRefIds ?? []) {
+      const attribute = await this.attributesRepository.findByRefId(refId);
+      if (!attribute) {
+        throw new NotFoundException(`Attribute with refId "${refId}" not found`);
+      }
+      attributeIds.push(attribute.id);
+    }
+
+    if (dto.productType === ProductType.VARIABLE && !attributeIds.length) {
+      throw new BadRequestException('attributeRefIds are required for variable products');
+    }
+
+    const countryOfOrigin = dto.countryOfOriginRefId
+      ? await this.requireByRefId(
+          this.countriesRepository.findByRefId.bind(this.countriesRepository),
+          dto.countryOfOriginRefId,
+          'Country of origin',
+        )
+      : null;
+
     return {
-      productNatureId: productNature.id,
+      productNatureId: productNature?.id ?? null,
       categoryId: category.id,
       subCategoryId: dto.subCategoryRefId
         ? (await this.requireByRefId(
@@ -77,13 +110,7 @@ export class ProductMasterResolverService {
             'Sub sub sub category',
           )).id
         : null,
-      brandId: dto.brandRefId
-        ? (await this.requireByRefId(
-            this.brandsRepository.findByRefId.bind(this.brandsRepository),
-            dto.brandRefId,
-            'Brand',
-          )).id
-        : null,
+      brandId: brand.id,
       manufacturerId: dto.manufacturerRefId
         ? (await this.requireByRefId(
             this.manufacturersRepository.findByRefId.bind(this.manufacturersRepository),
@@ -105,8 +132,10 @@ export class ProductMasterResolverService {
             'Importer',
           )).id
         : null,
+      countryOfOriginId: countryOfOrigin?.id ?? null,
       healthConcernIds,
       faqIds,
+      attributeIds,
     };
   }
 

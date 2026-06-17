@@ -252,7 +252,7 @@ POST /api/v1/products
 Authorization: Bearer <admin-jwt>
 Content-Type: application/json
 ```
-
+ 
 ```json
 {
   "name": "Dolo 650mg Tablets",

@@ -1,0 +1,305 @@
+{
+  "info": {
+    "_postman_id": "cureka-product-sheet-api",
+    "name": "Cureka — Product Sheet API",
+    "description": "Admin product CRUD, single/variant creation, and approve/reject flow.\n\n**Setup**\n1. Import this collection.\n2. Run **Auth → Admin Login** (sets `accessToken`).\n3. Replace placeholder master refIds (`categoryRefId`, `brandRefId`, etc.) with values from your DB or master APIs.\n4. Create a product — `productRefId` is saved automatically from the response.\n\n**Product types**\n- Single Product → `productType: \"simple\"` (exactly 1 variant)\n- Variant Product → `productType: \"variable\"` (`attributeRefIds` + variant attribute values)\n\n**Approval flow**\n`draft` → POST submit-for-review → `pending_review` → POST approve → `published` OR POST reject → `rejected`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "productRefId", "value": "" },
+    { "key": "categoryRefId", "value": "HEA20260016" },
+    { "key": "subCategoryRefId", "value": "" },
+    { "key": "subSubCategoryRefId", "value": "" },
+    { "key": "brandRefId", "value": "BRA20261234" },
+    { "key": "manufacturerRefId", "value": "" },
+    { "key": "packerRefId", "value": "" },
+    { "key": "importerRefId", "value": "" },
+    { "key": "countryOfOriginRefId", "value": "" },
+    { "key": "sizeAttributeRefId", "value": "ATT20260001" },
+    { "key": "flavorAttributeRefId", "value": "ATT20260002" },
+    { "key": "healthConcernRefId", "value": "" },
+    { "key": "faqRefId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', res.data.accessToken);",
+                  "  console.log('accessToken saved to collection variables');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"your-password\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/admin/login",
+            "description": "Returns JWT in `data.accessToken`. Also sets `admin_token` cookie."
+          }
+        },
+        {
+          "name": "Admin Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/admin/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products — CRUD",
+      "item": [
+        {
+          "name": "Create Single Product (draft)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.refId) {",
+                  "  pm.collectionVariables.set('productRefId', res.data.refId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Volini Pain Relief Gel 30g\",\n  \"slug\": \"volini-pain-relief-gel-30g\",\n  \"productType\": \"simple\",\n  \"categoryRefId\": \"{{categoryRefId}}\",\n  \"subCategoryRefId\": \"{{subCategoryRefId}}\",\n  \"subSubCategoryRefId\": \"{{subSubCategoryRefId}}\",\n  \"brandRefId\": \"{{brandRefId}}\",\n  \"manufacturerRefId\": \"{{manufacturerRefId}}\",\n  \"packerRefId\": \"{{packerRefId}}\",\n  \"importerRefId\": \"{{importerRefId}}\",\n  \"countryOfOriginRefId\": \"{{countryOfOriginRefId}}\",\n  \"healthConcernRefIds\": [\"{{healthConcernRefId}}\"],\n  \"tagNames\": [\"New Launch\", \"Best Seller\"],\n  \"customFaqs\": [\n    {\n      \"question\": \"Can it be used daily?\",\n      \"answer\": \"Yes, as directed on the label.\"\n    },\n    {\n      \"question\": \"Is it safe for sensitive skin?\",\n      \"answer\": \"Consult a doctor if you have sensitive skin.\"\n    }\n  ],\n  \"highlights\": \"Fast pain relief\",\n  \"expertAdvice\": \"Apply 3-4 times daily\",\n  \"description\": \"Topical pain relief gel for muscles and joints\",\n  \"keyIngredients\": \"Diclofenac Diethylamine, Menthol\",\n  \"otherIngredients\": \"Gel Base\",\n  \"preventiveNotes\": \"Avoid contact with eyes\",\n  \"accessoriesSpecifications\": \"30g Tube\",\n  \"directionsOfUse\": \"Apply gently on affected area\",\n  \"feedingTable\": \"Not Applicable\",\n  \"safetyInformation\": \"For external use only\",\n  \"productWeight\": \"30 g\",\n  \"productDimensions\": \"15 x 4 x 3 cm\",\n  \"expiresInMonths\": 24,\n  \"returnAllowed\": false,\n  \"returnPolicy\": \"Non Returnable\",\n  \"returnWindowDays\": 0,\n  \"subscriptionEnabled\": false,\n  \"codAvailable\": true,\n  \"replaceAllowed\": false,\n  \"replaceWindowDays\": 0,\n  \"emiAvailable\": false,\n  \"metaTitle\": \"Buy Volini Pain Relief Gel 30g Online\",\n  \"metaDescription\": \"Fast relief from muscle and joint pain\",\n  \"metaKeywords\": [\"volini\", \"pain relief gel\", \"muscle pain\"],\n  \"variants\": [\n    {\n      \"sku\": \"VOL001\",\n      \"mrp\": 120,\n      \"sellingPrice\": 99,\n      \"stock\": 500\n    }\n  ],\n  \"media\": [\n    {\n      \"type\": \"image\",\n      \"url\": \"/uploads/images/volini-thumb.jpg\",\n      \"sortOrder\": 0,\n      \"isPrimary\": true\n    },\n    {\n      \"type\": \"image\",\n      \"url\": \"/uploads/images/volini-front.jpg\",\n      \"sortOrder\": 1,\n      \"isPrimary\": false\n    },\n    {\n      \"type\": \"image\",\n      \"url\": \"/uploads/images/volini-back.jpg\",\n      \"sortOrder\": 2,\n      \"isPrimary\": false\n    },\n    {\n      \"type\": \"video\",\n      \"url\": \"/uploads/videos/volini-demo.mp4\",\n      \"sortOrder\": 3,\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/products",
+            "description": "Single Product sheet → `productType: simple` with exactly one variant (SKU, MRP, selling price, stock)."
+          }
+        },
+        {
+          "name": "Create Variant Product (draft)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.refId) {",
+                  "  pm.collectionVariables.set('productRefId', res.data.refId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"MuscleBlaze Whey Gold\",\n  \"slug\": \"muscleblaze-whey-gold\",\n  \"productType\": \"variable\",\n  \"categoryRefId\": \"{{categoryRefId}}\",\n  \"subCategoryRefId\": \"{{subCategoryRefId}}\",\n  \"subSubCategoryRefId\": \"{{subSubCategoryRefId}}\",\n  \"brandRefId\": \"{{brandRefId}}\",\n  \"manufacturerRefId\": \"{{manufacturerRefId}}\",\n  \"packerRefId\": \"{{packerRefId}}\",\n  \"countryOfOriginRefId\": \"{{countryOfOriginRefId}}\",\n  \"attributeRefIds\": [\"{{sizeAttributeRefId}}\", \"{{flavorAttributeRefId}}\"],\n  \"healthConcernRefIds\": [\"{{healthConcernRefId}}\"],\n  \"tagNames\": [\"Best Seller\", \"High Protein\"],\n  \"customFaqs\": [\n    {\n      \"question\": \"Can beginners use it?\",\n      \"answer\": \"Yes, start with one scoop daily.\"\n    }\n  ],\n  \"highlights\": \"24g Protein per Serving\",\n  \"expertAdvice\": \"Consume after workout\",\n  \"description\": \"Premium whey protein supplement\",\n  \"keyIngredients\": \"Whey Protein Isolate\",\n  \"otherIngredients\": \"Cocoa Powder, Sweetener\",\n  \"preventiveNotes\": \"Not for children\",\n  \"accessoriesSpecifications\": \"Measuring Scoop Included\",\n  \"directionsOfUse\": \"1 Scoop with water or milk\",\n  \"feedingTable\": \"1 Scoop Daily\",\n  \"safetyInformation\": \"Store in cool dry place\",\n  \"productWeight\": \"1 Kg\",\n  \"productDimensions\": \"25 x 15 x 10 cm\",\n  \"expiresInMonths\": 24,\n  \"returnAllowed\": true,\n  \"returnPolicy\": \"7 Days Return\",\n  \"returnWindowDays\": 7,\n  \"subscriptionEnabled\": true,\n  \"codAvailable\": true,\n  \"replaceAllowed\": true,\n  \"replaceWindowDays\": 7,\n  \"emiAvailable\": false,\n  \"metaTitle\": \"Buy MuscleBlaze Whey Gold\",\n  \"metaDescription\": \"Premium whey protein for muscle growth\",\n  \"metaKeywords\": [\"whey protein\", \"muscle gain\", \"protein powder\"],\n  \"variants\": [\n    {\n      \"sku\": \"WP001_01\",\n      \"mrp\": 999,\n      \"sellingPrice\": 849,\n      \"stock\": 100,\n      \"attributes\": [\n        { \"attributeRefId\": \"{{sizeAttributeRefId}}\", \"value\": \"500gm\" },\n        { \"attributeRefId\": \"{{flavorAttributeRefId}}\", \"value\": \"Chocolate\" }\n      ],\n      \"imageUrls\": [\"/uploads/images/chocolate.jpg\"]\n    },\n    {\n      \"sku\": \"WP001_02\",\n      \"mrp\": 999,\n      \"sellingPrice\": 849,\n      \"stock\": 80,\n      \"attributes\": [\n        { \"attributeRefId\": \"{{sizeAttributeRefId}}\", \"value\": \"500gm\" },\n        { \"attributeRefId\": \"{{flavorAttributeRefId}}\", \"value\": \"Vanilla\" }\n      ],\n      \"imageUrls\": [\"/uploads/images/vanilla.jpg\"]\n    },\n    {\n      \"sku\": \"WP001_03\",\n      \"mrp\": 1999,\n      \"sellingPrice\": 1699,\n      \"stock\": 60,\n      \"attributes\": [\n        { \"attributeRefId\": \"{{sizeAttributeRefId}}\", \"value\": \"1kg\" },\n        { \"attributeRefId\": \"{{flavorAttributeRefId}}\", \"value\": \"Chocolate\" }\n      ],\n      \"imageUrls\": [\"/uploads/images/chocolate-1kg.jpg\"]\n    },\n    {\n      \"sku\": \"WP001_04\",\n      \"mrp\": 1999,\n      \"sellingPrice\": 1699,\n      \"stock\": 40,\n      \"attributes\": [\n        { \"attributeRefId\": \"{{sizeAttributeRefId}}\", \"value\": \"1kg\" },\n        { \"attributeRefId\": \"{{flavorAttributeRefId}}\", \"value\": \"Vanilla\" }\n      ],\n      \"imageUrls\": [\"/uploads/images/vanilla-1kg.jpg\"]\n    }\n  ],\n  \"media\": [\n    {\n      \"type\": \"image\",\n      \"url\": \"/uploads/images/whey-thumb.jpg\",\n      \"sortOrder\": 0,\n      \"isPrimary\": true\n    },\n    {\n      \"type\": \"image\",\n      \"url\": \"/uploads/images/front.jpg\",\n      \"sortOrder\": 1,\n      \"isPrimary\": false\n    },\n    {\n      \"type\": \"video\",\n      \"url\": \"/uploads/videos/whey-demo.mp4\",\n      \"sortOrder\": 2,\n      \"isPrimary\": false\n    },\n    {\n      \"type\": \"size_chart\",\n      \"url\": \"/uploads/documents/size-chart.pdf\",\n      \"sortOrder\": 3,\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/products",
+            "description": "Variant Product sheet → `productType: variable`. Requires `attributeRefIds` and each variant must include attribute values for those attributes."
+          }
+        },
+        {
+          "name": "List Products",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/products?page=1&limit=20&status=draft&productType=simple",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "sortBy", "value": "createdAt", "disabled": true },
+                { "key": "sortOrder", "value": "DESC", "disabled": true },
+                { "key": "productType", "value": "simple", "description": "simple | variable | bundle" },
+                { "key": "status", "value": "draft", "description": "draft | pending_review | rejected | published | archived | inactive" },
+                { "key": "categoryRefId", "value": "{{categoryRefId}}", "disabled": true },
+                { "key": "brandRefId", "value": "{{brandRefId}}", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Product by refId",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products/{{productRefId}}"
+          }
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"highlights\": \"Updated highlights text\",\n  \"codAvailable\": true,\n  \"tagNames\": [\"Best Seller\"]\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}",
+            "description": "Only allowed when status is `draft` or `rejected`. Rejected products move back to `draft` on update."
+          }
+        },
+        {
+          "name": "Delete Product",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/products/{{productRefId}}",
+            "description": "Soft delete. SUPER_ADMIN only."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products — Approval Flow",
+      "item": [
+        {
+          "name": "Submit for Review",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/products/{{productRefId}}/submit-for-review",
+            "description": "draft → pending_review. Validates brand, category, variants, and attributes (for variable products)."
+          }
+        },
+        {
+          "name": "Approve (publish)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/products/{{productRefId}}/approve",
+            "description": "pending_review → published. SUPER_ADMIN only."
+          }
+        },
+        {
+          "name": "Reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Missing mandatory product images\"\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/reject",
+            "description": "pending_review → rejected. SUPER_ADMIN only."
+          }
+        },
+        {
+          "name": "Publish (direct)",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/products/{{productRefId}}/publish",
+            "description": "Direct publish without review step (legacy/admin shortcut)."
+          }
+        },
+        {
+          "name": "Update Status",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"inactive\"\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/status",
+            "description": "Set status: draft | pending_review | rejected | published | archived | inactive"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Product Variants",
+      "item": [
+        {
+          "name": "Add Variants to Product",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"sku\": \"WP001_05\",\n    \"mrp\": 1999,\n    \"sellingPrice\": 1699,\n    \"stock\": 25,\n    \"attributes\": [\n      { \"attributeRefId\": \"{{sizeAttributeRefId}}\", \"value\": \"2kg\" },\n      { \"attributeRefId\": \"{{flavorAttributeRefId}}\", \"value\": \"Chocolate\" }\n    ],\n    \"imageUrls\": [\"/uploads/images/chocolate-2kg.jpg\"]\n  }\n]"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/variants",
+            "description": "Bulk add variants to an existing variable product."
+          }
+        },
+        {
+          "name": "Delete Variant",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/products/{{productRefId}}/variants/{{variantId}}",
+            "description": "Replace `{{variantId}}` with the variant UUID from GET product response."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Product FAQs",
+      "item": [
+        {
+          "name": "Create Product FAQ",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.refId) {",
+                  "  pm.collectionVariables.set('faqRefId', res.data.refId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Can it be used daily?\",\n  \"answer\": \"Yes, as directed by the label.\"\n}"
+            },
+            "url": "{{baseUrl}}/product-faqs"
+          }
+        },
+        {
+          "name": "Map FAQs to Product",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"faqRefIds\": [\"{{faqRefId}}\"]\n}"
+            },
+            "url": "{{baseUrl}}/products/{{productRefId}}/product-faqs"
+          }
+        }
+      ]
+    }
+  ]
+}

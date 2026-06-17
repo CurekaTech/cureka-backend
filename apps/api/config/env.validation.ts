@@ -54,4 +54,18 @@ export const envValidationSchema = Joi.object({
   UPLOAD_DIR: Joi.string().optional(),
   UPLOAD_MAX_FILE_SIZE: Joi.number().default(5242880),
   UPLOAD_ALLOWED_MIME_TYPES: Joi.string().optional(),
+  GCS_BUCKET_NAME: Joi.string().when('STORAGE_DRIVER', {
+    is: 'gcs',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  GCS_CREDENTIALS_PATH: Joi.string().when('STORAGE_DRIVER', {
+    is: 'gcs',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  GCS_SIGNED_URL_TTL_SECONDS: Joi.number().integer().min(60).max(604800).default(3600),
+  // Unicommerce integration credentials — issued by Cureka to Unicommerce per seller
+  UNICOMMERCE_USERNAME: Joi.string().optional(),
+  UNICOMMERCE_PASSWORD: Joi.string().optional(),
 });

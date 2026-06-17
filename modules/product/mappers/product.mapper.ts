@@ -1,5 +1,13 @@
 import { ProductEntity } from '../entities/product.entity';
-import { IProduct, IProductVariant, IProductMedia, IProductTag, IProductFaq, IProductBundleItem } from '../interfaces/product.interface';
+import {
+  IProduct,
+  IProductVariant,
+  IProductMedia,
+  IProductTag,
+  IProductFaq,
+  IProductBundleItem,
+  IProductAttribute,
+} from '../interfaces/product.interface';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -14,30 +22,47 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => (
   slug: entity.slug,
   description: entity.description,
   productType: entity.productType,
-  productNatureRefId: entity.productNature?.refId ?? '',
-  productNatureName: entity.productNature?.name ?? '',
+  productNatureRefId: entity.productNature?.refId ?? null,
+  productNatureName: entity.productNature?.name ?? null,
   categoryRefId: entity.category?.refId ?? '',
   categoryName: entity.category?.name ?? '',
   subCategoryRefId: entity.subCategory?.refId ?? null,
   subSubCategoryRefId: entity.subSubCategory?.refId ?? null,
   subSubSubCategoryRefId: entity.subSubSubCategory?.refId ?? null,
-  brandRefId: entity.brand?.refId ?? null,
+  brandRefId: entity.brand?.refId ?? '',
+  brandName: entity.brand?.name ?? '',
   manufacturerRefId: entity.manufacturer?.refId ?? null,
   packerRefId: entity.packer?.refId ?? null,
   importerRefId: entity.importer?.refId ?? null,
+  countryOfOriginRefId: entity.countryOfOrigin?.refId ?? null,
+  countryOfOriginName: entity.countryOfOrigin?.name ?? null,
   status: entity.status,
-  creationStep: entity.creationStep,
   rejectionReason: entity.rejectionReason,
+  highlights: entity.highlights,
+  expertAdvice: entity.expertAdvice,
+  keyIngredients: entity.keyIngredients,
+  otherIngredients: entity.otherIngredients,
+  preventiveNotes: entity.preventiveNotes,
+  accessoriesSpecifications: entity.accessoriesSpecifications,
+  directionsOfUse: entity.directionsOfUse,
+  feedingTable: entity.feedingTable,
+  safetyInformation: entity.safetyInformation,
+  productWeight: entity.productWeight,
+  productDimensions: entity.productDimensions,
+  expiresInMonths: entity.expiresInMonths,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
   emiAvailable: entity.emiAvailable,
   replaceAllowed: entity.replaceAllowed,
   replaceWindowDays: entity.replaceWindowDays,
+  returnAllowed: entity.returnAllowed,
+  returnPolicy: entity.returnPolicy,
   returnWindowDays: entity.returnWindowDays,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
   publishedAt: entity.publishedAt,
+  attributes: (entity.attributeMappings ?? []).map(mapAttribute),
   variants: (entity.variants ?? []).map(mapVariant),
   media: (entity.media ?? []).map(mapMedia),
   healthConcernRefIds: (entity.healthConcernMappings ?? []).map(
@@ -54,6 +79,13 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => (
 
 export const mapProductEntitiesToResponse = (entities: ProductEntity[]): IProduct[] =>
   entities.map(mapProductEntityToResponse);
+
+const mapAttribute = (
+  mapping: ProductEntity['attributeMappings'][number],
+): IProductAttribute => ({
+  refId: mapping.attribute?.refId ?? '',
+  name: mapping.attribute?.name ?? '',
+});
 
 const mapVariant = (variant: ProductEntity['variants'][number]): IProductVariant => ({
   id: variant.id,
