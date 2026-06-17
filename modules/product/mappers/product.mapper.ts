@@ -7,6 +7,7 @@ import {
   IProductFaq,
   IProductBundleItem,
   IProductAttribute,
+  IProductWellnessGoal,
 } from '../interfaces/product.interface';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
@@ -68,6 +69,10 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => (
   healthConcernRefIds: (entity.healthConcernMappings ?? []).map(
     (item) => item.healthConcern?.refId ?? '',
   ),
+  wellnessGoalRefIds: (entity.wellnessGoalMappings ?? []).map(
+    (item) => item.wellnessGoal?.refId ?? '',
+  ),
+  wellnessGoals: (entity.wellnessGoalMappings ?? []).map(mapWellnessGoal),
   tags: (entity.tagMappings ?? []).map(mapTag),
   faqs: (entity.faqMappings ?? []).map(mapFaq),
   bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
@@ -119,6 +124,14 @@ const mapMedia = (media: ProductEntity['media'][number]): IProductMedia => ({
   sortOrder: media.sortOrder,
   isPrimary: media.isPrimary,
   variantId: media.variantId,
+});
+
+const mapWellnessGoal = (
+  mapping: ProductEntity['wellnessGoalMappings'][number],
+): IProductWellnessGoal => ({
+  refId: mapping.wellnessGoal?.refId ?? '',
+  name: mapping.wellnessGoal?.name ?? '',
+  image: mapping.wellnessGoal?.image ?? null,
 });
 
 const mapTag = (mapping: ProductEntity['tagMappings'][number]): IProductTag => ({

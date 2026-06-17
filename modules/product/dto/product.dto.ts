@@ -243,6 +243,12 @@ export class CreateProductDto {
   @IsRefId({ each: true })
   healthConcernRefIds?: string[];
 
+  @ApiPropertyOptional({ type: [String], example: ['WLG20261234'] })
+  @IsOptional()
+  @IsArray()
+  @IsRefId({ each: true })
+  wellnessGoalRefIds?: string[];
+
   @ApiPropertyOptional({ type: [String], example: ['bestseller', 'monsoon-sale'] })
   @IsOptional()
   @IsArray()

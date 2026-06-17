@@ -4,6 +4,7 @@ import { AppCacheModule } from '@packages/cache';
 import { AuthModule as CoreAuthModule } from '@packages/auth';
 import { AdminUsersModule } from '@modules/admin-users/admin-users.module';
 import { UsersModule } from '@modules/users/users.module';
+import { UploadsModule } from '@modules/uploads/uploads.module';
 import { OtpEntity } from './entities/otp.entity';
 import { UserSessionEntity } from './entities/user-session.entity';
 import { UserSessionsRepository } from './repositories/user-sessions.repository';
@@ -27,6 +28,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     CoreAuthModule,
     AdminUsersModule,
     UsersModule,
+    UploadsModule,
     TypeOrmModule.forFeature([OtpEntity, UserSessionEntity]),
   ],
   controllers: [AdminAuthController, UserAuthController, AuthController],

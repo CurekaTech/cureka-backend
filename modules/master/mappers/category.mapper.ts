@@ -29,6 +29,8 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
+  aboveTheFold: entity.aboveTheFold,
+  belowTheFold: entity.belowTheFold,
   isInHeader: entity.isInHeader,
   isInShopBy: entity.isInShopBy,
   status: entity.status,
