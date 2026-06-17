@@ -184,7 +184,7 @@ export class ProductRelationsRepository {
           productId,
           variantId: item.variantSku ? (skuToVariantId.get(item.variantSku) ?? null) : null,
           type: item.type,
-          url: normalizeStorageKey(item.url) ?? item.url,
+          url: normalizeStorageKey(item.url!) ?? item.url!,
           sortOrder: item.sortOrder ?? 0,
           isPrimary: item.isPrimary ?? false,
         }),

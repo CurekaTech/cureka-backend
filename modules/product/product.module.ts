@@ -18,6 +18,7 @@ import { ProductsRepository } from './repositories/products.repository';
 import { ProductVariantsRepository } from './repositories/product-variants.repository';
 import { ProductRelationsRepository } from './repositories/product-relations.repository';
 import { ProductsService } from './services/products.service';
+import { ProductMultipartService } from './services/product-multipart.service';
 import { ProductMasterResolverService } from './services/product-master-resolver.service';
 import { ProductVariantsService } from './services/product-variants.service';
 import { ProductFaqsService } from './services/product-faqs.service';
@@ -57,6 +58,7 @@ import { ProductCacheListener } from './listeners/product-cache.listener';
     ProductVariantsRepository,
     ProductRelationsRepository,
     ProductsService,
+    ProductMultipartService,
     ProductMasterResolverService,
     ProductVariantsService,
     ProductFaqsService,

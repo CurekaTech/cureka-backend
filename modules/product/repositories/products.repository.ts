@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { buildSkipTake } from '@packages/database';
@@ -62,6 +62,8 @@ export class ProductsRepository {
       .leftJoinAndSelect('product.bundleItems', 'bundleItems')
       .leftJoinAndSelect('bundleItems.childProduct', 'childProduct')
       .where('product.refId = :refId', { refId })
+      .orderBy('media.sortOrder', 'ASC')
+      .addOrderBy('media.createdAt', 'ASC')
       .getOne();
   }
 
@@ -137,6 +139,70 @@ export class ProductsRepository {
     }
 
     const [data, total] = await qb.getManyAndCount();
+
+    if (data.length) {
+      await this.attachListRelations(data);
+    }
+
     return { data, total };
+  }
+
+  /**
+   * Load OneToMany relations after pagination to avoid duplicate rows skewing list counts.
+   * Mirrors the relations loaded by findByRefId for a consistent list/detail response shape.
+   */
+  private async attachListRelations(products: ProductEntity[]): Promise<void> {
+    const productIds = products.map((product) => product.id);
+    const withRelations = await this.repo.find({
+      where: { id: In(productIds) },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+        attributeMappings: { attribute: true },
+        variants: { attributeValues: { attribute: true } },
+        media: true,
+        healthConcernMappings: { healthConcern: true },
+        wellnessGoalMappings: { wellnessGoal: true },
+        tagMappings: { tag: true },
+        faqMappings: { productFaq: true },
+        bundleItems: { childProduct: true },
+      },
+      order: {
+        media: { sortOrder: 'ASC', createdAt: 'ASC' },
+      },
+    });
+
+    const byId = new Map(withRelations.map((product) => [product.id, product]));
+    for (const product of products) {
+      const loaded = byId.get(product.id);
+      if (!loaded) continue;
+
+      product.productNature = loaded.productNature;
+      product.category = loaded.category;
+      product.subCategory = loaded.subCategory;
+      product.subSubCategory = loaded.subSubCategory;
+      product.subSubSubCategory = loaded.subSubSubCategory;
+      product.brand = loaded.brand;
+      product.manufacturer = loaded.manufacturer;
+      product.packer = loaded.packer;
+      product.importer = loaded.importer;
+      product.countryOfOrigin = loaded.countryOfOrigin;
+      product.attributeMappings = loaded.attributeMappings ?? [];
+      product.variants = loaded.variants ?? [];
+      product.media = loaded.media ?? [];
+      product.healthConcernMappings = loaded.healthConcernMappings ?? [];
+      product.wellnessGoalMappings = loaded.wellnessGoalMappings ?? [];
+      product.tagMappings = loaded.tagMappings ?? [];
+      product.faqMappings = loaded.faqMappings ?? [];
+      product.bundleItems = loaded.bundleItems ?? [];
+    }
   }
 }
