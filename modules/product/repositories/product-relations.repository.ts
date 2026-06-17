@@ -14,6 +14,7 @@ import { CustomProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
+import { normalizeStorageKey } from '@packages/storage';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -167,7 +168,7 @@ export class ProductRelationsRepository {
           productId,
           variantId: item.variantSku ? (skuToVariantId.get(item.variantSku) ?? null) : null,
           type: item.type,
-          url: item.url,
+          url: normalizeStorageKey(item.url) ?? item.url,
           sortOrder: item.sortOrder ?? 0,
           isPrimary: item.isPrimary ?? false,
         }),

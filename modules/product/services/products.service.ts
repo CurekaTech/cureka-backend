@@ -37,6 +37,7 @@ import { ProductType } from '../enums/product-type.enum';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 
 @Injectable()
 export class ProductsService {
@@ -51,6 +52,7 @@ export class ProductsService {
     private readonly categoriesRepository: CategoriesRepository,
     private readonly brandsRepository: BrandsRepository,
     private readonly productNaturesRepository: ProductNaturesRepository,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createDraft(dto: CreateProductDto, createdBy: string): Promise<IProduct> {
@@ -157,7 +159,7 @@ export class ProductsService {
     await this.emitProductUpdated(product.refId, 'status_updated');
 
     const reviewed = await this.productsRepository.findByRefId(product.refId);
-    return mapProductEntityToResponse(reviewed!);
+    return this.enrichProduct(mapProductEntityToResponse(reviewed!));
   }
 
   async findAll(query: ProductQueryDto): Promise<PaginatedResult<IProduct>> {
@@ -190,11 +192,11 @@ export class ProductsService {
         });
         return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
       },
-    });
+    }).then((result) => this.enrichPaginatedProducts(result));
   }
 
   async findOne(refId: string): Promise<IProduct> {
-    return this.cacheStrategy.cacheAside({
+    const product = await this.cacheStrategy.cacheAside({
       key: CacheKeys.products.detail(refId),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
@@ -203,6 +205,8 @@ export class ProductsService {
         return mapProductEntityToResponse(entity);
       },
     });
+
+    return this.enrichProduct(product);
   }
 
   async update(refId: string, dto: UpdateProductDto, updatedBy: string): Promise<IProduct> {
@@ -435,6 +439,27 @@ export class ProductsService {
         }
       }
     }
+  }
+
+  private async enrichProduct(product: IProduct): Promise<IProduct> {
+    return {
+      ...product,
+      media: await Promise.all(
+        product.media.map(async (item) => ({
+          ...item,
+          url: (await this.storageUrlEnricher.resolve(item.url)) ?? item.url,
+        })),
+      ),
+    };
+  }
+
+  private async enrichPaginatedProducts(
+    result: PaginatedResult<IProduct>,
+  ): Promise<PaginatedResult<IProduct>> {
+    return {
+      ...result,
+      data: await Promise.all(result.data.map((product) => this.enrichProduct(product))),
+    };
   }
 
   private async resolveListFilters(query: ProductQueryDto) {

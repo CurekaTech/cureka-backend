@@ -109,7 +109,7 @@ export class MultipartFormService {
       folder,
     });
 
-    uploadedUrls[part.fieldname] = result.url;
+    uploadedUrls[part.fieldname] = result.path;
   }
 
   private async validateDto<T extends object>(

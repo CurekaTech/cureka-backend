@@ -40,6 +40,9 @@ import { BannerPlacement } from '../enums/banner-placement.enum';
 import { BannerSlot } from '../enums/banner-slot.enum';
 import { BannerResourceType } from '../enums/banner-resource-type.enum';
 import { MasterStatus } from '../enums/master-status.enum';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const BANNER_MEDIA_FIELDS = ['imageUrl'] as const;
 
 const BANNER_UPLOAD_FIELDS = {
   bannerImage: UploadFolder.BANNERS,
@@ -54,6 +57,7 @@ export class BannersService {
     private readonly multipartFormService: MultipartFormService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBanner> {
@@ -108,7 +112,7 @@ export class BannersService {
     });
 
     await this.emitBannerUpdated(entity.refId, 'created');
-    return mapBannerEntityToResponse(entity);
+    return this.enrichBanner(mapBannerEntityToResponse(entity));
   }
 
   async findAll(query: BannerQueryDto): Promise<PaginatedResult<IBanner>> {
@@ -120,7 +124,10 @@ export class BannersService {
       status: query.status,
     });
 
-    return buildPaginatedResult(mapBannerEntitiesToResponse(data), total, paginationOptions);
+    return this.storageUrlEnricher.enrichPaginated(
+      buildPaginatedResult(mapBannerEntitiesToResponse(data), total, paginationOptions),
+      [...BANNER_MEDIA_FIELDS],
+    );
   }
 
   async findOne(refId: string): Promise<IBanner> {
@@ -128,7 +135,7 @@ export class BannersService {
     if (!entity) {
       throw new NotFoundException(`Banner with refId ${refId} not found`);
     }
-    return mapBannerEntityToResponse(entity);
+    return this.enrichBanner(mapBannerEntityToResponse(entity));
   }
 
   async update(
@@ -182,7 +189,7 @@ export class BannersService {
     }
 
     await this.emitBannerUpdated(refId, 'updated');
-    return mapBannerEntityToResponse(result);
+    return this.enrichBanner(mapBannerEntityToResponse(result));
   }
 
   async updateStatus(
@@ -245,11 +252,13 @@ export class BannersService {
 
   /** Public storefront read — cache-aside with Redis. */
   async getHomepageBanners(): Promise<IHomepageBannersBundle> {
-    return this.cacheStrategy.cacheAside({
+    const bundle = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.banners(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHomepageBannersUncached(),
     });
+
+    return this.enrichHomepageBanners(bundle);
   }
 
   /** PostgreSQL source of truth for homepage banner bundle. */
@@ -427,5 +436,26 @@ export class BannersService {
       EVENTS.BANNER_UPDATED,
       new BannerUpdatedEvent(refId, action),
     );
+  }
+
+  private enrichBanner(banner: IBanner): Promise<IBanner> {
+    return this.storageUrlEnricher.enrichFields(banner, [...BANNER_MEDIA_FIELDS]);
+  }
+
+  private async enrichHomepageBanners(bundle: IHomepageBannersBundle): Promise<IHomepageBannersBundle> {
+    const enrichItems = async <T extends { imageUrl: string }>(items: T[]): Promise<T[]> =>
+      this.storageUrlEnricher.enrichManyFields(items, ['imageUrl']);
+
+    return {
+      hero: {
+        primary: await enrichItems(bundle.hero.primary),
+        secondary: await enrichItems(bundle.hero.secondary),
+      },
+      mainPromo: await enrichItems(bundle.mainPromo),
+      brandWise: {
+        left: await enrichItems(bundle.brandWise.left),
+        right: await enrichItems(bundle.brandWise.right),
+      },
+    };
   }
 }
