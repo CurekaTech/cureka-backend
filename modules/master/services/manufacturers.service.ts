@@ -27,6 +27,9 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { ManufacturerEntity } from '../entities/manufacturer.entity';
 import { CategoryEntity } from '../entities/category.entity';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const MANUFACTURER_MEDIA_FIELDS = ['logo'] as const;
 
 const MANUFACTURER_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
@@ -41,6 +44,7 @@ export class ManufacturersService {
     private readonly statesRepository: StatesRepository,
     private readonly countriesRepository: CountriesRepository,
     private readonly multipartFormService: MultipartFormService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IManufacturer> {
@@ -114,20 +118,25 @@ export class ManufacturersService {
     );
 
     const loaded = await this.manufacturersRepository.findByRefId(entity.refId);
-    return mapManufacturerEntityToResponse(loaded!);
+    return this.enrichManufacturer(mapManufacturerEntityToResponse(loaded!));
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IManufacturer>> {
     const paginationOptions = buildPaginationOptions(query);
     const { data, total } =
       await this.manufacturersRepository.findAllPaginated(paginationOptions);
-    return buildPaginatedResult(mapManufacturerEntitiesToResponse(data), total, paginationOptions);
+    const result = buildPaginatedResult(
+      mapManufacturerEntitiesToResponse(data),
+      total,
+      paginationOptions,
+    );
+    return this.storageUrlEnricher.enrichPaginated(result, [...MANUFACTURER_MEDIA_FIELDS]);
   }
 
   async findOne(refId: string): Promise<IManufacturer> {
     const entity = await this.manufacturersRepository.findByRefId(refId);
     if (!entity) throw new NotFoundException(`Manufacturer with refId ${refId} not found`);
-    return mapManufacturerEntityToResponse(entity);
+    return this.enrichManufacturer(mapManufacturerEntityToResponse(entity));
   }
 
   async updateFromRequest(
@@ -212,7 +221,7 @@ export class ManufacturersService {
     const result = await this.manufacturersRepository.updateByRefId(refId, payload, categories);
     if (!result)
       throw new NotFoundException(`Manufacturer with refId ${refId} not found after update`);
-    return mapManufacturerEntityToResponse(result);
+    return this.enrichManufacturer(mapManufacturerEntityToResponse(result));
   }
 
   async updateStatus(
@@ -231,7 +240,7 @@ export class ManufacturersService {
       throw new NotFoundException(
         `Manufacturer with refId ${refId} not found after status update`,
       );
-    return mapManufacturerEntityToResponse(updated);
+    return this.enrichManufacturer(mapManufacturerEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -249,5 +258,9 @@ export class ManufacturersService {
       categories.push(category);
     }
     return categories;
+  }
+
+  private enrichManufacturer(manufacturer: IManufacturer): Promise<IManufacturer> {
+    return this.storageUrlEnricher.enrichFields(manufacturer, [...MANUFACTURER_MEDIA_FIELDS]);
   }
 }

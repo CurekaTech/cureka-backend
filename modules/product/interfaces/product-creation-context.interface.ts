@@ -10,6 +10,7 @@ export interface IResolvedProductMasters {
   importerId: string | null;
   countryOfOriginId: string | null;
   healthConcernIds: string[];
+  wellnessGoalIds: string[];
   faqIds: string[];
   attributeIds: string[];
 }

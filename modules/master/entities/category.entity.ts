@@ -78,6 +78,12 @@ export class CategoryEntity extends BaseEntity {
   })
   attributes!: AttributeEntity[];
 
+  @Column({ name: 'above_the_fold', type: 'text', nullable: true })
+  aboveTheFold!: string | null;
+
+  @Column({ name: 'below_the_fold', type: 'text', nullable: true })
+  belowTheFold!: string | null;
+
   @Index()
   @Column({
     type: 'enum',

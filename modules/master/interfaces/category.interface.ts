@@ -25,6 +25,8 @@ export interface ICategory {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
+  aboveTheFold: string | null;
+  belowTheFold: string | null;
   isInHeader: boolean;
   isInShopBy: boolean;
   status: MasterStatus;

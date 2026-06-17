@@ -15,6 +15,7 @@ import { ImporterEntity } from './entities/importer.entity';
 import { PackerEntity } from './entities/packer.entity';
 import { ProductNatureEntity } from './entities/product-nature.entity';
 import { SubscriptionFrequencyEntity } from './entities/subscription-frequency.entity';
+import { WellnessGoalEntity } from './entities/wellness-goal.entity';
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -29,6 +30,7 @@ import { ImportersRepository } from './repositories/importers.repository';
 import { PackersRepository } from './repositories/packers.repository';
 import { ProductNaturesRepository } from './repositories/product-natures.repository';
 import { SubscriptionFrequenciesRepository } from './repositories/subscription-frequencies.repository';
+import { WellnessGoalsRepository } from './repositories/wellness-goals.repository';
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -44,6 +46,7 @@ import { ImportersService } from './services/importers.service';
 import { PackersService } from './services/packers.service';
 import { ProductNaturesService } from './services/product-natures.service';
 import { SubscriptionFrequenciesService } from './services/subscription-frequencies.service';
+import { WellnessGoalsService } from './services/wellness-goals.service';
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -58,6 +61,7 @@ import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
 import { ProductNaturesController } from './controllers/product-natures.controller';
 import { SubscriptionFrequenciesController } from './controllers/subscription-frequencies.controller';
+import { WellnessGoalsController } from './controllers/wellness-goals.controller';
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
 import { BannerCacheListener } from './listeners/banner-cache.listener';
@@ -83,6 +87,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
       PackerEntity,
       ProductNatureEntity,
       SubscriptionFrequencyEntity,
+      WellnessGoalEntity,
     ]),
     UploadsModule,
   ],
@@ -101,6 +106,7 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     PackersController,
     ProductNaturesController,
     SubscriptionFrequenciesController,
+    WellnessGoalsController,
   ],
   providers: [
     AttributesService,
@@ -132,6 +138,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ProductNaturesRepository,
     SubscriptionFrequenciesService,
     SubscriptionFrequenciesRepository,
+    WellnessGoalsService,
+    WellnessGoalsRepository,
     CategoriesCacheSyncService,
     AttributeCacheListener,
     CategoryCacheListener,
@@ -158,6 +166,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     ProductNaturesRepository,
     SubscriptionFrequenciesService,
     SubscriptionFrequenciesRepository,
+    WellnessGoalsService,
+    WellnessGoalsRepository,
     AttributesRepository,
     CategoriesRepository,
     BrandsRepository,

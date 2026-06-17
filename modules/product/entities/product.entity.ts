@@ -12,6 +12,7 @@ import { ProductStatus } from '../enums/product-status.enum';
 import { ProductVariantEntity } from './product-variant.entity';
 import { ProductMediaEntity } from './product-media.entity';
 import { ProductHealthConcernEntity } from './product-health-concern.entity';
+import { ProductWellnessGoalEntity } from './product-wellness-goal.entity';
 import { ProductTagMappingEntity } from './product-tag-mapping.entity';
 import { ProductBundleEntity } from './product-bundle.entity';
 import { ProductFaqMappingEntity } from './product-faq-mapping.entity';
@@ -221,6 +222,9 @@ export class ProductEntity extends BaseEntity {
 
   @OneToMany(() => ProductHealthConcernEntity, (mapping) => mapping.product)
   healthConcernMappings!: ProductHealthConcernEntity[];
+
+  @OneToMany(() => ProductWellnessGoalEntity, (mapping) => mapping.product)
+  wellnessGoalMappings!: ProductWellnessGoalEntity[];
 
   @OneToMany(() => ProductTagMappingEntity, (mapping) => mapping.product)
   tagMappings!: ProductTagMappingEntity[];

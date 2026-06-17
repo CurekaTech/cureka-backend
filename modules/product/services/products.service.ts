@@ -117,6 +117,11 @@ export class ProductsService {
         created.id,
         masters.healthConcernIds,
       );
+      await this.relationsRepository.syncWellnessGoals(
+        manager,
+        created.id,
+        masters.wellnessGoalIds,
+      );
       await this.relationsRepository.syncTags(manager, created.id, dto.tagNames ?? [], createdBy);
 
       const faqIds = [...masters.faqIds];
@@ -269,6 +274,7 @@ export class ProductsService {
 
     if (
       dto.healthConcernRefIds ||
+      dto.wellnessGoalRefIds ||
       dto.tagNames ||
       dto.faqRefIds ||
       dto.customFaqs ||
@@ -284,6 +290,7 @@ export class ProductsService {
           brandRefId: existing.brand?.refId ?? '',
           name: existing.name,
           healthConcernRefIds: dto.healthConcernRefIds,
+          wellnessGoalRefIds: dto.wellnessGoalRefIds,
           faqRefIds: dto.faqRefIds,
           attributeRefIds: dto.attributeRefIds,
         } as CreateProductDto));
@@ -294,6 +301,13 @@ export class ProductsService {
             manager,
             existing.id,
             resolved.healthConcernIds,
+          );
+        }
+        if (dto.wellnessGoalRefIds) {
+          await this.relationsRepository.syncWellnessGoals(
+            manager,
+            existing.id,
+            resolved.wellnessGoalIds,
           );
         }
         if (dto.tagNames) {
@@ -448,6 +462,14 @@ export class ProductsService {
         product.media.map(async (item) => ({
           ...item,
           url: (await this.storageUrlEnricher.resolve(item.url)) ?? item.url,
+        })),
+      ),
+      wellnessGoals: await Promise.all(
+        product.wellnessGoals.map(async (goal) => ({
+          ...goal,
+          image: goal.image
+            ? ((await this.storageUrlEnricher.resolve(goal.image)) ?? goal.image)
+            : null,
         })),
       ),
     };

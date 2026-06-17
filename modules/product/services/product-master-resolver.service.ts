@@ -3,6 +3,7 @@ import { AttributesRepository } from '@modules/master/repositories/attributes.re
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ManufacturersRepository } from '@modules/master/repositories/manufacturers.repository';
 import { PackersRepository } from '@modules/master/repositories/packers.repository';
 import { ImportersRepository } from '@modules/master/repositories/importers.repository';
@@ -20,6 +21,7 @@ export class ProductMasterResolverService {
     private readonly categoriesRepository: CategoriesRepository,
     private readonly brandsRepository: BrandsRepository,
     private readonly healthConcernsRepository: HealthConcernsRepository,
+    private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly manufacturersRepository: ManufacturersRepository,
     private readonly packersRepository: PackersRepository,
     private readonly importersRepository: ImportersRepository,
@@ -57,6 +59,16 @@ export class ProductMasterResolverService {
         'Health concern',
       );
       healthConcernIds.push(entity.id);
+    }
+
+    const wellnessGoalIds: string[] = [];
+    for (const refId of dto.wellnessGoalRefIds ?? []) {
+      const entity = await this.requireByRefId(
+        this.wellnessGoalsRepository.findByRefId.bind(this.wellnessGoalsRepository),
+        refId,
+        'Wellness goal',
+      );
+      wellnessGoalIds.push(entity.id);
     }
 
     const faqIds: string[] = [];
@@ -134,6 +146,7 @@ export class ProductMasterResolverService {
         : null,
       countryOfOriginId: countryOfOrigin?.id ?? null,
       healthConcernIds,
+      wellnessGoalIds,
       faqIds,
       attributeIds,
     };
