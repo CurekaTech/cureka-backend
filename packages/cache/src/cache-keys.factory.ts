@@ -48,6 +48,15 @@ export const CacheKeys = {
     configPattern: () => 'homepage:config*',
     categoryHeader: () => 'homepage:category:header',
     categoryHeaderPattern: () => 'homepage:category:header*',
+    shopByCategory: () => 'homepage:section:shopByCategory',
+    shopByCategoryPattern: () => 'homepage:section:shopByCategory*',
+  },
+  publicProducts: {
+    list: (queryHash: string) => `public:products:list:${queryHash}`,
+    listPattern: () => 'public:products:list:*',
+    detail: (slug: string) => `public:products:detail:${slug}`,
+    detailPattern: (slug?: string) =>
+      slug ? `public:products:detail:${slug}` : 'public:products:detail:*',
   },
   tags: {
     listPattern: () => 'tags:list:*',

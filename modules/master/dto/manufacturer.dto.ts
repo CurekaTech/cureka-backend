@@ -68,35 +68,7 @@ export class CreateManufacturerDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  addressLine1?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  addressLine2?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  landmark?: string;
-
-  @IsOptional()
-  @IsRefId()
-  cityRefId?: string;
-
-  @IsOptional()
-  @IsRefId()
-  stateRefId?: string;
-
-  @IsOptional()
-  @IsRefId()
-  countryRefId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  pinCode?: string;
+  address?: string;
 
   @IsOptional()
   @IsString()

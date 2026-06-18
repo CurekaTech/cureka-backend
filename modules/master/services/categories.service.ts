@@ -35,6 +35,7 @@ import {
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const CATEGORY_MEDIA_FIELDS = ['image', 'banner'] as const;
 
@@ -52,6 +53,7 @@ export class CategoriesService {
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
@@ -306,12 +308,7 @@ export class CategoriesService {
       throw new NotFoundException(`Category with refId ${refId} not found`);
     }
 
-    const childCount = await this.categoriesRepository.countChildren(existing.id);
-    if (childCount > 0) {
-      throw new ConflictException(
-        `Cannot delete category "${existing.name}" — it has ${childCount} child ${childCount === 1 ? 'category' : 'categories'}. Delete or reassign children first.`,
-      );
-    }
+    await this.deletionGuard.assertCategoryDeletable(existing.id, existing.name);
 
     await this.categoriesRepository.softDeleteByRefId(refId);
     await this.emitCategoryUpdated(refId, 'deleted');

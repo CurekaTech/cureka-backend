@@ -18,10 +18,14 @@ import {
 } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 @Injectable()
 export class ProductNaturesService {
-  constructor(private readonly productNaturesRepository: ProductNaturesRepository) {}
+  constructor(
+    private readonly productNaturesRepository: ProductNaturesRepository,
+    private readonly deletionGuard: MasterDeletionGuardService,
+  ) {}
 
   async create(dto: CreateProductNatureDto, createdBy: string): Promise<IProductNature> {
     const entity = await this.productNaturesRepository.create({
@@ -104,6 +108,7 @@ export class ProductNaturesService {
     if (!existing) {
       throw new NotFoundException(`Product nature with refId ${refId} not found`);
     }
+    await this.deletionGuard.assertProductNatureDeletable(existing.id, existing.name);
     await this.productNaturesRepository.softDeleteByRefId(refId);
   }
 }

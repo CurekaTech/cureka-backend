@@ -68,6 +68,6 @@ import { ProductCacheListener } from './listeners/product-cache.listener';
     ProductStrategyFactory,
     ProductCacheListener,
   ],
-  exports: [ProductsService],
+  exports: [ProductsService, ProductsRepository],
 })
 export class ProductModule {}

@@ -25,9 +25,6 @@ export class ManufacturersRepository {
     return this.repo
       .createQueryBuilder('manufacturer')
       .leftJoinAndSelect('manufacturer.categories', 'category')
-      .leftJoinAndSelect('manufacturer.city', 'city')
-      .leftJoinAndSelect('manufacturer.state', 'state')
-      .leftJoinAndSelect('manufacturer.country', 'country')
       .where('manufacturer.id = :id', { id })
       .getOne();
   }
@@ -36,9 +33,6 @@ export class ManufacturersRepository {
     return this.repo
       .createQueryBuilder('manufacturer')
       .leftJoinAndSelect('manufacturer.categories', 'category')
-      .leftJoinAndSelect('manufacturer.city', 'city')
-      .leftJoinAndSelect('manufacturer.state', 'state')
-      .leftJoinAndSelect('manufacturer.country', 'country')
       .where('manufacturer.refId = :refId', { refId })
       .getOne();
   }
@@ -97,9 +91,6 @@ export class ManufacturersRepository {
     const qb = this.repo
       .createQueryBuilder('manufacturer')
       .leftJoinAndSelect('manufacturer.categories', 'category')
-      .leftJoinAndSelect('manufacturer.city', 'city')
-      .leftJoinAndSelect('manufacturer.state', 'state')
-      .leftJoinAndSelect('manufacturer.country', 'country')
       .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);

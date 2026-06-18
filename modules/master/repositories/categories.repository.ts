@@ -45,6 +45,15 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  async findBySlug(slug: string): Promise<CategoryEntity | null> {
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.attributes', 'attribute')
+      .where('category.slug = :slug', { slug })
+      .getOne();
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }

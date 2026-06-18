@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,12 +19,14 @@ import {
   PaginatedResult,
 } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 @Injectable()
 export class StatesService {
   constructor(
     private readonly statesRepository: StatesRepository,
     private readonly countriesRepository: CountriesRepository,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async create(dto: CreateStateDto, createdBy: string): Promise<IState> {
@@ -133,11 +134,7 @@ export class StatesService {
       throw new NotFoundException(`State with refId ${refId} not found`);
     }
 
-    const cityCount = await this.statesRepository.countCities(existing.id);
-    if (cityCount > 0) {
-      throw new BadRequestException('Cannot delete a state that has cities');
-    }
-
+    await this.deletionGuard.assertStateDeletable(existing.id, existing.name);
     await this.statesRepository.softDeleteByRefId(refId);
   }
 }

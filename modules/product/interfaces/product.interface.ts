@@ -76,6 +76,7 @@ export interface IProduct {
   name: string;
   slug: string;
   description: string | null;
+  components: string | null;
   productType: ProductType;
   productNatureRefId: string | null;
   productNatureName: string | null;

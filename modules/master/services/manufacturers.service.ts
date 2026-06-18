@@ -2,9 +2,6 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { FastifyRequest } from 'fastify';
 import { ManufacturersRepository } from '../repositories/manufacturers.repository';
 import { CategoriesRepository } from '../repositories/categories.repository';
-import { CitiesRepository } from '../repositories/cities.repository';
-import { StatesRepository } from '../repositories/states.repository';
-import { CountriesRepository } from '../repositories/countries.repository';
 import {
   CreateManufacturerDto,
   UpdateManufacturerDto,
@@ -28,6 +25,7 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { ManufacturerEntity } from '../entities/manufacturer.entity';
 import { CategoryEntity } from '../entities/category.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const MANUFACTURER_MEDIA_FIELDS = ['logo'] as const;
 
@@ -40,11 +38,9 @@ export class ManufacturersService {
   constructor(
     private readonly manufacturersRepository: ManufacturersRepository,
     private readonly categoriesRepository: CategoriesRepository,
-    private readonly citiesRepository: CitiesRepository,
-    private readonly statesRepository: StatesRepository,
-    private readonly countriesRepository: CountriesRepository,
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IManufacturer> {
@@ -65,27 +61,6 @@ export class ManufacturersService {
       throw new ConflictException(`A manufacturer with code "${dto.code}" already exists`);
     }
 
-    let cityId: string | null = null;
-    let stateId: string | null = null;
-    let countryId: string | null = null;
-
-    if (dto.cityRefId) {
-      const city = await this.citiesRepository.findByRefId(dto.cityRefId);
-      if (!city) throw new NotFoundException(`City with refId "${dto.cityRefId}" not found`);
-      cityId = city.id;
-    }
-    if (dto.stateRefId) {
-      const state = await this.statesRepository.findByRefId(dto.stateRefId);
-      if (!state) throw new NotFoundException(`State with refId "${dto.stateRefId}" not found`);
-      stateId = state.id;
-    }
-    if (dto.countryRefId) {
-      const country = await this.countriesRepository.findByRefId(dto.countryRefId);
-      if (!country)
-        throw new NotFoundException(`Country with refId "${dto.countryRefId}" not found`);
-      countryId = country.id;
-    }
-
     const categories: CategoryEntity[] = await this.resolveCategoryRefIds(
       dto.categoryRefIds ?? [],
     );
@@ -99,13 +74,7 @@ export class ManufacturersService {
         contactPerson: dto.contactPerson ?? null,
         email: dto.email ?? null,
         mobileNumber: dto.mobileNumber ?? null,
-        addressLine1: dto.addressLine1 ?? null,
-        addressLine2: dto.addressLine2 ?? null,
-        landmark: dto.landmark ?? null,
-        cityId,
-        stateId,
-        countryId,
-        pinCode: dto.pinCode ?? null,
+        address: dto.address ?? null,
         gstNumber: dto.gstNumber ?? null,
         drugLicenseNumber: dto.drugLicenseNumber ?? null,
         status: dto.status ?? MasterStatus.ACTIVE,
@@ -175,43 +144,11 @@ export class ManufacturersService {
     if (dto.contactPerson !== undefined) payload.contactPerson = dto.contactPerson;
     if (dto.email !== undefined) payload.email = dto.email;
     if (dto.mobileNumber !== undefined) payload.mobileNumber = dto.mobileNumber;
-    if (dto.addressLine1 !== undefined) payload.addressLine1 = dto.addressLine1;
-    if (dto.addressLine2 !== undefined) payload.addressLine2 = dto.addressLine2;
-    if (dto.landmark !== undefined) payload.landmark = dto.landmark;
-    if (dto.pinCode !== undefined) payload.pinCode = dto.pinCode;
+    if (dto.address !== undefined) payload.address = dto.address ?? null;
     if (dto.gstNumber !== undefined) payload.gstNumber = dto.gstNumber;
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
     if (logo !== undefined) payload.logo = logo;
-
-    if (dto.cityRefId !== undefined) {
-      if (dto.cityRefId) {
-        const city = await this.citiesRepository.findByRefId(dto.cityRefId);
-        if (!city) throw new NotFoundException(`City with refId "${dto.cityRefId}" not found`);
-        payload.cityId = city.id;
-      } else {
-        payload.cityId = null;
-      }
-    }
-    if (dto.stateRefId !== undefined) {
-      if (dto.stateRefId) {
-        const state = await this.statesRepository.findByRefId(dto.stateRefId);
-        if (!state) throw new NotFoundException(`State with refId "${dto.stateRefId}" not found`);
-        payload.stateId = state.id;
-      } else {
-        payload.stateId = null;
-      }
-    }
-    if (dto.countryRefId !== undefined) {
-      if (dto.countryRefId) {
-        const country = await this.countriesRepository.findByRefId(dto.countryRefId);
-        if (!country)
-          throw new NotFoundException(`Country with refId "${dto.countryRefId}" not found`);
-        payload.countryId = country.id;
-      } else {
-        payload.countryId = null;
-      }
-    }
 
     let categories: CategoryEntity[] | undefined;
     if (dto.categoryRefIds !== undefined) {
@@ -246,6 +183,7 @@ export class ManufacturersService {
   async remove(refId: string): Promise<void> {
     const existing = await this.manufacturersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Manufacturer with refId ${refId} not found`);
+    await this.deletionGuard.assertManufacturerDeletable(existing.id, existing.name);
     await this.manufacturersRepository.softDeleteByRefId(refId);
   }
 

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductStatus } from '../enums/product-status.enum';
+import { VariantStatus } from '../enums/variant-status.enum';
 import { buildSkipTake } from '@packages/database';
 
 export interface ProductListOptions {
@@ -16,6 +17,20 @@ export interface ProductListOptions {
   categoryId?: string;
   brandId?: string;
   productNatureId?: string;
+}
+
+export interface PublicProductListOptions {
+  page: number;
+  limit: number;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+  productType?: string;
+  categoryId?: string;
+  brandId?: string;
+  productNatureId?: string;
+  healthConcernId?: string;
+  wellnessGoalId?: string;
 }
 
 @Injectable()
@@ -33,38 +48,51 @@ export class ProductsRepository {
 
   async findByRefId(refId: string, manager?: EntityManager): Promise<ProductEntity | null> {
     const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
-    return repository
+    return this.applyProductDetailSelects(repository.createQueryBuilder('product'))
+      .where('product.refId = :refId', { refId })
+      .getOne();
+  }
+
+  async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
+    return this.applyProductDetailSelects(this.repo.createQueryBuilder('product'))
+      .where('product.refId = :refId', { refId })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .getOne();
+  }
+
+  async findPublishedBySlug(slug: string): Promise<ProductEntity | null> {
+    return this.applyProductDetailSelects(this.repo.createQueryBuilder('product'))
+      .where('product.slug = :slug', { slug })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .getOne();
+  }
+
+  async findPublishedPaginated(
+    options: PublicProductListOptions,
+  ): Promise<{ data: ProductEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
-      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
-      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
-      .leftJoinAndSelect('product.manufacturer', 'manufacturer')
-      .leftJoinAndSelect('product.packer', 'packer')
-      .leftJoinAndSelect('product.importer', 'importer')
-      .leftJoinAndSelect('product.countryOfOrigin', 'countryOfOrigin')
-      .leftJoinAndSelect('product.attributeMappings', 'attributeMappings')
-      .leftJoinAndSelect('attributeMappings.attribute', 'productAttribute')
-      .leftJoinAndSelect('product.variants', 'variants')
-      .leftJoinAndSelect('variants.attributeValues', 'attributeValues')
-      .leftJoinAndSelect('attributeValues.attribute', 'variantAttribute')
-      .leftJoinAndSelect('product.media', 'media')
-      .leftJoinAndSelect('product.healthConcernMappings', 'healthConcernMappings')
-      .leftJoinAndSelect('healthConcernMappings.healthConcern', 'healthConcern')
-      .leftJoinAndSelect('product.wellnessGoalMappings', 'wellnessGoalMappings')
-      .leftJoinAndSelect('wellnessGoalMappings.wellnessGoal', 'wellnessGoal')
-      .leftJoinAndSelect('product.tagMappings', 'tagMappings')
-      .leftJoinAndSelect('tagMappings.tag', 'tag')
-      .leftJoinAndSelect('product.faqMappings', 'faqMappings')
-      .leftJoinAndSelect('faqMappings.productFaq', 'productFaq')
-      .leftJoinAndSelect('product.bundleItems', 'bundleItems')
-      .leftJoinAndSelect('bundleItems.childProduct', 'childProduct')
-      .where('product.refId = :refId', { refId })
-      .orderBy('media.sortOrder', 'ASC')
-      .addOrderBy('media.createdAt', 'ASC')
-      .getOne();
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .skip(skip)
+      .take(take);
+
+    this.applyPublicListFilters(qb, options);
+    this.applyPublicListSort(qb, options.sortBy, sortOrder);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    if (data.length) {
+      await this.attachPublicListRelations(data);
+    }
+
+    return { data, total };
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -145,6 +173,140 @@ export class ProductsRepository {
     }
 
     return { data, total };
+  }
+
+  private applyProductDetailSelects(
+    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
+  ) {
+    return qb
+      .leftJoinAndSelect('product.productNature', 'productNature')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .leftJoinAndSelect('product.manufacturer', 'manufacturer')
+      .leftJoinAndSelect('product.packer', 'packer')
+      .leftJoinAndSelect('product.importer', 'importer')
+      .leftJoinAndSelect('product.countryOfOrigin', 'countryOfOrigin')
+      .leftJoinAndSelect('product.attributeMappings', 'attributeMappings')
+      .leftJoinAndSelect('attributeMappings.attribute', 'productAttribute')
+      .leftJoinAndSelect('product.variants', 'variants')
+      .leftJoinAndSelect('variants.attributeValues', 'attributeValues')
+      .leftJoinAndSelect('attributeValues.attribute', 'variantAttribute')
+      .leftJoinAndSelect('product.media', 'media')
+      .leftJoinAndSelect('product.healthConcernMappings', 'healthConcernMappings')
+      .leftJoinAndSelect('healthConcernMappings.healthConcern', 'healthConcern')
+      .leftJoinAndSelect('product.wellnessGoalMappings', 'wellnessGoalMappings')
+      .leftJoinAndSelect('wellnessGoalMappings.wellnessGoal', 'wellnessGoal')
+      .leftJoinAndSelect('product.tagMappings', 'tagMappings')
+      .leftJoinAndSelect('tagMappings.tag', 'tag')
+      .leftJoinAndSelect('product.faqMappings', 'faqMappings')
+      .leftJoinAndSelect('faqMappings.productFaq', 'productFaq')
+      .leftJoinAndSelect('product.bundleItems', 'bundleItems')
+      .leftJoinAndSelect('bundleItems.childProduct', 'childProduct')
+      .orderBy('media.sortOrder', 'ASC')
+      .addOrderBy('media.createdAt', 'ASC');
+  }
+
+  private applyPublicListFilters(
+    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
+    options: PublicProductListOptions,
+  ): void {
+    if (options.search) {
+      qb.andWhere('(product.name ILIKE :search OR product.slug ILIKE :search)', {
+        search: `%${options.search}%`,
+      });
+    }
+    if (options.productType) {
+      qb.andWhere('product.productType = :productType', { productType: options.productType });
+    }
+    if (options.categoryId) {
+      qb.andWhere(
+        '(product.categoryId = :categoryId OR product.subCategoryId = :categoryId OR product.subSubCategoryId = :categoryId OR product.subSubSubCategoryId = :categoryId)',
+        { categoryId: options.categoryId },
+      );
+    }
+    if (options.brandId) {
+      qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
+    }
+    if (options.productNatureId) {
+      qb.andWhere('product.productNatureId = :productNatureId', {
+        productNatureId: options.productNatureId,
+      });
+    }
+    if (options.healthConcernId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_health_concerns phc
+          WHERE phc.product_id = product.id AND phc.health_concern_id = :healthConcernId
+        )`,
+        { healthConcernId: options.healthConcernId },
+      );
+    }
+    if (options.wellnessGoalId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_wellness_goals pwg
+          WHERE pwg.product_id = product.id AND pwg.wellness_goal_id = :wellnessGoalId
+        )`,
+        { wellnessGoalId: options.wellnessGoalId },
+      );
+    }
+  }
+
+  private applyPublicListSort(
+    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
+    sortBy: string | undefined,
+    sortOrder: 'ASC' | 'DESC',
+  ): void {
+    if (sortBy === 'price') {
+      qb.setParameter('variantStatus', VariantStatus.ACTIVE);
+      qb.addSelect(
+        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
+        'min_price',
+      );
+      qb.orderBy('min_price', sortOrder, 'NULLS LAST');
+      return;
+    }
+
+    const SORTABLE: Record<string, string> = {
+      name: 'product.name',
+      publishedAt: 'product.publishedAt',
+    };
+    const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
+    qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+  }
+
+  private async attachPublicListRelations(products: ProductEntity[]): Promise<void> {
+    const productIds = products.map((product) => product.id);
+    const withRelations = await this.repo.find({
+      where: { id: In(productIds) },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        brand: true,
+        variants: true,
+        media: true,
+      },
+      order: {
+        media: { sortOrder: 'ASC', createdAt: 'ASC' },
+      },
+    });
+
+    const byId = new Map(withRelations.map((product) => [product.id, product]));
+    for (const product of products) {
+      const loaded = byId.get(product.id);
+      if (!loaded) continue;
+
+      product.productNature = loaded.productNature;
+      product.category = loaded.category;
+      product.subCategory = loaded.subCategory;
+      product.brand = loaded.brand;
+      product.variants = loaded.variants ?? [];
+      product.media = loaded.media ?? [];
+    }
   }
 
   /**

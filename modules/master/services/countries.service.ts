@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -23,10 +22,14 @@ import {
 } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 @Injectable()
 export class CountriesService {
-  constructor(private readonly countriesRepository: CountriesRepository) {}
+  constructor(
+    private readonly countriesRepository: CountriesRepository,
+    private readonly deletionGuard: MasterDeletionGuardService,
+  ) {}
 
   async create(dto: CreateCountryDto, createdBy: string): Promise<ICountry> {
     const code = dto.code.toUpperCase();
@@ -118,11 +121,7 @@ export class CountriesService {
       throw new NotFoundException(`Country with refId ${refId} not found`);
     }
 
-    const stateCount = await this.countriesRepository.countStates(existing.id);
-    if (stateCount > 0) {
-      throw new BadRequestException('Cannot delete a country that has states');
-    }
-
+    await this.deletionGuard.assertCountryDeletable(existing.id, existing.name);
     await this.countriesRepository.softDeleteByRefId(refId);
   }
 }

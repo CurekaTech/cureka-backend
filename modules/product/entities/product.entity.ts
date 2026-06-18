@@ -41,6 +41,9 @@ export class ProductEntity extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  components!: string | null;
+
   @Index()
   @Column({
     name: 'product_type',

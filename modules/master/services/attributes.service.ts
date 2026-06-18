@@ -22,6 +22,7 @@ import {
 } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 @Injectable()
 export class AttributesService {
@@ -29,6 +30,7 @@ export class AttributesService {
     private readonly attributesRepository: AttributesRepository,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async create(dto: CreateAttributeDto, createdBy: string): Promise<IAttribute> {
@@ -128,6 +130,7 @@ export class AttributesService {
     if (!existing) {
       throw new NotFoundException(`Attribute with refId ${refId} not found`);
     }
+    await this.deletionGuard.assertAttributeDeletable(existing.id, existing.name);
     await this.attributesRepository.softDeleteByRefId(refId);
     await this.emitAttributeUpdated(refId, 'deleted');
   }

@@ -18,13 +18,7 @@ export class ImportersRepository {
   }
 
   async findByRefId(refId: string): Promise<ImporterEntity | null> {
-    return this.repo
-      .createQueryBuilder('importer')
-      .leftJoinAndSelect('importer.city', 'city')
-      .leftJoinAndSelect('importer.state', 'state')
-      .leftJoinAndSelect('importer.country', 'country')
-      .where('importer.refId = :refId', { refId })
-      .getOne();
+    return this.repo.findOne({ where: { refId } });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -77,9 +71,6 @@ export class ImportersRepository {
 
     const qb = this.repo
       .createQueryBuilder('importer')
-      .leftJoinAndSelect('importer.city', 'city')
-      .leftJoinAndSelect('importer.state', 'state')
-      .leftJoinAndSelect('importer.country', 'country')
       .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);
