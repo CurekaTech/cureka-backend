@@ -23,6 +23,9 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner'] as const;
 
 const HEALTH_CONCERN_UPLOAD_FIELDS = {
   icon: UploadFolder.ICONS,
@@ -34,6 +37,7 @@ export class HealthConcernsService {
   constructor(
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly multipartFormService: MultipartFormService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IHealthConcern> {
@@ -93,14 +97,19 @@ export class HealthConcernsService {
       createdBy,
     });
 
-    return mapHealthConcernEntityToResponse(entity);
+    return this.enrichHealthConcern(mapHealthConcernEntityToResponse(entity));
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IHealthConcern>> {
     const paginationOptions = buildPaginationOptions(query);
     const { data, total } =
       await this.healthConcernsRepository.findAllPaginated(paginationOptions);
-    return buildPaginatedResult(mapHealthConcernEntitiesToResponse(data), total, paginationOptions);
+    const result = buildPaginatedResult(
+      mapHealthConcernEntitiesToResponse(data),
+      total,
+      paginationOptions,
+    );
+    return this.storageUrlEnricher.enrichPaginated(result, [...HEALTH_CONCERN_MEDIA_FIELDS]);
   }
 
   async findOne(refId: string): Promise<IHealthConcern> {
@@ -108,7 +117,7 @@ export class HealthConcernsService {
     if (!entity) {
       throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
-    return mapHealthConcernEntityToResponse(entity);
+    return this.enrichHealthConcern(mapHealthConcernEntityToResponse(entity));
   }
 
   async update(
@@ -139,7 +148,7 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found after update`);
     }
 
-    return mapHealthConcernEntityToResponse(result);
+    return this.enrichHealthConcern(mapHealthConcernEntityToResponse(result));
   }
 
   async updateStatus(
@@ -161,7 +170,7 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found after status update`);
     }
 
-    return mapHealthConcernEntityToResponse(updated);
+    return this.enrichHealthConcern(mapHealthConcernEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -170,5 +179,9 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
     await this.healthConcernsRepository.softDeleteByRefId(refId);
+  }
+
+  private enrichHealthConcern(healthConcern: IHealthConcern): Promise<IHealthConcern> {
+    return this.storageUrlEnricher.enrichFields(healthConcern, [...HEALTH_CONCERN_MEDIA_FIELDS]);
   }
 }

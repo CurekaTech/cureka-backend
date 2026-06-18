@@ -17,12 +17,16 @@ import {
 import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 import { SessionCacheService } from '@modules/auth/services/session-cache.service';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const USER_MEDIA_FIELDS = ['profileImageUrl'] as const;
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly usersRepository: UsersRepository,
     private readonly sessionCacheService: SessionCacheService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   private mapProfileDtoToEntity(dto: UpdateUserProfileDto): Partial<UserEntity> {
@@ -43,12 +47,12 @@ export class UsersService {
     if (!entity) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
-    return mapUserEntityToResponse(entity);
+    return this.enrichUser(mapUserEntityToResponse(entity));
   }
 
   async findByMobileNumber(mobileNumber: string): Promise<IUser | null> {
     const entity = await this.usersRepository.findByMobileNumber(mobileNumber);
-    return entity ? mapUserEntityToResponse(entity) : null;
+    return entity ? this.enrichUser(mapUserEntityToResponse(entity)) : null;
   }
 
   async createFromMobileNumber(mobileNumber: string): Promise<IUser> {
@@ -65,7 +69,7 @@ export class UsersService {
       createdBy: mobileNumber,
     });
 
-    return mapUserEntityToResponse(entity);
+    return this.enrichUser(mapUserEntityToResponse(entity));
   }
 
   async createGuestUser(): Promise<IUser> {
@@ -81,7 +85,7 @@ export class UsersService {
       createdBy: 'guest',
     });
 
-    return mapUserEntityToResponse(entity);
+    return this.enrichUser(mapUserEntityToResponse(entity));
   }
 
   async convertGuestToUser(userId: string, mobileNumber: string): Promise<IUser> {
@@ -100,7 +104,7 @@ export class UsersService {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
 
-    return mapUserEntityToResponse(updated);
+    return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   async updateLastLoginAt(userId: string): Promise<void> {
@@ -130,7 +134,7 @@ export class UsersService {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
 
-    return mapUserEntityToResponse(updated);
+    return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   async updateProfile(userId: string, dto: UpdateUserProfileDto): Promise<IUser> {
@@ -161,7 +165,7 @@ export class UsersService {
 
     await this.sessionCacheService.invalidateAllForUser(userId);
 
-    return mapUserEntityToResponse(updated);
+    return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   async setProfileImageUrl(userId: string, profileImageUrl: string): Promise<IUser> {
@@ -172,7 +176,7 @@ export class UsersService {
 
     await this.sessionCacheService.invalidateAllForUser(userId);
 
-    return mapUserEntityToResponse(updated);
+    return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   // ── Admin-facing CRUD methods ────────────────────────────────────────────────
@@ -180,7 +184,8 @@ export class UsersService {
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IUser>> {
     const paginationOptions = buildPaginationOptions(query);
     const { data, total } = await this.usersRepository.findAllPaginated(paginationOptions);
-    return buildPaginatedResult(mapUserEntitiesToResponse(data), total, paginationOptions);
+    const result = buildPaginatedResult(mapUserEntitiesToResponse(data), total, paginationOptions);
+    return this.storageUrlEnricher.enrichPaginated(result, [...USER_MEDIA_FIELDS]);
   }
 
   async findOne(refId: string): Promise<IUser> {
@@ -188,7 +193,7 @@ export class UsersService {
     if (!entity) {
       throw new NotFoundException(`User with refId ${refId} not found`);
     }
-    return mapUserEntityToResponse(entity);
+    return this.enrichUser(mapUserEntityToResponse(entity));
   }
 
   async update(refId: string, dto: UpdateUserProfileAdminDto): Promise<IUser> {
@@ -212,7 +217,7 @@ export class UsersService {
       throw new NotFoundException(`User with refId ${refId} not found after update`);
     }
 
-    return mapUserEntityToResponse(updated);
+    return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -221,6 +226,10 @@ export class UsersService {
       throw new NotFoundException(`User with refId ${refId} not found`);
     }
     await this.usersRepository.softDeleteByRefId(refId);
+  }
+
+  private enrichUser(user: IUser): Promise<IUser> {
+    return this.storageUrlEnricher.enrichFields(user, [...USER_MEDIA_FIELDS]);
   }
 }
 

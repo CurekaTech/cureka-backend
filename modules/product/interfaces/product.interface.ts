@@ -63,6 +63,12 @@ export interface IProductAttribute {
   name: string;
 }
 
+export interface IProductWellnessGoal {
+  refId: string;
+  name: string;
+  image: string | null;
+}
+
 export interface IProduct {
   id: string;
   refId: string;
@@ -115,6 +121,8 @@ export interface IProduct {
   variants: IProductVariant[];
   media: IProductMedia[];
   healthConcernRefIds: string[];
+  wellnessGoalRefIds: string[];
+  wellnessGoals: IProductWellnessGoal[];
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];

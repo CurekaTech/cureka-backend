@@ -36,6 +36,7 @@ import {
   getSessionTokenFromRequest,
   setUserSessionCookie,
 } from '../utils/auth-cookie.util';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 
 /**
  * Ecommerce user auth — pure cookie session (no JWT).
@@ -43,7 +44,10 @@ import {
  */
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
+  ) {}
 
   @ResponseMessage('OTP sent successfully')
   @Post('login')
@@ -126,7 +130,7 @@ export class AuthController {
   @UseGuards(SessionCookieGuard)
   @Get('me')
   getProfile(@CurrentSessionUser() user: IUserSessionContext): Promise<IUser> {
-    return Promise.resolve(user.profile);
+    return this.storageUrlEnricher.enrichFields(user.profile, ['profileImageUrl']);
   }
 
   @ResponseMessage('Session refreshed successfully')

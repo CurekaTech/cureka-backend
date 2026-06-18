@@ -33,6 +33,9 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { PackerEntity } from '../entities/packer.entity';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const PACKER_MEDIA_FIELDS = ['logo'] as const;
 
 const PACKER_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
@@ -48,6 +51,7 @@ export class PackersService {
     private readonly multipartFormService: MultipartFormService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IPacker> {
@@ -97,7 +101,7 @@ export class PackersService {
 
     const loaded = await this.packersRepository.findByRefId(entity.refId);
     await this.emitPackerUpdated(entity.refId, 'created');
-    return mapPackerEntityToResponse(loaded!);
+    return this.enrichPacker(mapPackerEntityToResponse(loaded!));
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IPacker>> {
@@ -109,22 +113,24 @@ export class PackersService {
       sortOrder: query.sortOrder ?? '',
     });
 
-    return this.cacheStrategy.cacheAside({
-      key: CacheKeys.packers.list(queryHash),
-      module: CacheModuleName.PACKER,
-      loader: async () => {
-        const paginationOptions = buildPaginationOptions(query);
-        const { data, total } =
-          await this.packersRepository.findAllPaginated(paginationOptions);
-        return buildPaginatedResult(mapPackerEntitiesToResponse(data), total, paginationOptions);
-      },
-    });
+    return this.cacheStrategy
+      .cacheAside({
+        key: CacheKeys.packers.list(queryHash),
+        module: CacheModuleName.PACKER,
+        loader: async () => {
+          const paginationOptions = buildPaginationOptions(query);
+          const { data, total } =
+            await this.packersRepository.findAllPaginated(paginationOptions);
+          return buildPaginatedResult(mapPackerEntitiesToResponse(data), total, paginationOptions);
+        },
+      })
+      .then((result) => this.storageUrlEnricher.enrichPaginated(result, [...PACKER_MEDIA_FIELDS]));
   }
 
   async findOne(refId: string): Promise<IPacker> {
     const entity = await this.packersRepository.findByRefId(refId);
     if (!entity) throw new NotFoundException(`Packer with refId ${refId} not found`);
-    return mapPackerEntityToResponse(entity);
+    return this.enrichPacker(mapPackerEntityToResponse(entity));
   }
 
   async updateFromRequest(
@@ -192,7 +198,7 @@ export class PackersService {
     const result = await this.packersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Packer with refId ${refId} not found after update`);
     await this.emitPackerUpdated(refId, 'updated');
-    return mapPackerEntityToResponse(result);
+    return this.enrichPacker(mapPackerEntityToResponse(result));
   }
 
   async updateStatus(
@@ -211,7 +217,7 @@ export class PackersService {
       throw new NotFoundException(`Packer with refId ${refId} not found after status update`);
     }
     await this.emitPackerUpdated(refId, 'status_updated');
-    return mapPackerEntityToResponse(updated);
+    return this.enrichPacker(mapPackerEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -265,5 +271,9 @@ export class PackersService {
     const country = await this.countriesRepository.findByRefId(refId);
     if (!country) throw new NotFoundException(`Country with refId "${refId}" not found`);
     return country;
+  }
+
+  private enrichPacker(packer: IPacker): Promise<IPacker> {
+    return this.storageUrlEnricher.enrichFields(packer, [...PACKER_MEDIA_FIELDS]);
   }
 }

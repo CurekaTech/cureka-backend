@@ -33,6 +33,9 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { ImporterEntity } from '../entities/importer.entity';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+
+const IMPORTER_MEDIA_FIELDS = ['logo'] as const;
 
 const IMPORTER_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
@@ -48,6 +51,7 @@ export class ImportersService {
     private readonly multipartFormService: MultipartFormService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IImporter> {
@@ -96,7 +100,7 @@ export class ImportersService {
 
     const loaded = await this.importersRepository.findByRefId(entity.refId);
     await this.emitImporterUpdated(entity.refId, 'created');
-    return mapImporterEntityToResponse(loaded!);
+    return this.enrichImporter(mapImporterEntityToResponse(loaded!));
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IImporter>> {
@@ -108,22 +112,24 @@ export class ImportersService {
       sortOrder: query.sortOrder ?? '',
     });
 
-    return this.cacheStrategy.cacheAside({
-      key: CacheKeys.importers.list(queryHash),
-      module: CacheModuleName.IMPORTER,
-      loader: async () => {
-        const paginationOptions = buildPaginationOptions(query);
-        const { data, total } =
-          await this.importersRepository.findAllPaginated(paginationOptions);
-        return buildPaginatedResult(mapImporterEntitiesToResponse(data), total, paginationOptions);
-      },
-    });
+    return this.cacheStrategy
+      .cacheAside({
+        key: CacheKeys.importers.list(queryHash),
+        module: CacheModuleName.IMPORTER,
+        loader: async () => {
+          const paginationOptions = buildPaginationOptions(query);
+          const { data, total } =
+            await this.importersRepository.findAllPaginated(paginationOptions);
+          return buildPaginatedResult(mapImporterEntitiesToResponse(data), total, paginationOptions);
+        },
+      })
+      .then((result) => this.storageUrlEnricher.enrichPaginated(result, [...IMPORTER_MEDIA_FIELDS]));
   }
 
   async findOne(refId: string): Promise<IImporter> {
     const entity = await this.importersRepository.findByRefId(refId);
     if (!entity) throw new NotFoundException(`Importer with refId ${refId} not found`);
-    return mapImporterEntityToResponse(entity);
+    return this.enrichImporter(mapImporterEntityToResponse(entity));
   }
 
   async updateFromRequest(
@@ -190,7 +196,7 @@ export class ImportersService {
     const result = await this.importersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Importer with refId ${refId} not found after update`);
     await this.emitImporterUpdated(refId, 'updated');
-    return mapImporterEntityToResponse(result);
+    return this.enrichImporter(mapImporterEntityToResponse(result));
   }
 
   async updateStatus(
@@ -209,7 +215,7 @@ export class ImportersService {
       throw new NotFoundException(`Importer with refId ${refId} not found after status update`);
     }
     await this.emitImporterUpdated(refId, 'status_updated');
-    return mapImporterEntityToResponse(updated);
+    return this.enrichImporter(mapImporterEntityToResponse(updated));
   }
 
   async remove(refId: string): Promise<void> {
@@ -263,5 +269,9 @@ export class ImportersService {
     const country = await this.countriesRepository.findByRefId(refId);
     if (!country) throw new NotFoundException(`Country with refId "${refId}" not found`);
     return country;
+  }
+
+  private enrichImporter(importer: IImporter): Promise<IImporter> {
+    return this.storageUrlEnricher.enrichFields(importer, [...IMPORTER_MEDIA_FIELDS]);
   }
 }

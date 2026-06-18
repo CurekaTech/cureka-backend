@@ -120,6 +120,8 @@ export class CategoriesService {
         metaTitle: dto.metaTitle ?? null,
         metaDescription: dto.metaDescription ?? null,
         metaKeywords: dto.metaKeywords ?? null,
+        aboveTheFold: dto.aboveTheFold ?? null,
+        belowTheFold: dto.belowTheFold ?? null,
         status: dto.status ?? MasterStatus.ACTIVE,
         refId: await generateUniqueRefId(dto.name, (refId) =>
           this.categoriesRepository.existsByRefId(refId),
@@ -254,6 +256,8 @@ export class CategoriesService {
     if (dto.metaTitle !== undefined) updatePayload.metaTitle = dto.metaTitle ?? null;
     if (dto.metaDescription !== undefined)
       updatePayload.metaDescription = dto.metaDescription ?? null;
+    if (dto.aboveTheFold !== undefined) updatePayload.aboveTheFold = dto.aboveTheFold ?? null;
+    if (dto.belowTheFold !== undefined) updatePayload.belowTheFold = dto.belowTheFold ?? null;
     if (dto.metaKeywords !== undefined) updatePayload.metaKeywords = dto.metaKeywords ?? null;
     if (dto.isInHeader !== undefined) updatePayload.isInHeader = dto.isInHeader;
     if (dto.isInShopBy !== undefined) updatePayload.isInShopBy = dto.isInShopBy;

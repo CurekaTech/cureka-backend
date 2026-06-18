@@ -56,6 +56,14 @@ export class CreateCategoryDto {
   metaDescription?: string;
 
   @IsOptional()
+  @IsString()
+  aboveTheFold?: string;
+
+  @IsOptional()
+  @IsString()
+  belowTheFold?: string;
+
+  @IsOptional()
   @Transform(parseJsonArray)
   @IsArray()
   @IsString({ each: true })

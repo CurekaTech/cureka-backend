@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductHealthConcernEntity } from '../entities/product-health-concern.entity';
+import { ProductWellnessGoalEntity } from '../entities/product-wellness-goal.entity';
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity';
 import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity';
@@ -23,6 +24,8 @@ export class ProductRelationsRepository {
     private readonly mediaRepo: Repository<ProductMediaEntity>,
     @InjectRepository(ProductHealthConcernEntity)
     private readonly healthConcernRepo: Repository<ProductHealthConcernEntity>,
+    @InjectRepository(ProductWellnessGoalEntity)
+    private readonly wellnessGoalRepo: Repository<ProductWellnessGoalEntity>,
     @InjectRepository(ProductTagEntity)
     private readonly tagRepo: Repository<ProductTagEntity>,
     @InjectRepository(ProductTagMappingEntity)
@@ -47,6 +50,19 @@ export class ProductRelationsRepository {
     if (!healthConcernIds.length) return;
     await repo.save(
       healthConcernIds.map((healthConcernId) => repo.create({ productId, healthConcernId })),
+    );
+  }
+
+  async syncWellnessGoals(
+    manager: EntityManager,
+    productId: string,
+    wellnessGoalIds: string[],
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductWellnessGoalEntity);
+    await repo.delete({ productId });
+    if (!wellnessGoalIds.length) return;
+    await repo.save(
+      wellnessGoalIds.map((wellnessGoalId) => repo.create({ productId, wellnessGoalId })),
     );
   }
 

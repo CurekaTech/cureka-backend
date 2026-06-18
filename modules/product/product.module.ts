@@ -7,6 +7,7 @@ import { ProductVariantEntity } from './entities/product-variant.entity';
 import { VariantAttributeValueEntity } from './entities/variant-attribute-value.entity';
 import { ProductMediaEntity } from './entities/product-media.entity';
 import { ProductHealthConcernEntity } from './entities/product-health-concern.entity';
+import { ProductWellnessGoalEntity } from './entities/product-wellness-goal.entity';
 import { ProductTagEntity } from './entities/product-tag.entity';
 import { ProductTagMappingEntity } from './entities/product-tag-mapping.entity';
 import { ProductBundleEntity } from './entities/product-bundle.entity';
@@ -41,6 +42,7 @@ import { ProductCacheListener } from './listeners/product-cache.listener';
       VariantAttributeValueEntity,
       ProductMediaEntity,
       ProductHealthConcernEntity,
+      ProductWellnessGoalEntity,
       ProductTagEntity,
       ProductTagMappingEntity,
       ProductBundleEntity,
