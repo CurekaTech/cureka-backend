@@ -1,8 +1,5 @@
 import { ManufacturerEntity } from '../entities/manufacturer.entity';
 import { IManufacturer, IManufacturerCategorySummary } from '../interfaces/manufacturer.interface';
-import { mapCityEntityToSummary } from './city.mapper';
-import { mapStateEntityToSummary } from './state.mapper';
-import { mapCountryEntityToSummary } from './country.mapper';
 import { CategoryEntity } from '../entities/category.entity';
 
 const mapCategoryToSummary = (category: CategoryEntity): IManufacturerCategorySummary => ({
@@ -21,16 +18,7 @@ export const mapManufacturerEntityToResponse = (entity: ManufacturerEntity): IMa
   contactPerson: entity.contactPerson,
   email: entity.email,
   mobileNumber: entity.mobileNumber,
-  addressLine1: entity.addressLine1,
-  addressLine2: entity.addressLine2,
-  landmark: entity.landmark,
-  cityId: entity.cityId,
-  stateId: entity.stateId,
-  countryId: entity.countryId,
-  city: entity.city ? mapCityEntityToSummary(entity.city) : null,
-  state: entity.state ? mapStateEntityToSummary(entity.state) : null,
-  country: entity.country ? mapCountryEntityToSummary(entity.country) : null,
-  pinCode: entity.pinCode,
+  address: entity.address,
   gstNumber: entity.gstNumber,
   drugLicenseNumber: entity.drugLicenseNumber,
   status: entity.status,

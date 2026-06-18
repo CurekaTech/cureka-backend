@@ -22,6 +22,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => (
   name: entity.name,
   slug: entity.slug,
   description: entity.description,
+  components: entity.components,
   productType: entity.productType,
   productNatureRefId: entity.productNature?.refId ?? null,
   productNatureName: entity.productNature?.name ?? null,

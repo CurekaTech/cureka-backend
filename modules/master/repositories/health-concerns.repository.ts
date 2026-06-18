@@ -25,6 +25,10 @@ export class HealthConcernsRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findBySlug(slug: string): Promise<HealthConcernEntity | null> {
+    return this.repo.findOne({ where: { slug } });
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }

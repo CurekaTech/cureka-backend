@@ -35,4 +35,10 @@ export class CategoriesCacheSyncService {
       CacheKeys.homepage.categoryHeaderPattern(),
     );
   }
+
+  async invalidateHomepageShopByCategoryCache(): Promise<void> {
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.homepage.shopByCategoryPattern(),
+    );
+  }
 }

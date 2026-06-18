@@ -18,13 +18,7 @@ export class PackersRepository {
   }
 
   async findByRefId(refId: string): Promise<PackerEntity | null> {
-    return this.repo
-      .createQueryBuilder('packer')
-      .leftJoinAndSelect('packer.city', 'city')
-      .leftJoinAndSelect('packer.state', 'state')
-      .leftJoinAndSelect('packer.country', 'country')
-      .where('packer.refId = :refId', { refId })
-      .getOne();
+    return this.repo.findOne({ where: { refId } });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -76,9 +70,6 @@ export class PackersRepository {
 
     const qb = this.repo
       .createQueryBuilder('packer')
-      .leftJoinAndSelect('packer.city', 'city')
-      .leftJoinAndSelect('packer.state', 'state')
-      .leftJoinAndSelect('packer.country', 'country')
       .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);

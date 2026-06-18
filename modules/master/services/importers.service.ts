@@ -9,9 +9,6 @@ import {
 } from '@packages/cache';
 import { EVENTS, ImporterUpdatedEvent } from '@packages/events';
 import { ImportersRepository } from '../repositories/importers.repository';
-import { CitiesRepository } from '../repositories/cities.repository';
-import { StatesRepository } from '../repositories/states.repository';
-import { CountriesRepository } from '../repositories/countries.repository';
 import {
   CreateImporterDto,
   UpdateImporterDto,
@@ -34,6 +31,7 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { ImporterEntity } from '../entities/importer.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const IMPORTER_MEDIA_FIELDS = ['logo'] as const;
 
@@ -45,13 +43,11 @@ const IMPORTER_UPLOAD_FIELDS = {
 export class ImportersService {
   constructor(
     private readonly importersRepository: ImportersRepository,
-    private readonly citiesRepository: CitiesRepository,
-    private readonly statesRepository: StatesRepository,
-    private readonly countriesRepository: CountriesRepository,
     private readonly multipartFormService: MultipartFormService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IImporter> {
@@ -72,8 +68,6 @@ export class ImportersService {
       throw new ConflictException(`An importer with code "${dto.code}" already exists`);
     }
 
-    const { cityId, stateId, countryId } = await this.resolveLocationRefIds(dto);
-
     const entity = await this.importersRepository.create({
       name: dto.name,
       code: dto.code,
@@ -82,13 +76,7 @@ export class ImportersService {
       contactPerson: dto.contactPerson ?? null,
       email: dto.email ?? null,
       mobileNumber: dto.mobileNumber ?? null,
-      addressLine1: dto.addressLine1 ?? null,
-      addressLine2: dto.addressLine2 ?? null,
-      landmark: dto.landmark ?? null,
-      cityId,
-      stateId,
-      countryId,
-      pinCode: dto.pinCode ?? null,
+      address: dto.address ?? null,
       gstNumber: dto.gstNumber ?? null,
       drugLicenseNumber: dto.drugLicenseNumber ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -168,30 +156,11 @@ export class ImportersService {
     if (dto.contactPerson !== undefined) payload.contactPerson = dto.contactPerson;
     if (dto.email !== undefined) payload.email = dto.email;
     if (dto.mobileNumber !== undefined) payload.mobileNumber = dto.mobileNumber;
-    if (dto.addressLine1 !== undefined) payload.addressLine1 = dto.addressLine1;
-    if (dto.addressLine2 !== undefined) payload.addressLine2 = dto.addressLine2;
-    if (dto.landmark !== undefined) payload.landmark = dto.landmark;
-    if (dto.pinCode !== undefined) payload.pinCode = dto.pinCode;
+    if (dto.address !== undefined) payload.address = dto.address ?? null;
     if (dto.gstNumber !== undefined) payload.gstNumber = dto.gstNumber;
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
     if (logo !== undefined) payload.logo = logo;
-
-    if (dto.cityRefId !== undefined) {
-      payload.cityId = dto.cityRefId
-        ? (await this.requireCityByRefId(dto.cityRefId)).id
-        : null;
-    }
-    if (dto.stateRefId !== undefined) {
-      payload.stateId = dto.stateRefId
-        ? (await this.requireStateByRefId(dto.stateRefId)).id
-        : null;
-    }
-    if (dto.countryRefId !== undefined) {
-      payload.countryId = dto.countryRefId
-        ? (await this.requireCountryByRefId(dto.countryRefId)).id
-        : null;
-    }
 
     const result = await this.importersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Importer with refId ${refId} not found after update`);
@@ -221,6 +190,7 @@ export class ImportersService {
   async remove(refId: string): Promise<void> {
     const existing = await this.importersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Importer with refId ${refId} not found`);
+    await this.deletionGuard.assertImporterDeletable(existing.id, existing.name);
     await this.importersRepository.softDeleteByRefId(refId);
     await this.emitImporterUpdated(refId, 'deleted');
   }
@@ -233,42 +203,6 @@ export class ImportersService {
       EVENTS.IMPORTER_UPDATED,
       new ImporterUpdatedEvent(refId, action),
     );
-  }
-
-  private async resolveLocationRefIds(dto: CreateImporterDto) {
-    let cityId: string | null = null;
-    let stateId: string | null = null;
-    let countryId: string | null = null;
-
-    if (dto.cityRefId) {
-      cityId = (await this.requireCityByRefId(dto.cityRefId)).id;
-    }
-    if (dto.stateRefId) {
-      stateId = (await this.requireStateByRefId(dto.stateRefId)).id;
-    }
-    if (dto.countryRefId) {
-      countryId = (await this.requireCountryByRefId(dto.countryRefId)).id;
-    }
-
-    return { cityId, stateId, countryId };
-  }
-
-  private async requireCityByRefId(refId: string) {
-    const city = await this.citiesRepository.findByRefId(refId);
-    if (!city) throw new NotFoundException(`City with refId "${refId}" not found`);
-    return city;
-  }
-
-  private async requireStateByRefId(refId: string) {
-    const state = await this.statesRepository.findByRefId(refId);
-    if (!state) throw new NotFoundException(`State with refId "${refId}" not found`);
-    return state;
-  }
-
-  private async requireCountryByRefId(refId: string) {
-    const country = await this.countriesRepository.findByRefId(refId);
-    if (!country) throw new NotFoundException(`Country with refId "${refId}" not found`);
-    return country;
   }
 
   private enrichImporter(importer: IImporter): Promise<IImporter> {

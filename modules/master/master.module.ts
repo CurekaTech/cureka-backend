@@ -69,6 +69,13 @@ import { ImporterCacheListener } from './listeners/importer-cache.listener';
 import { PackerCacheListener } from './listeners/packer-cache.listener';
 import { SubscriptionFrequencyCacheListener } from './listeners/subscription-frequency-cache.listener';
 import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
+import { MasterUsageRepository } from './repositories/master-usage.repository';
+import { MasterDeletionGuardService } from './services/master-deletion-guard.service';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductHealthConcernEntity } from '@modules/product/entities/product-health-concern.entity';
+import { ProductWellnessGoalEntity } from '@modules/product/entities/product-wellness-goal.entity';
+import { ProductAttributeMappingEntity } from '@modules/product/entities/product-attribute-mapping.entity';
+import { VariantAttributeValueEntity } from '@modules/product/entities/variant-attribute-value.entity';
 
 @Module({
   imports: [
@@ -88,6 +95,11 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
       ProductNatureEntity,
       SubscriptionFrequencyEntity,
       WellnessGoalEntity,
+      ProductEntity,
+      ProductHealthConcernEntity,
+      ProductWellnessGoalEntity,
+      ProductAttributeMappingEntity,
+      VariantAttributeValueEntity,
     ]),
     UploadsModule,
   ],
@@ -141,6 +153,8 @@ import { CategoriesCacheSyncService } from './services/categories-cache-sync.ser
     WellnessGoalsService,
     WellnessGoalsRepository,
     CategoriesCacheSyncService,
+    MasterUsageRepository,
+    MasterDeletionGuardService,
     AttributeCacheListener,
     CategoryCacheListener,
     BannerCacheListener,

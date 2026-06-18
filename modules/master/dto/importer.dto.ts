@@ -9,7 +9,6 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
-import { IsRefId } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 
 export class CreateImporterDto {
@@ -46,36 +45,7 @@ export class CreateImporterDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  addressLine1?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  addressLine2?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  landmark?: string;
-
-  @IsOptional()
-  @IsRefId()
-  cityRefId?: string;
-
-  @IsOptional()
-  @IsRefId()
-  stateRefId?: string;
-
-  @IsOptional()
-  @IsRefId()
-  countryRefId?: string;
-
-  @ValidateIf((_, value) => value !== undefined && value !== '')
-  @IsString()
-  @MaxLength(20)
-  @Matches(/^\d+$/, { message: 'pinCode must contain digits only' })
-  pinCode?: string;
+  address?: string;
 
   @IsOptional()
   @IsString()

@@ -49,6 +49,11 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  components?: string;
+
   @ApiProperty({ enum: ProductType, description: 'simple = Single Product, variable = Variant Product' })
   @IsNotEmpty()
   @IsEnum(ProductType)

@@ -17,6 +17,7 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { BrandEntity } from '../entities/brand.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const BRAND_MEDIA_FIELDS = ['logo', 'banner'] as const;
 
@@ -31,6 +32,7 @@ export class BrandsService {
     private readonly brandsRepository: BrandsRepository,
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBrand> {
@@ -170,6 +172,7 @@ export class BrandsService {
     if (!existing) {
       throw new NotFoundException(`Brand with refId ${refId} not found`);
     }
+    await this.deletionGuard.assertBrandDeletable(existing.id, existing.name);
     await this.brandsRepository.softDeleteByRefId(refId);
   }
 

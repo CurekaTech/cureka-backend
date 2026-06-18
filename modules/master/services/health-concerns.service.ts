@@ -24,6 +24,7 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner'] as const;
 
@@ -38,6 +39,7 @@ export class HealthConcernsService {
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IHealthConcern> {
@@ -178,6 +180,7 @@ export class HealthConcernsService {
     if (!existing) {
       throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
+    await this.deletionGuard.assertHealthConcernDeletable(existing.id, existing.name);
     await this.healthConcernsRepository.softDeleteByRefId(refId);
   }
 

@@ -12,7 +12,12 @@ export class ProductCacheListener {
   @OnEvent(EVENTS.PRODUCT_UPDATED)
   async handleProductUpdated(event: ProductUpdatedEvent): Promise<void> {
     await this.cacheStrategy.invalidateOnly({
-      patterns: [CacheKeys.products.listPattern(), CacheKeys.products.detailPattern()],
+      patterns: [
+        CacheKeys.products.listPattern(),
+        CacheKeys.products.detailPattern(),
+        CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicProducts.detailPattern(),
+      ],
       keys: [CacheKeys.products.detail(event.refId)],
     });
     this.logger.log(`Product cache invalidated (${event.action}) for refId=${event.refId}`);
