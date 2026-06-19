@@ -1,7 +1,8 @@
 import { BrandEntity } from '../entities/brand.entity';
 import { IBrand } from '../interfaces/brand.interface';
 
-export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand => ({
+export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -18,7 +19,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand => ({
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IBrand;
 
 export const mapBrandEntitiesToResponse = (entities: BrandEntity[]): IBrand[] =>
   entities.map(mapBrandEntityToResponse);

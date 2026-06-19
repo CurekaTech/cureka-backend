@@ -9,3 +9,10 @@ export { PaginationQueryDto } from './dto/pagination-query.dto';
 export { RefIdPipe } from './pipes/ref-id.pipe';
 export { IsRefId, IsRefIdConstraint } from './validators/is-ref-id.decorator';
 export { ResponseMessage, RESPONSE_MESSAGE_KEY } from './decorators/response-message.decorator';
+export {
+  flattenValidationErrors,
+  formatValidationErrorMessage,
+  formatValidationErrorsForLog,
+} from './validation-error.util';
+export type { ValidationErrorDetail } from './validation-error.util';
+export { LoggingValidationPipe } from './pipes/logging-validation.pipe';

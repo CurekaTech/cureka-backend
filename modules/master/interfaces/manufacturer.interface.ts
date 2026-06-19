@@ -1,4 +1,5 @@
 import { MasterStatus } from '../enums/master-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IManufacturerCategorySummary {
   id: string;
@@ -11,7 +12,7 @@ export interface IManufacturer {
   refId: string;
   name: string;
   code: string;
-  logo: string | null;
+  logo: IStorageFileReferenceResponse | null;
   description: string | null;
   contactPerson: string | null;
   email: string | null;

@@ -114,18 +114,21 @@ export class BundleProductStrategy implements IProductCreationStrategy {
       throw new BadRequestException('Bundle products require at least one bundle item');
     }
 
+    const childRefIds = bundleItems.map((item) => item.childProductRefId);
+    const childIdsByRefId = await this.productsRepository.findIdsByRefIds(childRefIds, manager);
+
     const resolvedItems: Array<{ childProductId: string; quantity: number }> = [];
     for (const item of bundleItems) {
-      const child = await this.productsRepository.findByRefId(item.childProductRefId, manager);
-      if (!child) {
+      const childProductId = childIdsByRefId.get(item.childProductRefId);
+      if (!childProductId) {
         throw new BadRequestException(
           `Child product with refId "${item.childProductRefId}" not found`,
         );
       }
-      if (child.id === product.id) {
+      if (childProductId === product.id) {
         throw new BadRequestException('Bundle cannot include itself as a child product');
       }
-      resolvedItems.push({ childProductId: child.id, quantity: item.quantity });
+      resolvedItems.push({ childProductId, quantity: item.quantity });
     }
 
     await this.relationsRepository.syncBundles(manager, product.id, resolvedItems);

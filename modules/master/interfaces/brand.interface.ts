@@ -1,12 +1,13 @@
 import { MasterStatus } from '../enums/master-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IBrand {
   id: string;
   refId: string;
   name: string;
   slug: string;
-  logo: string | null;
-  banner: string | null;
+  logo: IStorageFileReferenceResponse | null;
+  banner: IStorageFileReferenceResponse | null;
   description: string | null;
   status: MasterStatus;
   metaTitle: string | null;

@@ -79,8 +79,8 @@ export class BrandsService {
     const entity = await this.brandsRepository.create({
       name: dto.name,
       slug,
-      logo: media.logo ?? null,
-      banner: media.banner ?? null,
+      logo: this.storageUrlEnricher.persist(media.logo),
+      banner: this.storageUrlEnricher.persist(media.banner),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       metaTitle: dto.metaTitle ?? null,
@@ -134,8 +134,8 @@ export class BrandsService {
 
     const payload: Partial<BrandEntity> = { ...dto, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
-    if (media.logo !== undefined) payload.logo = media.logo;
-    if (media.banner !== undefined) payload.banner = media.banner;
+    if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
+    if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
 
     const result = await this.brandsRepository.updateByRefId(refId, payload);
     if (!result) {

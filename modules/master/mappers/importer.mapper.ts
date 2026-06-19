@@ -1,7 +1,8 @@
 import { ImporterEntity } from '../entities/importer.entity';
 import { IImporter } from '../interfaces/importer.interface';
 
-export const mapImporterEntityToResponse = (entity: ImporterEntity): IImporter => ({
+export const mapImporterEntityToResponse = (entity: ImporterEntity): IImporter =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -20,7 +21,7 @@ export const mapImporterEntityToResponse = (entity: ImporterEntity): IImporter =
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IImporter;
 
 export const mapImporterEntitiesToResponse = (entities: ImporterEntity[]): IImporter[] =>
   entities.map(mapImporterEntityToResponse);

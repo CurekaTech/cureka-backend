@@ -1,7 +1,8 @@
 import { BannerEntity } from '../entities/banner.entity';
 import { IBanner, IStorefrontBannerItem } from '../interfaces/banner.interface';
 
-export const mapBannerEntityToResponse = (entity: BannerEntity): IBanner => ({
+export const mapBannerEntityToResponse = (entity: BannerEntity): IBanner =>
+  ({
   id: entity.id,
   refId: entity.refId,
   placement: entity.placement,
@@ -20,7 +21,7 @@ export const mapBannerEntityToResponse = (entity: BannerEntity): IBanner => ({
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as unknown as IBanner;
 
 export const mapBannerEntitiesToResponse = (entities: BannerEntity[]): IBanner[] =>
   entities.map(mapBannerEntityToResponse);
@@ -28,9 +29,10 @@ export const mapBannerEntitiesToResponse = (entities: BannerEntity[]): IBanner[]
 export const mapBannerToStorefrontItem = (
   entity: BannerEntity,
   ctaHref: string | null,
-): IStorefrontBannerItem => ({
+): IStorefrontBannerItem =>
+  ({
   refId: entity.refId,
   title: entity.title,
   imageUrl: entity.imageUrl,
   ctaHref,
-});
+  }) as unknown as IStorefrontBannerItem;

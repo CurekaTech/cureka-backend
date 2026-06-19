@@ -36,7 +36,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? (exceptionResponse as { error?: string }).error ?? 'Error'
         : 'Error';
 
-    if (!isHttpException) {
+    if (isHttpException && statusCode === HttpStatus.BAD_REQUEST) {
+      this.logger.warn(
+        `Bad request ${request.method} ${request.url}: ${JSON.stringify(message)}`,
+      );
+    } else if (!isHttpException) {
       this.logger.error(
         `Unhandled exception: ${exception instanceof Error ? exception.message : String(exception)}`,
         exception instanceof Error ? exception.stack : undefined,

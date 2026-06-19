@@ -25,9 +25,15 @@ export class UploadsService {
       folder,
     });
 
+    const storageFile = await this.storageService.toFileReferenceResponse(result.path);
+    if (!storageFile) {
+      throw new BadRequestException('Uploaded file path could not be resolved');
+    }
+
     return {
       ...result,
       folder,
+      file: storageFile,
     };
   }
 }

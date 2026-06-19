@@ -51,11 +51,10 @@ export class GcsStorageProvider implements IStorageProviderWithAccessibleUrl {
     );
 
     const [metadata] = await file.getMetadata();
-    const accessibleUrl = await this.getAccessibleUrl(relativePath);
 
     return {
       path: relativePath,
-      url: accessibleUrl,
+      url: '',
       filename,
       mimetype: input.mimetype,
       size: Number(metadata.size ?? 0),

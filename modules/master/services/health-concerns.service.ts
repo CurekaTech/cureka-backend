@@ -89,8 +89,8 @@ export class HealthConcernsService {
     const entity = await this.healthConcernsRepository.create({
       name: dto.name,
       slug,
-      icon: media.icon ?? null,
-      banner: media.banner ?? null,
+      icon: this.storageUrlEnricher.persist(media.icon),
+      banner: this.storageUrlEnricher.persist(media.banner),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       refId: await generateUniqueRefId(dto.name, (refId) =>
@@ -142,8 +142,8 @@ export class HealthConcernsService {
 
     const payload: Partial<HealthConcernEntity> = { ...dto, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
-    if (media.icon !== undefined) payload.icon = media.icon;
-    if (media.banner !== undefined) payload.banner = media.banner;
+    if (media.icon !== undefined) payload.icon = this.storageUrlEnricher.persist(media.icon);
+    if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
 
     const result = await this.healthConcernsRepository.updateByRefId(refId, payload);
     if (!result) {

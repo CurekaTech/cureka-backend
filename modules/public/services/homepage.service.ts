@@ -108,15 +108,15 @@ export class HomepageService {
 
   private async enrichCategoryNode(node: IPublicCategoryTree): Promise<IPublicCategoryTree> {
     const [image, banner, children] = await Promise.all([
-      node.image ? this.storageUrlEnricher.resolve(node.image) : Promise.resolve(null),
-      node.banner ? this.storageUrlEnricher.resolve(node.banner) : Promise.resolve(null),
+      this.storageUrlEnricher.toReference(node.image),
+      this.storageUrlEnricher.toReference(node.banner),
       Promise.all((node.children ?? []).map((child) => this.enrichCategoryNode(child))),
     ]);
 
     return {
       ...node,
-      image: image ?? node.image,
-      banner: banner ?? node.banner,
+      image,
+      banner,
       children,
     };
   }

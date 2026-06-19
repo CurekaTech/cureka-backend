@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Entity('health_concerns')
@@ -7,8 +8,8 @@ export class HealthConcernEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  icon!: string | null;
+  @Column(storageFileReferenceColumn())
+  icon!: IStorageFileReference | null;
 
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 300 })
@@ -17,8 +18,8 @@ export class HealthConcernEntity extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  banner!: string | null;
+  @Column(storageFileReferenceColumn())
+  banner!: IStorageFileReference | null;
 
   @Index()
   @Column({

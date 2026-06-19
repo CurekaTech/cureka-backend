@@ -161,27 +161,21 @@ export class PublicProductsService {
   private async enrichCard(card: IPublicProductCard): Promise<IPublicProductCard> {
     return {
       ...card,
-      primaryImageUrl: card.primaryImageUrl
-        ? ((await this.storageUrlEnricher.resolve(card.primaryImageUrl)) ?? card.primaryImageUrl)
-        : null,
+      primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
     };
   }
 
   private async enrichDetail(product: IPublicProductDetail): Promise<IPublicProductDetail> {
     const [media, wellnessGoals] = await Promise.all([
-      Promise.all(
-        product.media.map(async (item) => ({
-          ...item,
-          url: (await this.storageUrlEnricher.resolve(item.url)) ?? item.url,
-        })),
+      this.storageUrlEnricher.enrichReferences(
+        product.media,
+        (item) => item.url,
+        (item, url) => ({ ...item, url }),
       ),
-      Promise.all(
-        product.wellnessGoals.map(async (goal) => ({
-          ...goal,
-          image: goal.image
-            ? ((await this.storageUrlEnricher.resolve(goal.image)) ?? goal.image)
-            : null,
-        })),
+      this.storageUrlEnricher.enrichReferences(
+        product.wellnessGoals,
+        (goal) => goal.image,
+        (goal, image) => ({ ...goal, image }),
       ),
     ]);
 

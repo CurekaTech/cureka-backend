@@ -1,10 +1,11 @@
 import { MasterStatus } from '../enums/master-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IWellnessGoal {
   id: string;
   refId: string;
   name: string;
-  image: string | null;
+  image: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   createdBy?: string;
   updatedBy?: string;
