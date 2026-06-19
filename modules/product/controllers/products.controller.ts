@@ -9,9 +9,11 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FastifyRequest } from 'fastify';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
@@ -31,13 +33,22 @@ import { RejectProductDto } from '../dto/reject-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  @ApiOperation({ summary: 'Create product and submit for checker review' })
+  @ApiOperation({
+    summary: 'Create product and submit for checker review',
+    description:
+      'Send JSON (application/json) or multipart/form-data. For multipart: include a "data" field with the product JSON and "images" file fields for photos. Variant photos use "variantImages_<sku>".',
+  })
+  @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product created and submitted for review')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateProductDto, @CurrentAdminUser() user: IAdminJwtPayload) {
-    return this.productsService.createDraft(dto, user.email);
+  create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
+    const contentType = req.headers['content-type'] ?? '';
+    if (contentType.includes('multipart/form-data')) {
+      return this.productsService.createFromRequest(req, user.email);
+    }
+    return this.productsService.createFromJsonBody(req.body, user.email);
   }
 
   @ApiOperation({ summary: 'Paginated product list with filters' })
