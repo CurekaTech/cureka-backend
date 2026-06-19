@@ -4,6 +4,7 @@ import { ProductEntity } from '../entities/product.entity';
 type SpecificationFields = Pick<
   CreateProductDto,
   | 'description'
+  | 'components'
   | 'highlights'
   | 'expertAdvice'
   | 'keyIngredients'
@@ -33,6 +34,7 @@ export const mapSpecificationFields = (
   dto: Partial<SpecificationFields>,
 ): Partial<ProductEntity> => ({
   ...(dto.description !== undefined && { description: dto.description ?? null }),
+  ...(dto.components !== undefined && { components: dto.components ?? null }),
   ...(dto.highlights !== undefined && { highlights: dto.highlights ?? null }),
   ...(dto.expertAdvice !== undefined && { expertAdvice: dto.expertAdvice ?? null }),
   ...(dto.keyIngredients !== undefined && { keyIngredients: dto.keyIngredients ?? null }),

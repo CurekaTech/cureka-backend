@@ -13,6 +13,7 @@ export class CategoryCacheListener {
   async handleCategoryUpdated(event: CategoryUpdatedEvent): Promise<void> {
     await this.categoriesCacheSync.invalidateListCaches();
     await this.categoriesCacheSync.invalidateHomepageCategoryHeaderCache();
+    await this.categoriesCacheSync.invalidateHomepageShopByCategoryCache();
     await this.categoriesCacheSync.syncTreeWriteThrough();
 
     this.logger.log(

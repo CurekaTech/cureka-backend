@@ -25,6 +25,10 @@ export class BrandsRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findBySlug(slug: string): Promise<BrandEntity | null> {
+    return this.repo.findOne({ where: { slug } });
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }

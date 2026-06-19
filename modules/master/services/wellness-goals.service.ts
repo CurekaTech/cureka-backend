@@ -23,6 +23,7 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const WELLNESS_GOAL_MEDIA_FIELDS = ['image'] as const;
 
@@ -36,6 +37,7 @@ export class WellnessGoalsService {
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly deletionGuard: MasterDeletionGuardService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IWellnessGoal> {
@@ -151,6 +153,7 @@ export class WellnessGoalsService {
     if (!existing) {
       throw new NotFoundException(`Wellness goal with refId ${refId} not found`);
     }
+    await this.deletionGuard.assertWellnessGoalDeletable(existing.id, existing.name);
     await this.wellnessGoalsRepository.softDeleteByRefId(refId);
   }
 
