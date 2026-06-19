@@ -1,4 +1,5 @@
 import { MasterStatus } from '../enums/master-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IImporter {
   id: string;
@@ -6,7 +7,7 @@ export interface IImporter {
   name: string;
   code: string;
   iec: string | null;
-  logo: string | null;
+  logo: IStorageFileReferenceResponse | null;
   contactPerson: string | null;
   email: string | null;
   mobileNumber: string | null;

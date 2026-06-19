@@ -30,11 +30,14 @@ export class UsersService {
   ) {}
 
   private mapProfileDtoToEntity(dto: UpdateUserProfileDto): Partial<UserEntity> {
-    const { dateOfBirth, ...rest } = dto;
+    const { dateOfBirth, profileImageUrl, ...rest } = dto;
     const updateData: Partial<UserEntity> = { ...rest };
 
     if (dateOfBirth !== undefined) {
       updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : undefined;
+    }
+    if (profileImageUrl !== undefined) {
+      updateData.profileImageUrl = this.storageUrlEnricher.persist(profileImageUrl);
     }
 
     return updateData;
@@ -169,7 +172,9 @@ export class UsersService {
   }
 
   async setProfileImageUrl(userId: string, profileImageUrl: string): Promise<IUser> {
-    const updated = await this.usersRepository.update(userId, { profileImageUrl });
+    const updated = await this.usersRepository.update(userId, {
+      profileImageUrl: this.storageUrlEnricher.persist(profileImageUrl),
+    });
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }

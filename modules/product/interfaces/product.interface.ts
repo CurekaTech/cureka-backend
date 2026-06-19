@@ -2,6 +2,7 @@ import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IVariantAttributeValue {
   attributeRefId: string;
@@ -33,7 +34,7 @@ export interface IProductVariant {
 export interface IProductMedia {
   id: string;
   type: ProductMediaType;
-  url: string;
+  url: IStorageFileReferenceResponse | null;
   sortOrder: number;
   isPrimary: boolean;
   variantId: string | null;
@@ -66,7 +67,7 @@ export interface IProductAttribute {
 export interface IProductWellnessGoal {
   refId: string;
   name: string;
-  image: string | null;
+  image: IStorageFileReferenceResponse | null;
 }
 
 export interface IProduct {
@@ -121,8 +122,8 @@ export interface IProduct {
   attributes: IProductAttribute[];
   variants: IProductVariant[];
   media: IProductMedia[];
-  healthConcernRefIds: string[];
-  wellnessGoalRefIds: string[];
+  healthConcernRefIds?: string[];
+  wellnessGoalRefIds?: string[];
   wellnessGoals: IProductWellnessGoal[];
   tags: IProductTag[];
   faqs: IProductFaq[];

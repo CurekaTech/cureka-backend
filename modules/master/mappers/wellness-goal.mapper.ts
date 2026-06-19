@@ -1,7 +1,8 @@
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { IWellnessGoal } from '../interfaces/wellness-goal.interface';
 
-export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWellnessGoal => ({
+export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWellnessGoal =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -12,7 +13,7 @@ export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWe
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IWellnessGoal;
 
 export const mapWellnessGoalEntitiesToResponse = (
   entities: WellnessGoalEntity[],

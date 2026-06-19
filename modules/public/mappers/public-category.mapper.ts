@@ -4,7 +4,8 @@ import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public
 export const mapCategoryEntityToPublicTree = (
   entity: CategoryEntity,
   children: IPublicCategoryTree[] = [],
-): IPublicCategoryTree => ({
+): IPublicCategoryTree =>
+  ({
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,
@@ -15,7 +16,7 @@ export const mapCategoryEntityToPublicTree = (
   isInHeader: entity.isInHeader,
   isInShopBy: entity.isInShopBy,
   children,
-});
+  }) as IPublicCategoryTree;
 
 export const mapHeaderCategoryEntity = (
   entity: CategoryEntity,

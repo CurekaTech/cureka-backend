@@ -1,11 +1,12 @@
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IPublicCategoryTree {
   refId: string;
   name: string;
   slug: string;
-  image: string | null;
-  banner: string | null;
+  image: IStorageFileReferenceResponse | null;
+  banner: IStorageFileReferenceResponse | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   isInHeader: boolean;

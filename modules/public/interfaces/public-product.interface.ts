@@ -1,6 +1,7 @@
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IPublicProductPriceSummary {
   minSellingPrice: number;
@@ -23,7 +24,7 @@ export interface IPublicProductCard {
   brandName: string | null;
   productNatureRefId: string | null;
   productNatureName: string | null;
-  primaryImageUrl: string | null;
+  primaryImageUrl: IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
@@ -48,7 +49,7 @@ export interface IPublicProductVariant {
 export interface IPublicProductMedia {
   id: string;
   type: ProductMediaType;
-  url: string;
+  url: IStorageFileReferenceResponse | null;
   sortOrder: number;
   isPrimary: boolean;
   variantId: string | null;
@@ -106,7 +107,7 @@ export interface IPublicProductDetail {
   variants: IPublicProductVariant[];
   media: IPublicProductMedia[];
   healthConcerns: Array<{ refId: string; name: string }>;
-  wellnessGoals: Array<{ refId: string; name: string; image: string | null }>;
+  wellnessGoals: Array<{ refId: string; name: string; image: IStorageFileReferenceResponse | null }>;
   tags: Array<{ refId: string; name: string; slug: string }>;
   faqs: Array<{ refId: string; question: string; answer: string }>;
   bundleItems: Array<{

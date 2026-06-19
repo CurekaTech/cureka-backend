@@ -13,4 +13,5 @@ export interface IResolvedProductMasters {
   wellnessGoalIds: string[];
   faqIds: string[];
   attributeIds: string[];
+  attributeIdByRefId: Map<string, string>;
 }

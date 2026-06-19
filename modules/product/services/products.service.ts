@@ -30,7 +30,8 @@ import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductMasterResolverService } from './product-master-resolver.service';
 import { ProductStrategyFactory } from '../strategies/product-strategies';
-import { mapProductEntitiesToResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
+import { mapProductEntitiesToResponse, mapProductEntityToDetailResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
+import { IProductDetail } from '../interfaces/product-detail.interface';
 import { generateProductSlug } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductEntity } from '../entities/product.entity';
@@ -70,22 +71,18 @@ export class ProductsService {
   }
 
   async createDraft(dto: CreateProductDto, createdBy: string): Promise<IProduct> {
-    const masters = await this.masterResolver.resolve(dto);
-    const slug = dto.slug ?? generateProductSlug(dto.name);
+    const [masters, slugExists] = await Promise.all([
+      this.masterResolver.resolve(dto),
+      (async () => {
+        const slug = dto.slug ?? generateProductSlug(dto.name);
+        return { slug, exists: await this.productsRepository.existsBySlug(slug) };
+      })(),
+    ]);
 
-    if (await this.productsRepository.existsBySlug(slug)) {
-      throw new ConflictException(`Product slug "${slug}" already exists`);
+    if (slugExists.exists) {
+      throw new ConflictException(`Product slug "${slugExists.slug}" already exists`);
     }
-
-    const attributeRefIds = [
-      ...new Set([
-        ...(dto.attributeRefIds ?? []),
-        ...(dto.variants ?? []).flatMap((variant) =>
-          (variant.attributes ?? []).map((item) => item.attributeRefId),
-        ),
-      ]),
-    ];
-    const attributeIdByRefId = await this.masterResolver.resolveAttributeIds(attributeRefIds);
+    const slug = slugExists.slug;
 
     if (dto.productType === ProductType.VARIABLE) {
       const allowed = new Set(dto.attributeRefIds ?? []);
@@ -93,6 +90,11 @@ export class ProductsService {
         validateVariantAttributeScope(variant.attributes ?? [], allowed);
       }
     }
+
+    const refId = await generateUniqueRefId(dto.name, (candidate) =>
+      this.productsRepository.existsByRefId(candidate),
+    );
+    const attributeIdByRefId = masters.attributeIdByRefId;
 
     const product = await this.dataSource.transaction(async (manager) => {
       const created = await this.productsRepository.create(
@@ -115,9 +117,7 @@ export class ProductsService {
           rejectionReason: null,
           ...mapSpecificationFields(dto),
           description: dto.description ?? null,
-          refId: await generateUniqueRefId(dto.name, (refId) =>
-            this.productsRepository.existsByRefId(refId),
-          ),
+          refId,
           createdBy,
         },
         manager,
@@ -126,17 +126,16 @@ export class ProductsService {
       const strategy = this.strategyFactory.resolve(dto.productType);
       await strategy.createVariants(manager, created, dto, masters, attributeIdByRefId);
 
-      await this.relationsRepository.syncHealthConcerns(
-        manager,
-        created.id,
-        masters.healthConcernIds,
-      );
-      await this.relationsRepository.syncWellnessGoals(
-        manager,
-        created.id,
-        masters.wellnessGoalIds,
-      );
-      await this.relationsRepository.syncTags(manager, created.id, dto.tagNames ?? [], createdBy);
+      await Promise.all([
+        this.relationsRepository.syncHealthConcerns(
+          manager,
+          created.id,
+          masters.healthConcernIds,
+        ),
+        this.relationsRepository.syncWellnessGoals(manager, created.id, masters.wellnessGoalIds),
+        this.relationsRepository.syncTags(manager, created.id, dto.tagNames ?? [], createdBy),
+        this.relationsRepository.syncProductAttributes(manager, created.id, masters.attributeIds),
+      ]);
 
       const faqIds = [...masters.faqIds];
       if (dto.customFaqs?.length) {
@@ -149,16 +148,12 @@ export class ProductsService {
         );
       }
       await this.relationsRepository.syncProductFaqs(manager, created.id, faqIds);
-      await this.relationsRepository.syncProductAttributes(
-        manager,
-        created.id,
-        masters.attributeIds,
-      );
 
       const productMedia = collectProductMedia(dto);
       if (productMedia.length) {
         const variants = await manager.getRepository(ProductVariantEntity).find({
           where: { productId: created.id },
+          select: ['id', 'sku'],
         });
         const skuToVariantId = new Map(variants.map((v) => [v.sku, v.id]));
         await this.relationsRepository.createMedia(manager, created.id, productMedia, skuToVariantId);
@@ -167,19 +162,20 @@ export class ProductsService {
       return created;
     });
 
-    await this.emitProductUpdated(product.refId, 'created');
     const loaded = await this.productsRepository.findByRefId(product.refId);
     if (!loaded) throw new NotFoundException('Product could not be loaded after creation');
     this.validateForSubmission(loaded);
 
-    await this.productsRepository.updateByRefId(product.refId, {
+    await this.productsRepository.updateFieldsByRefId(product.refId, {
       status: ProductStatus.PENDING_REVIEW,
       rejectionReason: null,
     });
-    await this.emitProductUpdated(product.refId, 'status_updated');
+    loaded.status = ProductStatus.PENDING_REVIEW;
+    loaded.rejectionReason = null;
 
-    const reviewed = await this.productsRepository.findByRefId(product.refId);
-    return this.enrichProduct(mapProductEntityToResponse(reviewed!));
+    await this.emitProductUpdated(product.refId, 'created');
+
+    return this.enrichProduct(mapProductEntityToResponse(loaded));
   }
 
   async findAll(query: ProductQueryDto): Promise<PaginatedResult<IProduct>> {
@@ -215,18 +211,18 @@ export class ProductsService {
     }).then((result) => this.enrichPaginatedProducts(result));
   }
 
-  async findOne(refId: string): Promise<IProduct> {
+  async findOne(refId: string): Promise<IProductDetail> {
     const product = await this.cacheStrategy.cacheAside({
       key: CacheKeys.products.detail(refId),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
         const entity = await this.productsRepository.findByRefId(refId);
         if (!entity) throw new NotFoundException(`Product with refId ${refId} not found`);
-        return mapProductEntityToResponse(entity);
+        return mapProductEntityToDetailResponse(entity);
       },
     });
 
-    return this.enrichProduct(product);
+    return this.enrichProductDetail(product);
   }
 
   async update(refId: string, dto: UpdateProductDto, updatedBy: string): Promise<IProduct> {
@@ -470,21 +466,55 @@ export class ProductsService {
     }
   }
 
+  private async enrichProductDetail(product: IProductDetail): Promise<IProductDetail> {
+    const enrichedBase = await this.enrichProduct(product);
+    const brandFields = ['logo', 'banner'] as const;
+    const logoFields = ['logo'] as const;
+    const healthConcernFields = ['icon', 'banner'] as const;
+
+    const [brand, manufacturer, packer, importer, healthConcerns] = await Promise.all([
+      product.brand
+        ? this.storageUrlEnricher.enrichFields(product.brand, [...brandFields])
+        : Promise.resolve(null),
+      product.manufacturer
+        ? this.storageUrlEnricher.enrichFields(product.manufacturer, [...logoFields])
+        : Promise.resolve(null),
+      product.packer
+        ? this.storageUrlEnricher.enrichFields(product.packer, [...logoFields])
+        : Promise.resolve(null),
+      product.importer
+        ? this.storageUrlEnricher.enrichFields(product.importer, [...logoFields])
+        : Promise.resolve(null),
+      this.storageUrlEnricher.enrichManyFields(product.healthConcerns, [...healthConcernFields]),
+    ]);
+
+    return {
+      ...enrichedBase,
+      category: product.category,
+      subCategory: product.subCategory,
+      subSubCategory: product.subSubCategory,
+      subSubSubCategory: product.subSubSubCategory,
+      brand,
+      productNature: product.productNature,
+      manufacturer,
+      packer,
+      importer,
+      countryOfOrigin: product.countryOfOrigin,
+      healthConcerns,
+    };
+  }
+
   private async enrichProduct(product: IProduct): Promise<IProduct> {
     const [media, wellnessGoals] = await Promise.all([
-      Promise.all(
-        (product.media ?? []).map(async (item) => ({
-          ...item,
-          url: (await this.storageUrlEnricher.resolve(item.url)) ?? item.url,
-        })),
+      this.storageUrlEnricher.enrichReferences(
+        product.media ?? [],
+        (item) => item.url,
+        (item, url) => ({ ...item, url }),
       ),
-      Promise.all(
-        (product.wellnessGoals ?? []).map(async (goal) => ({
-          ...goal,
-          image: goal.image
-            ? ((await this.storageUrlEnricher.resolve(goal.image)) ?? goal.image)
-            : null,
-        })),
+      this.storageUrlEnricher.enrichReferences(
+        product.wellnessGoals ?? [],
+        (item) => item.image,
+        (item, image) => ({ ...item, image }),
       ),
     ]);
 

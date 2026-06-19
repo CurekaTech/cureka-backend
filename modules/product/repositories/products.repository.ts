@@ -99,6 +99,30 @@ export class ProductsRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
+  async findIdsByRefIds(
+    refIds: string[],
+    manager?: EntityManager,
+  ): Promise<Map<string, string>> {
+    if (!refIds.length) return new Map();
+
+    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
+    const rows = await repository.find({
+      where: { refId: In([...new Set(refIds)]) },
+      select: ['id', 'refId'],
+    });
+
+    return new Map(rows.map((row) => [row.refId, row.id]));
+  }
+
+  async updateFieldsByRefId(
+    refId: string,
+    data: Partial<ProductEntity>,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
+    await repository.update({ refId }, data);
+  }
+
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
     const qb = this.repo.createQueryBuilder('product').where('product.slug = :slug', { slug });
     if (excludeRefId) {

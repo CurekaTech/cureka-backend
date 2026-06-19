@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserGender } from '../enums/user-gender.enum';
@@ -46,8 +47,8 @@ export class UserEntity extends BaseEntity {
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt?: Date;
 
-  @Column({ name: 'profile_image_url', type: 'varchar', length: 500, nullable: true })
-  profileImageUrl?: string;
+  @Column(storageFileReferenceColumn({ name: 'profile_image_url' }))
+  profileImageUrl?: IStorageFileReference | null;
 
   @Column({
     type: 'enum',

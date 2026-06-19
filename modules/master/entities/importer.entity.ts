@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Entity('importers')
@@ -15,8 +16,8 @@ export class ImporterEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 100, nullable: true })
   iec!: string | null;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  logo!: string | null;
+  @Column(storageFileReferenceColumn())
+  logo!: IStorageFileReference | null;
 
   @Column({ name: 'contact_person', type: 'varchar', length: 255, nullable: true })
   contactPerson!: string | null;

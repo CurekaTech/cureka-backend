@@ -1,13 +1,14 @@
 import { MasterStatus } from '../enums/master-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IHealthConcern {
   id: string;
   refId: string;
   name: string;
-  icon: string | null;
+  icon: IStorageFileReferenceResponse | null;
   slug: string;
   description: string | null;
-  banner: string | null;
+  banner: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   createdBy?: string;
   updatedBy?: string;

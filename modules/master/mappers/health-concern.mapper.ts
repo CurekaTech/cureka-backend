@@ -1,7 +1,8 @@
 import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { IHealthConcern } from '../interfaces/health-concern.interface';
 
-export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): IHealthConcern => ({
+export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): IHealthConcern =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -15,7 +16,7 @@ export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): I
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IHealthConcern;
 
 export const mapHealthConcernEntitiesToResponse = (
   entities: HealthConcernEntity[],

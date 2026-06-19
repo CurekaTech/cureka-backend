@@ -9,6 +9,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 import { AttributeEntity } from './attribute.entity';
@@ -39,11 +40,11 @@ export class CategoryEntity extends BaseEntity {
   })
   hierarchyLevel!: CategoryHierarchyLevel;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  image!: string | null;
+  @Column(storageFileReferenceColumn())
+  image!: IStorageFileReference | null;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  banner!: string | null;
+  @Column(storageFileReferenceColumn())
+  banner!: IStorageFileReference | null;
 
   @Column({ type: 'varchar', length: 300 })
   slug!: string;

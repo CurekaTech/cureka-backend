@@ -29,7 +29,7 @@ import {
   UpdateBannerDto,
   UpdateBannerStatusDto,
 } from '../dto/banner.dto';
-import { IBanner, IHomepageBannersBundle } from '../interfaces/banner.interface';
+import { IBanner, IHomepageBannersBundle, IStorefrontBannerItem } from '../interfaces/banner.interface';
 import {
   mapBannerEntitiesToResponse,
   mapBannerEntityToResponse,
@@ -100,7 +100,7 @@ export class BannersService {
       resourceRefId: normalized.resourceRefId,
       externalUrl: normalized.externalUrl,
       title: normalized.title,
-      imageUrl,
+      imageUrl: this.storageUrlEnricher.persist(imageUrl)!,
       sortOrder: normalized.sortOrder ?? 0,
       status: normalized.status ?? MasterStatus.ACTIVE,
       startsAt: normalized.startsAt,
@@ -180,7 +180,7 @@ export class BannersService {
     };
 
     if (imageUrl !== undefined) {
-      payload.imageUrl = imageUrl;
+      payload.imageUrl = this.storageUrlEnricher.persist(imageUrl)!;
     }
 
     const result = await this.bannersRepository.updateByRefId(refId, payload);
@@ -443,7 +443,7 @@ export class BannersService {
   }
 
   private async enrichHomepageBanners(bundle: IHomepageBannersBundle): Promise<IHomepageBannersBundle> {
-    const enrichItems = async <T extends { imageUrl: string }>(items: T[]): Promise<T[]> =>
+    const enrichItems = async (items: IStorefrontBannerItem[]): Promise<IStorefrontBannerItem[]> =>
       this.storageUrlEnricher.enrichManyFields(items, ['imageUrl']);
 
     return {

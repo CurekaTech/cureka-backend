@@ -1,6 +1,7 @@
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 import { IAttribute } from './attribute.interface';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 export interface IParentCategory {
   id: string;
   refId: string;
@@ -19,8 +20,8 @@ export interface ICategory {
   parentCategoryRefId: string | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
-  image: string | null;
-  banner: string | null;
+  image: IStorageFileReferenceResponse | null;
+  banner: IStorageFileReferenceResponse | null;
   slug: string;
   metaTitle: string | null;
   metaDescription: string | null;
@@ -37,6 +38,14 @@ export interface ICategory {
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;
+}
+
+export interface ICategoryForProduct {
+  id: string;
+  refId: string;
+  name: string;
+  slug: string;
+  position: number;
 }
 
 export interface ICategoryTree extends ICategory {

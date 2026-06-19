@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { MultipartFile } from '@fastify/multipart';
 import { plainToInstance } from 'class-transformer';
-import { validate, ValidationError } from 'class-validator';
+import { validate } from 'class-validator';
 import { ClassConstructor } from 'class-transformer/types/interfaces';
+import { formatValidationErrorMessage, formatValidationErrorsForLog } from '@packages/common';
 import { StorageService } from '@packages/storage';
 import { UploadFolder } from '../enums/upload-folder.enum';
 
@@ -11,6 +12,8 @@ export type MultipartFileFieldMap = Record<string, UploadFolder>;
 
 @Injectable()
 export class MultipartFormService {
+  private readonly logger = new Logger(MultipartFormService.name);
+
   constructor(private readonly storageService: StorageService) {}
 
   async parseAndValidate<T extends object>(
@@ -126,7 +129,8 @@ export class MultipartFormService {
     });
 
     if (errors.length > 0) {
-      const message = this.formatValidationErrors(errors);
+      const message = formatValidationErrorMessage(errors);
+      this.logger.warn(`DTO validation failed: ${formatValidationErrorsForLog(errors)}`);
       if (message.includes('name should not be empty') || message.includes('name must be a string')) {
         throw new BadRequestException(
           `${message}. Send "name" as a form-data text field, or include it in a JSON "data" field.`,
@@ -136,10 +140,5 @@ export class MultipartFormService {
     }
 
     return instance;
-  }
-
-  private formatValidationErrors(errors: ValidationError[]): string {
-    const messages = errors.flatMap((error) => Object.values(error.constraints ?? {}));
-    return messages.join('; ') || 'Validation failed';
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductHealthConcernEntity } from '../entities/product-health-concern.entity';
 import { ProductWellnessGoalEntity } from '../entities/product-wellness-goal.entity';
@@ -15,7 +15,7 @@ import { CustomProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
-import { normalizeStorageKey } from '@packages/storage';
+import { StorageService } from '@packages/storage';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -38,6 +38,7 @@ export class ProductRelationsRepository {
     private readonly productFaqRepo: Repository<ProductFaqEntity>,
     @InjectRepository(ProductAttributeMappingEntity)
     private readonly attributeMappingRepo: Repository<ProductAttributeMappingEntity>,
+    private readonly storageService: StorageService,
   ) {}
 
   async syncHealthConcerns(
@@ -77,23 +78,39 @@ export class ProductRelationsRepository {
     await mappingRepository.delete({ productId });
     if (!tagNames.length) return;
 
+    const normalizedNames = tagNames.map((name) => name.trim());
+    const slugs = normalizedNames.map((name) => generateTagSlug(name));
+    const existingTags = await tagRepository.find({ where: { slug: In(slugs) } });
+    const tagsBySlug = new Map(existingTags.map((tag) => [tag.slug, tag]));
     const tagIds: string[] = [];
-    for (const name of tagNames) {
-      const slug = generateTagSlug(name);
-      let tag = await tagRepository.findOne({ where: { slug } });
-      if (!tag) {
-        tag = await tagRepository.save(
-          tagRepository.create({
-            name: name.trim(),
-            slug,
-            refId: await generateUniqueRefId(name, async (refId) => {
-              return (await tagRepository.count({ where: { refId } })) > 0;
+
+    const tagsToCreate = normalizedNames
+      .map((name, index) => ({ name, slug: slugs[index]! }))
+      .filter(({ slug }) => !tagsBySlug.has(slug));
+
+    if (tagsToCreate.length) {
+      const createdTags = await Promise.all(
+        tagsToCreate.map(async ({ name, slug }) =>
+          tagRepository.save(
+            tagRepository.create({
+              name,
+              slug,
+              refId: await generateUniqueRefId(name, async (refId) => {
+                return (await tagRepository.count({ where: { refId } })) > 0;
+              }),
+              createdBy,
             }),
-            createdBy,
-          }),
-        );
+          ),
+        ),
+      );
+      for (const tag of createdTags) {
+        tagsBySlug.set(tag.slug, tag);
       }
-      tagIds.push(tag.id);
+    }
+
+    for (const slug of slugs) {
+      const tag = tagsBySlug.get(slug);
+      if (tag) tagIds.push(tag.id);
     }
 
     await mappingRepository.save(
@@ -184,7 +201,7 @@ export class ProductRelationsRepository {
           productId,
           variantId: item.variantSku ? (skuToVariantId.get(item.variantSku) ?? null) : null,
           type: item.type,
-          url: normalizeStorageKey(item.url!) ?? item.url!,
+          url: this.storageService.persistFileReference(item.url!)!,
           sortOrder: item.sortOrder ?? 0,
           isPrimary: item.isPrimary ?? false,
         }),

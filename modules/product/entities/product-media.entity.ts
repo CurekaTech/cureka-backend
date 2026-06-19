@@ -11,6 +11,7 @@ import {
 import { ProductEntity } from './product.entity';
 import { ProductVariantEntity } from './product-variant.entity';
 import { ProductMediaType } from '../enums/product-media-type.enum';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 
 @Entity('product_media')
 export class ProductMediaEntity {
@@ -32,8 +33,8 @@ export class ProductMediaEntity {
   })
   type!: ProductMediaType;
 
-  @Column({ type: 'varchar', length: 1000 })
-  url!: string;
+  @Column({ ...storageFileReferenceColumn({ nullable: false }) })
+  url!: IStorageFileReference;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number;

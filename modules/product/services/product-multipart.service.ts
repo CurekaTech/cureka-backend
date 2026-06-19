@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { MultipartFile } from '@fastify/multipart';
 import { plainToInstance } from 'class-transformer';
-import { validate, ValidationError } from 'class-validator';
+import { validate } from 'class-validator';
+import { formatValidationErrorMessage, formatValidationErrorsForLog } from '@packages/common';
 import { StorageService } from '@packages/storage';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductDto } from '../dto/product.dto';
@@ -14,6 +15,8 @@ const CLIENT_ONLY_FIELDS = new Set(['refId']);
 
 @Injectable()
 export class ProductMultipartService {
+  private readonly logger = new Logger(ProductMultipartService.name);
+
   constructor(private readonly storageService: StorageService) {}
 
   async parseCreateProduct(req: FastifyRequest): Promise<CreateProductDto> {
@@ -139,14 +142,10 @@ export class ProductMultipartService {
     });
 
     if (errors.length > 0) {
-      throw new BadRequestException(this.formatValidationErrors(errors));
+      this.logger.warn(`CreateProductDto validation failed: ${formatValidationErrorsForLog(errors)}`);
+      throw new BadRequestException(formatValidationErrorMessage(errors));
     }
 
     return instance;
-  }
-
-  private formatValidationErrors(errors: ValidationError[]): string {
-    const messages = errors.flatMap((error) => Object.values(error.constraints ?? {}));
-    return messages.join('; ') || 'Validation failed';
   }
 }
