@@ -1,7 +1,8 @@
 import { UserEntity } from '../entities/user.entity';
 import { IUser } from '../interfaces/user.interface';
 
-export const mapUserEntityToResponse = (entity: UserEntity): IUser => ({
+export const mapUserEntityToResponse = (entity: UserEntity): IUser =>
+  ({
   id: entity.id,
   refId: entity.refId,
   firstName: entity.firstName,
@@ -21,7 +22,7 @@ export const mapUserEntityToResponse = (entity: UserEntity): IUser => ({
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IUser;
 
 export const mapUserEntitiesToResponse = (entities: UserEntity[]): IUser[] =>
   entities.map(mapUserEntityToResponse);

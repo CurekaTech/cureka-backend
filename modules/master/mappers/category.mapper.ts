@@ -1,5 +1,5 @@
 import { CategoryEntity } from '../entities/category.entity';
-import { ICategory, ICategoryTree, IParentCategory } from '../interfaces/category.interface';
+import { ICategory, ICategoryForProduct, ICategoryTree, IParentCategory } from '../interfaces/category.interface';
 import { mapAttributeEntityToResponse } from './attribute.mapper';
 
 const mapParentEntityToResponse = (parent: CategoryEntity | null | undefined): IParentCategory | null => {
@@ -15,7 +15,8 @@ const mapParentEntityToResponse = (parent: CategoryEntity | null | undefined): I
   };
 };
 
-export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory => ({
+export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -41,6 +42,14 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
+  }) as ICategory;
+
+export const mapCategoryEntityToDetailResponse = (entity: CategoryEntity): ICategoryForProduct => ({
+  id: entity.id,
+  refId: entity.refId,
+  name: entity.name,
+  slug: entity.slug,
+  position: entity.position,
 });
 
 export const mapCategoryEntitiesToResponse = (entities: CategoryEntity[]): ICategory[] =>

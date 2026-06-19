@@ -1,7 +1,8 @@
 import { PackerEntity } from '../entities/packer.entity';
 import { IPacker } from '../interfaces/packer.interface';
 
-export const mapPackerEntityToResponse = (entity: PackerEntity): IPacker => ({
+export const mapPackerEntityToResponse = (entity: PackerEntity): IPacker =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -21,7 +22,7 @@ export const mapPackerEntityToResponse = (entity: PackerEntity): IPacker => ({
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IPacker;
 
 export const mapPackerEntitiesToResponse = (entities: PackerEntity[]): IPacker[] =>
   entities.map(mapPackerEntityToResponse);

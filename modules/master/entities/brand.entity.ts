@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Entity('brands')
@@ -11,11 +12,11 @@ export class BrandEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  logo!: string | null;
+  @Column(storageFileReferenceColumn())
+  logo!: IStorageFileReference | null;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  banner!: string | null;
+  @Column(storageFileReferenceColumn())
+  banner!: IStorageFileReference | null;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;

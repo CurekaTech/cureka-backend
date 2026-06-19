@@ -71,7 +71,7 @@ export class WellnessGoalsService {
   ): Promise<IWellnessGoal> {
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
-      image,
+      image: this.storageUrlEnricher.persist(image),
       status: dto.status ?? MasterStatus.ACTIVE,
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.wellnessGoalsRepository.existsByRefId(refId),
@@ -116,7 +116,7 @@ export class WellnessGoalsService {
     const payload: Partial<WellnessGoalEntity> = { updatedBy };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.status !== undefined) payload.status = dto.status;
-    if (image !== undefined) payload.image = image;
+    if (image !== undefined) payload.image = this.storageUrlEnricher.persist(image);
 
     const updated = await this.wellnessGoalsRepository.updateByRefId(refId, payload);
     if (!updated) {

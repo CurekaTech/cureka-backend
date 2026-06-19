@@ -9,13 +9,23 @@ import {
   IProductAttribute,
   IProductWellnessGoal,
 } from '../interfaces/product.interface';
+import { IProductDetail } from '../interfaces/product-detail.interface';
+import { mapCategoryEntityToDetailResponse } from '@modules/master/mappers/category.mapper';
+import { mapBrandEntityToResponse } from '@modules/master/mappers/brand.mapper';
+import { mapProductNatureEntityToResponse } from '@modules/master/mappers/product-nature.mapper';
+import { mapManufacturerEntityToResponse } from '@modules/master/mappers/manufacturer.mapper';
+import { mapPackerEntityToResponse } from '@modules/master/mappers/packer.mapper';
+import { mapImporterEntityToResponse } from '@modules/master/mappers/importer.mapper';
+import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapper';
+import { mapHealthConcernEntityToResponse } from '@modules/master/mappers/health-concern.mapper';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
   return typeof value === 'number' ? value : parseFloat(value);
 };
 
-export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => ({
+export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
+  ({
   id: entity.id,
   refId: entity.refId,
   vendorId: entity.vendorId,
@@ -81,10 +91,32 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct => (
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
-});
+  }) as IProduct;
 
 export const mapProductEntitiesToResponse = (entities: ProductEntity[]): IProduct[] =>
   entities.map(mapProductEntityToResponse);
+
+export const mapProductEntityToDetailResponse = (entity: ProductEntity): IProductDetail => ({
+  ...mapProductEntityToResponse(entity),
+  category: entity.category ? mapCategoryEntityToDetailResponse(entity.category) : null,
+  subCategory: entity.subCategory ? mapCategoryEntityToDetailResponse(entity.subCategory) : null,
+  subSubCategory: entity.subSubCategory ? mapCategoryEntityToDetailResponse(entity.subSubCategory) : null,
+  subSubSubCategory: entity.subSubSubCategory
+    ? mapCategoryEntityToDetailResponse(entity.subSubSubCategory)
+    : null,
+  brand: entity.brand ? mapBrandEntityToResponse(entity.brand) : null,
+  productNature: entity.productNature ? mapProductNatureEntityToResponse(entity.productNature) : null,
+  manufacturer: entity.manufacturer ? mapManufacturerEntityToResponse(entity.manufacturer) : null,
+  packer: entity.packer ? mapPackerEntityToResponse(entity.packer) : null,
+  importer: entity.importer ? mapImporterEntityToResponse(entity.importer) : null,
+  countryOfOrigin: entity.countryOfOrigin
+    ? mapCountryEntityToResponse(entity.countryOfOrigin)
+    : null,
+  healthConcerns: (entity.healthConcernMappings ?? [])
+    .map((mapping) => mapping.healthConcern)
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .map(mapHealthConcernEntityToResponse),
+});
 
 const mapAttribute = (
   mapping: ProductEntity['attributeMappings'][number],
@@ -118,7 +150,7 @@ const mapVariant = (variant: ProductEntity['variants'][number]): IProductVariant
   updatedAt: variant.updatedAt,
 });
 
-const mapMedia = (media: ProductEntity['media'][number]): IProductMedia => ({
+const mapMedia = (media: ProductEntity['media'][number]) => ({
   id: media.id,
   type: media.type,
   url: media.url,
@@ -129,7 +161,7 @@ const mapMedia = (media: ProductEntity['media'][number]): IProductMedia => ({
 
 const mapWellnessGoal = (
   mapping: ProductEntity['wellnessGoalMappings'][number],
-): IProductWellnessGoal => ({
+) => ({
   refId: mapping.wellnessGoal?.refId ?? '',
   name: mapping.wellnessGoal?.name ?? '',
   image: mapping.wellnessGoal?.image ?? null,

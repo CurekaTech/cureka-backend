@@ -1,5 +1,6 @@
 import { Column, Entity, Index, JoinTable, ManyToMany } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CategoryEntity } from './category.entity';
 
@@ -12,8 +13,8 @@ export class ManufacturerEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 100 })
   code!: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  logo!: string | null;
+  @Column(storageFileReferenceColumn())
+  logo!: IStorageFileReference | null;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;

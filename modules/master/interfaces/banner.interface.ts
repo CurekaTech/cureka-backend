@@ -2,6 +2,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { BannerPlacement } from '../enums/banner-placement.enum';
 import { BannerSlot } from '../enums/banner-slot.enum';
 import { BannerResourceType } from '../enums/banner-resource-type.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IBanner {
   id: string;
@@ -12,7 +13,7 @@ export interface IBanner {
   resourceRefId: string | null;
   externalUrl: string | null;
   title: string;
-  imageUrl: string;
+  imageUrl: IStorageFileReferenceResponse;
   sortOrder: number;
   status: MasterStatus;
   startsAt: Date | null;
@@ -27,7 +28,7 @@ export interface IBanner {
 export interface IStorefrontBannerItem {
   refId: string;
   title: string;
-  imageUrl: string;
+  imageUrl: IStorageFileReferenceResponse;
   ctaHref: string | null;
 }
 

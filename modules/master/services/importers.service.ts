@@ -72,7 +72,7 @@ export class ImportersService {
       name: dto.name,
       code: dto.code,
       iec: dto.iec ?? null,
-      logo,
+      logo: this.storageUrlEnricher.persist(logo),
       contactPerson: dto.contactPerson ?? null,
       email: dto.email ?? null,
       mobileNumber: dto.mobileNumber ?? null,
@@ -160,7 +160,7 @@ export class ImportersService {
     if (dto.gstNumber !== undefined) payload.gstNumber = dto.gstNumber;
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
-    if (logo !== undefined) payload.logo = logo;
+    if (logo !== undefined) payload.logo = this.storageUrlEnricher.persist(logo);
 
     const result = await this.importersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Importer with refId ${refId} not found after update`);

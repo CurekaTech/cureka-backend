@@ -2,6 +2,7 @@ import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserGender } from '../enums/user-gender.enum';
 import { UserMaritalStatus } from '../enums/user-marital-status.enum';
+import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IUser {
   id: string;
@@ -15,7 +16,7 @@ export interface IUser {
   status: UserStatus;
   role: UserRole;
   lastLoginAt?: Date;
-  profileImageUrl?: string;
+  profileImageUrl?: IStorageFileReferenceResponse | null;
   gender?: UserGender;
   dateOfBirth?: Date;
   maritalStatus?: UserMaritalStatus;

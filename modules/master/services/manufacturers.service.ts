@@ -69,7 +69,7 @@ export class ManufacturersService {
       {
         name: dto.name,
         code: dto.code,
-        logo,
+        logo: this.storageUrlEnricher.persist(logo),
         description: dto.description ?? null,
         contactPerson: dto.contactPerson ?? null,
         email: dto.email ?? null,
@@ -148,7 +148,7 @@ export class ManufacturersService {
     if (dto.gstNumber !== undefined) payload.gstNumber = dto.gstNumber;
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
-    if (logo !== undefined) payload.logo = logo;
+    if (logo !== undefined) payload.logo = this.storageUrlEnricher.persist(logo);
 
     let categories: CategoryEntity[] | undefined;
     if (dto.categoryRefIds !== undefined) {

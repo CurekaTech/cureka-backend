@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
-import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LoggingValidationPipe } from '@packages/common';
 import { Logger } from 'nestjs-pino';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
@@ -87,7 +87,7 @@ async function bootstrap(): Promise<void> {
 
   // Global pipes — validation
   app.useGlobalPipes(
-    new ValidationPipe({
+    new LoggingValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,

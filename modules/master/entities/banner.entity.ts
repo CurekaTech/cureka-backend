@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { MasterStatus } from '../enums/master-status.enum';
 import { BannerPlacement } from '../enums/banner-placement.enum';
 import { BannerSlot } from '../enums/banner-slot.enum';
@@ -42,8 +43,8 @@ export class BannerEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   title!: string;
 
-  @Column({ name: 'image_url', type: 'varchar', length: 500 })
-  imageUrl!: string;
+  @Column(storageFileReferenceColumn({ name: 'image_url', nullable: false }))
+  imageUrl!: IStorageFileReference;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number;

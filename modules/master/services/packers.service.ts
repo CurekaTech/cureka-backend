@@ -71,7 +71,7 @@ export class PackersService {
     const entity = await this.packersRepository.create({
       name: dto.name,
       code: dto.code,
-      logo,
+      logo: this.storageUrlEnricher.persist(logo),
       description: dto.description ?? null,
       contactPerson: dto.contactPerson ?? null,
       email: dto.email ?? null,
@@ -162,7 +162,7 @@ export class PackersService {
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.remarks !== undefined) payload.remarks = dto.remarks ?? null;
-    if (logo !== undefined) payload.logo = logo;
+    if (logo !== undefined) payload.logo = this.storageUrlEnricher.persist(logo);
 
     const result = await this.packersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Packer with refId ${refId} not found after update`);

@@ -8,7 +8,8 @@ const mapCategoryToSummary = (category: CategoryEntity): IManufacturerCategorySu
   name: category.name,
 });
 
-export const mapManufacturerEntityToResponse = (entity: ManufacturerEntity): IManufacturer => ({
+export const mapManufacturerEntityToResponse = (entity: ManufacturerEntity): IManufacturer =>
+  ({
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -28,7 +29,7 @@ export const mapManufacturerEntityToResponse = (entity: ManufacturerEntity): IMa
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
-});
+  }) as IManufacturer;
 
 export const mapManufacturerEntitiesToResponse = (entities: ManufacturerEntity[]): IManufacturer[] =>
   entities.map(mapManufacturerEntityToResponse);

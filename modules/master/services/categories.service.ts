@@ -116,8 +116,8 @@ export class CategoriesService {
         parentCategoryId,
         position: dto.position ?? 0,
         hierarchyLevel,
-        image: media.image ?? null,
-        banner: media.banner ?? null,
+        image: this.storageUrlEnricher.persist(media.image),
+        banner: this.storageUrlEnricher.persist(media.banner),
         slug,
         metaTitle: dto.metaTitle ?? null,
         metaDescription: dto.metaDescription ?? null,
@@ -253,8 +253,8 @@ export class CategoriesService {
     if (dto.name !== undefined) updatePayload.name = dto.name;
     if (dto.parentCategoryRefId !== undefined) updatePayload.parentCategoryId = parentCategoryId;
     if (dto.position !== undefined) updatePayload.position = dto.position;
-    if (media.image !== undefined) updatePayload.image = media.image;
-    if (media.banner !== undefined) updatePayload.banner = media.banner;
+    if (media.image !== undefined) updatePayload.image = this.storageUrlEnricher.persist(media.image);
+    if (media.banner !== undefined) updatePayload.banner = this.storageUrlEnricher.persist(media.banner);
     if (dto.metaTitle !== undefined) updatePayload.metaTitle = dto.metaTitle ?? null;
     if (dto.metaDescription !== undefined)
       updatePayload.metaDescription = dto.metaDescription ?? null;

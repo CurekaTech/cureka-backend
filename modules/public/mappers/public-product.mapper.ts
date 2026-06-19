@@ -5,6 +5,7 @@ import {
   IPublicProductDetail,
   IPublicProductPriceSummary,
 } from '../interfaces/public-product.interface';
+import { IStorageFileReference } from '@packages/storage';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -31,13 +32,14 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
   };
 };
 
-const getPrimaryImageUrl = (entity: ProductEntity): string | null => {
+const getPrimaryImageUrl = (entity: ProductEntity): IStorageFileReference | null => {
   const media = entity.media ?? [];
   const primary = media.find((item) => item.isPrimary) ?? media[0];
   return primary?.url ?? null;
 };
 
-export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard => ({
+export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard =>
+  ({
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,
@@ -55,12 +57,13 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
   publishedAt: entity.publishedAt,
-});
+  }) as IPublicProductCard;
 
 export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPublicProductCard[] =>
   entities.map(mapProductEntityToPublicCard);
 
-export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail => ({
+export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail =>
+  ({
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,
@@ -159,4 +162,4 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     childProductSlug: item.childProduct?.slug ?? '',
     quantity: item.quantity,
   })),
-});
+  }) as unknown as IPublicProductDetail;
