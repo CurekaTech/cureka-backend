@@ -120,7 +120,8 @@ export class MultipartFormService {
     fields: Record<string, string>,
   ): Promise<T> {
     const instance = plainToInstance(dtoClass, fields, {
-      enableImplicitConversion: true,
+      // Must stay false: string "false" from form-data is truthy with implicit boolean conversion.
+      enableImplicitConversion: false,
     });
 
     const errors = await validate(instance, {

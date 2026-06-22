@@ -98,7 +98,11 @@ export class ProductsController {
     return this.productsService.findOne(refId);
   }
 
-  @ApiOperation({ summary: 'Update product metadata and mappings' })
+  @ApiOperation({
+    summary: 'Update product metadata and mappings',
+    description:
+      'Applies changes and moves the product to pending_review for checker approval (draft or rejected products only).',
+  })
   @ResponseMessage('Product updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Patch(':refId')

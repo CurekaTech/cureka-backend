@@ -54,7 +54,7 @@ export class CategoriesService {
     private readonly eventEmitter: EventEmitter2,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
-  ) {}
+  ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
     const { dto, uploadedUrls } = await this.multipartFormService.parseAndValidate(
@@ -128,6 +128,8 @@ export class CategoriesService {
         refId: await generateUniqueRefId(dto.name, (refId) =>
           this.categoriesRepository.existsByRefId(refId),
         ),
+        isInHeader: dto.isInHeader ?? false,
+        isInShopBy: dto.isInShopBy ?? false,
         createdBy,
       },
       attributes,
