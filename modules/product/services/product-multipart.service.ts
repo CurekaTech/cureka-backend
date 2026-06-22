@@ -133,7 +133,7 @@ export class ProductMultipartService {
 
   private async validateDto(payload: CreateProductDto): Promise<CreateProductDto> {
     const instance = plainToInstance(CreateProductDto, payload, {
-      enableImplicitConversion: true,
+      enableImplicitConversion: false,
     });
 
     const errors = await validate(instance, {
