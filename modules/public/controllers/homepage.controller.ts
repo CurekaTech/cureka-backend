@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ResponseMessage } from '@packages/common';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { HomepageSectionsService } from '../services/homepage-sections.service';
+import { HomeSectionsService } from '@modules/master/services/home-sections.service';
 import { HomepageService } from '../services/homepage.service';
 
 @Controller('public/homepage')
@@ -9,12 +10,19 @@ export class HomepageController {
   constructor(
     private readonly homepageService: HomepageService,
     private readonly homepageSectionsService: HomepageSectionsService,
+    private readonly homeSectionsService: HomeSectionsService,
   ) {}
 
   @ResponseMessage('Homepage sections retrieved successfully')
   @Get('sections')
   getSections(@Query() query: HomepageSectionsQueryDto) {
     return this.homepageSectionsService.getSections(resolveHomepageSectionsFromFlags(query));
+  }
+
+  @ResponseMessage('Active home sections retrieved successfully')
+  @Get('home-sections/active')
+  getActiveHomeSections() {
+    return this.homeSectionsService.findActive();
   }
 
   @ResponseMessage('Header categories retrieved successfully')

@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -10,6 +11,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
@@ -97,6 +99,36 @@ export class UpdateCategoryStatusDto {
   @IsNotEmpty()
   @IsEnum(MasterStatus)
   status!: MasterStatus;
+}
+
+export class ReorderCategoryItemDto {
+  @IsNotEmpty()
+  @IsRefId()
+  refId!: string;
+
+  @IsNotEmpty()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  position!: number;
+}
+
+export class ReorderCategoriesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ReorderCategoryItemDto)
+  categories!: ReorderCategoryItemDto[];
+
+  @IsOptional()
+  @IsRefId()
+  parentCategoryRefId?: string;
+}
+
+export class CategoryPlacementQueryDto {
+  @IsOptional()
+  @IsRefId()
+  parentCategoryRefId?: string;
 }
 
 export class CategoryQueryDto extends PaginationQueryDto {

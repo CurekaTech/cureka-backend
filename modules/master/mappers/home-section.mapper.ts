@@ -1,0 +1,20 @@
+import { HomeSectionEntity } from '../entities/home-section.entity';
+import { IHomeSection } from '../interfaces/home-section.interface';
+
+export const mapHomeSectionEntityToResponse = (entity: HomeSectionEntity): IHomeSection => ({
+  id: entity.id,
+  refId: entity.refId,
+  title: entity.title,
+  slug: entity.slug,
+  type: entity.type,
+  index: entity.sectionIndex,
+  status: entity.status,
+  createdBy: entity.createdBy,
+  updatedBy: entity.updatedBy,
+  createdAt: entity.createdAt,
+  updatedAt: entity.updatedAt,
+});
+
+export const mapHomeSectionEntitiesToResponse = (
+  entities: HomeSectionEntity[],
+): IHomeSection[] => entities.map(mapHomeSectionEntityToResponse);
