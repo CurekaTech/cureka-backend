@@ -276,11 +276,6 @@ export class ProductsService {
       payload.countryOfOriginId = masters.countryOfOriginId;
     }
 
-    if (existing.status === ProductStatus.REJECTED) {
-      payload.status = ProductStatus.DRAFT;
-      payload.rejectionReason = null;
-    }
-
     await this.productsRepository.updateByRefId(refId, payload);
 
     if (
@@ -345,7 +340,18 @@ export class ProductsService {
       });
     }
 
-    await this.emitProductUpdated(refId, 'updated');
+    const updated = await this.productsRepository.findByRefId(refId);
+    if (!updated) {
+      throw new NotFoundException(`Product with refId ${refId} not found after update`);
+    }
+    this.validateForSubmission(updated);
+
+    await this.productsRepository.updateFieldsByRefId(refId, {
+      status: ProductStatus.PENDING_REVIEW,
+      rejectionReason: null,
+    });
+
+    await this.emitProductUpdated(refId, 'status_updated');
     return this.findOne(refId);
   }
 
