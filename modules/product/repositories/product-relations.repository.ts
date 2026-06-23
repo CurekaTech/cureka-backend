@@ -16,6 +16,7 @@ import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
 import { StorageService } from '@packages/storage';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -95,6 +96,7 @@ export class ProductRelationsRepository {
             tagRepository.create({
               name,
               slug,
+              status: MasterStatus.ACTIVE,
               refId: await generateUniqueRefId(name, async (refId) => {
                 return (await tagRepository.count({ where: { refId } })) > 0;
               }),

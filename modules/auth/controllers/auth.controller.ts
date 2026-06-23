@@ -90,6 +90,7 @@ export class AuthController {
       sessionId: result.sessionId,
       isRegistered: result.isRegistered,
       user: result.user,
+      token: result.isRegistered ? result.sessionToken : null
     };
   }
 
@@ -101,7 +102,9 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<IGuestAuthResponse> {
     const device = this.authService.resolveDeviceContext(req);
+    console.log("🚀 ~ AuthController ~ guestLogin ~ device:", device)
     const result = await this.authService.guestLogin(device);
+    console.log("🚀 ~ AuthController ~ guestLogin ~ result:", result)
 
     setUserSessionCookie(
       reply,
