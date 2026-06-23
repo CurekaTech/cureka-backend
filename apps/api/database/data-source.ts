@@ -12,6 +12,10 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required');
 }
 
+const isMigrationCli = process.argv.some((arg) => /migration:(run|revert|show)/.test(arg));
+const appQueryTimeoutMs = 30_000;
+const migrationQueryTimeoutMs = Number(process.env['MIGRATION_QUERY_TIMEOUT_MS'] ?? 3_600_000);
+
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: DATABASE_URL,
@@ -25,8 +29,8 @@ export const AppDataSource = new DataSource({
   subscribers: [],
   // PgBouncer compatible settings
   extra: {
-    statement_timeout: 30000,
-    query_timeout: 30000,
+    statement_timeout: isMigrationCli ? migrationQueryTimeoutMs : appQueryTimeoutMs,
+    query_timeout: isMigrationCli ? migrationQueryTimeoutMs : appQueryTimeoutMs,
   },
   poolSize: 5,
   connectTimeoutMS: 10000,

@@ -1,5 +1,4 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { randomUUID } from 'crypto';
 
 type LegacyProductRow = {
   id: string;
@@ -36,49 +35,57 @@ export class ReplaceProductStaticInfoWithProductInformation1780818000000
   name = 'ReplaceProductStaticInfoWithProductInformation1780818000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`SET statement_timeout = 0`);
+
     await queryRunner.query(`
       ALTER TABLE "products"
-      ADD COLUMN IF NOT EXISTS "product_information" jsonb NOT NULL DEFAULT '[]'
+      ADD COLUMN IF NOT EXISTS "product_information" jsonb
     `);
 
-    const products = (await queryRunner.query(`
-      SELECT
-        "id",
-        "highlights",
-        "expert_advice",
-        "key_ingredients",
-        "other_ingredients",
-        "preventive_notes",
-        "accessories_specifications",
-        "directions_of_use",
-        "feeding_table",
-        "safety_information",
-        "product_weight",
-        "product_dimensions"
-      FROM "products"
-    `)) as LegacyProductRow[];
+    await queryRunner.query(`
+      UPDATE "products"
+      SET "product_information" = '[]'::jsonb
+      WHERE "product_information" IS NULL
+    `);
 
-    for (const product of products) {
-      const productInformation = LEGACY_FIELD_MAPPINGS.flatMap(({ column, label }) => {
-        const value = product[column];
-        if (typeof value !== 'string' || !value.trim()) {
-          return [];
-        }
+    await queryRunner.query(`
+      ALTER TABLE "products"
+      ALTER COLUMN "product_information" SET DEFAULT '[]'::jsonb,
+      ALTER COLUMN "product_information" SET NOT NULL
+    `);
 
-        return [
-          {
-            id: randomUUID(),
-            label,
-            description: value.trim(),
-          },
-        ];
-      });
+    const legacyFieldSelects = LEGACY_FIELD_MAPPINGS.map(
+      ({ column, label }, index) =>
+        `SELECT ${index} AS ord, '${label.replace(/'/g, "''")}' AS label, p."${column}" AS val`,
+    ).join('\n          UNION ALL\n          ');
 
-      await queryRunner.query(
-        `UPDATE "products" SET "product_information" = $1::jsonb WHERE "id" = $2`,
-        [JSON.stringify(productInformation), product.id],
-      );
-    }
+    await queryRunner.query(`
+      UPDATE "products" AS p
+      SET "product_information" = COALESCE(
+        (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'id', gen_random_uuid()::text,
+              'label', fields.label,
+              'description', trim(fields.val)
+            )
+            ORDER BY fields.ord
+          )
+          FROM (
+            ${legacyFieldSelects}
+          ) AS fields
+          WHERE fields.val IS NOT NULL AND trim(fields.val) <> ''
+        ),
+        '[]'::jsonb
+      )
+      WHERE EXISTS (
+        SELECT 1
+        FROM (
+          ${legacyFieldSelects}
+        ) AS fields
+        WHERE fields.val IS NOT NULL AND trim(fields.val) <> ''
+      )
+    `);
 
     await queryRunner.query(`
       ALTER TABLE "products"
