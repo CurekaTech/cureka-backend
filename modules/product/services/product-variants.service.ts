@@ -29,7 +29,13 @@ export class ProductVariantsService {
     const attributeIdByRefId = await this.masterResolver.resolveAttributeIds(attributeRefIds);
 
     await this.dataSource.transaction(async (manager) => {
-      await this.variantsRepository.createVariants(manager, product.id, variants, attributeIdByRefId);
+      await this.variantsRepository.createVariants(
+        manager,
+        product.id,
+        product.slug,
+        variants,
+        attributeIdByRefId,
+      );
       await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
     });
 

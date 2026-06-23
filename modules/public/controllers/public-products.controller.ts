@@ -13,6 +13,12 @@ export class PublicProductsController {
     return this.publicProductsService.findAll(query);
   }
 
+  @ResponseMessage('Product variants retrieved successfully')
+  @Get('search')
+  search(@Query() query: PublicProductQueryDto) {
+    return this.publicProductsService.searchVariants(query);
+  }
+
   @ResponseMessage('Product retrieved successfully')
   @Get(':slug')
   findBySlug(@Param('slug') slug: string) {

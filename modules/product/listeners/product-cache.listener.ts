@@ -16,6 +16,7 @@ export class ProductCacheListener {
         CacheKeys.products.listPattern(),
         CacheKeys.products.detailPattern(),
         CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicProducts.variantSearchPattern(),
         CacheKeys.publicProducts.detailPattern(),
       ],
       keys: [CacheKeys.products.detail(event.refId)],

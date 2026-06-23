@@ -21,10 +21,12 @@ import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {
   IPublicProductCard,
   IPublicProductDetail,
+  IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
 import {
   mapProductEntitiesToPublicCards,
   mapProductEntityToPublicDetail,
+  mapVariantEntitiesToPublicSearchItems,
 } from '../mappers/public-product.mapper';
 
 @Injectable()
@@ -53,6 +55,7 @@ export class PublicProductsService {
       healthConcernSlug: query.healthConcernSlug,
       productNatureRefId: query.productNatureRefId,
       wellnessGoalRefId: query.wellnessGoalRefId,
+      variantSlug: query.variantSlug,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -77,6 +80,7 @@ export class PublicProductsService {
           productNatureId: filters.productNatureId,
           healthConcernId: filters.healthConcernId,
           wellnessGoalId: filters.wellnessGoalId,
+          variantSlug: query.variantSlug,
         });
         return buildPaginatedResult(
           mapProductEntitiesToPublicCards(data),
@@ -89,16 +93,92 @@ export class PublicProductsService {
     return this.enrichPaginatedCards(result);
   }
 
+  async searchVariants(
+    query: PublicProductQueryDto,
+  ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {
+    const paginationOptions = buildPaginationOptions(query);
+    const filters = await this.resolveListFilters(query);
+    const queryHash = buildQueryCacheHash({
+      ...filters,
+      categoryRefId: query.categoryRefId,
+      categorySlug: query.categorySlug,
+      brandRefId: query.brandRefId,
+      brandSlug: query.brandSlug,
+      healthConcernRefId: query.healthConcernRefId,
+      healthConcernSlug: query.healthConcernSlug,
+      productNatureRefId: query.productNatureRefId,
+      wellnessGoalRefId: query.wellnessGoalRefId,
+      variantSlug: query.variantSlug,
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      search: paginationOptions.search,
+      sortBy: paginationOptions.sortBy,
+      sortOrder: paginationOptions.sortOrder,
+      productType: query.productType,
+    });
+
+    const result = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.publicProducts.variantSearch(queryHash),
+      module: CacheModuleName.HOMEPAGE,
+      loader: async () => {
+        const { data, total } = await this.productsRepository.findPublishedVariantsPaginated({
+          page: paginationOptions.page,
+          limit: paginationOptions.limit,
+          search: paginationOptions.search,
+          sortBy: paginationOptions.sortBy,
+          sortOrder: paginationOptions.sortOrder,
+          productType: query.productType,
+          categoryId: filters.categoryId,
+          brandId: filters.brandId,
+          productNatureId: filters.productNatureId,
+          healthConcernId: filters.healthConcernId,
+          wellnessGoalId: filters.wellnessGoalId,
+          variantSlug: query.variantSlug,
+        });
+        return buildPaginatedResult(
+          mapVariantEntitiesToPublicSearchItems(data),
+          total,
+          paginationOptions,
+        );
+      },
+    });
+
+    return this.enrichPaginatedVariantSearch(result);
+  }
+
   async findBySlug(slug: string): Promise<IPublicProductDetail> {
     const product = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.detail(slug),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const entity = await this.productsRepository.findPublishedBySlug(slug);
-        if (!entity) {
+        const byProductSlug = await this.productsRepository.findPublishedBySlug(slug);
+        if (byProductSlug) {
+          const detail = mapProductEntityToPublicDetail(byProductSlug);
+          const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
+          if (!matchedVariant) {
+            return detail;
+          }
+
+          return {
+            ...detail,
+            selectedVariantId: matchedVariant.id,
+            selectedVariantSlug: matchedVariant.slug,
+          };
+        }
+
+        const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(slug);
+        if (!byVariantSlug) {
           throw new NotFoundException(`Product with slug "${slug}" not found`);
         }
-        return mapProductEntityToPublicDetail(entity);
+
+        const detail = mapProductEntityToPublicDetail(byVariantSlug);
+        const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
+
+        return {
+          ...detail,
+          selectedVariantId: matchedVariant?.id ?? null,
+          selectedVariantSlug: matchedVariant?.slug ?? slug,
+        };
       },
     });
 
@@ -147,6 +227,24 @@ export class PublicProductsService {
     }
 
     return { categoryId, brandId, productNatureId, healthConcernId, wellnessGoalId };
+  }
+
+  private async enrichPaginatedVariantSearch(
+    result: PaginatedResult<IPublicProductVariantSearchItem>,
+  ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {
+    return {
+      ...result,
+      data: await Promise.all(result.data.map((item) => this.enrichVariantSearchItem(item))),
+    };
+  }
+
+  private async enrichVariantSearchItem(
+    item: IPublicProductVariantSearchItem,
+  ): Promise<IPublicProductVariantSearchItem> {
+    return {
+      ...item,
+      primaryImageUrl: await this.storageUrlEnricher.toReference(item.primaryImageUrl),
+    };
   }
 
   private async enrichPaginatedCards(

@@ -209,6 +209,17 @@ export class ProductRelationsRepository {
     );
   }
 
+  async syncMedia(
+    manager: EntityManager,
+    productId: string,
+    media: CreateProductMediaDto[],
+    skuToVariantId: Map<string, string>,
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductMediaEntity);
+    await repo.delete({ productId });
+    await this.createMedia(manager, productId, media, skuToVariantId);
+  }
+
   async findProductFaqByRefId(refId: string): Promise<ProductFaqEntity | null> {
     return this.productFaqRepo.findOne({ where: { refId } });
   }

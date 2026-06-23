@@ -56,6 +56,8 @@ export const CacheKeys = {
   publicProducts: {
     list: (queryHash: string) => `public:products:list:${queryHash}`,
     listPattern: () => 'public:products:list:*',
+    variantSearch: (queryHash: string) => `public:products:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:variant-search:*',
     detail: (slug: string) => `public:products:detail:${slug}`,
     detailPattern: (slug?: string) =>
       slug ? `public:products:detail:${slug}` : 'public:products:detail:*',
