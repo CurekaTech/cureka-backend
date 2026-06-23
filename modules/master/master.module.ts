@@ -17,6 +17,7 @@ import { ProductNatureEntity } from './entities/product-nature.entity';
 import { SubscriptionFrequencyEntity } from './entities/subscription-frequency.entity';
 import { WellnessGoalEntity } from './entities/wellness-goal.entity';
 import { CategoryFilterEntity } from './entities/category-filter.entity';
+import { HomeSectionEntity } from './entities/home-section.entity';
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -33,6 +34,7 @@ import { ProductNaturesRepository } from './repositories/product-natures.reposit
 import { SubscriptionFrequenciesRepository } from './repositories/subscription-frequencies.repository';
 import { WellnessGoalsRepository } from './repositories/wellness-goals.repository';
 import { CategoryFiltersRepository } from './repositories/category-filters.repository';
+import { HomeSectionsRepository } from './repositories/home-sections.repository';
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -50,6 +52,7 @@ import { ProductNaturesService } from './services/product-natures.service';
 import { SubscriptionFrequenciesService } from './services/subscription-frequencies.service';
 import { WellnessGoalsService } from './services/wellness-goals.service';
 import { CategoryFiltersService } from './services/category-filters.service';
+import { HomeSectionsService } from './services/home-sections.service';
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -66,6 +69,7 @@ import { ProductNaturesController } from './controllers/product-natures.controll
 import { SubscriptionFrequenciesController } from './controllers/subscription-frequencies.controller';
 import { WellnessGoalsController } from './controllers/wellness-goals.controller';
 import { CategoryFiltersController } from './controllers/category-filters.controller';
+import { HomeSectionsController } from './controllers/home-sections.controller';
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
 import { BannerCacheListener } from './listeners/banner-cache.listener';
@@ -100,6 +104,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
       SubscriptionFrequencyEntity,
       WellnessGoalEntity,
       CategoryFilterEntity,
+      HomeSectionEntity,
       ProductEntity,
       ProductHealthConcernEntity,
       ProductWellnessGoalEntity,
@@ -125,6 +130,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     SubscriptionFrequenciesController,
     WellnessGoalsController,
     CategoryFiltersController,
+    HomeSectionsController,
   ],
   providers: [
     AttributesService,
@@ -160,6 +166,8 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     WellnessGoalsRepository,
     CategoryFiltersService,
     CategoryFiltersRepository,
+    HomeSectionsService,
+    HomeSectionsRepository,
     CategoriesCacheSyncService,
     MasterUsageRepository,
     MasterDeletionGuardService,
@@ -191,6 +199,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     WellnessGoalsService,
     WellnessGoalsRepository,
     CategoryFiltersService,
+    HomeSectionsService,
     AttributesRepository,
     CategoriesRepository,
     BrandsRepository,

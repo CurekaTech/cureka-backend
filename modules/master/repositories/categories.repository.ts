@@ -176,6 +176,66 @@ export class CategoriesRepository {
     await Promise.all(updates.map(({ id, position }) => this.repo.update(id, { position })));
   }
 
+  async reorderCategoriesByRefId(
+    updates: Array<{ refId: string; position: number }>,
+  ): Promise<void> {
+    await Promise.all(
+      updates.map(({ refId, position }) => this.repo.update({ refId }, { position })),
+    );
+  }
+
+  async getMaxPositionAmongSiblings(parentCategoryId: string | null): Promise<number> {
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .select('MAX(category.position)', 'max')
+      .where('category.deletedAt IS NULL');
+
+    if (parentCategoryId === null) {
+      qb.andWhere('category.parentCategoryId IS NULL');
+    } else {
+      qb.andWhere('category.parentCategoryId = :parentId', { parentId: parentCategoryId });
+    }
+
+    const result = await qb.getRawOne<{ max: string | null }>();
+    if (result?.max === null || result?.max === undefined) return 0;
+    return parseInt(result.max, 10);
+  }
+
+  async findHeaderRootCategories(): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.isInHeader = :isInHeader', { isInHeader: true })
+      .andWhere('category.hierarchyLevel = :level', {
+        level: String(CategoryHierarchyLevel.ROOT),
+      })
+      .andWhere('category.parentCategoryId IS NULL')
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
+  async findShopByRootCategories(): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.isInShopBy = :isInShopBy', { isInShopBy: true })
+      .andWhere('category.hierarchyLevel = :level', {
+        level: String(CategoryHierarchyLevel.ROOT),
+      })
+      .andWhere('category.parentCategoryId IS NULL')
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
+  async findChildrenForIndexing(parentId: string): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.parentCategoryId = :parentId', { parentId })
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
   async getNextHierarchyId(): Promise<number> {
     const result = await this.repo
       .createQueryBuilder('category')

@@ -24,6 +24,8 @@ export const AppDataSource = new DataSource({
   ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : false,
     entities: [join(__dirname, '..', '..', '..', 'modules', '**', 'entities', '*.entity.{ts,js}')],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
+  // Required so PostgreSQL enum additions commit before later migrations use the new value.
+  migrationsTransactionMode: 'each',
   subscribers: [],
   // PgBouncer compatible settings
   extra: {
