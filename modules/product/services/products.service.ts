@@ -23,11 +23,13 @@ import { FastifyRequest } from 'fastify';
 import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
+import { normalizeProductInformation } from '../utils/product-information.util';
 import { mapSpecificationFields } from '../utils/product-payload.util';
 import { collectProductMedia } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
+import { ProductVariantsRepository } from '../repositories/product-variants.repository';
 import { ProductMasterResolverService } from './product-master-resolver.service';
 import { ProductStrategyFactory } from '../strategies/product-strategies';
 import { mapProductEntitiesToResponse, mapProductEntityToDetailResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
@@ -49,6 +51,7 @@ export class ProductsService {
     private readonly dataSource: DataSource,
     private readonly productsRepository: ProductsRepository,
     private readonly relationsRepository: ProductRelationsRepository,
+    private readonly variantsRepository: ProductVariantsRepository,
     private readonly masterResolver: ProductMasterResolverService,
     private readonly strategyFactory: ProductStrategyFactory,
     private readonly cacheStrategy: CacheStrategyService,
@@ -68,6 +71,24 @@ export class ProductsService {
   async createFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
     const dto = await this.productMultipartService.validateJsonBody(body);
     return this.createDraft(dto, createdBy);
+  }
+
+  async updateFromRequest(
+    req: FastifyRequest,
+    refId: string,
+    updatedBy: string,
+  ): Promise<IProduct> {
+    const dto = await this.productMultipartService.parseUpdateProduct(req);
+    return this.update(refId, dto, updatedBy);
+  }
+
+  async updateFromJsonBody(
+    body: unknown,
+    refId: string,
+    updatedBy: string,
+  ): Promise<IProduct> {
+    const dto = await this.productMultipartService.validateUpdateJsonBody(body);
+    return this.update(refId, dto, updatedBy);
   }
 
   async createDraft(dto: CreateProductDto, createdBy: string): Promise<IProduct> {
@@ -116,6 +137,7 @@ export class ProductsService {
           status: ProductStatus.DRAFT,
           rejectionReason: null,
           ...mapSpecificationFields(dto),
+          productInformation: normalizeProductInformation(dto.productInformation),
           description: dto.description ?? null,
           refId,
           createdBy,
@@ -183,6 +205,7 @@ export class ProductsService {
     const filters = await this.resolveListFilters(query);
     const queryHash = buildQueryCacheHash({
       ...filters,
+      variantSlug: query.variantSlug,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -205,6 +228,7 @@ export class ProductsService {
           categoryId: filters.categoryId,
           brandId: filters.brandId,
           productNatureId: filters.productNatureId,
+          variantSlug: query.variantSlug,
         });
         return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
       },
@@ -276,32 +300,64 @@ export class ProductsService {
       payload.countryOfOriginId = masters.countryOfOriginId;
     }
 
-    await this.productsRepository.updateByRefId(refId, payload);
-
-    if (
+    const productSlug = payload.slug ?? existing.slug;
+    const needsRelationSync = Boolean(
       dto.healthConcernRefIds ||
-      dto.wellnessGoalRefIds ||
-      dto.tagNames ||
-      dto.faqRefIds ||
-      dto.customFaqs ||
-      dto.attributeRefIds ||
-      masters?.attributeIds
-    ) {
-      const resolved =
-        masters ??
-        (await this.masterResolver.resolve({
-          productType: existing.productType,
-          productNatureRefId: existing.productNature?.refId,
-          categoryRefId: existing.category?.refId ?? '',
-          brandRefId: existing.brand?.refId ?? '',
-          name: existing.name,
-          healthConcernRefIds: dto.healthConcernRefIds,
-          wellnessGoalRefIds: dto.wellnessGoalRefIds,
-          faqRefIds: dto.faqRefIds,
-          attributeRefIds: dto.attributeRefIds,
-        } as CreateProductDto));
+        dto.wellnessGoalRefIds ||
+        dto.tagNames ||
+        dto.faqRefIds ||
+        dto.customFaqs ||
+        dto.attributeRefIds ||
+        masters?.attributeIds,
+    );
+    const needsVariantSync = dto.variants !== undefined;
+    const needsMediaSync =
+      dto.media !== undefined ||
+      (dto.variants?.some((variant) => (variant.imageUrls?.length ?? 0) > 0) ?? false);
 
-      await this.dataSource.transaction(async (manager) => {
+    if (needsVariantSync && existing.productType === ProductType.VARIABLE) {
+      const allowed = new Set(
+        dto.attributeRefIds ??
+          existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
+          [],
+      );
+      for (const variant of dto.variants ?? []) {
+        validateVariantAttributeScope(variant.attributes ?? [], allowed);
+      }
+    }
+
+    const resolved =
+      needsRelationSync || needsVariantSync
+        ? masters ??
+          (await this.masterResolver.resolve({
+            productType: existing.productType,
+            productNatureRefId: existing.productNature?.refId,
+            categoryRefId: existing.category?.refId ?? '',
+            brandRefId: existing.brand?.refId ?? '',
+            name: existing.name,
+            healthConcernRefIds: dto.healthConcernRefIds,
+            wellnessGoalRefIds: dto.wellnessGoalRefIds,
+            faqRefIds: dto.faqRefIds,
+            attributeRefIds: dto.attributeRefIds,
+          } as CreateProductDto))
+        : null;
+
+    const attributeRefIdsForVariants = [
+      ...new Set([
+        ...(dto.attributeRefIds ?? []),
+        ...(dto.variants?.flatMap(
+          (variant) => variant.attributes?.map((item) => item.attributeRefId) ?? [],
+        ) ?? []),
+      ]),
+    ];
+    const attributeIdByRefId = needsVariantSync
+      ? await this.masterResolver.resolveAttributeIds(attributeRefIdsForVariants)
+      : new Map<string, string>();
+
+    await this.dataSource.transaction(async (manager) => {
+      await this.productsRepository.updateByRefId(refId, payload, manager);
+
+      if (resolved) {
         if (dto.healthConcernRefIds) {
           await this.relationsRepository.syncHealthConcerns(
             manager,
@@ -337,8 +393,35 @@ export class ProductsService {
             resolved.attributeIds,
           );
         }
-      });
-    }
+      }
+
+      if (needsVariantSync && dto.variants) {
+        await this.variantsRepository.syncVariants(
+          manager,
+          existing.id,
+          productSlug,
+          existing.productType,
+          dto.variants,
+          attributeIdByRefId,
+        );
+      }
+
+      if (needsMediaSync) {
+        const media = collectProductMedia({
+          ...dto,
+          productType: existing.productType,
+          name: dto.name ?? existing.name,
+          categoryRefId: existing.category?.refId ?? '',
+          brandRefId: existing.brand?.refId ?? '',
+        } as CreateProductDto);
+        const variants = await manager.getRepository(ProductVariantEntity).find({
+          where: { productId: existing.id },
+          select: ['id', 'sku'],
+        });
+        const skuToVariantId = new Map(variants.map((variant) => [variant.sku, variant.id]));
+        await this.relationsRepository.syncMedia(manager, existing.id, media, skuToVariantId);
+      }
+    });
 
     const updated = await this.productsRepository.findByRefId(refId);
     if (!updated) {
@@ -433,12 +516,9 @@ export class ProductsService {
   }
 
   private assertEditable(entity: ProductEntity): void {
-    if (entity.status === ProductStatus.PENDING_REVIEW) {
-      throw new BadRequestException('Product is pending review and cannot be edited');
-    }
-    if (entity.status === ProductStatus.PUBLISHED) {
-      throw new BadRequestException('Published products cannot be edited via create/update flow');
-    }
+    // if (entity.status === ProductStatus.PUBLISHED) {
+    //   throw new BadRequestException('Published products cannot be edited via create/update flow');
+    // }
   }
 
   private validateForSubmission(entity: ProductEntity): void {

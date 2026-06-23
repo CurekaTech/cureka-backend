@@ -22,7 +22,7 @@ export class PublicProductQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(['name', 'publishedAt', 'price'])
+  @IsIn(['name', 'publishedAt', 'price', 'variantSlug'])
   sortBy?: string;
 
   @IsOptional()
@@ -67,4 +67,9 @@ export class PublicProductQueryDto {
   @IsOptional()
   @IsRefId()
   wellnessGoalRefId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  variantSlug?: string;
 }

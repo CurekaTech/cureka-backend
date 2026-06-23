@@ -1,9 +1,13 @@
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import {
+  IPublicCategorySummary,
   IPublicProductCard,
   IPublicProductDetail,
   IPublicProductPriceSummary,
+  IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
 import { IStorageFileReference } from '@packages/storage';
 
@@ -37,6 +41,75 @@ const getPrimaryImageUrl = (entity: ProductEntity): IStorageFileReference | null
   const primary = media.find((item) => item.isPrimary) ?? media[0];
   return primary?.url ?? null;
 };
+
+const mapCategorySummary = (category: CategoryEntity | null | undefined): IPublicCategorySummary | null => {
+  if (!category) return null;
+  return {
+    refId: category.refId,
+    name: category.name,
+    slug: category.slug,
+  };
+};
+
+const getVariantPrimaryImageUrl = (
+  product: ProductEntity,
+  variantId: string,
+): IStorageFileReference | null => {
+  const media = product.media ?? [];
+  const variantMedia = media.filter((item) => item.variantId === variantId);
+  const variantPrimary =
+    variantMedia.find((item) => item.isPrimary) ?? variantMedia[0];
+  if (variantPrimary?.url) {
+    return variantPrimary.url;
+  }
+
+  const productMedia = media.filter((item) => !item.variantId);
+  const productPrimary =
+    productMedia.find((item) => item.isPrimary) ?? productMedia[0] ?? media[0];
+  return productPrimary?.url ?? null;
+};
+
+export const mapVariantEntityToPublicSearchItem = (
+  variant: ProductVariantEntity,
+): IPublicProductVariantSearchItem => {
+  const product = variant.product;
+
+  return {
+    refId: product.refId,
+    name: product.name,
+    productSlug: product.slug,
+    variantSlug: variant.slug,
+    primaryImageUrl: getVariantPrimaryImageUrl(product, variant.id),
+    category: mapCategorySummary(product.category),
+    subCategory: mapCategorySummary(product.subCategory),
+    subSubCategory: mapCategorySummary(product.subSubCategory),
+    subSubSubCategory: mapCategorySummary(product.subSubSubCategory),
+    variantId: variant.id,
+    sku: variant.sku,
+    mrp: toNumber(variant.mrp) ?? 0,
+    sellingPrice: toNumber(variant.sellingPrice) ?? 0,
+    discountPercentage: toNumber(variant.discountPercentage),
+    stock: variant.stock,
+    weight: toNumber(variant.weight),
+    weightUnit: variant.weightUnit,
+    length: toNumber(variant.length),
+    lengthUnit: variant.lengthUnit,
+    width: toNumber(variant.width),
+    widthUnit: variant.widthUnit,
+    height: toNumber(variant.height),
+    heightUnit: variant.heightUnit,
+    status: variant.status,
+    attributes: (variant.attributeValues ?? []).map((item) => ({
+      attributeRefId: item.attribute?.refId ?? '',
+      attributeName: item.attribute?.name ?? '',
+      value: item.value,
+    })),
+  } as IPublicProductVariantSearchItem;
+};
+
+export const mapVariantEntitiesToPublicSearchItems = (
+  variants: ProductVariantEntity[],
+): IPublicProductVariantSearchItem[] => variants.map(mapVariantEntityToPublicSearchItem);
 
 export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard =>
   ({
@@ -86,17 +159,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   manufacturerName: entity.manufacturer?.name ?? null,
   countryOfOriginRefId: entity.countryOfOrigin?.refId ?? null,
   countryOfOriginName: entity.countryOfOrigin?.name ?? null,
-  highlights: entity.highlights,
-  expertAdvice: entity.expertAdvice,
-  keyIngredients: entity.keyIngredients,
-  otherIngredients: entity.otherIngredients,
-  preventiveNotes: entity.preventiveNotes,
-  accessoriesSpecifications: entity.accessoriesSpecifications,
-  directionsOfUse: entity.directionsOfUse,
-  feedingTable: entity.feedingTable,
-  safetyInformation: entity.safetyInformation,
-  productWeight: entity.productWeight,
-  productDimensions: entity.productDimensions,
+  productInformation: entity.productInformation ?? [],
   expiresInMonths: entity.expiresInMonths,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
@@ -118,10 +181,19 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   variants: getActiveVariants(entity).map((variant) => ({
     id: variant.id,
     sku: variant.sku,
+    slug: variant.slug,
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
     stock: variant.stock,
+    weight: toNumber(variant.weight),
+    weightUnit: variant.weightUnit,
+    length: toNumber(variant.length),
+    lengthUnit: variant.lengthUnit,
+    width: toNumber(variant.width),
+    widthUnit: variant.widthUnit,
+    height: toNumber(variant.height),
+    heightUnit: variant.heightUnit,
     status: variant.status,
     attributes: (variant.attributeValues ?? []).map((item) => ({
       attributeRefId: item.attribute?.refId ?? '',

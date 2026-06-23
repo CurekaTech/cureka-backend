@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
+import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
+import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { buildSkipTake } from '@packages/database';
@@ -17,6 +20,7 @@ export interface ProductListOptions {
   categoryId?: string;
   brandId?: string;
   productNatureId?: string;
+  variantSlug?: string;
 }
 
 export interface PublicProductListOptions {
@@ -31,6 +35,7 @@ export interface PublicProductListOptions {
   productNatureId?: string;
   healthConcernId?: string;
   wellnessGoalId?: string;
+  variantSlug?: string;
 }
 
 @Injectable()
@@ -67,6 +72,50 @@ export class ProductsRepository {
       .getOne();
   }
 
+  async findPublishedByVariantSlug(variantSlug: string): Promise<ProductEntity | null> {
+    const match = await this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoin('variant.product', 'product')
+      .where('variant.slug = :variantSlug', { variantSlug })
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .select('product.refId', 'refId')
+      .getRawOne<{ refId: string }>();
+
+    if (!match?.refId) {
+      return null;
+    }
+
+    return this.findPublishedByRefId(match.refId);
+  }
+
+  async isSlugTakenGlobally(
+    slug: string,
+    exclude?: { productRefId?: string; variantId?: string },
+  ): Promise<boolean> {
+    const productQb = this.repo
+      .createQueryBuilder('product')
+      .where('product.slug = :slug', { slug });
+    if (exclude?.productRefId) {
+      productQb.andWhere('product.refId != :productRefId', {
+        productRefId: exclude.productRefId,
+      });
+    }
+    if (await productQb.getCount()) {
+      return true;
+    }
+
+    const variantQb = this.repo.manager
+      .createQueryBuilder(ProductVariantEntity, 'variant')
+      .where('variant.slug = :slug', { slug });
+    if (exclude?.variantId) {
+      variantQb.andWhere('variant.id != :variantId', { variantId: exclude.variantId });
+    }
+    return (await variantQb.getCount()) > 0;
+  }
+
   async findPublishedPaginated(
     options: PublicProductListOptions,
   ): Promise<{ data: ProductEntity[]; total: number }> {
@@ -90,6 +139,38 @@ export class ProductsRepository {
 
     if (data.length) {
       await this.attachPublicListRelations(data);
+    }
+
+    return { data, total };
+  }
+
+  async findPublishedVariantsPaginated(
+    options: PublicProductListOptions,
+  ): Promise<{ data: ProductVariantEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .skip(skip)
+      .take(take);
+
+    this.applyPublicVariantSearchFilters(qb, options);
+    this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    if (data.length) {
+      await this.attachVariantSearchRelations(data);
     }
 
     return { data, total };
@@ -168,9 +249,15 @@ export class ProductsRepository {
       .take(take);
 
     if (options.search) {
-      qb.andWhere('(product.name ILIKE :search OR product.slug ILIKE :search)', {
-        search: `%${options.search}%`,
-      });
+      qb.andWhere(
+        `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.slug ILIKE :search
+            AND pv.deleted_at IS NULL
+        ))`,
+        { search: `%${options.search}%` },
+      );
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -188,6 +275,17 @@ export class ProductsRepository {
       qb.andWhere('product.productNatureId = :productNatureId', {
         productNatureId: options.productNatureId,
       });
+    }
+    if (options.variantSlug) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.slug = :variantSlug
+            AND pv.deleted_at IS NULL
+        )`,
+        { variantSlug: options.variantSlug },
+      );
     }
 
     const [data, total] = await qb.getManyAndCount();
@@ -233,14 +331,18 @@ export class ProductsRepository {
       .addOrderBy('media.createdAt', 'ASC');
   }
 
-  private applyPublicListFilters(
-    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
+  private applyPublicVariantSearchFilters(
+    qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     options: PublicProductListOptions,
   ): void {
     if (options.search) {
-      qb.andWhere('(product.name ILIKE :search OR product.slug ILIKE :search)', {
-        search: `%${options.search}%`,
-      });
+      qb.andWhere(
+        `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR EXISTS (
+          SELECT 1 FROM variant_attribute_values vav
+          WHERE vav.variant_id = variant.id AND vav.value ILIKE :search
+        ))`,
+        { search: `%${options.search}%` },
+      );
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -275,6 +377,122 @@ export class ProductsRepository {
           WHERE pwg.product_id = product.id AND pwg.wellness_goal_id = :wellnessGoalId
         )`,
         { wellnessGoalId: options.wellnessGoalId },
+      );
+    }
+    if (options.variantSlug) {
+      qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
+    }
+  }
+
+  private applyPublicVariantSearchSort(
+    qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
+    sortBy: string | undefined,
+    sortOrder: 'ASC' | 'DESC',
+  ): void {
+    const SORTABLE: Record<string, string> = {
+      name: 'product.name',
+      publishedAt: 'product.publishedAt',
+      price: 'variant.sellingPrice',
+      variantSlug: 'variant.slug',
+    };
+    const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
+    qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+  }
+
+  private async attachVariantSearchRelations(variants: ProductVariantEntity[]): Promise<void> {
+    const variantIds = variants.map((variant) => variant.id);
+    const productIds = [...new Set(variants.map((variant) => variant.productId))];
+
+    const [attributeRows, mediaRows] = await Promise.all([
+      this.repo.manager.getRepository(VariantAttributeValueEntity).find({
+        where: { variantId: In(variantIds) },
+        relations: { attribute: true },
+      }),
+      this.repo.manager.getRepository(ProductMediaEntity).find({
+        where: { productId: In(productIds) },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      }),
+    ]);
+
+    const attrsByVariantId = new Map<string, VariantAttributeValueEntity[]>();
+    for (const row of attributeRows) {
+      const existing = attrsByVariantId.get(row.variantId) ?? [];
+      existing.push(row);
+      attrsByVariantId.set(row.variantId, existing);
+    }
+
+    const mediaByProductId = new Map<string, ProductMediaEntity[]>();
+    for (const row of mediaRows) {
+      const existing = mediaByProductId.get(row.productId) ?? [];
+      existing.push(row);
+      mediaByProductId.set(row.productId, existing);
+    }
+
+    for (const variant of variants) {
+      variant.attributeValues = attrsByVariantId.get(variant.id) ?? [];
+      variant.product.media = mediaByProductId.get(variant.productId) ?? [];
+    }
+  }
+
+  private applyPublicListFilters(
+    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
+    options: PublicProductListOptions,
+  ): void {
+    if (options.search) {
+      qb.andWhere(
+        `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.slug ILIKE :search
+            AND pv.deleted_at IS NULL
+        ))`,
+        { search: `%${options.search}%` },
+      );
+    }
+    if (options.productType) {
+      qb.andWhere('product.productType = :productType', { productType: options.productType });
+    }
+    if (options.categoryId) {
+      qb.andWhere(
+        '(product.categoryId = :categoryId OR product.subCategoryId = :categoryId OR product.subSubCategoryId = :categoryId OR product.subSubSubCategoryId = :categoryId)',
+        { categoryId: options.categoryId },
+      );
+    }
+    if (options.brandId) {
+      qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
+    }
+    if (options.productNatureId) {
+      qb.andWhere('product.productNatureId = :productNatureId', {
+        productNatureId: options.productNatureId,
+      });
+    }
+    if (options.healthConcernId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_health_concerns phc
+          WHERE phc.product_id = product.id AND phc.health_concern_id = :healthConcernId
+        )`,
+        { healthConcernId: options.healthConcernId },
+      );
+    }
+    if (options.wellnessGoalId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_wellness_goals pwg
+          WHERE pwg.product_id = product.id AND pwg.wellness_goal_id = :wellnessGoalId
+        )`,
+        { wellnessGoalId: options.wellnessGoalId },
+      );
+    }
+    if (options.variantSlug) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.slug = :variantSlug
+            AND pv.deleted_at IS NULL
+        )`,
+        { variantSlug: options.variantSlug },
       );
     }
   }

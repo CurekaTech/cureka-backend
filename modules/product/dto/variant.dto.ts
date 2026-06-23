@@ -39,6 +39,15 @@ export class CreateVariantDto {
   @MaxLength(100)
   sku!: string;
 
+  @ApiPropertyOptional({
+    example: 'cetaphil-gentle-skin-cleanser-red-xl',
+    description: 'Unique URL slug. Auto-generated from product slug + attribute values when omitted.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  slug?: string;
+
   @ApiPropertyOptional({ example: 'VSKU-001' })
   @IsOptional()
   @IsString()
@@ -104,6 +113,54 @@ export class CreateVariantDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   height?: number;
+
+  @ApiPropertyOptional({ example: 'kg', description: 'Unit for weight (e.g. kg, g)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  weightUnit?: string;
+
+  @ApiPropertyOptional({ example: 'kg', description: 'snake_case alias for weightUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  weight_unit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'Unit for length (e.g. cm, m)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  lengthUnit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'snake_case alias for lengthUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  length_unit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'Unit for width (e.g. cm, m)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  widthUnit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'snake_case alias for widthUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  width_unit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'Unit for height (e.g. cm, m)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  heightUnit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'snake_case alias for heightUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  height_unit?: string;
 
   @ApiPropertyOptional({ example: 365, description: 'Expiry in days' })
   @IsOptional()

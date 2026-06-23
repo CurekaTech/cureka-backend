@@ -2,11 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { MultipartFile } from '@fastify/multipart';
 import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
+import { validate, ValidationError } from 'class-validator';
 import { formatValidationErrorMessage, formatValidationErrorsForLog } from '@packages/common';
 import { StorageService } from '@packages/storage';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
-import { CreateProductDto } from '../dto/product.dto';
+import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { mergeUploadedProductMedia, ProductUploadedFiles } from '../utils/product-media.util';
 
 const PRODUCT_IMAGE_FIELDS = new Set(['images', 'image', 'images[]']);
@@ -20,6 +20,33 @@ export class ProductMultipartService {
   constructor(private readonly storageService: StorageService) {}
 
   async parseCreateProduct(req: FastifyRequest): Promise<CreateProductDto> {
+    const { parsed, uploads } = await this.parseMultipartPayload(req);
+    return this.validateAndNormalizeCreateProduct(parsed, uploads);
+  }
+
+  async parseUpdateProduct(req: FastifyRequest): Promise<UpdateProductDto> {
+    const { parsed, uploads } = await this.parseMultipartPayload(req);
+    return this.validateAndNormalizeUpdateProduct(parsed, uploads);
+  }
+
+  async validateJsonBody(body: unknown): Promise<CreateProductDto> {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Request body must be a JSON object');
+    }
+    return this.validateAndNormalizeCreateProduct(body as Record<string, unknown>);
+  }
+
+  async validateUpdateJsonBody(body: unknown): Promise<UpdateProductDto> {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Request body must be a JSON object');
+    }
+    return this.validateAndNormalizeUpdateProduct(body as Record<string, unknown>);
+  }
+
+  private async parseMultipartPayload(req: FastifyRequest): Promise<{
+    parsed: Record<string, unknown>;
+    uploads: ProductUploadedFiles;
+  }> {
     const contentType = req.headers['content-type'] ?? '';
     if (!contentType.includes('multipart/form-data')) {
       throw new BadRequestException(
@@ -81,14 +108,7 @@ export class ProductMultipartService {
       }
     }
 
-    return this.validateAndNormalizeCreateProduct(parsed, uploads);
-  }
-
-  async validateJsonBody(body: unknown): Promise<CreateProductDto> {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new BadRequestException('Request body must be a JSON object');
-    }
-    return this.validateAndNormalizeCreateProduct(body as Record<string, unknown>);
+    return { parsed, uploads };
   }
 
   private async validateAndNormalizeCreateProduct(
@@ -100,7 +120,19 @@ export class ProductMultipartService {
       ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
       : (sanitized as unknown as CreateProductDto);
 
-    return this.validateDto(merged);
+    return this.validateDto(CreateProductDto, merged, 'CreateProductDto');
+  }
+
+  private async validateAndNormalizeUpdateProduct(
+    payload: Record<string, unknown>,
+    uploads?: ProductUploadedFiles,
+  ): Promise<UpdateProductDto> {
+    const sanitized = this.stripClientOnlyFields(payload);
+    const merged = uploads
+      ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
+      : (sanitized as unknown as UpdateProductDto);
+
+    return this.validateDto(UpdateProductDto, merged, 'UpdateProductDto');
   }
 
   private stripClientOnlyFields(payload: Record<string, unknown>): Record<string, unknown> {
@@ -131,8 +163,12 @@ export class ProductMultipartService {
     return bracketMatch?.[1]?.trim() || null;
   }
 
-  private async validateDto(payload: CreateProductDto): Promise<CreateProductDto> {
-    const instance = plainToInstance(CreateProductDto, payload, {
+  private async validateDto<T extends object>(
+    dtoClass: new () => T,
+    payload: T,
+    label: string,
+  ): Promise<T> {
+    const instance = plainToInstance(dtoClass, payload, {
       enableImplicitConversion: false,
     });
 
@@ -142,7 +178,7 @@ export class ProductMultipartService {
     });
 
     if (errors.length > 0) {
-      this.logger.warn(`CreateProductDto validation failed: ${formatValidationErrorsForLog(errors)}`);
+      this.logger.warn(`${label} validation failed: ${formatValidationErrorsForLog(errors)}`);
       throw new BadRequestException(formatValidationErrorMessage(errors));
     }
 
