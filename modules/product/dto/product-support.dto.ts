@@ -61,14 +61,6 @@ export class CreateProductFaqDto {
   status?: ProductFaqStatus;
 }
 
-export class CreateProductTagDto {
-  @ApiProperty({ example: 'Bestseller' })
-  @IsNotEmpty()
-  @IsString()
-  @MaxLength(255)
-  name!: string;
-}
-
 export class MapProductFaqDto {
   @ApiProperty({ type: [String] })
   @IsArray()

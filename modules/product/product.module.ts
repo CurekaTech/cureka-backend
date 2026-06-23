@@ -31,7 +31,10 @@ import {
 import { ProductsController } from './controllers/products.controller';
 import { ProductVariantsController } from './controllers/product-variants.controller';
 import { ProductFaqsController } from './controllers/product-faqs.controller';
+import { ProductTagsController } from './controllers/product-tags.controller';
 import { ProductCacheListener } from './listeners/product-cache.listener';
+import { ProductTagsRepository } from './repositories/product-tags.repository';
+import { ProductTagsService } from './services/product-tags.service';
 
 @Module({
   imports: [
@@ -52,16 +55,18 @@ import { ProductCacheListener } from './listeners/product-cache.listener';
       ProductAttributeMappingEntity,
     ]),
   ],
-  controllers: [ProductsController, ProductVariantsController, ProductFaqsController],
+  controllers: [ProductsController, ProductVariantsController, ProductFaqsController, ProductTagsController],
   providers: [
     ProductsRepository,
     ProductVariantsRepository,
     ProductRelationsRepository,
+    ProductTagsRepository,
     ProductsService,
     ProductMultipartService,
     ProductMasterResolverService,
     ProductVariantsService,
     ProductFaqsService,
+    ProductTagsService,
     SimpleProductStrategy,
     VariableProductStrategy,
     BundleProductStrategy,

@@ -110,7 +110,7 @@ export class OrdersService {
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
 
-      const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId);
+      const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
       return order;
     });

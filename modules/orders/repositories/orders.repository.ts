@@ -25,8 +25,13 @@ export class OrdersRepository {
     return this.repo.exists({ where: { orderNumber } });
   }
 
-  findByIdAndUserId(id: string, userId: string): Promise<OrderEntity | null> {
-    return this.repo.findOne({
+  findByIdAndUserId(
+    id: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
       where: { id, userId },
       relations: { items: true },
       order: { items: { createdAt: 'ASC' } },
