@@ -15,7 +15,7 @@ import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { CategoriesRepository } from '../repositories/categories.repository';
 import { AttributesRepository } from '../repositories/attributes.repository';
-import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, CategoryQueryDto } from '../dto/category.dto';
+import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, CategoryQueryDto, ReorderCategoriesDto } from '../dto/category.dto';
 import { ICategory, ICategoryTree } from '../interfaces/category.interface';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
@@ -108,13 +108,16 @@ export class CategoriesService {
     const hierarchyId = await this.categoriesRepository.getNextHierarchyId();
     const slug = this.generateSlugFromName(dto.name);
     const attributes = await this.resolveAttributes(dto.attributeRefIds ?? []);
+    const maxSiblingPosition =
+      await this.categoriesRepository.getMaxPositionAmongSiblings(parentCategoryId);
+    const position = dto.position ?? maxSiblingPosition + 1;
 
     const entity = await this.categoriesRepository.createCategory(
       {
         name: dto.name,
         hierarchyId,
         parentCategoryId,
-        position: dto.position ?? 0,
+        position,
         hierarchyLevel,
         image: this.storageUrlEnricher.persist(media.image),
         banner: this.storageUrlEnricher.persist(media.banner),
@@ -312,6 +315,104 @@ export class CategoriesService {
 
     await this.categoriesRepository.softDeleteByRefId(refId);
     await this.emitCategoryUpdated(refId, 'deleted');
+  }
+
+  async findHeaderCategoriesForIndexing(
+    parentCategoryRefId?: string,
+  ): Promise<ICategory[]> {
+    if (parentCategoryRefId) {
+      const parent = await this.categoriesRepository.findByRefId(parentCategoryRefId);
+      if (!parent) {
+        throw new NotFoundException(
+          `Parent category with refId "${parentCategoryRefId}" not found`,
+        );
+      }
+      const children = await this.categoriesRepository.findChildrenForIndexing(parent.id);
+      return mapCategoryEntitiesToResponse(children);
+    }
+
+    const roots = await this.categoriesRepository.findHeaderRootCategories();
+    return mapCategoryEntitiesToResponse(roots);
+  }
+
+  async findShopByCategoriesForIndexing(): Promise<ICategory[]> {
+    const roots = await this.categoriesRepository.findShopByRootCategories();
+    return mapCategoryEntitiesToResponse(roots);
+  }
+
+  async reorderHeaderCategories(
+    dto: ReorderCategoriesDto,
+    updatedBy: string,
+  ): Promise<ICategory[]> {
+    return this.reorderCategorySiblings(dto, updatedBy, 'header');
+  }
+
+  async reorderShopByCategories(
+    dto: ReorderCategoriesDto,
+    updatedBy: string,
+  ): Promise<ICategory[]> {
+    return this.reorderCategorySiblings(dto, updatedBy, 'shopBy');
+  }
+
+  private async reorderCategorySiblings(
+    dto: ReorderCategoriesDto,
+    updatedBy: string,
+    placement: 'header' | 'shopBy',
+  ): Promise<ICategory[]> {
+    let parentCategoryId: string | null = null;
+
+    if (dto.parentCategoryRefId) {
+      const parent = await this.categoriesRepository.findByRefId(dto.parentCategoryRefId);
+      if (!parent) {
+        throw new NotFoundException(
+          `Parent category with refId "${dto.parentCategoryRefId}" not found`,
+        );
+      }
+      parentCategoryId = parent.id;
+    }
+
+    for (const item of dto.categories) {
+      const existing = await this.categoriesRepository.findByRefId(item.refId);
+      if (!existing) {
+        throw new NotFoundException(`Category with refId ${item.refId} not found`);
+      }
+
+      if (dto.parentCategoryRefId) {
+        if (existing.parentCategoryId !== parentCategoryId) {
+          throw new BadRequestException(
+            `Category "${existing.name}" is not a child of the selected parent`,
+          );
+        }
+      } else if (placement === 'header') {
+        if (!existing.isInHeader || existing.hierarchyLevel !== CategoryHierarchyLevel.ROOT) {
+          throw new BadRequestException(
+            `Category "${existing.name}" is not a root header category`,
+          );
+        }
+      } else if (!existing.isInShopBy || existing.hierarchyLevel !== CategoryHierarchyLevel.ROOT) {
+        throw new BadRequestException(
+          `Category "${existing.name}" is not a root shop-by category`,
+        );
+      }
+    }
+
+    await this.categoriesRepository.reorderCategoriesByRefId(
+      dto.categories.map((item) => ({ refId: item.refId, position: item.position })),
+    );
+
+    for (const item of dto.categories) {
+      await this.categoriesRepository.updateByRefId(item.refId, { updatedBy });
+    }
+
+    await this.emitCategoryUpdated(dto.categories[0].refId, 'updated');
+
+    const results = await Promise.all(
+      dto.categories.map((item) => this.categoriesRepository.findByRefId(item.refId)),
+    );
+
+    return mapCategoryEntitiesToResponse(
+      results.filter((entity): entity is CategoryEntity => !!entity),
+    );
   }
 
   // ---------------------------------------------------------------------------

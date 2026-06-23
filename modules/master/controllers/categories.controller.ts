@@ -32,7 +32,7 @@ import { RefIdPipe } from '@packages/common';
 
 import { CategoriesService } from '../services/categories.service';
 
-import { UpdateCategoryStatusDto, CategoryQueryDto } from '../dto/category.dto';
+import { UpdateCategoryStatusDto, CategoryQueryDto, CategoryPlacementQueryDto, ReorderCategoriesDto } from '../dto/category.dto';
 
 import { JwtAuthGuard } from '@packages/auth';
 
@@ -103,6 +103,74 @@ export class CategoriesController {
   findTree() {
 
     return this.categoriesService.findTree();
+
+  }
+
+
+
+  @ResponseMessage('Header categories retrieved successfully')
+
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+
+  @Get('header')
+
+  findHeaderCategories(@Query() query: CategoryPlacementQueryDto) {
+
+    return this.categoriesService.findHeaderCategoriesForIndexing(query.parentCategoryRefId);
+
+  }
+
+
+
+  @ResponseMessage('Shop-by categories retrieved successfully')
+
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+
+  @Get('shop-by')
+
+  findShopByCategories() {
+
+    return this.categoriesService.findShopByCategoriesForIndexing();
+
+  }
+
+
+
+  @ResponseMessage('Header category order updated successfully')
+
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+
+  @Patch('reorder-header')
+
+  reorderHeader(
+
+    @Body() dto: ReorderCategoriesDto,
+
+    @CurrentAdminUser() user: IAdminJwtPayload,
+
+  ) {
+
+    return this.categoriesService.reorderHeaderCategories(dto, user.email);
+
+  }
+
+
+
+  @ResponseMessage('Shop-by category order updated successfully')
+
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+
+  @Patch('reorder-shop-by')
+
+  reorderShopBy(
+
+    @Body() dto: ReorderCategoriesDto,
+
+    @CurrentAdminUser() user: IAdminJwtPayload,
+
+  ) {
+
+    return this.categoriesService.reorderShopByCategories(dto, user.email);
 
   }
 

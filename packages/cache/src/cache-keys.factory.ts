@@ -50,6 +50,8 @@ export const CacheKeys = {
     categoryHeaderPattern: () => 'homepage:category:header*',
     shopByCategory: () => 'homepage:section:shopByCategory',
     shopByCategoryPattern: () => 'homepage:section:shopByCategory*',
+    homeSections: () => 'homepage:home-sections',
+    homeSectionsPattern: () => 'homepage:home-sections*',
   },
   publicProducts: {
     list: (queryHash: string) => `public:products:list:${queryHash}`,
