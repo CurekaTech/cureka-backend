@@ -66,11 +66,11 @@ export class PublicProductsService {
       productType: query.productType,
     });
 
-    return this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.list(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const tDb = Date.now();
         const { data, total } = await this.productsRepository.findPublishedPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
@@ -85,20 +85,17 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
         });
-        const tEnrich = Date.now();
-        const paginated = buildPaginatedResult(
-          mapProductEntitiesToPublicCards(data),
-          total,
-          paginationOptions,
-        );
-        const result = await this.enrichPaginatedCards(paginated);
-        const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
-        this.logger.log(
-          `[PERF] findAll | DB query: ${tEnrich - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
-        );
-        return result;
+        this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
+        return buildPaginatedResult(mapProductEntitiesToPublicCards(data), total, paginationOptions);
       },
     });
+    const tEnrich = Date.now();
+    const result = await this.enrichPaginatedCards(raw);
+    const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
+    this.logger.log(
+      `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   async searchVariants(
@@ -125,11 +122,11 @@ export class PublicProductsService {
       productType: query.productType,
     });
 
-    return this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.variantSearch(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const tDb = Date.now();
         const { data, total } = await this.productsRepository.findPublishedVariantsPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
@@ -144,43 +141,33 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
         });
-        const tEnrich = Date.now();
-        const paginated = buildPaginatedResult(
-          mapVariantEntitiesToPublicSearchItems(data),
-          total,
-          paginationOptions,
-        );
-        const result = await this.enrichPaginatedVariantSearch(paginated);
-        const imageCount = result.data.filter((v) => v.primaryImageUrl).length;
-        this.logger.log(
-          `[PERF] searchVariants | DB query: ${tEnrich - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
-        );
-        return result;
+        this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
+        return buildPaginatedResult(mapVariantEntitiesToPublicSearchItems(data), total, paginationOptions);
       },
     });
+    const tEnrich = Date.now();
+    const result = await this.enrichPaginatedVariantSearch(raw);
+    const imageCount = result.data.filter((v) => v.primaryImageUrl).length;
+    this.logger.log(
+      `[PERF] searchVariants | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   async findBySlug(slug: string): Promise<IPublicProductDetail> {
-    return this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.detail(slug),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const tDb = Date.now();
         const byProductSlug = await this.productsRepository.findPublishedBySlug(slug);
-        const tAfterDb = Date.now();
-
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
           const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
-          const base = matchedVariant
+          this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
+          return matchedVariant
             ? { ...detail, selectedVariantId: matchedVariant.id, selectedVariantSlug: matchedVariant.slug }
             : detail;
-          const result = await this.enrichDetail(base);
-          const imageCount = result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
-          this.logger.log(
-            `[PERF] findBySlug | DB query: ${tAfterDb - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tAfterDb}ms | TOTAL: ${Date.now() - tDb}ms`,
-          );
-          return result;
         }
 
         const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(slug);
@@ -190,18 +177,21 @@ export class PublicProductsService {
 
         const detail = mapProductEntityToPublicDetail(byVariantSlug);
         const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
-        const result = await this.enrichDetail({
+        this.logger.log(`[PERF] findBySlug (via variant) | DB query: ${Date.now() - tDb}ms`);
+        return {
           ...detail,
           selectedVariantId: matchedVariant?.id ?? null,
           selectedVariantSlug: matchedVariant?.slug ?? slug,
-        });
-        const imageCount = result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
-        this.logger.log(
-          `[PERF] findBySlug (via variant) | DB query: ${tAfterDb - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tAfterDb}ms | TOTAL: ${Date.now() - tDb}ms`,
-        );
-        return result;
+        };
       },
     });
+    const tEnrich = Date.now();
+    const result = await this.enrichDetail(raw);
+    const imageCount = result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
+    this.logger.log(
+      `[PERF] findBySlug slug="${slug}" | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
