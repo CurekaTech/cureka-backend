@@ -216,11 +216,11 @@ export class ProductsService {
       sortOrder: paginationOptions.sortOrder,
     });
 
-    return this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.products.list(paginationOptions.page, paginationOptions.limit, queryHash),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
-        const tDb = Date.now();
         const { data, total } = await this.productsRepository.findAllPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
@@ -234,41 +234,40 @@ export class ProductsService {
           productNatureId: filters.productNatureId,
           variantSlug: query.variantSlug,
         });
-        const tEnrich = Date.now();
-        const paginated = buildPaginatedResult(
-          mapProductEntitiesToResponse(data),
-          total,
-          paginationOptions,
-        );
-        const result = await this.enrichPaginatedProducts(paginated);
-        const imageCount = result.data.reduce(
-          (sum, p) => sum + (p.media?.filter((m) => m.url).length ?? 0) + (p.wellnessGoals?.filter((g) => g.image).length ?? 0),
-          0,
-        );
-        this.logger.log(
-          `[PERF] findAll | DB query: ${tEnrich - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
-        );
-        return result;
+        this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
+        return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
       },
     });
+    const tEnrich = Date.now();
+    const result = await this.enrichPaginatedProducts(raw);
+    const imageCount = result.data.reduce(
+      (sum, p) => sum + (p.media?.filter((m) => m.url).length ?? 0) + (p.wellnessGoals?.filter((g) => g.image).length ?? 0),
+      0,
+    );
+    this.logger.log(
+      `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   async findOne(refId: string): Promise<IProductDetail> {
-    return this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.products.detail(refId),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
-        const tDb = Date.now();
         const entity = await this.productsRepository.findByRefId(refId);
         if (!entity) throw new NotFoundException(`Product with refId ${refId} not found`);
-        const tEnrich = Date.now();
-        const result = await this.enrichProductDetail(mapProductEntityToDetailResponse(entity));
-        this.logger.log(
-          `[PERF] findOne refId="${refId}" | DB query: ${tEnrich - tDb}ms | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
-        );
-        return result;
+        this.logger.log(`[PERF] findOne refId="${refId}" | DB query: ${Date.now() - tDb}ms`);
+        return mapProductEntityToDetailResponse(entity);
       },
     });
+    const tEnrich = Date.now();
+    const result = await this.enrichProductDetail(raw);
+    this.logger.log(
+      `[PERF] findOne refId="${refId}" | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   async update(refId: string, dto: UpdateProductDto, updatedBy: string): Promise<IProduct> {
