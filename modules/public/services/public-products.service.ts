@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -31,6 +31,8 @@ import {
 
 @Injectable()
 export class PublicProductsService {
+  private readonly logger = new Logger(PublicProductsService.name);
+
   constructor(
     private readonly productsRepository: ProductsRepository,
     private readonly categoriesRepository: CategoriesRepository,
@@ -68,6 +70,7 @@ export class PublicProductsService {
       key: CacheKeys.publicProducts.list(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
+        const tDb = Date.now();
         const { data, total } = await this.productsRepository.findPublishedPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
@@ -82,12 +85,18 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
         });
+        const tEnrich = Date.now();
         const paginated = buildPaginatedResult(
           mapProductEntitiesToPublicCards(data),
           total,
           paginationOptions,
         );
-        return this.enrichPaginatedCards(paginated);
+        const result = await this.enrichPaginatedCards(paginated);
+        const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
+        this.logger.log(
+          `[PERF] findAll | DB query: ${tEnrich - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+        );
+        return result;
       },
     });
   }
@@ -120,6 +129,7 @@ export class PublicProductsService {
       key: CacheKeys.publicProducts.variantSearch(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
+        const tDb = Date.now();
         const { data, total } = await this.productsRepository.findPublishedVariantsPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
@@ -134,12 +144,18 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
         });
+        const tEnrich = Date.now();
         const paginated = buildPaginatedResult(
           mapVariantEntitiesToPublicSearchItems(data),
           total,
           paginationOptions,
         );
-        return this.enrichPaginatedVariantSearch(paginated);
+        const result = await this.enrichPaginatedVariantSearch(paginated);
+        const imageCount = result.data.filter((v) => v.primaryImageUrl).length;
+        this.logger.log(
+          `[PERF] searchVariants | DB query: ${tEnrich - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+        );
+        return result;
       },
     });
   }
@@ -149,19 +165,22 @@ export class PublicProductsService {
       key: CacheKeys.publicProducts.detail(slug),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
+        const tDb = Date.now();
         const byProductSlug = await this.productsRepository.findPublishedBySlug(slug);
+        const tAfterDb = Date.now();
+
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
           const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
-          if (!matchedVariant) {
-            return this.enrichDetail(detail);
-          }
-
-          return this.enrichDetail({
-            ...detail,
-            selectedVariantId: matchedVariant.id,
-            selectedVariantSlug: matchedVariant.slug,
-          });
+          const base = matchedVariant
+            ? { ...detail, selectedVariantId: matchedVariant.id, selectedVariantSlug: matchedVariant.slug }
+            : detail;
+          const result = await this.enrichDetail(base);
+          const imageCount = result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
+          this.logger.log(
+            `[PERF] findBySlug | DB query: ${tAfterDb - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tAfterDb}ms | TOTAL: ${Date.now() - tDb}ms`,
+          );
+          return result;
         }
 
         const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(slug);
@@ -171,12 +190,16 @@ export class PublicProductsService {
 
         const detail = mapProductEntityToPublicDetail(byVariantSlug);
         const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
-
-        return this.enrichDetail({
+        const result = await this.enrichDetail({
           ...detail,
           selectedVariantId: matchedVariant?.id ?? null,
           selectedVariantSlug: matchedVariant?.slug ?? slug,
         });
+        const imageCount = result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
+        this.logger.log(
+          `[PERF] findBySlug (via variant) | DB query: ${tAfterDb - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tAfterDb}ms | TOTAL: ${Date.now() - tDb}ms`,
+        );
+        return result;
       },
     });
   }
@@ -236,10 +259,20 @@ export class PublicProductsService {
   private async enrichPaginatedCards(
     result: PaginatedResult<IPublicProductCard>,
   ): Promise<PaginatedResult<IPublicProductCard>> {
-    return {
-      ...result,
-      data: await Promise.all(result.data.map((card) => this.enrichCard(card))),
-    };
+    // Resolve all primary images in parallel and log each key's signing time
+    const data = await Promise.all(
+      result.data.map(async (card) => {
+        if (!card.primaryImageUrl) return card;
+        const key = typeof card.primaryImageUrl === 'string'
+          ? card.primaryImageUrl
+          : (card.primaryImageUrl as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const primaryImageUrl = await this.storageUrlEnricher.toReference(card.primaryImageUrl);
+        this.logger.log(`  [IMG] key="${key}" signing=${Date.now() - t}ms`);
+        return { ...card, primaryImageUrl };
+      }),
+    );
+    return { ...result, data };
   }
 
   private async enrichCard(card: IPublicProductCard): Promise<IPublicProductCard> {
@@ -250,18 +283,41 @@ export class PublicProductsService {
   }
 
   private async enrichDetail(product: IPublicProductDetail): Promise<IPublicProductDetail> {
-    const [media, wellnessGoals] = await Promise.all([
-      this.storageUrlEnricher.enrichReferences(
-        product.media,
-        (item) => item.url,
-        (item, url) => ({ ...item, url }),
-      ),
-      this.storageUrlEnricher.enrichReferences(
-        product.wellnessGoals,
-        (goal) => goal.image,
-        (goal, image) => ({ ...goal, image }),
-      ),
-    ]);
+    // Time each media image individually
+    const media = await Promise.all(
+      product.media.map(async (item) => {
+        if (!item.url) return item;
+        const key = typeof item.url === 'string'
+          ? item.url
+          : (item.url as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const [enriched] = await this.storageUrlEnricher.enrichReferences(
+          [item],
+          (i) => i.url,
+          (i, url) => ({ ...i, url }),
+        );
+        this.logger.log(`  [IMG] media key="${key}" signing=${Date.now() - t}ms`);
+        return enriched;
+      }),
+    );
+
+    // Time each wellness goal image individually
+    const wellnessGoals = await Promise.all(
+      product.wellnessGoals.map(async (goal) => {
+        if (!goal.image) return goal;
+        const key = typeof goal.image === 'string'
+          ? goal.image
+          : (goal.image as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const [enriched] = await this.storageUrlEnricher.enrichReferences(
+          [goal],
+          (g) => g.image,
+          (g, image) => ({ ...g, image }),
+        );
+        this.logger.log(`  [IMG] wellness key="${key}" signing=${Date.now() - t}ms`);
+        return enriched;
+      }),
+    );
 
     return { ...product, media, wellnessGoals };
   }
