@@ -288,8 +288,17 @@ export class ProductsService {
       payload.slug = slug;
     }
 
+    // Only SIMPLE → VARIABLE conversion is allowed; all other type changes are blocked.
+    const effectiveProductType = dto.productType ?? existing.productType;
     if (dto.productType && dto.productType !== existing.productType) {
-      throw new BadRequestException('productType cannot be changed after creation');
+      const allowedConversion =
+        existing.productType === ProductType.SIMPLE && dto.productType === ProductType.VARIABLE;
+      if (!allowedConversion) {
+        throw new BadRequestException(
+          `Product type cannot be changed from "${existing.productType}" to "${dto.productType}"`,
+        );
+      }
+      payload.productType = dto.productType;
     }
 
     const masters =
@@ -300,7 +309,7 @@ export class ProductsService {
       dto.attributeRefIds
         ? await this.masterResolver.resolve({
             ...dto,
-            productType: existing.productType,
+            productType: effectiveProductType,
             productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
             categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
             brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
@@ -336,7 +345,7 @@ export class ProductsService {
       dto.media !== undefined ||
       (dto.variants?.some((variant) => (variant.imageUrls?.length ?? 0) > 0) ?? false);
 
-    if (needsVariantSync && existing.productType === ProductType.VARIABLE) {
+    if (needsVariantSync && effectiveProductType === ProductType.VARIABLE) {
       const allowed = new Set(
         dto.attributeRefIds ??
           existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
@@ -351,7 +360,7 @@ export class ProductsService {
       needsRelationSync || needsVariantSync
         ? masters ??
           (await this.masterResolver.resolve({
-            productType: existing.productType,
+            productType: effectiveProductType,
             productNatureRefId: existing.productNature?.refId,
             categoryRefId: existing.category?.refId ?? '',
             brandRefId: existing.brand?.refId ?? '',
@@ -421,7 +430,7 @@ export class ProductsService {
           manager,
           existing.id,
           productSlug,
-          existing.productType,
+          effectiveProductType,  // use the new type, not the old one
           dto.variants,
           attributeIdByRefId,
         );
@@ -430,7 +439,7 @@ export class ProductsService {
       if (needsMediaSync) {
         const media = collectProductMedia({
           ...dto,
-          productType: existing.productType,
+          productType: effectiveProductType,
           name: dto.name ?? existing.name,
           categoryRefId: existing.category?.refId ?? '',
           brandRefId: existing.brand?.refId ?? '',
