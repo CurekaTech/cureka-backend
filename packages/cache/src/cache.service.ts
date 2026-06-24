@@ -13,14 +13,16 @@ export class CacheService {
   ) {}
 
   async get<T>(key: string): Promise<T | undefined> {
-    return this.safeOp(`get:${key}`, async () => this.cache.get<T>(key));
+    const result = await this.safeOp(`get:${key}`, async () => this.cache.get<T>(key));
+    return result.status === 'ok' ? result.value : undefined;
   }
 
-  async set(key: string, value: unknown, ttlSeconds?: number): Promise<void> {
-    await this.safeOp(`set:${key}`, async () => {
+  async set(key: string, value: unknown, ttlSeconds?: number): Promise<boolean> {
+    const result = await this.safeOp(`set:${key}`, async () => {
       const ttlMs = ttlSeconds !== undefined ? ttlSeconds * 1000 : undefined;
       await this.cache.set(key, value, ttlMs);
     });
+    return result.status === 'ok';
   }
 
   async del(key: string): Promise<void> {
@@ -42,40 +44,39 @@ export class CacheService {
       return { value: await factory(), cacheHit: false };
     }
 
-    try {
-      const cached = await this.get<T>(key);
-      if (cached !== undefined) {
-        return { value: cached, cacheHit: true };
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Cache read failed for ${key}: ${error instanceof Error ? error.message : error}`,
-      );
+    const cached = await this.safeOp(`get:${key}`, async () => this.cache.get<T>(key));
+    if (cached.status === 'unavailable') {
+      return { value: await factory(), cacheHit: false };
+    }
+    if (cached.status === 'ok' && cached.value !== undefined) {
+      return { value: cached.value, cacheHit: true };
     }
 
     const value = await factory();
 
-    try {
+    if (this.redisConnection.isReachable()) {
       await this.set(key, value, ttlSeconds);
-    } catch (error) {
-      this.logger.warn(
-        `Cache write failed for ${key}: ${error instanceof Error ? error.message : error}`,
-      );
     }
 
     return { value, cacheHit: false };
   }
 
-  private async safeOp<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
+  private async safeOp<T>(
+    label: string,
+    operation: () => Promise<T>,
+  ): Promise<{ status: 'ok'; value: T } | { status: 'unavailable' }> {
     if (!this.redisConnection.isReachable()) {
-      return undefined;
+      return { status: 'unavailable' };
     }
 
     try {
-      return await this.redisConnection.withTimeout(operation, label);
+      const value = await this.redisConnection.withTimeout(operation, label);
+      return { status: 'ok', value };
     } catch (error) {
-      this.logger.warn(`${label} failed: ${error instanceof Error ? error.message : error}`);
-      return undefined;
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`${label} failed: ${message}`);
+      this.redisConnection.markDegraded(message);
+      return { status: 'unavailable' };
     }
   }
 }
