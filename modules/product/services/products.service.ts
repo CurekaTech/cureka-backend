@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -47,6 +48,8 @@ import { ProductMultipartService } from './product-multipart.service';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly productsRepository: ProductsRepository,
@@ -217,6 +220,7 @@ export class ProductsService {
       key: CacheKeys.products.list(paginationOptions.page, paginationOptions.limit, queryHash),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
+        const tDb = Date.now();
         const { data, total } = await this.productsRepository.findAllPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
@@ -230,12 +234,21 @@ export class ProductsService {
           productNatureId: filters.productNatureId,
           variantSlug: query.variantSlug,
         });
+        const tEnrich = Date.now();
         const paginated = buildPaginatedResult(
           mapProductEntitiesToResponse(data),
           total,
           paginationOptions,
         );
-        return this.enrichPaginatedProducts(paginated);
+        const result = await this.enrichPaginatedProducts(paginated);
+        const imageCount = result.data.reduce(
+          (sum, p) => sum + (p.media?.filter((m) => m.url).length ?? 0) + (p.wellnessGoals?.filter((g) => g.image).length ?? 0),
+          0,
+        );
+        this.logger.log(
+          `[PERF] findAll | DB query: ${tEnrich - tDb}ms | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+        );
+        return result;
       },
     });
   }
@@ -245,9 +258,15 @@ export class ProductsService {
       key: CacheKeys.products.detail(refId),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
+        const tDb = Date.now();
         const entity = await this.productsRepository.findByRefId(refId);
         if (!entity) throw new NotFoundException(`Product with refId ${refId} not found`);
-        return this.enrichProductDetail(mapProductEntityToDetailResponse(entity));
+        const tEnrich = Date.now();
+        const result = await this.enrichProductDetail(mapProductEntityToDetailResponse(entity));
+        this.logger.log(
+          `[PERF] findOne refId="${refId}" | DB query: ${tEnrich - tDb}ms | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+        );
+        return result;
       },
     });
   }
@@ -561,6 +580,7 @@ export class ProductsService {
     const logoFields = ['logo'] as const;
     const healthConcernFields = ['icon', 'banner'] as const;
 
+    const tBrand = Date.now();
     const [brand, manufacturer, packer, importer, healthConcerns] = await Promise.all([
       product.brand
         ? this.storageUrlEnricher.enrichFields(product.brand, [...brandFields])
@@ -576,6 +596,9 @@ export class ProductsService {
         : Promise.resolve(null),
       this.storageUrlEnricher.enrichManyFields(product.healthConcerns, [...healthConcernFields]),
     ]);
+    this.logger.log(
+      `  [IMG] brand/manufacturer/packer/importer/healthConcerns signing: ${Date.now() - tBrand}ms`,
+    );
 
     return {
       ...enrichedBase,
@@ -594,18 +617,39 @@ export class ProductsService {
   }
 
   private async enrichProduct(product: IProduct): Promise<IProduct> {
-    const [media, wellnessGoals] = await Promise.all([
-      this.storageUrlEnricher.enrichReferences(
-        product.media ?? [],
-        (item) => item.url,
-        (item, url) => ({ ...item, url }),
-      ),
-      this.storageUrlEnricher.enrichReferences(
-        product.wellnessGoals ?? [],
-        (item) => item.image,
-        (item, image) => ({ ...item, image }),
-      ),
-    ]);
+    const media = await Promise.all(
+      (product.media ?? []).map(async (item) => {
+        if (!item.url) return item;
+        const key = typeof item.url === 'string'
+          ? item.url
+          : (item.url as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const [enriched] = await this.storageUrlEnricher.enrichReferences(
+          [item],
+          (i) => i.url,
+          (i, url) => ({ ...i, url }),
+        );
+        this.logger.log(`  [IMG] media key="${key}" signing=${Date.now() - t}ms`);
+        return enriched;
+      }),
+    );
+
+    const wellnessGoals = await Promise.all(
+      (product.wellnessGoals ?? []).map(async (item) => {
+        if (!item.image) return item;
+        const key = typeof item.image === 'string'
+          ? item.image
+          : (item.image as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const [enriched] = await this.storageUrlEnricher.enrichReferences(
+          [item],
+          (i) => i.image,
+          (i, image) => ({ ...i, image }),
+        );
+        this.logger.log(`  [IMG] wellness key="${key}" signing=${Date.now() - t}ms`);
+        return enriched;
+      }),
+    );
 
     return { ...product, media, wellnessGoals };
   }
