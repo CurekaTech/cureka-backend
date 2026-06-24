@@ -5,6 +5,12 @@ import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
 import { ProductMediaEntity } from '../entities/product-media.entity';
+import { ProductAttributeMappingEntity } from '../entities/product-attribute-mapping.entity';
+import { ProductHealthConcernEntity } from '../entities/product-health-concern.entity';
+import { ProductWellnessGoalEntity } from '../entities/product-wellness-goal.entity';
+import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity';
+import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity';
+import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { buildSkipTake } from '@packages/database';
@@ -52,24 +58,67 @@ export class ProductsRepository {
   }
 
   async findByRefId(refId: string, manager?: EntityManager): Promise<ProductEntity | null> {
-    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
-    return this.applyProductDetailSelects(repository.createQueryBuilder('product'))
-      .where('product.refId = :refId', { refId })
-      .getOne();
+    const mgr = manager ?? this.repo.manager;
+    const product = await mgr.getRepository(ProductEntity).findOne({
+      where: { refId },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+    });
+    if (!product) return null;
+    await this.attachDetailRelations([product], mgr);
+    return product;
   }
 
   async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
-    return this.applyProductDetailSelects(this.repo.createQueryBuilder('product'))
-      .where('product.refId = :refId', { refId })
-      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .getOne();
+    const product = await this.repo.findOne({
+      where: { refId, status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+    });
+    if (!product) return null;
+    await this.attachDetailRelations([product], this.repo.manager);
+    return product;
   }
 
   async findPublishedBySlug(slug: string): Promise<ProductEntity | null> {
-    return this.applyProductDetailSelects(this.repo.createQueryBuilder('product'))
-      .where('product.slug = :slug', { slug })
-      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .getOne();
+    const product = await this.repo.findOne({
+      where: { slug, status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+    });
+    if (!product) return null;
+    await this.attachDetailRelations([product], this.repo.manager);
+    return product;
   }
 
   async findPublishedByVariantSlug(variantSlug: string): Promise<ProductEntity | null> {
@@ -297,38 +346,114 @@ export class ProductsRepository {
     return { data, total };
   }
 
-  private applyProductDetailSelects(
-    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
-  ) {
-    return qb
-      .leftJoinAndSelect('product.productNature', 'productNature')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.subCategory', 'subCategory')
-      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
-      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
-      .leftJoinAndSelect('product.brand', 'brand')
-      .leftJoinAndSelect('product.manufacturer', 'manufacturer')
-      .leftJoinAndSelect('product.packer', 'packer')
-      .leftJoinAndSelect('product.importer', 'importer')
-      .leftJoinAndSelect('product.countryOfOrigin', 'countryOfOrigin')
-      .leftJoinAndSelect('product.attributeMappings', 'attributeMappings')
-      .leftJoinAndSelect('attributeMappings.attribute', 'productAttribute')
-      .leftJoinAndSelect('product.variants', 'variants')
-      .leftJoinAndSelect('variants.attributeValues', 'attributeValues')
-      .leftJoinAndSelect('attributeValues.attribute', 'variantAttribute')
-      .leftJoinAndSelect('product.media', 'media')
-      .leftJoinAndSelect('product.healthConcernMappings', 'healthConcernMappings')
-      .leftJoinAndSelect('healthConcernMappings.healthConcern', 'healthConcern')
-      .leftJoinAndSelect('product.wellnessGoalMappings', 'wellnessGoalMappings')
-      .leftJoinAndSelect('wellnessGoalMappings.wellnessGoal', 'wellnessGoal')
-      .leftJoinAndSelect('product.tagMappings', 'tagMappings')
-      .leftJoinAndSelect('tagMappings.tag', 'tag')
-      .leftJoinAndSelect('product.faqMappings', 'faqMappings')
-      .leftJoinAndSelect('faqMappings.productFaq', 'productFaq')
-      .leftJoinAndSelect('product.bundleItems', 'bundleItems')
-      .leftJoinAndSelect('bundleItems.childProduct', 'childProduct')
-      .orderBy('media.sortOrder', 'ASC')
-      .addOrderBy('media.createdAt', 'ASC');
+  /**
+   * Loads all one-to-many relations for the given products in parallel separate queries.
+   * This replaces the previous single mega-JOIN which caused row multiplication and
+   * 11–14 second query times (N variants × M media × K tags = enormous result set).
+   *
+   * Each relation is fetched with a simple WHERE product_id IN (...) query, and all
+   * queries run concurrently via Promise.all, so total time = max(slowest query)
+   * instead of sum(all queries).
+   */
+  private async attachDetailRelations(products: ProductEntity[], mgr: EntityManager): Promise<void> {
+    if (!products.length) return;
+    const productIds = products.map((p) => p.id);
+
+    const [
+      attributeMappings,
+      variants,
+      media,
+      healthConcernMappings,
+      wellnessGoalMappings,
+      tagMappings,
+      faqMappings,
+      bundleItems,
+    ] = await Promise.all([
+      mgr.getRepository(ProductAttributeMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { attribute: true },
+      }),
+      mgr.getRepository(ProductVariantEntity).find({
+        where: { productId: In(productIds) },
+      }),
+      mgr.getRepository(ProductMediaEntity).find({
+        where: { productId: In(productIds) },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      }),
+      mgr.getRepository(ProductHealthConcernEntity).find({
+        where: { productId: In(productIds) },
+        relations: { healthConcern: true },
+      }),
+      mgr.getRepository(ProductWellnessGoalEntity).find({
+        where: { productId: In(productIds) },
+        relations: { wellnessGoal: true },
+      }),
+      mgr.getRepository(ProductTagMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { tag: true },
+      }),
+      mgr.getRepository(ProductFaqMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { productFaq: true },
+      }),
+      mgr.getRepository(ProductBundleEntity).find({
+        where: { parentProductId: In(productIds) },
+        relations: { childProduct: true },
+      }),
+    ]);
+
+    // Load variant attribute values in one query after variants are known
+    const variantIds = variants.map((v) => v.id);
+    const attributeValues = variantIds.length
+      ? await mgr.getRepository(VariantAttributeValueEntity).find({
+          where: { variantId: In(variantIds) },
+          relations: { attribute: true },
+        })
+      : [];
+
+    // Index everything by productId / variantId for O(1) assembly
+    const attrValuesByVariantId = new Map<string, VariantAttributeValueEntity[]>();
+    for (const av of attributeValues) {
+      (attrValuesByVariantId.get(av.variantId) ?? (attrValuesByVariantId.set(av.variantId, []).get(av.variantId)!)).push(av);
+    }
+    for (const v of variants) {
+      v.attributeValues = attrValuesByVariantId.get(v.id) ?? [];
+    }
+
+    const group = <T extends { productId: string }>(rows: T[]) => {
+      const map = new Map<string, T[]>();
+      for (const row of rows) {
+        (map.get(row.productId) ?? (map.set(row.productId, []).get(row.productId)!)).push(row);
+      }
+      return map;
+    };
+
+    const attrMappingsByProduct = group(attributeMappings);
+    const variantsByProduct = group(variants);
+    const mediaByProduct = group(media);
+    const healthByProduct = group(healthConcernMappings);
+    const wellnessByProduct = group(wellnessGoalMappings);
+    const tagsByProduct = group(tagMappings);
+    const faqsByProduct = group(faqMappings);
+
+    // bundleItems use parentProductId not productId
+    const bundleByProduct = new Map<string, ProductBundleEntity[]>();
+    for (const b of bundleItems) {
+      const arr = bundleByProduct.get(b.parentProductId) ?? [];
+      arr.push(b);
+      bundleByProduct.set(b.parentProductId, arr);
+    }
+
+    for (const product of products) {
+      product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
+      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.media = mediaByProduct.get(product.id) ?? [];
+      product.healthConcernMappings = healthByProduct.get(product.id) ?? [];
+      product.wellnessGoalMappings = wellnessByProduct.get(product.id) ?? [];
+      product.tagMappings = tagsByProduct.get(product.id) ?? [];
+      product.faqMappings = faqsByProduct.get(product.id) ?? [];
+      product.bundleItems = bundleByProduct.get(product.id) ?? [];
+    }
   }
 
   private applyPublicVariantSearchFilters(
@@ -520,93 +645,47 @@ export class ProductsRepository {
     qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
 
+  /**
+   * For public product cards, scalar relations (category, brand, etc.) are already
+   * loaded by the paginated query's leftJoinAndSelect. This method only loads the
+   * one-to-many relations (variants for pricing, media for the primary image)
+   * using parallel queries to avoid sequential TypeORM relation loading.
+   */
   private async attachPublicListRelations(products: ProductEntity[]): Promise<void> {
-    const productIds = products.map((product) => product.id);
-    const withRelations = await this.repo.find({
-      where: { id: In(productIds) },
-      relations: {
-        productNature: true,
-        category: true,
-        subCategory: true,
-        brand: true,
-        variants: true,
-        media: true,
-      },
-      order: {
-        media: { sortOrder: 'ASC', createdAt: 'ASC' },
-      },
-    });
+    const productIds = products.map((p) => p.id);
 
-    const byId = new Map(withRelations.map((product) => [product.id, product]));
+    const [variants, media] = await Promise.all([
+      this.repo.manager.getRepository(ProductVariantEntity).find({
+        where: { productId: In(productIds) },
+      }),
+      this.repo.manager.getRepository(ProductMediaEntity).find({
+        where: { productId: In(productIds) },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      }),
+    ]);
+
+    const variantsByProduct = new Map<string, ProductVariantEntity[]>();
+    for (const v of variants) {
+      (variantsByProduct.get(v.productId) ?? (variantsByProduct.set(v.productId, []).get(v.productId)!)).push(v);
+    }
+
+    const mediaByProduct = new Map<string, ProductMediaEntity[]>();
+    for (const m of media) {
+      (mediaByProduct.get(m.productId) ?? (mediaByProduct.set(m.productId, []).get(m.productId)!)).push(m);
+    }
+
     for (const product of products) {
-      const loaded = byId.get(product.id);
-      if (!loaded) continue;
-
-      product.productNature = loaded.productNature;
-      product.category = loaded.category;
-      product.subCategory = loaded.subCategory;
-      product.brand = loaded.brand;
-      product.variants = loaded.variants ?? [];
-      product.media = loaded.media ?? [];
+      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.media = mediaByProduct.get(product.id) ?? [];
     }
   }
 
   /**
-   * Load OneToMany relations after pagination to avoid duplicate rows skewing list counts.
-   * Mirrors the relations loaded by findByRefId for a consistent list/detail response shape.
+   * Load OneToMany relations after pagination using parallel queries.
+   * Same strategy as attachDetailRelations — avoids the nested find() which
+   * TypeORM resolves sequentially, one query per relation level.
    */
   private async attachListRelations(products: ProductEntity[]): Promise<void> {
-    const productIds = products.map((product) => product.id);
-    const withRelations = await this.repo.find({
-      where: { id: In(productIds) },
-      relations: {
-        productNature: true,
-        category: true,
-        subCategory: true,
-        subSubCategory: true,
-        subSubSubCategory: true,
-        brand: true,
-        manufacturer: true,
-        packer: true,
-        importer: true,
-        countryOfOrigin: true,
-        attributeMappings: { attribute: true },
-        variants: { attributeValues: { attribute: true } },
-        media: true,
-        healthConcernMappings: { healthConcern: true },
-        wellnessGoalMappings: { wellnessGoal: true },
-        tagMappings: { tag: true },
-        faqMappings: { productFaq: true },
-        bundleItems: { childProduct: true },
-      },
-      order: {
-        media: { sortOrder: 'ASC', createdAt: 'ASC' },
-      },
-    });
-
-    const byId = new Map(withRelations.map((product) => [product.id, product]));
-    for (const product of products) {
-      const loaded = byId.get(product.id);
-      if (!loaded) continue;
-
-      product.productNature = loaded.productNature;
-      product.category = loaded.category;
-      product.subCategory = loaded.subCategory;
-      product.subSubCategory = loaded.subSubCategory;
-      product.subSubSubCategory = loaded.subSubSubCategory;
-      product.brand = loaded.brand;
-      product.manufacturer = loaded.manufacturer;
-      product.packer = loaded.packer;
-      product.importer = loaded.importer;
-      product.countryOfOrigin = loaded.countryOfOrigin;
-      product.attributeMappings = loaded.attributeMappings ?? [];
-      product.variants = loaded.variants ?? [];
-      product.media = loaded.media ?? [];
-      product.healthConcernMappings = loaded.healthConcernMappings ?? [];
-      product.wellnessGoalMappings = loaded.wellnessGoalMappings ?? [];
-      product.tagMappings = loaded.tagMappings ?? [];
-      product.faqMappings = loaded.faqMappings ?? [];
-      product.bundleItems = loaded.bundleItems ?? [];
-    }
+    await this.attachDetailRelations(products, this.repo.manager);
   }
 }
