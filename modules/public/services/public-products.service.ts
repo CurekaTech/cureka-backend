@@ -64,7 +64,7 @@ export class PublicProductsService {
       productType: query.productType,
     });
 
-    const result = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.list(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
@@ -82,15 +82,14 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
         });
-        return buildPaginatedResult(
+        const paginated = buildPaginatedResult(
           mapProductEntitiesToPublicCards(data),
           total,
           paginationOptions,
         );
+        return this.enrichPaginatedCards(paginated);
       },
     });
-
-    return this.enrichPaginatedCards(result);
   }
 
   async searchVariants(
@@ -117,7 +116,7 @@ export class PublicProductsService {
       productType: query.productType,
     });
 
-    const result = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.variantSearch(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
@@ -135,19 +134,18 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
         });
-        return buildPaginatedResult(
+        const paginated = buildPaginatedResult(
           mapVariantEntitiesToPublicSearchItems(data),
           total,
           paginationOptions,
         );
+        return this.enrichPaginatedVariantSearch(paginated);
       },
     });
-
-    return this.enrichPaginatedVariantSearch(result);
   }
 
   async findBySlug(slug: string): Promise<IPublicProductDetail> {
-    const product = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.detail(slug),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
@@ -156,14 +154,14 @@ export class PublicProductsService {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
           const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
           if (!matchedVariant) {
-            return detail;
+            return this.enrichDetail(detail);
           }
 
-          return {
+          return this.enrichDetail({
             ...detail,
             selectedVariantId: matchedVariant.id,
             selectedVariantSlug: matchedVariant.slug,
-          };
+          });
         }
 
         const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(slug);
@@ -174,59 +172,47 @@ export class PublicProductsService {
         const detail = mapProductEntityToPublicDetail(byVariantSlug);
         const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
 
-        return {
+        return this.enrichDetail({
           ...detail,
           selectedVariantId: matchedVariant?.id ?? null,
           selectedVariantSlug: matchedVariant?.slug ?? slug,
-        };
+        });
       },
     });
-
-    return this.enrichDetail(product);
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
-    let categoryId: string | undefined;
-    let brandId: string | undefined;
-    let productNatureId: string | undefined;
-    let healthConcernId: string | undefined;
-    let wellnessGoalId: string | undefined;
+    const [category, brand, nature, healthConcern, wellnessGoal] = await Promise.all([
+      query.categoryRefId
+        ? this.categoriesRepository.findByRefId(query.categoryRefId)
+        : query.categorySlug
+          ? this.categoriesRepository.findBySlug(query.categorySlug)
+          : Promise.resolve(null),
+      query.brandRefId
+        ? this.brandsRepository.findByRefId(query.brandRefId)
+        : query.brandSlug
+          ? this.brandsRepository.findBySlug(query.brandSlug)
+          : Promise.resolve(null),
+      query.productNatureRefId
+        ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
+        : Promise.resolve(null),
+      query.healthConcernRefId
+        ? this.healthConcernsRepository.findByRefId(query.healthConcernRefId)
+        : query.healthConcernSlug
+          ? this.healthConcernsRepository.findBySlug(query.healthConcernSlug)
+          : Promise.resolve(null),
+      query.wellnessGoalRefId
+        ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
+        : Promise.resolve(null),
+    ]);
 
-    if (query.categoryRefId) {
-      const category = await this.categoriesRepository.findByRefId(query.categoryRefId);
-      categoryId = category?.id;
-    } else if (query.categorySlug) {
-      const category = await this.categoriesRepository.findBySlug(query.categorySlug);
-      categoryId = category?.id;
-    }
-    if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
-      brandId = brand?.id;
-    } else if (query.brandSlug) {
-      const brand = await this.brandsRepository.findBySlug(query.brandSlug);
-      brandId = brand?.id;
-    }
-    if (query.productNatureRefId) {
-      const nature = await this.productNaturesRepository.findByRefId(query.productNatureRefId);
-      productNatureId = nature?.id;
-    }
-    if (query.healthConcernRefId) {
-      const healthConcern = await this.healthConcernsRepository.findByRefId(
-        query.healthConcernRefId,
-      );
-      healthConcernId = healthConcern?.id;
-    } else if (query.healthConcernSlug) {
-      const healthConcern = await this.healthConcernsRepository.findBySlug(
-        query.healthConcernSlug,
-      );
-      healthConcernId = healthConcern?.id;
-    }
-    if (query.wellnessGoalRefId) {
-      const wellnessGoal = await this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId);
-      wellnessGoalId = wellnessGoal?.id;
-    }
-
-    return { categoryId, brandId, productNatureId, healthConcernId, wellnessGoalId };
+    return {
+      categoryId: category?.id,
+      brandId: brand?.id,
+      productNatureId: nature?.id,
+      healthConcernId: healthConcern?.id,
+      wellnessGoalId: wellnessGoal?.id,
+    };
   }
 
   private async enrichPaginatedVariantSearch(

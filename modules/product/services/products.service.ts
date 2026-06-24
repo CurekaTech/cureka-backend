@@ -230,23 +230,26 @@ export class ProductsService {
           productNatureId: filters.productNatureId,
           variantSlug: query.variantSlug,
         });
-        return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
+        const paginated = buildPaginatedResult(
+          mapProductEntitiesToResponse(data),
+          total,
+          paginationOptions,
+        );
+        return this.enrichPaginatedProducts(paginated);
       },
-    }).then((result) => this.enrichPaginatedProducts(result));
+    });
   }
 
   async findOne(refId: string): Promise<IProductDetail> {
-    const product = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.products.detail(refId),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
         const entity = await this.productsRepository.findByRefId(refId);
         if (!entity) throw new NotFoundException(`Product with refId ${refId} not found`);
-        return mapProductEntityToDetailResponse(entity);
+        return this.enrichProductDetail(mapProductEntityToDetailResponse(entity));
       },
     });
-
-    return this.enrichProductDetail(product);
   }
 
   async update(refId: string, dto: UpdateProductDto, updatedBy: string): Promise<IProduct> {
@@ -617,24 +620,21 @@ export class ProductsService {
   }
 
   private async resolveListFilters(query: ProductQueryDto) {
-    let categoryId: string | undefined;
-    let brandId: string | undefined;
-    let productNatureId: string | undefined;
+    const [category, brand, nature] = await Promise.all([
+      query.categoryRefId
+        ? this.categoriesRepository.findByRefId(query.categoryRefId)
+        : Promise.resolve(null),
+      query.brandRefId ? this.brandsRepository.findByRefId(query.brandRefId) : Promise.resolve(null),
+      query.productNatureRefId
+        ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
+        : Promise.resolve(null),
+    ]);
 
-    if (query.categoryRefId) {
-      const category = await this.categoriesRepository.findByRefId(query.categoryRefId);
-      categoryId = category?.id;
-    }
-    if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
-      brandId = brand?.id;
-    }
-    if (query.productNatureRefId) {
-      const nature = await this.productNaturesRepository.findByRefId(query.productNatureRefId);
-      productNatureId = nature?.id;
-    }
-
-    return { categoryId, brandId, productNatureId };
+    return {
+      categoryId: category?.id,
+      brandId: brand?.id,
+      productNatureId: nature?.id,
+    };
   }
 
   private async emitProductUpdated(
