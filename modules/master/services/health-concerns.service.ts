@@ -93,6 +93,7 @@ export class HealthConcernsService {
       banner: this.storageUrlEnricher.persist(media.banner),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
+      inHomePage: dto.inHomePage ?? false,
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.healthConcernsRepository.existsByRefId(refId),
       ),

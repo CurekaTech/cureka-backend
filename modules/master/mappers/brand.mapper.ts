@@ -11,6 +11,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
   banner: entity.banner,
   description: entity.description,
   status: entity.status,
+  inHomePage: entity.inHomePage,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,

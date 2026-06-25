@@ -10,6 +10,7 @@ export interface IBrand {
   banner: IStorageFileReferenceResponse | null;
   description: string | null;
   status: MasterStatus;
+  inHomePage: boolean;
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
