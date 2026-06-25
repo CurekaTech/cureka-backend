@@ -1,6 +1,8 @@
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { IProductInformationItem } from '@modules/product/interfaces/product-information.interface';
+import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IPublicProductPriceSummary {
@@ -9,6 +11,45 @@ export interface IPublicProductPriceSummary {
   minMrp: number;
   maxDiscountPercentage: number | null;
   inStock: boolean;
+}
+
+export interface IPublicCategorySummary {
+  refId: string;
+  name: string;
+  slug: string;
+}
+
+/** One search result row per active product variant. */
+export interface IPublicProductVariantSearchItem {
+  refId: string;
+  name: string;
+  productSlug: string;
+  variantSlug: string;
+  primaryImageUrl: IStorageFileReferenceResponse | null;
+  category: IPublicCategorySummary | null;
+  subCategory: IPublicCategorySummary | null;
+  subSubCategory: IPublicCategorySummary | null;
+  subSubSubCategory: IPublicCategorySummary | null;
+  variantId: string;
+  sku: string;
+  mrp: number;
+  sellingPrice: number;
+  discountPercentage: number | null;
+  stock: number;
+  weight: number | null;
+  weightUnit: string | null;
+  length: number | null;
+  lengthUnit: string | null;
+  width: number | null;
+  widthUnit: string | null;
+  height: number | null;
+  heightUnit: string | null;
+  status: VariantStatus;
+  attributes: Array<{
+    attributeRefId: string;
+    attributeName: string;
+    value: string;
+  }>;
 }
 
 export interface IPublicProductCard {
@@ -34,10 +75,19 @@ export interface IPublicProductCard {
 export interface IPublicProductVariant {
   id: string;
   sku: string;
+  slug: string;
   mrp: number;
   sellingPrice: number;
   discountPercentage: number | null;
   stock: number;
+  weight: number | null;
+  weightUnit: string | null;
+  length: number | null;
+  lengthUnit: string | null;
+  width: number | null;
+  widthUnit: string | null;
+  height: number | null;
+  heightUnit: string | null;
   status: VariantStatus;
   attributes: Array<{
     attributeRefId: string;
@@ -78,17 +128,7 @@ export interface IPublicProductDetail {
   manufacturerName: string | null;
   countryOfOriginRefId: string | null;
   countryOfOriginName: string | null;
-  highlights: string | null;
-  expertAdvice: string | null;
-  keyIngredients: string | null;
-  otherIngredients: string | null;
-  preventiveNotes: string | null;
-  accessoriesSpecifications: string | null;
-  directionsOfUse: string | null;
-  feedingTable: string | null;
-  safetyInformation: string | null;
-  productWeight: string | null;
-  productDimensions: string | null;
+  productInformation: IProductInformationItem[];
   expiresInMonths: number | null;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
@@ -103,11 +143,15 @@ export interface IPublicProductDetail {
   metaKeywords: string[] | null;
   publishedAt: Date | null;
   pricing: IPublicProductPriceSummary;
+  /** Set when product detail is loaded via a variant slug URL. */
+  selectedVariantId?: string | null;
+  selectedVariantSlug?: string | null;
   attributes: Array<{ refId: string; name: string }>;
   variants: IPublicProductVariant[];
   media: IPublicProductMedia[];
   healthConcerns: Array<{ refId: string; name: string }>;
   wellnessGoals: Array<{ refId: string; name: string; image: IStorageFileReferenceResponse | null }>;
+  categoryFilters: IProductCategoryFilterBinding[];
   tags: Array<{ refId: string; name: string; slug: string }>;
   faqs: Array<{ refId: string; question: string; answer: string }>;
   bundleItems: Array<{

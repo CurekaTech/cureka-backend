@@ -26,6 +26,7 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
   private readonly tls: boolean;
   private readonly connectTimeoutMs: number;
   private readonly operationTimeoutMs: number;
+  private reprobeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly configService: ConfigService) {
     this.host = this.configService.get<string>('REDIS_HOST') || undefined;
@@ -34,7 +35,62 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
     this.username = this.configService.get<string>('REDIS_USERNAME') || undefined;
     this.tls = this.configService.get<string>('REDIS_TLS', 'false') === 'true';
     this.connectTimeoutMs = this.configService.get<number>('REDIS_CONNECT_TIMEOUT_MS', 5000);
-    this.operationTimeoutMs = this.configService.get<number>('REDIS_OPERATION_TIMEOUT_MS', 2000);
+    this.operationTimeoutMs = this.configService.get<number>('REDIS_OPERATION_TIMEOUT_MS', 8000);
+  }
+
+  /** Stop waiting on Redis after timeouts/errors; re-probe in the background. */
+  markDegraded(reason: string): void {
+    if (!this.reachable) {
+      return;
+    }
+
+    this.reachable = false;
+    this.logger.warn(
+      `Redis marked unavailable (${reason}). Skipping cache ops until re-probe succeeds.`,
+    );
+    void this.resetClient();
+    this.scheduleReprobe();
+  }
+
+  private scheduleReprobe(): void {
+    if (this.reprobeTimer) {
+      return;
+    }
+
+    this.reprobeTimer = setTimeout(() => {
+      this.reprobeTimer = undefined;
+      void this.tryRestoreConnection();
+    }, 30_000);
+  }
+
+  private async tryRestoreConnection(): Promise<void> {
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    const ok = await probeRedis({
+      host: this.host!,
+      port: this.port,
+      password: this.password,
+      username: this.username,
+      tls: this.tls,
+      timeoutMs: this.connectTimeoutMs,
+    });
+
+    if (!ok) {
+      this.scheduleReprobe();
+      return;
+    }
+
+    this.reachable = true;
+    this.warnedUnavailable = false;
+    this.logger.log(`Redis connection restored at ${this.host}:${this.port}`);
+    try {
+      await this.getConnectedClient();
+    } catch {
+      this.reachable = false;
+      this.scheduleReprobe();
+    }
   }
 
   async onModuleInit(): Promise<void> {
@@ -149,9 +205,8 @@ export class RedisConnectionService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Redis reconnecting...');
     });
     client.on('error', (error: Error) => {
-      if (error.message.includes('ECONNREFUSED')) {
-        this.reachable = false;
-        this.logUnavailableOnce();
+      if (error.message.includes('ECONNREFUSED') || error.message.includes('ECONNRESET')) {
+        this.markDegraded(error.message);
         return;
       }
       this.logger.error(`Redis error: ${error.message}`);

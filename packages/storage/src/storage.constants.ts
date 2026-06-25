@@ -5,6 +5,7 @@ export const ALLOWED_IMAGE_MIME_TYPES = [
   'image/png',
   'image/webp',
   'image/gif',
+  'application/pdf',
 ] as const;
 
 export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];

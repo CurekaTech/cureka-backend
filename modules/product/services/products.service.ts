@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -23,11 +24,13 @@ import { FastifyRequest } from 'fastify';
 import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
+import { normalizeProductInformation } from '../utils/product-information.util';
 import { mapSpecificationFields } from '../utils/product-payload.util';
-import { collectProductMedia } from '../utils/product-media.util';
+import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
+import { ProductVariantsRepository } from '../repositories/product-variants.repository';
 import { ProductMasterResolverService } from './product-master-resolver.service';
 import { ProductStrategyFactory } from '../strategies/product-strategies';
 import { mapProductEntitiesToResponse, mapProductEntityToDetailResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
@@ -42,13 +45,17 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductMultipartService } from './product-multipart.service';
+import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly productsRepository: ProductsRepository,
     private readonly relationsRepository: ProductRelationsRepository,
+    private readonly variantsRepository: ProductVariantsRepository,
     private readonly masterResolver: ProductMasterResolverService,
     private readonly strategyFactory: ProductStrategyFactory,
     private readonly cacheStrategy: CacheStrategyService,
@@ -68,6 +75,24 @@ export class ProductsService {
   async createFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
     const dto = await this.productMultipartService.validateJsonBody(body);
     return this.createDraft(dto, createdBy);
+  }
+
+  async updateFromRequest(
+    req: FastifyRequest,
+    refId: string,
+    updatedBy: string,
+  ): Promise<IProduct> {
+    const dto = await this.productMultipartService.parseUpdateProduct(req);
+    return this.update(refId, dto, updatedBy);
+  }
+
+  async updateFromJsonBody(
+    body: unknown,
+    refId: string,
+    updatedBy: string,
+  ): Promise<IProduct> {
+    const dto = await this.productMultipartService.validateUpdateJsonBody(body);
+    return this.update(refId, dto, updatedBy);
   }
 
   async createDraft(dto: CreateProductDto, createdBy: string): Promise<IProduct> {
@@ -116,6 +141,7 @@ export class ProductsService {
           status: ProductStatus.DRAFT,
           rejectionReason: null,
           ...mapSpecificationFields(dto),
+          productInformation: normalizeProductInformation(dto.productInformation),
           description: dto.description ?? null,
           refId,
           createdBy,
@@ -135,6 +161,11 @@ export class ProductsService {
         this.relationsRepository.syncWellnessGoals(manager, created.id, masters.wellnessGoalIds),
         this.relationsRepository.syncTags(manager, created.id, dto.tagNames ?? [], createdBy),
         this.relationsRepository.syncProductAttributes(manager, created.id, masters.attributeIds),
+        this.relationsRepository.syncCategoryFilters(
+          manager,
+          created.id,
+          masters.categoryFilterBindings,
+        ),
       ]);
 
       const faqIds = [...masters.faqIds];
@@ -183,6 +214,8 @@ export class ProductsService {
     const filters = await this.resolveListFilters(query);
     const queryHash = buildQueryCacheHash({
       ...filters,
+      variantSlug: query.variantSlug,
+      categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -190,7 +223,8 @@ export class ProductsService {
       sortOrder: paginationOptions.sortOrder,
     });
 
-    return this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.products.list(paginationOptions.page, paginationOptions.limit, queryHash),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
@@ -205,24 +239,43 @@ export class ProductsService {
           categoryId: filters.categoryId,
           brandId: filters.brandId,
           productNatureId: filters.productNatureId,
+          variantSlug: query.variantSlug,
+          categoryFilterCriteria: filters.categoryFilterCriteria,
         });
+        this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
       },
-    }).then((result) => this.enrichPaginatedProducts(result));
+    });
+    const tEnrich = Date.now();
+    const result = await this.enrichPaginatedProducts(raw);
+    const imageCount = result.data.reduce(
+      (sum, p) => sum + (p.media?.filter((m) => m.url).length ?? 0) + (p.wellnessGoals?.filter((g) => g.image).length ?? 0),
+      0,
+    );
+    this.logger.log(
+      `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   async findOne(refId: string): Promise<IProductDetail> {
-    const product = await this.cacheStrategy.cacheAside({
+    const tDb = Date.now();
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.products.detail(refId),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
         const entity = await this.productsRepository.findByRefId(refId);
         if (!entity) throw new NotFoundException(`Product with refId ${refId} not found`);
+        this.logger.log(`[PERF] findOne refId="${refId}" | DB query: ${Date.now() - tDb}ms`);
         return mapProductEntityToDetailResponse(entity);
       },
     });
-
-    return this.enrichProductDetail(product);
+    const tEnrich = Date.now();
+    const result = await this.enrichProductDetail(raw);
+    this.logger.log(
+      `[PERF] findOne refId="${refId}" | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+    );
+    return result;
   }
 
   async update(refId: string, dto: UpdateProductDto, updatedBy: string): Promise<IProduct> {
@@ -243,8 +296,17 @@ export class ProductsService {
       payload.slug = slug;
     }
 
+    // Only SIMPLE → VARIABLE conversion is allowed; all other type changes are blocked.
+    const effectiveProductType = dto.productType ?? existing.productType;
     if (dto.productType && dto.productType !== existing.productType) {
-      throw new BadRequestException('productType cannot be changed after creation');
+      const allowedConversion =
+        existing.productType === ProductType.SIMPLE && dto.productType === ProductType.VARIABLE;
+      if (!allowedConversion) {
+        throw new BadRequestException(
+          `Product type cannot be changed from "${existing.productType}" to "${dto.productType}"`,
+        );
+      }
+      payload.productType = dto.productType;
     }
 
     const masters =
@@ -255,7 +317,7 @@ export class ProductsService {
       dto.attributeRefIds
         ? await this.masterResolver.resolve({
             ...dto,
-            productType: existing.productType,
+            productType: effectiveProductType,
             productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
             categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
             brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
@@ -276,32 +338,69 @@ export class ProductsService {
       payload.countryOfOriginId = masters.countryOfOriginId;
     }
 
-    await this.productsRepository.updateByRefId(refId, payload);
-
-    if (
+    const productSlug = payload.slug ?? existing.slug;
+    const needsRelationSync = Boolean(
       dto.healthConcernRefIds ||
-      dto.wellnessGoalRefIds ||
-      dto.tagNames ||
-      dto.faqRefIds ||
-      dto.customFaqs ||
-      dto.attributeRefIds ||
-      masters?.attributeIds
-    ) {
-      const resolved =
-        masters ??
-        (await this.masterResolver.resolve({
-          productType: existing.productType,
-          productNatureRefId: existing.productNature?.refId,
-          categoryRefId: existing.category?.refId ?? '',
-          brandRefId: existing.brand?.refId ?? '',
-          name: existing.name,
-          healthConcernRefIds: dto.healthConcernRefIds,
-          wellnessGoalRefIds: dto.wellnessGoalRefIds,
-          faqRefIds: dto.faqRefIds,
-          attributeRefIds: dto.attributeRefIds,
-        } as CreateProductDto));
+        dto.wellnessGoalRefIds ||
+        dto.tagNames ||
+        dto.faqRefIds ||
+        dto.customFaqs ||
+        dto.attributeRefIds ||
+        dto.categoryFilters !== undefined ||
+        masters?.attributeIds,
+    );
+    const needsVariantSync = dto.variants !== undefined;
+    const needsMediaSync =
+      dto.media !== undefined || hasVariantMediaInPayload(dto.variants);
 
-      await this.dataSource.transaction(async (manager) => {
+    if (needsVariantSync && effectiveProductType === ProductType.VARIABLE) {
+      const allowed = new Set(
+        dto.attributeRefIds ??
+          existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
+          [],
+      );
+      for (const variant of dto.variants ?? []) {
+        validateVariantAttributeScope(variant.attributes ?? [], allowed);
+      }
+    }
+
+    const resolved =
+      needsRelationSync || needsVariantSync
+        ? masters ??
+          (await this.masterResolver.resolve({
+            productType: effectiveProductType,
+            productNatureRefId: existing.productNature?.refId,
+            categoryRefId: existing.category?.refId ?? '',
+            brandRefId: existing.brand?.refId ?? '',
+            name: existing.name,
+            healthConcernRefIds: dto.healthConcernRefIds,
+            wellnessGoalRefIds: dto.wellnessGoalRefIds,
+            faqRefIds: dto.faqRefIds,
+            attributeRefIds: dto.attributeRefIds,
+          } as CreateProductDto))
+        : null;
+
+    const attributeRefIdsForVariants = [
+      ...new Set([
+        ...(dto.attributeRefIds ?? []),
+        ...(dto.variants?.flatMap(
+          (variant) => variant.attributes?.map((item) => item.attributeRefId) ?? [],
+        ) ?? []),
+      ]),
+    ];
+    const attributeIdByRefId = needsVariantSync
+      ? await this.masterResolver.resolveAttributeIds(attributeRefIdsForVariants)
+      : new Map<string, string>();
+
+    const categoryFilterBindings =
+      dto.categoryFilters !== undefined
+        ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
+        : null;
+
+    await this.dataSource.transaction(async (manager) => {
+      await this.productsRepository.updateByRefId(refId, payload, manager);
+
+      if (resolved) {
         if (dto.healthConcernRefIds) {
           await this.relationsRepository.syncHealthConcerns(
             manager,
@@ -337,8 +436,43 @@ export class ProductsService {
             resolved.attributeIds,
           );
         }
-      });
-    }
+      }
+
+      if (categoryFilterBindings !== null) {
+        await this.relationsRepository.syncCategoryFilters(
+          manager,
+          existing.id,
+          categoryFilterBindings,
+        );
+      }
+
+      if (needsVariantSync && dto.variants) {
+        await this.variantsRepository.syncVariants(
+          manager,
+          existing.id,
+          productSlug,
+          effectiveProductType,  // use the new type, not the old one
+          dto.variants,
+          attributeIdByRefId,
+        );
+      }
+
+      if (needsMediaSync) {
+        const media = collectProductMedia({
+          ...dto,
+          productType: effectiveProductType,
+          name: dto.name ?? existing.name,
+          categoryRefId: existing.category?.refId ?? '',
+          brandRefId: existing.brand?.refId ?? '',
+        } as CreateProductDto);
+        const variants = await manager.getRepository(ProductVariantEntity).find({
+          where: { productId: existing.id },
+          select: ['id', 'sku'],
+        });
+        const skuToVariantId = new Map(variants.map((variant) => [variant.sku, variant.id]));
+        await this.relationsRepository.syncMedia(manager, existing.id, media, skuToVariantId);
+      }
+    });
 
     const updated = await this.productsRepository.findByRefId(refId);
     if (!updated) {
@@ -433,12 +567,9 @@ export class ProductsService {
   }
 
   private assertEditable(entity: ProductEntity): void {
-    if (entity.status === ProductStatus.PENDING_REVIEW) {
-      throw new BadRequestException('Product is pending review and cannot be edited');
-    }
-    if (entity.status === ProductStatus.PUBLISHED) {
-      throw new BadRequestException('Published products cannot be edited via create/update flow');
-    }
+    // if (entity.status === ProductStatus.PUBLISHED) {
+    //   throw new BadRequestException('Published products cannot be edited via create/update flow');
+    // }
   }
 
   private validateForSubmission(entity: ProductEntity): void {
@@ -478,6 +609,7 @@ export class ProductsService {
     const logoFields = ['logo'] as const;
     const healthConcernFields = ['icon', 'banner'] as const;
 
+    const tBrand = Date.now();
     const [brand, manufacturer, packer, importer, healthConcerns] = await Promise.all([
       product.brand
         ? this.storageUrlEnricher.enrichFields(product.brand, [...brandFields])
@@ -493,6 +625,9 @@ export class ProductsService {
         : Promise.resolve(null),
       this.storageUrlEnricher.enrichManyFields(product.healthConcerns, [...healthConcernFields]),
     ]);
+    this.logger.log(
+      `  [IMG] brand/manufacturer/packer/importer/healthConcerns signing: ${Date.now() - tBrand}ms`,
+    );
 
     return {
       ...enrichedBase,
@@ -511,20 +646,73 @@ export class ProductsService {
   }
 
   private async enrichProduct(product: IProduct): Promise<IProduct> {
-    const [media, wellnessGoals] = await Promise.all([
-      this.storageUrlEnricher.enrichReferences(
-        product.media ?? [],
-        (item) => item.url,
-        (item, url) => ({ ...item, url }),
-      ),
-      this.storageUrlEnricher.enrichReferences(
-        product.wellnessGoals ?? [],
-        (item) => item.image,
-        (item, image) => ({ ...item, image }),
-      ),
-    ]);
+    const media = await Promise.all(
+      (product.media ?? []).map(async (item) => {
+        if (!item.url) return item;
+        const key = typeof item.url === 'string'
+          ? item.url
+          : (item.url as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const [enriched] = await this.storageUrlEnricher.enrichReferences(
+          [item],
+          (i) => i.url,
+          (i, url) => ({ ...i, url }),
+        );
+        this.logger.log(`  [IMG] media key="${key}" signing=${Date.now() - t}ms`);
+        return enriched;
+      }),
+    );
 
-    return { ...product, media, wellnessGoals };
+    const wellnessGoals = await Promise.all(
+      (product.wellnessGoals ?? []).map(async (item) => {
+        if (!item.image) return item;
+        const key = typeof item.image === 'string'
+          ? item.image
+          : (item.image as { key?: string }).key ?? '(unknown)';
+        const t = Date.now();
+        const [enriched] = await this.storageUrlEnricher.enrichReferences(
+          [item],
+          (i) => i.image,
+          (i, image) => ({ ...i, image }),
+        );
+        this.logger.log(`  [IMG] wellness key="${key}" signing=${Date.now() - t}ms`);
+        return enriched;
+      }),
+    );
+
+    const sizeChart = product.sizeChart
+      ? await this.storageUrlEnricher.toReference(product.sizeChart)
+      : null;
+
+    const variantImagesById = new Map<
+      string,
+      Array<{
+        id: string;
+        type: IProduct['media'][number]['type'];
+        url: IProduct['media'][number]['url'];
+        sortOrder: number;
+        isPrimary: boolean;
+      }>
+    >();
+    for (const item of media) {
+      if (!item.variantId) continue;
+      const list = variantImagesById.get(item.variantId) ?? [];
+      list.push({
+        id: item.id,
+        type: item.type,
+        url: item.url,
+        sortOrder: item.sortOrder,
+        isPrimary: item.isPrimary,
+      });
+      variantImagesById.set(item.variantId, list);
+    }
+
+    const variants = (product.variants ?? []).map((variant) => ({
+      ...variant,
+      images: (variantImagesById.get(variant.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
+    }));
+
+    return { ...product, media, wellnessGoals, sizeChart, variants };
   }
 
   private async enrichPaginatedProducts(
@@ -537,24 +725,26 @@ export class ProductsService {
   }
 
   private async resolveListFilters(query: ProductQueryDto) {
-    let categoryId: string | undefined;
-    let brandId: string | undefined;
-    let productNatureId: string | undefined;
+    const queryBindings = parseCategoryFilterQueryBindings(query);
+    const [category, brand, nature, categoryFilterCriteria] = await Promise.all([
+      query.categoryRefId
+        ? this.categoriesRepository.findByRefId(query.categoryRefId)
+        : Promise.resolve(null),
+      query.brandRefId ? this.brandsRepository.findByRefId(query.brandRefId) : Promise.resolve(null),
+      query.productNatureRefId
+        ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
+        : Promise.resolve(null),
+      queryBindings
+        ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
+        : Promise.resolve(undefined),
+    ]);
 
-    if (query.categoryRefId) {
-      const category = await this.categoriesRepository.findByRefId(query.categoryRefId);
-      categoryId = category?.id;
-    }
-    if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
-      brandId = brand?.id;
-    }
-    if (query.productNatureRefId) {
-      const nature = await this.productNaturesRepository.findByRefId(query.productNatureRefId);
-      productNatureId = nature?.id;
-    }
-
-    return { categoryId, brandId, productNatureId };
+    return {
+      categoryId: category?.id,
+      brandId: brand?.id,
+      productNatureId: nature?.id,
+      categoryFilterCriteria,
+    };
   }
 
   private async emitProductUpdated(

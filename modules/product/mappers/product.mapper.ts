@@ -2,12 +2,14 @@ import { ProductEntity } from '../entities/product.entity';
 import {
   IProduct,
   IProductVariant,
+  IProductVariantImage,
   IProductMedia,
   IProductTag,
   IProductFaq,
   IProductBundleItem,
   IProductAttribute,
   IProductWellnessGoal,
+  IProductCategoryFilterBinding,
 } from '../interfaces/product.interface';
 import { IProductDetail } from '../interfaces/product-detail.interface';
 import { mapCategoryEntityToDetailResponse } from '@modules/master/mappers/category.mapper';
@@ -50,17 +52,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   countryOfOriginName: entity.countryOfOrigin?.name ?? null,
   status: entity.status,
   rejectionReason: entity.rejectionReason,
-  highlights: entity.highlights,
-  expertAdvice: entity.expertAdvice,
-  keyIngredients: entity.keyIngredients,
-  otherIngredients: entity.otherIngredients,
-  preventiveNotes: entity.preventiveNotes,
-  accessoriesSpecifications: entity.accessoriesSpecifications,
-  directionsOfUse: entity.directionsOfUse,
-  feedingTable: entity.feedingTable,
-  safetyInformation: entity.safetyInformation,
-  productWeight: entity.productWeight,
-  productDimensions: entity.productDimensions,
+  productInformation: entity.productInformation ?? [],
   expiresInMonths: entity.expiresInMonths,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
@@ -73,9 +65,10 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
+  sizeChart: entity.sizeChart,
   publishedAt: entity.publishedAt,
   attributes: (entity.attributeMappings ?? []).map(mapAttribute),
-  variants: (entity.variants ?? []).map(mapVariant),
+  variants: mapVariants(entity),
   media: (entity.media ?? []).map(mapMedia),
   healthConcernRefIds: (entity.healthConcernMappings ?? []).map(
     (item) => item.healthConcern?.refId ?? '',
@@ -84,6 +77,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
     (item) => item.wellnessGoal?.refId ?? '',
   ),
   wellnessGoals: (entity.wellnessGoalMappings ?? []).map(mapWellnessGoal),
+  categoryFilters: mapCategoryFilters(entity),
   tags: (entity.tagMappings ?? []).map(mapTag),
   faqs: (entity.faqMappings ?? []).map(mapFaq),
   bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
@@ -125,9 +119,48 @@ const mapAttribute = (
   name: mapping.attribute?.name ?? '',
 });
 
-const mapVariant = (variant: ProductEntity['variants'][number]): IProductVariant => ({
+const mapVariantImage = (media: ProductEntity['media'][number]) => ({
+  id: media.id,
+  type: media.type,
+  url: media.url,
+  sortOrder: media.sortOrder,
+  isPrimary: media.isPrimary,
+});
+
+const groupVariantImages = (media: ProductEntity['media']) => {
+  const grouped = new Map<string, ReturnType<typeof mapVariantImage>[]>();
+
+  for (const item of media ?? []) {
+    if (!item.variantId) continue;
+    const list = grouped.get(item.variantId) ?? [];
+    list.push(mapVariantImage(item));
+    grouped.set(item.variantId, list);
+  }
+
+  for (const [variantId, images] of grouped) {
+    grouped.set(
+      variantId,
+      images.sort((a, b) => a.sortOrder - b.sortOrder),
+    );
+  }
+
+  return grouped;
+};
+
+const mapVariants = (entity: ProductEntity): IProductVariant[] => {
+  const imagesByVariantId = groupVariantImages(entity.media ?? []);
+  return (entity.variants ?? []).map((variant) =>
+    mapVariant(variant, imagesByVariantId.get(variant.id) ?? []),
+  );
+};
+
+const mapVariant = (
+  variant: ProductEntity['variants'][number],
+  images: ReturnType<typeof mapVariantImage>[],
+): IProductVariant => ({
   id: variant.id,
   sku: variant.sku,
+  slug: variant.slug,
   vendorSku: variant.vendorSku,
   barcode: variant.barcode,
   mrp: toNumber(variant.mrp) ?? 0,
@@ -135,9 +168,13 @@ const mapVariant = (variant: ProductEntity['variants'][number]): IProductVariant
   discountPercentage: toNumber(variant.discountPercentage),
   stock: variant.stock,
   weight: toNumber(variant.weight),
+  weightUnit: variant.weightUnit,
   length: toNumber(variant.length),
+  lengthUnit: variant.lengthUnit,
   width: toNumber(variant.width),
+  widthUnit: variant.widthUnit,
   height: toNumber(variant.height),
+  heightUnit: variant.heightUnit,
   expiresIn: variant.expiresIn,
   status: variant.status,
   combinationKey: variant.combinationKey,
@@ -146,6 +183,7 @@ const mapVariant = (variant: ProductEntity['variants'][number]): IProductVariant
     attributeName: item.attribute?.name ?? '',
     value: item.value,
   })),
+  images: images as IProductVariantImage[],
   createdAt: variant.createdAt,
   updatedAt: variant.updatedAt,
 });
@@ -185,3 +223,25 @@ const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBund
   childProductName: item.childProduct?.name ?? '',
   quantity: item.quantity,
 });
+
+export const mapCategoryFilters = (entity: ProductEntity): IProductCategoryFilterBinding[] => {
+  const grouped = new Map<string, IProductCategoryFilterBinding>();
+
+  for (const mapping of entity.categoryFilterMappings ?? []) {
+    const categoryFilterRefId = mapping.categoryFilter?.refId ?? '';
+    const categoryFilterName = mapping.categoryFilter?.name ?? '';
+    const existing = grouped.get(mapping.categoryFilterId) ?? {
+      categoryFilterRefId,
+      categoryFilterName,
+      values: [],
+    };
+
+    if (!existing.values.includes(mapping.value)) {
+      existing.values.push(mapping.value);
+    }
+
+    grouped.set(mapping.categoryFilterId, existing);
+  }
+
+  return [...grouped.values()];
+};

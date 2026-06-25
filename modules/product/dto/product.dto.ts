@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  Allow,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -24,7 +25,20 @@ import {
   CreateProductMediaDto,
   CreateVariantDto,
 } from './variant.dto';
-import { CustomProductFaqDto } from './product-support.dto';
+import { CustomProductFaqDto, ProductInformationItemDto } from './product-support.dto';
+import { ProductCategoryFilterBindingDto, ProductCategoryFilterQueryDto } from './product-category-filter.dto';
+
+export class ProductFileReferenceDto {
+  @ApiProperty({ example: 'documents/size-charts/abc123.pdf' })
+  @IsString()
+  @MaxLength(1000)
+  key!: string;
+
+  @ApiProperty({ example: 'cureka-files-prod' })
+  @IsString()
+  @MaxLength(255)
+  name!: string;
+}
 
 export class CreateProductDto {
   @ApiPropertyOptional({ description: 'Nullable until vendor module is live' })
@@ -117,62 +131,19 @@ export class CreateProductDto {
   @ArrayMinSize(1)
   attributeRefIds?: string[];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    type: [ProductInformationItemDto],
+    description: 'Dynamic product information blocks (label + description)',
+    example: [
+      { label: 'Benefits', description: 'Provides relief from fever and mild pain.' },
+      { label: 'How to Use', description: 'Take after meals as directed by a physician.' },
+    ],
+  })
   @IsOptional()
-  @IsString()
-  highlights?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  expertAdvice?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  keyIngredients?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  otherIngredients?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  preventiveNotes?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  accessoriesSpecifications?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  directionsOfUse?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  feedingTable?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  safetyInformation?: string;
-
-  @ApiPropertyOptional({ example: '30 g' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  productWeight?: string;
-
-  @ApiPropertyOptional({ example: '15 x 4 x 3 cm' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  productDimensions?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductInformationItemDto)
+  productInformation?: ProductInformationItemDto[];
 
   @ApiPropertyOptional({ example: 24, description: 'Shelf life in months' })
   @IsOptional()
@@ -242,6 +213,16 @@ export class CreateProductDto {
   @IsString({ each: true })
   metaKeywords?: string[];
 
+  @ApiPropertyOptional({
+    type: ProductFileReferenceDto,
+    nullable: true,
+    description: 'Optional size chart file reference (image or pdf)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFileReferenceDto)
+  sizeChart?: ProductFileReferenceDto | null;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -259,6 +240,17 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   tagNames?: string[];
+
+  @ApiPropertyOptional({
+    type: [ProductCategoryFilterBindingDto],
+    description: 'Optional category filter bindings. Omit, send [], or send entries with empty values to skip.',
+    example: [{ categoryFilterRefId: 'CFL20261234', values: ['Cotton', 'Breathable'] }],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductCategoryFilterBindingDto)
+  categoryFilters?: ProductCategoryFilterBindingDto[];
 
   @ApiPropertyOptional({ type: [CustomProductFaqDto], description: 'Inline product FAQs (question + answer)' })
   @IsOptional()
@@ -297,6 +289,25 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductMediaDto)
   media?: CreateProductMediaDto[];
+
+  /** snake_case / UI-only fields accepted from admin form (not persisted on product) */
+  @Allow()
+  weight_unit?: unknown;
+
+  @Allow()
+  length_unit?: unknown;
+
+  @Allow()
+  width_unit?: unknown;
+
+  @Allow()
+  height_unit?: unknown;
+
+  @Allow()
+  discountType?: unknown;
+
+  @Allow()
+  priceDisplayMode?: unknown;
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {}
@@ -308,7 +319,7 @@ export class UpdateProductStatusDto {
   status!: ProductStatus;
 }
 
-export class ProductQueryDto {
+export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -364,4 +375,13 @@ export class ProductQueryDto {
   @IsOptional()
   @IsRefId()
   productNatureRefId?: string;
+
+  @ApiPropertyOptional({
+    example: 'cetaphil-gentle-skin-cleanser-red-xl',
+    description: 'Filter products that have a variant with this exact slug',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  variantSlug?: string;
 }

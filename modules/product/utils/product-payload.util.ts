@@ -1,21 +1,12 @@
 import { CreateProductDto } from '../dto/product.dto';
 import { ProductEntity } from '../entities/product.entity';
+import { normalizeProductInformation } from './product-information.util';
 
 type SpecificationFields = Pick<
   CreateProductDto,
   | 'description'
   | 'components'
-  | 'highlights'
-  | 'expertAdvice'
-  | 'keyIngredients'
-  | 'otherIngredients'
-  | 'preventiveNotes'
-  | 'accessoriesSpecifications'
-  | 'directionsOfUse'
-  | 'feedingTable'
-  | 'safetyInformation'
-  | 'productWeight'
-  | 'productDimensions'
+  | 'productInformation'
   | 'expiresInMonths'
   | 'returnAllowed'
   | 'returnPolicy'
@@ -28,6 +19,7 @@ type SpecificationFields = Pick<
   | 'metaTitle'
   | 'metaDescription'
   | 'metaKeywords'
+  | 'sizeChart'
 >;
 
 export const mapSpecificationFields = (
@@ -35,19 +27,9 @@ export const mapSpecificationFields = (
 ): Partial<ProductEntity> => ({
   ...(dto.description !== undefined && { description: dto.description ?? null }),
   ...(dto.components !== undefined && { components: dto.components ?? null }),
-  ...(dto.highlights !== undefined && { highlights: dto.highlights ?? null }),
-  ...(dto.expertAdvice !== undefined && { expertAdvice: dto.expertAdvice ?? null }),
-  ...(dto.keyIngredients !== undefined && { keyIngredients: dto.keyIngredients ?? null }),
-  ...(dto.otherIngredients !== undefined && { otherIngredients: dto.otherIngredients ?? null }),
-  ...(dto.preventiveNotes !== undefined && { preventiveNotes: dto.preventiveNotes ?? null }),
-  ...(dto.accessoriesSpecifications !== undefined && {
-    accessoriesSpecifications: dto.accessoriesSpecifications ?? null,
+  ...(dto.productInformation !== undefined && {
+    productInformation: normalizeProductInformation(dto.productInformation),
   }),
-  ...(dto.directionsOfUse !== undefined && { directionsOfUse: dto.directionsOfUse ?? null }),
-  ...(dto.feedingTable !== undefined && { feedingTable: dto.feedingTable ?? null }),
-  ...(dto.safetyInformation !== undefined && { safetyInformation: dto.safetyInformation ?? null }),
-  ...(dto.productWeight !== undefined && { productWeight: dto.productWeight ?? null }),
-  ...(dto.productDimensions !== undefined && { productDimensions: dto.productDimensions ?? null }),
   ...(dto.expiresInMonths !== undefined && { expiresInMonths: dto.expiresInMonths ?? null }),
   ...(dto.returnAllowed !== undefined && { returnAllowed: dto.returnAllowed }),
   ...(dto.returnPolicy !== undefined && { returnPolicy: dto.returnPolicy ?? null }),
@@ -60,4 +42,5 @@ export const mapSpecificationFields = (
   ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle ?? null }),
   ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription ?? null }),
   ...(dto.metaKeywords !== undefined && { metaKeywords: dto.metaKeywords ?? null }),
+  ...(dto.sizeChart !== undefined && { sizeChart: dto.sizeChart ?? null }),
 });

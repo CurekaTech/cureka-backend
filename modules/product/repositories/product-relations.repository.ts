@@ -10,12 +10,14 @@ import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity'
 import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductFaqEntity } from '../entities/product-faq.entity';
 import { ProductAttributeMappingEntity } from '../entities/product-attribute-mapping.entity';
+import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
 import { CreateProductMediaDto } from '../dto/variant.dto';
 import { CustomProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
 import { StorageService } from '@packages/storage';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -38,6 +40,8 @@ export class ProductRelationsRepository {
     private readonly productFaqRepo: Repository<ProductFaqEntity>,
     @InjectRepository(ProductAttributeMappingEntity)
     private readonly attributeMappingRepo: Repository<ProductAttributeMappingEntity>,
+    @InjectRepository(ProductCategoryFilterMappingEntity)
+    private readonly categoryFilterMappingRepo: Repository<ProductCategoryFilterMappingEntity>,
     private readonly storageService: StorageService,
   ) {}
 
@@ -95,6 +99,7 @@ export class ProductRelationsRepository {
             tagRepository.create({
               name,
               slug,
+              status: MasterStatus.ACTIVE,
               refId: await generateUniqueRefId(name, async (refId) => {
                 return (await tagRepository.count({ where: { refId } })) > 0;
               }),
@@ -187,6 +192,21 @@ export class ProductRelationsRepository {
     await repo.save(attributeIds.map((attributeId) => repo.create({ productId, attributeId })));
   }
 
+  async syncCategoryFilters(
+    manager: EntityManager,
+    productId: string,
+    bindings: Array<{ categoryFilterId: string; values: string[] }>,
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductCategoryFilterMappingEntity);
+    await repo.delete({ productId });
+    if (!bindings.length) return;
+
+    const rows = bindings.flatMap(({ categoryFilterId, values }) =>
+      values.map((value) => repo.create({ productId, categoryFilterId, value })),
+    );
+    await repo.save(rows);
+  }
+
   async createMedia(
     manager: EntityManager,
     productId: string,
@@ -207,6 +227,17 @@ export class ProductRelationsRepository {
         }),
       ),
     );
+  }
+
+  async syncMedia(
+    manager: EntityManager,
+    productId: string,
+    media: CreateProductMediaDto[],
+    skuToVariantId: Map<string, string>,
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductMediaEntity);
+    await repo.delete({ productId });
+    await this.createMedia(manager, productId, media, skuToVariantId);
   }
 
   async findProductFaqByRefId(refId: string): Promise<ProductFaqEntity | null> {

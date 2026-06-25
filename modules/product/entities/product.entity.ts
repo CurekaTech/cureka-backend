@@ -17,6 +17,7 @@ import { ProductTagMappingEntity } from './product-tag-mapping.entity';
 import { ProductBundleEntity } from './product-bundle.entity';
 import { ProductFaqMappingEntity } from './product-faq-mapping.entity';
 import { ProductAttributeMappingEntity } from './product-attribute-mapping.entity';
+import { ProductCategoryFilterMappingEntity } from './product-category-filter-mapping.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
@@ -24,6 +25,8 @@ import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { ProductNatureEntity } from '@modules/master/entities/product-nature.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
+import { IProductInformationItem } from '../interfaces/product-information.interface';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 
 @Entity('products')
 export class ProductEntity extends BaseEntity {
@@ -122,38 +125,8 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'return_policy', type: 'text', nullable: true })
   returnPolicy!: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  highlights!: string | null;
-
-  @Column({ name: 'expert_advice', type: 'text', nullable: true })
-  expertAdvice!: string | null;
-
-  @Column({ name: 'key_ingredients', type: 'text', nullable: true })
-  keyIngredients!: string | null;
-
-  @Column({ name: 'other_ingredients', type: 'text', nullable: true })
-  otherIngredients!: string | null;
-
-  @Column({ name: 'preventive_notes', type: 'text', nullable: true })
-  preventiveNotes!: string | null;
-
-  @Column({ name: 'accessories_specifications', type: 'text', nullable: true })
-  accessoriesSpecifications!: string | null;
-
-  @Column({ name: 'directions_of_use', type: 'text', nullable: true })
-  directionsOfUse!: string | null;
-
-  @Column({ name: 'feeding_table', type: 'text', nullable: true })
-  feedingTable!: string | null;
-
-  @Column({ name: 'safety_information', type: 'text', nullable: true })
-  safetyInformation!: string | null;
-
-  @Column({ name: 'product_weight', type: 'varchar', length: 100, nullable: true })
-  productWeight!: string | null;
-
-  @Column({ name: 'product_dimensions', type: 'varchar', length: 100, nullable: true })
-  productDimensions!: string | null;
+  @Column({ name: 'product_information', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  productInformation!: IProductInformationItem[];
 
   @Index()
   @Column({ name: 'country_of_origin_id', type: 'uuid', nullable: true })
@@ -173,6 +146,9 @@ export class ProductEntity extends BaseEntity {
 
   @Column({ name: 'meta_keywords', type: 'jsonb', nullable: true })
   metaKeywords!: string[] | null;
+
+  @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
+  sizeChart!: IStorageFileReference | null;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;
@@ -240,4 +216,7 @@ export class ProductEntity extends BaseEntity {
 
   @OneToMany(() => ProductAttributeMappingEntity, (mapping) => mapping.product)
   attributeMappings!: ProductAttributeMappingEntity[];
+
+  @OneToMany(() => ProductCategoryFilterMappingEntity, (mapping) => mapping.product)
+  categoryFilterMappings!: ProductCategoryFilterMappingEntity[];
 }

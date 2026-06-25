@@ -15,6 +15,7 @@ export interface IUserAuthResponse {
   sessionId: string;
   isRegistered: boolean;
   user: IUser;
+  token?: string | null;
 }
 
 export interface IGuestAuthResponse {

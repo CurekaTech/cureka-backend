@@ -44,7 +44,7 @@ export class SimpleProductStrategy implements IProductCreationStrategy {
       throw new BadRequestException('Simple products cannot have variant attributes');
     }
 
-    await this.variantsRepository.createVariants(manager, product.id, variants, attributeIdByRefId);
+    await this.variantsRepository.createVariants(manager, product.id, product.slug, variants, attributeIdByRefId);
   }
 }
 
@@ -86,7 +86,7 @@ export class VariableProductStrategy implements IProductCreationStrategy {
       }
     }
 
-    await this.variantsRepository.createVariants(manager, product.id, variants, attributeIdByRefId);
+    await this.variantsRepository.createVariants(manager, product.id, product.slug, variants, attributeIdByRefId);
   }
 }
 
@@ -140,6 +140,7 @@ export class BundleProductStrategy implements IProductCreationStrategy {
       await this.variantsRepository.createVariants(
         manager,
         product.id,
+        product.slug,
         dto.variants,
         attributeIdByRefId,
       );

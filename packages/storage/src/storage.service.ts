@@ -16,6 +16,7 @@ import {
 @Injectable()
 export class StorageService {
   private readonly accessibleUrlCache = new Map<string, { url: string; expiresAt: number }>();
+  private readonly inFlightAccessibleUrls = new Map<string, Promise<string | null>>();
 
   constructor(
     @Inject(STORAGE_PROVIDER) private readonly provider: IStorageProvider,
@@ -101,6 +102,25 @@ export class StorageService {
       return cached.url;
     }
 
+    const inFlight = this.inFlightAccessibleUrls.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const resolution = this.resolveAccessibleUrlUncached(key, stored);
+    this.inFlightAccessibleUrls.set(key, resolution);
+
+    try {
+      return await resolution;
+    } finally {
+      this.inFlightAccessibleUrls.delete(key);
+    }
+  }
+
+  private async resolveAccessibleUrlUncached(
+    key: string,
+    stored: string | IStorageFileReference | null | undefined,
+  ): Promise<string | null> {
     if (!hasAccessibleUrlSupport(this.provider)) {
       return isStorageFileReference(stored) ? stored.key : (stored ?? null);
     }

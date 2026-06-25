@@ -32,12 +32,46 @@ export class VariantAttributeValueDto {
   value!: string;
 }
 
+/** Variant image with metadata. Preferred over legacy `imageUrls` string array. */
+export class VariantImageDto {
+  @ApiPropertyOptional({
+    example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
+    description:
+      'Storage path from POST /uploads/images, or omit when sending the file via multipart variantImages_<sku>',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  url?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional({ example: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+}
+
 export class CreateVariantDto {
   @ApiProperty({ example: 'SKU-001' })
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
   sku!: string;
+
+  @ApiPropertyOptional({
+    example: 'cetaphil-gentle-skin-cleanser-red-xl',
+    description: 'Unique URL slug. Auto-generated from product slug + attribute values when omitted.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  slug?: string;
 
   @ApiPropertyOptional({ example: 'VSKU-001' })
   @IsOptional()
@@ -105,6 +139,54 @@ export class CreateVariantDto {
   @Min(0)
   height?: number;
 
+  @ApiPropertyOptional({ example: 'kg', description: 'Unit for weight (e.g. kg, g)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  weightUnit?: string;
+
+  @ApiPropertyOptional({ example: 'kg', description: 'snake_case alias for weightUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  weight_unit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'Unit for length (e.g. cm, m)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  lengthUnit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'snake_case alias for lengthUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  length_unit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'Unit for width (e.g. cm, m)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  widthUnit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'snake_case alias for widthUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  width_unit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'Unit for height (e.g. cm, m)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  heightUnit?: string;
+
+  @ApiPropertyOptional({ example: 'cm', description: 'snake_case alias for heightUnit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  height_unit?: string;
+
   @ApiPropertyOptional({ example: 365, description: 'Expiry in days' })
   @IsOptional()
   @Type(() => Number)
@@ -119,7 +201,27 @@ export class CreateVariantDto {
   @Type(() => VariantAttributeValueDto)
   attributes?: VariantAttributeValueDto[];
 
-  @ApiPropertyOptional({ type: [String], example: ['/uploads/images/a.png'] })
+  @ApiPropertyOptional({
+    type: [VariantImageDto],
+    description:
+      'Variant images with isPrimary/sortOrder. Preferred over imageUrls. url can be omitted when using multipart variantImages_<sku> files.',
+    example: [
+      { url: 'images/red-front.webp', isPrimary: true, sortOrder: 0 },
+      { url: 'images/red-side.webp', isPrimary: false, sortOrder: 1 },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantImageDto)
+  images?: VariantImageDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['/uploads/images/a.png'],
+    deprecated: true,
+    description: 'Legacy: use images[] instead for isPrimary/sortOrder support',
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

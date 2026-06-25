@@ -3,6 +3,7 @@ import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { IStorageFileReferenceResponse } from '@packages/storage';
+import { IProductInformationItem } from './product-information.interface';
 
 export interface IVariantAttributeValue {
   attributeRefId: string;
@@ -10,9 +11,18 @@ export interface IVariantAttributeValue {
   value: string;
 }
 
+export interface IProductVariantImage {
+  id: string;
+  type: ProductMediaType;
+  url: IStorageFileReferenceResponse | null;
+  sortOrder: number;
+  isPrimary: boolean;
+}
+
 export interface IProductVariant {
   id: string;
   sku: string;
+  slug: string;
   vendorSku: string | null;
   barcode: string | null;
   mrp: number;
@@ -20,13 +30,18 @@ export interface IProductVariant {
   discountPercentage: number | null;
   stock: number;
   weight: number | null;
+  weightUnit: string | null;
   length: number | null;
+  lengthUnit: string | null;
   width: number | null;
+  widthUnit: string | null;
   height: number | null;
+  heightUnit: string | null;
   expiresIn: number | null;
   status: VariantStatus;
   combinationKey: string | null;
   attributes: IVariantAttributeValue[];
+  images: IProductVariantImage[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -70,6 +85,12 @@ export interface IProductWellnessGoal {
   image: IStorageFileReferenceResponse | null;
 }
 
+export interface IProductCategoryFilterBinding {
+  categoryFilterRefId: string;
+  categoryFilterName: string;
+  values: string[];
+}
+
 export interface IProduct {
   id: string;
   refId: string;
@@ -95,17 +116,7 @@ export interface IProduct {
   countryOfOriginName: string | null;
   status: ProductStatus;
   rejectionReason: string | null;
-  highlights: string | null;
-  expertAdvice: string | null;
-  keyIngredients: string | null;
-  otherIngredients: string | null;
-  preventiveNotes: string | null;
-  accessoriesSpecifications: string | null;
-  directionsOfUse: string | null;
-  feedingTable: string | null;
-  safetyInformation: string | null;
-  productWeight: string | null;
-  productDimensions: string | null;
+  productInformation: IProductInformationItem[];
   expiresInMonths: number | null;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
@@ -118,6 +129,7 @@ export interface IProduct {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
+  sizeChart: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;
   attributes: IProductAttribute[];
   variants: IProductVariant[];
@@ -125,6 +137,7 @@ export interface IProduct {
   healthConcernRefIds?: string[];
   wellnessGoalRefIds?: string[];
   wellnessGoals: IProductWellnessGoal[];
+  categoryFilters: IProductCategoryFilterBinding[];
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];
