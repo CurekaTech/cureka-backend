@@ -199,6 +199,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     WellnessGoalsService,
     WellnessGoalsRepository,
     CategoryFiltersService,
+    CategoryFiltersRepository,
     HomeSectionsService,
     AttributesRepository,
     CategoriesRepository,

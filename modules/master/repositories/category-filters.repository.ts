@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
@@ -19,6 +19,11 @@ export class CategoryFiltersRepository {
 
   async findByRefId(refId: string): Promise<CategoryFilterEntity | null> {
     return this.repo.findOne({ where: { refId } });
+  }
+
+  async findByRefIds(refIds: string[]): Promise<CategoryFilterEntity[]> {
+    if (!refIds.length) return [];
+    return this.repo.find({ where: { refId: In([...new Set(refIds)]) } });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {

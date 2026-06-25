@@ -14,4 +14,5 @@ export interface IResolvedProductMasters {
   faqIds: string[];
   attributeIds: string[];
   attributeIdByRefId: Map<string, string>;
+  categoryFilterBindings: Array<{ categoryFilterId: string; values: string[] }>;
 }

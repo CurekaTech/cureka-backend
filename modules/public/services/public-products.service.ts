@@ -16,6 +16,8 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
+import { ProductMasterResolverService } from '@modules/product/services/product-master-resolver.service';
+import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {
@@ -40,6 +42,7 @@ export class PublicProductsService {
     private readonly productNaturesRepository: ProductNaturesRepository,
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
+    private readonly masterResolver: ProductMasterResolverService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
@@ -58,6 +61,7 @@ export class PublicProductsService {
       productNatureRefId: query.productNatureRefId,
       wellnessGoalRefId: query.wellnessGoalRefId,
       variantSlug: query.variantSlug,
+      categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -84,6 +88,7 @@ export class PublicProductsService {
           healthConcernId: filters.healthConcernId,
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
+          categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(mapProductEntitiesToPublicCards(data), total, paginationOptions);
@@ -114,6 +119,7 @@ export class PublicProductsService {
       productNatureRefId: query.productNatureRefId,
       wellnessGoalRefId: query.wellnessGoalRefId,
       variantSlug: query.variantSlug,
+      categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -140,6 +146,7 @@ export class PublicProductsService {
           healthConcernId: filters.healthConcernId,
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
+          categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(mapVariantEntitiesToPublicSearchItems(data), total, paginationOptions);
@@ -195,7 +202,9 @@ export class PublicProductsService {
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
-    const [category, brand, nature, healthConcern, wellnessGoal] = await Promise.all([
+    const queryBindings = parseCategoryFilterQueryBindings(query);
+    const [category, brand, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
+      await Promise.all([
       query.categoryRefId
         ? this.categoriesRepository.findByRefId(query.categoryRefId)
         : query.categorySlug
@@ -217,6 +226,9 @@ export class PublicProductsService {
       query.wellnessGoalRefId
         ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
         : Promise.resolve(null),
+      queryBindings
+        ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
+        : Promise.resolve(undefined),
     ]);
 
     return {
@@ -225,6 +237,7 @@ export class PublicProductsService {
       productNatureId: nature?.id,
       healthConcernId: healthConcern?.id,
       wellnessGoalId: wellnessGoal?.id,
+      categoryFilterCriteria,
     };
   }
 

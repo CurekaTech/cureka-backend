@@ -32,6 +32,31 @@ export class VariantAttributeValueDto {
   value!: string;
 }
 
+/** Variant image with metadata. Preferred over legacy `imageUrls` string array. */
+export class VariantImageDto {
+  @ApiPropertyOptional({
+    example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
+    description:
+      'Storage path from POST /uploads/images, or omit when sending the file via multipart variantImages_<sku>',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  url?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional({ example: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+}
+
 export class CreateVariantDto {
   @ApiProperty({ example: 'SKU-001' })
   @IsNotEmpty()
@@ -176,7 +201,27 @@ export class CreateVariantDto {
   @Type(() => VariantAttributeValueDto)
   attributes?: VariantAttributeValueDto[];
 
-  @ApiPropertyOptional({ type: [String], example: ['/uploads/images/a.png'] })
+  @ApiPropertyOptional({
+    type: [VariantImageDto],
+    description:
+      'Variant images with isPrimary/sortOrder. Preferred over imageUrls. url can be omitted when using multipart variantImages_<sku> files.',
+    example: [
+      { url: 'images/red-front.webp', isPrimary: true, sortOrder: 0 },
+      { url: 'images/red-side.webp', isPrimary: false, sortOrder: 1 },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantImageDto)
+  images?: VariantImageDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['/uploads/images/a.png'],
+    deprecated: true,
+    description: 'Legacy: use images[] instead for isPrimary/sortOrder support',
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

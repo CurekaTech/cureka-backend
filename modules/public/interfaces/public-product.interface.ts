@@ -2,6 +2,7 @@ import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { IProductInformationItem } from '@modules/product/interfaces/product-information.interface';
+import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IPublicProductPriceSummary {
@@ -150,6 +151,7 @@ export interface IPublicProductDetail {
   media: IPublicProductMedia[];
   healthConcerns: Array<{ refId: string; name: string }>;
   wellnessGoals: Array<{ refId: string; name: string; image: IStorageFileReferenceResponse | null }>;
+  categoryFilters: IProductCategoryFilterBinding[];
   tags: Array<{ refId: string; name: string; slug: string }>;
   faqs: Array<{ refId: string; question: string; answer: string }>;
   bundleItems: Array<{

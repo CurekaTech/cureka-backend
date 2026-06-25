@@ -26,6 +26,19 @@ import {
   CreateVariantDto,
 } from './variant.dto';
 import { CustomProductFaqDto, ProductInformationItemDto } from './product-support.dto';
+import { ProductCategoryFilterBindingDto, ProductCategoryFilterQueryDto } from './product-category-filter.dto';
+
+export class ProductFileReferenceDto {
+  @ApiProperty({ example: 'documents/size-charts/abc123.pdf' })
+  @IsString()
+  @MaxLength(1000)
+  key!: string;
+
+  @ApiProperty({ example: 'cureka-files-prod' })
+  @IsString()
+  @MaxLength(255)
+  name!: string;
+}
 
 export class CreateProductDto {
   @ApiPropertyOptional({ description: 'Nullable until vendor module is live' })
@@ -200,6 +213,16 @@ export class CreateProductDto {
   @IsString({ each: true })
   metaKeywords?: string[];
 
+  @ApiPropertyOptional({
+    type: ProductFileReferenceDto,
+    nullable: true,
+    description: 'Optional size chart file reference (image or pdf)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFileReferenceDto)
+  sizeChart?: ProductFileReferenceDto | null;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -217,6 +240,17 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   tagNames?: string[];
+
+  @ApiPropertyOptional({
+    type: [ProductCategoryFilterBindingDto],
+    description: 'Optional category filter bindings. Omit, send [], or send entries with empty values to skip.',
+    example: [{ categoryFilterRefId: 'CFL20261234', values: ['Cotton', 'Breathable'] }],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductCategoryFilterBindingDto)
+  categoryFilters?: ProductCategoryFilterBindingDto[];
 
   @ApiPropertyOptional({ type: [CustomProductFaqDto], description: 'Inline product FAQs (question + answer)' })
   @IsOptional()
@@ -285,7 +319,7 @@ export class UpdateProductStatusDto {
   status!: ProductStatus;
 }
 
-export class ProductQueryDto {
+export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)

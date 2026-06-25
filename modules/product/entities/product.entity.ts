@@ -17,6 +17,7 @@ import { ProductTagMappingEntity } from './product-tag-mapping.entity';
 import { ProductBundleEntity } from './product-bundle.entity';
 import { ProductFaqMappingEntity } from './product-faq-mapping.entity';
 import { ProductAttributeMappingEntity } from './product-attribute-mapping.entity';
+import { ProductCategoryFilterMappingEntity } from './product-category-filter-mapping.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
@@ -25,6 +26,7 @@ import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { ProductNatureEntity } from '@modules/master/entities/product-nature.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 
 @Entity('products')
 export class ProductEntity extends BaseEntity {
@@ -145,6 +147,9 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'meta_keywords', type: 'jsonb', nullable: true })
   metaKeywords!: string[] | null;
 
+  @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
+  sizeChart!: IStorageFileReference | null;
+
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;
 
@@ -211,4 +216,7 @@ export class ProductEntity extends BaseEntity {
 
   @OneToMany(() => ProductAttributeMappingEntity, (mapping) => mapping.product)
   attributeMappings!: ProductAttributeMappingEntity[];
+
+  @OneToMany(() => ProductCategoryFilterMappingEntity, (mapping) => mapping.product)
+  categoryFilterMappings!: ProductCategoryFilterMappingEntity[];
 }

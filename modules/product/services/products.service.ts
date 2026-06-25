@@ -26,7 +26,7 @@ import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { mapSpecificationFields } from '../utils/product-payload.util';
-import { collectProductMedia } from '../utils/product-media.util';
+import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
@@ -45,6 +45,7 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductMultipartService } from './product-multipart.service';
+import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
 
 @Injectable()
 export class ProductsService {
@@ -160,6 +161,11 @@ export class ProductsService {
         this.relationsRepository.syncWellnessGoals(manager, created.id, masters.wellnessGoalIds),
         this.relationsRepository.syncTags(manager, created.id, dto.tagNames ?? [], createdBy),
         this.relationsRepository.syncProductAttributes(manager, created.id, masters.attributeIds),
+        this.relationsRepository.syncCategoryFilters(
+          manager,
+          created.id,
+          masters.categoryFilterBindings,
+        ),
       ]);
 
       const faqIds = [...masters.faqIds];
@@ -209,6 +215,7 @@ export class ProductsService {
     const queryHash = buildQueryCacheHash({
       ...filters,
       variantSlug: query.variantSlug,
+      categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -233,6 +240,7 @@ export class ProductsService {
           brandId: filters.brandId,
           productNatureId: filters.productNatureId,
           variantSlug: query.variantSlug,
+          categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
@@ -338,12 +346,12 @@ export class ProductsService {
         dto.faqRefIds ||
         dto.customFaqs ||
         dto.attributeRefIds ||
+        dto.categoryFilters !== undefined ||
         masters?.attributeIds,
     );
     const needsVariantSync = dto.variants !== undefined;
     const needsMediaSync =
-      dto.media !== undefined ||
-      (dto.variants?.some((variant) => (variant.imageUrls?.length ?? 0) > 0) ?? false);
+      dto.media !== undefined || hasVariantMediaInPayload(dto.variants);
 
     if (needsVariantSync && effectiveProductType === ProductType.VARIABLE) {
       const allowed = new Set(
@@ -384,6 +392,11 @@ export class ProductsService {
       ? await this.masterResolver.resolveAttributeIds(attributeRefIdsForVariants)
       : new Map<string, string>();
 
+    const categoryFilterBindings =
+      dto.categoryFilters !== undefined
+        ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
+        : null;
+
     await this.dataSource.transaction(async (manager) => {
       await this.productsRepository.updateByRefId(refId, payload, manager);
 
@@ -423,6 +436,14 @@ export class ProductsService {
             resolved.attributeIds,
           );
         }
+      }
+
+      if (categoryFilterBindings !== null) {
+        await this.relationsRepository.syncCategoryFilters(
+          manager,
+          existing.id,
+          categoryFilterBindings,
+        );
       }
 
       if (needsVariantSync && dto.variants) {
@@ -659,7 +680,39 @@ export class ProductsService {
       }),
     );
 
-    return { ...product, media, wellnessGoals };
+    const sizeChart = product.sizeChart
+      ? await this.storageUrlEnricher.toReference(product.sizeChart)
+      : null;
+
+    const variantImagesById = new Map<
+      string,
+      Array<{
+        id: string;
+        type: IProduct['media'][number]['type'];
+        url: IProduct['media'][number]['url'];
+        sortOrder: number;
+        isPrimary: boolean;
+      }>
+    >();
+    for (const item of media) {
+      if (!item.variantId) continue;
+      const list = variantImagesById.get(item.variantId) ?? [];
+      list.push({
+        id: item.id,
+        type: item.type,
+        url: item.url,
+        sortOrder: item.sortOrder,
+        isPrimary: item.isPrimary,
+      });
+      variantImagesById.set(item.variantId, list);
+    }
+
+    const variants = (product.variants ?? []).map((variant) => ({
+      ...variant,
+      images: (variantImagesById.get(variant.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
+    }));
+
+    return { ...product, media, wellnessGoals, sizeChart, variants };
   }
 
   private async enrichPaginatedProducts(
@@ -672,7 +725,8 @@ export class ProductsService {
   }
 
   private async resolveListFilters(query: ProductQueryDto) {
-    const [category, brand, nature] = await Promise.all([
+    const queryBindings = parseCategoryFilterQueryBindings(query);
+    const [category, brand, nature, categoryFilterCriteria] = await Promise.all([
       query.categoryRefId
         ? this.categoriesRepository.findByRefId(query.categoryRefId)
         : Promise.resolve(null),
@@ -680,12 +734,16 @@ export class ProductsService {
       query.productNatureRefId
         ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
         : Promise.resolve(null),
+      queryBindings
+        ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
+        : Promise.resolve(undefined),
     ]);
 
     return {
       categoryId: category?.id,
       brandId: brand?.id,
       productNatureId: nature?.id,
+      categoryFilterCriteria,
     };
   }
 

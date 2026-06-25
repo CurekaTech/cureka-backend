@@ -15,6 +15,7 @@ import { ProductBundleEntity } from './entities/product-bundle.entity';
 import { ProductFaqEntity } from './entities/product-faq.entity';
 import { ProductFaqMappingEntity } from './entities/product-faq-mapping.entity';
 import { ProductAttributeMappingEntity } from './entities/product-attribute-mapping.entity';
+import { ProductCategoryFilterMappingEntity } from './entities/product-category-filter-mapping.entity';
 import { ProductsRepository } from './repositories/products.repository';
 import { ProductVariantsRepository } from './repositories/product-variants.repository';
 import { ProductRelationsRepository } from './repositories/product-relations.repository';
@@ -58,6 +59,7 @@ import { ProductInformationLabelsService } from './services/product-information-
       ProductFaqEntity,
       ProductFaqMappingEntity,
       ProductAttributeMappingEntity,
+      ProductCategoryFilterMappingEntity,
     ]),
   ],
   controllers: [ProductsController, ProductVariantsController, ProductFaqsController, ProductTagsController, ProductInformationLabelsController],
@@ -80,6 +82,6 @@ import { ProductInformationLabelsService } from './services/product-information-
     ProductStrategyFactory,
     ProductCacheListener,
   ],
-  exports: [ProductsService, ProductsRepository],
+  exports: [ProductsService, ProductsRepository, ProductMasterResolverService],
 })
 export class ProductModule {}

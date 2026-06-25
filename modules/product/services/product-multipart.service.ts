@@ -10,6 +10,7 @@ import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { mergeUploadedProductMedia, ProductUploadedFiles } from '../utils/product-media.util';
 
 const PRODUCT_IMAGE_FIELDS = new Set(['images', 'image', 'images[]']);
+const SIZE_CHART_FIELDS = new Set(['sizeChart', 'size_chart']);
 const VARIANT_IMAGE_PREFIX = 'variantImages_';
 const CLIENT_ONLY_FIELDS = new Set(['refId']);
 
@@ -59,6 +60,7 @@ export class ProductMultipartService {
     const uploads: ProductUploadedFiles = {
       productImages: [],
       variantImages: {},
+      sizeChart: undefined,
     };
 
     for await (const part of req.parts()) {
@@ -66,6 +68,10 @@ export class ProductMultipartService {
         const path = await this.uploadImagePart(part);
         if (PRODUCT_IMAGE_FIELDS.has(part.fieldname)) {
           uploads.productImages.push(path);
+          continue;
+        }
+        if (SIZE_CHART_FIELDS.has(part.fieldname)) {
+          uploads.sizeChart = path;
           continue;
         }
 
@@ -77,7 +83,7 @@ export class ProductMultipartService {
 
         part.file.resume();
         throw new BadRequestException(
-          `Unexpected file field "${part.fieldname}". Use "images" for product photos or "variantImages_<sku>" for variant photos.`,
+          `Unexpected file field "${part.fieldname}". Use "images" for product photos, "variantImages_<sku>" for variant photos, or "sizeChart" for size chart file.`,
         );
       }
 
@@ -116,9 +122,15 @@ export class ProductMultipartService {
     uploads?: ProductUploadedFiles,
   ): Promise<CreateProductDto> {
     const sanitized = this.stripClientOnlyFields(payload);
-    const merged = uploads
+    const mergedBase = uploads
       ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
       : (sanitized as unknown as CreateProductDto);
+    const merged = uploads?.sizeChart
+      ? {
+          ...mergedBase,
+          sizeChart: this.storageService.toFileReference(uploads.sizeChart),
+        }
+      : mergedBase;
 
     return this.validateDto(CreateProductDto, merged, 'CreateProductDto');
   }
@@ -128,9 +140,15 @@ export class ProductMultipartService {
     uploads?: ProductUploadedFiles,
   ): Promise<UpdateProductDto> {
     const sanitized = this.stripClientOnlyFields(payload);
-    const merged = uploads
+    const mergedBase = uploads
       ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
       : (sanitized as unknown as UpdateProductDto);
+    const merged = uploads?.sizeChart
+      ? {
+          ...mergedBase,
+          sizeChart: this.storageService.toFileReference(uploads.sizeChart),
+        }
+      : mergedBase;
 
     return this.validateDto(UpdateProductDto, merged, 'UpdateProductDto');
   }

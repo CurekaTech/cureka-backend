@@ -19,6 +19,7 @@ type SpecificationFields = Pick<
   | 'metaTitle'
   | 'metaDescription'
   | 'metaKeywords'
+  | 'sizeChart'
 >;
 
 export const mapSpecificationFields = (
@@ -41,4 +42,5 @@ export const mapSpecificationFields = (
   ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle ?? null }),
   ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription ?? null }),
   ...(dto.metaKeywords !== undefined && { metaKeywords: dto.metaKeywords ?? null }),
+  ...(dto.sizeChart !== undefined && { sizeChart: dto.sizeChart ?? null }),
 });

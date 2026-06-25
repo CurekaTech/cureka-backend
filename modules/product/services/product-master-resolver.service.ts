@@ -10,7 +10,9 @@ import { PackersRepository } from '@modules/master/repositories/packers.reposito
 import { ImportersRepository } from '@modules/master/repositories/importers.repository';
 import { ProductNaturesRepository } from '@modules/master/repositories/product-natures.repository';
 import { CountriesRepository } from '@modules/master/repositories/countries.repository';
+import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import { CreateProductDto } from '../dto/product.dto';
+import { ProductCategoryFilterBindingDto } from '../dto/product-category-filter.dto';
 import { IResolvedProductMasters } from '../interfaces/product-creation-context.interface';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductType } from '../enums/product-type.enum';
@@ -18,6 +20,7 @@ import { ProductFaqEntity } from '../entities/product-faq.entity';
 import { AttributeEntity } from '@modules/master/entities/attribute.entity';
 import { HealthConcernEntity } from '@modules/master/entities/health-concern.entity';
 import { WellnessGoalEntity } from '@modules/master/entities/wellness-goal.entity';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 
 @Injectable()
 export class ProductMasterResolverService {
@@ -33,6 +36,7 @@ export class ProductMasterResolverService {
     private readonly importersRepository: ImportersRepository,
     private readonly attributesRepository: AttributesRepository,
     private readonly countriesRepository: CountriesRepository,
+    private readonly categoryFiltersRepository: CategoryFiltersRepository,
     private readonly productRelationsRepository: ProductRelationsRepository,
   ) {}
 
@@ -52,6 +56,7 @@ export class ProductMasterResolverService {
       wellnessGoalIds,
       faqIds,
       attributeResolution,
+      categoryFilterBindings,
     ] = await Promise.all([
       dto.productNatureRefId
         ? this.requireByRefId(
@@ -131,6 +136,7 @@ export class ProductMasterResolverService {
       ),
       this.resolveFaqIds(dto.faqRefIds ?? []),
       this.resolveAttributes(dto),
+      this.resolveCategoryFilterBindings(dto.categoryFilters),
     ]);
 
     if (dto.productType === ProductType.VARIABLE && !attributeResolution.attributeIds.length) {
@@ -153,7 +159,66 @@ export class ProductMasterResolverService {
       faqIds,
       attributeIds: attributeResolution.attributeIds,
       attributeIdByRefId: attributeResolution.attributeIdByRefId,
+      categoryFilterBindings,
     };
+  }
+
+  async resolveCategoryFilterBindings(
+    bindings: ProductCategoryFilterBindingDto[] | undefined,
+  ): Promise<Array<{ categoryFilterId: string; values: string[] }>> {
+    const activeBindings = (bindings ?? []).filter(
+      (binding) =>
+        binding.categoryFilterRefId &&
+        (binding.values ?? []).some((value) => String(value).trim()),
+    );
+    if (!activeBindings.length) return [];
+
+    const uniqueRefIds = [...new Set(activeBindings.map((binding) => binding.categoryFilterRefId))];
+    const filters = await this.categoryFiltersRepository.findByRefIds(uniqueRefIds);
+    const byRefId = new Map(filters.map((filter) => [filter.refId, filter]));
+    const mergedValuesByFilterId = new Map<string, Set<string>>();
+
+    for (const binding of activeBindings) {
+      const filter = byRefId.get(binding.categoryFilterRefId);
+      if (!filter) {
+        throw new NotFoundException(
+          `Category filter with refId "${binding.categoryFilterRefId}" not found`,
+        );
+      }
+      if (filter.status !== MasterStatus.ACTIVE) {
+        throw new BadRequestException(
+          `Category filter "${filter.name}" is not active`,
+        );
+      }
+
+      const allowedValues = new Set((filter.values ?? []).map((value) => value.trim()));
+      const uniqueValues = [
+        ...new Set((binding.values ?? []).map((value) => value.trim()).filter(Boolean)),
+      ];
+
+      if (!uniqueValues.length) {
+        continue;
+      }
+
+      for (const value of uniqueValues) {
+        if (!allowedValues.has(value)) {
+          throw new BadRequestException(
+            `Value "${value}" is not allowed for category filter "${filter.name}"`,
+          );
+        }
+      }
+
+      const existing = mergedValuesByFilterId.get(filter.id) ?? new Set<string>();
+      for (const value of uniqueValues) {
+        existing.add(value);
+      }
+      mergedValuesByFilterId.set(filter.id, existing);
+    }
+
+    return [...mergedValuesByFilterId.entries()].map(([categoryFilterId, values]) => ({
+      categoryFilterId,
+      values: [...values],
+    }));
   }
 
   async resolveAttributeIds(attributeRefIds: string[]): Promise<Map<string, string>> {

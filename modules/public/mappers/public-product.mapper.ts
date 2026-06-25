@@ -1,4 +1,5 @@
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { mapCategoryFilters } from '@modules/product/mappers/product.mapper';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -218,6 +219,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     name: mapping.wellnessGoal?.name ?? '',
     image: mapping.wellnessGoal?.image ?? null,
   })),
+  categoryFilters: mapCategoryFilters(entity),
   tags: (entity.tagMappings ?? []).map((mapping) => ({
     refId: mapping.tag?.refId ?? '',
     name: mapping.tag?.name ?? '',
