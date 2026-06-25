@@ -14,11 +14,11 @@ import {
 } from '../mappers/manufacturer.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
@@ -90,8 +90,8 @@ export class ManufacturersService {
     return this.enrichManufacturer(mapManufacturerEntityToResponse(loaded!));
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IManufacturer>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IManufacturer>> {
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } =
       await this.manufacturersRepository.findAllPaginated(paginationOptions);
     const result = buildPaginatedResult(

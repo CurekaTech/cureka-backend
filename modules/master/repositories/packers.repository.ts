@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PackerEntity } from '../entities/packer.entity';
-import { PaginationOptions } from '@packages/common';
+import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -54,7 +54,7 @@ export class PackersRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: PackerEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -79,6 +79,14 @@ export class PackersRepository {
         '(packer.name ILIKE :search OR packer.code ILIKE :search OR packer.gstNumber ILIKE :search)',
         { search: `%${options.search}%` },
       );
+    }
+
+    if (options.status) {
+      if (options.search) {
+        qb.andWhere('packer.status = :status', { status: options.status });
+      } else {
+        qb.where('packer.status = :status', { status: options.status });
+      }
     }
 
     const [data, total] = await qb.getManyAndCount();

@@ -2,6 +2,7 @@ import { PartialType } from '@nestjs/mapped-types';
 import { Transform } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsOptional,
@@ -14,6 +15,13 @@ const parseJsonArray = ({ value }: { value: unknown }): string[] | undefined => 
   if (value === undefined || value === null || value === '') return undefined;
   if (Array.isArray(value)) return value as string[];
   if (typeof value === 'string') return JSON.parse(value) as string[];
+  return undefined;
+};
+
+const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
   return undefined;
 };
 
@@ -35,6 +43,11 @@ export class CreateBrandDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  inHomePage?: boolean;
 
   @IsOptional()
   @IsString()

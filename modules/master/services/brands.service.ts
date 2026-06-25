@@ -83,6 +83,7 @@ export class BrandsService {
       banner: this.storageUrlEnricher.persist(media.banner),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
+      inHomePage: dto.inHomePage ?? false,
       metaTitle: dto.metaTitle ?? null,
       metaDescription: dto.metaDescription ?? null,
       metaKeywords: dto.metaKeywords ?? null,

@@ -29,4 +29,7 @@ export class HealthConcernEntity extends BaseEntity {
     default: MasterStatus.ACTIVE,
   })
   status!: MasterStatus;
+
+  @Column({ name: 'in_home_page', type: 'boolean', default: false })
+  inHomePage!: boolean;
 }

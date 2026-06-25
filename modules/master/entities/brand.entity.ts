@@ -38,4 +38,7 @@ export class BrandEntity extends BaseEntity {
 
   @Column({ name: 'meta_keywords', type: 'text', array: true, nullable: true })
   metaKeywords!: string[] | null;
+
+  @Column({ name: 'in_home_page', type: 'boolean', default: false })
+  inHomePage!: boolean;
 }

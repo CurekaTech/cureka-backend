@@ -16,7 +16,7 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe } from '@packages/common';
 import { ManufacturersService } from '../services/manufacturers.service';
 import { UpdateManufacturerStatusDto } from '../dto/manufacturer.dto';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 import { JwtAuthGuard } from '@packages/auth';
 import { RolesGuard } from '@packages/auth';
 import { Roles } from '@packages/auth';
@@ -41,7 +41,7 @@ export class ManufacturersController {
   @ResponseMessage('Manufacturers retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.manufacturersService.findAll(query);
   }
 
