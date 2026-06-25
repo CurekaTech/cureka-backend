@@ -35,7 +35,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Create product and submit for checker review',
     description:
-      'Send JSON (application/json) or multipart/form-data. For multipart: include a "data" field with the product JSON and "images" file fields for photos. Variant photos use "variantImages_<sku>".',
+      'JSON or multipart/form-data. Variant images: variants[].images + variantImages_<sku> files. Product images: media[] + images files. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product created and submitted for review')
@@ -100,7 +100,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Update product metadata and mappings',
     description:
-      'Send JSON (application/json) or multipart/form-data (same as create: JSON in a "data" field plus image files). Applies changes and moves the product to pending_review. Published products must be moved to draft first.',
+      'JSON or multipart/form-data. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product updated successfully')

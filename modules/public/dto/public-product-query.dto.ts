@@ -2,8 +2,9 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { ProductType } from '@modules/product/enums/product-type.enum';
+import { ProductCategoryFilterQueryDto } from '@modules/product/dto/product-category-filter.dto';
 
-export class PublicProductQueryDto {
+export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()

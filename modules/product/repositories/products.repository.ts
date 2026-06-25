@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
@@ -11,9 +11,15 @@ import { ProductWellnessGoalEntity } from '../entities/product-wellness-goal.ent
 import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity';
 import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity';
 import { ProductBundleEntity } from '../entities/product-bundle.entity';
+import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { buildSkipTake } from '@packages/database';
+
+export interface ProductCategoryFilterCriterion {
+  categoryFilterId: string;
+  values: string[];
+}
 
 export interface ProductListOptions {
   page: number;
@@ -27,6 +33,7 @@ export interface ProductListOptions {
   brandId?: string;
   productNatureId?: string;
   variantSlug?: string;
+  categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
 export interface PublicProductListOptions {
@@ -42,6 +49,7 @@ export interface PublicProductListOptions {
   healthConcernId?: string;
   wellnessGoalId?: string;
   variantSlug?: string;
+  categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
 @Injectable()
@@ -183,6 +191,7 @@ export class ProductsRepository {
 
     this.applyPublicListFilters(qb, options);
     this.applyPublicListSort(qb, options.sortBy, sortOrder);
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
 
@@ -215,6 +224,7 @@ export class ProductsRepository {
 
     this.applyPublicVariantSearchFilters(qb, options);
     this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
 
@@ -337,6 +347,8 @@ export class ProductsRepository {
       );
     }
 
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
+
     const [data, total] = await qb.getManyAndCount();
 
     if (data.length) {
@@ -368,6 +380,7 @@ export class ProductsRepository {
       tagMappings,
       faqMappings,
       bundleItems,
+      categoryFilterMappings,
     ] = await Promise.all([
       mgr.getRepository(ProductAttributeMappingEntity).find({
         where: { productId: In(productIds) },
@@ -399,6 +412,10 @@ export class ProductsRepository {
       mgr.getRepository(ProductBundleEntity).find({
         where: { parentProductId: In(productIds) },
         relations: { childProduct: true },
+      }),
+      mgr.getRepository(ProductCategoryFilterMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { categoryFilter: true },
       }),
     ]);
 
@@ -435,6 +452,7 @@ export class ProductsRepository {
     const wellnessByProduct = group(wellnessGoalMappings);
     const tagsByProduct = group(tagMappings);
     const faqsByProduct = group(faqMappings);
+    const categoryFiltersByProduct = group(categoryFilterMappings);
 
     // bundleItems use parentProductId not productId
     const bundleByProduct = new Map<string, ProductBundleEntity[]>();
@@ -453,7 +471,32 @@ export class ProductsRepository {
       product.tagMappings = tagsByProduct.get(product.id) ?? [];
       product.faqMappings = faqsByProduct.get(product.id) ?? [];
       product.bundleItems = bundleByProduct.get(product.id) ?? [];
+      product.categoryFilterMappings = categoryFiltersByProduct.get(product.id) ?? [];
     }
+  }
+
+  private applyCategoryFilterCriteria(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    criteria: ProductCategoryFilterCriterion[] | undefined,
+  ): void {
+    if (!criteria?.length) return;
+
+    criteria.forEach((criterion, index) => {
+      if (!criterion.values.length) return;
+
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_category_filter_mappings pcfm
+          WHERE pcfm.product_id = product.id
+            AND pcfm.category_filter_id = :categoryFilterId_${index}
+            AND pcfm.value IN (:...categoryFilterValues_${index})
+        )`,
+        {
+          [`categoryFilterId_${index}`]: criterion.categoryFilterId,
+          [`categoryFilterValues_${index}`]: criterion.values,
+        },
+      );
+    });
   }
 
   private applyPublicVariantSearchFilters(

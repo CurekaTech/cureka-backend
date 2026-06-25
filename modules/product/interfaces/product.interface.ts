@@ -11,6 +11,14 @@ export interface IVariantAttributeValue {
   value: string;
 }
 
+export interface IProductVariantImage {
+  id: string;
+  type: ProductMediaType;
+  url: IStorageFileReferenceResponse | null;
+  sortOrder: number;
+  isPrimary: boolean;
+}
+
 export interface IProductVariant {
   id: string;
   sku: string;
@@ -33,6 +41,7 @@ export interface IProductVariant {
   status: VariantStatus;
   combinationKey: string | null;
   attributes: IVariantAttributeValue[];
+  images: IProductVariantImage[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -76,6 +85,12 @@ export interface IProductWellnessGoal {
   image: IStorageFileReferenceResponse | null;
 }
 
+export interface IProductCategoryFilterBinding {
+  categoryFilterRefId: string;
+  categoryFilterName: string;
+  values: string[];
+}
+
 export interface IProduct {
   id: string;
   refId: string;
@@ -114,6 +129,7 @@ export interface IProduct {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
+  sizeChart: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;
   attributes: IProductAttribute[];
   variants: IProductVariant[];
@@ -121,6 +137,7 @@ export interface IProduct {
   healthConcernRefIds?: string[];
   wellnessGoalRefIds?: string[];
   wellnessGoals: IProductWellnessGoal[];
+  categoryFilters: IProductCategoryFilterBinding[];
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];
