@@ -17,7 +17,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { IsRefId } from '@packages/common';
+import { APP_CONSTANTS, IsRefId } from '@packages/common';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import {
@@ -52,10 +52,15 @@ export class CreateProductDto {
   @MaxLength(500)
   name!: string;
 
-  @ApiPropertyOptional({ example: 'dolo-650mg-tablets' })
+  @ApiPropertyOptional({
+    example: 'dolo-650mg-tablets',
+    description: `URL slug (max ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters). Auto-generated from name when omitted.`,
+  })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH, {
+    message: `Slug must not exceed ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters`,
+  })
   slug?: string;
 
   @ApiPropertyOptional()
@@ -135,8 +140,8 @@ export class CreateProductDto {
     type: [ProductInformationItemDto],
     description: 'Dynamic product information blocks (label + description)',
     example: [
-      { label: 'Benefits', description: 'Provides relief from fever and mild pain.' },
-      { label: 'How to Use', description: 'Take after meals as directed by a physician.' },
+      { label: 'Product Highlights', description: 'Key product highlights.', sortOrder: 1 },
+      { label: 'Expert Advice', description: 'Consult your physician before use.', sortOrder: 2 },
     ],
   })
   @IsOptional()
@@ -378,10 +383,12 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
 
   @ApiPropertyOptional({
     example: 'cetaphil-gentle-skin-cleanser-red-xl',
-    description: 'Filter products that have a variant with this exact slug',
+    description: `Filter products that have a variant with this exact slug (max ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters)`,
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH, {
+    message: `Variant slug must not exceed ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters`,
+  })
   variantSlug?: string;
 }

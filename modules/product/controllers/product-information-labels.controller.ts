@@ -20,6 +20,7 @@ import {
   CreateProductInformationLabelDto,
   UpdateProductInformationLabelDto,
   UpdateProductInformationLabelStatusDto,
+  ReorderProductInformationLabelsDto,
 } from '../dto/product-information-label.dto';
 
 @ApiTags('Product Information Labels')
@@ -49,6 +50,17 @@ export class ProductInformationLabelsController {
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
     return this.productInformationLabelsService.findAll(query);
+  }
+
+  @ApiOperation({ summary: 'Reorder product information labels' })
+  @ResponseMessage('Product information labels reordered successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Patch('reorder')
+  reorder(
+    @Body() dto: ReorderProductInformationLabelsDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productInformationLabelsService.reorder(dto, user.email);
   }
 
   @ApiOperation({ summary: 'Get product information label by refId' })

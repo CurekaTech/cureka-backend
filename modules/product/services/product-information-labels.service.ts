@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -11,6 +11,7 @@ import {
   CreateProductInformationLabelDto,
   UpdateProductInformationLabelDto,
   UpdateProductInformationLabelStatusDto,
+  ReorderProductInformationLabelsDto,
 } from '../dto/product-information-label.dto';
 import { IProductInformationLabel } from '../interfaces/product-information-label.interface';
 import {
@@ -38,6 +39,7 @@ export class ProductInformationLabelsService {
     const entity = await this.productInformationLabelsRepository.create({
       name: dto.name,
       status: dto.status ?? MasterStatus.ACTIVE,
+      sortOrder: dto.sortOrder ?? (await this.productInformationLabelsRepository.getNextSortOrder()),
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.productInformationLabelsRepository.existsByRefId(refId),
       ),
@@ -122,6 +124,33 @@ export class ProductInformationLabelsService {
     }
 
     return mapProductInformationLabelEntityToResponse(updated);
+  }
+
+  async reorder(
+    dto: ReorderProductInformationLabelsDto,
+    updatedBy: string,
+  ): Promise<IProductInformationLabel[]> {
+    for (const item of dto.items) {
+      const existing = await this.productInformationLabelsRepository.findByRefId(item.refId);
+      if (!existing) {
+        throw new NotFoundException(`Product information label with refId ${item.refId} not found`);
+      }
+    }
+
+    const sortOrders = dto.items.map((item) => item.sortOrder);
+    if (new Set(sortOrders).size !== sortOrders.length) {
+      throw new BadRequestException('Sort order values must be unique');
+    }
+
+    const updated = await this.productInformationLabelsRepository.updateSortOrders(
+      dto.items.map((item) => ({ refId: item.refId, sortOrder: item.sortOrder })),
+    );
+
+    for (const item of dto.items) {
+      await this.productInformationLabelsRepository.updateByRefId(item.refId, { updatedBy });
+    }
+
+    return mapProductInformationLabelEntitiesToResponse(updated);
   }
 
   async remove(refId: string): Promise<void> {

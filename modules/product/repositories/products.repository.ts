@@ -697,13 +697,17 @@ export class ProductsRepository {
   private async attachPublicListRelations(products: ProductEntity[]): Promise<void> {
     const productIds = products.map((p) => p.id);
 
-    const [variants, media] = await Promise.all([
+    const [variants, media, tagMappings] = await Promise.all([
       this.repo.manager.getRepository(ProductVariantEntity).find({
         where: { productId: In(productIds) },
       }),
       this.repo.manager.getRepository(ProductMediaEntity).find({
         where: { productId: In(productIds) },
         order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      }),
+      this.repo.manager.getRepository(ProductTagMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { tag: true },
       }),
     ]);
 
@@ -717,9 +721,15 @@ export class ProductsRepository {
       (mediaByProduct.get(m.productId) ?? (mediaByProduct.set(m.productId, []).get(m.productId)!)).push(m);
     }
 
+    const tagsByProduct = new Map<string, ProductTagMappingEntity[]>();
+    for (const mapping of tagMappings) {
+      (tagsByProduct.get(mapping.productId) ?? (tagsByProduct.set(mapping.productId, []).get(mapping.productId)!)).push(mapping);
+    }
+
     for (const product of products) {
       product.variants = variantsByProduct.get(product.id) ?? [];
       product.media = mediaByProduct.get(product.id) ?? [];
+      product.tagMappings = tagsByProduct.get(product.id) ?? [];
     }
   }
 
