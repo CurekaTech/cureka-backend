@@ -21,11 +21,11 @@ import {
 } from '../mappers/importer.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
@@ -91,13 +91,14 @@ export class ImportersService {
     return this.enrichImporter(mapImporterEntityToResponse(loaded!));
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IImporter>> {
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IImporter>> {
     const queryHash = buildQueryCacheHash({
       page: query.page ?? 1,
       limit: query.limit ?? 10,
       search: query.search ?? '',
       sortBy: query.sortBy ?? '',
       sortOrder: query.sortOrder ?? '',
+      status: query.status ?? 'all',
     });
 
     return this.cacheStrategy
@@ -105,7 +106,7 @@ export class ImportersService {
         key: CacheKeys.importers.list(queryHash),
         module: CacheModuleName.IMPORTER,
         loader: async () => {
-          const paginationOptions = buildPaginationOptions(query);
+          const paginationOptions = buildMasterListOptions(query);
           const { data, total } =
             await this.importersRepository.findAllPaginated(paginationOptions);
           return buildPaginatedResult(mapImporterEntitiesToResponse(data), total, paginationOptions);

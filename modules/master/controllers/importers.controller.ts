@@ -13,7 +13,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { ImportersService } from '../services/importers.service';
@@ -35,7 +36,7 @@ export class ImportersController {
   @ResponseMessage('Importers retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.importersService.findAll(query);
   }
 

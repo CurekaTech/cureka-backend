@@ -21,11 +21,11 @@ import {
 } from '../mappers/packer.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
@@ -92,13 +92,14 @@ export class PackersService {
     return this.enrichPacker(mapPackerEntityToResponse(loaded!));
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IPacker>> {
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IPacker>> {
     const queryHash = buildQueryCacheHash({
       page: query.page ?? 1,
       limit: query.limit ?? 10,
       search: query.search ?? '',
       sortBy: query.sortBy ?? '',
       sortOrder: query.sortOrder ?? '',
+      status: query.status ?? 'all',
     });
 
     return this.cacheStrategy
@@ -106,7 +107,7 @@ export class PackersService {
         key: CacheKeys.packers.list(queryHash),
         module: CacheModuleName.PACKER,
         loader: async () => {
-          const paginationOptions = buildPaginationOptions(query);
+          const paginationOptions = buildMasterListOptions(query);
           const { data, total } =
             await this.packersRepository.findAllPaginated(paginationOptions);
           return buildPaginatedResult(mapPackerEntitiesToResponse(data), total, paginationOptions);

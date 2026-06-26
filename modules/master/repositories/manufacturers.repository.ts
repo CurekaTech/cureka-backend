@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ManufacturerEntity } from '../entities/manufacturer.entity';
 import { CategoryEntity } from '../entities/category.entity';
-import { PaginationOptions } from '@packages/common';
+import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -74,7 +74,7 @@ export class ManufacturersRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: ManufacturerEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -99,6 +99,14 @@ export class ManufacturersRepository {
       qb.where('(manufacturer.name ILIKE :search OR manufacturer.code ILIKE :search)', {
         search: `%${options.search}%`,
       });
+    }
+
+    if (options.status) {
+      if (options.search) {
+        qb.andWhere('manufacturer.status = :status', { status: options.status });
+      } else {
+        qb.where('manufacturer.status = :status', { status: options.status });
+      }
     }
 
     const [data, total] = await qb.getManyAndCount();
