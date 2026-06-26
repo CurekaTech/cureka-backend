@@ -17,17 +17,18 @@ async function bootstrap(): Promise<void> {
   // Read CORS config from process.env before the NestJS app is created so
   // @fastify/cors is registered on the raw Fastify instance BEFORE NestJS
   // mounts its routes. This is the only reliable way to apply CORS to all
-  // routes in Fastify's plugin-scoped lifecycle. 
+  // routes in Fastify's plugin-scoped lifecycle.
   const nodeEnv = process.env['NODE_ENV'] ?? 'development';
   // const corsOriginsEnv = process.env['CORS_ORIGINS'];
-  const corsOriginsEnv = 'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://localhost:3001,http://localhost:3002';
+  const corsOriginsEnv =
+    'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://localhost:3001,http://localhost:3002';
   const uploadDir = resolveUploadDir(process.env['UPLOAD_DIR']);
   const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_FILE_SIZE'] ?? '5242880', 10);
   const corsOrigin: string[] | true = corsOriginsEnv
     ? corsOriginsEnv
-      .split(',')
-      .map((o) => o.trim().replace(/\/+$/, ''))
-      .filter(Boolean)
+        .split(',')
+        .map((o) => o.trim().replace(/\/+$/, ''))
+        .filter(Boolean)
     : true; // when unset, reflect any origin (safe for development)
 
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -40,8 +41,6 @@ async function bootstrap(): Promise<void> {
     // Pino takes over at info level after app.useLogger() is called below.
     { logger: ['warn', 'error'] },
   );
-
-
 
   // @fastify/cors uses fastify-plugin internally, which breaks Fastify's
   // encapsulation — registering here (after create, before listen) makes it
@@ -86,7 +85,11 @@ async function bootstrap(): Promise<void> {
     .setVersion('1.0')
     .addBearerAuth()
     .build();
-  SwaggerModule.setup(`${APP_CONSTANTS.API_PREFIX}/docs`, app, SwaggerModule.createDocument(app, swaggerConfig));
+  SwaggerModule.setup(
+    `${APP_CONSTANTS.API_PREFIX}/docs`,
+    app,
+    SwaggerModule.createDocument(app, swaggerConfig),
+  );
 
   // Global pipes — validation
   app.useGlobalPipes(
@@ -109,7 +112,7 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, '0.0.0.0');
   // Use Pino logger
   app.useLogger(app.get(Logger));
-  
+
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port} in ${nodeEnv} mode`);
   logger.log(`API available at http://0.0.0.0:${port}/${APP_CONSTANTS.API_PREFIX}`);
