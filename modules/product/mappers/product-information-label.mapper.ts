@@ -8,6 +8,7 @@ export const mapProductInformationLabelEntityToResponse = (
   refId: entity.refId,
   name: entity.name,
   status: entity.status,
+  sortOrder: entity.sortOrder,
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,

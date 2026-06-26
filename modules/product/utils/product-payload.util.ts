@@ -1,6 +1,6 @@
 import { CreateProductDto } from '../dto/product.dto';
 import { ProductEntity } from '../entities/product.entity';
-import { normalizeProductInformation } from './product-information.util';
+import { normalizeProductInformation, ProductInformationLabelSortOrders } from './product-information.util';
 
 type SpecificationFields = Pick<
   CreateProductDto,
@@ -24,11 +24,12 @@ type SpecificationFields = Pick<
 
 export const mapSpecificationFields = (
   dto: Partial<SpecificationFields>,
+  options?: { labelSortOrders?: ProductInformationLabelSortOrders },
 ): Partial<ProductEntity> => ({
   ...(dto.description !== undefined && { description: dto.description ?? null }),
   ...(dto.components !== undefined && { components: dto.components ?? null }),
   ...(dto.productInformation !== undefined && {
-    productInformation: normalizeProductInformation(dto.productInformation),
+    productInformation: normalizeProductInformation(dto.productInformation, options?.labelSortOrders),
   }),
   ...(dto.expiresInMonths !== undefined && { expiresInMonths: dto.expiresInMonths ?? null }),
   ...(dto.returnAllowed !== undefined && { returnAllowed: dto.returnAllowed }),

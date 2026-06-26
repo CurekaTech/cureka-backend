@@ -32,7 +32,10 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: false }),
+    new FastifyAdapter({
+      logger: false,
+      maxParamLength: APP_CONSTANTS.FASTIFY_MAX_PARAM_LENGTH,
+    }),
     // Suppress verbose NestJS bootstrap noise (InstanceLoader, RoutesResolver, etc.).
     // Pino takes over at info level after app.useLogger() is called below.
     { logger: ['warn', 'error'] },

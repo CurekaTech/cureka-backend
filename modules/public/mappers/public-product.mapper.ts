@@ -131,6 +131,11 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
   publishedAt: entity.publishedAt,
+  tags: (entity.tagMappings ?? []).map((mapping) => ({
+    refId: mapping.tag?.refId ?? '',
+    name: mapping.tag?.name ?? '',
+    slug: mapping.tag?.slug ?? '',
+  })),
   }) as IPublicProductCard;
 
 export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPublicProductCard[] =>

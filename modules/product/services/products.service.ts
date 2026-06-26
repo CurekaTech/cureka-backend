@@ -24,18 +24,19 @@ import { FastifyRequest } from 'fastify';
 import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
-import { normalizeProductInformation } from '../utils/product-information.util';
+import { enrichProductInformation } from '../utils/product-information.util';
 import { mapSpecificationFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductVariantsRepository } from '../repositories/product-variants.repository';
+import { ProductInformationLabelsRepository } from '../repositories/product-information-labels.repository';
 import { ProductMasterResolverService } from './product-master-resolver.service';
 import { ProductStrategyFactory } from '../strategies/product-strategies';
 import { mapProductEntitiesToResponse, mapProductEntityToDetailResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
 import { IProductDetail } from '../interfaces/product-detail.interface';
-import { generateProductSlug } from '../utils/product-slug.util';
+import { generateProductSlug, assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
@@ -65,6 +66,7 @@ export class ProductsService {
     private readonly productNaturesRepository: ProductNaturesRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productMultipartService: ProductMultipartService,
+    private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -108,6 +110,7 @@ export class ProductsService {
       throw new ConflictException(`Product slug "${slugExists.slug}" already exists`);
     }
     const slug = slugExists.slug;
+    assertProductUrlSlugLength(slug, 'Product');
 
     if (dto.productType === ProductType.VARIABLE) {
       const allowed = new Set(dto.attributeRefIds ?? []);
@@ -120,6 +123,7 @@ export class ProductsService {
       this.productsRepository.existsByRefId(candidate),
     );
     const attributeIdByRefId = masters.attributeIdByRefId;
+    const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
 
     const product = await this.dataSource.transaction(async (manager) => {
       const created = await this.productsRepository.create(
@@ -140,8 +144,7 @@ export class ProductsService {
           countryOfOriginId: masters.countryOfOriginId,
           status: ProductStatus.DRAFT,
           rejectionReason: null,
-          ...mapSpecificationFields(dto),
-          productInformation: normalizeProductInformation(dto.productInformation),
+          ...mapSpecificationFields(dto, { labelSortOrders }),
           description: dto.description ?? null,
           refId,
           createdBy,
@@ -283,13 +286,18 @@ export class ProductsService {
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
     this.assertEditable(existing);
 
-    const payload: Partial<ProductEntity> = { updatedBy, ...mapSpecificationFields(dto) };
+    const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const payload: Partial<ProductEntity> = {
+      updatedBy,
+      ...mapSpecificationFields(dto, { labelSortOrders }),
+    };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.description !== undefined) payload.description = dto.description ?? null;
     if (dto.vendorId !== undefined) payload.vendorId = dto.vendorId ?? null;
 
     if (dto.slug !== undefined || dto.name !== undefined) {
       const slug = dto.slug ?? generateProductSlug(dto.name ?? existing.name);
+      assertProductUrlSlugLength(slug, 'Product');
       if (await this.productsRepository.existsBySlug(slug, refId)) {
         throw new ConflictException(`Product slug "${slug}" already exists`);
       }
@@ -645,7 +653,10 @@ export class ProductsService {
     };
   }
 
-  private async enrichProduct(product: IProduct): Promise<IProduct> {
+  private async enrichProduct(
+    product: IProduct,
+    labelSortOrders?: Map<string, number>,
+  ): Promise<IProduct> {
     const media = await Promise.all(
       (product.media ?? []).map(async (item) => {
         if (!item.url) return item;
@@ -712,15 +723,25 @@ export class ProductsService {
       images: (variantImagesById.get(variant.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
     }));
 
-    return { ...product, media, wellnessGoals, sizeChart, variants };
+    const resolvedLabelSortOrders =
+      labelSortOrders ?? (await this.productInformationLabelsRepository.findActiveSortOrdersByName());
+    const productInformation = enrichProductInformation(
+      product.productInformation,
+      resolvedLabelSortOrders,
+    );
+
+    return { ...product, productInformation, media, wellnessGoals, sizeChart, variants };
   }
 
   private async enrichPaginatedProducts(
     result: PaginatedResult<IProduct>,
   ): Promise<PaginatedResult<IProduct>> {
+    const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
     return {
       ...result,
-      data: await Promise.all(result.data.map((product) => this.enrichProduct(product))),
+      data: await Promise.all(
+        result.data.map((product) => this.enrichProduct(product, labelSortOrders)),
+      ),
     };
   }
 

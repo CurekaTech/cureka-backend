@@ -11,6 +11,8 @@ import {
   IVariantAttributeInput,
 } from '../utils/variant-combination-key.util';
 import { buildVariantSlug } from '../utils/variant-slug.util';
+import { assertProductUrlSlugLength } from '../utils/product-slug.util';
+import { APP_CONSTANTS } from '@packages/common';
 import {
   computeDiscountPercentage,
   validateVariantAttributes,
@@ -224,7 +226,9 @@ export class ProductVariantsRepository {
     input: { slug?: string; sku?: string; attributeValues?: string[] },
     excludeVariantId?: string,
   ): Promise<string> {
+    const max = APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH;
     let candidate = buildVariantSlug(productSlug, input);
+    assertProductUrlSlugLength(candidate, 'Variant');
     let counter = 2;
 
     while (
@@ -232,7 +236,7 @@ export class ProductVariantsRepository {
         variantId: excludeVariantId,
       })
     ) {
-      candidate = `${buildVariantSlug(productSlug, input).slice(0, 470)}-${counter}`.slice(0, 480);
+      candidate = `${buildVariantSlug(productSlug, input)}-${counter}`.slice(0, max);
       counter += 1;
     }
 

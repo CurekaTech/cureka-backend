@@ -70,6 +70,7 @@ export interface IPublicProductCard {
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;
+  tags: Array<{ refId: string; name: string; slug: string }>;
 }
 
 export interface IPublicProductVariant {

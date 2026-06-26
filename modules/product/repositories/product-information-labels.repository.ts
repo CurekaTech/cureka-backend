@@ -50,6 +50,44 @@ export class ProductInformationLabelsRepository {
     await this.repo.softDelete({ refId });
   }
 
+  async getNextSortOrder(): Promise<number> {
+    const result = await this.repo
+      .createQueryBuilder('label')
+      .select('COALESCE(MAX(label.sortOrder), -1)', 'maxSortOrder')
+      .where('label.deletedAt IS NULL')
+      .getRawOne<{ maxSortOrder: string }>();
+
+    return Number(result?.maxSortOrder ?? -1) + 1;
+  }
+
+  async findActiveSortOrdersByName(): Promise<Map<string, number>> {
+    const labels = await this.repo
+      .createQueryBuilder('label')
+      .select(['label.name', 'label.sortOrder'])
+      .where('label.deletedAt IS NULL')
+      .orderBy('label.sortOrder', 'ASC')
+      .addOrderBy('label.createdAt', 'ASC')
+      .getMany();
+
+    return new Map(labels.map((label) => [label.name, label.sortOrder]));
+  }
+
+  async updateSortOrders(
+    items: Array<{ refId: string; sortOrder: number }>,
+  ): Promise<ProductInformationLabelEntity[]> {
+    const updated: ProductInformationLabelEntity[] = [];
+
+    for (const item of items) {
+      await this.repo.update({ refId: item.refId }, { sortOrder: item.sortOrder });
+      const entity = await this.findByRefId(item.refId);
+      if (entity) {
+        updated.push(entity);
+      }
+    }
+
+    return updated;
+  }
+
   async findAllPaginated(
     options: PaginationOptions,
   ): Promise<{ data: ProductInformationLabelEntity[]; total: number }> {
@@ -59,18 +97,21 @@ export class ProductInformationLabelsRepository {
       createdAt: 'label.createdAt',
       name: 'label.name',
       status: 'label.status',
+      sortOrder: 'label.sortOrder',
     };
-    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'label.createdAt';
-    const sortOrder = options.sortOrder ?? 'DESC';
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'label.sortOrder';
+    const sortOrder = options.sortOrder ?? 'ASC';
 
     const qb = this.repo
       .createQueryBuilder('label')
+      .where('label.deletedAt IS NULL')
       .orderBy(sortColumn, sortOrder)
+      .addOrderBy('label.createdAt', 'ASC')
       .skip(skip)
       .take(take);
 
     if (options.search) {
-      qb.where('label.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere('label.name ILIKE :search', { search: `%${options.search}%` });
     }
 
     const [data, total] = await qb.getManyAndCount();
