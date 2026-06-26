@@ -70,6 +70,7 @@ export interface IPublicProductCard {
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;
+  tags: Array<{ refId: string; name: string; slug: string }>;
 }
 
 export interface IPublicProductVariant {
@@ -142,6 +143,7 @@ export interface IPublicProductDetail {
   metaDescription: string | null;
   metaKeywords: string[] | null;
   publishedAt: Date | null;
+  sizeChart: IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
   /** Set when product detail is loaded via a variant slug URL. */
   selectedVariantId?: string | null;

@@ -322,6 +322,6 @@ export class PublicProductsService {
       }),
     );
 
-    return { ...product, media, wellnessGoals };
+    return { ...product, media, wellnessGoals, sizeChart: await this.storageUrlEnricher.toReference(product.sizeChart) };
   }
 }
