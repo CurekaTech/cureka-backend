@@ -179,6 +179,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
   publishedAt: entity.publishedAt,
+  sizeChart: entity.sizeChart,
   pricing: buildPriceSummary(entity),
   attributes: (entity.attributeMappings ?? []).map((mapping) => ({
     refId: mapping.attribute?.refId ?? '',

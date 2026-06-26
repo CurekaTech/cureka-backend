@@ -325,7 +325,12 @@ export class PublicProductsService {
       }),
     );
 
-    return { ...product, media, wellnessGoals, productInformation: await this.enrichProductInformation(product.productInformation) };
+    const productInformation = await this.enrichProductInformation(product.productInformation);
+    const sizeChart = product.sizeChart
+      ? await this.storageUrlEnricher.toReference(product.sizeChart)
+      : null;
+
+    return { ...product, media, wellnessGoals, productInformation, sizeChart };
   }
 
   private async enrichProductInformation(
