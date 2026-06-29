@@ -162,13 +162,23 @@ export class ProductMultipartService {
   }
 
   private async uploadImagePart(part: MultipartFile): Promise<string> {
-    const result = await this.storageService.uploadImage({
-      stream: part.file,
-      mimetype: part.mimetype,
-      originalFilename: part.filename,
-      folder: UploadFolder.IMAGES,
-    });
-    return result.path;
+    try {
+      const result = await this.storageService.uploadImage({
+        stream: part.file,
+        mimetype: part.mimetype,
+        originalFilename: part.filename,
+        folder: UploadFolder.IMAGES,
+      });
+      return result.path;
+    } catch (error) {
+      const filename = part.filename || part.fieldname;
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      const detail = error instanceof Error ? error.message : 'Unknown upload error';
+      this.logger.error(`Upload failed for "${filename}": ${detail}`, error instanceof Error ? error.stack : undefined);
+      throw new BadRequestException(`Failed to upload "${filename}": ${detail}`);
+    }
   }
 
   private parseVariantImageField(fieldname: string): string | null {

@@ -89,13 +89,33 @@ export class UsersRepository {
     options: PaginationOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
+    const sortOrder = options.sortOrder ?? 'DESC';
 
-    const [data, total] = await this.repo
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'user.createdAt',
+      firstName: 'user.firstName',
+      lastName: 'user.lastName',
+      email: 'user.email',
+      status: 'user.status',
+      lastLoginAt: 'user.lastLoginAt',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'user.createdAt';
+
+    const qb = this.repo
       .createQueryBuilder('user')
-      .orderBy('user.createdAt', 'DESC')
+      .orderBy(sortColumn, sortOrder)
+      .addOrderBy('user.createdAt', 'DESC')
       .skip(skip)
-      .take(take)
-      .getManyAndCount();
+      .take(take);
+
+    if (options.search) {
+      qb.andWhere(
+        `(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search OR user.mobileNumber ILIKE :search OR user.refId ILIKE :search)`,
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
 
     return { data, total };
   }

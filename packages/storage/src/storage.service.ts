@@ -5,7 +5,8 @@ import {
   IUploadFileInput,
   IUploadFileResult,
 } from './storage.provider.interface';
-import { ALLOWED_IMAGE_MIME_TYPES, STORAGE_PROVIDER } from './storage.constants';
+import { ALLOWED_UPLOAD_MIME_TYPES, STORAGE_PROVIDER } from './storage.constants';
+import { limitUploadStreamSize, resolveMaxFileSizeForMime, UploadSizeLimitExceededError } from './upload-size.util';
 import { normalizeStorageKey } from './storage-path.util';
 import { IStorageFileReference, IStorageFileReferenceResponse, isStorageFileReference } from './storage-file-reference.interface';
 import {
@@ -25,7 +26,26 @@ export class StorageService {
 
   async uploadImage(input: IUploadFileInput): Promise<IUploadFileResult> {
     this.assertAllowedMimeType(input.mimetype);
-    return this.provider.upload(input);
+    const maxBytes = resolveMaxFileSizeForMime(input.mimetype, {
+      maxImageFileSize: this.configService.get<number>('storage.maxImageFileSize'),
+      maxVideoFileSize: this.configService.get<number>('storage.maxVideoFileSize'),
+    });
+    const stream = limitUploadStreamSize(input.stream, maxBytes, input.mimetype);
+
+    try {
+      return await this.provider.upload({ ...input, stream });
+    } catch (error) {
+      if (error instanceof UploadSizeLimitExceededError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      if (error instanceof Error) {
+        throw new BadRequestException(`File upload failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 
   /** Persist only the object key in the database. */
@@ -144,7 +164,7 @@ export class StorageService {
 
   private assertAllowedMimeType(mimetype: string): void {
     const allowed = this.configService.get<string[]>('storage.allowedMimeTypes')
-      ?? [...ALLOWED_IMAGE_MIME_TYPES];
+      ?? [...ALLOWED_UPLOAD_MIME_TYPES];
 
     if (!allowed.includes(mimetype)) {
       throw new BadRequestException(

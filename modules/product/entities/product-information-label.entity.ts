@@ -16,4 +16,8 @@ export class ProductInformationLabelEntity extends BaseEntity {
     default: MasterStatus.ACTIVE,
   })
   status!: MasterStatus;
+
+  @Index()
+  @Column({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder!: number;
 }

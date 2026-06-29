@@ -5,6 +5,7 @@ export interface IProductInformationLabel {
   refId: string;
   name: string;
   status: MasterStatus;
+  sortOrder: number;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

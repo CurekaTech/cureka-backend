@@ -18,6 +18,8 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductMasterResolverService } from '@modules/product/services/product-master-resolver.service';
 import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
+import { enrichProductInformation } from '@modules/product/utils/product-information.util';
+import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {
@@ -45,6 +47,7 @@ export class PublicProductsService {
     private readonly masterResolver: ProductMasterResolverService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<PaginatedResult<IPublicProductCard>> {
@@ -322,6 +325,18 @@ export class PublicProductsService {
       }),
     );
 
-    return { ...product, media, wellnessGoals, sizeChart: await this.storageUrlEnricher.toReference(product.sizeChart) };
+    const productInformation = await this.enrichProductInformation(product.productInformation);
+    const sizeChart = product.sizeChart
+      ? await this.storageUrlEnricher.toReference(product.sizeChart)
+      : null;
+
+    return { ...product, media, wellnessGoals, productInformation, sizeChart };
+  }
+
+  private async enrichProductInformation(
+    items: IPublicProductDetail['productInformation'],
+  ): Promise<IPublicProductDetail['productInformation']> {
+    const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    return enrichProductInformation(items, labelSortOrders);
   }
 }

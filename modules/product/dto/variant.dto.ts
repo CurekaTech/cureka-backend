@@ -16,7 +16,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { IsRefId } from '@packages/common';
+import { APP_CONSTANTS, IsRefId } from '@packages/common';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 
 export class VariantAttributeValueDto {
@@ -66,11 +66,13 @@ export class CreateVariantDto {
 
   @ApiPropertyOptional({
     example: 'cetaphil-gentle-skin-cleanser-red-xl',
-    description: 'Unique URL slug. Auto-generated from product slug + attribute values when omitted.',
+    description: `Unique URL slug (max ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters). Auto-generated from product slug + attribute values when omitted.`,
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH, {
+    message: `Variant slug must not exceed ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters`,
+  })
   slug?: string;
 
   @ApiPropertyOptional({ example: 'VSKU-001' })

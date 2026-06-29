@@ -722,8 +722,8 @@ export class ProductsRepository {
     }
 
     const tagsByProduct = new Map<string, ProductTagMappingEntity[]>();
-    for (const t of tagMappings) {
-      (tagsByProduct.get(t.productId) ?? (tagsByProduct.set(t.productId, []).get(t.productId)!)).push(t);
+    for (const mapping of tagMappings) {
+      (tagsByProduct.get(mapping.productId) ?? (tagsByProduct.set(mapping.productId, []).get(mapping.productId)!)).push(mapping);
     }
 
     for (const product of products) {

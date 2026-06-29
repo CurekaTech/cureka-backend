@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -9,6 +10,7 @@ import {
   IsArray,
   ValidateNested,
   IsUUID,
+  Min,
 } from 'class-validator';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { IsRefId } from '@packages/common';
@@ -30,6 +32,17 @@ export class ProductInformationItemDto {
   @IsNotEmpty()
   @IsString()
   description!: string;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      'Display order for this block. When omitted, resolved from the matching product information label sort order.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
 }
 
 export class CustomProductFaqDto {
