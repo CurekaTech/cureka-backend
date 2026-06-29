@@ -6,8 +6,10 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
+import { IsRefId, PaginationQueryDto } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 
 const parseStringArray = ({ value }: { value: unknown }): string[] | undefined => {
@@ -41,4 +43,14 @@ export class UpdateCategoryFilterStatusDto {
   @IsNotEmpty()
   @IsEnum(MasterStatus)
   status!: MasterStatus;
+}
+
+export class CategoryFilterQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsRefId()
+  categoryRefId?: string;
 }

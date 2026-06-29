@@ -23,6 +23,9 @@ import { ProductInformationLabelsRepository } from '@modules/product/repositorie
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {
+  IPublicImporterSummary,
+  IPublicManufacturerSummary,
+  IPublicPackerSummary,
   IPublicProductCard,
   IPublicProductDetail,
   IPublicProductVariantSearchItem,
@@ -207,7 +210,62 @@ export class PublicProductsService {
     this.logger.log(
       `[PERF] findBySlug slug="${slug}" | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
+    this.logFindBySlugUrls(slug, raw, result);
     return result;
+  }
+
+  private logFindBySlugUrls(
+    slug: string,
+    raw: IPublicProductDetail,
+    result: IPublicProductDetail,
+  ): void {
+    this.logger.log(
+      `[findBySlug] response summary slug="${slug}" refId="${result.refId}" name="${result.name}" variantCount=${result.variants.length} mediaCount=${result.media.length}`,
+    );
+
+    result.media.forEach((item, index) => {
+      const rawRef = raw.media[index]?.url;
+      this.logger.log(
+        `[findBySlug] media[${index}] id=${item.id} type=${item.type} isPrimary=${item.isPrimary} | raw=${this.formatFileRef(rawRef)} | response=${this.formatFileRef(item.url)}`,
+      );
+    });
+
+    result.wellnessGoals.forEach((goal, index) => {
+      const rawRef = raw.wellnessGoals[index]?.image;
+      this.logger.log(
+        `[findBySlug] wellnessGoal[${index}] refId=${goal.refId} name="${goal.name}" | raw=${this.formatFileRef(rawRef)} | response=${this.formatFileRef(goal.image)}`,
+      );
+    });
+
+    if (result.sizeChart || raw.sizeChart) {
+      this.logger.log(
+        `[findBySlug] sizeChart | raw=${this.formatFileRef(raw.sizeChart)} | response=${this.formatFileRef(result.sizeChart)}`,
+      );
+    }
+
+    for (const party of ['manufacturer', 'packer', 'importer'] as const) {
+      const rawParty = raw[party];
+      const enrichedParty = result[party];
+      if (!rawParty && !enrichedParty) continue;
+      this.logger.log(
+        `[findBySlug] ${party} refId="${enrichedParty?.refId ?? rawParty?.refId ?? ''}" | rawLogo=${this.formatFileRef(rawParty?.logo)} | responseLogo=${this.formatFileRef(enrichedParty?.logo)}`,
+      );
+    }
+  }
+
+  private formatFileRef(value: unknown): string {
+    if (!value) return '(empty)';
+    if (typeof value === 'string') {
+      return `string key="${value.slice(0, 80)}${value.length > 80 ? '…' : ''}"`;
+    }
+    if (typeof value === 'object' && value !== null && 'key' in value) {
+      const ref = value as { key?: string; name?: string; url?: string };
+      const urlPreview = ref.url
+        ? `"${ref.url.slice(0, 100)}${ref.url.length > 100 ? '…' : ''}"`
+        : '(no url)';
+      return `{ key="${ref.key ?? ''}", name="${ref.name ?? ''}", url=${urlPreview} }`;
+    }
+    return '(unrecognized)';
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
@@ -295,39 +353,19 @@ export class PublicProductsService {
   }
 
   private async enrichDetail(product: IPublicProductDetail): Promise<IPublicProductDetail> {
-    // Time each media image individually
     const media = await Promise.all(
       product.media.map(async (item) => {
         if (!item.url) return item;
-        const key = typeof item.url === 'string'
-          ? item.url
-          : (item.url as { key?: string }).key ?? '(unknown)';
-        const t = Date.now();
-        const [enriched] = await this.storageUrlEnricher.enrichReferences(
-          [item],
-          (i) => i.url,
-          (i, url) => ({ ...i, url }),
-        );
-        this.logger.log(`  [IMG] media key="${key}" signing=${Date.now() - t}ms`);
-        return enriched;
+        const enrichedUrl = await this.storageUrlEnricher.toReference(item.url);
+        return enrichedUrl ? { ...item, url: enrichedUrl } : item;
       }),
     );
 
-    // Time each wellness goal image individually
     const wellnessGoals = await Promise.all(
       product.wellnessGoals.map(async (goal) => {
         if (!goal.image) return goal;
-        const key = typeof goal.image === 'string'
-          ? goal.image
-          : (goal.image as { key?: string }).key ?? '(unknown)';
-        const t = Date.now();
-        const [enriched] = await this.storageUrlEnricher.enrichReferences(
-          [goal],
-          (g) => g.image,
-          (g, image) => ({ ...g, image }),
-        );
-        this.logger.log(`  [IMG] wellness key="${key}" signing=${Date.now() - t}ms`);
-        return enriched;
+        const enrichedImage = await this.storageUrlEnricher.toReference(goal.image);
+        return enrichedImage ? { ...goal, image: enrichedImage } : goal;
       }),
     );
 
@@ -335,8 +373,28 @@ export class PublicProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
+    const manufacturer = product.manufacturer
+      ? await this.enrichPartySummary(product.manufacturer)
+      : null;
+    const packer = product.packer ? await this.enrichPartySummary(product.packer) : null;
+    const importer = product.importer ? await this.enrichPartySummary(product.importer) : null;
 
-    return { ...product, media, wellnessGoals, productInformation, sizeChart };
+    return {
+      ...product,
+      media,
+      wellnessGoals,
+      productInformation,
+      sizeChart,
+      manufacturer,
+      packer,
+      importer,
+    };
+  }
+
+  private async enrichPartySummary<
+    T extends IPublicManufacturerSummary | IPublicPackerSummary | IPublicImporterSummary,
+  >(party: T): Promise<T> {
+    return this.storageUrlEnricher.enrichFields(party, ['logo']);
   }
 
   private async enrichProductInformation(

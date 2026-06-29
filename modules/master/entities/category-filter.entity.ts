@@ -1,6 +1,7 @@
-import { Column, Entity, Index } from 'typeorm';
+import { Column, Entity, Index, ManyToMany } from 'typeorm';
 import { BaseEntity } from '@packages/database';
 import { MasterStatus } from '../enums/master-status.enum';
+import { CategoryEntity } from './category.entity';
 
 @Entity('category_filters')
 export class CategoryFilterEntity extends BaseEntity {
@@ -24,4 +25,7 @@ export class CategoryFilterEntity extends BaseEntity {
     nullable: true,
   })
   values?: string[] | null;
+
+  @ManyToMany(() => CategoryEntity, (category) => category.categoryFilters)
+  categories!: CategoryEntity[];
 }

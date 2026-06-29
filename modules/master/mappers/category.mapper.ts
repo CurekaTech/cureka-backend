@@ -1,6 +1,7 @@
 import { CategoryEntity } from '../entities/category.entity';
 import { ICategory, ICategoryForProduct, ICategoryTree, IParentCategory } from '../interfaces/category.interface';
 import { mapAttributeEntityToResponse } from './attribute.mapper';
+import { mapCategoryFilterEntityToResponse } from './category-filter.mapper';
 
 const mapParentEntityToResponse = (parent: CategoryEntity | null | undefined): IParentCategory | null => {
   if (!parent) return null;
@@ -27,6 +28,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   image: entity.image,
   banner: entity.banner,
   slug: entity.slug,
+  description: entity.description,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
@@ -37,6 +39,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   status: entity.status,
   parent: mapParentEntityToResponse(entity.parent),
   attributes: (entity.attributes ?? []).map(mapAttributeEntityToResponse),
+  categoryFilters: (entity.categoryFilters ?? []).map(mapCategoryFilterEntityToResponse),
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,

@@ -54,13 +54,13 @@ export const CacheKeys = {
     homeSectionsPattern: () => 'homepage:home-sections*',
   },
   publicProducts: {
-    list: (queryHash: string) => `public:products:list:${queryHash}`,
-    listPattern: () => 'public:products:list:*',
-    variantSearch: (queryHash: string) => `public:products:variant-search:${queryHash}`,
-    variantSearchPattern: () => 'public:products:variant-search:*',
-    detail: (slug: string) => `public:products:detail:${slug}`,
+    list: (queryHash: string) => `public:products:v2:list:${queryHash}`,
+    listPattern: () => 'public:products:v2:list:*',
+    variantSearch: (queryHash: string) => `public:products:v2:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:v2:variant-search:*',
+    detail: (slug: string) => `public:products:v2:detail:${slug}`,
     detailPattern: (slug?: string) =>
-      slug ? `public:products:detail:${slug}` : 'public:products:detail:*',
+      slug ? `public:products:v2:detail:${slug}` : 'public:products:v2:detail:*',
   },
   tags: {
     listPattern: () => 'tags:list:*',

@@ -3,7 +3,32 @@ import { ProductMediaType } from '@modules/product/enums/product-media-type.enum
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { IProductInformationItem } from '@modules/product/interfaces/product-information.interface';
 import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
-import { IStorageFileReferenceResponse } from '@packages/storage';
+import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
+
+/** Cached/stored shape — logo is enriched to include a signed url on API responses. */
+export interface IPublicPartySummary {
+  refId: string;
+  name: string;
+  code: string;
+  logo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  description: string | null;
+  contactPerson: string | null;
+  email: string | null;
+  mobileNumber: string | null;
+  address: string | null;
+  gstNumber: string | null;
+  drugLicenseNumber: string | null;
+}
+
+export interface IPublicManufacturerSummary extends IPublicPartySummary {}
+
+export interface IPublicPackerSummary extends IPublicPartySummary {
+  remarks: string | null;
+}
+
+export interface IPublicImporterSummary extends Omit<IPublicPartySummary, 'description'> {
+  iec: string | null;
+}
 
 export interface IPublicProductPriceSummary {
   minSellingPrice: number;
@@ -140,6 +165,9 @@ export interface IPublicProductDetail {
   importerRefId: string | null;
   importerName: string | null;
   importerAddress: string | null;
+  manufacturer: IPublicManufacturerSummary | null;
+  packer: IPublicPackerSummary | null;
+  importer: IPublicImporterSummary | null;
   countryOfOriginRefId: string | null;
   countryOfOriginName: string | null;
   productInformation: IProductInformationItem[];

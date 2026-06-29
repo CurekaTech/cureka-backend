@@ -5,6 +5,10 @@ import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 
+interface CategoryFilterFindOptions extends PaginationOptions {
+  categoryId?: string;
+}
+
 @Injectable()
 export class CategoryFiltersRepository {
   constructor(
@@ -43,7 +47,7 @@ export class CategoryFiltersRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: CategoryFilterFindOptions,
   ): Promise<{ data: CategoryFilterEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -62,8 +66,15 @@ export class CategoryFiltersRepository {
       .skip(skip)
       .take(take);
 
+    if (options.categoryId) {
+      qb.innerJoin('categoryFilter.categories', 'category').andWhere(
+        'category.id = :categoryId',
+        { categoryId: options.categoryId },
+      );
+    }
+
     if (options.search) {
-      qb.where('categoryFilter.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere('categoryFilter.name ILIKE :search', { search: `%${options.search}%` });
     }
 
     const [data, total] = await qb.getManyAndCount();
