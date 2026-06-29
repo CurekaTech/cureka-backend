@@ -82,6 +82,12 @@ import { ProductInformationLabelsService } from './services/product-information-
     ProductStrategyFactory,
     ProductCacheListener,
   ],
-  exports: [ProductsService, ProductsRepository, ProductMasterResolverService, ProductInformationLabelsRepository],
+  exports: [
+    ProductsService,
+    ProductsRepository,
+    ProductVariantsRepository,
+    ProductMasterResolverService,
+    ProductInformationLabelsRepository,
+  ],
 })
 export class ProductModule {}

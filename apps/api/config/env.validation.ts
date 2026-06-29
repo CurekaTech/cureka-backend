@@ -70,4 +70,7 @@ export const envValidationSchema = Joi.object({
   // Unicommerce integration credentials — issued by Cureka to Unicommerce per seller
   UNICOMMERCE_USERNAME: Joi.string().optional(),
   UNICOMMERCE_PASSWORD: Joi.string().optional(),
+  UNICOMMERCE_DEFAULT_FACILITY_CODE: Joi.string().optional(),
+  UNICOMMERCE_DEFAULT_HSN_CODE: Joi.string().optional(),
+  UNICOMMERCE_PRODUCT_BASE_URL: Joi.string().uri().optional(),
 });

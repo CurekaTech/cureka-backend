@@ -191,12 +191,25 @@ export const mapVariantEntitiesToPublicSearchItems = (
   variants: ProductVariantEntity[],
 ): IPublicProductVariantSearchItem[] => variants.map(mapVariantEntityToPublicSearchItem);
 
+const getDefaultVariantId = (entity: ProductEntity): string | null => {
+  const activeVariants = getActiveVariants(entity);
+  if (!activeVariants.length) return null;
+
+  const sorted = [...activeVariants].sort(
+    (left, right) =>
+      (toNumber(left.sellingPrice) ?? 0) - (toNumber(right.sellingPrice) ?? 0),
+  );
+  return sorted[0]?.id ?? null;
+};
+
 export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard =>
   ({
+  id: entity.id,
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,
   productType: entity.productType,
+  defaultVariantId: getDefaultVariantId(entity),
   categoryRefId: entity.category?.refId ?? '',
   categoryName: entity.category?.name ?? '',
   subCategoryRefId: entity.subCategory?.refId ?? null,
@@ -244,10 +257,13 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   brandName: entity.brand?.name ?? null,
   manufacturerRefId: entity.manufacturer?.refId ?? null,
   manufacturerName: entity.manufacturer?.name ?? null,
+  manufacturerAddress: entity.manufacturer?.address ?? null,
   packerRefId: entity.packer?.refId ?? null,
   packerName: entity.packer?.name ?? null,
+  packerAddress: entity.packer?.address ?? null,
   importerRefId: entity.importer?.refId ?? null,
   importerName: entity.importer?.name ?? null,
+  importerAddress: entity.importer?.address ?? null,
   manufacturer: mapManufacturerToPublic(entity.manufacturer),
   packer: mapPackerToPublic(entity.packer),
   importer: mapImporterToPublic(entity.importer),
