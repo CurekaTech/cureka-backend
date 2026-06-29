@@ -15,12 +15,14 @@ import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { CategoriesRepository } from '../repositories/categories.repository';
 import { AttributesRepository } from '../repositories/attributes.repository';
+import { CategoryFiltersRepository } from '../repositories/category-filters.repository';
 import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, CategoryQueryDto, ReorderCategoriesDto } from '../dto/category.dto';
 import { ICategory, ICategoryTree } from '../interfaces/category.interface';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryEntity } from '../entities/category.entity';
+import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import {
   mapCategoryEntityToResponse,
   mapCategoryEntitiesToResponse,
@@ -49,6 +51,7 @@ export class CategoriesService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
     private readonly attributesRepository: AttributesRepository,
+    private readonly categoryFiltersRepository: CategoryFiltersRepository,
     private readonly multipartFormService: MultipartFormService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
@@ -108,6 +111,11 @@ export class CategoriesService {
     const hierarchyId = await this.categoriesRepository.getNextHierarchyId();
     const slug = this.generateSlugFromName(dto.name);
     const attributes = await this.resolveAttributes(dto.attributeRefIds ?? []);
+    this.assertCategoryFiltersAllowed(hierarchyLevel, dto.categoryFilterRefIds);
+    const categoryFilters =
+      hierarchyLevel === CategoryHierarchyLevel.ROOT
+        ? await this.resolveCategoryFilters(dto.categoryFilterRefIds ?? [])
+        : [];
     const maxSiblingPosition =
       await this.categoriesRepository.getMaxPositionAmongSiblings(parentCategoryId);
     const position = dto.position ?? maxSiblingPosition + 1;
@@ -122,6 +130,7 @@ export class CategoriesService {
         image: this.storageUrlEnricher.persist(media.image),
         banner: this.storageUrlEnricher.persist(media.banner),
         slug,
+        description: dto.description ?? null,
         metaTitle: dto.metaTitle ?? null,
         metaDescription: dto.metaDescription ?? null,
         metaKeywords: dto.metaKeywords ?? null,
@@ -136,6 +145,7 @@ export class CategoriesService {
         createdBy,
       },
       attributes,
+      categoryFilters,
     );
 
     await this.emitCategoryUpdated(entity.refId, 'created');
@@ -250,12 +260,28 @@ export class CategoriesService {
       attributes = await this.resolveAttributes(dto.attributeRefIds);
     }
 
+    this.assertCategoryFiltersAllowed(hierarchyLevel, dto.categoryFilterRefIds);
+
+    let categoryFilters: CategoryFilterEntity[] | undefined;
+    if (dto.categoryFilterRefIds !== undefined) {
+      categoryFilters =
+        hierarchyLevel === CategoryHierarchyLevel.ROOT
+          ? await this.resolveCategoryFilters(dto.categoryFilterRefIds)
+          : [];
+    } else if (
+      hierarchyLevel !== CategoryHierarchyLevel.ROOT &&
+      (existing.categoryFilters?.length ?? 0) > 0
+    ) {
+      categoryFilters = [];
+    }
+
     const updatePayload: Partial<CategoryEntity> = {
       hierarchyLevel,
       slug,
       updatedBy,
     };
     if (dto.name !== undefined) updatePayload.name = dto.name;
+    if (dto.description !== undefined) updatePayload.description = dto.description ?? null;
     if (dto.parentCategoryRefId !== undefined) updatePayload.parentCategoryId = parentCategoryId;
     if (dto.position !== undefined) updatePayload.position = dto.position;
     if (media.image !== undefined) updatePayload.image = this.storageUrlEnricher.persist(media.image);
@@ -274,6 +300,7 @@ export class CategoriesService {
       existing.id,
       updatePayload,
       attributes,
+      categoryFilters,
     );
     if (!updated) {
       throw new NotFoundException(`Category with refId ${refId} not found after update`);
@@ -498,6 +525,38 @@ export class CategoriesService {
     }
 
     return results as AttributeEntity[];
+  }
+
+  private assertCategoryFiltersAllowed(
+    hierarchyLevel: CategoryHierarchyLevel,
+    categoryFilterRefIds: string[] | undefined,
+  ): void {
+    if (
+      hierarchyLevel !== CategoryHierarchyLevel.ROOT &&
+      categoryFilterRefIds !== undefined &&
+      categoryFilterRefIds.length > 0
+    ) {
+      throw new BadRequestException('Category filters can only be assigned to root categories');
+    }
+  }
+
+  private async resolveCategoryFilters(
+    categoryFilterRefIds: string[],
+  ): Promise<CategoryFilterEntity[]> {
+    if (!categoryFilterRefIds.length) return [];
+
+    const filters = await this.categoryFiltersRepository.findByRefIds(categoryFilterRefIds);
+    const foundRefIds = new Set(filters.map((filter) => filter.refId));
+    const missing = categoryFilterRefIds.filter((refId) => !foundRefIds.has(refId));
+    if (missing.length) {
+      throw new NotFoundException(
+        `Category filter(s) not found with refId(s): ${missing.join(', ')}`,
+      );
+    }
+
+    return categoryFilterRefIds.map(
+      (refId) => filters.find((filter) => filter.refId === refId)!,
+    );
   }
 
   private buildTree(categories: CategoryEntity[]): ICategoryTree[] {

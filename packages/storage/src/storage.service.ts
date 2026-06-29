@@ -8,7 +8,7 @@ import {
 import { ALLOWED_UPLOAD_MIME_TYPES, STORAGE_PROVIDER } from './storage.constants';
 import { limitUploadStreamSize, resolveMaxFileSizeForMime, UploadSizeLimitExceededError } from './upload-size.util';
 import { normalizeStorageKey } from './storage-path.util';
-import { IStorageFileReference, IStorageFileReferenceResponse, isStorageFileReference } from './storage-file-reference.interface';
+import { IStorageFileReference, IStorageFileReferenceResponse } from './storage-file-reference.interface';
 import {
   hasAccessibleUrlSupport,
   IStorageProviderWithAccessibleUrl,
@@ -73,12 +73,34 @@ export class StorageService {
     stored: string | IStorageFileReference | null | undefined,
   ): IStorageFileReference | null {
     if (!stored) return null;
-    if (isStorageFileReference(stored)) {
+
+    if (typeof stored === 'object' && typeof stored.key === 'string') {
       const key = normalizeStorageKey(stored.key);
       if (!key) return null;
-      return { key, name: stored.name || this.getBucketName() };
+      const name =
+        typeof stored.name === 'string' && stored.name.trim()
+          ? stored.name
+          : this.getBucketName();
+      return { key, name };
     }
-    return this.toFileReference(stored);
+
+    if (typeof stored === 'string') {
+      return this.toFileReference(stored);
+    }
+
+    return null;
+  }
+
+  private wasAlreadyEnriched(
+    stored: string | IStorageFileReference | null | undefined,
+  ): boolean {
+    return (
+      typeof stored === 'object' &&
+      stored !== null &&
+      'url' in stored &&
+      typeof stored.url === 'string' &&
+      stored.url.length > 0
+    );
   }
 
   /** Normalize input to `{ key, name }` before persisting to the database. */
@@ -102,7 +124,9 @@ export class StorageService {
     const reference = this.toFileReferenceValue(stored);
     if (!reference) return null;
 
-    const url = await this.resolveAccessibleUrl(reference);
+    const url = await this.resolveAccessibleUrl(reference, {
+      forceRefresh: this.wasAlreadyEnriched(stored),
+    });
     if (!url) return null;
 
     return { ...reference, url };
@@ -111,15 +135,19 @@ export class StorageService {
   /** Issue a fresh browser-accessible URL (signed for GCS, /uploads for local). */
   async resolveAccessibleUrl(
     stored: string | IStorageFileReference | null | undefined,
+    options?: { forceRefresh?: boolean },
   ): Promise<string | null> {
-    const key = isStorageFileReference(stored)
-      ? normalizeStorageKey(stored.key)
-      : normalizeStorageKey(stored);
+    const key =
+      typeof stored === 'object' && stored !== null && typeof stored.key === 'string'
+        ? normalizeStorageKey(stored.key)
+        : normalizeStorageKey(typeof stored === 'string' ? stored : null);
     if (!key) return null;
 
-    const cached = this.accessibleUrlCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.url;
+    if (!options?.forceRefresh) {
+      const cached = this.accessibleUrlCache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.url;
+      }
     }
 
     const inFlight = this.inFlightAccessibleUrls.get(key);
@@ -127,7 +155,7 @@ export class StorageService {
       return inFlight;
     }
 
-    const resolution = this.resolveAccessibleUrlUncached(key, stored);
+    const resolution = this.resolveAccessibleUrlUncached(key);
     this.inFlightAccessibleUrls.set(key, resolution);
 
     try {
@@ -137,25 +165,30 @@ export class StorageService {
     }
   }
 
-  private async resolveAccessibleUrlUncached(
-    key: string,
-    stored: string | IStorageFileReference | null | undefined,
-  ): Promise<string | null> {
+  private async resolveAccessibleUrlUncached(key: string): Promise<string | null> {
     if (!hasAccessibleUrlSupport(this.provider)) {
-      return isStorageFileReference(stored) ? stored.key : (stored ?? null);
+      return key;
     }
 
-    try {
-      const url = await (this.provider as IStorageProviderWithAccessibleUrl).getAccessibleUrl(key);
-      const ttlMs = this.getAccessibleUrlCacheTtlMs();
-      if (ttlMs > 0) {
-        this.accessibleUrlCache.set(key, { url, expiresAt: Date.now() + ttlMs });
+    const provider = this.provider as IStorageProviderWithAccessibleUrl;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const url = await provider.getAccessibleUrl(key);
+        const ttlMs = this.getAccessibleUrlCacheTtlMs();
+        if (ttlMs > 0) {
+          this.accessibleUrlCache.set(key, { url, expiresAt: Date.now() + ttlMs });
+        }
+
+        return url;
+      } catch {
+        if (attempt === 1) {
+          return null;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-
-      return url;
-    } catch {
-      return null;
     }
+
+    return null;
   }
 
   async delete(relativePath: string): Promise<void> {

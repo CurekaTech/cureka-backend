@@ -13,6 +13,7 @@ import { IStorageFileReference, storageFileReferenceColumn } from '@packages/sto
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 import { AttributeEntity } from './attribute.entity';
+import { CategoryFilterEntity } from './category-filter.entity';
 
 @Entity('categories')
 export class CategoryEntity extends BaseEntity {
@@ -49,6 +50,9 @@ export class CategoryEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
 
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
   @Column({ name: 'meta_title', type: 'varchar', length: 255, nullable: true })
   metaTitle!: string | null;
 
@@ -78,6 +82,14 @@ export class CategoryEntity extends BaseEntity {
     inverseJoinColumn: { name: 'attribute_id', referencedColumnName: 'id' },
   })
   attributes!: AttributeEntity[];
+
+  @ManyToMany(() => CategoryFilterEntity, (filter) => filter.categories)
+  @JoinTable({
+    name: 'category_filter_mappings',
+    joinColumn: { name: 'category_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'category_filter_id', referencedColumnName: 'id' },
+  })
+  categoryFilters!: CategoryFilterEntity[];
 
   @Column({ name: 'above_the_fold', type: 'text', nullable: true })
   aboveTheFold!: string | null;
