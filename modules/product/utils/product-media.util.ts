@@ -1,12 +1,75 @@
 import { CreateProductDto } from '../dto/product.dto';
-import { CreateProductMediaDto, CreateVariantDto } from '../dto/variant.dto';
+import { CreateProductMediaDto, CreateVariantDto, VariantImageDto } from '../dto/variant.dto';
 import { ProductMediaType } from '../enums/product-media-type.enum';
+import { IStorageFileReference, isStorageFileReference } from '@packages/storage';
 
 export interface ProductUploadedFiles {
   productImages: string[];
   variantImages: Record<string, string[]>;
   sizeChart?: string;
 }
+
+type ImageMeta = {
+  url?: string | IStorageFileReference;
+  isPrimary?: boolean;
+  sortOrder?: number;
+};
+
+const normalizeImageUrl = (
+  url: string | IStorageFileReference | undefined,
+): string | undefined => {
+  if (!url) return undefined;
+  if (typeof url === 'string' && url.trim()) return url;
+  if (isStorageFileReference(url)) return url.key;
+  return undefined;
+};
+
+const hasStoredImageUrl = (url: string | IStorageFileReference | undefined): boolean =>
+  normalizeImageUrl(url) !== undefined;
+
+const isLegacyManualProductKey = (key: string): boolean =>
+  /^(images|videos)\/products\//i.test(key);
+
+/** Keep existing image URLs from JSON; assign new uploads to slots without a url. */
+const mergeImageMetaWithUploads = <T extends ImageMeta>(
+  meta: T[] | undefined,
+  uploadedPaths: string[],
+): Array<T & { url: string }> => {
+  const sorted = [...(meta ?? [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+  );
+  const pathQueue = [...uploadedPaths];
+  const merged: Array<T & { url: string }> = [];
+
+  for (const item of sorted) {
+    const existingUrl = normalizeImageUrl(item.url);
+    if (existingUrl && !isLegacyManualProductKey(existingUrl)) {
+      merged.push({ ...item, url: existingUrl });
+      continue;
+    }
+
+    const path = pathQueue.shift();
+    if (path) {
+      merged.push({ ...item, url: path });
+      continue;
+    }
+
+    // No uploaded file left; keep only non-legacy keys.
+    if (existingUrl && !isLegacyManualProductKey(existingUrl)) {
+      merged.push({ ...item, url: existingUrl });
+    }
+  }
+
+  for (const path of pathQueue) {
+    merged.push({
+      isPrimary: false,
+      sortOrder: merged.length,
+      url: path,
+    } as T & { url: string });
+  }
+
+  return merged;
+};
 
 const toMediaItem = (
   url: string,
@@ -66,14 +129,28 @@ const normalizePrimaryFlags = (media: CreateProductMediaDto[]): CreateProductMed
 const variantImagesToMedia = (variant: CreateVariantDto): CreateProductMediaDto[] => {
   if (variant.images?.length) {
     return variant.images
-      .filter((image) => image.url)
-      .map((image, index) =>
-        toMediaItem(image.url!, {
+      .map((image) => ({
+        ...image,
+        normalizedUrl: normalizeImageUrl(image.url),
+      }))
+      .filter(
+        (image): image is VariantImageDto & { normalizedUrl: string } => {
+          const normalizedUrl = image.normalizedUrl;
+          return (
+            typeof normalizedUrl === 'string' &&
+            normalizedUrl.length > 0 &&
+            !isLegacyManualProductKey(normalizedUrl)
+          );
+        },
+      )
+      .map((image, index) => {
+        const normalizedUrl = image.normalizedUrl!;
+        return toMediaItem(normalizedUrl, {
           variantSku: variant.sku,
           isPrimary: image.isPrimary,
           sortOrder: image.sortOrder ?? index,
-        }),
-      );
+        });
+      });
   }
 
   return (variant.imageUrls ?? []).map((url, index) =>
@@ -96,17 +173,14 @@ export const mergeUploadedProductMedia = (
   };
 
   if (uploads.productImages.length) {
-    const mediaMeta = dto.media ?? [];
-    next.media = uploads.productImages.map((path, index) => {
-      const meta = mediaMeta[index];
-      return {
-        type: meta?.type ?? ProductMediaType.IMAGE,
-        url: path,
-        sortOrder: meta?.sortOrder ?? index,
-        isPrimary: meta?.isPrimary ?? index === 0,
-        variantSku: meta?.variantSku,
-      };
-    });
+    const merged = mergeImageMetaWithUploads(dto.media, uploads.productImages);
+    next.media = merged.map((item, index) => ({
+      type: (item as CreateProductMediaDto).type ?? ProductMediaType.IMAGE,
+      url: item.url,
+      sortOrder: item.sortOrder ?? index,
+      isPrimary: item.isPrimary ?? index === 0,
+      variantSku: (item as CreateProductMediaDto).variantSku,
+    }));
   }
 
   if (next.variants?.length && Object.keys(uploads.variantImages).length) {
@@ -114,12 +188,13 @@ export const mergeUploadedProductMedia = (
       const paths = uploads.variantImages[variant.sku];
       if (!paths?.length) return variant;
 
-      const meta = variant.images ?? [];
-      const images = paths.map((path, index) => ({
-        url: path,
-        sortOrder: meta[index]?.sortOrder ?? index,
-        isPrimary: meta[index]?.isPrimary ?? index === 0,
-      }));
+      const images: VariantImageDto[] = mergeImageMetaWithUploads(variant.images, paths).map(
+        (item) => ({
+          url: item.url,
+          sortOrder: item.sortOrder,
+          isPrimary: item.isPrimary,
+        }),
+      );
 
       return { ...variant, images };
     });
@@ -130,7 +205,9 @@ export const mergeUploadedProductMedia = (
 
 /** Merge product-level media and variant images into rows for product_media. */
 export const collectProductMedia = (dto: CreateProductDto): CreateProductMediaDto[] => {
-  const fromMedia = (dto.media ?? []).filter((item) => item.url);
+  const fromMedia = (dto.media ?? []).filter(
+    (item) => item.url && !isLegacyManualProductKey(item.url),
+  );
   const fromVariants = (dto.variants ?? []).flatMap(variantImagesToMedia);
 
   return normalizePrimaryFlags([...fromMedia, ...fromVariants]);
