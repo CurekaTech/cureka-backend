@@ -23,6 +23,9 @@ import { ProductInformationLabelsRepository } from '@modules/product/repositorie
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {
+  IPublicImporterSummary,
+  IPublicManufacturerSummary,
+  IPublicPackerSummary,
   IPublicProductCard,
   IPublicProductDetail,
   IPublicProductVariantSearchItem,
@@ -329,8 +332,28 @@ export class PublicProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
+    const manufacturer = product.manufacturer
+      ? await this.enrichPartySummary(product.manufacturer)
+      : null;
+    const packer = product.packer ? await this.enrichPartySummary(product.packer) : null;
+    const importer = product.importer ? await this.enrichPartySummary(product.importer) : null;
 
-    return { ...product, media, wellnessGoals, productInformation, sizeChart };
+    return {
+      ...product,
+      media,
+      wellnessGoals,
+      productInformation,
+      sizeChart,
+      manufacturer,
+      packer,
+      importer,
+    };
+  }
+
+  private async enrichPartySummary<
+    T extends IPublicManufacturerSummary | IPublicPackerSummary | IPublicImporterSummary,
+  >(party: T): Promise<T> {
+    return this.storageUrlEnricher.enrichFields(party, ['logo']);
   }
 
   private async enrichProductInformation(
