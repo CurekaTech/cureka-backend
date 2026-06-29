@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DataSource } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
@@ -10,6 +11,7 @@ import { CheckoutDto } from '../dto/checkout.dto';
 import { OrderQueryDto, PlaceOrderDto } from '../dto/order.dto';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
+import { mapOrderToResponse } from '../mappers/order.mapper';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 
@@ -23,6 +25,7 @@ export class OrdersService {
     private readonly cartService: CartService,
     private readonly checkoutService: CheckoutService,
     private readonly userAddressesService: UserAddressesService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   checkout(userId: string, dto: CheckoutDto) {
@@ -112,7 +115,7 @@ export class OrdersService {
 
       const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
-      return order;
+      return mapOrderToResponse(order, this.storageUrlEnricher);
     });
   }
 
@@ -125,13 +128,16 @@ export class OrdersService {
       page,
       limit,
     });
-    return buildPaginatedResult(data, total, { page, limit, sortOrder: 'DESC' });
+    const mapped = await Promise.all(
+      data.map((order) => mapOrderToResponse(order, this.storageUrlEnricher)),
+    );
+    return buildPaginatedResult(mapped, total, { page, limit, sortOrder: 'DESC' });
   }
 
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    return order;
+    return mapOrderToResponse(order, this.storageUrlEnricher);
   }
 
   async cancel(userId: string, id: string) {
