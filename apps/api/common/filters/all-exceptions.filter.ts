@@ -77,6 +77,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     }
 
+    const fastifyError = this.normalizeFastifyError(exception);
+    if (fastifyError) {
+      return fastifyError;
+    }
+
     if (exception instanceof QueryFailedError) {
       const driverError = exception.driverError as { detail?: string; code?: string } | undefined;
       const detail = driverError?.detail ?? exception.message;
@@ -99,6 +104,39 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       error: 'Error',
       message: 'Internal server error',
+    };
+  }
+
+  private normalizeFastifyError(exception: unknown): {
+    statusCode: number;
+    error: string;
+    message: string;
+  } | null {
+    if (!(exception instanceof Error)) {
+      return null;
+    }
+
+    const code = (exception as Error & { code?: string }).code;
+    if (!code?.startsWith('FST_')) {
+      return null;
+    }
+
+    const statusCode =
+      (exception as Error & { statusCode?: number }).statusCode ?? HttpStatus.BAD_REQUEST;
+
+    const messages: Record<string, string> = {
+      FST_FILES_LIMIT:
+        'Too many files in the upload. Reduce the number of image or file fields and try again.',
+      FST_PARTS_LIMIT: 'The multipart request has too many parts.',
+      FST_FIELDS_LIMIT: 'The multipart request has too many form fields.',
+      FST_REQ_FILE_TOO_LARGE: 'One or more uploaded files exceed the maximum allowed size.',
+      FST_INVALID_MULTIPART_CONTENT_TYPE: 'Request must use multipart/form-data.',
+    };
+
+    return {
+      statusCode,
+      error: HttpStatus[statusCode] ?? 'Error',
+      message: messages[code] ?? exception.message,
     };
   }
 

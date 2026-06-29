@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { generateUniqueRefId } from '@packages/common';
+import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddCartItemDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartItemEntity } from '../entities/cart-item.entity';
 import { CartEntity } from '../entities/cart.entity';
@@ -21,6 +25,7 @@ type CartSummaryItem = {
   unitPrice: number;
   totalPrice: number;
   stock: number;
+  primaryImageUrl: IStorageFileReferenceResponse | null;
 };
 
 type CartSummary = {
@@ -36,6 +41,7 @@ export class CartService {
     private readonly dataSource: DataSource,
     private readonly cartsRepository: CartsRepository,
     private readonly cartItemsRepository: CartItemsRepository,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartSummary> {
@@ -77,7 +83,7 @@ export class CartService {
       return { cartId: '', items: [], subtotal: 0, totalItems: 0 };
     }
 
-    return this.toCartSummary(cart);
+    return await this.toCartSummary(cart);
   }
 
   async updateQuantity(userId: string, itemId: string, dto: UpdateCartItemDto): Promise<CartSummary> {
@@ -164,23 +170,29 @@ export class CartService {
     }
   }
 
-  private toCartSummary(cart: CartEntity): CartSummary {
-    const items = (cart.items ?? []).map((item): CartSummaryItem => {
-      const variant = item.variant as ProductVariantEntity | undefined;
-      const product = item.product as ProductEntity | undefined;
-      const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
-      return {
-        id: item.id,
-        productId: item.productId,
-        variantId: item.variantId,
-        productName: product?.name ?? '',
-        sku: variant?.sku ?? '',
-        quantity: item.quantity,
-        unitPrice,
-        totalPrice: unitPrice * item.quantity,
-        stock: variant?.stock ?? 0,
-      };
-    });
+  private async toCartSummary(cart: CartEntity): Promise<CartSummary> {
+    const items = await Promise.all(
+      (cart.items ?? []).map(async (item): Promise<CartSummaryItem> => {
+        const variant = item.variant as ProductVariantEntity | undefined;
+        const product = item.product as ProductEntity | undefined;
+        const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
+        const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
+        const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
+
+        return {
+          id: item.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: product?.name ?? '',
+          sku: variant?.sku ?? '',
+          quantity: item.quantity,
+          unitPrice,
+          totalPrice: unitPrice * item.quantity,
+          stock: variant?.stock ?? 0,
+          primaryImageUrl,
+        };
+      }),
+    );
 
     return {
       cartId: cart.id,
@@ -188,5 +200,28 @@ export class CartService {
       subtotal: items.reduce((sum, x) => sum + x.totalPrice, 0),
       totalItems: items.reduce((sum, x) => sum + x.quantity, 0),
     };
+  }
+
+  private resolvePrimaryImageRef(
+    product: ProductEntity | undefined,
+    variantId: string,
+  ): IStorageFileReference | null {
+    const media = (product?.media ?? []).filter(
+      (item: ProductMediaEntity) => item.type === ProductMediaType.IMAGE,
+    );
+    if (!media.length) {
+      return null;
+    }
+
+    const variantMedia = media.filter((item) => item.variantId === variantId);
+    const variantPrimary = variantMedia.find((item) => item.isPrimary) ?? variantMedia[0];
+    if (variantPrimary?.url) {
+      return variantPrimary.url;
+    }
+
+    const productMedia = media.filter((item) => !item.variantId);
+    const productPrimary =
+      productMedia.find((item) => item.isPrimary) ?? productMedia[0] ?? media[0];
+    return productPrimary?.url ?? null;
   }
 }

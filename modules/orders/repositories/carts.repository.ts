@@ -16,7 +16,7 @@ export class CartsRepository {
       where: { userId, isActive: true },
       relations: {
         items: {
-          product: true,
+          product: { media: true },
           variant: true,
         },
       },

@@ -8,7 +8,7 @@ export const normalizeStorageKey = (stored: string | null | undefined): string |
 
   if (value.startsWith('http://') || value.startsWith('https://')) {
     const gcsMatch = value.match(GCS_OBJECT_PATH_PATTERN);
-    if (gcsMatch?.[1]) return decodeURIComponent(gcsMatch[1].split('?')[0]!);
+    if (gcsMatch?.[1]) return gcsMatch[1].split('?')[0]!;
 
     const filesIndex = value.indexOf('/files/');
     if (filesIndex >= 0) return value.slice(filesIndex + '/files/'.length).split('?')[0]!;

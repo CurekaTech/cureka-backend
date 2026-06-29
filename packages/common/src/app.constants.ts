@@ -6,4 +6,6 @@ export const APP_CONSTANTS = {
   FASTIFY_MAX_PARAM_LENGTH: 512,
   /** User-facing max length for product and variant URL slugs. */
   PRODUCT_URL_SLUG_MAX_LENGTH: 200,
+  /** Max file parts per multipart request (product media + variant images + size chart). */
+  DEFAULT_MAX_MULTIPART_FILES: 50,
 } as const;

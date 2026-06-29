@@ -423,6 +423,7 @@ export class ProductsService {
 
     await this.dataSource.transaction(async (manager) => {
       await this.productsRepository.updateByRefId(refId, payload, manager);
+      await this.relationsRepository.cleanupLegacyManualMediaKeys(manager, existing.id);
 
       if (resolved) {
         if (dto.healthConcernRefIds) {
