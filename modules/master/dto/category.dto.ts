@@ -55,6 +55,10 @@ export class CreateCategoryDto {
 
   @IsOptional()
   @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
   metaDescription?: string;
 
   @IsOptional()
@@ -77,6 +81,12 @@ export class CreateCategoryDto {
   @IsArray()
   @IsRefId({ each: true })
   attributeRefIds?: string[];
+
+  @IsOptional()
+  @Transform(parseJsonArray)
+  @IsArray()
+  @IsRefId({ each: true })
+  categoryFilterRefIds?: string[];
 
   @IsOptional()
   @Transform(parseBoolean)

@@ -36,7 +36,11 @@ export class StorageUrlEnricher {
       items.map((item) => this.storageService.persistFileReference(pickReference(item))),
     );
 
-    return items.map((item, index) => assignReference(item, references[index] ?? null));
+    return items.map((item, index) => {
+      const reference = references[index] ?? null;
+      if (!reference) return item;
+      return assignReference(item, reference);
+    });
   }
 
   async enrichFields<T extends object>(item: T, fields: Array<keyof T & string>): Promise<T> {

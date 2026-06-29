@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
+import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
@@ -22,8 +23,9 @@ export class CategoriesRepository {
   async createCategory(
     data: Partial<CategoryEntity>,
     attributes: AttributeEntity[],
+    categoryFilters: CategoryFilterEntity[] = [],
   ): Promise<CategoryEntity> {
-    const entity = this.repo.create({ ...data, attributes });
+    const entity = this.repo.create({ ...data, attributes, categoryFilters });
     return this.repo.save(entity);
   }
 
@@ -32,6 +34,7 @@ export class CategoriesRepository {
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.parent', 'parent')
       .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.id = :id', { id })
       .getOne();
   }
@@ -41,6 +44,7 @@ export class CategoriesRepository {
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.parent', 'parent')
       .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.refId = :refId', { refId })
       .getOne();
   }
@@ -50,6 +54,7 @@ export class CategoriesRepository {
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.parent', 'parent')
       .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.slug = :slug', { slug })
       .getOne();
   }
@@ -88,6 +93,7 @@ export class CategoriesRepository {
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.parent', 'parent')
       .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);
@@ -120,6 +126,7 @@ export class CategoriesRepository {
     return this.repo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.createdAt', 'ASC')
       .getMany();
@@ -156,6 +163,7 @@ export class CategoriesRepository {
     id: string,
     data: Partial<CategoryEntity>,
     attributes?: AttributeEntity[],
+    categoryFilters?: CategoryFilterEntity[],
   ): Promise<CategoryEntity | null> {
     const entity = await this.findById(id);
     if (!entity) return null;
@@ -163,6 +171,9 @@ export class CategoriesRepository {
     Object.assign(entity, data);
     if (attributes !== undefined) {
       entity.attributes = attributes;
+    }
+    if (categoryFilters !== undefined) {
+      entity.categoryFilters = categoryFilters;
     }
 
     return this.repo.save(entity);

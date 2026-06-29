@@ -4,10 +4,10 @@ import {
   buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 import {
+  CategoryFilterQueryDto,
   CreateCategoryFilterDto,
   UpdateCategoryFilterDto,
   UpdateCategoryFilterStatusDto,
@@ -18,10 +18,14 @@ import {
   mapCategoryFilterEntityToResponse,
 } from '../mappers/category-filter.mapper';
 import { CategoryFiltersRepository } from '../repositories/category-filters.repository';
+import { CategoriesRepository } from '../repositories/categories.repository';
 
 @Injectable()
 export class CategoryFiltersService {
-  constructor(private readonly categoryFiltersRepository: CategoryFiltersRepository) {}
+  constructor(
+    private readonly categoryFiltersRepository: CategoryFiltersRepository,
+    private readonly categoriesRepository: CategoriesRepository,
+  ) {}
 
   async create(dto: CreateCategoryFilterDto, createdBy: string): Promise<ICategoryFilter> {
     const entity = await this.categoryFiltersRepository.create({
@@ -37,14 +41,32 @@ export class CategoryFiltersService {
     return mapCategoryFilterEntityToResponse(entity);
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<ICategoryFilter>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: CategoryFilterQueryDto): Promise<PaginatedResult<ICategoryFilter>> {
+    let categoryId = query.categoryId;
+
+    if (query.categoryRefId) {
+      const category = await this.categoriesRepository.findByRefId(query.categoryRefId);
+      if (!category) {
+        throw new NotFoundException(`Category with refId "${query.categoryRefId}" not found`);
+      }
+      categoryId = category.id;
+    } else if (categoryId) {
+      const category = await this.categoriesRepository.findById(categoryId);
+      if (!category) {
+        throw new NotFoundException(`Category with id "${categoryId}" not found`);
+      }
+    }
+
+    const options = {
+      ...buildPaginationOptions(query),
+      categoryId,
+    };
     const { data, total } =
-      await this.categoryFiltersRepository.findAllPaginated(paginationOptions);
+      await this.categoryFiltersRepository.findAllPaginated(options);
     return buildPaginatedResult(
       mapCategoryFilterEntitiesToResponse(data),
       total,
-      paginationOptions,
+      options,
     );
   }
 
