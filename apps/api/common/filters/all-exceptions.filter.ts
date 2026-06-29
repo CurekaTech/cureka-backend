@@ -4,24 +4,16 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
-  Injectable,
   Logger,
 } from '@nestjs/common';
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { PinoLogger, InjectPinoLogger } from 'nestjs-pino';
 import { ApiErrorResponse } from '@packages/common';
 import { QueryFailedError } from 'typeorm';
 import { UploadSizeLimitExceededError } from '@packages/storage';
 
 @Catch()
-@Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly nestLogger = new Logger(AllExceptionsFilter.name);
-
-  constructor(
-    @InjectPinoLogger(AllExceptionsFilter.name)
-    private readonly logger: PinoLogger,
-  ) {}
+  private readonly logger = new Logger(AllExceptionsFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -44,8 +36,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       void response.status(normalized.statusCode).send(errorResponse);
     } catch (sendError) {
       this.logger.error(
-        { err: sendError },
-        'Failed to send error response',
+        `Failed to send error response: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+        sendError instanceof Error ? sendError.stack : undefined,
       );
     }
   }
@@ -117,25 +109,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
     message: string | string[],
   ): void {
     const err = exception instanceof Error ? exception : new Error(String(exception));
-    const context = {
-      err,
-      statusCode,
-      method: request.method,
-      url: request.url,
-      message,
-    };
+    const summary = `${request.method} ${request.url} -> ${statusCode}: ${
+      Array.isArray(message) ? message.join(', ') : message
+    }`;
 
     if (statusCode >= 500) {
-      this.logger.error(context, 'Request failed with server error');
-      this.nestLogger.error(
-        `${request.method} ${request.url} -> ${statusCode}: ${Array.isArray(message) ? message.join(', ') : message}`,
-        err.stack,
-      );
+      this.logger.error(summary, err.stack);
       return;
     }
 
     if (statusCode === HttpStatus.BAD_REQUEST) {
-      this.logger.warn(context, 'Request failed with bad request');
+      this.logger.warn(summary);
     }
   }
 }
