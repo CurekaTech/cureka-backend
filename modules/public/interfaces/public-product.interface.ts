@@ -71,6 +71,8 @@ export interface IPublicProductCard {
   codAvailable: boolean;
   publishedAt: Date | null;
   tags: Array<{ refId: string; name: string; slug: string }>;
+  /** Primary list variant — lowest-price active variant, or the only active variant for simple products. */
+  variantId: string | null;
 }
 
 export interface IPublicProductVariant {

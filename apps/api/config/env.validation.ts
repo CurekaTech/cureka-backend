@@ -52,7 +52,8 @@ export const envValidationSchema = Joi.object({
   DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),
   STORAGE_DRIVER: Joi.string().valid('local', 'gcs').default('local'),
   UPLOAD_DIR: Joi.string().optional(),
-  UPLOAD_MAX_FILE_SIZE: Joi.number().default(5242880),
+  UPLOAD_MAX_IMAGE_FILE_SIZE: Joi.number().default(1048576),
+  UPLOAD_MAX_VIDEO_FILE_SIZE: Joi.number().default(20971520),
   UPLOAD_ALLOWED_MIME_TYPES: Joi.string().optional(),
   GCS_BUCKET_NAME: Joi.string().when('STORAGE_DRIVER', {
     is: 'gcs',

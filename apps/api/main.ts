@@ -8,7 +8,6 @@ import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { AppModule } from './app.module';
-import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { resolveUploadDir } from './config/storage.config';
 import { APP_CONSTANTS } from '@packages/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -23,7 +22,7 @@ async function bootstrap(): Promise<void> {
   const corsOriginsEnv =
     'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://localhost:3001,http://localhost:3002';
   const uploadDir = resolveUploadDir(process.env['UPLOAD_DIR']);
-  const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_FILE_SIZE'] ?? '5242880', 10);
+  const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10);
   const corsOrigin: string[] | true = corsOriginsEnv
     ? corsOriginsEnv
         .split(',')
@@ -102,9 +101,6 @@ async function bootstrap(): Promise<void> {
       },
     }),
   );
-
-  // Global filters
-  app.useGlobalFilters(new AllExceptionsFilter());
 
   // Graceful shutdown
   app.enableShutdownHooks();
