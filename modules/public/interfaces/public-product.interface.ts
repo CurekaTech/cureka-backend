@@ -53,10 +53,13 @@ export interface IPublicProductVariantSearchItem {
 }
 
 export interface IPublicProductCard {
+  id: string;
   refId: string;
   name: string;
   slug: string;
   productType: ProductType;
+  /** Default variant UUID for add-to-cart from listing cards. */
+  defaultVariantId: string | null;
   categoryRefId: string;
   categoryName: string;
   subCategoryRefId: string | null;
@@ -107,6 +110,7 @@ export interface IPublicProductMedia {
 }
 
 export interface IPublicProductDetail {
+  id: string;
   refId: string;
   name: string;
   slug: string;
