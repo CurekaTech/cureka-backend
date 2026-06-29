@@ -5,49 +5,49 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { PinoLogger, InjectPinoLogger } from 'nestjs-pino';
 import { ApiErrorResponse } from '@packages/common';
 import { QueryFailedError } from 'typeorm';
 import { UploadSizeLimitExceededError } from '@packages/storage';
 
-type FastifyRequestWithLog = FastifyRequest & {
-  log?: {
-    error: (obj: Record<string, unknown>, msg?: string) => void;
-    warn: (obj: Record<string, unknown>, msg?: string) => void;
-  };
-};
-
 @Catch()
 @Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
-  constructor(private readonly configService: ConfigService) {}
+  private readonly nestLogger = new Logger(AllExceptionsFilter.name);
+
+  constructor(
+    @InjectPinoLogger(AllExceptionsFilter.name)
+    private readonly logger: PinoLogger,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<FastifyReply>();
-    const request = ctx.getRequest<FastifyRequestWithLog>();
+    const request = ctx.getRequest<FastifyRequest>();
 
     const normalized = this.normalizeException(exception);
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    const clientMessage =
-      normalized.statusCode < 500 || !isProduction
-        ? normalized.message
-        : 'Internal server error';
-
     this.logException(request, normalized.statusCode, exception, normalized.message);
 
     const errorResponse: ApiErrorResponse = {
       success: false,
       statusCode: normalized.statusCode,
       error: normalized.error,
-      message: clientMessage,
+      message: normalized.message,
       timestamp: new Date().toISOString(),
       path: request.url,
     };
 
-    void response.status(normalized.statusCode).send(errorResponse);
+    try {
+      void response.status(normalized.statusCode).send(errorResponse);
+    } catch (sendError) {
+      this.logger.error(
+        { err: sendError },
+        'Failed to send error response',
+      );
+    }
   }
 
   private normalizeException(exception: unknown): {
@@ -111,13 +111,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   private logException(
-    request: FastifyRequestWithLog,
+    request: FastifyRequest,
     statusCode: number,
     exception: unknown,
     message: string | string[],
   ): void {
-    const logPayload = {
-      err: exception,
+    const err = exception instanceof Error ? exception : new Error(String(exception));
+    const context = {
+      err,
       statusCode,
       method: request.method,
       url: request.url,
@@ -125,12 +126,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
 
     if (statusCode >= 500) {
-      request.log?.error(logPayload, 'Request failed with server error');
+      this.logger.error(context, 'Request failed with server error');
+      this.nestLogger.error(
+        `${request.method} ${request.url} -> ${statusCode}: ${Array.isArray(message) ? message.join(', ') : message}`,
+        err.stack,
+      );
       return;
     }
 
     if (statusCode === HttpStatus.BAD_REQUEST) {
-      request.log?.warn(logPayload, 'Request failed with bad request');
+      this.logger.warn(context, 'Request failed with bad request');
     }
   }
 }
