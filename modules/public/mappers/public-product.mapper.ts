@@ -161,6 +161,7 @@ export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPub
 
 export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail =>
   ({
+  id: entity.id,
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,

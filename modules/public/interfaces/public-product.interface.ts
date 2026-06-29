@@ -109,6 +109,7 @@ export interface IPublicProductMedia {
 }
 
 export interface IPublicProductDetail {
+  id: string;
   refId: string;
   name: string;
   slug: string;
