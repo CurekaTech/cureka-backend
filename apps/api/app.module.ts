@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { appConfig, databaseConfig, jwtConfig, storageConfig, envValidationSchema } from './config';
 import { DatabaseModule } from './database/database.module';
@@ -12,6 +12,7 @@ import { UsersModule } from '@modules/users/users.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
 import { PublicModule } from '@modules/public/public.module';
 import { ProductModule } from '@modules/product/product.module';
@@ -60,6 +61,7 @@ import { OrdersModule } from '@modules/orders/orders.module';
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })
 export class AppModule {}

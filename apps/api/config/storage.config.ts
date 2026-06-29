@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 import { isAbsolute, join } from 'path';
-import { ALLOWED_IMAGE_MIME_TYPES } from '@packages/storage';
+import { ALLOWED_UPLOAD_MIME_TYPES } from '@packages/storage';
 
 export const resolveUploadDir = (dir?: string): string => {
   const value = dir ?? process.env['UPLOAD_DIR'] ?? 'uploads';
@@ -15,10 +15,11 @@ export const resolveGcsCredentialsPath = (pathValue?: string): string | undefine
 export const storageConfig = registerAs('storage', () => ({
   driver: process.env['STORAGE_DRIVER'] ?? 'local',
   uploadDir: resolveUploadDir(),
-  maxFileSize: parseInt(process.env['UPLOAD_MAX_FILE_SIZE'] ?? '5242880', 10),
+  maxImageFileSize: parseInt(process.env['UPLOAD_MAX_IMAGE_FILE_SIZE'] ?? '1048576', 10),
+  maxVideoFileSize: parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10),
   allowedMimeTypes: process.env['UPLOAD_ALLOWED_MIME_TYPES']
     ? process.env['UPLOAD_ALLOWED_MIME_TYPES'].split(',').map((t) => t.trim()).filter(Boolean)
-    : [...ALLOWED_IMAGE_MIME_TYPES],
+    : [...ALLOWED_UPLOAD_MIME_TYPES],
   gcs: {
     bucket: process.env['GCS_BUCKET_NAME'],
     credentialsPath: resolveGcsCredentialsPath(process.env['GCS_CREDENTIALS_PATH']),

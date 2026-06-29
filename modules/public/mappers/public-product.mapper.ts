@@ -20,6 +20,23 @@ const toNumber = (value: string | number | null | undefined): number | null => {
 const getActiveVariants = (entity: ProductEntity) =>
   (entity.variants ?? []).filter((variant) => variant.status === VariantStatus.ACTIVE);
 
+const resolveListVariant = (entity: ProductEntity): ProductVariantEntity | null => {
+  const activeVariants = getActiveVariants(entity);
+  if (!activeVariants.length) {
+    return null;
+  }
+
+  if (activeVariants.length === 1) {
+    return activeVariants[0]!;
+  }
+
+  return activeVariants.reduce((best, current) => {
+    const bestPrice = toNumber(best.sellingPrice) ?? 0;
+    const currentPrice = toNumber(current.sellingPrice) ?? 0;
+    return currentPrice < bestPrice ? current : best;
+  });
+};
+
 const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary => {
   const activeVariants = getActiveVariants(entity);
   const sellingPrices = activeVariants.map((variant) => toNumber(variant.sellingPrice) ?? 0);
@@ -128,6 +145,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   productNatureName: entity.productNature?.name ?? null,
   primaryImageUrl: getPrimaryImageUrl(entity),
   pricing: buildPriceSummary(entity),
+  variantId: resolveListVariant(entity)?.id ?? null,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
   publishedAt: entity.publishedAt,
