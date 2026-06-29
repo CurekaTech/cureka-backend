@@ -2,9 +2,15 @@ import { ProductEntity } from '@modules/product/entities/product.entity';
 import { mapCategoryFilters } from '@modules/product/mappers/product.mapper';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
+import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
+import { PackerEntity } from '@modules/master/entities/packer.entity';
+import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import {
   IPublicCategorySummary,
+  IPublicImporterSummary,
+  IPublicManufacturerSummary,
+  IPublicPackerSummary,
   IPublicProductCard,
   IPublicProductDetail,
   IPublicProductPriceSummary,
@@ -66,6 +72,62 @@ const mapCategorySummary = (category: CategoryEntity | null | undefined): IPubli
     refId: category.refId,
     name: category.name,
     slug: category.slug,
+  };
+};
+
+const mapManufacturerToPublic = (
+  entity: ManufacturerEntity | null | undefined,
+): IPublicManufacturerSummary | null => {
+  if (!entity) return null;
+  return {
+    refId: entity.refId,
+    name: entity.name,
+    code: entity.code,
+    logo: entity.logo ?? null,
+    description: entity.description,
+    contactPerson: entity.contactPerson,
+    email: entity.email,
+    mobileNumber: entity.mobileNumber,
+    address: entity.address,
+    gstNumber: entity.gstNumber,
+    drugLicenseNumber: entity.drugLicenseNumber,
+  };
+};
+
+const mapPackerToPublic = (entity: PackerEntity | null | undefined): IPublicPackerSummary | null => {
+  if (!entity) return null;
+  return {
+    refId: entity.refId,
+    name: entity.name,
+    code: entity.code,
+    logo: entity.logo ?? null,
+    description: entity.description,
+    contactPerson: entity.contactPerson,
+    email: entity.email,
+    mobileNumber: entity.mobileNumber,
+    address: entity.address,
+    gstNumber: entity.gstNumber,
+    drugLicenseNumber: entity.drugLicenseNumber,
+    remarks: entity.remarks,
+  };
+};
+
+const mapImporterToPublic = (
+  entity: ImporterEntity | null | undefined,
+): IPublicImporterSummary | null => {
+  if (!entity) return null;
+  return {
+    refId: entity.refId,
+    name: entity.name,
+    code: entity.code,
+    iec: entity.iec,
+    logo: entity.logo ?? null,
+    contactPerson: entity.contactPerson,
+    email: entity.email,
+    mobileNumber: entity.mobileNumber,
+    address: entity.address,
+    gstNumber: entity.gstNumber,
+    drugLicenseNumber: entity.drugLicenseNumber,
   };
 };
 
@@ -182,6 +244,13 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   brandName: entity.brand?.name ?? null,
   manufacturerRefId: entity.manufacturer?.refId ?? null,
   manufacturerName: entity.manufacturer?.name ?? null,
+  packerRefId: entity.packer?.refId ?? null,
+  packerName: entity.packer?.name ?? null,
+  importerRefId: entity.importer?.refId ?? null,
+  importerName: entity.importer?.name ?? null,
+  manufacturer: mapManufacturerToPublic(entity.manufacturer),
+  packer: mapPackerToPublic(entity.packer),
+  importer: mapImporterToPublic(entity.importer),
   countryOfOriginRefId: entity.countryOfOrigin?.refId ?? null,
   countryOfOriginName: entity.countryOfOrigin?.name ?? null,
   productInformation: entity.productInformation ?? [],
