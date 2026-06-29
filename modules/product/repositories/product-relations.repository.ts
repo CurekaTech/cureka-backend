@@ -240,6 +240,32 @@ export class ProductRelationsRepository {
     await this.createMedia(manager, productId, media, skuToVariantId);
   }
 
+  async cleanupLegacyManualMediaKeys(
+    manager: EntityManager,
+    productId: string,
+  ): Promise<void> {
+    await manager
+      .createQueryBuilder()
+      .delete()
+      .from(ProductMediaEntity)
+      .where('product_id = :productId', { productId })
+      .andWhere(
+        `(
+          (url->>'key') ILIKE :legacyImagePrefix
+          OR (url->>'key') ILIKE :legacyVideoPrefix
+          OR url::text ILIKE :legacyImageTextPattern
+          OR url::text ILIKE :legacyVideoTextPattern
+        )`,
+        {
+          legacyImagePrefix: 'images/products/%',
+          legacyVideoPrefix: 'videos/products/%',
+          legacyImageTextPattern: '%images/products/%',
+          legacyVideoTextPattern: '%videos/products/%',
+        },
+      )
+      .execute();
+  }
+
   async findProductFaqByRefId(refId: string): Promise<ProductFaqEntity | null> {
     return this.productFaqRepo.findOne({ where: { refId } });
   }

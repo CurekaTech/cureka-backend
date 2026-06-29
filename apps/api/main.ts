@@ -23,6 +23,10 @@ async function bootstrap(): Promise<void> {
     'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://localhost:3001,http://localhost:3002';
   const uploadDir = resolveUploadDir(process.env['UPLOAD_DIR']);
   const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10);
+  const uploadMaxMultipartFiles = parseInt(
+    process.env['UPLOAD_MAX_MULTIPART_FILES'] ?? String(APP_CONSTANTS.DEFAULT_MAX_MULTIPART_FILES),
+    10,
+  );
   const corsOrigin: string[] | true = corsOriginsEnv
     ? corsOriginsEnv
         .split(',')
@@ -60,7 +64,7 @@ async function bootstrap(): Promise<void> {
   // Multipart uploads (Fastify-native; swap storage provider for GCS later)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (app as any).register(fastifyMultipart, {
-    limits: { fileSize: uploadMaxFileSize, files: 5 },
+    limits: { fileSize: uploadMaxFileSize, files: uploadMaxMultipartFiles },
   });
 
   // Serve locally stored files when using local storage driver
