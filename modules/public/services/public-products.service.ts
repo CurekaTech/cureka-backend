@@ -176,10 +176,16 @@ export class PublicProductsService {
         const byProductSlug = await this.productsRepository.findPublishedBySlug(slug);
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
-          const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
+          const matchedVariant =
+            detail.variants.find((variant) => variant.slug === slug) ??
+            detail.variants[0];
           this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
           return matchedVariant
-            ? { ...detail, selectedVariantId: matchedVariant.id, selectedVariantSlug: matchedVariant.slug }
+            ? {
+                ...detail,
+                selectedVariantId: matchedVariant.id,
+                selectedVariantSlug: matchedVariant.slug,
+              }
             : detail;
         }
 

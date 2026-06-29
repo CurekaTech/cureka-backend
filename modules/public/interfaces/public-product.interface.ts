@@ -78,10 +78,13 @@ export interface IPublicProductVariantSearchItem {
 }
 
 export interface IPublicProductCard {
+  id: string;
   refId: string;
   name: string;
   slug: string;
   productType: ProductType;
+  /** Default variant UUID for add-to-cart from listing cards. */
+  defaultVariantId: string | null;
   categoryRefId: string;
   categoryName: string;
   subCategoryRefId: string | null;
@@ -155,10 +158,13 @@ export interface IPublicProductDetail {
   brandName: string | null;
   manufacturerRefId: string | null;
   manufacturerName: string | null;
+  manufacturerAddress: string | null;
   packerRefId: string | null;
   packerName: string | null;
+  packerAddress: string | null;
   importerRefId: string | null;
   importerName: string | null;
+  importerAddress: string | null;
   manufacturer: IPublicManufacturerSummary | null;
   packer: IPublicPackerSummary | null;
   importer: IPublicImporterSummary | null;
