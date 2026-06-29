@@ -159,13 +159,10 @@ export interface IPublicProductDetail {
   brandName: string | null;
   manufacturerRefId: string | null;
   manufacturerName: string | null;
-  manufacturerAddress: string | null;
   packerRefId: string | null;
   packerName: string | null;
-  packerAddress: string | null;
   importerRefId: string | null;
   importerName: string | null;
-  importerAddress: string | null;
   manufacturer: IPublicManufacturerSummary | null;
   packer: IPublicPackerSummary | null;
   importer: IPublicImporterSummary | null;

@@ -374,42 +374,28 @@ export class PublicProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
-    const variants = this.attachVariantImages(product.variants, media);
+    const manufacturer = product.manufacturer
+      ? await this.enrichPartySummary(product.manufacturer)
+      : null;
+    const packer = product.packer ? await this.enrichPartySummary(product.packer) : null;
+    const importer = product.importer ? await this.enrichPartySummary(product.importer) : null;
 
-    return { ...product, media, wellnessGoals, productInformation, sizeChart, variants };
+    return {
+      ...product,
+      media,
+      wellnessGoals,
+      productInformation,
+      sizeChart,
+      manufacturer,
+      packer,
+      importer,
+    };
   }
 
-  private attachVariantImages(
-    variants: IPublicProductDetail['variants'],
-    media: IPublicProductDetail['media'],
-  ): IPublicProductDetail['variants'] {
-    const imageMedia = media
-      .filter((item) => item.type === ProductMediaType.IMAGE)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    const productImages = imageMedia.filter((item) => !item.variantId);
-    const imagesByVariantId = new Map<string, typeof productImages>();
-
-    for (const item of imageMedia) {
-      if (!item.variantId) continue;
-      const list = imagesByVariantId.get(item.variantId) ?? [];
-      list.push(item);
-      imagesByVariantId.set(item.variantId, list);
-    }
-
-    return variants.map((variant) => {
-      const images = imagesByVariantId.get(variant.id) ?? productImages;
-      return {
-        ...variant,
-        images: images.map(({ id, type, url, sortOrder, isPrimary, variantId }) => ({
-          id,
-          type,
-          url,
-          sortOrder,
-          isPrimary,
-          variantId,
-        })),
-      };
-    });
+  private async enrichPartySummary<
+    T extends IPublicManufacturerSummary | IPublicPackerSummary | IPublicImporterSummary,
+  >(party: T): Promise<T> {
+    return this.storageUrlEnricher.enrichFields(party, ['logo']);
   }
 
   private async enrichProductInformation(
