@@ -145,13 +145,17 @@ export class StorageService {
       return isStorageFileReference(stored) ? stored.key : (stored ?? null);
     }
 
-    const url = await (this.provider as IStorageProviderWithAccessibleUrl).getAccessibleUrl(key);
-    const ttlMs = this.getAccessibleUrlCacheTtlMs();
-    if (ttlMs > 0) {
-      this.accessibleUrlCache.set(key, { url, expiresAt: Date.now() + ttlMs });
-    }
+    try {
+      const url = await (this.provider as IStorageProviderWithAccessibleUrl).getAccessibleUrl(key);
+      const ttlMs = this.getAccessibleUrlCacheTtlMs();
+      if (ttlMs > 0) {
+        this.accessibleUrlCache.set(key, { url, expiresAt: Date.now() + ttlMs });
+      }
 
-    return url;
+      return url;
+    } catch {
+      return null;
+    }
   }
 
   async delete(relativePath: string): Promise<void> {

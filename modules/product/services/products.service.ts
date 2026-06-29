@@ -70,13 +70,23 @@ export class ProductsService {
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
-    const dto = await this.productMultipartService.parseCreateProduct(req);
-    return this.createDraft(dto, createdBy);
+    try {
+      const dto = await this.productMultipartService.parseCreateProduct(req);
+      return await this.createDraft(dto, createdBy);
+    } catch (error) {
+      this.logProductCreateFailure('multipart', error);
+      throw error;
+    }
   }
 
   async createFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
-    const dto = await this.productMultipartService.validateJsonBody(body);
-    return this.createDraft(dto, createdBy);
+    try {
+      const dto = await this.productMultipartService.validateJsonBody(body);
+      return await this.createDraft(dto, createdBy);
+    } catch (error) {
+      this.logProductCreateFailure('json', error);
+      throw error;
+    }
   }
 
   async updateFromRequest(
@@ -210,6 +220,12 @@ export class ProductsService {
     await this.emitProductUpdated(product.refId, 'created');
 
     return this.enrichProduct(mapProductEntityToResponse(loaded));
+  }
+
+  private logProductCreateFailure(source: 'json' | 'multipart', error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    this.logger.error(`Product create failed (${source}): ${message}`, stack);
   }
 
   async findAll(query: ProductQueryDto): Promise<PaginatedResult<IProduct>> {
