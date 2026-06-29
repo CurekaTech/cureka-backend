@@ -741,4 +741,71 @@ export class ProductsRepository {
   private async attachListRelations(products: ProductEntity[]): Promise<void> {
     await this.attachDetailRelations(products, this.repo.manager);
   }
+
+  async countPublishedActiveVariants(): Promise<number> {
+    return this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoin('variant.product', 'product')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .getCount();
+  }
+
+  async findPublishedProductsForUnicommerce(options: {
+    page: number;
+    pageSize: number;
+    skus?: string[];
+  }): Promise<ProductEntity[]> {
+    const { skip, take } = buildSkipTake(options.page, options.pageSize);
+
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .skip(skip)
+      .take(take);
+
+    if (options.skus?.length) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+            AND pv.sku IN (:...skus)
+        )`,
+        { skus: options.skus, variantStatus: VariantStatus.ACTIVE },
+      );
+    }
+
+    const data = await qb.getMany();
+    if (!data.length) {
+      return [];
+    }
+
+    await this.attachDetailRelations(data, this.repo.manager);
+
+    for (const product of data) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) =>
+          !variant.deletedAt &&
+          variant.status === VariantStatus.ACTIVE &&
+          (!options.skus?.length || options.skus.includes(variant.sku)),
+      );
+    }
+
+    return data.filter((product) => product.variants.length > 0);
+  }
 }

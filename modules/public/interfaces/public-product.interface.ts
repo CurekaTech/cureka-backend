@@ -133,6 +133,13 @@ export interface IPublicProductDetail {
   brandName: string | null;
   manufacturerRefId: string | null;
   manufacturerName: string | null;
+  manufacturerAddress: string | null;
+  packerRefId: string | null;
+  packerName: string | null;
+  packerAddress: string | null;
+  importerRefId: string | null;
+  importerName: string | null;
+  importerAddress: string | null;
   countryOfOriginRefId: string | null;
   countryOfOriginName: string | null;
   productInformation: IProductInformationItem[];

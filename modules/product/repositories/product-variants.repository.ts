@@ -19,6 +19,7 @@ import {
   validateVariantPricing,
   validateUniqueVariantCombinations,
 } from '../validators/variant.validator';
+import { ProductStatus } from '../enums/product-status.enum';
 import { ProductsRepository } from './products.repository';
 
 const pickVariantUnit = (
@@ -345,6 +346,21 @@ export class ProductVariantsRepository {
 
   async softDeleteById(variantId: string): Promise<void> {
     await this.repo.softDelete(variantId);
+  }
+
+  async findPublishedActiveBySku(sku: string): Promise<ProductVariantEntity | null> {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.sku = :sku', { sku })
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .getOne();
+  }
+
+  async updateStockById(variantId: string, stock: number): Promise<void> {
+    await this.repo.update({ id: variantId }, { stock });
   }
 
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {
