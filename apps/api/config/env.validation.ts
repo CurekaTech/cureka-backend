@@ -73,4 +73,9 @@ export const envValidationSchema = Joi.object({
   UNICOMMERCE_DEFAULT_FACILITY_CODE: Joi.string().optional(),
   UNICOMMERCE_DEFAULT_HSN_CODE: Joi.string().optional(),
   UNICOMMERCE_PRODUCT_BASE_URL: Joi.string().uri().optional(),
+  RAZORPAY_KEY_ID: Joi.string().optional(),
+  RAZORPAY_SECRET: Joi.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: Joi.string().optional(),
+  RAZORPAY_PAYMENT_LINK_EXPIRY_HOURS: Joi.number().integer().min(1).max(8760).default(72),
 });
+
