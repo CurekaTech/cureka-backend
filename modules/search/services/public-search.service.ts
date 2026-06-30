@@ -3,15 +3,15 @@ import { mapProductEntitiesToPublicCards } from '@modules/public/mappers/public-
 import { IPublicProductCard } from '@modules/public/interfaces/public-product.interface';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { PRODUCT_POPULAR_SORT_FIELD } from '../constants/typesense-product.schema';
 import { TypesenseClientService } from './typesense-client.service';
-
-const SEARCH_QUERY_BY =
-  'name,brand,category,subCategory,healthConcerns,wellnessGoals,tags,description';
+import { TypesenseCollectionService } from './typesense-collection.service';
 
 @Injectable()
 export class PublicSearchService {
   constructor(
     private readonly typesenseClient: TypesenseClientService,
+    private readonly collectionService: TypesenseCollectionService,
     private readonly productsRepository: ProductsRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
@@ -22,17 +22,51 @@ export class PublicSearchService {
       return [];
     }
 
-    const client = this.typesenseClient.getSearchClient();
     const collectionName = this.typesenseClient.getCollectionName();
+    const queryBy = await this.collectionService.getSearchQueryBy();
 
-    const result = await client.collections(collectionName).documents().search({
-      q: trimmed,
-      query_by: SEARCH_QUERY_BY,
-      per_page: perPage,
-    });
+    const result = await this.typesenseClient
+      .getSearchClient()
+      .collections(collectionName)
+      .documents()
+      .search({
+        q: trimmed,
+        query_by: queryBy,
+        per_page: perPage,
+      });
 
-    const refIds = (result.hits ?? [])
-      .map((hit) => String((hit.document as Record<string, unknown>)['id'] ?? ''))
+    return this.hydrateSearchHits((result.hits ?? []) as Array<{ document?: Record<string, unknown> }>);
+  }
+
+  async getPopular(perPage = 4): Promise<IPublicProductCard[]> {
+    if (!this.typesenseClient.isEnabled()) {
+      return [];
+    }
+
+    const collectionName = this.typesenseClient.getCollectionName();
+    const canSortByPrice = await this.collectionService.hasCollectionField(
+      PRODUCT_POPULAR_SORT_FIELD,
+    );
+
+    const result = await this.typesenseClient
+      .getSearchClient()
+      .collections(collectionName)
+      .documents()
+      .search({
+        q: '*',
+        query_by: 'name',
+        per_page: perPage,
+        ...(canSortByPrice ? { sort_by: `${PRODUCT_POPULAR_SORT_FIELD}:asc` } : {}),
+      });
+
+    return this.hydrateSearchHits((result.hits ?? []) as Array<{ document?: Record<string, unknown> }>);
+  }
+
+  private async hydrateSearchHits(
+    hits: Array<{ document?: Record<string, unknown> }>,
+  ): Promise<IPublicProductCard[]> {
+    const refIds = hits
+      .map((hit) => String(hit.document?.['id'] ?? ''))
       .filter(Boolean);
 
     if (!refIds.length) {
