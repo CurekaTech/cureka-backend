@@ -16,6 +16,14 @@ const PRODUCT_COLLECTION_FIELDS = [
   { name: 'minSellingPrice', type: 'float' as const, optional: true },
 ];
 
+function getHttpStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'httpStatus' in error) {
+    const status = (error as { httpStatus?: unknown }).httpStatus;
+    return typeof status === 'number' ? status : undefined;
+  }
+  return undefined;
+}
+
 @Injectable()
 export class TypesenseCollectionService implements OnModuleInit {
   private readonly logger = new Logger(TypesenseCollectionService.name);
@@ -41,19 +49,44 @@ export class TypesenseCollectionService implements OnModuleInit {
     const client = this.typesenseClient.getAdminClient();
     const collectionName = this.typesenseClient.getCollectionName();
 
+    let collectionExists = false;
     try {
       await client.collections(collectionName).retrieve();
-      await client.collections(collectionName).update({
-        fields: PRODUCT_COLLECTION_FIELDS.filter((field) => field.name !== 'id'),
-      });
-      this.logger.log(`Typesense collection "${collectionName}" is ready`);
+      collectionExists = true;
+    } catch (error) {
+      if (getHttpStatus(error) !== 404) {
+        throw error;
+      }
+    }
+
+    if (collectionExists) {
+      try {
+        await client.collections(collectionName).update({
+          fields: PRODUCT_COLLECTION_FIELDS.filter((field) => field.name !== 'id'),
+        });
+        this.logger.log(`Typesense collection "${collectionName}" schema updated`);
+      } catch (error) {
+        this.logger.warn(
+          `Typesense collection "${collectionName}" exists; schema patch skipped: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
       return;
-    } catch {
+    }
+
+    try {
       await client.collections().create({
         name: collectionName,
         fields: PRODUCT_COLLECTION_FIELDS,
       });
       this.logger.log(`Typesense collection "${collectionName}" created`);
+    } catch (error) {
+      if (getHttpStatus(error) === 409) {
+        this.logger.log(`Typesense collection "${collectionName}" already exists`);
+        return;
+      }
+      throw error;
     }
   }
 }
