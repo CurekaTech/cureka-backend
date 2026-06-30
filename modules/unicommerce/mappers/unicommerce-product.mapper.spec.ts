@@ -79,4 +79,27 @@ describe('unicommerce-product.mapper', () => {
       ],
     });
   });
+
+  it('returns null when product has no active variants', () => {
+    const product = {
+      refId: 'PRD-002',
+      name: 'Draft Serum',
+      brand: { name: 'Cureka' },
+      media: [],
+      variants: [
+        {
+          id: 'variant-1',
+          sku: 'DRAFT-SKU',
+          status: VariantStatus.INACTIVE,
+          deletedAt: undefined,
+        },
+      ],
+    } as unknown as ProductEntity;
+
+    expect(
+      mapProductToUnicommerceCatalog(product, {
+        imageUrlByMediaId: new Map(),
+      }),
+    ).toBeNull();
+  });
 });

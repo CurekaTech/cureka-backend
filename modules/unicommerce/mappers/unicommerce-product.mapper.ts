@@ -109,7 +109,7 @@ export function mapProductToUnicommerceCatalog(
       sku: variant.sku,
       size: formatUnicommerceSize(variant),
       color: resolveVariantColor(variant),
-      live: true,
+      live: variant.status === VariantStatus.ACTIVE,
       itemPrice: {
         currency: 'INR',
         listingPrice: toNumber(variant.sellingPrice),

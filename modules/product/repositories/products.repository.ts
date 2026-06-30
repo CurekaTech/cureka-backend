@@ -742,6 +742,7 @@ export class ProductsRepository {
     await this.attachDetailRelations(products, this.repo.manager);
   }
 
+  /** Published (live) products with at least one active, non-deleted variant — for Unicommerce catalog sync. */
   async countPublishedActiveVariants(): Promise<number> {
     return this.repo.manager
       .getRepository(ProductVariantEntity)
@@ -750,9 +751,11 @@ export class ProductsRepository {
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.publishedAt IS NOT NULL')
       .getCount();
   }
 
+  /** Only live marketplace catalog: published products with active variants (not draft/inactive/archived). */
   async findPublishedProductsForUnicommerce(options: {
     page: number;
     pageSize: number;
@@ -764,6 +767,7 @@ export class ProductsRepository {
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.brand', 'brand')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.publishedAt IS NOT NULL')
       .andWhere(
         `EXISTS (
           SELECT 1 FROM product_variants pv
