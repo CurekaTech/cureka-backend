@@ -4,4 +4,6 @@ export enum PermissionAction {
   UPDATE = 'update',
   DELETE = 'delete',
   STATUS = 'status',
+  APPROVE = 'approve',
+  REJECT = 'reject',
 }
