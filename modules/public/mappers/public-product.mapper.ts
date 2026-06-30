@@ -26,7 +26,19 @@ const toNumber = (value: string | number | null | undefined): number | null => {
 const getActiveVariants = (entity: ProductEntity) =>
   (entity.variants ?? []).filter((variant) => variant.status === VariantStatus.ACTIVE);
 
-const resolveListVariant = (entity: ProductEntity): ProductVariantEntity | null => {
+const isVariantInStock = (variant: ProductVariantEntity): boolean =>
+  (toNumber(variant.stock) ?? 0) > 0;
+
+const sortVariantsBySellingPrice = (
+  variants: ProductVariantEntity[],
+): ProductVariantEntity[] =>
+  [...variants].sort(
+    (left, right) =>
+      (toNumber(left.sellingPrice) ?? 0) - (toNumber(right.sellingPrice) ?? 0),
+  );
+
+/** Prefer the lowest-price in-stock variant for listing cards and add-to-cart defaults. */
+const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity | null => {
   const activeVariants = getActiveVariants(entity);
   if (!activeVariants.length) {
     return null;
@@ -36,12 +48,27 @@ const resolveListVariant = (entity: ProductEntity): ProductVariantEntity | null 
     return activeVariants[0]!;
   }
 
-  return activeVariants.reduce((best, current) => {
-    const bestPrice = toNumber(best.sellingPrice) ?? 0;
-    const currentPrice = toNumber(current.sellingPrice) ?? 0;
-    return currentPrice < bestPrice ? current : best;
-  });
+  const sorted = sortVariantsBySellingPrice(activeVariants);
+  const inStockVariants = sorted.filter(isVariantInStock);
+  return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
 };
+
+export const pickPreferredPublicVariant = <
+  T extends { sellingPrice: number; stock: number },
+>(
+  variants: T[],
+): T | null => {
+  if (!variants.length) {
+    return null;
+  }
+
+  const sorted = [...variants].sort((left, right) => left.sellingPrice - right.sellingPrice);
+  const inStockVariants = sorted.filter((variant) => variant.stock > 0);
+  return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
+};
+
+const resolveListVariant = (entity: ProductEntity): ProductVariantEntity | null =>
+  pickPreferredListVariant(entity);
 
 const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary => {
   const activeVariants = getActiveVariants(entity);
@@ -56,7 +83,7 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     maxSellingPrice: sellingPrices.length ? Math.max(...sellingPrices) : 0,
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
-    inStock: activeVariants.some((variant) => variant.stock > 0),
+    inStock: activeVariants.some(isVariantInStock),
   };
 };
 
@@ -191,16 +218,8 @@ export const mapVariantEntitiesToPublicSearchItems = (
   variants: ProductVariantEntity[],
 ): IPublicProductVariantSearchItem[] => variants.map(mapVariantEntityToPublicSearchItem);
 
-const getDefaultVariantId = (entity: ProductEntity): string | null => {
-  const activeVariants = getActiveVariants(entity);
-  if (!activeVariants.length) return null;
-
-  const sorted = [...activeVariants].sort(
-    (left, right) =>
-      (toNumber(left.sellingPrice) ?? 0) - (toNumber(right.sellingPrice) ?? 0),
-  );
-  return sorted[0]?.id ?? null;
-};
+const getDefaultVariantId = (entity: ProductEntity): string | null =>
+  pickPreferredListVariant(entity)?.id ?? null;
 
 export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard =>
   ({
