@@ -166,6 +166,10 @@ export interface IPublicProductDetail {
   importerRefId: string | null;
   importerName: string | null;
   importerAddress: string | null;
+  /** Optional enriched party summaries populated by the public API response */
+  manufacturer?: IPublicManufacturerSummary | null;
+  packer?: IPublicPackerSummary | null;
+  importer?: IPublicImporterSummary | null;
   countryOfOriginRefId: string | null;
   countryOfOriginName: string | null;
   productInformation: IProductInformationItem[];
