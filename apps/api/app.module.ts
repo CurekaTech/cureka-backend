@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, storageConfig, envValidationSchema } from './config';
+import { appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
@@ -18,13 +18,14 @@ import { PublicModule } from '@modules/public/public.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
+import { SearchModule } from '@modules/search/search.module';
 
 @Module({
   imports: [
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig],
+      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,
@@ -57,6 +58,7 @@ import { OrdersModule } from '@modules/orders/orders.module';
     ProductModule,
     UnicommerceModule,
     OrdersModule,
+    SearchModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

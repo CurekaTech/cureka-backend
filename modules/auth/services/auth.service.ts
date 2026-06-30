@@ -9,6 +9,7 @@ import { OtpService } from './otp.service';
 import { SessionService } from './session.service';
 import { SessionCacheService } from './session-cache.service';
 import { UsersService } from '@modules/users/services/users.service';
+import { CartService } from '@modules/orders/services/cart.service';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import { OtpPurpose } from '../enums/otp-purpose.enum';
 import {
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly sessionCacheService: SessionCacheService,
     private readonly configService: ConfigService,
     private readonly otpRateLimitService: OtpRateLimitService,
+    private readonly cartService: CartService,
   ) {}
 
   // ── Unified login (UI: email or mobile) ─────────────────────────────────────
@@ -68,19 +70,31 @@ export class AuthService {
     mobileNumber: string,
     otp: string,
     device: IDeviceContext,
+    guestUserId?: string | null,
   ): Promise<IUserAuthTokensResult> {
     const normalized = parseIndianMobileNumber(mobileNumber);
     await this.otpService.verifyOtp(normalized, otp, OtpPurpose.LOGIN);
 
+    const guestSessionUserId = await this.resolveGuestUserId(guestUserId);
+
     let user = await this.usersService.findByMobileNumber(normalized);
 
     if (!user) {
-      user = await this.usersService.createFromMobileNumber(normalized);
-      this.logger.log(`New user created via OTP: ${user.id}`);
+      if (guestSessionUserId) {
+        user = await this.usersService.convertGuestToUser(guestSessionUserId, normalized);
+        this.logger.log(`Guest converted to registered user: ${user.id}`);
+      } else {
+        user = await this.usersService.createFromMobileNumber(normalized);
+        this.logger.log(`New user created via OTP: ${user.id}`);
+      }
     } else if (user.isGuest) {
       user = await this.usersService.convertGuestToUser(user.id, normalized);
       this.logger.log(`Guest converted to registered user: ${user.id}`);
     } else {
+      if (guestSessionUserId && guestSessionUserId !== user.id) {
+        await this.cartService.mergeGuestCartIntoUser(guestSessionUserId, user.id);
+        this.logger.log(`Merged guest cart into user ${user.id}`);
+      }
       await this.usersService.updateLastLoginAt(user.id);
     }
 
@@ -180,6 +194,34 @@ export class AuthService {
 
   resolveDeviceContext(req: FastifyRequest): IDeviceContext {
     return extractDeviceContext(req);
+  }
+
+  async resolveGuestUserIdFromSessionToken(
+    sessionToken?: string,
+  ): Promise<string | null> {
+    if (!sessionToken) {
+      return null;
+    }
+
+    try {
+      const session = await this.sessionService.resolveSessionFromToken(sessionToken);
+      return session.isGuest ? session.sub : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveGuestUserId(guestUserId?: string | null): Promise<string | null> {
+    if (!guestUserId) {
+      return null;
+    }
+
+    try {
+      const user = await this.usersService.findById(guestUserId);
+      return user.isGuest ? user.id : null;
+    } catch {
+      return null;
+    }
   }
 
   getRefreshExpiresInDays(): number {
