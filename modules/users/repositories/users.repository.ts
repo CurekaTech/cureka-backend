@@ -153,6 +153,7 @@ export class UsersRepository {
         'user.status',
         'user.role',
         'user.roleId',
+        'user.createdAt',
         'roleRecord.id',
         'roleRecord.refId',
         'roleRecord.name',

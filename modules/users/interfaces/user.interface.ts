@@ -34,7 +34,10 @@ export interface ICustomerUserListItem {
   refId: string;
   firstName?: string;
   lastName?: string;
+  /** Full name suitable for list display */
+  name: string;
   email?: string;
+  phone?: string;
   mobileNumber?: string;
   isGuest: boolean;
   isRegistered: boolean;
