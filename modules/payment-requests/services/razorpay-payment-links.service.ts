@@ -6,22 +6,22 @@ import Razorpay from 'razorpay';
 @Injectable()
 export class RazorpayPaymentLinksService {
   private readonly logger = new Logger(RazorpayPaymentLinksService.name);
-  private readonly client: Razorpay;
+  private readonly client: Razorpay | null = null;
   private readonly webhookSecret: string;
 
-  private readonly expiryHours: number;
+  private readonly expiryMinutes: number;
 
   constructor(private readonly configService: ConfigService) {
     const keyId = this.configService.get<string>('RAZORPAY_KEY_ID');
     const keySecret = this.configService.get<string>('RAZORPAY_SECRET');
     this.webhookSecret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET') ?? '';
-    this.expiryHours = Number(this.configService.get<string>('RAZORPAY_PAYMENT_LINK_EXPIRY_HOURS') ?? '72');
+    this.expiryMinutes = Number(this.configService.get<string>('RAZORPAY_PAYMENT_LINK_EXPIRY_MINUTES') ?? '4320');
 
     if (!keyId || !keySecret) {
-      throw new Error('RAZORPAY_KEY_ID and RAZORPAY_SECRET are required');
+      this.logger.warn('RAZORPAY_KEY_ID or RAZORPAY_SECRET is missing. Razorpay payment link integration will be inactive.');
+    } else {
+      this.client = new Razorpay({ key_id: keyId, key_secret: keySecret });
     }
-
-    this.client = new Razorpay({ key_id: keyId, key_secret: keySecret });
   }
 
   /**
@@ -30,12 +30,15 @@ export class RazorpayPaymentLinksService {
    */
   getLinkExpiryTimestamp(): number {
     const nowMs = Date.now();
-    const expiryMs = nowMs + this.expiryHours * 60 * 60 * 1000;
+    const expiryMs = nowMs + this.expiryMinutes * 60 * 1000;
     return Math.floor(expiryMs / 1000);
   }
 
 
   async createPaymentLink(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new InternalServerErrorException('Razorpay client is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_SECRET in environment.');
+    }
     try {
       return (await (this.client.paymentLink.create as (input: unknown) => Promise<unknown>)(
         payload,
@@ -47,6 +50,10 @@ export class RazorpayPaymentLinksService {
   }
 
   async cancelPaymentLink(linkId: string) {
+    if (!this.client) {
+      this.logger.warn('Razorpay client not configured; skipping payment link cancel request');
+      return null;
+    }
     try {
       return await this.client.paymentLink.cancel(linkId);
     } catch (error) {
@@ -54,6 +61,7 @@ export class RazorpayPaymentLinksService {
       return null;
     }
   }
+
 
   verifyWebhookSignature(rawBody: string, signature: string | undefined): void {
     if (!signature) {
