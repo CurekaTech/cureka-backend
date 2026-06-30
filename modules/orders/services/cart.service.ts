@@ -21,6 +21,7 @@ type CartSummaryItem = {
   variantId: string;
   productName: string;
   sku: string;
+  variantLabel: string | null;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -242,6 +243,7 @@ export class CartService {
           variantId: item.variantId,
           productName: product?.name ?? '',
           sku: variant?.sku ?? '',
+          variantLabel: this.formatVariantLabel(variant),
           quantity: item.quantity,
           unitPrice,
           totalPrice: unitPrice * item.quantity,
@@ -257,6 +259,27 @@ export class CartService {
       subtotal: items.reduce((sum, x) => sum + x.totalPrice, 0),
       totalItems: items.reduce((sum, x) => sum + x.quantity, 0),
     };
+  }
+
+  private formatVariantLabel(variant?: ProductVariantEntity): string | null {
+    const attributeValues = variant?.attributeValues ?? [];
+    if (!attributeValues.length) {
+      return null;
+    }
+
+    const parts = attributeValues
+      .map((item) => {
+        const value = item.value?.trim();
+        if (!value) {
+          return null;
+        }
+
+        const name = item.attribute?.name?.trim();
+        return name ? `${name}: ${value}` : value;
+      })
+      .filter((part): part is string => Boolean(part));
+
+    return parts.length ? parts.join(' · ') : null;
   }
 
   private resolvePrimaryImageRef(
