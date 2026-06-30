@@ -1,6 +1,7 @@
-import { Column, Entity, Index } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '@packages/database';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
+import { RoleEntity } from '@modules/roles/entities/role.entity';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserGender } from '../enums/user-gender.enum';
@@ -43,6 +44,14 @@ export class UserEntity extends BaseEntity {
     default: UserRole.CUSTOMER,
   })
   role!: UserRole;
+
+  @Index('IDX_users_role_id')
+  @Column({ name: 'role_id', type: 'uuid', nullable: true })
+  roleId?: string;
+
+  @ManyToOne(() => RoleEntity, { nullable: true })
+  @JoinColumn({ name: 'role_id' })
+  roleRecord?: RoleEntity;
 
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt?: Date;

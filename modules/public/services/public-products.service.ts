@@ -20,6 +20,7 @@ import { ProductMasterResolverService } from '@modules/product/services/product-
 import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
 import { enrichProductInformation } from '@modules/product/utils/product-information.util';
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
+import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {
@@ -373,28 +374,42 @@ export class PublicProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
-    const manufacturer = product.manufacturer
-      ? await this.enrichPartySummary(product.manufacturer)
-      : null;
-    const packer = product.packer ? await this.enrichPartySummary(product.packer) : null;
-    const importer = product.importer ? await this.enrichPartySummary(product.importer) : null;
+    const variants = this.attachVariantImages(product.variants, media);
 
-    return {
-      ...product,
-      media,
-      wellnessGoals,
-      productInformation,
-      sizeChart,
-      manufacturer,
-      packer,
-      importer,
-    };
+    return { ...product, media, wellnessGoals, productInformation, sizeChart, variants };
   }
 
-  private async enrichPartySummary<
-    T extends IPublicManufacturerSummary | IPublicPackerSummary | IPublicImporterSummary,
-  >(party: T): Promise<T> {
-    return this.storageUrlEnricher.enrichFields(party, ['logo']);
+  private attachVariantImages(
+    variants: IPublicProductDetail['variants'],
+    media: IPublicProductDetail['media'],
+  ): IPublicProductDetail['variants'] {
+    const imageMedia = media
+      .filter((item) => item.type === ProductMediaType.IMAGE)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const productImages = imageMedia.filter((item) => !item.variantId);
+    const imagesByVariantId = new Map<string, typeof productImages>();
+
+    for (const item of imageMedia) {
+      if (!item.variantId) continue;
+      const list = imagesByVariantId.get(item.variantId) ?? [];
+      list.push(item);
+      imagesByVariantId.set(item.variantId, list);
+    }
+
+    return variants.map((variant) => {
+      const images = imagesByVariantId.get(variant.id) ?? productImages;
+      return {
+        ...variant,
+        images: images.map(({ id, type, url, sortOrder, isPrimary, variantId }) => ({
+          id,
+          type,
+          url,
+          sortOrder,
+          isPrimary,
+          variantId,
+        })),
+      };
+    });
   }
 
   private async enrichProductInformation(

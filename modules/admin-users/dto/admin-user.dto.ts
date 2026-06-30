@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -11,6 +12,9 @@ import {
   MinLength,
 } from 'class-validator';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
+import { UserRole } from '@modules/users/enums/user-role.enum';
+import { UserStatus } from '@modules/users/enums/user-status.enum';
+import { IsRefId } from '@packages/common';
 
 export class CreateAdminUserDto {
   @IsNotEmpty()
@@ -41,16 +45,29 @@ export class CreateAdminUserDto {
   @IsOptional()
   @IsEnum(AdminUserRole)
   role?: AdminUserRole = AdminUserRole.ADMIN;
+
+  @IsOptional()
+  @IsRefId()
+  roleRefId?: string;
 }
 
 export class UpdateAdminUserDto extends PartialType(
-  OmitType(CreateAdminUserDto, ['email', 'password'] as const),
+  OmitType(CreateAdminUserDto, ['email', 'password', 'role'] as const),
 ) {
   @IsOptional()
-  @IsEnum(AdminUserRole)
-  role?: AdminUserRole;
+  @IsEmail()
+  @MaxLength(255)
+  email?: string;
+
+  @IsOptional()
+  @IsIn([...Object.values(AdminUserRole), ...Object.values(UserRole)])
+  role?: AdminUserRole | UserRole;
 
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsEnum(UserStatus)
+  status?: UserStatus;
 }

@@ -125,6 +125,7 @@ export interface IPublicProductVariant {
     attributeName: string;
     value: string;
   }>;
+  images?: IPublicProductMedia[];
 }
 
 export interface IPublicProductMedia {
