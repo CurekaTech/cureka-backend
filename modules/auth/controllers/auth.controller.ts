@@ -78,7 +78,15 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<IUserAuthResponse> {
     const device = this.authService.resolveDeviceContext(req);
-    const result = await this.authService.verifyOtp(dto.mobileNumber, dto.otp, device);
+    const sessionToken = getSessionTokenFromRequest(req);
+    const guestUserId =
+      await this.authService.resolveGuestUserIdFromSessionToken(sessionToken);
+    const result = await this.authService.verifyOtp(
+      dto.mobileNumber,
+      dto.otp,
+      device,
+      guestUserId,
+    );
 
     setUserSessionCookie(
       reply,

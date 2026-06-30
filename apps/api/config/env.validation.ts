@@ -73,4 +73,8 @@ export const envValidationSchema = Joi.object({
   UNICOMMERCE_DEFAULT_FACILITY_CODE: Joi.string().optional(),
   UNICOMMERCE_DEFAULT_HSN_CODE: Joi.string().optional(),
   UNICOMMERCE_PRODUCT_BASE_URL: Joi.string().uri().optional(),
+  TYPESENSE_HOST: Joi.string().optional(),
+  TYPESENSE_API_KEY: Joi.string().optional(),
+  TYPESENSE_SEARCH_API_KEY: Joi.string().optional(),
+  TYPESENSE_COLLECTION: Joi.string().default('products'),
 });

@@ -1,0 +1,28 @@
+import { Module } from '@nestjs/common';
+import { MasterModule } from '@modules/master/master.module';
+import { ProductModule } from '@modules/product/product.module';
+import { UploadsModule } from '@modules/uploads/uploads.module';
+import { PublicSearchController } from './controllers/public-search.controller';
+import { BrandTypesenseListener } from './listeners/brand-typesense.listener';
+import { CategoryTypesenseListener } from './listeners/category-typesense.listener';
+import { ProductTypesenseListener } from './listeners/product-typesense.listener';
+import { PublicSearchService } from './services/public-search.service';
+import { TypesenseClientService } from './services/typesense-client.service';
+import { TypesenseCollectionService } from './services/typesense-collection.service';
+import { TypesenseIndexerService } from './services/typesense-indexer.service';
+
+@Module({
+  imports: [ProductModule, MasterModule, UploadsModule],
+  controllers: [PublicSearchController],
+  providers: [
+    TypesenseClientService,
+    TypesenseCollectionService,
+    TypesenseIndexerService,
+    PublicSearchService,
+    ProductTypesenseListener,
+    BrandTypesenseListener,
+    CategoryTypesenseListener,
+  ],
+  exports: [TypesenseIndexerService, PublicSearchService],
+})
+export class SearchModule {}

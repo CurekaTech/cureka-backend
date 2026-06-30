@@ -808,4 +808,129 @@ export class ProductsRepository {
 
     return data.filter((product) => product.variants.length > 0);
   }
+
+  async findPublishedProductsForSearch(options: {
+    page: number;
+    pageSize: number;
+  }): Promise<ProductEntity[]> {
+    const { skip, take } = buildSkipTake(options.page, options.pageSize);
+
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .leftJoin('product.brand', 'brand')
+      .addSelect(['brand.id', 'brand.name'])
+      .leftJoin('product.category', 'category')
+      .addSelect(['category.id', 'category.name'])
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .skip(skip)
+      .take(take);
+
+    const data = await qb.getMany();
+    if (!data.length) {
+      return [];
+    }
+
+    await this.attachDetailRelations(data, this.repo.manager);
+
+    for (const product of data) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+      );
+    }
+
+    return data.filter((product) => product.variants.length > 0);
+  }
+
+  async findPublishedByRefIds(refIds: string[]): Promise<ProductEntity[]> {
+    if (!refIds.length) {
+      return [];
+    }
+
+    const products = await this.repo.find({
+      where: { refId: In(refIds), status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+      },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    await this.attachDetailRelations(products, this.repo.manager);
+
+    for (const product of products) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+      );
+    }
+
+    const productByRefId = new Map(products.map((product) => [product.refId, product]));
+    return refIds
+      .map((refId) => productByRefId.get(refId))
+      .filter((product): product is ProductEntity => Boolean(product?.variants.length));
+  }
+
+  async findPublishedRefIdsByBrandId(brandId: string): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .select('product.refId', 'refId')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.brandId = :brandId', { brandId })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .getRawMany<{ refId: string }>();
+
+    return rows.map((row) => row.refId);
+  }
+
+  async findPublishedRefIdsByCategoryId(categoryId: string): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .select('product.refId', 'refId')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `(
+          product.category_id = :categoryId OR
+          product.sub_category_id = :categoryId OR
+          product.sub_sub_category_id = :categoryId OR
+          product.sub_sub_sub_category_id = :categoryId
+        )`,
+        { categoryId },
+      )
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .getRawMany<{ refId: string }>();
+
+    return rows.map((row) => row.refId);
+  }
 }
