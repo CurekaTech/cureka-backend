@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DataSource } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
@@ -10,6 +11,7 @@ import { CheckoutDto } from '../dto/checkout.dto';
 import { OrderQueryDto, PlaceOrderDto } from '../dto/order.dto';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 
@@ -147,6 +149,109 @@ export class OrdersService {
       updatedBy: userId,
     });
     return this.findOne(userId, id);
+  }
+
+  async createOrderFromPaymentRequest(params: {
+    customerId: string;
+    paymentRequestId: string;
+    paymentRequestRefId: string;
+    subtotal: string;
+    discountAmount: string;
+    shippingAmount: string;
+    grandTotal: string;
+    notes: string | null;
+    items: Array<{
+      productId: string;
+      variantId: string;
+      quantity: number;
+      unitPrice: string;
+      totalPrice: string;
+    }>;
+  }) {
+    return this.dataSource.transaction(async (manager) => {
+      const address = await manager.getRepository(UserAddressEntity).findOne({
+        where: { userId: params.customerId, isDefault: true },
+        order: { updatedAt: 'DESC' },
+      });
+
+      const orderRefId = await generateUniqueRefId('order', (candidate) =>
+        this.ordersRepository.existsByRefId(candidate),
+      );
+      const orderNumber = await this.generateOrderNumber();
+
+      const createdOrder = await this.ordersRepository.create(
+        {
+          refId: orderRefId,
+          orderNumber,
+          userId: params.customerId,
+          subtotal: params.subtotal,
+          discountAmount: params.discountAmount,
+          shippingAmount: params.shippingAmount,
+          grandTotal: params.grandTotal,
+          paymentMethod: OrderPaymentMethod.RAZORPAY,
+          paymentStatus: OrderPaymentStatus.PAID,
+          orderStatus: OrderStatus.CONFIRMED,
+          recipientName: address?.recipientName ?? 'Customer',
+          phoneNumber: address?.phoneNumber ?? '0000000000',
+          pincode: address?.pincode ?? '000000',
+          addressLine1: address?.addressLine1 ?? 'Address not provided',
+          addressLine2: address?.addressLine2 ?? null,
+          landmark: address?.landmark ?? null,
+          city: address?.city ?? 'NA',
+          state: address?.state ?? 'NA',
+          notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
+          placedAt: new Date(),
+          createdBy: 'razorpay-webhook',
+          updatedBy: 'razorpay-webhook',
+        },
+        manager,
+      );
+
+
+      const orderItemsPayload = [];
+      for (const item of params.items) {
+        const variant = await manager.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+          relations: { product: true, attributeValues: true },
+        });
+        if (!variant) throw new BadRequestException('Variant not found while creating order');
+        if (variant.stock < item.quantity) {
+          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+        }
+        await manager.getRepository(ProductVariantEntity).update(
+          { id: item.variantId },
+          { stock: variant.stock - item.quantity },
+        );
+        const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
+          this.orderItemsRepository.existsByRefId(candidate),
+        );
+        orderItemsPayload.push({
+          refId: orderItemRefId,
+          orderId: createdOrder.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          sku: variant.sku,
+          productName: variant.product?.name ?? '',
+          variantName: variant.attributeValues?.length
+            ? variant.attributeValues.map((value) => value.value).join(' / ')
+            : null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          createdBy: 'razorpay-webhook',
+          updatedBy: 'razorpay-webhook',
+        });
+      }
+
+      await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+      const order = await this.ordersRepository.findByIdAndUserId(
+        createdOrder.id,
+        params.customerId,
+        manager,
+      );
+      if (!order) throw new NotFoundException('Order not found after creation');
+      return order;
+    });
   }
 
   private async generateOrderNumber(): Promise<string> {

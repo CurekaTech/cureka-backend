@@ -12,11 +12,13 @@ import { UserAddressesService } from './services/user-addresses.service';
 import { UsersController } from './controllers/users.controller';
 import { UserAddressesController } from './controllers/user-addresses.controller';
 import { StaffUsersController } from './controllers/staff-users.controller';
+import { AdminCustomersController } from './controllers/admin-customers.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([UserEntity, UserAddressEntity]), UploadsModule, RolesModule],
-  controllers: [UsersController, UserAddressesController, StaffUsersController],
+  controllers: [UsersController, UserAddressesController, StaffUsersController, AdminCustomersController],
   providers: [UsersService, UsersRepository, UserAddressesService, UserAddressesRepository, StaffUsersService],
-  exports: [UsersService, UserAddressesService, StaffUsersService],
+  // Export UsersRepository so PaymentRequestsModule can inject it directly for entity-level queries.
+  exports: [UsersService, UserAddressesService, StaffUsersService, UsersRepository],
 })
 export class UsersModule {}

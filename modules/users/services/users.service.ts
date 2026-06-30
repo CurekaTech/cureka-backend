@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
-import { UpdateUserProfileAdminDto, UpdateUserProfileDto } from '../dto/user.dto';
+import { CreateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto } from '../dto/user.dto';
 import { ICustomerUserListItem, IUser } from '../interfaces/user.interface';
 import {
   mapCustomerUserEntitiesToListItems,
@@ -81,6 +81,46 @@ export class UsersService {
       roleId: roleRecord?.id,
       refId,
       createdBy: mobileNumber,
+    });
+
+    return this.enrichUser(mapUserEntityToResponse(entity));
+  }
+
+  /**
+   * Admin-facing customer creation — used by the payment-request wizard to create
+   * a new customer with full profile details in one step.
+   */
+  async createCustomer(dto: CreateAdminCustomerDto, createdBy: string): Promise<IUser> {
+    const mobileTaken = await this.usersRepository.existsByMobileNumber(dto.mobileNumber);
+    if (mobileTaken) {
+      throw new ConflictException('A customer with this mobile number already exists');
+    }
+
+    if (dto.email) {
+      const emailTaken = await this.usersRepository.existsByEmail(dto.email);
+      if (emailTaken) {
+        throw new ConflictException('A customer with this email already exists');
+      }
+    }
+
+    const refId = await generateUniqueRefId('user', (id) =>
+      this.usersRepository.existsByRefId(id),
+    );
+
+    const roleRecord = await this.resolveRoleRecord(UserRole.CUSTOMER);
+    const entity = await this.usersRepository.create({
+      refId,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      mobileNumber: dto.mobileNumber,
+      email: dto.email,
+      role: UserRole.CUSTOMER,
+      roleId: roleRecord?.id,
+      isGuest: false,
+      isRegistered: true,
+      status: UserStatus.ACTIVE,
+      createdBy,
+      updatedBy: createdBy,
     });
 
     return this.enrichUser(mapUserEntityToResponse(entity));

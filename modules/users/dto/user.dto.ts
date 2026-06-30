@@ -149,3 +149,27 @@ export class StaffUserQueryDto {
   @IsIn([UserRole.VENDOR, UserRole.TELECALLER])
   role?: UserRole;
 }
+
+/** Admin DTO to create a new customer user (used in payment-request wizard). */
+export class CreateAdminCustomerDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  firstName!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  lastName!: string;
+
+  @Transform(normalizeMobileField)
+  @IsNotEmpty({ message: 'Mobile number is required.' })
+  @IsString()
+  @Matches(INDIAN_MOBILE_REGEX, { message: INDIAN_MOBILE_VALIDATION_MESSAGE })
+  mobileNumber!: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(255)
+  email?: string;
+}
