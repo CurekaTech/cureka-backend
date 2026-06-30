@@ -18,6 +18,7 @@ import { PublicModule } from '@modules/public/public.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
+import { RolesModule } from '@modules/roles/roles.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { OrdersModule } from '@modules/orders/orders.module';
     ProductModule,
     UnicommerceModule,
     OrdersModule,
+    RolesModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

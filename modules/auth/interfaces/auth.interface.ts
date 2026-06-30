@@ -1,4 +1,5 @@
 import { IAdminUser } from '@modules/admin-users/interfaces/admin-user.interface';
+import { IRole } from '@modules/roles/interfaces/role.interface';
 import { IUser } from '@modules/users/interfaces/user.interface';
 export type { IJwtPayload, IAdminJwtPayload } from '@packages/auth';
 
@@ -7,6 +8,8 @@ export type { IJwtPayload, IAdminJwtPayload } from '@packages/auth';
 export interface IAdminAuthResponse {
   accessToken: string;
   user: IAdminUser;
+  role?: IRole;
+  permissions: string[];
 }
 
 // ── User Auth (opaque session cookie — no JWT) ─────────────────────────────

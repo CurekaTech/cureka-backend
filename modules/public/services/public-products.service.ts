@@ -20,6 +20,7 @@ import { ProductMasterResolverService } from '@modules/product/services/product-
 import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
 import { enrichProductInformation } from '@modules/product/utils/product-information.util';
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
+import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import {

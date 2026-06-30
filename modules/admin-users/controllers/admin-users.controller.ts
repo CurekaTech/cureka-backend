@@ -11,6 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+
 import { RefIdPipe } from '@packages/common';
 import { AdminUsersService } from '../services/admin-users.service';
 import { CreateAdminUserDto, UpdateAdminUserDto } from '../dto/admin-user.dto';
@@ -21,45 +22,56 @@ import { Roles } from '@packages/auth';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
 import { CurrentAdminUser } from '@packages/auth';
 import { IAdminJwtPayload } from '@packages/auth';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('admin-users')
 export class AdminUsersController {
   constructor(private readonly adminUsersService: AdminUsersService) {}
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('users.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateAdminUserDto, @CurrentAdminUser() user: IAdminJwtPayload) {
-    return this.adminUsersService.create(dto, user.email);
+    return this.adminUsersService.create(
+      dto,
+      user.email,
+      user.role as AdminUserRole,
+    );
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('users.read')
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
     return this.adminUsersService.findAll(query);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @Get(':refId')
-  findOne(@Param('refId', RefIdPipe) refId: string) {
-    return this.adminUsersService.findOne(refId);
+  @RequirePermissions('users.read')
+  @Get(':refIdOrId')
+  findOne(@Param('refIdOrId') refIdOrId: string) {
+    return this.adminUsersService.findOne(refIdOrId);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Patch(':refId')
-  update(@Param('refId', RefIdPipe) refId: string, @Body() dto: UpdateAdminUserDto) {
-    return this.adminUsersService.update(refId, dto);
+  @RequirePermissions('users.update')
+  @Patch(':refIdOrId')
+  update(
+    @Param('refIdOrId') refIdOrId: string,
+    @Body() dto: UpdateAdminUserDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.adminUsersService.update(refIdOrId, dto, user.role as AdminUserRole);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
-  @Delete(':refId')
+  @RequirePermissions('users.delete')
+  @Delete(':refIdOrId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('refId', RefIdPipe) refId: string) {
-    return this.adminUsersService.remove(refId);
+  remove(@Param('refIdOrId') refIdOrId: string) {
+    return this.adminUsersService.remove(refIdOrId);
   }
 }

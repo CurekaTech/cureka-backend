@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { UserEntity } from '../entities/user.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { UserRole } from '../enums/user-role.enum';
 
 @Injectable()
 export class UsersRepository {
@@ -18,19 +19,19 @@ export class UsersRepository {
   }
 
   async findById(id: string): Promise<UserEntity | null> {
-    return this.repo.findOne({ where: { id } });
+    return this.repo.findOne({ where: { id }, relations: { roleRecord: true } });
   }
 
   async findByRefId(refId: string): Promise<UserEntity | null> {
-    return this.repo.findOne({ where: { refId } });
+    return this.repo.findOne({ where: { refId }, relations: { roleRecord: true } });
   }
 
   async findByMobileNumber(mobileNumber: string): Promise<UserEntity | null> {
-    return this.repo.findOne({ where: { mobileNumber } });
+    return this.repo.findOne({ where: { mobileNumber }, relations: { roleRecord: true } });
   }
 
   async findByEmail(email: string): Promise<UserEntity | null> {
-    return this.repo.findOne({ where: { email } });
+    return this.repo.findOne({ where: { email }, relations: { roleRecord: true } });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -103,6 +104,7 @@ export class UsersRepository {
 
     const qb = this.repo
       .createQueryBuilder('user')
+      .leftJoinAndSelect('user.roleRecord', 'roleRecord')
       .orderBy(sortColumn, sortOrder)
       .addOrderBy('user.createdAt', 'DESC')
       .skip(skip)
@@ -117,6 +119,91 @@ export class UsersRepository {
 
     const [data, total] = await qb.getManyAndCount();
 
+    return { data, total };
+  }
+
+  async findCustomersPaginated(
+    options: PaginationOptions,
+  ): Promise<{ data: UserEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'user.createdAt',
+      firstName: 'user.firstName',
+      lastName: 'user.lastName',
+      email: 'user.email',
+      status: 'user.status',
+      lastLoginAt: 'user.lastLoginAt',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'user.createdAt';
+
+    const qb = this.repo
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.roleRecord', 'roleRecord')
+      .select([
+        'user.id',
+        'user.refId',
+        'user.firstName',
+        'user.lastName',
+        'user.email',
+        'user.mobileNumber',
+        'user.isGuest',
+        'user.isRegistered',
+        'user.status',
+        'user.role',
+        'user.roleId',
+        'roleRecord.id',
+        'roleRecord.refId',
+        'roleRecord.name',
+        'roleRecord.slug',
+        'roleRecord.status',
+      ])
+      .where('user.role = :role', { role: UserRole.CUSTOMER })
+      .orderBy(sortColumn, sortOrder)
+      .addOrderBy('user.createdAt', 'DESC')
+      .skip(skip)
+      .take(take);
+
+    if (options.search) {
+      qb.andWhere(
+        `(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search OR user.mobileNumber ILIKE :search OR user.refId ILIKE :search)`,
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
+  }
+
+  async findStaffPaginated(options: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+    roles: string[];
+  }): Promise<{ data: UserEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.roleRecord', 'roleRecord')
+      .where('user.role IN (:...roles)', { roles: options.roles })
+      .orderBy('user.createdAt', sortOrder)
+      .skip(skip)
+      .take(take);
+
+    if (options.search) {
+      qb.andWhere(
+        `(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search OR user.mobileNumber ILIKE :search OR user.refId ILIKE :search)`,
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 }

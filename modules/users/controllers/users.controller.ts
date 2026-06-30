@@ -37,6 +37,18 @@ export class UsersController {
   }
 
   /**
+   * GET /api/v1/users/customers
+   * Paginated list of normal customer users for admin panel.
+   */
+  @ResponseMessage('Customer users retrieved successfully')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('customers')
+  findCustomers(@Query() query: PaginationQueryDto) {
+    return this.usersService.findCustomers(query);
+  }
+
+  /**
    * GET /api/v1/users/:refId
    * Full user details by refId (super admin only).
    */
