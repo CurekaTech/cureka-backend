@@ -5,7 +5,7 @@ import { PaymentRequestsService } from '../services/payment-requests.service';
 import { RazorpayPaymentLinksService } from '../services/razorpay-payment-links.service';
 
 @ApiExcludeController()
-@Controller('payments/razorpay')
+@Controller('payment')
 export class PaymentsWebhookController {
   constructor(
     private readonly razorpayService: RazorpayPaymentLinksService,
