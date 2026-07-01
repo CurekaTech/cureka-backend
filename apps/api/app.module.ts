@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
+import { appConfig, databaseConfig, jwtConfig, ordersConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
@@ -21,13 +21,14 @@ import { OrdersModule } from '@modules/orders/orders.module';
 import { RolesModule } from '@modules/roles/roles.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { SearchModule } from '@modules/search/search.module';
+import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 
 @Module({
   imports: [
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig],
+      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,
@@ -63,6 +64,7 @@ import { SearchModule } from '@modules/search/search.module';
     RolesModule,
     PaymentRequestsModule,
     SearchModule,
+    AdminSettingsModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

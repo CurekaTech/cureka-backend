@@ -25,8 +25,24 @@ export class OrderEntity extends BaseEntity {
   @Column({ name: 'shipping_amount', type: 'decimal', precision: 12, scale: 2, default: 0 })
   shippingAmount!: string;
 
+  @Column({ name: 'handling_amount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  handlingAmount!: string;
+
   @Column({ name: 'grand_total', type: 'decimal', precision: 12, scale: 2 })
   grandTotal!: string;
+
+  @Index()
+  @Column({ name: 'coupon_id', type: 'uuid', nullable: true })
+  couponId!: string | null;
+
+  @Column({ name: 'coupon_code', type: 'varchar', length: 100, nullable: true })
+  couponCode!: string | null;
+
+  @Column({ name: 'coupon_title', type: 'varchar', length: 255, nullable: true })
+  couponTitle!: string | null;
+
+  @Column({ name: 'coupon_discount_type', type: 'varchar', length: 20, nullable: true })
+  couponDiscountType!: string | null;
 
   @Column({
     name: 'payment_method',

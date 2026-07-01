@@ -8,6 +8,7 @@ export class RazorpayPaymentLinksService {
   private readonly logger = new Logger(RazorpayPaymentLinksService.name);
   private readonly client: Razorpay | null = null;
   private readonly webhookSecret: string;
+  private readonly callbackUrl: string;
 
   private readonly expiryMinutes: number;
 
@@ -16,6 +17,7 @@ export class RazorpayPaymentLinksService {
     const keySecret = this.configService.get<string>('RAZORPAY_SECRET');
     this.webhookSecret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET') ?? '';
     this.expiryMinutes = Number(this.configService.get<string>('RAZORPAY_PAYMENT_LINK_EXPIRY_MINUTES') ?? '4320');
+    this.callbackUrl = this.configService.get<string>('RAZORPAY_CALLBACK_URL') ?? '';
 
     if (!keyId || !keySecret) {
       this.logger.warn('RAZORPAY_KEY_ID or RAZORPAY_SECRET is missing. Razorpay payment link integration will be inactive.');
@@ -24,6 +26,9 @@ export class RazorpayPaymentLinksService {
     }
   }
 
+  getCallbackUrl(): string | null {
+    return this.callbackUrl.trim() || null;
+  }
   getKeyId(): string {
     const keyId = this.configService.get<string>('RAZORPAY_KEY_ID');
     if (!keyId) {

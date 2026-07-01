@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
@@ -17,6 +17,7 @@ import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import {
   CreatePaymentRequestDto,
+  GenerateLinkPrefillDto,
   PaymentRequestItemInputDto,
   PaymentRequestQueryDto,
   UpdatePaymentRequestDto,
@@ -29,6 +30,9 @@ import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
 import { CheckoutVerifyPaymentDto } from '../dto/checkout-verify.dto';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
+import { CashfreePaymentService } from './cashfree-payment.service';
+import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
+import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 
 @Injectable()
 export class PaymentRequestsService {
@@ -45,103 +49,255 @@ export class PaymentRequestsService {
     private readonly paymentRequestsRepository: PaymentRequestsRepository,
     private readonly paymentRequestItemsRepository: PaymentRequestItemsRepository,
     private readonly razorpayService: RazorpayPaymentLinksService,
-  ) {}
+    private readonly cashfreeService: CashfreePaymentService,
+    private readonly gatewayResolver: PaymentGatewayResolverService,
+  ) { }
 
   async checkoutFromCart(userId: string, addressId: string) {
-    const { paymentRequest } = await this.createCheckoutPaymentRequest(userId, addressId);
+    const activeGateway = await this.gatewayResolver.getActiveGateway();
+    if (activeGateway === 'cashfree') {
+      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(userId, addressId);
+      const callbackUrl = this.getStorefrontPaymentCallbackUrl();
+      const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
-    const withLink = await this.generateLink(paymentRequest.id, userId, {
-      callbackUrl: this.getStorefrontPaymentCallbackUrl(),
-    });
-    if (!withLink.paymentLink) {
-      throw new BadRequestException('Failed to generate payment link');
+      const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
+      const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
+
+      const cashfreeOrder = await this.cashfreeService.createOrder({
+        orderId: paymentRequest.refId,
+        amount: Number(totals.totalAmount),
+        currency: paymentRequest.currency,
+        customer: {
+          id: customer.id,
+          email: customer.email ?? undefined,
+          phone: parsedPhone,
+          name,
+        },
+        returnUrl,
+      });
+
+      const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
+      const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
+      if (!paymentSessionId) {
+        throw new BadRequestException('Failed to create Cashfree order');
+      }
+
+      await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+        providerReferenceId: cfOrderId,
+        paymentReference: paymentSessionId,
+        paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
+        paymentProvider: 'CASHFREE',
+        status: PaymentRequestStatus.LINK_GENERATED,
+        updatedBy: userId,
+      });
+
+      await this.cartService.clear(userId);
+
+      return {
+        gateway: 'cashfree',
+        paymentData: {
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          paymentSessionId,
+          cfOrderId,
+          expiresAt: cashfreeOrder['order_expiry_time'] ? new Date(cashfreeOrder['order_expiry_time']) : null,
+          totalAmount: paymentRequest.totalAmount,
+          paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
+        },
+      };
+    } else if (activeGateway === 'payu') {
+      throw new BadRequestException('PayU payment gateway is not fully implemented yet');
+    } else {
+      const { paymentRequest } = await this.createCheckoutPaymentRequest(userId, addressId);
+
+      const withLink = await this.generateLink(paymentRequest.id, userId, undefined, {
+        callbackUrl: this.getStorefrontPaymentCallbackUrl(),
+      });
+      if (!withLink.paymentLink) {
+        throw new BadRequestException('Failed to generate payment link');
+      }
+
+      await this.cartService.clear(userId);
+
+      return {
+        gateway: 'razorpay',
+        paymentData: {
+          paymentRequestId: withLink.id,
+          refId: withLink.refId,
+          paymentLink: withLink.paymentLink,
+          expiresAt: withLink.expiresAt,
+          totalAmount: withLink.totalAmount,
+        },
+      };
     }
-
-    await this.cartService.clear(userId);
-
-    return {
-      paymentRequestId: withLink.id,
-      refId: withLink.refId,
-      paymentLink: withLink.paymentLink,
-      expiresAt: withLink.expiresAt,
-      totalAmount: withLink.totalAmount,
-    };
   }
 
-  /** Storefront Razorpay Checkout modal — separate from payment-link flow. */
+  /** Storefront checkout modal — separate from payment-link flow. */
   async checkoutModalFromCart(userId: string, addressId: string) {
-    const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
-      userId,
-      addressId,
-    );
+    const activeGateway = await this.gatewayResolver.getActiveGateway();
+    if (activeGateway === 'cashfree') {
+      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(userId, addressId);
+      const callbackUrl = this.getStorefrontPaymentCallbackUrl();
+      const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
-    const amountPaise = Math.round(Number(totals.totalAmount) * 100);
-    const razorpayOrder = await this.razorpayService.createOrder({
-      amount: amountPaise,
-      currency: paymentRequest.currency,
-      receipt: paymentRequest.refId,
-      notes: {
-        paymentRequestId: paymentRequest.id,
-        paymentRequestRefId: paymentRequest.refId,
-        customerId: userId,
-      },
-    });
+      const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
+      const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
 
-    const razorpayOrderId = String(razorpayOrder['id'] ?? '');
-    if (!razorpayOrderId) {
-      throw new BadRequestException('Failed to create Razorpay order');
+      const cashfreeOrder = await this.cashfreeService.createOrder({
+        orderId: paymentRequest.refId,
+        amount: Number(totals.totalAmount),
+        currency: paymentRequest.currency,
+        customer: {
+          id: customer.id,
+          email: customer.email ?? undefined,
+          phone: parsedPhone,
+          name,
+        },
+        returnUrl,
+      });
+
+      const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
+      const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
+      if (!paymentSessionId) {
+        throw new BadRequestException('Failed to create Cashfree order');
+      }
+
+      await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+        providerReferenceId: cfOrderId,
+        paymentReference: paymentSessionId,
+        paymentProvider: 'CASHFREE',
+        status: PaymentRequestStatus.LINK_GENERATED,
+        updatedBy: userId,
+      });
+
+      await this.cartService.clear(userId);
+
+      return {
+        gateway: 'cashfree',
+        paymentData: {
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          cfOrderId,
+          paymentSessionId,
+          amount: Number(totals.totalAmount),
+          currency: paymentRequest.currency,
+          appId: this.cashfreeService.getAppId(),
+          environment: this.cashfreeService.getEnv(),
+          totalAmount: paymentRequest.totalAmount,
+          customer: {
+            name,
+            email: customer.email ?? '',
+            contact: parsedPhone,
+          },
+        },
+      };
+    } else if (activeGateway === 'payu') {
+      throw new BadRequestException('PayU payment gateway is not fully implemented yet');
+    } else {
+      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
+        userId,
+        addressId,
+      );
+
+      const amountPaise = Math.round(Number(totals.totalAmount) * 100);
+      const razorpayOrder = await this.razorpayService.createOrder({
+        amount: amountPaise,
+        currency: paymentRequest.currency,
+        receipt: paymentRequest.refId,
+        notes: {
+          paymentRequestId: paymentRequest.id,
+          paymentRequestRefId: paymentRequest.refId,
+          customerId: userId,
+        },
+      });
+
+      const razorpayOrderId = String(razorpayOrder['id'] ?? '');
+      if (!razorpayOrderId) {
+        throw new BadRequestException('Failed to create Razorpay order');
+      }
+
+      await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+        providerReferenceId: razorpayOrderId,
+        paymentReference: razorpayOrderId,
+        status: PaymentRequestStatus.LINK_GENERATED,
+        updatedBy: userId,
+      });
+
+      const customerName =
+        [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+        customer.mobileNumber ||
+        'Customer';
+
+      return {
+        gateway: 'razorpay',
+        paymentData: {
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          razorpayOrderId,
+          amount: Number(razorpayOrder['amount'] ?? amountPaise),
+          currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
+          keyId: this.razorpayService.getKeyId(),
+          totalAmount: paymentRequest.totalAmount,
+          customer: {
+            name: customerName,
+            email: customer.email ?? '',
+            contact: parseIndianMobileNumber(customer.mobileNumber!),
+          },
+        },
+      };
     }
-
-    await this.paymentRequestsRepository.updateById(paymentRequest.id, {
-      providerReferenceId: razorpayOrderId,
-      paymentReference: razorpayOrderId,
-      status: PaymentRequestStatus.LINK_GENERATED,
-      updatedBy: userId,
-    });
-
-    const customerName =
-      [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
-      customer.mobileNumber ||
-      'Customer';
-
-    return {
-      paymentRequestId: paymentRequest.id,
-      refId: paymentRequest.refId,
-      razorpayOrderId,
-      amount: Number(razorpayOrder['amount'] ?? amountPaise),
-      currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
-      keyId: this.razorpayService.getKeyId(),
-      totalAmount: paymentRequest.totalAmount,
-      customer: {
-        name: customerName,
-        email: customer.email ?? '',
-        contact: parseIndianMobileNumber(customer.mobileNumber!),
-      },
-    };
   }
 
   async verifyModalCheckoutPayment(userId: string, dto: CheckoutVerifyPaymentDto) {
-    this.razorpayService.verifyPaymentSignature(
-      dto.razorpay_order_id,
-      dto.razorpay_payment_id,
-      dto.razorpay_signature,
-    );
+    const activeGateway = await this.gatewayResolver.getActiveGateway();
+    if (activeGateway === 'cashfree') {
+      const orderId = dto.cf_order_id;
+      if (!orderId) {
+        throw new BadRequestException('cf_order_id is required for Cashfree verification');
+      }
 
-    const paymentRequest = await this.paymentRequestsRepository.findByProviderReferenceId(
-      dto.razorpay_order_id,
-    );
-    if (!paymentRequest || paymentRequest.customerId !== userId) {
-      throw new NotFoundException('Checkout payment request not found');
+      const cashfreeOrder = await this.cashfreeService.getOrder(orderId);
+      if (cashfreeOrder['order_status'] !== 'PAID') {
+        throw new BadRequestException('Payment verification failed or order is not paid yet');
+      }
+
+      const curekaOrderId = cashfreeOrder['order_id'];
+      const paymentRequest = await this.paymentRequestsRepository.findById(curekaOrderId);
+      if (!paymentRequest || paymentRequest.customerId !== userId) {
+        throw new NotFoundException('Checkout payment request not found');
+      }
+
+      await this.handleCashfreePaymentSuccess(curekaOrderId, dto.cf_payment_id || String(cashfreeOrder['cf_order_id']), userId);
+      await this.cartService.clear(userId);
+
+      return {
+        paymentRequestId: paymentRequest.id,
+        refId: paymentRequest.refId,
+        totalAmount: paymentRequest.totalAmount,
+      };
+    } else {
+      this.razorpayService.verifyPaymentSignature(
+        dto.razorpay_order_id!,
+        dto.razorpay_payment_id!,
+        dto.razorpay_signature!,
+      );
+
+      const paymentRequest = await this.paymentRequestsRepository.findByProviderReferenceId(
+        dto.razorpay_order_id!,
+      );
+      if (!paymentRequest || paymentRequest.customerId !== userId) {
+        throw new NotFoundException('Checkout payment request not found');
+      }
+
+      await this.handlePaymentLinkPaid(dto.razorpay_order_id!, dto.razorpay_payment_id!, userId);
+      await this.cartService.clear(userId);
+
+      return {
+        paymentRequestId: paymentRequest.id,
+        refId: paymentRequest.refId,
+        totalAmount: paymentRequest.totalAmount,
+      };
     }
-
-    await this.handlePaymentLinkPaid(dto.razorpay_order_id, dto.razorpay_payment_id, userId);
-    await this.cartService.clear(userId);
-
-    return {
-      paymentRequestId: paymentRequest.id,
-      refId: paymentRequest.refId,
-      totalAmount: paymentRequest.totalAmount,
-    };
   }
 
   async cancelModalCheckoutPayment(userId: string, dto: CheckoutCancelPaymentDto) {
@@ -296,8 +452,12 @@ export class PaymentRequestsService {
 
   async update(id: string, dto: UpdatePaymentRequestDto, updatedBy: string): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
-    if (existing.status !== PaymentRequestStatus.PAYMENT_PENDING) {
-      throw new BadRequestException('Payment request can only be edited while PAYMENT_PENDING');
+    if (![PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED].includes(existing.status)) {
+      throw new BadRequestException('Payment request can only be edited while pending payment');
+    }
+
+    if (existing.status === PaymentRequestStatus.LINK_GENERATED && existing.providerReferenceId) {
+      await this.razorpayService.cancelPaymentLink(existing.providerReferenceId);
     }
 
     const pricedItems = await this.resolveAndValidateItems(dto.items);
@@ -305,7 +465,7 @@ export class PaymentRequestsService {
 
     return this.dataSource.transaction(async (manager) => {
       await this.paymentRequestsRepository.updateById(
-        id,
+        existing.id,
         {
           subtotal: totals.subtotal,
           discount: totals.discount,
@@ -323,11 +483,11 @@ export class PaymentRequestsService {
         },
         manager,
       );
-      await this.paymentRequestItemsRepository.deleteByPaymentRequestId(id, manager);
+      await this.paymentRequestItemsRepository.deleteByPaymentRequestId(existing.id, manager);
       await this.paymentRequestItemsRepository.createMany(
         pricedItems.map((item) => ({
           refId: item.refId,
-          paymentRequestId: id,
+          paymentRequestId: existing.id,
           productId: item.productId,
           variantId: item.variantId,
           quantity: item.quantity,
@@ -341,7 +501,7 @@ export class PaymentRequestsService {
         manager,
       );
 
-      return (await this.paymentRequestsRepository.findById(id, manager)) as PaymentRequestEntity;
+      return (await this.paymentRequestsRepository.findById(existing.id, manager)) as PaymentRequestEntity;
     });
   }
 
@@ -372,11 +532,11 @@ export class PaymentRequestsService {
     if (existing.providerReferenceId?.startsWith('plink_')) {
       await this.razorpayService.cancelPaymentLink(existing.providerReferenceId);
     }
-    await this.paymentRequestsRepository.updateById(id, {
+    await this.paymentRequestsRepository.updateById(existing.id, {
       status: PaymentRequestStatus.CANCELLED,
       updatedBy,
     });
-    return this.getRequestOrThrow(id);
+    return this.getRequestOrThrow(existing.id);
   }
 
   async softDelete(id: string): Promise<void> {
@@ -384,12 +544,13 @@ export class PaymentRequestsService {
     if (existing.status === PaymentRequestStatus.PAID) {
       throw new BadRequestException('Paid payment request cannot be deleted');
     }
-    await this.paymentRequestsRepository.updateById(id, { deletedAt: new Date() });
+    await this.paymentRequestsRepository.updateById(existing.id, { deletedAt: new Date() });
   }
 
   async generateLink(
     id: string,
     updatedBy: string,
+    prefill?: GenerateLinkPrefillDto,
     options?: { callbackUrl?: string },
   ): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
@@ -405,21 +566,31 @@ export class PaymentRequestsService {
     }
 
     const customer = await this.usersRepository.findById(existing.customerId);
-    if (!customer?.mobileNumber) {
+
+    // Validate prefill if provided
+    if (prefill && Object.keys(prefill).length > 0 && !prefill.phone) {
+      throw new BadRequestException('phone is mandatory when custom prefill details are provided');
+    }
+
+    const finalPhone = prefill?.phone || customer?.mobileNumber;
+    const finalEmail = prefill?.email || customer?.email;
+
+    if (!finalPhone) {
       throw new BadRequestException('Customer phone is required for payment link');
     }
 
     const reference = existing.refId;
     const expireBy = this.razorpayService.getLinkExpiryTimestamp();
-    const link = await this.razorpayService.createPaymentLink({
+
+    const payload: Record<string, any> = {
       amount: amountPaise,
       currency: existing.currency,
       reference_id: reference,
       expire_by: expireBy,
       customer: {
-        name: [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.mobileNumber,
-        contact: customer.mobileNumber,
-        email: customer.email ?? undefined,
+        name: [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || finalPhone,
+        contact: finalPhone,
+        email: finalEmail ?? undefined,
       },
       notes: {
         paymentRequestId: existing.id,
@@ -429,9 +600,24 @@ export class PaymentRequestsService {
       ...(options?.callbackUrl
         ? { callback_url: options.callbackUrl, callback_method: 'get' }
         : {}),
-    });
+    };
 
-    await this.paymentRequestsRepository.updateById(id, {
+    // Format description and display product details
+    const description = this.formatRazorpayDescription(existing);
+    if (description) {
+      payload.description = description;
+    }
+
+    // Add callback redirection URLs if configured
+    const callbackUrl = this.razorpayService.getCallbackUrl();
+    if (callbackUrl) {
+      payload.callback_url = callbackUrl;
+      payload.callback_method = 'get';
+    }
+
+    const link = await this.razorpayService.createPaymentLink(payload);
+
+    await this.paymentRequestsRepository.updateById(existing.id, {
       paymentLink: String((link['short_url'] as string | undefined) ?? (link['url'] as string | undefined) ?? ''),
       providerReferenceId: String(link['id'] as string),
       paymentReference: String((link['reference_id'] as string | undefined) ?? reference),
@@ -440,10 +626,14 @@ export class PaymentRequestsService {
       updatedBy,
     });
     this.logger.log(`Payment link created for payment request ${existing.refId}`);
-    return this.getRequestOrThrow(id);
+    return this.getRequestOrThrow(existing.id);
   }
 
-  async regenerateLink(id: string, updatedBy: string): Promise<PaymentRequestEntity> {
+  async regenerateLink(
+    id: string,
+    updatedBy: string,
+    prefill?: GenerateLinkPrefillDto,
+  ): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
     if (existing.status === PaymentRequestStatus.PAID) {
       throw new BadRequestException('Cannot regenerate link for paid request');
@@ -451,7 +641,7 @@ export class PaymentRequestsService {
     if (existing.providerReferenceId?.startsWith('plink_')) {
       await this.razorpayService.cancelPaymentLink(existing.providerReferenceId);
     }
-    await this.paymentRequestsRepository.updateById(id, {
+    await this.paymentRequestsRepository.updateById(existing.id, {
       status: PaymentRequestStatus.PAYMENT_PENDING,
       paymentLink: null,
       providerReferenceId: null,
@@ -459,7 +649,67 @@ export class PaymentRequestsService {
       expiresAt: null,
       updatedBy,
     });
-    return this.generateLink(id, updatedBy);
+    return this.generateLink(id, updatedBy, prefill);
+  }
+
+  private async markRequestAsPaid(
+    existing: PaymentRequestEntity,
+    providerPaymentId?: string,
+    updatedBy = 'razorpay-webhook',
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (existing.status === PaymentRequestStatus.PAID) {
+      return;
+    }
+
+    const runInTransaction = async (txManager: EntityManager) => {
+      const fresh = await this.paymentRequestsRepository.findById(existing.id, txManager);
+      if (!fresh || fresh.status === PaymentRequestStatus.PAID) {
+        return;
+      }
+
+      await this.paymentRequestsRepository.updateById(
+        fresh.id,
+        {
+          status: PaymentRequestStatus.PAID,
+          paymentReference: providerPaymentId ?? fresh.paymentReference,
+          paidAt: new Date(),
+          updatedBy,
+        },
+        txManager,
+      );
+
+      const shippingVal = Number(fresh.shipping ?? '0') + Number(fresh.handling ?? '0');
+      await this.ordersService.createOrderFromPaymentRequest({
+        customerId: fresh.customerId,
+        paymentRequestId: fresh.id,
+        paymentRequestRefId: fresh.refId,
+        subtotal: fresh.subtotal,
+        discountAmount: fresh.discount,
+        shippingAmount: shippingVal.toFixed(2),
+        grandTotal: fresh.totalAmount,
+        notes: fresh.notes ?? null,
+        paymentMethod: fresh.paymentProvider as OrderPaymentMethod,
+        createdBy: updatedBy,
+        items: fresh.items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.total,
+        })),
+      });
+    };
+
+    if (manager) {
+      await runInTransaction(manager);
+    } else {
+      await this.dataSource.transaction(async (txManager) => {
+        await runInTransaction(txManager);
+      });
+    }
+
+    this.logger.log(`Order created and payment request ${existing.refId} marked as PAID`);
   }
 
   private getStorefrontPaymentCallbackUrl(): string | undefined {
@@ -469,6 +719,19 @@ export class PaymentRequestsService {
       return undefined;
     }
     return `${storefrontUrl}/cart`;
+  }
+
+  async handleCashfreePaymentSuccess(
+    orderId: string,
+    providerPaymentId?: string,
+    updatedBy = 'cashfree-webhook',
+  ): Promise<void> {
+    const existing = await this.paymentRequestsRepository.findById(orderId);
+    if (!existing) {
+      this.logger.warn(`Payment request not found for Cashfree orderId ${orderId}`);
+      return;
+    }
+    await this.markRequestAsPaid(existing, providerPaymentId, updatedBy);
   }
 
   async handlePaymentLinkPaid(
@@ -481,42 +744,34 @@ export class PaymentRequestsService {
       this.logger.warn(`Payment request not found for provider reference ${providerReferenceId}`);
       return;
     }
-    if (existing.status === PaymentRequestStatus.PAID) {
+    await this.markRequestAsPaid(existing, providerPaymentId, updatedBy);
+  }
+
+  async handlePaymentCaptured(paymentRequestId: string, providerPaymentId?: string): Promise<void> {
+    const existing = await this.paymentRequestsRepository.findById(paymentRequestId);
+    if (!existing) {
+      this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
       return;
     }
+    await this.markRequestAsPaid(existing, providerPaymentId);
+  }
 
-    await this.dataSource.transaction(async (manager) => {
-      await this.paymentRequestsRepository.updateById(
-        existing.id,
-        {
-          status: PaymentRequestStatus.PAID,
-          paymentReference: providerPaymentId ?? existing.paymentReference,
-          paidAt: new Date(),
-          updatedBy,
-        },
-        manager,
-      );
-      // Calculate order shippingAmount as shipping + handling
-      const shippingVal = Number(existing.shipping ?? '0') + Number(existing.handling ?? '0');
-      await this.ordersService.createOrderFromPaymentRequest({
-        customerId: existing.customerId,
-        paymentRequestId: existing.id,
-        paymentRequestRefId: existing.refId,
-        subtotal: existing.subtotal,
-        discountAmount: existing.discount,
-        shippingAmount: shippingVal.toFixed(2),
-        grandTotal: existing.totalAmount,
-        notes: existing.notes ?? null,
-        items: existing.items.map((item) => ({
-          productId: item.productId,
-          variantId: item.variantId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.total,
-        })),
-      });
-    });
-    this.logger.log(`Order created from payment request ${existing.refId}`);
+  async handlePaymentFailed(paymentRequestId: string, reason?: string): Promise<void> {
+    const existing = await this.paymentRequestsRepository.findById(paymentRequestId);
+    if (!existing) {
+      this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
+      return;
+    }
+    this.logger.warn(`Payment failed for payment request ${existing.refId}. Reason: ${reason || 'N/A'}`);
+  }
+
+  async handlePaymentPending(paymentRequestId: string): Promise<void> {
+    const existing = await this.paymentRequestsRepository.findById(paymentRequestId);
+    if (!existing) {
+      this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
+      return;
+    }
+    this.logger.log(`Payment attempt pending for payment request ${existing.refId}`);
   }
 
   async handlePaymentLinkCancelled(providerReferenceId: string): Promise<void> {
@@ -535,6 +790,31 @@ export class PaymentRequestsService {
       status: PaymentRequestStatus.EXPIRED,
       updatedBy: 'razorpay-webhook',
     });
+  }
+
+  formatRazorpayDescription(request: PaymentRequestEntity): string {
+    const items = request.items;
+    if (!items || items.length === 0) {
+      return `Payment Request: ${request.refId}`;
+    }
+
+    if (items.length === 1) {
+      const item = items[0];
+      const prodName = item.product?.name || 'Product';
+      const prodDesc = item.product?.description || '';
+      const cleanDesc = prodDesc ? ` - ${prodDesc.replace(/<[^>]*>/g, '').slice(0, 150)}` : '';
+      const cleanPrice = Number(item.unitPrice).toFixed(2);
+      return `${prodName}${cleanDesc} (Qty: ${item.quantity}) · Price: ₹${cleanPrice}`;
+    } else {
+      const itemsList = items
+        .map((item, idx) => `${idx + 1}. ${item.product?.name || 'Product'} (Qty: ${item.quantity})`)
+        .join(', ');
+      const desc = `Items: ${itemsList}`;
+      if (desc.length > 1000) {
+        return desc.slice(0, 997) + '...';
+      }
+      return desc;
+    }
   }
 
   private async getRequestOrThrow(id: string): Promise<PaymentRequestEntity> {

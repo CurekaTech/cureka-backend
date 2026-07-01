@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsUUID, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class AddCartItemDto {
   @IsNotEmpty()
@@ -27,4 +27,11 @@ export class MergeGuestCartDto {
   @IsNotEmpty()
   @IsUUID()
   guestUserId!: string;
+}
+
+export class ApplyCouponDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  couponCode!: string;
 }

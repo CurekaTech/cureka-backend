@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UsersModule } from '@modules/users/users.module';
+import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { PaymentRequestEntity } from './entities/payment-request.entity';
 import { PaymentRequestItemEntity } from './entities/payment-request-item.entity';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
@@ -9,6 +10,8 @@ import { PaymentRequestsRepository } from './repositories/payment-requests.repos
 import { PaymentRequestItemsRepository } from './repositories/payment-request-items.repository';
 import { PaymentRequestsService } from './services/payment-requests.service';
 import { RazorpayPaymentLinksService } from './services/razorpay-payment-links.service';
+import { CashfreePaymentService } from './services/cashfree-payment.service';
+import { PaymentGatewayResolverService } from './services/payment-gateway-resolver.service';
 import { AdminPaymentRequestsController } from './controllers/admin-payment-requests.controller';
 import { CustomerPaymentRequestsController } from './controllers/customer-payment-requests.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
@@ -18,12 +21,15 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     TypeOrmModule.forFeature([PaymentRequestEntity, PaymentRequestItemEntity, AdminUserEntity]),
     UsersModule,
     OrdersModule,
+    AdminSettingsModule,
   ],
   providers: [
     PaymentRequestsRepository,
     PaymentRequestItemsRepository,
     PaymentRequestsService,
     RazorpayPaymentLinksService,
+    CashfreePaymentService,
+    PaymentGatewayResolverService,
   ],
   controllers: [
     AdminPaymentRequestsController,

@@ -15,7 +15,7 @@ import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
-import { AddCartItemDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
+import { AddCartItemDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartService } from '../services/cart.service';
 
 @ApiTags('Cart')
@@ -37,6 +37,20 @@ export class CartController {
   @Get()
   getCart(@CurrentSessionUser() user: IUserSessionContext) {
     return this.cartService.getCart(user.sub);
+  }
+
+  @ApiOperation({ summary: 'Apply coupon to cart' })
+  @ResponseMessage('Coupon applied successfully')
+  @Post('coupon')
+  applyCoupon(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCouponDto) {
+    return this.cartService.applyCoupon(user.sub, dto);
+  }
+
+  @ApiOperation({ summary: 'Remove coupon from cart' })
+  @ResponseMessage('Coupon removed successfully')
+  @Delete('coupon')
+  removeCoupon(@CurrentSessionUser() user: IUserSessionContext) {
+    return this.cartService.removeCoupon(user.sub);
   }
 
   @ApiOperation({ summary: 'Update cart item quantity' })
