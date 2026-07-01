@@ -234,6 +234,8 @@ export class OrdersService {
     shippingAmount: string;
     grandTotal: string;
     notes: string | null;
+    paymentMethod?: OrderPaymentMethod;
+    createdBy?: string;
     items: Array<{
       productId: string;
       variantId: string;
@@ -263,7 +265,7 @@ export class OrdersService {
           shippingAmount: params.shippingAmount,
           handlingAmount: '0',
           grandTotal: params.grandTotal,
-          paymentMethod: OrderPaymentMethod.RAZORPAY,
+          paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
           recipientName: address?.recipientName ?? 'Customer',
@@ -276,8 +278,8 @@ export class OrdersService {
           state: address?.state ?? 'NA',
           notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
           placedAt: new Date(),
-          createdBy: 'razorpay-webhook',
-          updatedBy: 'razorpay-webhook',
+          createdBy: params.createdBy ?? 'razorpay-webhook',
+          updatedBy: params.createdBy ?? 'razorpay-webhook',
         },
         manager,
       );

@@ -85,6 +85,12 @@ export const envValidationSchema = Joi.object({
   /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
   STOREFRONT_URL: Joi.string().uri().optional(),
 
+  CASHFREE_APP_ID: Joi.string().optional(),
+  CASHFREE_SECRET_KEY: Joi.string().optional(),
+  CASHFREE_ENV: Joi.string().valid('sandbox', 'production').default('sandbox'),
+  CASHFREE_API_VERSION: Joi.string().default('2023-08-01'),
+  CASHFREE_WEBHOOK_SECRET: Joi.string().optional(),
+
   TYPESENSE_HOST: Joi.string().optional(),
   TYPESENSE_API_KEY: Joi.string().optional(),
   TYPESENSE_SEARCH_API_KEY: Joi.string().optional(),

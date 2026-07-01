@@ -29,7 +29,6 @@ export class RazorpayPaymentLinksService {
   getCallbackUrl(): string | null {
     return this.callbackUrl.trim() || null;
   }
-
   getKeyId(): string {
     const keyId = this.configService.get<string>('RAZORPAY_KEY_ID');
     if (!keyId) {
