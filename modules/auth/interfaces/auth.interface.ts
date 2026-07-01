@@ -1,6 +1,7 @@
 import { IAdminUser } from '@modules/admin-users/interfaces/admin-user.interface';
 import { IRole } from '@modules/roles/interfaces/role.interface';
 import { IUser } from '@modules/users/interfaces/user.interface';
+import { MenuItem } from '../services/admin-auth.service';
 export type { IJwtPayload, IAdminJwtPayload } from '@packages/auth';
 
 // ── Admin Auth (JWT cookie) ──────────────────────────────────────────────────
@@ -10,6 +11,7 @@ export interface IAdminAuthResponse {
   user: IAdminUser;
   role?: IRole;
   permissions: string[];
+  menu?: MenuItem[];
 }
 
 // ── User Auth (opaque session cookie — no JWT) ─────────────────────────────

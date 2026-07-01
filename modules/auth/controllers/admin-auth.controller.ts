@@ -102,4 +102,11 @@ export class AdminAuthController {
   me(@CurrentUser() user: IJwtPayload) {
     return this.adminAuthService.me(user.sub);
   }
+
+  @ResponseMessage('Menu navigation map retrieved successfully')
+  @UseGuards(JwtAuthGuard)
+  @Get('menu')
+  getMenu(@CurrentUser() user: IJwtPayload) {
+    return this.adminAuthService.getMenuForUser(user.sub);
+  }
 }
