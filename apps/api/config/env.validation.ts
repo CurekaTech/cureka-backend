@@ -77,6 +77,8 @@ export const envValidationSchema = Joi.object({
   RAZORPAY_SECRET: Joi.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: Joi.string().optional(),
   RAZORPAY_PAYMENT_LINK_EXPIRY_MINUTES: Joi.number().integer().min(1).max(525600).default(4320),
+  /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
+  STOREFRONT_URL: Joi.string().uri().optional(),
 
   TYPESENSE_HOST: Joi.string().optional(),
   TYPESENSE_API_KEY: Joi.string().optional(),
