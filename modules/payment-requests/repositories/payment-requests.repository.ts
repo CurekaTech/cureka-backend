@@ -32,10 +32,11 @@ export class PaymentRequestsRepository {
    * - items → product (name, refId)
    * - items → variant (sku, sellingPrice, attribute values)
    */
-  findById(id: string, manager?: EntityManager): Promise<PaymentRequestEntity | null> {
+  findById(idOrRefId: string, manager?: EntityManager): Promise<PaymentRequestEntity | null> {
     const repository = manager ? manager.getRepository(PaymentRequestEntity) : this.repo;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
     return repository.findOne({
-      where: { id },
+      where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
       relations: {
         customer: true,
         items: {

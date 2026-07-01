@@ -3,6 +3,7 @@ import {
   IsArray,
   IsDateString,
   IsDecimal,
+  IsEmail,
   IsEnum,
   IsInt,
   IsOptional,
@@ -188,3 +189,14 @@ export class PaymentRequestQueryDto extends PaginationQueryDto {
   @MaxLength(200)
   search?: string;
 }
+
+export class GenerateLinkPrefillDto {
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+}
+

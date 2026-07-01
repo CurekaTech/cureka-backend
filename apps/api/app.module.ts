@@ -21,6 +21,7 @@ import { OrdersModule } from '@modules/orders/orders.module';
 import { RolesModule } from '@modules/roles/roles.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { SearchModule } from '@modules/search/search.module';
+import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { SearchModule } from '@modules/search/search.module';
     RolesModule,
     PaymentRequestsModule,
     SearchModule,
+    AdminSettingsModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }
