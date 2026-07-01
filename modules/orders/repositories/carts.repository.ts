@@ -15,6 +15,7 @@ export class CartsRepository {
     return repository.findOne({
       where: { userId, isActive: true },
       relations: {
+        coupon: true,
         items: {
           product: { media: true },
           variant: {

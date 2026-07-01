@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
+import { appConfig, databaseConfig, jwtConfig, ordersConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
@@ -27,7 +27,7 @@ import { SearchModule } from '@modules/search/search.module';
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig],
+      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,

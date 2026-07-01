@@ -9,31 +9,24 @@ import { ProductMediaType } from '@modules/product/enums/product-media-type.enum
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
-import { AddCartItemDto, UpdateCartItemDto } from '../dto/cart.dto';
-import { CartItemEntity } from '../entities/cart-item.entity';
+import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
+import { CartLineItem, CartResponse } from '../interfaces/cart-pricing.interface';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
+import { CartPricingService } from './cart-pricing.service';
+import { CouponCheckoutService } from './coupon-checkout.service';
 
-type CartSummaryItem = {
-  id: string;
-  productId: string;
-  variantId: string;
-  productName: string;
-  sku: string;
-  variantLabel: string | null;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  stock: number;
-  primaryImageUrl: IStorageFileReferenceResponse | null;
-};
-
-type CartSummary = {
-  cartId: string;
-  items: CartSummaryItem[];
-  subtotal: number;
-  totalItems: number;
+const EMPTY_CART: CartResponse = {
+  cartId: '',
+  items: [],
+  totalItems: 0,
+  subtotal: 0,
+  coupon: null,
+  discountAmount: 0,
+  shippingAmount: 0,
+  handlingAmount: 0,
+  grandTotal: 0,
 };
 
 @Injectable()
@@ -43,9 +36,11 @@ export class CartService {
     private readonly cartsRepository: CartsRepository,
     private readonly cartItemsRepository: CartItemsRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly cartPricingService: CartPricingService,
+    private readonly couponCheckoutService: CouponCheckoutService,
   ) {}
 
-  async addItem(userId: string, dto: AddCartItemDto): Promise<CartSummary> {
+  async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.getOrCreateActiveCart(userId, manager);
       const variant = await this.getValidVariant(dto.productId, dto.variantId, manager);
@@ -78,16 +73,72 @@ export class CartService {
     });
   }
 
-  async getCart(userId: string, manager = this.dataSource.manager): Promise<CartSummary> {
+  async getCart(userId: string, manager = this.dataSource.manager): Promise<CartResponse> {
     const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
     if (!cart) {
-      return { cartId: '', items: [], subtotal: 0, totalItems: 0 };
+      return { ...EMPTY_CART };
     }
 
-    return await this.toCartSummary(cart);
+    return this.toCartResponse(cart, userId, manager, { clearInvalidCoupon: true });
   }
 
-  async updateQuantity(userId: string, itemId: string, dto: UpdateCartItemDto): Promise<CartSummary> {
+  async applyCoupon(userId: string, dto: ApplyCouponDto): Promise<CartResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
+      if (!cart) throw new BadRequestException('Cart not found');
+      if (!cart.items?.length) throw new BadRequestException('Cart is empty');
+
+      const coupon = await this.couponCheckoutService.findByCode(dto.couponCode);
+      if (!coupon) {
+        throw new NotFoundException(`Coupon code "${dto.couponCode}" not found`);
+      }
+
+      const lineItems = await this.buildLineItems(cart);
+      const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+      await this.couponCheckoutService.validateCoupon(coupon, {
+        userId,
+        subtotal,
+        items: lineItems,
+        manager,
+      });
+
+      await this.cartsRepository.updateById(
+        cart.id,
+        { couponId: coupon.id, updatedBy: userId },
+        manager,
+      );
+
+      const refreshed = await this.cartsRepository.findActiveByUserId(userId, manager);
+      if (!refreshed) throw new BadRequestException('Cart not found');
+      return this.toCartResponse(refreshed, userId, manager);
+    });
+  }
+
+  async removeCoupon(userId: string): Promise<CartResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
+      if (!cart) {
+        return { ...EMPTY_CART };
+      }
+
+      if (cart.couponId) {
+        await this.cartsRepository.updateById(
+          cart.id,
+          { couponId: null, updatedBy: userId },
+          manager,
+        );
+      }
+
+      const refreshed = await this.cartsRepository.findActiveByUserId(userId, manager);
+      if (!refreshed) {
+        return { ...EMPTY_CART };
+      }
+      return this.toCartResponse(refreshed, userId, manager);
+    });
+  }
+
+  async updateQuantity(userId: string, itemId: string, dto: UpdateCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) throw new NotFoundException('Active cart not found');
@@ -102,7 +153,7 @@ export class CartService {
     });
   }
 
-  async removeItem(userId: string, itemId: string): Promise<CartSummary> {
+  async removeItem(userId: string, itemId: string): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) throw new NotFoundException('Active cart not found');
@@ -119,6 +170,9 @@ export class CartService {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) return;
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
+      if (cart.couponId) {
+        await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
+      }
     });
   }
 
@@ -174,10 +228,18 @@ export class CartService {
         }
       }
 
+      if (guestCart.couponId && !targetCart.couponId) {
+        await this.cartsRepository.updateById(
+          targetCart.id,
+          { couponId: guestCart.couponId, updatedBy: toUserId },
+          manager,
+        );
+      }
+
       await this.cartItemsRepository.clearByCartId(guestCart.id, manager);
       await this.cartsRepository.updateById(
         guestCart.id,
-        { isActive: false, updatedBy: toUserId },
+        { isActive: false, couponId: null, updatedBy: toUserId },
         manager,
       );
     });
@@ -197,6 +259,61 @@ export class CartService {
         updatedBy: userId,
       },
       manager,
+    );
+  }
+
+  private async toCartResponse(
+    cart: CartEntity,
+    userId: string,
+    manager = this.dataSource.manager,
+    options?: { clearInvalidCoupon?: boolean },
+  ): Promise<CartResponse> {
+    const items = await this.buildLineItems(cart);
+    const pricing = await this.cartPricingService.calculateCartPricing({
+      userId,
+      cartId: cart.id,
+      couponId: cart.couponId,
+      items,
+      manager,
+      clearInvalidCoupon: options?.clearInvalidCoupon ?? false,
+    });
+
+    return {
+      cartId: cart.id,
+      items,
+      totalItems: items.reduce((sum, item) => sum + item.quantity, 0),
+      ...pricing,
+    };
+  }
+
+  private async buildLineItems(cart: CartEntity): Promise<CartLineItem[]> {
+    return Promise.all(
+      (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
+        const variant = item.variant as ProductVariantEntity | undefined;
+        const product = item.product as ProductEntity | undefined;
+        const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
+        const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
+        const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
+
+        return {
+          id: item.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: product?.name ?? '',
+          sku: variant?.sku ?? '',
+          variantLabel: this.formatVariantLabel(variant),
+          quantity: item.quantity,
+          unitPrice,
+          totalPrice: unitPrice * item.quantity,
+          stock: variant?.stock ?? 0,
+          primaryImageUrl,
+          categoryId: product?.categoryId ?? '',
+          subCategoryId: product?.subCategoryId ?? null,
+          subSubCategoryId: product?.subSubCategoryId ?? null,
+          subSubSubCategoryId: product?.subSubSubCategoryId ?? null,
+          brandId: product?.brandId ?? null,
+        };
+      }),
     );
   }
 
@@ -226,39 +343,6 @@ export class CartService {
     if (requiredQty > stock) {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
-  }
-
-  private async toCartSummary(cart: CartEntity): Promise<CartSummary> {
-    const items = await Promise.all(
-      (cart.items ?? []).map(async (item): Promise<CartSummaryItem> => {
-        const variant = item.variant as ProductVariantEntity | undefined;
-        const product = item.product as ProductEntity | undefined;
-        const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
-        const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
-        const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
-
-        return {
-          id: item.id,
-          productId: item.productId,
-          variantId: item.variantId,
-          productName: product?.name ?? '',
-          sku: variant?.sku ?? '',
-          variantLabel: this.formatVariantLabel(variant),
-          quantity: item.quantity,
-          unitPrice,
-          totalPrice: unitPrice * item.quantity,
-          stock: variant?.stock ?? 0,
-          primaryImageUrl,
-        };
-      }),
-    );
-
-    return {
-      cartId: cart.id,
-      items,
-      subtotal: items.reduce((sum, x) => sum + x.totalPrice, 0),
-      totalItems: items.reduce((sum, x) => sum + x.quantity, 0),
-    };
   }
 
   private formatVariantLabel(variant?: ProductVariantEntity): string | null {

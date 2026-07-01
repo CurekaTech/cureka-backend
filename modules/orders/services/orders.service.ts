@@ -6,6 +6,7 @@ import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
+import { CartsRepository } from '../repositories/carts.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
 import { OrdersRepository } from '../repositories/orders.repository';
 import { CheckoutDto } from '../dto/checkout.dto';
@@ -14,8 +15,10 @@ import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { mapOrderToResponse } from '../mappers/order.mapper';
+import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
+import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
 export class OrdersService {
@@ -24,10 +27,12 @@ export class OrdersService {
     private readonly ordersRepository: OrdersRepository,
     private readonly orderItemsRepository: OrderItemsRepository,
     private readonly cartItemsRepository: CartItemsRepository,
+    private readonly cartsRepository: CartsRepository,
     private readonly cartService: CartService,
     private readonly checkoutService: CheckoutService,
     private readonly userAddressesService: UserAddressesService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly couponCheckoutService: CouponCheckoutService,
   ) {}
 
   checkout(userId: string, dto: CheckoutDto) {
@@ -46,6 +51,18 @@ export class OrdersService {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
 
+      const appliedCoupon = cart.couponId
+        ? await this.couponCheckoutService.findById(cart.couponId)
+        : null;
+
+      if (cart.couponId && !appliedCoupon) {
+        throw new BadRequestException('Applied coupon is no longer available');
+      }
+
+      if (appliedCoupon && !summary.coupon) {
+        throw new BadRequestException('Applied coupon is no longer valid for this cart');
+      }
+
       const orderRefId = await generateUniqueRefId('order', (candidate) =>
         this.ordersRepository.existsByRefId(candidate),
       );
@@ -56,10 +73,15 @@ export class OrdersService {
           refId: orderRefId,
           orderNumber,
           userId,
-          subtotal: summary.subtotal.toFixed(2),
-          discountAmount: summary.discountAmount.toFixed(2),
-          shippingAmount: summary.shippingAmount.toFixed(2),
-          grandTotal: summary.grandTotal.toFixed(2),
+          subtotal: toMoneyString(summary.subtotal),
+          discountAmount: toMoneyString(summary.discountAmount),
+          shippingAmount: toMoneyString(summary.shippingAmount),
+          handlingAmount: toMoneyString(summary.handlingAmount),
+          grandTotal: toMoneyString(summary.grandTotal),
+          couponId: appliedCoupon?.id ?? null,
+          couponCode: appliedCoupon?.code ?? null,
+          couponTitle: appliedCoupon?.title ?? null,
+          couponDiscountType: appliedCoupon?.discountType ?? null,
           paymentMethod: dto.paymentMethod,
           paymentStatus: OrderPaymentStatus.PENDING,
           orderStatus: OrderStatus.PENDING,
@@ -113,7 +135,47 @@ export class OrdersService {
       }
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+
+      if (appliedCoupon) {
+        await this.couponCheckoutService.validateCoupon(appliedCoupon, {
+          userId,
+          subtotal: summary.subtotal,
+          items: summary.items.map((item) => ({
+            id: item.cartItemId,
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: item.productName,
+            sku: item.sku,
+            variantLabel: item.variantName,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            stock: 0,
+            primaryImageUrl: null,
+            categoryId: item.categoryId,
+            subCategoryId: item.subCategoryId,
+            subSubCategoryId: item.subSubCategoryId,
+            subSubSubCategoryId: item.subSubSubCategoryId,
+            brandId: item.brandId,
+          })),
+          manager,
+        });
+
+        await this.couponCheckoutService.incrementUsage(
+          {
+            couponId: appliedCoupon.id,
+            userId,
+            orderId: createdOrder.id,
+            discountAmount: summary.discountAmount,
+          },
+          manager,
+        );
+      }
+
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
+      if (cart.couponId) {
+        await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
+      }
 
       const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
@@ -193,6 +255,7 @@ export class OrdersService {
           subtotal: params.subtotal,
           discountAmount: params.discountAmount,
           shippingAmount: params.shippingAmount,
+          handlingAmount: '0',
           grandTotal: params.grandTotal,
           paymentMethod: OrderPaymentMethod.RAZORPAY,
           paymentStatus: OrderPaymentStatus.PAID,

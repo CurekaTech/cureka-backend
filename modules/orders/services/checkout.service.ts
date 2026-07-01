@@ -1,31 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CheckoutDto } from '../dto/checkout.dto';
+import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
+import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
-
-export type CheckoutItem = {
-  cartItemId: string;
-  productId: string;
-  variantId: string;
-  sku: string;
-  productName: string;
-  variantName: string | null;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-};
-
-export type CheckoutSummary = {
-  items: CheckoutItem[];
-  subtotal: number;
-  discountAmount: number;
-  shippingAmount: number;
-  grandTotal: number;
-};
 
 @Injectable()
 export class CheckoutService {
@@ -33,6 +15,7 @@ export class CheckoutService {
     private readonly dataSource: DataSource,
     private readonly cartService: CartService,
     private readonly userAddressesService: UserAddressesService,
+    private readonly cartPricingService: CartPricingService,
   ) {}
 
   async validateCheckout(userId: string, dto: CheckoutDto): Promise<CheckoutSummary> {
@@ -42,9 +25,52 @@ export class CheckoutService {
     if (!cart) throw new BadRequestException('Cart not found');
     if (!cart.items?.length) throw new BadRequestException('Cart is empty');
 
-    const items = await Promise.all(
-      cart.items.map(async (item) => {
-        const variant = await this.dataSource
+    const items = await this.buildCheckoutItems(cart.items, this.dataSource.manager);
+    const lineItems = items.map((item) => ({
+      id: item.cartItemId,
+      productId: item.productId,
+      variantId: item.variantId,
+      productName: item.productName,
+      sku: item.sku,
+      variantLabel: item.variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      stock: 0,
+      primaryImageUrl: null,
+      categoryId: item.categoryId,
+      subCategoryId: item.subCategoryId,
+      subSubCategoryId: item.subSubCategoryId,
+      subSubSubCategoryId: item.subSubSubCategoryId,
+      brandId: item.brandId,
+    }));
+
+    const pricing = await this.cartPricingService.calculateCartPricing({
+      userId,
+      cartId: cart.id,
+      couponId: cart.couponId,
+      items: lineItems,
+      strict: true,
+    });
+
+    return {
+      items,
+      ...pricing,
+    };
+  }
+
+  private async buildCheckoutItems(
+    cartItems: Array<{
+      id: string;
+      productId: string;
+      variantId: string;
+      quantity: number;
+    }>,
+    manager: EntityManager,
+  ): Promise<CheckoutLineItem[]> {
+    return Promise.all(
+      cartItems.map(async (item) => {
+        const variant = await manager
           .getRepository(ProductVariantEntity)
           .createQueryBuilder('variant')
           .innerJoinAndSelect('variant.product', 'product')
@@ -67,6 +93,7 @@ export class CheckoutService {
         const variantName = variant.attributeValues?.length
           ? variant.attributeValues.map((x) => x.value).join(' / ')
           : null;
+
         return {
           cartItemId: item.id,
           productId: item.productId,
@@ -77,19 +104,13 @@ export class CheckoutService {
           quantity: item.quantity,
           unitPrice,
           totalPrice: unitPrice * item.quantity,
-        } as CheckoutItem;
+          categoryId: variant.product?.categoryId ?? '',
+          subCategoryId: variant.product?.subCategoryId ?? null,
+          subSubCategoryId: variant.product?.subSubCategoryId ?? null,
+          subSubSubCategoryId: variant.product?.subSubSubCategoryId ?? null,
+          brandId: variant.product?.brandId ?? null,
+        };
       }),
     );
-
-    const subtotal = items.reduce((sum, x) => sum + x.totalPrice, 0);
-    const discountAmount = 0;
-    const shippingAmount = 0;
-    return {
-      items,
-      subtotal,
-      discountAmount,
-      shippingAmount,
-      grandTotal: subtotal - discountAmount + shippingAmount,
-    };
   }
 }

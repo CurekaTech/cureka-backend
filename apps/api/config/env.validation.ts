@@ -78,6 +78,9 @@ export const envValidationSchema = Joi.object({
   RAZORPAY_WEBHOOK_SECRET: Joi.string().optional(),
   RAZORPAY_PAYMENT_LINK_EXPIRY_MINUTES: Joi.number().integer().min(1).max(525600).default(4320),
 
+  SHIPPING_FREE_THRESHOLD: Joi.number().min(0).default(900),
+  SHIPPING_FLAT_FEE: Joi.number().min(0).default(50),
+
   TYPESENSE_HOST: Joi.string().optional(),
   TYPESENSE_API_KEY: Joi.string().optional(),
   TYPESENSE_SEARCH_API_KEY: Joi.string().optional(),
