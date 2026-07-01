@@ -31,20 +31,40 @@ export class PaymentsWebhookController {
     const paymentEntity = (payload['payload'] as Record<string, unknown> | undefined)?.[
       'payment'
     ] as
-      | { entity?: { id?: string } }
+      | { entity?: { id?: string; error_description?: string; notes?: Record<string, unknown> } }
       | undefined;
     const linkId = linkEntity?.entity?.id;
+    const notes = paymentEntity?.entity?.notes;
+    const paymentRequestId = notes?.paymentRequestId as string | undefined;
 
-    if (!linkId) {
+    if (!linkId && !paymentRequestId) {
       return { received: true };
     }
 
     if (event === 'payment_link.paid') {
-      await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
+      if (linkId) {
+        await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
+      }
+    } else if (event === 'payment.captured') {
+      if (paymentRequestId) {
+        await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
+      }
+    } else if (event === 'payment.failed') {
+      if (paymentRequestId) {
+        await this.paymentRequestsService.handlePaymentFailed(paymentRequestId, paymentEntity?.entity?.error_description);
+      }
+    } else if (event === 'payment.pending') {
+      if (paymentRequestId) {
+        await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
+      }
     } else if (event === 'payment_link.cancelled') {
-      await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
+      if (linkId) {
+        await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
+      }
     } else if (event === 'payment_link.expired') {
-      await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
+      if (linkId) {
+        await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
+      }
     }
 
     return { received: true, event, requestId: req.id };

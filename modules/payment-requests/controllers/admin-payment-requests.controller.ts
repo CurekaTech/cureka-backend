@@ -19,6 +19,7 @@ import { RequirePermissions } from '@modules/roles/decorators/permissions.decora
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import {
   CreatePaymentRequestDto,
+  GenerateLinkPrefillDto,
   PaymentRequestQueryDto,
   UpdatePaymentRequestDto,
 } from '../dto/payment-request.dto';
@@ -98,8 +99,12 @@ export class AdminPaymentRequestsController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
   @RequirePermissions('payment-request.generate-link')
   @Post(':id/generate-link')
-  generateLink(@Param('id') id: string, @CurrentAdminUser() user: IAdminJwtPayload) {
-    return this.paymentRequestsService.generateLink(id, user.email);
+  generateLink(
+    @Param('id') id: string,
+    @Body() dto: GenerateLinkPrefillDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.paymentRequestsService.generateLink(id, user.email, dto);
   }
 
   @ApiOperation({ summary: 'Regenerate payment link' })
@@ -107,8 +112,12 @@ export class AdminPaymentRequestsController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
   @RequirePermissions('payment-request.regenerate')
   @Post(':id/regenerate-link')
-  regenerateLink(@Param('id') id: string, @CurrentAdminUser() user: IAdminJwtPayload) {
-    return this.paymentRequestsService.regenerateLink(id, user.email);
+  regenerateLink(
+    @Param('id') id: string,
+    @Body() dto: GenerateLinkPrefillDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.paymentRequestsService.regenerateLink(id, user.email, dto);
   }
 
   @ApiOperation({ summary: 'Soft delete payment request' })
