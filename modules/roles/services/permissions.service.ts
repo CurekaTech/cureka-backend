@@ -55,18 +55,238 @@ export class PermissionsService {
     return buildPaginatedResult(mapPermissionEntitiesToResponse(data), total, paginationOptions);
   }
 
-  async findGroupedByModule(): Promise<IPermissionsByModule[]> {
+  async findGroupedByModule(): Promise<any[]> {
     const permissions = mapPermissionEntitiesToResponse(await this.permissionsRepository.findAll());
-    const grouped = new Map<string, IPermission[]>();
 
-    for (const permission of permissions) {
-      grouped.set(permission.module, [...(grouped.get(permission.module) ?? []), permission]);
-    }
+    const getPerms = (moduleName: string, actions?: string[]): IPermission[] => {
+      return permissions.filter((p) => {
+        if (p.module !== moduleName) return false;
+        if (actions && !actions.includes(p.action)) return false;
+        return true;
+      });
+    };
 
-    return [...grouped.entries()].map(([module, modulePermissions]) => ({
-      module,
-      permissions: modulePermissions,
-    }));
+    return [
+      {
+        name: 'Dashboard',
+        key: 'dashboard',
+        permissions: getPerms('dashboard'),
+      },
+      {
+        name: 'Masters',
+        key: 'masters',
+        subItems: [
+          {
+            name: 'Category Filters',
+            key: 'masters-category-filters',
+            permissions: getPerms('category_filters'),
+          },
+          {
+            name: 'Categories',
+            key: 'masters-category',
+            subItems: [
+              {
+                name: 'Category List',
+                key: 'masters-category-list',
+                permissions: getPerms('categories'),
+              },
+              {
+                name: 'Sub Category',
+                key: 'masters-subcategory',
+                permissions: getPerms('subcategories'),
+              },
+              {
+                name: 'Sub Sub Category',
+                key: 'masters-subsubcategory',
+                permissions: getPerms('subsubcategories'),
+              },
+              {
+                name: 'Sub Sub Sub Category',
+                key: 'masters-subsubsubcategory',
+                permissions: getPerms('subsubsubcategories'),
+              },
+            ],
+          },
+          {
+            name: 'Attributes',
+            key: 'masters-attributes',
+            permissions: getPerms('attributes'),
+          },
+          {
+            name: 'Units',
+            key: 'masters-units',
+            permissions: getPerms('units'),
+          },
+          {
+            name: 'Brands',
+            key: 'masters-brands',
+            permissions: getPerms('brands'),
+          },
+          {
+            name: 'Health Concern',
+            key: 'masters-health-concern',
+            permissions: getPerms('health_concerns'),
+          },
+          {
+            name: 'Wellness Goal',
+            key: 'masters-wellness-goal',
+            permissions: getPerms('wellness_goals'),
+          },
+          {
+            name: 'Manufacturers',
+            key: 'masters-manufacturers',
+            permissions: getPerms('manufacturers'),
+          },
+          {
+            name: 'Packers',
+            key: 'masters-packers',
+            permissions: getPerms('packers'),
+          },
+          {
+            name: 'Importers',
+            key: 'masters-importers',
+            permissions: getPerms('importers'),
+          },
+          {
+            name: 'Subscription Frequency',
+            key: 'masters-subscription-frequency',
+            permissions: getPerms('subscription_frequencies'),
+          },
+          {
+            name: 'Coupon Codes',
+            key: 'masters-coupon-codes',
+            permissions: getPerms('coupon_codes'),
+          },
+        ],
+      },
+      {
+        name: 'Products',
+        key: 'products',
+        subItems: [
+          {
+            name: 'Add Product',
+            key: 'products-add',
+            permissions: getPerms('products', ['create']),
+          },
+          {
+            name: 'Product List',
+            key: 'products-list-parent',
+            subItems: [
+              {
+                name: 'All',
+                key: 'products-list-all',
+                permissions: getPerms('products', ['read']),
+              },
+              {
+                name: 'Pending Review',
+                key: 'products-list-pending',
+                permissions: getPerms('products', ['read']),
+              },
+              {
+                name: 'Approved',
+                key: 'products-list-approved',
+                permissions: getPerms('products', ['read', 'approve']),
+              },
+              {
+                name: 'Rejected',
+                key: 'products-list-rejected',
+                permissions: getPerms('products', ['read', 'reject']),
+              },
+            ],
+          },
+          {
+            name: 'Product Tags',
+            key: 'products-tags',
+            permissions: getPerms('product_tags'),
+          },
+          {
+            name: 'Product Informations',
+            key: 'products-informations',
+            permissions: getPerms('product_informations'),
+          },
+          {
+            name: 'Bulk Upload',
+            key: 'products-bulk-upload',
+            permissions: getPerms('products', ['create']),
+          },
+        ],
+      },
+      {
+        name: 'Orders',
+        key: 'orders',
+        subItems: [
+          {
+            name: 'Order Requests',
+            key: 'orders-requests',
+            permissions: getPerms('orders'),
+          },
+        ],
+      },
+      {
+        name: 'CMS',
+        key: 'cms',
+        subItems: [
+          {
+            name: 'Banners',
+            key: 'cms-banners',
+            permissions: getPerms('banners'),
+          },
+          {
+            name: 'Home Section Indexing',
+            key: 'cms-home-sections',
+            permissions: getPerms('cms'),
+          },
+          {
+            name: 'Header Indexing',
+            key: 'cms-header-indexing',
+            permissions: getPerms('cms', ['read', 'update']),
+          },
+          {
+            name: 'Shop By Indexing',
+            key: 'cms-shopby-indexing',
+            permissions: getPerms('cms', ['read', 'update']),
+          },
+        ],
+      },
+      {
+        name: 'Role Management',
+        key: 'role-management',
+        subItems: [
+          {
+            name: 'Roles',
+            key: 'roles-list',
+            permissions: getPerms('roles'),
+          },
+          {
+            name: 'Admin Users',
+            key: 'admin-users-list',
+            permissions: getPerms('admin_users'),
+          },
+        ],
+      },
+      {
+        name: 'Audit Logs',
+        key: 'audit-logs',
+        subItems: [
+          {
+            name: 'Activity Logs',
+            key: 'activity-logs-list',
+            permissions: getPerms('audit_logs'),
+          },
+        ],
+      },
+      {
+        name: 'System Settings',
+        key: 'system-settings',
+        subItems: [
+          {
+            name: 'Admin Settings',
+            key: 'admin-settings-view',
+            permissions: getPerms('settings'),
+          },
+        ],
+      },
+    ];
   }
 
   async findOne(refId: string): Promise<IPermission> {
