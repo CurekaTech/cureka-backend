@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EntityManager } from 'typeorm';
+import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
+import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import {
   CartCouponSummary,
@@ -13,16 +15,23 @@ import { CouponCheckoutService } from './coupon-checkout.service';
 
 @Injectable()
 export class CartPricingService {
-  private readonly freeShippingThreshold: number;
+  private readonly fallbackFreeShippingThreshold: number;
   private readonly flatShippingFee: number;
+
+  private readonly fallbackHandlingCharge: number;
 
   constructor(
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartsRepository: CartsRepository,
+    private readonly adminSettingsRepository: AdminSettingsRepository,
     configService: ConfigService,
   ) {
-    this.freeShippingThreshold = configService.get<number>('orders.shipping.freeThreshold', 900);
+    this.fallbackFreeShippingThreshold = configService.get<number>(
+      'orders.shipping.freeThreshold',
+      900,
+    );
     this.flatShippingFee = configService.get<number>('orders.shipping.flatFee', 50);
+    this.fallbackHandlingCharge = 50;
   }
 
   async calculateCartPricing(params: {
@@ -35,7 +44,6 @@ export class CartPricingService {
     strict?: boolean;
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
-    const handlingAmount = this.calculateHandlingAmount(subtotal);
 
     if (!params.items.length) {
       return this.buildPricing({
@@ -43,9 +51,11 @@ export class CartPricingService {
         coupon: null,
         discountAmount: 0,
         shippingAmount: 0,
-        handlingAmount,
+        handlingAmount: 0,
       });
     }
+
+    const handlingAmount = await this.resolveHandlingAmount();
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -94,7 +104,7 @@ export class CartPricingService {
     }
 
     const payableBeforeShipping = roundMoney(subtotal - discountAmount);
-    const shippingAmount = this.resolveShippingAmount(payableBeforeShipping, coupon);
+    const shippingAmount = await this.resolveShippingAmount(payableBeforeShipping, coupon);
 
     return this.buildPricing({
       subtotal,
@@ -127,24 +137,47 @@ export class CartPricingService {
   }
 
   /**
-   * Shipping is free when payable amount (subtotal − discount) is ≥ threshold.
+   * Shipping is free when payable amount (subtotal − discount) is >= threshold.
+   * Threshold is read from admin setting `shipping_charge_threshold` when active.
    * `free_shipping` coupons always waive shipping.
    */
-  resolveShippingAmount(payableBeforeShipping: number, coupon: CouponEntity | null): number {
+  async resolveShippingAmount(
+    payableBeforeShipping: number,
+    coupon: CouponEntity | null,
+  ): Promise<number> {
     if (coupon?.couponType.trim().toLowerCase() === 'free_shipping') {
       return 0;
     }
 
-    if (payableBeforeShipping >= this.freeShippingThreshold) {
+    const freeShippingThreshold = await this.getActiveAdminSettingAmount(
+      'shipping_charge_threshold',
+      this.fallbackFreeShippingThreshold,
+    );
+
+    if (payableBeforeShipping >= freeShippingThreshold) {
       return 0;
-    }
+    }    
 
     return roundMoney(this.flatShippingFee);
   }
 
-  /** Placeholder for packaging/handling fee rules. */
-  calculateHandlingAmount(_subtotal: number): number {
-    return 0;
+  async resolveHandlingAmount(): Promise<number> {
+    return this.getActiveAdminSettingAmount('handling_charge', this.fallbackHandlingCharge);
+  }
+
+  private async getActiveAdminSettingAmount(
+    key: string,
+    fallback: number,
+  ): Promise<number> {
+    const setting = await this.adminSettingsRepository.findByKey(key);
+    const isActive = setting?.status === AdminSettingStatus.ACTIVE;
+    const value = setting?.value ? Number(setting.value) : NaN;
+
+    if (isActive && Number.isFinite(value) && value >= 0) {
+      return roundMoney(value);
+    }
+
+    return roundMoney(fallback);
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {
