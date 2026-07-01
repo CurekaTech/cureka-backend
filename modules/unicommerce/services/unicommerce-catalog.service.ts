@@ -18,11 +18,13 @@ export class UnicommerceCatalogService {
     private readonly configService: ConfigService,
   ) {}
 
+  /** Count of live (published + active variant) SKUs exposed to Unicommerce. */
   async getProductsCount(): Promise<IUnicommerceProductsCountResponse> {
     const count = await this.productsRepository.countPublishedActiveVariants();
     return { count };
   }
 
+  /** Returns only live catalog items — published products with active variants, not draft/inactive. */
   async getProducts(query: UnicommerceProductsQueryDto): Promise<IUnicommerceProductsResponse> {
     const skus = query.skus
       ?.split(',')

@@ -15,12 +15,12 @@ import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
-import { AddCartItemDto, UpdateCartItemDto } from '../dto/cart.dto';
+import { AddCartItemDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartService } from '../services/cart.service';
 
 @ApiTags('Cart')
 @ApiBearerAuth()
-@UseGuards(SessionCookieGuard, VerifiedUserGuard)
+@UseGuards(SessionCookieGuard)
 @Controller('cart')
 export class CartController {
   constructor(private readonly cartService: CartService) {}
@@ -65,5 +65,18 @@ export class CartController {
   @Delete()
   async clear(@CurrentSessionUser() user: IUserSessionContext): Promise<void> {
     await this.cartService.clear(user.sub);
+  }
+
+  @ApiOperation({ summary: 'Merge guest cart items into the logged-in user cart' })
+  @ResponseMessage('Guest cart merged successfully')
+  @UseGuards(VerifiedUserGuard)
+  @Post('merge')
+  mergeGuestCart(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Body() body: MergeGuestCartDto,
+  ) {
+    return this.cartService
+      .mergeGuestCartIntoUser(body.guestUserId, user.sub)
+      .then(() => this.cartService.getCart(user.sub));
   }
 }

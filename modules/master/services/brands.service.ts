@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FastifyRequest } from 'fastify';
 import { BrandsRepository } from '../repositories/brands.repository';
 import { CreateBrandDto, UpdateBrandDto, UpdateBrandStatusDto } from '../dto/brand.dto';
@@ -18,6 +19,7 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { BrandEntity } from '../entities/brand.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { BrandUpdatedEvent, EVENTS } from '@packages/events';
 
 const BRAND_MEDIA_FIELDS = ['logo', 'banner'] as const;
 
@@ -33,6 +35,7 @@ export class BrandsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBrand> {
@@ -93,7 +96,9 @@ export class BrandsService {
       createdBy,
     });
 
-    return this.enrichBrand(mapBrandEntityToResponse(entity));
+    const brand = await this.enrichBrand(mapBrandEntityToResponse(entity));
+    await this.emitBrandUpdated(brand.refId, 'created');
+    return brand;
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IBrand>> {
@@ -143,7 +148,9 @@ export class BrandsService {
       throw new NotFoundException(`Brand with refId ${refId} not found after update`);
     }
 
-    return this.enrichBrand(mapBrandEntityToResponse(result));
+    const brand = await this.enrichBrand(mapBrandEntityToResponse(result));
+    await this.emitBrandUpdated(refId, 'updated');
+    return brand;
   }
 
   async updateStatus(
@@ -165,7 +172,9 @@ export class BrandsService {
       throw new NotFoundException(`Brand with refId ${refId} not found after status update`);
     }
 
-    return this.enrichBrand(mapBrandEntityToResponse(updated));
+    const brand = await this.enrichBrand(mapBrandEntityToResponse(updated));
+    await this.emitBrandUpdated(refId, 'status_updated');
+    return brand;
   }
 
   async remove(refId: string): Promise<void> {
@@ -175,6 +184,17 @@ export class BrandsService {
     }
     await this.deletionGuard.assertBrandDeletable(existing.id, existing.name);
     await this.brandsRepository.softDeleteByRefId(refId);
+    await this.emitBrandUpdated(refId, 'deleted');
+  }
+
+  private async emitBrandUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.BRAND_UPDATED,
+      new BrandUpdatedEvent(refId, action),
+    );
   }
 
   private enrichBrand(brand: IBrand): Promise<IBrand> {

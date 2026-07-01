@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, FindOptionsWhere, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderStatus } from '../enums/order-status.enum';
 
@@ -33,7 +33,7 @@ export class OrdersRepository {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
     return repository.findOne({
       where: { id, userId },
-      relations: { items: true },
+      relations: { items: { product: { media: true } } },
       order: { items: { createdAt: 'ASC' } },
     });
   }
@@ -46,18 +46,21 @@ export class OrdersRepository {
   }): Promise<{ data: OrderEntity[]; total: number }> {
     const { userId, status, page, limit } = options;
     const { skip, take } = buildSkipTake(page, limit);
-    const qb = this.repo
-      .createQueryBuilder('order')
-      .where('order.userId = :userId', { userId })
-      .orderBy('order.createdAt', 'DESC')
-      .skip(skip)
-      .take(take);
 
+    const where: FindOptionsWhere<OrderEntity> = { userId };
     if (status) {
-      qb.andWhere('order.orderStatus = :status', { status });
+      where.orderStatus = status;
     }
 
-    return qb.getManyAndCount().then(([data, total]) => ({ data, total }));
+    const [data, total] = await this.repo.findAndCount({
+      where,
+      relations: { items: { product: { media: true } } },
+      order: { createdAt: 'DESC', items: { createdAt: 'ASC' } },
+      skip,
+      take,
+    });
+
+    return { data, total };
   }
 
   updateById(id: string, data: Partial<OrderEntity>, manager?: EntityManager): Promise<void> {

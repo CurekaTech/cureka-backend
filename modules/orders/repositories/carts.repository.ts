@@ -17,7 +17,11 @@ export class CartsRepository {
       relations: {
         items: {
           product: { media: true },
-          variant: true,
+          variant: {
+            attributeValues: {
+              attribute: true,
+            },
+          },
         },
       },
       order: { items: { createdAt: 'ASC' } },

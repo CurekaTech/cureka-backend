@@ -35,6 +35,7 @@ import {
   mapProductEntitiesToPublicCards,
   mapProductEntityToPublicDetail,
   mapVariantEntitiesToPublicSearchItems,
+  pickPreferredPublicVariant,
 } from '../mappers/public-product.mapper';
 
 @Injectable()
@@ -179,7 +180,7 @@ export class PublicProductsService {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
           const matchedVariant =
             detail.variants.find((variant) => variant.slug === slug) ??
-            detail.variants[0];
+            pickPreferredPublicVariant(detail.variants);
           this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
           return matchedVariant
             ? {

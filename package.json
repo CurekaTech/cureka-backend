@@ -27,6 +27,7 @@
     "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create",
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
+    "typesense:reindex": "npm run build && node dist/apps/api/database/scripts/typesense-reindex.runner.js",
     "redis:dev": "docker compose -f docker-compose.dev.yml up redis -d",
     "db:dev": "docker compose -f docker-compose.dev.yml up -d"
   },
@@ -65,6 +66,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.20",
+    "typesense": "^3.0.6",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

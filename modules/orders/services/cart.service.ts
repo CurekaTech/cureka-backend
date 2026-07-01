@@ -21,6 +21,7 @@ type CartSummaryItem = {
   variantId: string;
   productName: string;
   sku: string;
+  variantLabel: string | null;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -125,6 +126,63 @@ export class CartService {
     return this.cartsRepository.findActiveByUserId(userId, manager);
   }
 
+  async mergeGuestCartIntoUser(fromUserId: string, toUserId: string): Promise<void> {
+    if (fromUserId === toUserId) {
+      return;
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const guestCart = await this.cartsRepository.findActiveByUserId(fromUserId, manager);
+      if (!guestCart?.items?.length) {
+        return;
+      }
+
+      const targetCart = await this.getOrCreateActiveCart(toUserId, manager);
+
+      for (const item of guestCart.items) {
+        const variant = await this.getValidVariant(item.productId, item.variantId, manager);
+        const existing = await this.cartItemsRepository.findByCartAndVariant(
+          targetCart.id,
+          item.variantId,
+          manager,
+        );
+
+        if (existing) {
+          const nextQty = existing.quantity + item.quantity;
+          this.assertStockAvailable(nextQty, variant.stock);
+          await this.cartItemsRepository.updateById(
+            existing.id,
+            { quantity: nextQty, updatedBy: toUserId },
+            manager,
+          );
+        } else {
+          const refId = await generateUniqueRefId('cart-item', (candidate) =>
+            this.cartItemsRepository.existsByRefId(candidate),
+          );
+          await this.cartItemsRepository.create(
+            {
+              refId,
+              cartId: targetCart.id,
+              productId: item.productId,
+              variantId: item.variantId,
+              quantity: item.quantity,
+              createdBy: toUserId,
+              updatedBy: toUserId,
+            },
+            manager,
+          );
+        }
+      }
+
+      await this.cartItemsRepository.clearByCartId(guestCart.id, manager);
+      await this.cartsRepository.updateById(
+        guestCart.id,
+        { isActive: false, updatedBy: toUserId },
+        manager,
+      );
+    });
+  }
+
   async getOrCreateActiveCart(userId: string, manager = this.dataSource.manager): Promise<CartEntity> {
     const existing = await this.cartsRepository.findActiveByUserId(userId, manager);
     if (existing) return existing;
@@ -185,6 +243,7 @@ export class CartService {
           variantId: item.variantId,
           productName: product?.name ?? '',
           sku: variant?.sku ?? '',
+          variantLabel: this.formatVariantLabel(variant),
           quantity: item.quantity,
           unitPrice,
           totalPrice: unitPrice * item.quantity,
@@ -200,6 +259,27 @@ export class CartService {
       subtotal: items.reduce((sum, x) => sum + x.totalPrice, 0),
       totalItems: items.reduce((sum, x) => sum + x.quantity, 0),
     };
+  }
+
+  private formatVariantLabel(variant?: ProductVariantEntity): string | null {
+    const attributeValues = variant?.attributeValues ?? [];
+    if (!attributeValues.length) {
+      return null;
+    }
+
+    const parts = attributeValues
+      .map((item) => {
+        const value = item.value?.trim();
+        if (!value) {
+          return null;
+        }
+
+        const name = item.attribute?.name?.trim();
+        return name ? `${name}: ${value}` : value;
+      })
+      .filter((part): part is string => Boolean(part));
+
+    return parts.length ? parts.join(' · ') : null;
   }
 
   private resolvePrimaryImageRef(
