@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
@@ -32,6 +33,7 @@ export class PaymentRequestsService {
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
     private readonly usersRepository: UsersRepository,
     private readonly usersService: UsersService,
     private readonly ordersService: OrdersService,
@@ -123,7 +125,9 @@ export class PaymentRequestsService {
       return (await this.paymentRequestsRepository.findById(created.id, manager)) as PaymentRequestEntity;
     });
 
-    const withLink = await this.generateLink(paymentRequest.id, userId);
+    const withLink = await this.generateLink(paymentRequest.id, userId, {
+      callbackUrl: this.getStorefrontPaymentCallbackUrl(),
+    });
     if (!withLink.paymentLink) {
       throw new BadRequestException('Failed to generate payment link');
     }
@@ -281,7 +285,11 @@ export class PaymentRequestsService {
     await this.paymentRequestsRepository.updateById(id, { deletedAt: new Date() });
   }
 
-  async generateLink(id: string, updatedBy: string): Promise<PaymentRequestEntity> {
+  async generateLink(
+    id: string,
+    updatedBy: string,
+    options?: { callbackUrl?: string },
+  ): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
     if (![PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED].includes(existing.status)) {
       throw new BadRequestException('Payment link can only be generated for pending requests');
@@ -316,6 +324,9 @@ export class PaymentRequestsService {
         paymentRequestRefId: existing.refId,
         customerId: existing.customerId,
       },
+      ...(options?.callbackUrl
+        ? { callback_url: options.callbackUrl, callback_method: 'get' }
+        : {}),
     });
 
     await this.paymentRequestsRepository.updateById(id, {
@@ -347,6 +358,15 @@ export class PaymentRequestsService {
       updatedBy,
     });
     return this.generateLink(id, updatedBy);
+  }
+
+  private getStorefrontPaymentCallbackUrl(): string | undefined {
+    const storefrontUrl = this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '');
+    if (!storefrontUrl) {
+      this.logger.warn('STOREFRONT_URL is not set; Razorpay payment link will not redirect back to the storefront.');
+      return undefined;
+    }
+    return `${storefrontUrl}/cart/payment-success`;
   }
 
   async handlePaymentLinkPaid(providerReferenceId: string, providerPaymentId?: string): Promise<void> {
