@@ -35,6 +35,12 @@ export class OrdersService {
   }
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
+    if (dto.paymentMethod === OrderPaymentMethod.RAZORPAY) {
+      throw new BadRequestException(
+        'Online Razorpay checkout must use POST /payment-requests/checkout',
+      );
+    }
+
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
     const summary = await this.checkoutService.validateCheckout(userId, { addressId: dto.addressId });
 
@@ -166,6 +172,8 @@ export class OrdersService {
     shippingAmount: string;
     grandTotal: string;
     notes: string | null;
+    paymentMethod?: OrderPaymentMethod;
+    createdBy?: string;
     items: Array<{
       productId: string;
       variantId: string;
@@ -194,7 +202,7 @@ export class OrdersService {
           discountAmount: params.discountAmount,
           shippingAmount: params.shippingAmount,
           grandTotal: params.grandTotal,
-          paymentMethod: OrderPaymentMethod.RAZORPAY,
+          paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
           recipientName: address?.recipientName ?? 'Customer',
@@ -207,8 +215,8 @@ export class OrdersService {
           state: address?.state ?? 'NA',
           notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
           placedAt: new Date(),
-          createdBy: 'razorpay-webhook',
-          updatedBy: 'razorpay-webhook',
+          createdBy: params.createdBy ?? 'razorpay-webhook',
+          updatedBy: params.createdBy ?? 'razorpay-webhook',
         },
         manager,
       );

@@ -4,7 +4,9 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -12,13 +14,14 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { PaginationQueryDto, ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { CreateAdminCustomerDto } from '../dto/user.dto';
+import { CreateAdminCustomerDto, UpdateUserProfileAdminDto } from '../dto/user.dto';
 import { UsersService } from '../services/users.service';
 
 /**
  * Admin endpoints for customer management used by the payment-request wizard.
  *
  * POST  /admin/customers         – create a new customer
+ * PUT   /admin/customers/:refId  – update an existing customer
  * GET   /admin/customers/search  – search customers by name / phone / email
  *       (also available at GET /users/customers?search=, kept for backward compat)
  */
@@ -39,6 +42,16 @@ export class AdminCustomersController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.usersService.createCustomer(dto, user.email);
+  }
+
+  @ApiOperation({ summary: 'Update customer details (admin payment-request wizard)' })
+  @ResponseMessage('Customer updated successfully')
+  @Put(':refId')
+  update(
+    @Param('refId') refId: string,
+    @Body() dto: UpdateUserProfileAdminDto,
+  ) {
+    return this.usersService.update(refId, dto);
   }
 
   @ApiOperation({
