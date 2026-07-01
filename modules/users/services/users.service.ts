@@ -5,9 +5,13 @@ import {
 } from '@nestjs/common';
 import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
-import { UpdateUserProfileAdminDto, UpdateUserProfileDto } from '../dto/user.dto';
-import { IUser } from '../interfaces/user.interface';
-import { mapUserEntityToResponse, mapUserEntitiesToResponse } from '../mappers/user.mapper';
+import { CreateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto } from '../dto/user.dto';
+import { ICustomerUserListItem, IUser } from '../interfaces/user.interface';
+import {
+  mapCustomerUserEntitiesToListItems,
+  mapUserEntityToResponse,
+  mapUserEntitiesToResponse,
+} from '../mappers/user.mapper';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -16,8 +20,11 @@ import {
 } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
+import { UserRole } from '../enums/user-role.enum';
 import { SessionCacheService } from '@modules/auth/services/session-cache.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { RolesRepository } from '@modules/roles/repositories/roles.repository';
+import { RoleEntity } from '@modules/roles/entities/role.entity';
 
 const USER_MEDIA_FIELDS = ['profileImageUrl'] as const;
 
@@ -27,6 +34,7 @@ export class UsersService {
     private readonly usersRepository: UsersRepository,
     private readonly sessionCacheService: SessionCacheService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly rolesRepository: RolesRepository,
   ) {}
 
   private mapProfileDtoToEntity(dto: UpdateUserProfileDto): Partial<UserEntity> {
@@ -63,13 +71,56 @@ export class UsersService {
       this.usersRepository.existsByRefId(id),
     );
 
+    const roleRecord = await this.resolveRoleRecord(UserRole.CUSTOMER);
     const entity = await this.usersRepository.create({
       mobileNumber,
       isGuest: false,
       isRegistered: false,
       status: UserStatus.ACTIVE,
+      role: UserRole.CUSTOMER,
+      roleId: roleRecord?.id,
       refId,
       createdBy: mobileNumber,
+    });
+
+    return this.enrichUser(mapUserEntityToResponse(entity));
+  }
+
+  /**
+   * Admin-facing customer creation — used by the payment-request wizard to create
+   * a new customer with full profile details in one step.
+   */
+  async createCustomer(dto: CreateAdminCustomerDto, createdBy: string): Promise<IUser> {
+    const mobileTaken = await this.usersRepository.existsByMobileNumber(dto.mobileNumber);
+    if (mobileTaken) {
+      throw new ConflictException('A customer with this mobile number already exists');
+    }
+
+    if (dto.email) {
+      const emailTaken = await this.usersRepository.existsByEmail(dto.email);
+      if (emailTaken) {
+        throw new ConflictException('A customer with this email already exists');
+      }
+    }
+
+    const refId = await generateUniqueRefId('user', (id) =>
+      this.usersRepository.existsByRefId(id),
+    );
+
+    const roleRecord = await this.resolveRoleRecord(UserRole.CUSTOMER);
+    const entity = await this.usersRepository.create({
+      refId,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      mobileNumber: dto.mobileNumber,
+      email: dto.email,
+      role: UserRole.CUSTOMER,
+      roleId: roleRecord?.id,
+      isGuest: false,
+      isRegistered: true,
+      status: UserStatus.ACTIVE,
+      createdBy,
+      updatedBy: createdBy,
     });
 
     return this.enrichUser(mapUserEntityToResponse(entity));
@@ -80,10 +131,13 @@ export class UsersService {
       this.usersRepository.existsByRefId(id),
     );
 
+    const roleRecord = await this.resolveRoleRecord(UserRole.CUSTOMER);
     const entity = await this.usersRepository.create({
       isGuest: true,
       isRegistered: false,
       status: UserStatus.ACTIVE,
+      role: UserRole.CUSTOMER,
+      roleId: roleRecord?.id,
       refId,
       createdBy: 'guest',
     });
@@ -193,6 +247,16 @@ export class UsersService {
     return this.storageUrlEnricher.enrichPaginated(result, [...USER_MEDIA_FIELDS]);
   }
 
+  async findCustomers(query: PaginationQueryDto): Promise<PaginatedResult<ICustomerUserListItem>> {
+    const paginationOptions = buildPaginationOptions(query);
+    const { data, total } = await this.usersRepository.findCustomersPaginated(paginationOptions);
+    return buildPaginatedResult(
+      mapCustomerUserEntitiesToListItems(data),
+      total,
+      paginationOptions,
+    );
+  }
+
   async findOne(refId: string): Promise<IUser> {
     const entity = await this.usersRepository.findByRefId(refId);
     if (!entity) {
@@ -236,5 +300,8 @@ export class UsersService {
   private enrichUser(user: IUser): Promise<IUser> {
     return this.storageUrlEnricher.enrichFields(user, [...USER_MEDIA_FIELDS]);
   }
-}
 
+  private resolveRoleRecord(role: UserRole): Promise<RoleEntity | null> {
+    return this.rolesRepository.findBySlug(role);
+  }
+}

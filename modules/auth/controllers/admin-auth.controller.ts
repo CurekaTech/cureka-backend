@@ -48,7 +48,7 @@
 // }
 
 
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { AdminLoginDto } from '../dto/auth.dto';
@@ -94,5 +94,12 @@ export class AdminAuthController {
   ): null {
     res.clearCookie(ADMIN_COOKIE_NAME, { path: '/' });
     return null;
+  }
+
+  @ResponseMessage('Current admin user retrieved successfully')
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  me(@CurrentUser() user: IJwtPayload) {
+    return this.adminAuthService.me(user.sub);
   }
 }

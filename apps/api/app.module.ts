@@ -18,6 +18,8 @@ import { PublicModule } from '@modules/public/public.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
+import { RolesModule } from '@modules/roles/roles.module';
+import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { SearchModule } from '@modules/search/search.module';
 
 @Module({
@@ -58,6 +60,8 @@ import { SearchModule } from '@modules/search/search.module';
     ProductModule,
     UnicommerceModule,
     OrdersModule,
+    RolesModule,
+    PaymentRequestsModule,
     SearchModule,
   ],
   providers: [

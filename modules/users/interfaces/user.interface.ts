@@ -3,6 +3,7 @@ import { UserRole } from '../enums/user-role.enum';
 import { UserGender } from '../enums/user-gender.enum';
 import { UserMaritalStatus } from '../enums/user-marital-status.enum';
 import { IStorageFileReferenceResponse } from '@packages/storage';
+import { IRole } from '@modules/roles/interfaces/role.interface';
 
 export interface IUser {
   id: string;
@@ -15,6 +16,8 @@ export interface IUser {
   isRegistered: boolean;
   status: UserStatus;
   role: UserRole;
+  roleId?: string;
+  roleRecord?: IRole;
   lastLoginAt?: Date;
   profileImageUrl?: IStorageFileReferenceResponse | null;
   gender?: UserGender;
@@ -24,4 +27,21 @@ export interface IUser {
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;
+}
+
+export interface ICustomerUserListItem {
+  id: string;
+  refId: string;
+  firstName?: string;
+  lastName?: string;
+  /** Full name suitable for list display */
+  name: string;
+  email?: string;
+  phone?: string;
+  mobileNumber?: string;
+  isGuest: boolean;
+  isRegistered: boolean;
+  status: UserStatus;
+  role: UserRole;
+  roleId?: string;
 }

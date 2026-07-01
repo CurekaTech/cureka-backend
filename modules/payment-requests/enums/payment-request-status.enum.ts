@@ -1,0 +1,7 @@
+export enum PaymentRequestStatus {
+  PAYMENT_PENDING = 'PAYMENT_PENDING',
+  LINK_GENERATED = 'LINK_GENERATED',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
+  EXPIRED = 'EXPIRED',
+}

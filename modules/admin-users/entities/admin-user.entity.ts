@@ -1,5 +1,6 @@
-import { Column, Entity, Index } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '@packages/database';
+import { RoleEntity } from '@modules/roles/entities/role.entity';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
 
 @Entity('admin_users')
@@ -23,6 +24,14 @@ export class AdminUserEntity extends BaseEntity {
     default: AdminUserRole.ADMIN,
   })
   role!: AdminUserRole;
+
+  @Index('IDX_admin_users_role_id')
+  @Column({ name: 'role_id', type: 'uuid', nullable: true })
+  roleId?: string;
+
+  @ManyToOne(() => RoleEntity, { nullable: true })
+  @JoinColumn({ name: 'role_id' })
+  roleRecord?: RoleEntity;
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;

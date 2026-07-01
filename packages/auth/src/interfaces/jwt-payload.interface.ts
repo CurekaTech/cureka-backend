@@ -5,6 +5,8 @@ export interface IJwtPayload {
   sessionId?: string;
   /** RBAC role — customer, vendor, admin, etc. */
   role?: string;
+  /** Database-backed role id for the transition RBAC flow */
+  roleId?: string;
   /** Present only on user tokens — true for guest sessions */
   isGuest?: boolean;
   /** Present only on admin tokens */

@@ -18,11 +18,17 @@ export class AdminUsersRepository {
   }
 
   async findById(id: string): Promise<AdminUserEntity | null> {
-    return this.repo.findOne({ where: { id } });
+    return this.repo.findOne({
+      where: { id },
+      relations: { roleRecord: { permissions: true } },
+    });
   }
 
   async findByRefId(refId: string): Promise<AdminUserEntity | null> {
-    return this.repo.findOne({ where: { refId } });
+    return this.repo.findOne({
+      where: { refId },
+      relations: { roleRecord: { permissions: true } },
+    });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -45,6 +51,8 @@ export class AdminUsersRepository {
   async findByEmailWithPassword(email: string): Promise<AdminUserEntity | null> {
     return this.repo
       .createQueryBuilder('admin_user')
+      .leftJoinAndSelect('admin_user.roleRecord', 'roleRecord')
+      .leftJoinAndSelect('roleRecord.permissions', 'permission')
       .addSelect('admin_user.password')
       .where('admin_user.email = :email', { email })
       .getOne();
@@ -75,6 +83,8 @@ export class AdminUsersRepository {
 
     const qb = this.repo
       .createQueryBuilder('admin_user')
+      .leftJoinAndSelect('admin_user.roleRecord', 'roleRecord')
+      .leftJoinAndSelect('roleRecord.permissions', 'permission')
       .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);
