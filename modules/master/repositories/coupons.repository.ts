@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { MasterStatus } from '../enums/master-status.enum';
 import { CouponEntity } from '../entities/coupon.entity';
 
 @Injectable()
@@ -111,5 +112,22 @@ export class CouponsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllActiveValid(now = new Date()): Promise<CouponEntity[]> {
+    return this.repo
+      .createQueryBuilder('coupon')
+      .leftJoinAndSelect('coupon.categoryMappings', 'categoryMappings')
+      .leftJoinAndSelect('categoryMappings.category', 'category')
+      .leftJoinAndSelect('coupon.productMappings', 'productMappings')
+      .leftJoinAndSelect('productMappings.product', 'product')
+      .leftJoinAndSelect('coupon.brandMappings', 'brandMappings')
+      .leftJoinAndSelect('brandMappings.brand', 'brand')
+      .where('coupon.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('coupon.startDate <= :now', { now })
+      .andWhere('coupon.expiryDate >= :now', { now })
+      .orderBy('coupon.expiryDate', 'ASC')
+      .addOrderBy('coupon.title', 'ASC')
+      .getMany();
   }
 }

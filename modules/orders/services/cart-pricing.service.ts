@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EntityManager } from 'typeorm';
-import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
-import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import {
   CartCouponSummary,
@@ -11,27 +9,23 @@ import {
 } from '../interfaces/cart-pricing.interface';
 import { CartsRepository } from '../repositories/carts.repository';
 import { roundMoney } from '../utils/money.util';
+import {
+  CartCheckoutAdminSettingsService,
+  ResolvedCartCheckoutAdminSettings,
+} from './cart-checkout-admin-settings.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
 
 @Injectable()
 export class CartPricingService {
-  private readonly fallbackFreeShippingThreshold: number;
   private readonly flatShippingFee: number;
-
-  private readonly fallbackHandlingCharge: number;
 
   constructor(
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartsRepository: CartsRepository,
-    private readonly adminSettingsRepository: AdminSettingsRepository,
+    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     configService: ConfigService,
   ) {
-    this.fallbackFreeShippingThreshold = configService.get<number>(
-      'orders.shipping.freeThreshold',
-      900,
-    );
     this.flatShippingFee = configService.get<number>('orders.shipping.flatFee', 50);
-    this.fallbackHandlingCharge = 50;
   }
 
   async calculateCartPricing(params: {
@@ -55,7 +49,9 @@ export class CartPricingService {
       });
     }
 
-    const handlingAmount = await this.resolveHandlingAmount();
+    const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const flatFees = this.cartCheckoutAdminSettingsService.resolveCartFlatFees(checkoutAdminSettings);
+    const handlingAmount = flatFees.handlingAmount ?? 0;
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -104,7 +100,11 @@ export class CartPricingService {
     }
 
     const payableBeforeShipping = roundMoney(subtotal - discountAmount);
-    const shippingAmount = await this.resolveShippingAmount(payableBeforeShipping, coupon);
+    const shippingAmount = this.resolveShippingAmount(
+      payableBeforeShipping,
+      coupon,
+      checkoutAdminSettings,
+    );
 
     return this.buildPricing({
       subtotal,
@@ -138,46 +138,26 @@ export class CartPricingService {
 
   /**
    * Shipping is free when payable amount (subtotal − discount) is >= threshold.
-   * Threshold is read from admin setting `shipping_charge_threshold` when active.
+   * Threshold comes from checkout admin settings (`shipping_charge_threshold`).
    * `free_shipping` coupons always waive shipping.
    */
-  async resolveShippingAmount(
+  resolveShippingAmount(
     payableBeforeShipping: number,
     coupon: CouponEntity | null,
-  ): Promise<number> {
+    checkoutAdminSettings: ResolvedCartCheckoutAdminSettings,
+  ): number {
     if (coupon?.couponType.trim().toLowerCase() === 'free_shipping') {
       return 0;
     }
 
-    const freeShippingThreshold = await this.getActiveAdminSettingAmount(
-      'shipping_charge_threshold',
-      this.fallbackFreeShippingThreshold,
-    );
+    const freeShippingThreshold =
+      this.cartCheckoutAdminSettingsService.getFreeShippingThreshold(checkoutAdminSettings);
 
     if (payableBeforeShipping >= freeShippingThreshold) {
       return 0;
-    }    
-
-    return roundMoney(this.flatShippingFee);
-  }
-
-  async resolveHandlingAmount(): Promise<number> {
-    return this.getActiveAdminSettingAmount('handling_charge', this.fallbackHandlingCharge);
-  }
-
-  private async getActiveAdminSettingAmount(
-    key: string,
-    fallback: number,
-  ): Promise<number> {
-    const setting = await this.adminSettingsRepository.findByKey(key);
-    const isActive = setting?.status === AdminSettingStatus.ACTIVE;
-    const value = setting?.value ? Number(setting.value) : NaN;
-
-    if (isActive && Number.isFinite(value) && value >= 0) {
-      return roundMoney(value);
     }
 
-    return roundMoney(fallback);
+    return roundMoney(this.flatShippingFee);
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {

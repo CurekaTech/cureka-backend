@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { AdminSettingEntity } from '../entities/admin-setting.entity';
 
 @Injectable()
@@ -21,6 +21,17 @@ export class AdminSettingsRepository {
     const repository = manager ? manager.getRepository(AdminSettingEntity) : this.repo;
     return repository.findOne({
       where: { key },
+    });
+  }
+
+  findByKeys(keys: string[], manager?: EntityManager): Promise<AdminSettingEntity[]> {
+    if (!keys.length) {
+      return Promise.resolve([]);
+    }
+
+    const repository = manager ? manager.getRepository(AdminSettingEntity) : this.repo;
+    return repository.find({
+      where: { key: In(keys) },
     });
   }
 

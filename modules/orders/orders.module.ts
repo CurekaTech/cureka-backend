@@ -17,6 +17,7 @@ import { CouponUsagesRepository } from './repositories/coupon-usages.repository'
 import { OrdersRepository } from './repositories/orders.repository';
 import { OrderItemsRepository } from './repositories/order-items.repository';
 import { CartService } from './services/cart.service';
+import { CartCheckoutAdminSettingsService } from './services/cart-checkout-admin-settings.service';
 import { CartPricingService } from './services/cart-pricing.service';
 import { CheckoutService } from './services/checkout.service';
 import { CouponCheckoutService } from './services/coupon-checkout.service';
@@ -44,6 +45,7 @@ import { OrdersService } from './services/orders.service';
     OrdersRepository,
     OrderItemsRepository,
     CartService,
+    CartCheckoutAdminSettingsService,
     CartPricingService,
     CouponCheckoutService,
     CheckoutService,
