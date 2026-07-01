@@ -47,6 +47,6 @@ import { OrdersService } from './services/orders.service';
     CheckoutService,
     OrdersService,
   ],
-  exports: [OrdersService, CartService],
+  exports: [OrdersService, CartService, CheckoutService],
 })
 export class OrdersModule {}

@@ -10,6 +10,7 @@ import { PaymentRequestItemsRepository } from './repositories/payment-request-it
 import { PaymentRequestsService } from './services/payment-requests.service';
 import { RazorpayPaymentLinksService } from './services/razorpay-payment-links.service';
 import { AdminPaymentRequestsController } from './controllers/admin-payment-requests.controller';
+import { CustomerPaymentRequestsController } from './controllers/customer-payment-requests.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
 
 @Module({
@@ -24,6 +25,10 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     PaymentRequestsService,
     RazorpayPaymentLinksService,
   ],
-  controllers: [AdminPaymentRequestsController, PaymentsWebhookController],
+  controllers: [
+    AdminPaymentRequestsController,
+    CustomerPaymentRequestsController,
+    PaymentsWebhookController,
+  ],
 })
 export class PaymentRequestsModule {}

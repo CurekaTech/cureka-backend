@@ -5,7 +5,7 @@ import { PaymentRequestsService } from '../services/payment-requests.service';
 import { RazorpayPaymentLinksService } from '../services/razorpay-payment-links.service';
 
 @ApiExcludeController()
-@Controller('payments/razorpay')
+@Controller('payment')
 export class PaymentsWebhookController {
   constructor(
     private readonly razorpayService: RazorpayPaymentLinksService,
@@ -23,48 +23,42 @@ export class PaymentsWebhookController {
     this.razorpayService.verifyWebhookSignature(rawBody, signature);
 
     const event = String(payload['event'] ?? '');
-    const linkEntity = (payload['payload'] as Record<string, unknown> | undefined)?.[
-      'payment_link'
-    ] as
+    const payloadData = payload['payload'] as Record<string, unknown> | undefined;
+    const linkEntity = payloadData?.['payment_link'] as
       | { entity?: { id?: string } }
       | undefined;
-    const paymentEntity = (payload['payload'] as Record<string, unknown> | undefined)?.[
-      'payment'
-    ] as
-      | { entity?: { id?: string; error_description?: string; notes?: Record<string, unknown> } }
+    const paymentEntity = payloadData?.['payment'] as
+      | { entity?: { id?: string; order_id?: string; error_description?: string; notes?: Record<string, unknown> } }
       | undefined;
+    const orderEntity = payloadData?.['order'] as
+      | { entity?: { id?: string } }
+      | undefined;
+
     const linkId = linkEntity?.entity?.id;
     const notes = paymentEntity?.entity?.notes;
     const paymentRequestId = notes?.paymentRequestId as string | undefined;
+    const orderId = orderEntity?.entity?.id ?? paymentEntity?.entity?.order_id;
 
-    if (!linkId && !paymentRequestId) {
-      return { received: true };
-    }
-
-    if (event === 'payment_link.paid') {
-      if (linkId) {
-        await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
-      }
-    } else if (event === 'payment.captured') {
-      if (paymentRequestId) {
-        await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
-      }
-    } else if (event === 'payment.failed') {
-      if (paymentRequestId) {
-        await this.paymentRequestsService.handlePaymentFailed(paymentRequestId, paymentEntity?.entity?.error_description);
-      }
-    } else if (event === 'payment.pending') {
-      if (paymentRequestId) {
-        await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
-      }
-    } else if (event === 'payment_link.cancelled') {
-      if (linkId) {
-        await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
-      }
-    } else if (event === 'payment_link.expired') {
-      if (linkId) {
-        await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
-      }
+    if (event === 'payment_link.paid' && linkId) {
+      await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
+    } else if (event === 'payment_link.cancelled' && linkId) {
+      await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
+    } else if (event === 'payment_link.expired' && linkId) {
+      await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
+    } else if (event === 'payment.captured' && paymentRequestId) {
+      await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
+    } else if (event === 'payment.failed' && paymentRequestId) {
+      await this.paymentRequestsService.handlePaymentFailed(
+        paymentRequestId,
+        paymentEntity?.entity?.error_description,
+      );
+    } else if (event === 'payment.pending' && paymentRequestId) {
+      await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
+    } else if (
+      (event === 'payment.captured' || event === 'order.paid') &&
+      orderId
+    ) {
+      await this.paymentRequestsService.handlePaymentLinkPaid(orderId, paymentEntity?.entity?.id);
     }
 
     return { received: true, event, requestId: req.id };

@@ -40,6 +40,12 @@ export class OrdersService {
   }
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
+    if (dto.paymentMethod === OrderPaymentMethod.RAZORPAY) {
+      throw new BadRequestException(
+        'Online Razorpay checkout must use POST /payment-requests/checkout',
+      );
+    }
+
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
     const summary = await this.checkoutService.validateCheckout(userId, { addressId: dto.addressId });
 

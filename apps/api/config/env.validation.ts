@@ -82,6 +82,8 @@ export const envValidationSchema = Joi.object({
 
   SHIPPING_FREE_THRESHOLD: Joi.number().min(0).default(900),
   SHIPPING_FLAT_FEE: Joi.number().min(0).default(50),
+  /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
+  STOREFRONT_URL: Joi.string().uri().optional(),
 
   TYPESENSE_HOST: Joi.string().optional(),
   TYPESENSE_API_KEY: Joi.string().optional(),

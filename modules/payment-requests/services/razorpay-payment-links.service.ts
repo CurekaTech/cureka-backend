@@ -30,6 +30,14 @@ export class RazorpayPaymentLinksService {
     return this.callbackUrl.trim() || null;
   }
 
+  getKeyId(): string {
+    const keyId = this.configService.get<string>('RAZORPAY_KEY_ID');
+    if (!keyId) {
+      throw new InternalServerErrorException('RAZORPAY_KEY_ID is not configured.');
+    }
+    return keyId;
+  }
+
   /**
    * Calculates link expiry timestamp in seconds (UNIX time) as required by Razorpay API.
    * Expire time must be at least 16 minutes in the future.
@@ -40,6 +48,45 @@ export class RazorpayPaymentLinksService {
     return Math.floor(expiryMs / 1000);
   }
 
+
+  async createOrder(payload: {
+    amount: number;
+    currency: string;
+    receipt: string;
+    notes?: Record<string, string>;
+  }): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new InternalServerErrorException(
+        'Razorpay client is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_SECRET in environment.',
+      );
+    }
+    try {
+      return (await (this.client.orders.create as (input: unknown) => Promise<unknown>)(
+        payload,
+      )) as Record<string, unknown>;
+    } catch (error) {
+      this.logger.error('Failed to create Razorpay order', error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('Failed to create Razorpay order');
+    }
+  }
+
+  verifyPaymentSignature(orderId: string, paymentId: string, signature: string | undefined): void {
+    if (!signature) {
+      throw new BadRequestException('Missing Razorpay payment signature');
+    }
+    const keySecret = this.configService.get<string>('RAZORPAY_SECRET');
+    if (!keySecret) {
+      throw new InternalServerErrorException('RAZORPAY_SECRET is not configured.');
+    }
+    const digest = createHmac('sha256', keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+    const expected = Buffer.from(digest);
+    const received = Buffer.from(signature);
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+      throw new BadRequestException('Invalid Razorpay payment signature');
+    }
+  }
 
   async createPaymentLink(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (!this.client) {
