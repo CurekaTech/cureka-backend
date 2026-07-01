@@ -32,7 +32,7 @@ import { OrdersService } from './services/orders.service';
     CheckoutService,
     OrdersService,
   ],
-  exports: [OrdersService, CartService],
+  exports: [OrdersService, CartService, CheckoutService],
   // exports: [CartService],
 })
 export class OrdersModule {}

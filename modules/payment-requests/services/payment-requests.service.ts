@@ -11,6 +11,8 @@ import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
+import { CartService } from '@modules/orders/services/cart.service';
+import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import {
   CreatePaymentRequestDto,
@@ -33,10 +35,109 @@ export class PaymentRequestsService {
     private readonly usersRepository: UsersRepository,
     private readonly usersService: UsersService,
     private readonly ordersService: OrdersService,
+    private readonly checkoutService: CheckoutService,
+    private readonly cartService: CartService,
     private readonly paymentRequestsRepository: PaymentRequestsRepository,
     private readonly paymentRequestItemsRepository: PaymentRequestItemsRepository,
     private readonly razorpayService: RazorpayPaymentLinksService,
   ) {}
+
+  async checkoutFromCart(userId: string, addressId: string) {
+    const summary = await this.checkoutService.validateCheckout(userId, { addressId });
+    if (!summary.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+
+    const customer = await this.usersRepository.findById(userId);
+    if (!customer?.mobileNumber) {
+      throw new BadRequestException('Phone number is required for online payment');
+    }
+
+    const pricedItems = await Promise.all(
+      summary.items.map(async (item) => {
+        const refId = await generateUniqueRefId('pay-item', (candidate) =>
+          this.paymentRequestItemsRepository.existsByRefId(candidate),
+        );
+        const unitPrice = item.unitPrice.toFixed(2);
+        const total = item.totalPrice.toFixed(2);
+        return {
+          refId,
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice,
+          discount: '0.00',
+          tax: '0.00',
+          total,
+        };
+      }),
+    );
+
+    const totals = this.computeTotals(
+      pricedItems,
+      summary.discountAmount > 0 ? summary.discountAmount.toFixed(2) : undefined,
+      undefined,
+      summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
+    );
+
+    const paymentRequest = await this.dataSource.transaction(async (manager) => {
+      const refId = await generateUniqueRefId('pay-request', (candidate) =>
+        this.paymentRequestsRepository.existsByRefId(candidate),
+      );
+      const created = await this.paymentRequestsRepository.create(
+        {
+          refId,
+          customerId: userId,
+          status: PaymentRequestStatus.PAYMENT_PENDING,
+          subtotal: totals.subtotal,
+          discount: totals.discount,
+          tax: totals.tax,
+          shipping: totals.shipping,
+          handling: totals.handling,
+          totalAmount: totals.totalAmount,
+          currency: 'INR',
+          notes: 'Storefront checkout',
+          createdBy: userId,
+          updatedBy: userId,
+        },
+        manager,
+      );
+
+      await this.paymentRequestItemsRepository.createMany(
+        pricedItems.map((item) => ({
+          refId: item.refId,
+          paymentRequestId: created.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+          tax: item.tax,
+          total: item.total,
+          createdBy: userId,
+          updatedBy: userId,
+        })),
+        manager,
+      );
+
+      return (await this.paymentRequestsRepository.findById(created.id, manager)) as PaymentRequestEntity;
+    });
+
+    const withLink = await this.generateLink(paymentRequest.id, userId);
+    if (!withLink.paymentLink) {
+      throw new BadRequestException('Failed to generate payment link');
+    }
+
+    await this.cartService.clear(userId);
+
+    return {
+      paymentRequestId: withLink.id,
+      refId: withLink.refId,
+      paymentLink: withLink.paymentLink,
+      expiresAt: withLink.expiresAt,
+      totalAmount: withLink.totalAmount,
+    };
+  }
 
   async create(dto: CreatePaymentRequestDto, createdBy: string): Promise<PaymentRequestEntity> {
     const customerId = await this.resolveCustomerId(dto);
