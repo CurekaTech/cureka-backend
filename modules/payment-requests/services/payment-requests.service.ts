@@ -90,8 +90,12 @@ export class PaymentRequestsService {
 
   async update(id: string, dto: UpdatePaymentRequestDto, updatedBy: string): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
-    if (existing.status !== PaymentRequestStatus.PAYMENT_PENDING) {
-      throw new BadRequestException('Payment request can only be edited while PAYMENT_PENDING');
+    if (![PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED].includes(existing.status)) {
+      throw new BadRequestException('Payment request can only be edited while pending payment');
+    }
+
+    if (existing.status === PaymentRequestStatus.LINK_GENERATED && existing.providerReferenceId) {
+      await this.razorpayService.cancelPaymentLink(existing.providerReferenceId);
     }
 
     const pricedItems = await this.resolveAndValidateItems(dto.items);
@@ -99,7 +103,7 @@ export class PaymentRequestsService {
 
     return this.dataSource.transaction(async (manager) => {
       await this.paymentRequestsRepository.updateById(
-        id,
+        existing.id,
         {
           subtotal: totals.subtotal,
           discount: totals.discount,
@@ -117,11 +121,11 @@ export class PaymentRequestsService {
         },
         manager,
       );
-      await this.paymentRequestItemsRepository.deleteByPaymentRequestId(id, manager);
+      await this.paymentRequestItemsRepository.deleteByPaymentRequestId(existing.id, manager);
       await this.paymentRequestItemsRepository.createMany(
         pricedItems.map((item) => ({
           refId: item.refId,
-          paymentRequestId: id,
+          paymentRequestId: existing.id,
           productId: item.productId,
           variantId: item.variantId,
           quantity: item.quantity,
@@ -135,7 +139,7 @@ export class PaymentRequestsService {
         manager,
       );
 
-      return (await this.paymentRequestsRepository.findById(id, manager)) as PaymentRequestEntity;
+      return (await this.paymentRequestsRepository.findById(existing.id, manager)) as PaymentRequestEntity;
     });
   }
 
