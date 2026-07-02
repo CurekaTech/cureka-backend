@@ -40,9 +40,12 @@ export class OrdersService {
   }
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
-    if (dto.paymentMethod === OrderPaymentMethod.RAZORPAY) {
+    if (
+      dto.paymentMethod === OrderPaymentMethod.RAZORPAY ||
+      dto.paymentMethod === OrderPaymentMethod.CASHFREE
+    ) {
       throw new BadRequestException(
-        'Online Razorpay checkout must use POST /payment-requests/checkout',
+        `Online ${dto.paymentMethod} checkout must use POST /payment-requests/checkout`,
       );
     }
 

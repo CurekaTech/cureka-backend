@@ -78,8 +78,6 @@ export class RolesRepository {
       .createQueryBuilder('role')
       .leftJoinAndSelect('role.permissions', 'permission')
       .orderBy(sortColumn, sortOrder)
-      .addOrderBy('permission.module', 'ASC')
-      .addOrderBy('permission.action', 'ASC')
       .skip(skip)
       .take(take);
 

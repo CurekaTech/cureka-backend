@@ -3,6 +3,7 @@ import { AdminSettingsRepository } from '../repositories/admin-settings.reposito
 import { UpdateSettingValueDto, ToggleSettingStatusDto } from '../dto/admin-setting.dto';
 import { mapAdminSettingEntitiesToResponse, mapAdminSettingEntityToResponse } from '../mappers/admin-setting.mapper';
 import { IAdminSetting } from '../interfaces/admin-setting.interface';
+import { AdminSettingStatus } from '../enums/admin-setting-status.enum';
 
 @Injectable()
 export class AdminSettingsService {
@@ -29,17 +30,41 @@ export class AdminSettingsService {
   }
 
   async toggleStatus(key: string, dto: ToggleSettingStatusDto, updatedBy: string): Promise<IAdminSetting> {
-    const existing = await this.adminSettingsRepository.findByKey(key);
-    if (!existing) {
-      throw new NotFoundException(`Setting with key "${key}" not found`);
-    }
+    const updatedEntity = await this.adminSettingsRepository.transaction(async (manager) => {
+      const existing = await this.adminSettingsRepository.findByKey(key, manager);
+      if (!existing) {
+        throw new NotFoundException(`Setting with key "${key}" not found`);
+      }
 
-    await this.adminSettingsRepository.updateByKey(key, {
-      status: dto.status,
-      updatedBy,
+      const PAYMENT_GATEWAY_KEYS = ['cash_free', 'razor_pay', 'pay_you'];
+
+      if (PAYMENT_GATEWAY_KEYS.includes(key) && dto.status === AdminSettingStatus.ACTIVE) {
+        const otherKeys = PAYMENT_GATEWAY_KEYS.filter((k) => k !== key);
+        for (const otherKey of otherKeys) {
+          await this.adminSettingsRepository.updateByKey(
+            otherKey,
+            {
+              status: AdminSettingStatus.INACTIVE,
+              updatedBy,
+            },
+            manager,
+          );
+        }
+      }
+
+      await this.adminSettingsRepository.updateByKey(
+        key,
+        {
+          status: dto.status,
+          updatedBy,
+        },
+        manager,
+      );
+
+      const updated = await this.adminSettingsRepository.findByKey(key, manager);
+      return updated!;
     });
 
-    const updated = await this.adminSettingsRepository.findByKey(key);
-    return mapAdminSettingEntityToResponse(updated!);
+    return mapAdminSettingEntityToResponse(updatedEntity);
   }
 }

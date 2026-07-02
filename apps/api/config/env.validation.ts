@@ -87,7 +87,7 @@ export const envValidationSchema = Joi.object({
 
   CASHFREE_APP_ID: Joi.string().optional(),
   CASHFREE_SECRET_KEY: Joi.string().optional(),
-  CASHFREE_ENV: Joi.string().valid('sandbox', 'production').default('sandbox'),
+  CASHFREE_ENV: Joi.string().valid('sandbox', 'production', 'SANDBOX', 'PRODUCTION').default('sandbox'),
   CASHFREE_API_VERSION: Joi.string().default('2023-08-01'),
   CASHFREE_WEBHOOK_SECRET: Joi.string().optional(),
 
