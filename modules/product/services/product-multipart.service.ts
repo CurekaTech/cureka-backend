@@ -5,6 +5,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
 import { formatValidationErrorMessage, formatValidationErrorsForLog } from '@packages/common';
 import { StorageService } from '@packages/storage';
+import type { IStorageFileReference } from '@packages/storage';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { mergeUploadedProductMedia, ProductUploadedFiles } from '../utils/product-media.util';
@@ -117,11 +118,38 @@ export class ProductMultipartService {
     return { parsed, uploads };
   }
 
+  private normalizeSizeChartInPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    if (!('sizeChart' in payload)) return payload;
+
+    const sizeChart = payload.sizeChart;
+    if (sizeChart === undefined) return payload;
+    if (sizeChart === null) return payload;
+
+    if (typeof sizeChart === 'string') {
+      return { ...payload, sizeChart: this.storageService.toFileReference(sizeChart) };
+    }
+
+    if (typeof sizeChart === 'object') {
+      const record = sizeChart as Record<string, unknown>;
+      if (typeof record.key === 'string') {
+        return {
+          ...payload,
+          sizeChart: this.storageService.toFileReferenceValue(sizeChart as IStorageFileReference),
+        };
+      }
+      if (typeof record.url === 'string') {
+        return { ...payload, sizeChart: this.storageService.toFileReference(record.url) };
+      }
+    }
+
+    return payload;
+  }
+
   private async validateAndNormalizeCreateProduct(
     payload: Record<string, unknown>,
     uploads?: ProductUploadedFiles,
   ): Promise<CreateProductDto> {
-    const sanitized = this.stripClientOnlyFields(payload);
+    const sanitized = this.normalizeSizeChartInPayload(this.stripClientOnlyFields(payload));
     const mergedBase = uploads
       ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
       : (sanitized as unknown as CreateProductDto);
@@ -139,7 +167,7 @@ export class ProductMultipartService {
     payload: Record<string, unknown>,
     uploads?: ProductUploadedFiles,
   ): Promise<UpdateProductDto> {
-    const sanitized = this.stripClientOnlyFields(payload);
+    const sanitized = this.normalizeSizeChartInPayload(this.stripClientOnlyFields(payload));
     const mergedBase = uploads
       ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
       : (sanitized as unknown as UpdateProductDto);

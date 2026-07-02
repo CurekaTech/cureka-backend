@@ -221,7 +221,9 @@ export class CreateProductDto {
   @ApiPropertyOptional({
     type: ProductFileReferenceDto,
     nullable: true,
-    description: 'Optional size chart file reference (image or pdf)',
+    description:
+      'Optional size chart. Accepts a storage path string (e.g. images/abc.jpg), { key, name }, or { url } from GET responses. Multipart file field "sizeChart" is also supported.',
+    example: 'images/5d6657f9-0df5-4648-a874-f499dbb13979.jpg',
   })
   @IsOptional()
   @ValidateNested()
