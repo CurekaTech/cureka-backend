@@ -11,6 +11,7 @@ export type CartLineItem = {
   unitPrice: number;
   totalPrice: number;
   stock: number;
+  isAvailable: boolean;
   primaryImageUrl: IStorageFileReferenceResponse | null;
   categoryId: string;
   subCategoryId: string | null;
