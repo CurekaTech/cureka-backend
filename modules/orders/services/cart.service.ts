@@ -296,8 +296,7 @@ export class CartService {
         const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
 
         const isAvailable =
-          Boolean(variant) &&
-          variant.status === VariantStatus.ACTIVE &&
+          variant?.status === VariantStatus.ACTIVE &&
           product?.status === ProductStatus.PUBLISHED;
 
         return {
