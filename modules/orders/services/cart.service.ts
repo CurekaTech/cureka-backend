@@ -38,7 +38,7 @@ export class CartService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly cartPricingService: CartPricingService,
     private readonly couponCheckoutService: CouponCheckoutService,
-  ) {}
+  ) { }
 
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
@@ -296,7 +296,8 @@ export class CartService {
         const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
 
         const isAvailable =
-          variant?.status === VariantStatus.ACTIVE &&
+          variant !== undefined &&
+          variant.status === VariantStatus.ACTIVE &&
           product?.status === ProductStatus.PUBLISHED;
 
         return {
