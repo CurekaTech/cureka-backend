@@ -69,6 +69,11 @@ export class CreatePaymentRequestDto {
   discount?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  couponCode?: string;
+
+  @IsOptional()
   @IsDecimal()
   tax?: string;
 
@@ -141,6 +146,11 @@ export class UpdatePaymentRequestDto {
   discount?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  couponCode?: string;
+
+  @IsOptional()
   @IsDecimal()
   tax?: string;
 
@@ -199,4 +209,20 @@ export class GenerateLinkPrefillDto {
   @IsEmail()
   email?: string;
 }
+
+export class ValidateAdminCouponDto {
+  @IsString()
+  @MaxLength(100)
+  couponCode!: string;
+
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PaymentRequestItemInputDto)
+  items!: PaymentRequestItemInputDto[];
+}
+
 

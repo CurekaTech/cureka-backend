@@ -37,6 +37,11 @@ export class PaymentRequestEntity extends BaseEntity {
   @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2 })
   totalAmount!: string;
 
+  @Column({ name: 'coupon_code', type: 'varchar', length: 100, nullable: true })
+  couponCode!: string | null;
+
+  @Column({ name: 'coupon_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  couponDiscount!: string;
 
   @Column({ type: 'varchar', length: 5, default: 'INR' })
   currency!: string;

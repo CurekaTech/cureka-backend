@@ -240,6 +240,10 @@ export class OrdersService {
     notes: string | null;
     paymentMethod?: OrderPaymentMethod;
     createdBy?: string;
+    couponId?: string | null;
+    couponCode?: string | null;
+    couponTitle?: string | null;
+    couponDiscountType?: string | null;
     items: Array<{
       productId: string;
       variantId: string;
@@ -269,6 +273,10 @@ export class OrdersService {
           shippingAmount: params.shippingAmount,
           handlingAmount: '0',
           grandTotal: params.grandTotal,
+          couponId: params.couponId ?? null,
+          couponCode: params.couponCode ?? null,
+          couponTitle: params.couponTitle ?? null,
+          couponDiscountType: params.couponDiscountType ?? null,
           paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
@@ -325,6 +333,19 @@ export class OrdersService {
       }
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+
+      if (params.couponId && params.couponCode) {
+        await this.couponCheckoutService.incrementUsage(
+          {
+            couponId: params.couponId,
+            userId: params.customerId,
+            orderId: createdOrder.id,
+            discountAmount: parseFloat(params.discountAmount),
+          },
+          manager,
+        );
+      }
+
       const order = await this.ordersRepository.findByIdAndUserId(
         createdOrder.id,
         params.customerId,

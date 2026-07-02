@@ -22,6 +22,7 @@ import {
   GenerateLinkPrefillDto,
   PaymentRequestQueryDto,
   UpdatePaymentRequestDto,
+  ValidateAdminCouponDto,
 } from '../dto/payment-request.dto';
 import { PaymentRequestsService } from '../services/payment-requests.service';
 
@@ -42,6 +43,15 @@ export class AdminPaymentRequestsController {
     @Query('limit') limit?: number,
   ) {
     return this.paymentRequestsService.searchProducts(search || '', limit ? Number(limit) : undefined);
+  }
+
+  @ApiOperation({ summary: 'Validate coupon for order/payment request items' })
+  @ResponseMessage('Coupon validated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @RequirePermissions('payment-request.create')
+  @Post('validate-coupon')
+  validateCoupon(@Body() dto: ValidateAdminCouponDto) {
+    return this.paymentRequestsService.validateAdminCoupon(dto);
   }
 
   @ApiOperation({ summary: 'Create payment request' })

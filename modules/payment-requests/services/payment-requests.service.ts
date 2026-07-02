@@ -21,7 +21,9 @@ import {
   PaymentRequestItemInputDto,
   PaymentRequestQueryDto,
   UpdatePaymentRequestDto,
+  ValidateAdminCouponDto,
 } from '../dto/payment-request.dto';
+import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
 import { PaymentRequestItemsRepository } from '../repositories/payment-request-items.repository';
@@ -51,6 +53,7 @@ export class PaymentRequestsService {
     private readonly razorpayService: RazorpayPaymentLinksService,
     private readonly cashfreeService: CashfreePaymentService,
     private readonly gatewayResolver: PaymentGatewayResolverService,
+    private readonly couponCheckoutService: CouponCheckoutService,
   ) { }
 
   async checkoutFromCart(userId: string, addressId: string) {
@@ -400,7 +403,12 @@ export class PaymentRequestsService {
   async create(dto: CreatePaymentRequestDto, createdBy: string): Promise<PaymentRequestEntity> {
     const customerId = await this.resolveCustomerId(dto);
     const pricedItems = await this.resolveAndValidateItems(dto.items);
-    const totals = this.computeTotals(pricedItems, dto.discount, dto.tax, dto.shipping, dto.handling, dto.finalAmount);
+
+    const subtotal = pricedItems.reduce((sum, item) => sum + parseFloat(item.total), 0);
+    const couponResult = await this.resolveCoupon(dto.couponCode, customerId, subtotal, dto.items);
+    const finalDiscountVal = (Number(dto.discount ?? '0') + couponResult.discount).toFixed(2);
+
+    const totals = this.computeTotals(pricedItems, finalDiscountVal, dto.tax, dto.shipping, dto.handling, dto.finalAmount);
 
     return this.dataSource.transaction(async (manager) => {
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
@@ -413,6 +421,8 @@ export class PaymentRequestsService {
           status: PaymentRequestStatus.PAYMENT_PENDING,
           subtotal: totals.subtotal,
           discount: totals.discount,
+          couponCode: couponResult.code,
+          couponDiscount: couponResult.discount.toFixed(2),
           tax: totals.tax,
           shipping: totals.shipping,
           handling: totals.handling,
@@ -457,7 +467,12 @@ export class PaymentRequestsService {
     }
 
     const pricedItems = await this.resolveAndValidateItems(dto.items);
-    const totals = this.computeTotals(pricedItems, dto.discount, dto.tax, dto.shipping, dto.handling, dto.finalAmount);
+    const subtotal = pricedItems.reduce((sum, item) => sum + parseFloat(item.total), 0);
+
+    const couponResult = await this.resolveCoupon(dto.couponCode, existing.customerId, subtotal, dto.items);
+    const finalDiscountVal = (Number(dto.discount ?? '0') + couponResult.discount).toFixed(2);
+
+    const totals = this.computeTotals(pricedItems, finalDiscountVal, dto.tax, dto.shipping, dto.handling, dto.finalAmount);
 
     return this.dataSource.transaction(async (manager) => {
       await this.paymentRequestsRepository.updateById(
@@ -465,6 +480,8 @@ export class PaymentRequestsService {
         {
           subtotal: totals.subtotal,
           discount: totals.discount,
+          couponCode: couponResult.code,
+          couponDiscount: couponResult.discount.toFixed(2),
           tax: totals.tax,
           shipping: totals.shipping,
           handling: totals.handling,
@@ -677,6 +694,31 @@ export class PaymentRequestsService {
       );
 
       const shippingVal = Number(fresh.shipping ?? '0') + Number(fresh.handling ?? '0');
+      
+      let couponDetails: {
+        couponId: string | null;
+        couponCode: string | null;
+        couponTitle: string | null;
+        couponDiscountType: string | null;
+      } = {
+        couponId: null,
+        couponCode: null,
+        couponTitle: null,
+        couponDiscountType: null,
+      };
+
+      if (fresh.couponCode) {
+        const coupon = await this.couponCheckoutService.findByCode(fresh.couponCode);
+        if (coupon) {
+          couponDetails = {
+            couponId: coupon.id,
+            couponCode: coupon.code,
+            couponTitle: coupon.title,
+            couponDiscountType: coupon.discountType,
+          };
+        }
+      }
+
       await this.ordersService.createOrderFromPaymentRequest({
         customerId: fresh.customerId,
         paymentRequestId: fresh.id,
@@ -688,6 +730,7 @@ export class PaymentRequestsService {
         notes: fresh.notes ?? null,
         paymentMethod: fresh.paymentProvider as OrderPaymentMethod,
         createdBy: updatedBy,
+        ...couponDetails,
         items: fresh.items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
@@ -791,27 +834,35 @@ export class PaymentRequestsService {
 
   formatRazorpayDescription(request: PaymentRequestEntity): string {
     const items = request.items;
-    if (!items || items.length === 0) {
-      return `Payment Request: ${request.refId}`;
+    let suffix = '';
+    if (request.couponCode && Number(request.couponDiscount) > 0) {
+      suffix = ` | Coupon: ${request.couponCode} applied (-₹${Number(request.couponDiscount).toFixed(2)})`;
     }
 
+    if (!items || items.length === 0) {
+      return `Payment Request: ${request.refId}${suffix}`;
+    }
+
+    let baseDesc = '';
     if (items.length === 1) {
       const item = items[0];
       const prodName = item.product?.name || 'Product';
       const prodDesc = item.product?.description || '';
       const cleanDesc = prodDesc ? ` - ${prodDesc.replace(/<[^>]*>/g, '').slice(0, 150)}` : '';
       const cleanPrice = Number(item.unitPrice).toFixed(2);
-      return `${prodName}${cleanDesc} (Qty: ${item.quantity}) · Price: ₹${cleanPrice}`;
+      baseDesc = `${prodName}${cleanDesc} (Qty: ${item.quantity}) · Price: ₹${cleanPrice}`;
     } else {
       const itemsList = items
         .map((item, idx) => `${idx + 1}. ${item.product?.name || 'Product'} (Qty: ${item.quantity})`)
         .join(', ');
-      const desc = `Items: ${itemsList}`;
-      if (desc.length > 1000) {
-        return desc.slice(0, 997) + '...';
-      }
-      return desc;
+      baseDesc = `Items: ${itemsList}`;
     }
+
+    const fullDesc = `${baseDesc}${suffix}`;
+    if (fullDesc.length > 1000) {
+      return fullDesc.slice(0, 997) + '...';
+    }
+    return fullDesc;
   }
 
   private async getRequestOrThrow(id: string): Promise<PaymentRequestEntity> {
@@ -957,6 +1008,82 @@ export class PaymentRequestsService {
       shipping: shippingNum.toFixed(2),
       handling: handlingNum.toFixed(2),
       totalAmount: totalAmountNum.toFixed(2),
+    };
+  }
+
+  async validateAdminCoupon(dto: ValidateAdminCouponDto) {
+    const pricedItems = await this.resolveAndValidateItems(dto.items);
+    const subtotal = pricedItems.reduce((sum, item) => sum + parseFloat(item.total), 0);
+    const result = await this.resolveCoupon(dto.couponCode, dto.customerId, subtotal, dto.items);
+    return {
+      couponCode: result.code,
+      discountAmount: result.discount.toFixed(2),
+      subtotal: subtotal.toFixed(2),
+      finalAmount: Math.max(0, subtotal - result.discount).toFixed(2),
+    };
+  }
+
+  private async resolveCoupon(
+    couponCode?: string,
+    customerId?: string,
+    subtotal = 0,
+    items: PaymentRequestItemInputDto[] = [],
+  ) {
+    if (!couponCode || !couponCode.trim()) {
+      return { code: null, discount: 0 };
+    }
+
+    const coupon = await this.couponCheckoutService.findByCode(couponCode);
+    if (!coupon) {
+      throw new BadRequestException(`Coupon code '${couponCode}' not found`);
+    }
+
+    const eligibleItems = await Promise.all(
+      items.map(async (item) => {
+        const variant = await this.dataSource.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+          relations: ['product'],
+        });
+        const unitPriceNum = Number(item.unitPrice);
+        return {
+          id: '',
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: '',
+          sku: '',
+          variantLabel: null,
+          quantity: item.quantity,
+          unitPrice: unitPriceNum,
+          totalPrice: unitPriceNum * item.quantity,
+          stock: variant?.stock ?? 0,
+          isAvailable: true,
+          primaryImageUrl: null,
+          categoryId: variant?.product?.categoryId ?? '',
+          subCategoryId: variant?.product?.subCategoryId ?? null,
+          subSubCategoryId: variant?.product?.subSubCategoryId ?? null,
+          subSubSubCategoryId: variant?.product?.subSubSubCategoryId ?? null,
+          brandId: variant?.product?.brandId ?? null,
+        };
+      }),
+    );
+
+    await this.couponCheckoutService.validateCoupon(coupon, {
+      userId: customerId || 'admin-checkout',
+      subtotal,
+      items: eligibleItems,
+    });
+
+    const eligibleSubtotal = this.couponCheckoutService.getDiscountSubtotal(coupon, {
+      userId: customerId || 'admin-checkout',
+      subtotal,
+      items: eligibleItems,
+    });
+
+    const discountAmount = this.couponCheckoutService.calculateDiscount(coupon, eligibleSubtotal);
+
+    return {
+      code: coupon.code,
+      discount: discountAmount,
     };
   }
 }
