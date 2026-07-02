@@ -37,6 +37,7 @@ export class CheckoutService {
       unitPrice: item.unitPrice,
       totalPrice: item.totalPrice,
       stock: 0,
+      isAvailable: true,
       primaryImageUrl: null,
       categoryId: item.categoryId,
       subCategoryId: item.subCategoryId,
