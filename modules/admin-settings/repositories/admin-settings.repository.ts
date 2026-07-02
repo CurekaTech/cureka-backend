@@ -36,4 +36,8 @@ export class AdminSettingsRepository {
   existsByRefId(refId: string): Promise<boolean> {
     return this.repo.exists({ where: { refId } });
   }
+
+  transaction<T>(runInTransaction: (entityManager: EntityManager) => Promise<T>): Promise<T> {
+    return this.repo.manager.transaction(runInTransaction);
+  }
 }
