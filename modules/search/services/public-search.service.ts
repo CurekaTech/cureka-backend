@@ -4,6 +4,8 @@ import { IPublicProductCard } from '@modules/public/interfaces/public-product.in
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PRODUCT_POPULAR_SORT_FIELD } from '../constants/typesense-product.schema';
+import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
+import { mapProductCardsToSearchResults } from '../mappers/public-search-result.mapper';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
 
@@ -16,7 +18,7 @@ export class PublicSearchService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
-  async search(query: string, perPage = 10): Promise<IPublicProductCard[]> {
+  async search(query: string, perPage = 10): Promise<IPublicSearchResult[]> {
     const trimmed = query.trim();
     if (!trimmed || !this.typesenseClient.isEnabled()) {
       return [];
@@ -35,10 +37,13 @@ export class PublicSearchService {
         per_page: perPage,
       });
 
-    return this.hydrateSearchHits((result.hits ?? []) as Array<{ document?: Record<string, unknown> }>);
+    const cards = await this.hydrateSearchHits(
+      (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+    );
+    return mapProductCardsToSearchResults(cards);
   }
 
-  async getPopular(perPage = 4): Promise<IPublicProductCard[]> {
+  async getPopular(perPage = 4): Promise<IPublicSearchResult[]> {
     if (!this.typesenseClient.isEnabled()) {
       return [];
     }
@@ -59,7 +64,10 @@ export class PublicSearchService {
         ...(canSortByPrice ? { sort_by: `${PRODUCT_POPULAR_SORT_FIELD}:asc` } : {}),
       });
 
-    return this.hydrateSearchHits((result.hits ?? []) as Array<{ document?: Record<string, unknown> }>);
+    const cards = await this.hydrateSearchHits(
+      (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+    );
+    return mapProductCardsToSearchResults(cards);
   }
 
   private async hydrateSearchHits(
