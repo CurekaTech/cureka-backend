@@ -295,6 +295,11 @@ export class CartService {
         const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
         const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
 
+        const isAvailable =
+          Boolean(variant) &&
+          variant.status === VariantStatus.ACTIVE &&
+          product?.status === ProductStatus.PUBLISHED;
+
         return {
           id: item.id,
           productId: item.productId,
@@ -306,6 +311,7 @@ export class CartService {
           unitPrice,
           totalPrice: unitPrice * item.quantity,
           stock: variant?.stock ?? 0,
+          isAvailable,
           primaryImageUrl,
           categoryId: product?.categoryId ?? '',
           subCategoryId: product?.subCategoryId ?? null,
