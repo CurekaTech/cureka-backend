@@ -249,13 +249,8 @@ export class PaymentRequestsService {
   }
 
   async verifyModalCheckoutPayment(userId: string, dto: CheckoutVerifyPaymentDto) {
-    const activeGateway = await this.gatewayResolver.getActiveGateway();
-    if (activeGateway === 'cashfree') {
+    if (dto.cf_order_id) {
       const orderId = dto.cf_order_id;
-      if (!orderId) {
-        throw new BadRequestException('cf_order_id is required for Cashfree verification');
-      }
-
       const cashfreeOrder = await this.cashfreeService.getOrder(orderId);
       if (cashfreeOrder['order_status'] !== 'PAID') {
         throw new BadRequestException('Payment verification failed or order is not paid yet');
@@ -580,54 +575,98 @@ export class PaymentRequestsService {
       throw new BadRequestException('Customer phone is required for payment link');
     }
 
-    const reference = existing.refId;
-    const expireBy = this.razorpayService.getLinkExpiryTimestamp();
+    const activeGateway = await this.gatewayResolver.getActiveGateway();
+    if (activeGateway === 'cashfree') {
+      const callbackUrl = options?.callbackUrl || this.getStorefrontPaymentCallbackUrl();
+      const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
-    const payload: Record<string, any> = {
-      amount: amountPaise,
-      currency: existing.currency,
-      reference_id: reference,
-      expire_by: expireBy,
-      customer: {
-        name: [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || finalPhone,
-        contact: finalPhone,
-        email: finalEmail ?? undefined,
-      },
-      notes: {
-        paymentRequestId: existing.id,
-        paymentRequestRefId: existing.refId,
-        customerId: existing.customerId,
-      },
-      ...(options?.callbackUrl
-        ? { callback_url: options.callbackUrl, callback_method: 'get' }
-        : {}),
-    };
+      const parsedPhone = parseIndianMobileNumber(finalPhone);
+      const name = [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || 'Customer';
 
-    // Format description and display product details
-    const description = this.formatRazorpayDescription(existing);
-    if (description) {
-      payload.description = description;
+      const cashfreeOrder = await this.cashfreeService.createOrder({
+        orderId: existing.refId,
+        amount: Number(existing.totalAmount),
+        currency: existing.currency,
+        customer: {
+          id: existing.customerId,
+          email: finalEmail ?? undefined,
+          phone: parsedPhone,
+          name,
+        },
+        returnUrl,
+      });
+
+      const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
+      const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
+      if (!paymentSessionId) {
+        throw new BadRequestException('Failed to create Cashfree order');
+      }
+
+      await this.paymentRequestsRepository.updateById(existing.id, {
+        providerReferenceId: cfOrderId,
+        paymentReference: paymentSessionId,
+        paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
+        paymentProvider: 'CASHFREE',
+        expiresAt: cashfreeOrder['order_expiry_time'] ? new Date(cashfreeOrder['order_expiry_time']) : null,
+        status: PaymentRequestStatus.LINK_GENERATED,
+        updatedBy,
+      });
+
+      this.logger.log(`Cashfree link created for payment request ${existing.refId}`);
+      return this.getRequestOrThrow(existing.id);
+    } else if (activeGateway === 'payu') {
+      throw new BadRequestException('PayU payment gateway is not fully implemented yet');
+    } else {
+      const reference = existing.refId;
+      const expireBy = this.razorpayService.getLinkExpiryTimestamp();
+
+      const payload: Record<string, any> = {
+        amount: amountPaise,
+        currency: existing.currency,
+        reference_id: reference,
+        expire_by: expireBy,
+        customer: {
+          name: [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || finalPhone,
+          contact: finalPhone,
+          email: finalEmail ?? undefined,
+        },
+        notes: {
+          paymentRequestId: existing.id,
+          paymentRequestRefId: existing.refId,
+          customerId: existing.customerId,
+        },
+        ...(options?.callbackUrl
+          ? { callback_url: options.callbackUrl, callback_method: 'get' }
+          : {}),
+      };
+
+      // Format description and display product details
+      const description = this.formatRazorpayDescription(existing);
+      if (description) {
+        payload.description = description;
+      }
+
+      // Add callback redirection URLs if configured
+      const callbackUrl = this.razorpayService.getCallbackUrl();
+      if (callbackUrl) {
+        payload.callback_url = callbackUrl;
+        payload.callback_method = 'get';
+      }
+
+      const link = await this.razorpayService.createPaymentLink(payload);
+
+      await this.paymentRequestsRepository.updateById(existing.id, {
+        paymentLink: String((link['short_url'] as string | undefined) ?? (link['url'] as string | undefined) ?? ''),
+        providerReferenceId: String(link['id'] as string),
+        paymentReference: String((link['reference_id'] as string | undefined) ?? reference),
+        paymentProvider: 'RAZORPAY',
+        expiresAt: link['expire_by'] ? new Date(Number(link['expire_by']) * 1000) : null,
+        status: PaymentRequestStatus.LINK_GENERATED,
+        updatedBy,
+      });
+      this.logger.log(`Payment link created for payment request ${existing.refId}`);
+      return this.getRequestOrThrow(existing.id);
     }
-
-    // Add callback redirection URLs if configured
-    const callbackUrl = this.razorpayService.getCallbackUrl();
-    if (callbackUrl) {
-      payload.callback_url = callbackUrl;
-      payload.callback_method = 'get';
-    }
-
-    const link = await this.razorpayService.createPaymentLink(payload);
-
-    await this.paymentRequestsRepository.updateById(existing.id, {
-      paymentLink: String((link['short_url'] as string | undefined) ?? (link['url'] as string | undefined) ?? ''),
-      providerReferenceId: String(link['id'] as string),
-      paymentReference: String((link['reference_id'] as string | undefined) ?? reference),
-      expiresAt: link['expire_by'] ? new Date(Number(link['expire_by']) * 1000) : null,
-      status: PaymentRequestStatus.LINK_GENERATED,
-      updatedBy,
-    });
-    this.logger.log(`Payment link created for payment request ${existing.refId}`);
-    return this.getRequestOrThrow(existing.id);
   }
 
   async regenerateLink(

@@ -14,7 +14,7 @@ export class CashfreePaymentService {
   constructor(private readonly configService: ConfigService) {
     this.appId = this.configService.get<string>('CASHFREE_APP_ID') ?? '';
     this.secretKey = this.configService.get<string>('CASHFREE_SECRET_KEY') ?? '';
-    this.env = this.configService.get<string>('CASHFREE_ENV') ?? 'sandbox';
+    this.env = (this.configService.get<string>('CASHFREE_ENV') ?? 'sandbox').toLowerCase();
     this.apiVersion = this.configService.get<string>('CASHFREE_API_VERSION') ?? '2023-08-01';
 
     if (!this.appId || !this.secretKey) {
