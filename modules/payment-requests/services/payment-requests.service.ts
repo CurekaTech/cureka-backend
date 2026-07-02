@@ -353,6 +353,7 @@ export class PaymentRequestsService {
       summary.discountAmount > 0 ? summary.discountAmount.toFixed(2) : undefined,
       undefined,
       summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
+      summary.handlingAmount > 0 ? summary.handlingAmount.toFixed(2) : undefined,
     );
 
     const paymentRequest = await this.dataSource.transaction(async (manager) => {
