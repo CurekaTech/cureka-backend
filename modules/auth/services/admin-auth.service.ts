@@ -195,13 +195,6 @@ export const MENU_HIERARCHY: MenuItem[] = [
             requiredPermissions: ['categories.read', 'settings.read'],
           },
           {
-            name: 'Sub Sub Category List',
-            key: 'masters-subsubcategory',
-            icon: 'GitBranch',
-            href: '/master/sub-sub-category',
-            requiredPermissions: ['categories.read', 'settings.read'],
-          },
-          {
             name: 'Sub Sub Sub Category',
             key: 'masters-subsubsubcategory',
             icon: 'ListTree',
