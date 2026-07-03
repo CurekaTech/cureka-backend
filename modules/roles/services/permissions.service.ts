@@ -276,12 +276,22 @@ export class PermissionsService {
         ],
       },
       {
-        name: 'System Settings',
-        key: 'system-settings',
+        name: 'Settings',
+        key: 'settings',
         subItems: [
           {
-            name: 'Admin Settings',
-            key: 'admin-settings-view',
+            name: 'Cart Charges',
+            key: 'cart-charges-view',
+            permissions: getPerms('settings'),
+          },
+          {
+            name: 'Payment Methods',
+            key: 'payment-methods-view',
+            permissions: getPerms('settings'),
+          },
+          {
+            name: 'Logistic Partners',
+            key: 'logistic-partners-view',
             permissions: getPerms('settings'),
           },
         ],
