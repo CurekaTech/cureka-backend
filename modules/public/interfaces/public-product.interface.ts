@@ -93,7 +93,7 @@ export interface IPublicProductCard {
   brandName: string | null;
   productNatureRefId: string | null;
   productNatureName: string | null;
-  primaryImageUrl: IStorageFileReferenceResponse | null;
+  primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
   subscriptionEnabled: boolean;
   codAvailable: boolean;

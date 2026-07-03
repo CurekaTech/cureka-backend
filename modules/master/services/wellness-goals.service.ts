@@ -76,6 +76,7 @@ export class WellnessGoalsService {
 
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
+      description: dto.description ?? null,
       image: this.storageUrlEnricher.persist(image),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
@@ -126,6 +127,7 @@ export class WellnessGoalsService {
 
     const payload: Partial<WellnessGoalEntity> = { updatedBy };
     if (dto.name !== undefined) payload.name = dto.name;
+    if (dto.description !== undefined) payload.description = dto.description;
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.inHomePage !== undefined) payload.inHomePage = dto.inHomePage;
     if (image !== undefined) payload.image = this.storageUrlEnricher.persist(image);
