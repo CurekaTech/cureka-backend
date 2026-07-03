@@ -94,8 +94,6 @@ export class PaymentRequestsService {
         updatedBy: userId,
       });
 
-      await this.cartService.clear(userId);
-
       return {
         gateway: 'cashfree',
         paymentData: {
@@ -119,8 +117,6 @@ export class PaymentRequestsService {
       if (!withLink.paymentLink) {
         throw new BadRequestException('Failed to generate payment link');
       }
-
-      await this.cartService.clear(userId);
 
       return {
         gateway: 'razorpay',
@@ -172,8 +168,6 @@ export class PaymentRequestsService {
         status: PaymentRequestStatus.LINK_GENERATED,
         updatedBy: userId,
       });
-
-      await this.cartService.clear(userId);
 
       return {
         gateway: 'cashfree',
