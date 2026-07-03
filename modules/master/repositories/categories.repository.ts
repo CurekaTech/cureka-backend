@@ -63,6 +63,27 @@ export class CategoriesRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
+  /** Counts root categories that have the given homepage flag enabled (optionally excluding one). */
+  async countRootCategoriesByFlag(
+    flag: 'isInHeader' | 'isInShopBy',
+    excludeId?: string,
+  ): Promise<number> {
+    const column = flag === 'isInHeader' ? 'category.isInHeader' : 'category.isInShopBy';
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .where(`${column} = :enabled`, { enabled: true })
+      .andWhere('category.parentCategoryId IS NULL')
+      .andWhere('category.hierarchyLevel = :level', {
+        level: String(CategoryHierarchyLevel.ROOT),
+      });
+
+    if (excludeId) {
+      qb.andWhere('category.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
+  }
+
   async updateByRefId(refId: string, data: Partial<CategoryEntity>): Promise<CategoryEntity | null> {
     await this.repo.update({ refId }, data);
     return this.findByRefId(refId);
@@ -235,6 +256,21 @@ export class CategoriesRepository {
       .andWhere('category.parentCategoryId IS NULL')
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
+  /** Latest shop-by root categories (newest first), capped to `limit`. */
+  async findLatestShopByRootCategories(limit: number): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.isInShopBy = :isInShopBy', { isInShopBy: true })
+      .andWhere('category.hierarchyLevel = :level', {
+        level: String(CategoryHierarchyLevel.ROOT),
+      })
+      .andWhere('category.parentCategoryId IS NULL')
+      .orderBy('category.createdAt', 'DESC')
+      .addOrderBy('category.hierarchyId', 'DESC')
+      .take(limit)
       .getMany();
   }
 

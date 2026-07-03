@@ -111,6 +111,20 @@ export class PublicProductsService {
     return result;
   }
 
+  /**
+   * "View all" best sellers listing (paginated). Defaults to newest-first ordering
+   * and supports the same filters as the product listing (e.g. categoryRefId/slug).
+   */
+  async findBestSellers(
+    query: PublicProductQueryDto,
+  ): Promise<PaginatedResult<IPublicProductCard>> {
+    return this.findAll({
+      ...query,
+      sortBy: query.sortBy ?? 'publishedAt',
+      sortOrder: query.sortOrder ?? 'DESC',
+    });
+  }
+
   async searchVariants(
     query: PublicProductQueryDto,
   ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {

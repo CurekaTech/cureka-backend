@@ -1,24 +1,69 @@
 import { Injectable } from '@nestjs/common';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
-import { IHomepageBannersBundle } from '@modules/master/interfaces/banner.interface';
+import { IHomepageBannersBundle, IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
+import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
+import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { IPublicBestSellersSection } from '../interfaces/public-best-sellers.interface';
+import {
+  IPublicBrandBannersSection,
+  IPublicHeroBannerSection,
+} from '../interfaces/public-banner-section.interface';
+import { IPublicBrandCard } from '../interfaces/public-brand.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
+import { IPublicProductCard } from '../interfaces/public-product.interface';
+import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
+import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+
+/** Max products returned per Best Sellers category tab in the homepage section. */
+const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
+
+/** Max category tabs shown in the homepage Best Sellers section (latest first). */
+const BEST_SELLERS_MAX_CATEGORIES = 10;
+
+/** Max wellness goals shown in the homepage "Shop by Wellness Goals" section. */
+const SHOP_BY_WELLNESS_GOALS_LIMIT = 10;
+
+/** Max brands shown in the homepage "Brands We Trust" section. */
+const BRANDS_WE_TRUST_LIMIT = 10;
 
 @Injectable()
 export class HomepageService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly productsRepository: ProductsRepository,
+    private readonly wellnessGoalsRepository: WellnessGoalsRepository,
+    private readonly brandsRepository: BrandsRepository,
     private readonly bannersService: BannersService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
   getHomepageBanners(): Promise<IHomepageBannersBundle> {
     return this.bannersService.getHomepageBanners();
+  }
+
+  /** Hero Banner section — HERO_PRIMARY + HERO_SECONDARY banners. */
+  async getHeroBannerSection(): Promise<IPublicHeroBannerSection> {
+    const { hero } = await this.bannersService.getHomepageBanners();
+    return { primary: hero.primary, secondary: hero.secondary };
+  }
+
+  /** Festival Banners section — MAIN_PROMO placement. */
+  async getFestivalBanners(): Promise<IStorefrontBannerItem[]> {
+    const { mainPromo } = await this.bannersService.getHomepageBanners();
+    return mainPromo;
+  }
+
+  /** Brand Banners section — BRAND_WISE placement, split into left/right slots. */
+  async getBrandBanners(): Promise<IPublicBrandBannersSection> {
+    const { brandWise } = await this.bannersService.getHomepageBanners();
+    return { left: brandWise.left, right: brandWise.right };
   }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
@@ -48,6 +93,99 @@ export class HomepageService {
     const categories = await this.categoriesRepository.findActiveCategories();
     const tree = this.buildShopByCategoryTree(categories);
     return this.enrichCategoryTree(tree);
+  }
+
+  async getBestSellers(): Promise<IPublicBestSellersSection> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.bestSellers(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadBestSellersUncached(),
+    });
+  }
+
+  /** Used by cache refresh after product/category mutations. */
+  async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
+    const categories = await this.categoriesRepository.findLatestShopByRootCategories(
+      BEST_SELLERS_MAX_CATEGORIES,
+    );
+
+    const tabs = await Promise.all(
+      categories.map(async (category, position) => {
+        const { data } = await this.productsRepository.findPublishedPaginated({
+          page: 1,
+          limit: BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+          sortBy: 'publishedAt',
+          sortOrder: 'DESC',
+          categoryId: category.id,
+        });
+
+        const products = await this.enrichProductCards(mapProductEntitiesToPublicCards(data));
+
+        return {
+          index: position + 1,
+          refId: category.refId,
+          name: category.name,
+          slug: category.slug,
+          products,
+        };
+      }),
+    );
+
+    return { categories: tabs };
+  }
+
+  async getShopByWellnessGoals(): Promise<IPublicWellnessGoalCard[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.shopByWellnessGoals(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadShopByWellnessGoalsUncached(),
+    });
+  }
+
+  /** Used by cache refresh after wellness goal mutations. */
+  async loadShopByWellnessGoalsUncached(): Promise<IPublicWellnessGoalCard[]> {
+    const goals = await this.wellnessGoalsRepository.findHomePageGoals(
+      SHOP_BY_WELLNESS_GOALS_LIMIT,
+    );
+
+    return Promise.all(
+      goals.map(async (goal) => ({
+        refId: goal.refId,
+        name: goal.name,
+        image: await this.storageUrlEnricher.toReference(goal.image),
+      })),
+    );
+  }
+
+  async getBrandsWeTrust(): Promise<IPublicBrandCard[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.brandsWeTrust(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadBrandsWeTrustUncached(),
+    });
+  }
+
+  /** Used by cache refresh after brand mutations. */
+  async loadBrandsWeTrustUncached(): Promise<IPublicBrandCard[]> {
+    const brands = await this.brandsRepository.findHomePageBrands(BRANDS_WE_TRUST_LIMIT);
+
+    return Promise.all(
+      brands.map(async (brand) => ({
+        refId: brand.refId,
+        name: brand.name,
+        slug: brand.slug,
+        logo: await this.storageUrlEnricher.toReference(brand.logo),
+      })),
+    );
+  }
+
+  private async enrichProductCards(cards: IPublicProductCard[]): Promise<IPublicProductCard[]> {
+    return Promise.all(
+      cards.map(async (card) => ({
+        ...card,
+        primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
+      })),
+    );
   }
 
   private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicHeaderCategory[] {

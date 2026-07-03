@@ -34,6 +34,8 @@ export type CartPricing = {
   handlingAmount: number;
   platformFee: number;
   codCharge: number;
+  /** Discount applied when paying with a prepaid method (subtracted from total). */
+  prepaidDiscount: number;
   grandTotal: number;
 };
 

@@ -40,5 +40,17 @@ export class CategoriesCacheSyncService {
     await this.cacheInvalidation.invalidateByPattern(
       CacheKeys.homepage.shopByCategoryPattern(),
     );
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.homepage.sectionsPattern(),
+    );
+  }
+
+  async invalidateHomepageBestSellersCache(): Promise<void> {
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.homepage.bestSellersPattern(),
+    );
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.homepage.sectionsPattern(),
+    );
   }
 }

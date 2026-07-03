@@ -20,6 +20,7 @@ export class BannersCacheSyncService {
 
   async invalidateHomepageBanners(): Promise<void> {
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.bannersPattern());
+    await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.sectionsPattern());
   }
 
   /** Write-through: rebuild homepage bundle in Redis immediately after admin changes. */

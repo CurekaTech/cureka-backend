@@ -14,6 +14,7 @@ export class CategoryCacheListener {
     await this.categoriesCacheSync.invalidateListCaches();
     await this.categoriesCacheSync.invalidateHomepageCategoryHeaderCache();
     await this.categoriesCacheSync.invalidateHomepageShopByCategoryCache();
+    await this.categoriesCacheSync.invalidateHomepageBestSellersCache();
     await this.categoriesCacheSync.syncTreeWriteThrough();
 
     this.logger.log(

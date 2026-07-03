@@ -88,6 +88,7 @@ export class OrdersService {
           handlingAmount: toMoneyString(summary.handlingAmount),
           platformFee: toMoneyString(summary.platformFee),
           codCharge: toMoneyString(summary.codCharge),
+          prepaidDiscount: toMoneyString(summary.prepaidDiscount),
           grandTotal: toMoneyString(summary.grandTotal),
           couponId: appliedCoupon?.id ?? null,
           couponCode: appliedCoupon?.code ?? null,
