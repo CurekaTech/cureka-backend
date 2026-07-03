@@ -250,15 +250,22 @@ export class BannersService {
     await this.emitBannerUpdated(refId, 'deleted');
   }
 
-  /** Public storefront read — cache-aside with Redis. */
-  async getHomepageBanners(): Promise<IHomepageBannersBundle> {
-    const bundle = await this.cacheStrategy.cacheAside({
+  /**
+   * Cached homepage banner bundle holding storage references only (no signed URLs).
+   * Callers that emit an API response must enrich the references afterwards so signed
+   * URLs are never persisted in Redis (they would expire before the cache does).
+   */
+  async getHomepageBannerReferences(): Promise<IHomepageBannersBundle> {
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.banners(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHomepageBannersUncached(),
     });
+  }
 
-    return this.enrichHomepageBanners(bundle);
+  /** Public storefront read — cache-aside with Redis, signed URLs enriched per request. */
+  async getHomepageBanners(): Promise<IHomepageBannersBundle> {
+    return this.enrichHomepageBanners(await this.getHomepageBannerReferences());
   }
 
   /** PostgreSQL source of truth for homepage banner bundle. */

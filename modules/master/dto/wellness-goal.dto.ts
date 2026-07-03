@@ -17,6 +17,10 @@ export class CreateWellnessGoalDto {
   name!: string;
 
   @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
 

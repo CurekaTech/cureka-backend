@@ -48,21 +48,24 @@ export class HomepageService {
     return this.bannersService.getHomepageBanners();
   }
 
-  /** Hero Banner section — HERO_PRIMARY + HERO_SECONDARY banners. */
+  /**
+   * Hero Banner section — HERO_PRIMARY + HERO_SECONDARY banners.
+   * Returns storage references; signed URLs are added after the sections cache read.
+   */
   async getHeroBannerSection(): Promise<IPublicHeroBannerSection> {
-    const { hero } = await this.bannersService.getHomepageBanners();
+    const { hero } = await this.bannersService.getHomepageBannerReferences();
     return { primary: hero.primary, secondary: hero.secondary };
   }
 
   /** Festival Banners section — MAIN_PROMO placement. */
   async getFestivalBanners(): Promise<IStorefrontBannerItem[]> {
-    const { mainPromo } = await this.bannersService.getHomepageBanners();
+    const { mainPromo } = await this.bannersService.getHomepageBannerReferences();
     return mainPromo;
   }
 
   /** Brand Banners section — BRAND_WISE placement, split into left/right slots. */
   async getBrandBanners(): Promise<IPublicBrandBannersSection> {
-    const { brandWise } = await this.bannersService.getHomepageBanners();
+    const { brandWise } = await this.bannersService.getHomepageBannerReferences();
     return { left: brandWise.left, right: brandWise.right };
   }
 
@@ -91,8 +94,7 @@ export class HomepageService {
   /** Used by cache refresh after category mutations. */
   async loadShopByCategoryTreeUncached(): Promise<IPublicCategoryTree[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
-    const tree = this.buildShopByCategoryTree(categories);
-    return this.enrichCategoryTree(tree);
+    return this.buildShopByCategoryTree(categories);
   }
 
   async getBestSellers(): Promise<IPublicBestSellersSection> {
@@ -119,7 +121,7 @@ export class HomepageService {
           categoryId: category.id,
         });
 
-        const products = await this.enrichProductCards(mapProductEntitiesToPublicCards(data));
+        const products = mapProductEntitiesToPublicCards(data);
 
         return {
           index: position + 1,
@@ -148,13 +150,11 @@ export class HomepageService {
       SHOP_BY_WELLNESS_GOALS_LIMIT,
     );
 
-    return Promise.all(
-      goals.map(async (goal) => ({
-        refId: goal.refId,
-        name: goal.name,
-        image: await this.storageUrlEnricher.toReference(goal.image),
-      })),
-    );
+    return goals.map((goal) => ({
+      refId: goal.refId,
+      name: goal.name,
+      image: this.storageUrlEnricher.persist(goal.image),
+    }));
   }
 
   async getBrandsWeTrust(): Promise<IPublicBrandCard[]> {
@@ -169,23 +169,12 @@ export class HomepageService {
   async loadBrandsWeTrustUncached(): Promise<IPublicBrandCard[]> {
     const brands = await this.brandsRepository.findHomePageBrands(BRANDS_WE_TRUST_LIMIT);
 
-    return Promise.all(
-      brands.map(async (brand) => ({
-        refId: brand.refId,
-        name: brand.name,
-        slug: brand.slug,
-        logo: await this.storageUrlEnricher.toReference(brand.logo),
-      })),
-    );
-  }
-
-  private async enrichProductCards(cards: IPublicProductCard[]): Promise<IPublicProductCard[]> {
-    return Promise.all(
-      cards.map(async (card) => ({
-        ...card,
-        primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
-      })),
-    );
+    return brands.map((brand) => ({
+      refId: brand.refId,
+      name: brand.name,
+      slug: brand.slug,
+      logo: this.storageUrlEnricher.persist(brand.logo),
+    }));
   }
 
   private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicHeaderCategory[] {
@@ -238,24 +227,5 @@ export class HomepageService {
           category.isInShopBy && category.hierarchyLevel === CategoryHierarchyLevel.ROOT,
       ),
     ).map(buildNode);
-  }
-
-  private async enrichCategoryTree(tree: IPublicCategoryTree[]): Promise<IPublicCategoryTree[]> {
-    return Promise.all(tree.map((node) => this.enrichCategoryNode(node)));
-  }
-
-  private async enrichCategoryNode(node: IPublicCategoryTree): Promise<IPublicCategoryTree> {
-    const [image, banner, children] = await Promise.all([
-      this.storageUrlEnricher.toReference(node.image),
-      this.storageUrlEnricher.toReference(node.banner),
-      Promise.all((node.children ?? []).map((child) => this.enrichCategoryNode(child))),
-    ]);
-
-    return {
-      ...node,
-      image,
-      banner,
-      children,
-    };
   }
 }

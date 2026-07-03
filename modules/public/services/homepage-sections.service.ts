@@ -6,6 +6,7 @@ import {
 } from '@packages/cache';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
 import { HomeSectionType } from '@modules/master/enums/home-section-type.enum';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 import {
   HomepageSectionData,
@@ -36,6 +37,7 @@ export class HomepageSectionsService {
     private readonly homepageService: HomepageService,
     private readonly homeSectionsService: HomeSectionsService,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   /**
@@ -46,12 +48,16 @@ export class HomepageSectionsService {
    * When `requested` is a non-empty list, only those section types are included.
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
-    return this.cacheStrategy.cacheAside({
+    const cached = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.sections(this.buildVariantKey(requested)),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
     });
+
+    // Sign storage references AFTER the cache read so signed URLs (short-lived)
+    // are never persisted in the long-lived sections cache.
+    return this.storageUrlEnricher.enrichDeep(cached);
   }
 
   /** Stable cache-key suffix for the requested section filter combination. */
