@@ -8,6 +8,7 @@ import {
 } from './public-banner-section.interface';
 import { IPublicBrandCard } from './public-brand.interface';
 import { IPublicCategoryTree } from './public-category.interface';
+import { IPublicHealthConcernCard } from './public-health-concern.interface';
 import { IPublicProductCard } from './public-product.interface';
 import { IPublicWellnessGoalCard } from './public-wellness-goal.interface';
 
@@ -16,6 +17,7 @@ export type HomepageSectionDataMap = {
   [HomepageSectionKey.SHOP_BY_CATEGORY]: IPublicCategoryTree[];
   [HomepageSectionKey.SHOP_BY_WELLNESS_GOALS]: IPublicWellnessGoalCard[];
   [HomepageSectionKey.BRANDS_WE_TRUST]: IPublicBrandCard[];
+  [HomepageSectionKey.EXPERT_CURATED_BUNDLES]: IPublicHealthConcernCard[];
   [HomepageSectionKey.FESTIVAL_BANNERS]: IStorefrontBannerItem[];
   [HomepageSectionKey.BRAND_BANNERS]: IPublicBrandBannersSection;
   [HomepageSectionKey.BEST_SELLERS]: IPublicBestSellersSection;

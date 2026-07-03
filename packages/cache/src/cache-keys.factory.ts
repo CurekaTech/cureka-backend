@@ -56,6 +56,8 @@ export const CacheKeys = {
     shopByWellnessGoalsPattern: () => 'homepage:section:shopByWellnessGoals*',
     brandsWeTrust: () => 'homepage:section:brandsWeTrust',
     brandsWeTrustPattern: () => 'homepage:section:brandsWeTrust*',
+    expertCuratedBundles: () => 'homepage:section:expertCuratedBundles',
+    expertCuratedBundlesPattern: () => 'homepage:section:expertCuratedBundles*',
     homeSections: () => 'homepage:home-sections',
     homeSectionsPattern: () => 'homepage:home-sections*',
     sections: (variant = 'all') => `homepage:sections:${variant}`,

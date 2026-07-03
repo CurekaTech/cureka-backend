@@ -28,6 +28,7 @@ export class HomepageSectionsService {
     [HomeSectionType.SHOP_BY_CATEGORY]: () => this.homepageService.getShopByCategoryTree(),
     [HomeSectionType.SHOP_BY_WELLNESS_GOALS]: () => this.homepageService.getShopByWellnessGoals(),
     [HomeSectionType.BRANDS_WE_TRUST]: () => this.homepageService.getBrandsWeTrust(),
+    [HomeSectionType.EXPERT_CURATED_BUNDLES]: () => this.homepageService.getExpertCuratedBundles(),
     [HomeSectionType.FESTIVAL_BANNERS]: () => this.homepageService.getFestivalBanners(),
     [HomeSectionType.BRAND_BANNERS]: () => this.homepageService.getBrandBanners(),
     [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
