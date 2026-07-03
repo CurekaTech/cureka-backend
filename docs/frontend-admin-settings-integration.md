@@ -67,6 +67,36 @@ Returns a filtered list of settings corresponding to the active view.
       "description": "Order payable amount threshold (subtotal minus discount) for free handling charge.",
       "createdAt": "2026-07-03T11:47:50.000Z",
       "updatedAt": "2026-07-03T11:47:50.000Z"
+    },
+    {
+      "id": "uuid-4",
+      "refId": "SET20261012",
+      "key": "cod_charge_threshold",
+      "value": "0",
+      "status": "active",
+      "description": "Order payable amount threshold (subtotal minus discount) above which COD charge is waived.",
+      "createdAt": "2026-07-03T12:03:00.000Z",
+      "updatedAt": "2026-07-03T12:03:00.000Z"
+    },
+    {
+      "id": "uuid-5",
+      "refId": "SET20261013",
+      "key": "prepaid_charge",
+      "value": "0",
+      "status": "active",
+      "description": "Flat prepaid order charge/discount applied.",
+      "createdAt": "2026-07-03T12:03:00.000Z",
+      "updatedAt": "2026-07-03T12:03:00.000Z"
+    },
+    {
+      "id": "uuid-6",
+      "refId": "SET20261014",
+      "key": "prepaid_charge_threshold",
+      "value": "0",
+      "status": "active",
+      "description": "Order payable amount threshold (subtotal minus discount) above which prepaid charge is waived.",
+      "createdAt": "2026-07-03T12:03:00.000Z",
+      "updatedAt": "2026-07-03T12:03:00.000Z"
     }
   ]
 }
@@ -103,7 +133,10 @@ Updates multiple settings belonging to a specific setting type in a single trans
 {
   "settings": [
     { "key": "shipping_charge", "value": "60" },
-    { "key": "shipping_charge_threshold", "value": "1000" }
+    { "key": "shipping_charge_threshold", "value": "1000" },
+    { "key": "cod_charge_threshold", "value": "1500" },
+    { "key": "prepaid_charge", "value": "20" },
+    { "key": "prepaid_charge_threshold", "value": "1000" }
   ]
 }
 ```
@@ -133,6 +166,7 @@ Updates multiple settings belonging to a specific setting type in a single trans
 2. **Cart Charges Config Page**:
    - Fetch initial data using: `GET /admin/settings?type=cart_charges`.
    - Update settings by submitting changes via: `PUT /admin/settings?type=cart_charges`.
+   - Ensure you render forms for the new fields: `cod_charge_threshold`, `prepaid_charge`, and `prepaid_charge_threshold`.
 
 3. **Payment Methods Config Page**:
    - Fetch initial data using: `GET /admin/settings?type=payment_methods`.

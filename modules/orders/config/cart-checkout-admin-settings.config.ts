@@ -6,9 +6,13 @@ export const CartCheckoutAdminSettingKey = {
   SHIPPING_CHARGE_THRESHOLD: 'shipping_charge_threshold',
   SHIPPING_CHARGE: 'shipping_charge',
   HANDLING_CHARGE: 'handling_charge',
+  HANDLING_CHARGE_THRESHOLD: 'handling_charge_threshold',
   PLATFORM_FEE: 'platform_fee',
   PLATFORM_FEE_THRESHOLD: 'platform_fee_threshold',
   COD_CHARGE: 'cod_charge',
+  COD_CHARGE_THRESHOLD: 'cod_charge_threshold',
+  PREPAID_CHARGE: 'prepaid_charge',
+  PREPAID_CHARGE_THRESHOLD: 'prepaid_charge_threshold',
 } as const;
 
 export type CartCheckoutAdminSettingKey =
@@ -18,11 +22,15 @@ export type CartCheckoutAdminSettingUsage =
   | 'free_shipping_threshold'
   | 'shipping_charge'
   | 'cart_flat_fee'
+  | 'handling_charge_threshold'
   | 'platform_fee'
   | 'platform_fee_threshold'
-  | 'cod_charge';
+  | 'cod_charge'
+  | 'cod_charge_threshold'
+  | 'prepaid_charge'
+  | 'prepaid_charge_threshold';
 
-export type CartCheckoutAdminSettingPricingField = 'handlingAmount' | 'platformFee' | 'codCharge' | 'shippingAmount';
+export type CartCheckoutAdminSettingPricingField = 'handlingAmount' | 'platformFee' | 'codCharge' | 'shippingAmount' | 'prepaidCharge';
 
 export type CartCheckoutAdminSettingDefinition = {
   key: CartCheckoutAdminSettingKey;
@@ -54,6 +62,11 @@ export const CART_CHECKOUT_ADMIN_SETTINGS: readonly CartCheckoutAdminSettingDefi
     fallbackDefault: 50,
   },
   {
+    key: CartCheckoutAdminSettingKey.HANDLING_CHARGE_THRESHOLD,
+    usage: 'handling_charge_threshold',
+    fallbackDefault: 900,
+  },
+  {
     key: CartCheckoutAdminSettingKey.PLATFORM_FEE,
     usage: 'platform_fee',
     pricingField: 'platformFee',
@@ -69,6 +82,22 @@ export const CART_CHECKOUT_ADMIN_SETTINGS: readonly CartCheckoutAdminSettingDefi
     usage: 'cod_charge',
     pricingField: 'codCharge',
     fallbackDefault: 50,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.COD_CHARGE_THRESHOLD,
+    usage: 'cod_charge_threshold',
+    fallbackDefault: 0,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.PREPAID_CHARGE,
+    usage: 'prepaid_charge',
+    pricingField: 'prepaidCharge',
+    fallbackDefault: 0,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.PREPAID_CHARGE_THRESHOLD,
+    usage: 'prepaid_charge_threshold',
+    fallbackDefault: 0,
   },
 ] as const;
 
