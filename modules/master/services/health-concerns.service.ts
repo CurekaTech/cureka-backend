@@ -1,5 +1,11 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
+import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { HealthConcernsRepository } from '../repositories/health-concerns.repository';
 import {
   CreateHealthConcernDto,
@@ -25,6 +31,7 @@ import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { HOMEPAGE_FLAG_LIMIT } from '../constants/homepage-flag-limit.constant';
 
 const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner'] as const;
 
@@ -40,6 +47,7 @@ export class HealthConcernsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly cacheStrategy: CacheStrategyService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IHealthConcern> {
@@ -86,6 +94,8 @@ export class HealthConcernsService {
       throw new ConflictException(`A health concern with slug "${slug}" already exists`);
     }
 
+    await this.assertInHomePageWithinLimit(dto.inHomePage ?? false);
+
     const entity = await this.healthConcernsRepository.create({
       name: dto.name,
       slug,
@@ -100,6 +110,7 @@ export class HealthConcernsService {
       createdBy,
     });
 
+    await this.invalidateHomePageCache();
     return this.enrichHealthConcern(mapHealthConcernEntityToResponse(entity));
   }
 
@@ -141,6 +152,10 @@ export class HealthConcernsService {
       }
     }
 
+    if (dto.inHomePage !== undefined) {
+      await this.assertInHomePageWithinLimit(dto.inHomePage, existing.id);
+    }
+
     const payload: Partial<HealthConcernEntity> = { ...dto, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.icon !== undefined) payload.icon = this.storageUrlEnricher.persist(media.icon);
@@ -151,6 +166,7 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found after update`);
     }
 
+    await this.invalidateHomePageCache();
     return this.enrichHealthConcern(mapHealthConcernEntityToResponse(result));
   }
 
@@ -173,6 +189,7 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found after status update`);
     }
 
+    await this.invalidateHomePageCache();
     return this.enrichHealthConcern(mapHealthConcernEntityToResponse(updated));
   }
 
@@ -183,6 +200,31 @@ export class HealthConcernsService {
     }
     await this.deletionGuard.assertHealthConcernDeletable(existing.id, existing.name);
     await this.healthConcernsRepository.softDeleteByRefId(refId);
+    await this.invalidateHomePageCache();
+  }
+
+  /** Enforces that at most {@link HOMEPAGE_FLAG_LIMIT} health concerns are shown on the homepage. */
+  private async assertInHomePageWithinLimit(
+    enabling: boolean,
+    excludeId?: string,
+  ): Promise<void> {
+    if (!enabling) return;
+
+    const count = await this.healthConcernsRepository.countInHomePage(excludeId);
+    if (count + 1 > HOMEPAGE_FLAG_LIMIT) {
+      throw new BadRequestException(
+        `A maximum of ${HOMEPAGE_FLAG_LIMIT} health concerns can be shown on the homepage`,
+      );
+    }
+  }
+
+  private async invalidateHomePageCache(): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.homepage.expertCuratedBundlesPattern(),
+        CacheKeys.homepage.sectionsPattern(),
+      ],
+    });
   }
 
   private enrichHealthConcern(healthConcern: IHealthConcern): Promise<IHealthConcern> {

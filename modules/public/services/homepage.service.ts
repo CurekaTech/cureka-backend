@@ -7,6 +7,7 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
+import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { IPublicBestSellersSection } from '../interfaces/public-best-sellers.interface';
@@ -15,6 +16,7 @@ import {
   IPublicHeroBannerSection,
 } from '../interfaces/public-banner-section.interface';
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
+import { IPublicHealthConcernCard } from '../interfaces/public-health-concern.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
 import { IPublicProductCard } from '../interfaces/public-product.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
@@ -39,12 +41,16 @@ const SHOP_BY_WELLNESS_GOALS_LIMIT = 10;
 /** Max brands shown in the homepage "Brands We Trust" section. */
 const BRANDS_WE_TRUST_LIMIT = 10;
 
+/** Max health concerns shown in the homepage "Expert-Curated Wellness Bundles" section. */
+const EXPERT_CURATED_BUNDLES_LIMIT = 10;
+
 @Injectable()
 export class HomepageService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
+    private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly brandsRepository: BrandsRepository,
     private readonly bannersService: BannersService,
     private readonly cacheStrategy: CacheStrategyService,
@@ -164,6 +170,29 @@ export class HomepageService {
       refId: goal.refId,
       name: goal.name,
       image: this.storageUrlEnricher.persist(goal.image),
+    }));
+  }
+
+  async getExpertCuratedBundles(): Promise<IPublicHealthConcernCard[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.expertCuratedBundles(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadExpertCuratedBundlesUncached(),
+    });
+  }
+
+  /** Used by cache refresh after health concern mutations. Banner is intentionally omitted. */
+  async loadExpertCuratedBundlesUncached(): Promise<IPublicHealthConcernCard[]> {
+    const concerns = await this.healthConcernsRepository.findHomePageConcerns(
+      EXPERT_CURATED_BUNDLES_LIMIT,
+    );
+
+    return concerns.map((concern) => ({
+      refId: concern.refId,
+      name: concern.name,
+      slug: concern.slug,
+      description: concern.description,
+      icon: this.storageUrlEnricher.persist(concern.icon),
     }));
   }
 
