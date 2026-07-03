@@ -90,13 +90,13 @@ export class CashfreePaymentService {
     }
   }
 
-  async getOrder(orderId: string): Promise<Record<string, any>> {
+  async getOrder(merchantOrderId: string): Promise<Record<string, any>> {
     if (!this.appId || !this.secretKey) {
       throw new InternalServerErrorException('Cashfree is not configured properly.');
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/orders/${orderId}`, {
+      const response = await fetch(`${this.baseUrl}/orders/${merchantOrderId}`, {
         method: 'GET',
         headers: {
           'x-client-id': this.appId,
@@ -113,7 +113,10 @@ export class CashfreePaymentService {
 
       return json;
     } catch (error) {
-      this.logger.error(`Failed to get Cashfree order status for ${orderId}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Failed to get Cashfree order status for ${merchantOrderId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
       throw error instanceof BadRequestException ? error : new InternalServerErrorException('Failed to get Cashfree order');
     }
   }
