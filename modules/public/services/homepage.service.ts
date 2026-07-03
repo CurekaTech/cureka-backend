@@ -27,6 +27,12 @@ const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
 /** Max category tabs shown in the homepage Best Sellers section (latest first). */
 const BEST_SELLERS_MAX_CATEGORIES = 10;
 
+/**
+ * Tag slug that marks a product as a best seller. Only root categories containing at
+ * least one published product with this tag appear in the Best Sellers section.
+ */
+const BEST_SELLERS_TAG_SLUG = 'bestsellers';
+
 /** Max wellness goals shown in the homepage "Shop by Wellness Goals" section. */
 const SHOP_BY_WELLNESS_GOALS_LIMIT = 10;
 
@@ -107,7 +113,11 @@ export class HomepageService {
 
   /** Used by cache refresh after product/category mutations. */
   async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
-    const categories = await this.categoriesRepository.findLatestShopByRootCategories(
+    // Tabs are driven by root categories that actually contain best-seller products,
+    // regardless of whether those categories are flagged shop-by. Each tab then lists
+    // that category's published products (newest first).
+    const categories = await this.productsRepository.findRootCategoriesWithTag(
+      BEST_SELLERS_TAG_SLUG,
       BEST_SELLERS_MAX_CATEGORIES,
     );
 
