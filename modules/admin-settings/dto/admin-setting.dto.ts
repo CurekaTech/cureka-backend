@@ -1,4 +1,5 @@
-import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsString, IsArray, IsOptional, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { AdminSettingStatus } from '../enums/admin-setting-status.enum';
 
 export class UpdateSettingValueDto {
@@ -12,3 +13,25 @@ export class ToggleSettingStatusDto {
   @IsNotEmpty()
   status!: AdminSettingStatus;
 }
+
+export class BulkUpdateSettingItemDto {
+  @IsString()
+  @IsNotEmpty()
+  key!: string;
+
+  @IsString()
+  @IsOptional()
+  value?: string;
+
+  @IsEnum(AdminSettingStatus)
+  @IsOptional()
+  status?: AdminSettingStatus;
+}
+
+export class BulkUpdateSettingsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkUpdateSettingItemDto)
+  settings!: BulkUpdateSettingItemDto[];
+}
+

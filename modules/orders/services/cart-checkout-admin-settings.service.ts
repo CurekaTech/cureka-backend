@@ -64,6 +64,22 @@ export class CartCheckoutAdminSettingsService {
     return flatFees;
   }
 
+  getPlatformFee(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.PLATFORM_FEE] ?? 50;
+  }
+
+  getPlatformFeeThreshold(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.PLATFORM_FEE_THRESHOLD] ?? 900;
+  }
+
+  getCodCharge(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.COD_CHARGE] ?? 50;
+  }
+
+  getShippingCharge(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.SHIPPING_CHARGE] ?? 50;
+  }
+
   private resolveAmount(
     definition: CartCheckoutAdminSettingDefinition,
     entity?: AdminSettingEntity,

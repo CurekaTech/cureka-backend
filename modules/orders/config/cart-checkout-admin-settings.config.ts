@@ -4,7 +4,11 @@
  */
 export const CartCheckoutAdminSettingKey = {
   SHIPPING_CHARGE_THRESHOLD: 'shipping_charge_threshold',
+  SHIPPING_CHARGE: 'shipping_charge',
   HANDLING_CHARGE: 'handling_charge',
+  PLATFORM_FEE: 'platform_fee',
+  PLATFORM_FEE_THRESHOLD: 'platform_fee_threshold',
+  COD_CHARGE: 'cod_charge',
 } as const;
 
 export type CartCheckoutAdminSettingKey =
@@ -12,9 +16,13 @@ export type CartCheckoutAdminSettingKey =
 
 export type CartCheckoutAdminSettingUsage =
   | 'free_shipping_threshold'
-  | 'cart_flat_fee';
+  | 'shipping_charge'
+  | 'cart_flat_fee'
+  | 'platform_fee'
+  | 'platform_fee_threshold'
+  | 'cod_charge';
 
-export type CartCheckoutAdminSettingPricingField = 'handlingAmount';
+export type CartCheckoutAdminSettingPricingField = 'handlingAmount' | 'platformFee' | 'codCharge' | 'shippingAmount';
 
 export type CartCheckoutAdminSettingDefinition = {
   key: CartCheckoutAdminSettingKey;
@@ -34,9 +42,32 @@ export const CART_CHECKOUT_ADMIN_SETTINGS: readonly CartCheckoutAdminSettingDefi
     fallbackDefault: 900,
   },
   {
+    key: CartCheckoutAdminSettingKey.SHIPPING_CHARGE,
+    usage: 'shipping_charge',
+    fallbackConfigPath: 'orders.shipping.flatFee',
+    fallbackDefault: 50,
+  },
+  {
     key: CartCheckoutAdminSettingKey.HANDLING_CHARGE,
     usage: 'cart_flat_fee',
     pricingField: 'handlingAmount',
+    fallbackDefault: 50,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.PLATFORM_FEE,
+    usage: 'platform_fee',
+    pricingField: 'platformFee',
+    fallbackDefault: 50,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.PLATFORM_FEE_THRESHOLD,
+    usage: 'platform_fee_threshold',
+    fallbackDefault: 900,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.COD_CHARGE,
+    usage: 'cod_charge',
+    pricingField: 'codCharge',
     fallbackDefault: 50,
   },
 ] as const;

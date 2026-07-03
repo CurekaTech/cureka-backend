@@ -32,6 +32,8 @@ export type CartPricing = {
   discountAmount: number;
   shippingAmount: number;
   handlingAmount: number;
+  platformFee: number;
+  codCharge: number;
   grandTotal: number;
 };
 

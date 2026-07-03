@@ -14,6 +14,7 @@ import {
   ResolvedCartCheckoutAdminSettings,
 } from './cart-checkout-admin-settings.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 
 @Injectable()
 export class CartPricingService {
@@ -33,6 +34,7 @@ export class CartPricingService {
     cartId: string;
     couponId: string | null;
     items: CartLineItem[];
+    paymentMethod?: OrderPaymentMethod;
     manager?: EntityManager;
     clearInvalidCoupon?: boolean;
     strict?: boolean;
@@ -46,12 +48,23 @@ export class CartPricingService {
         discountAmount: 0,
         shippingAmount: 0,
         handlingAmount: 0,
+        platformFee: 0,
+        codCharge: 0,
       });
     }
 
     const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
     const flatFees = this.cartCheckoutAdminSettingsService.resolveCartFlatFees(checkoutAdminSettings);
     const handlingAmount = flatFees.handlingAmount ?? 0;
+
+    // Platform Fee calculation
+    const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
+    const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
+    const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
+
+    // COD Charge calculation
+    const codChargeVal = this.cartCheckoutAdminSettingsService.getCodCharge(checkoutAdminSettings);
+    const codCharge = params.paymentMethod === OrderPaymentMethod.COD ? codChargeVal : 0;
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -112,6 +125,8 @@ export class CartPricingService {
       discountAmount,
       shippingAmount,
       handlingAmount,
+      platformFee,
+      codCharge,
     });
   }
 
@@ -121,9 +136,16 @@ export class CartPricingService {
     discountAmount: number;
     shippingAmount: number;
     handlingAmount: number;
+    platformFee: number;
+    codCharge: number;
   }): CartPricing {
     const grandTotal = roundMoney(
-      parts.subtotal - parts.discountAmount + parts.shippingAmount + parts.handlingAmount,
+      parts.subtotal -
+        parts.discountAmount +
+        parts.shippingAmount +
+        parts.handlingAmount +
+        parts.platformFee +
+        parts.codCharge,
     );
 
     return {
@@ -132,6 +154,8 @@ export class CartPricingService {
       discountAmount: parts.discountAmount,
       shippingAmount: parts.shippingAmount,
       handlingAmount: parts.handlingAmount,
+      platformFee: parts.platformFee,
+      codCharge: parts.codCharge,
       grandTotal: Math.max(0, grandTotal),
     };
   }
@@ -157,7 +181,9 @@ export class CartPricingService {
       return 0;
     }
 
-    return roundMoney(this.flatShippingFee);
+    const shippingCharge =
+      this.cartCheckoutAdminSettingsService.getShippingCharge(checkoutAdminSettings);
+    return roundMoney(shippingCharge);
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {

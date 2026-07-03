@@ -50,7 +50,7 @@ export class OrdersService {
     }
 
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
-    const summary = await this.checkoutService.validateCheckout(userId, { addressId: dto.addressId });
+    const summary = await this.checkoutService.validateCheckout(userId, { addressId: dto.addressId }, dto.paymentMethod);
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -86,6 +86,8 @@ export class OrdersService {
           discountAmount: toMoneyString(summary.discountAmount),
           shippingAmount: toMoneyString(summary.shippingAmount),
           handlingAmount: toMoneyString(summary.handlingAmount),
+          platformFee: toMoneyString(summary.platformFee),
+          codCharge: toMoneyString(summary.codCharge),
           grandTotal: toMoneyString(summary.grandTotal),
           couponId: appliedCoupon?.id ?? null,
           couponCode: appliedCoupon?.code ?? null,
@@ -244,6 +246,8 @@ export class OrdersService {
     couponCode?: string | null;
     couponTitle?: string | null;
     couponDiscountType?: string | null;
+    platformFee?: string;
+    codCharge?: string;
     items: Array<{
       productId: string;
       variantId: string;
@@ -272,6 +276,8 @@ export class OrdersService {
           discountAmount: params.discountAmount,
           shippingAmount: params.shippingAmount,
           handlingAmount: '0',
+          platformFee: params.platformFee ?? '0.00',
+          codCharge: params.codCharge ?? '0.00',
           grandTotal: params.grandTotal,
           couponId: params.couponId ?? null,
           couponCode: params.couponCode ?? null,

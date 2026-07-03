@@ -28,6 +28,12 @@ export class OrderEntity extends BaseEntity {
   @Column({ name: 'handling_amount', type: 'decimal', precision: 12, scale: 2, default: 0 })
   handlingAmount!: string;
 
+  @Column({ name: 'platform_fee', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  platformFee!: string;
+
+  @Column({ name: 'cod_charge', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  codCharge!: string;
+
   @Column({ name: 'grand_total', type: 'decimal', precision: 12, scale: 2 })
   grandTotal!: string;
 

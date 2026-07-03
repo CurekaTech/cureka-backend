@@ -51,6 +51,6 @@ import { OrdersService } from './services/orders.service';
     CheckoutService,
     OrdersService,
   ],
-  exports: [OrdersService, CartService, CheckoutService, CouponCheckoutService],
+  exports: [OrdersService, CartService, CheckoutService, CouponCheckoutService, CartCheckoutAdminSettingsService],
 })
 export class OrdersModule {}
