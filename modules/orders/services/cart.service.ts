@@ -38,7 +38,7 @@ export class CartService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly cartPricingService: CartPricingService,
     private readonly couponCheckoutService: CouponCheckoutService,
-  ) {}
+  ) { }
 
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
