@@ -49,6 +49,7 @@ export interface PublicProductListOptions {
   healthConcernId?: string;
   wellnessGoalId?: string;
   variantSlug?: string;
+  tagSlug?: string;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
@@ -269,6 +270,48 @@ export class ProductsRepository {
 
     const rows = await qb.getRawMany<{ slug: string; count: string }>();
     return new Map(rows.map((row) => [row.slug, parseInt(row.count, 10)]));
+  }
+
+  /**
+   * Returns the root categories that contain at least one published product carrying
+   * the given tag (e.g. "bestsellers"), newest best-seller first. The category itself
+   * does NOT need to be a shop-by category. Used to drive the homepage Best Sellers tabs.
+   */
+  async findRootCategoriesWithTag(
+    tagSlug: string,
+    limit: number,
+  ): Promise<Array<{ id: string; refId: string; name: string; slug: string }>> {
+    if (!tagSlug || limit <= 0) return [];
+
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .innerJoin('categories', 'category', 'category.id = product.category_id')
+      .select('category.id', 'id')
+      .addSelect('category.ref_id', 'refId')
+      .addSelect('category.name', 'name')
+      .addSelect('category.slug', 'slug')
+      .addSelect('MAX(product.published_at)', 'latest')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.deleted_at IS NULL')
+      .andWhere('tag.slug = :tagSlug', { tagSlug })
+      .andWhere('category.deleted_at IS NULL')
+      .andWhere('category.status = :categoryStatus', { categoryStatus: 'active' })
+      .groupBy('category.id')
+      .addGroupBy('category.ref_id')
+      .addGroupBy('category.name')
+      .addGroupBy('category.slug')
+      .orderBy('MAX(product.published_at)', 'DESC')
+      .limit(limit)
+      .getRawMany<{ id: string; refId: string; name: string; slug: string }>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      refId: row.refId,
+      name: row.name,
+      slug: row.slug,
+    }));
   }
 
   async findIdsByRefIds(
@@ -693,6 +736,16 @@ export class ProductsRepository {
             AND pv.deleted_at IS NULL
         )`,
         { variantSlug: options.variantSlug },
+      );
+    }
+    if (options.tagSlug) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_tag_mappings ptm
+          INNER JOIN product_tags tag ON tag.id = ptm.tag_id
+          WHERE ptm.product_id = product.id AND tag.slug = :tagSlug
+        )`,
+        { tagSlug: options.tagSlug },
       );
     }
   }

@@ -38,6 +38,9 @@ import {
   pickPreferredPublicVariant,
 } from '../mappers/public-product.mapper';
 
+/** Tag slug that marks a product as a best seller (see homepage Best Sellers section). */
+const BEST_SELLERS_TAG_SLUG = 'bestsellers';
+
 @Injectable()
 export class PublicProductsService {
   private readonly logger = new Logger(PublicProductsService.name);
@@ -69,6 +72,7 @@ export class PublicProductsService {
       productNatureRefId: query.productNatureRefId,
       wellnessGoalRefId: query.wellnessGoalRefId,
       variantSlug: query.variantSlug,
+      tagSlug: query.tagSlug,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
@@ -96,6 +100,7 @@ export class PublicProductsService {
           healthConcernId: filters.healthConcernId,
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
+          tagSlug: query.tagSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
@@ -112,8 +117,9 @@ export class PublicProductsService {
   }
 
   /**
-   * "View all" best sellers listing (paginated). Defaults to newest-first ordering
-   * and supports the same filters as the product listing (e.g. categoryRefId/slug).
+   * "View all" best sellers listing (paginated) — every published product carrying the
+   * "bestsellers" tag, newest-first by default. Supports the same filters as the product
+   * listing (e.g. categoryRefId/slug). The tag filter is forced and cannot be overridden.
    */
   async findBestSellers(
     query: PublicProductQueryDto,
@@ -122,6 +128,7 @@ export class PublicProductsService {
       ...query,
       sortBy: query.sortBy ?? 'publishedAt',
       sortOrder: query.sortOrder ?? 'DESC',
+      tagSlug: BEST_SELLERS_TAG_SLUG,
     });
   }
 
