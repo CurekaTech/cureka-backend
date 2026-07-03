@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 
@@ -84,6 +85,30 @@ export class BrandsRepository {
   async existsBySlug(slug: string): Promise<boolean> {
     const count = await this.repo.count({ where: { slug } });
     return count > 0;
+  }
+
+  /** Counts brands flagged for the homepage (optionally excluding one brand). */
+  async countInHomePage(excludeId?: string): Promise<number> {
+    const qb = this.repo
+      .createQueryBuilder('brand')
+      .where('brand.inHomePage = :enabled', { enabled: true });
+
+    if (excludeId) {
+      qb.andWhere('brand.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
+  }
+
+  /** Active brands shown on the homepage (newest first), capped to `limit`. */
+  async findHomePageBrands(limit: number): Promise<BrandEntity[]> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.inHomePage = :enabled', { enabled: true })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('brand.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   async existsBySlugExcluding(slug: string, excludeId: string): Promise<boolean> {

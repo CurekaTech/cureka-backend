@@ -28,6 +28,7 @@ export interface IBanner {
 export interface IStorefrontBannerItem {
   refId: string;
   title: string;
+  slot: BannerSlot;
   imageUrl: IStorageFileReferenceResponse;
   ctaHref: string | null;
 }

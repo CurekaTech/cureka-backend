@@ -1,9 +1,11 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ResponseMessage } from '@packages/common';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
+import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { HomepageSectionsService } from '../services/homepage-sections.service';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
 import { HomepageService } from '../services/homepage.service';
+import { PublicProductsService } from '../services/public-products.service';
 
 @Controller('public/homepage')
 export class HomepageController {
@@ -11,12 +13,19 @@ export class HomepageController {
     private readonly homepageService: HomepageService,
     private readonly homepageSectionsService: HomepageSectionsService,
     private readonly homeSectionsService: HomeSectionsService,
+    private readonly publicProductsService: PublicProductsService,
   ) {}
 
   @ResponseMessage('Homepage sections retrieved successfully')
   @Get('sections')
   getSections(@Query() query: HomepageSectionsQueryDto) {
     return this.homepageSectionsService.getSections(resolveHomepageSectionsFromFlags(query));
+  }
+
+  @ResponseMessage('Best sellers retrieved successfully')
+  @Get('best-sellers')
+  getBestSellers(@Query() query: PublicProductQueryDto) {
+    return this.publicProductsService.findBestSellers(query);
   }
 
   @ResponseMessage('Active home sections retrieved successfully')

@@ -76,8 +76,42 @@ export class CartCheckoutAdminSettingsService {
     return amounts[CartCheckoutAdminSettingKey.COD_CHARGE] ?? 50;
   }
 
+  getCodChargeThreshold(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.COD_CHARGE_THRESHOLD] ?? 0;
+  }
+
+  getHandlingCharge(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.HANDLING_CHARGE] ?? 50;
+  }
+
+  getHandlingChargeThreshold(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.HANDLING_CHARGE_THRESHOLD] ?? 900;
+  }
+
+  getPrepaidCharge(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.PREPAID_CHARGE] ?? 0;
+  }
+
+  getPrepaidChargeThreshold(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.PREPAID_CHARGE_THRESHOLD] ?? 0;
+  }
+
   getShippingCharge(amounts: ResolvedCartCheckoutAdminSettings): number {
     return amounts[CartCheckoutAdminSettingKey.SHIPPING_CHARGE] ?? 50;
+  }
+
+  /**
+   * A threshold-gated charge applies only while the comparison base
+   * (order payable = subtotal − discount) is at or below the configured
+   * threshold. Once the payable amount exceeds the threshold, the charge is
+   * waived. A threshold of 0 (or less) means the charge is effectively
+   * disabled, since no positive payable amount can be ≤ 0.
+   */
+  isChargeApplicable(payableAmount: number, threshold: number): boolean {
+    if (threshold <= 0) {
+      return false;
+    }
+    return payableAmount <= threshold;
   }
 
   private resolveAmount(

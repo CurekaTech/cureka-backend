@@ -239,6 +239,38 @@ export class ProductsRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
+  /**
+   * Counts, per tag slug, how many distinct (non-deleted) products in a category
+   * already carry that tag. Used to cap the number of products sharing a tag within
+   * a category (e.g. max N "bestSeller" products under "Skin Care").
+   */
+  async countProductsPerTagSlugInCategory(
+    categoryId: string,
+    tagSlugs: string[],
+    excludeProductId: string | null,
+    manager?: EntityManager,
+  ): Promise<Map<string, number>> {
+    if (!categoryId || !tagSlugs.length) return new Map();
+
+    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
+    const qb = repository
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .select('tag.slug', 'slug')
+      .addSelect('COUNT(DISTINCT product.id)', 'count')
+      .where('product.categoryId = :categoryId', { categoryId })
+      .andWhere('tag.slug IN (:...tagSlugs)', { tagSlugs })
+      .groupBy('tag.slug');
+
+    if (excludeProductId) {
+      qb.andWhere('product.id != :excludeProductId', { excludeProductId });
+    }
+
+    const rows = await qb.getRawMany<{ slug: string; count: string }>();
+    return new Map(rows.map((row) => [row.slug, parseInt(row.count, 10)]));
+  }
+
   async findIdsByRefIds(
     refIds: string[],
     manager?: EntityManager,

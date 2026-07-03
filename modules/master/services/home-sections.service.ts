@@ -30,6 +30,12 @@ const DEFAULT_HOME_SECTIONS: Array<{
   sectionIndex: number;
 }> = [
   {
+    title: 'Hero Banner',
+    slug: 'hero-banner',
+    type: HomeSectionType.HERO_BANNER,
+    sectionIndex: 0,
+  },
+  {
     title: 'Built By Doctors Banner',
     slug: 'built-by-doctors-banner',
     type: HomeSectionType.BUILT_BY_DOCTORS_BANNER,
@@ -78,6 +84,18 @@ const DEFAULT_HOME_SECTIONS: Array<{
     slug: 'watch-and-shop',
     type: HomeSectionType.WATCH_AND_SHOP,
     sectionIndex: 10,
+  },
+  {
+    title: 'Shop by Wellness Goals',
+    slug: 'shop-by-wellness-goals',
+    type: HomeSectionType.SHOP_BY_WELLNESS_GOALS,
+    sectionIndex: 11,
+  },
+  {
+    title: 'Brands We Trust',
+    slug: 'brands-we-trust',
+    type: HomeSectionType.BRANDS_WE_TRUST,
+    sectionIndex: 12,
   },
 ];
 
@@ -129,10 +147,6 @@ export class HomeSectionsService implements OnModuleInit {
   }
 
   async create(dto: CreateHomeSectionDto, createdBy: string): Promise<IHomeSection> {
-    if (dto.type === HomeSectionType.HERO_BANNER) {
-      throw new BadRequestException('Hero banner is static on the storefront and cannot be managed here');
-    }
-
     const existingType = await this.homeSectionsRepository.existsByType(dto.type);
     if (existingType) {
       throw new BadRequestException(`A section with type "${dto.type}" already exists`);
@@ -211,7 +225,6 @@ export class HomeSectionsService implements OnModuleInit {
   }
 
   private async cleanupSections(): Promise<void> {
-    await this.homeSectionsRepository.softDeleteHeroBanners();
     await this.homeSectionsRepository.removeDuplicateTypes();
   }
 
@@ -249,7 +262,10 @@ export class HomeSectionsService implements OnModuleInit {
 
   private async invalidateHomeSectionsCache(): Promise<void> {
     await this.cacheStrategy.invalidateOnly({
-      patterns: [CacheKeys.homepage.homeSectionsPattern()],
+      patterns: [
+        CacheKeys.homepage.homeSectionsPattern(),
+        CacheKeys.homepage.sectionsPattern(),
+      ],
     });
   }
 }
