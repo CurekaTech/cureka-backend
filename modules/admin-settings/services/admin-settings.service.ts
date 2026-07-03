@@ -34,6 +34,9 @@ export class AdminSettingsService {
         'platform_fee',
         'platform_fee_threshold',
         'cod_charge',
+        'cod_charge_threshold',
+        'prepaid_charge',
+        'prepaid_charge_threshold',
       ];
       return response.filter((setting) => chargeKeys.includes(setting.key));
     }
@@ -68,6 +71,9 @@ export class AdminSettingsService {
       'platform_fee',
       'platform_fee_threshold',
       'cod_charge',
+      'cod_charge_threshold',
+      'prepaid_charge',
+      'prepaid_charge_threshold',
     ];
 
     const paymentMethodsKeys = ['razor_pay', 'pay_you', 'cash_free'];
