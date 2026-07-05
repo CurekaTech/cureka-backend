@@ -119,35 +119,50 @@ export class HomepageService {
 
   /** Used by cache refresh after product/category mutations. */
   async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
-    // Tabs are driven by root categories that actually contain best-seller products,
-    // regardless of whether those categories are flagged shop-by. Each tab then lists
-    // that category's published products (newest first).
-    const categories = await this.productsRepository.findRootCategoriesWithTag(
-      BEST_SELLERS_TAG_SLUG,
-      BEST_SELLERS_MAX_CATEGORIES,
-    );
+    // Load published products carrying the bestsellers tag, then group by root category.
+    // This matches GET /homepage/best-sellers and avoids dropping products when the
+    // root category is inactive or soft-deleted.
+    const { data } = await this.productsRepository.findPublishedPaginated({
+      page: 1,
+      limit: BEST_SELLERS_MAX_CATEGORIES * BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+      sortBy: 'publishedAt',
+      sortOrder: 'DESC',
+      tagSlug: BEST_SELLERS_TAG_SLUG,
+    });
 
-    const tabs = await Promise.all(
-      categories.map(async (category, position) => {
-        const { data } = await this.productsRepository.findPublishedPaginated({
-          page: 1,
-          limit: BEST_SELLERS_PRODUCTS_PER_CATEGORY,
-          sortBy: 'publishedAt',
-          sortOrder: 'DESC',
-          categoryId: category.id,
-        });
+    const grouped = new Map<
+      string,
+      { refId: string; name: string; slug: string; products: typeof data }
+    >();
 
-        const products = mapProductEntitiesToPublicCards(data);
+    for (const product of data) {
+      const category = product.category;
+      if (!category) continue;
 
-        return {
-          index: position + 1,
+      let tab = grouped.get(category.id);
+      if (!tab) {
+        if (grouped.size >= BEST_SELLERS_MAX_CATEGORIES) continue;
+        tab = {
           refId: category.refId,
           name: category.name,
           slug: category.slug,
-          products,
+          products: [],
         };
-      }),
-    );
+        grouped.set(category.id, tab);
+      }
+
+      if (tab.products.length < BEST_SELLERS_PRODUCTS_PER_CATEGORY) {
+        tab.products.push(product);
+      }
+    }
+
+    const tabs = [...grouped.values()].map((category, position) => ({
+      index: position + 1,
+      refId: category.refId,
+      name: category.name,
+      slug: category.slug,
+      products: mapProductEntitiesToPublicCards(category.products),
+    }));
 
     return { categories: tabs };
   }
