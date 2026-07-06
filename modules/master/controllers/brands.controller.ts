@@ -63,67 +63,41 @@ export class BrandsController {
 
 
   @ResponseMessage('Brand created successfully')
-
   @Roles(AdminUserRole.SUPER_ADMIN)
-
   @Post()
-
   @HttpCode(HttpStatus.CREATED)
-
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
-
     return this.brandsService.createFromRequest(req, user.email);
-
   }
 
 
 
   @ResponseMessage('Brands retrieved successfully')
-
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-
   @Get()
-
   findAll(@Query() query: PaginationQueryDto) {
-
     return this.brandsService.findAll(query);
-
   }
 
 
-
   @ResponseMessage('Brand retrieved successfully')
-
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-
   @Get(':refId')
-
   findOne(@Param('refId', RefIdPipe) refId: string) {
-
     return this.brandsService.findOne(refId);
-
   }
 
 
 
   @ResponseMessage('Brand status updated successfully')
-
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-
   @Patch(':refId/status')
-
   updateStatus(
-
     @Param('refId', RefIdPipe) refId: string,
-
     @Body() dto: UpdateBrandStatusDto,
-
     @CurrentAdminUser() user: IAdminJwtPayload,
-
   ) {
-
     return this.brandsService.updateStatus(refId, dto, user.email);
-
   }
 
 
