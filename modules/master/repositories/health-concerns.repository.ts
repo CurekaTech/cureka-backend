@@ -155,4 +155,23 @@ export class HealthConcernsRepository {
         .getCount()) > 0
     );
   }
+
+  async findAllActive(): Promise<HealthConcernEntity[]> {
+    return this.repo.find({
+      where: { status: MasterStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async findActiveHomePageConcerns(): Promise<HealthConcernEntity[]> {
+    return this.repo.find({
+      where: {
+        inHomePage: true,
+        status: MasterStatus.ACTIVE,
+      },
+      order: {
+        name: 'ASC',
+      },
+    });
+  }
 }

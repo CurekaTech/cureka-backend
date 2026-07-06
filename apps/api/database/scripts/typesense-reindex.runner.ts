@@ -18,14 +18,16 @@ async function run(): Promise<void> {
     const indexer = app.get(TypesenseIndexerService);
     const result = await indexer.reindexAll();
     console.log(
-      `[typesense:reindex] complete — indexed=${result.indexed}, skipped=${result.skipped}`,
+      `[typesense:reindex] complete — products indexed=${result.indexed}, skipped=${result.skipped}, categories=${result.categories}, brands=${result.brands}, healthConcerns=${result.healthConcerns}`,
     );
   } finally {
     await app.close();
   }
 }
 
-run().catch((error) => {
-  console.error('[typesense:reindex] failed:', error);
-  process.exit(1);
-});
+run()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error('[typesense:reindex] failed:', error);
+    process.exit(1);
+  });

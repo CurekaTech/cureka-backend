@@ -1,7 +1,9 @@
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
-import { ITypesenseProductDocument } from '../interfaces/typesense-product.interface';
+import { buildProductDocumentId } from '../constants/typesense-document-id.constant';
+import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
+import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -20,7 +22,7 @@ function joinNames(values: Array<string | null | undefined>): string | undefined
   return names.length ? names.join(' ') : undefined;
 }
 
-export function mapProductToTypesenseDocument(product: ProductEntity): ITypesenseProductDocument | null {
+export function mapProductToTypesenseDocument(product: ProductEntity): ITypesenseSearchDocument | null {
   if (product.status !== ProductStatus.PUBLISHED) {
     return null;
   }
@@ -45,7 +47,9 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
   const tags = joinNames((product.tagMappings ?? []).map((mapping) => mapping.tag?.name));
 
   return {
-    id: product.refId,
+    id: buildProductDocumentId(product.refId),
+    refId: product.refId,
+    entityType: SEARCH_ENTITY_TYPES.PRODUCT,
     name: product.name,
     slug: product.slug,
     brand: product.brand?.name ?? undefined,

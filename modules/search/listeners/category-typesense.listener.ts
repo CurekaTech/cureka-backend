@@ -12,6 +12,11 @@ export class CategoryTypesenseListener {
   @OnEvent(EVENTS.CATEGORY_UPDATED)
   async handleCategoryUpdated(event: CategoryUpdatedEvent): Promise<void> {
     try {
+      if (event.action === 'deleted') {
+        await this.indexer.removeCategory(event.refId);
+        return;
+      }
+
       await this.indexer.reindexByCategoryRefId(event.refId);
     } catch (error) {
       this.logger.error(

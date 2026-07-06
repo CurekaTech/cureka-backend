@@ -18,7 +18,6 @@ import {
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
 import { IPublicHealthConcernCard } from '../interfaces/public-health-concern.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
-import { IPublicProductCard } from '../interfaces/public-product.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
