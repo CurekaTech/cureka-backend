@@ -350,6 +350,22 @@ export class PublicProductsService {
       );
     }
 
+    if ((query.brandRefId || query.brandSlug) && !brand) {
+      throw new NotFoundException(
+        query.brandRefId
+          ? `Brand with refId "${query.brandRefId}" not found`
+          : `Brand with slug "${query.brandSlug}" not found`,
+      );
+    }
+
+    if ((query.healthConcernRefId || query.healthConcernSlug) && !healthConcern) {
+      throw new NotFoundException(
+        query.healthConcernRefId
+          ? `Health concern with refId "${query.healthConcernRefId}" not found`
+          : `Health concern with slug "${query.healthConcernSlug}" not found`,
+      );
+    }
+
     return {
       categoryId: category?.id,
       brandId: brand?.id,
