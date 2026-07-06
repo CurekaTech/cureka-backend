@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 
 @Injectable()
 export class ProductInformationLabelsRepository {
@@ -116,5 +117,19 @@ export class ProductInformationLabelsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<ProductInformationLabelEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('label')
+      .where('label.deletedAt IS NULL')
+      .orderBy('label.sortOrder', 'ASC')
+      .addOrderBy('label.createdAt', 'ASC');
+
+    if (status) {
+      qb.andWhere('label.status = :status', { status });
+    }
+
+    return qb.getMany();
   }
 }

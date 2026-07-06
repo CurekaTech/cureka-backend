@@ -5,6 +5,7 @@ import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 
@@ -57,6 +58,35 @@ export class CategoriesRepository {
       .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.slug = :slug', { slug })
       .getOne();
+  }
+
+  /** Walks up the hierarchy and returns the root ancestor for any category id. */
+  async findRootAncestor(categoryId: string): Promise<CategoryEntity | null> {
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_category_id
+        FROM categories
+        WHERE id = $1 AND deleted_at IS NULL
+        UNION ALL
+        SELECT c.id, c.parent_category_id
+        FROM categories c
+        INNER JOIN ancestors a ON c.id = a.parent_category_id
+        WHERE c.deleted_at IS NULL
+      )
+      SELECT id FROM ancestors
+      WHERE parent_category_id IS NULL
+      LIMIT 1
+      `,
+      [categoryId],
+    );
+
+    const rootId = rows[0]?.id;
+    if (!rootId) {
+      return this.findById(categoryId);
+    }
+
+    return this.findById(rootId);
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -160,6 +190,35 @@ export class CategoriesRepository {
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.hierarchyId', 'ASC')
       .getMany();
+  }
+
+  async findForWizardBootstrap(options: {
+    status?: MasterStatus;
+    hierarchyLevel?: CategoryHierarchyLevel;
+    parentCategoryId?: string;
+  } = {}): Promise<CategoryEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC');
+
+    if (options.status) {
+      qb.where('category.status = :status', { status: options.status });
+    }
+    if (options.hierarchyLevel !== undefined) {
+      qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {
+        hierarchyLevel: String(options.hierarchyLevel),
+      });
+    }
+    if (options.parentCategoryId !== undefined) {
+      qb.andWhere('category.parentCategoryId = :parentCategoryId', {
+        parentCategoryId: options.parentCategoryId,
+      });
+    }
+
+    return qb.getMany();
   }
 
   async findRootCategories(): Promise<CategoryEntity[]> {

@@ -995,6 +995,40 @@ export class ProductsRepository {
     return rows.map((row) => row.refId);
   }
 
+  /**
+   * Distinct category-filter values used by published products within a category listing
+   * scope (matches any hierarchy level on the product).
+   */
+  async findCategoryFilterFacetValues(
+    categoryId: string,
+    categoryFilterIds: string[],
+  ): Promise<Array<{ categoryFilterId: string; value: string }>> {
+    if (!categoryFilterIds.length) {
+      return [];
+    }
+
+    return this.repo.manager.query<Array<{ categoryFilterId: string; value: string }>>(
+      `
+      SELECT DISTINCT
+        pcfm.category_filter_id AS "categoryFilterId",
+        pcfm.value AS value
+      FROM product_category_filter_mappings pcfm
+      INNER JOIN products product ON product.id = pcfm.product_id
+      WHERE product.status = $2
+        AND product.deleted_at IS NULL
+        AND pcfm.category_filter_id = ANY($1::uuid[])
+        AND (
+          product.category_id = $3 OR
+          product.sub_category_id = $3 OR
+          product.sub_sub_category_id = $3 OR
+          product.sub_sub_sub_category_id = $3
+        )
+      ORDER BY pcfm.value ASC
+      `,
+      [categoryFilterIds, ProductStatus.PUBLISHED, categoryId],
+    );
+  }
+
   async findPublishedRefIdsByCategoryId(categoryId: string): Promise<string[]> {
     const rows = await this.repo
       .createQueryBuilder('product')

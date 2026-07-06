@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { UnitEntity } from '../entities/unit.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
 export class UnitsRepository {
@@ -62,5 +63,13 @@ export class UnitsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<UnitEntity[]> {
+    const qb = this.repo.createQueryBuilder('unit').orderBy('unit.name', 'ASC');
+    if (status) {
+      qb.where('unit.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

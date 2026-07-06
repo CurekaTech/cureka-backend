@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PackerEntity } from '../entities/packer.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
@@ -91,5 +92,13 @@ export class PackersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<PackerEntity[]> {
+    const qb = this.repo.createQueryBuilder('packer').orderBy('packer.name', 'ASC');
+    if (status) {
+      qb.where('packer.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

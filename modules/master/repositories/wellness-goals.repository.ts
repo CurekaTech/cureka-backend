@@ -89,4 +89,14 @@ export class WellnessGoalsRepository {
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
+
+  async findAllByStatus(status?: MasterStatus): Promise<WellnessGoalEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('wellnessGoal')
+      .orderBy('wellnessGoal.name', 'ASC');
+    if (status) {
+      qb.where('wellnessGoal.status = :status', { status });
+    }
+    return qb.getMany();
+  }
 }
