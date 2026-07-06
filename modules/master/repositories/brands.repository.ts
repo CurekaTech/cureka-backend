@@ -27,7 +27,11 @@ export class BrandsRepository {
   }
 
   async findBySlug(slug: string): Promise<BrandEntity | null> {
-    return this.repo.findOne({ where: { slug } });
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.deletedAt IS NULL')
+      .getOne();
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -91,7 +95,11 @@ export class BrandsRepository {
   }
 
   async existsBySlug(slug: string): Promise<boolean> {
-    const count = await this.repo.count({ where: { slug } });
+    const count = await this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.deletedAt IS NULL')
+      .getCount();
     return count > 0;
   }
 
@@ -124,6 +132,7 @@ export class BrandsRepository {
       .createQueryBuilder('brand')
       .where('brand.slug = :slug', { slug })
       .andWhere('brand.id != :excludeId', { excludeId })
+      .andWhere('brand.deletedAt IS NULL')
       .getCount();
     return count > 0;
   }
