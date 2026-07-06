@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { MasterStatus } from '../enums/master-status.enum';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -88,6 +92,22 @@ export class WellnessGoalsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<WellnessGoalEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'wellnessGoal',
+      sortableColumns: {
+        createdAt: 'wellnessGoal.createdAt',
+        name: 'wellnessGoal.name',
+        status: 'wellnessGoal.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: 'wellnessGoal.name ILIKE :search',
+    });
   }
 
   async findAllByStatus(status?: MasterStatus): Promise<WellnessGoalEntity[]> {

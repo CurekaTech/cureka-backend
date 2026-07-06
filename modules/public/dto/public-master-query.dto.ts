@@ -2,28 +2,24 @@ import { Transform, Type } from 'class-transformer';
 import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
-import { MasterListStatusFilter } from '@modules/master/enums/master-list-status-filter.enum';
-import { ProductWizardMasterType } from '../enums/product-wizard-master-type.enum';
+import { PublicMasterType } from '../enums/public-master-type.enum';
 
-export class ProductWizardBootstrapQueryDto {
-  @IsEnum(ProductWizardMasterType)
-  type!: ProductWizardMasterType;
+export class PublicMasterQueryDto {
+  @IsEnum(PublicMasterType)
+  type!: PublicMasterType;
 
   @IsOptional()
-  @IsEnum(MasterListStatusFilter)
-  status?: MasterListStatusFilter;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  cursor?: string;
+  limit?: number = 20;
 
   @IsOptional()
   @IsString()

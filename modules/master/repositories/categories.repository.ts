@@ -6,7 +6,11 @@ import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 interface CategoryFindOptions extends PaginationOptions {
@@ -173,6 +177,54 @@ export class CategoriesRepository {
     return { data, total };
   }
 
+  async findPublicPaginated(
+    options: CategoryFindOptions,
+  ): Promise<{ data: CategoryEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'category.createdAt',
+      name: 'category.name',
+      position: 'category.position',
+      hierarchyLevel: 'category.hierarchyLevel',
+    };
+    const sortColumn =
+      (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'category.position';
+    const sortOrder = options.sortOrder ?? 'ASC';
+
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .where('category.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy(sortColumn, sortOrder)
+      .skip(skip)
+      .take(take);
+
+    if (options.search) {
+      qb.andWhere(
+        '(category.name ILIKE :search OR category.slug ILIKE :search OR category.refId ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
+    }
+    if (options.hierarchyLevel !== undefined) {
+      qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {
+        hierarchyLevel: String(options.hierarchyLevel),
+      });
+    }
+    if (options.parentCategoryId !== undefined) {
+      if (options.parentCategoryId === null) {
+        qb.andWhere('category.parentCategoryId IS NULL');
+      } else {
+        qb.andWhere('category.parentCategoryId = :parentCategoryId', {
+          parentCategoryId: options.parentCategoryId,
+        });
+      }
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
   async findTree(): Promise<CategoryEntity[]> {
     return this.repo
       .createQueryBuilder('category')
@@ -190,6 +242,62 @@ export class CategoriesRepository {
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.hierarchyId', 'ASC')
       .getMany();
+  }
+
+  async findWizardCursorPaginated(
+    options: MasterCursorStatusOptions & {
+      hierarchyLevel?: CategoryHierarchyLevel;
+      parentCategoryId?: string;
+    },
+  ): Promise<CursorPaginatedResult<CategoryEntity>> {
+    const page = await executeMasterCursorQuery(
+      this.repo,
+      options,
+      {
+        alias: 'category',
+        sortableColumns: {
+          position: 'category.position',
+          hierarchyId: 'category.hierarchyId',
+          name: 'category.name',
+          createdAt: 'category.createdAt',
+          hierarchyLevel: 'category.hierarchyLevel',
+          status: 'category.status',
+        },
+        defaultSortBy: 'position',
+        defaultSortOrder: 'ASC',
+        searchExpression: 'category.name ILIKE :search',
+      },
+      (qb) => {
+        if (options.hierarchyLevel !== undefined) {
+          qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {
+            hierarchyLevel: String(options.hierarchyLevel),
+          });
+        }
+        if (options.parentCategoryId !== undefined) {
+          qb.andWhere('category.parentCategoryId = :parentCategoryId', {
+            parentCategoryId: options.parentCategoryId,
+          });
+        }
+      },
+    );
+
+    if (!page.data.length) {
+      return page;
+    }
+
+    const ids = page.data.map((category) => category.id);
+    const hydrated = await this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
+      .whereInIds(ids)
+      .getMany();
+
+    const byId = new Map(hydrated.map((category) => [category.id, category]));
+    return {
+      ...page,
+      data: ids.map((id) => byId.get(id)).filter((category): category is CategoryEntity => !!category),
+    };
   }
 
   async findForWizardBootstrap(options: {

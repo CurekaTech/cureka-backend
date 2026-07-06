@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '@modules/master/utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -117,6 +121,30 @@ export class ProductInformationLabelsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<ProductInformationLabelEntity>> {
+    return executeMasterCursorQuery(
+      this.repo,
+      options,
+      {
+        alias: 'label',
+        sortableColumns: {
+          createdAt: 'label.createdAt',
+          name: 'label.name',
+          status: 'label.status',
+          sortOrder: 'label.sortOrder',
+        },
+        defaultSortBy: 'sortOrder',
+        defaultSortOrder: 'ASC',
+        searchExpression: 'label.name ILIKE :search',
+      },
+      (qb) => {
+        qb.andWhere('label.deletedAt IS NULL');
+      },
+    );
   }
 
   async findAllByStatus(status?: MasterStatus): Promise<ProductInformationLabelEntity[]> {

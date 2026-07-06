@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '@modules/master/utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity';
@@ -96,6 +100,22 @@ export class ProductTagsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<ProductTagEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'tag',
+      sortableColumns: {
+        createdAt: 'tag.createdAt',
+        name: 'tag.name',
+        status: 'tag.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: 'tag.name ILIKE :search',
+    });
   }
 
   async findAllByStatus(status?: MasterStatus): Promise<ProductTagEntity[]> {

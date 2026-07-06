@@ -3,7 +3,7 @@ import {
   IPublicCategoryTree,
   IPublicHeaderCategory,
 } from '../interfaces/public-category.interface';
-
+import { IPublicCategoryListItem } from '../interfaces/public-master.interface';
 export const mapCategoryEntityToPublicTree = (
   entity: CategoryEntity,
   children: IPublicCategoryTree[] = [],
@@ -34,3 +34,20 @@ export const mapHeaderCategoryEntity = (
   isInShopBy: entity.isInShopBy,
   children,
 });
+
+export const mapCategoryEntityToPublicListItem = (
+  entity: CategoryEntity,
+): IPublicCategoryListItem => ({
+  refId: entity.refId,
+  name: entity.name,
+  slug: entity.slug,
+  position: entity.position,
+  hierarchyLevel: entity.hierarchyLevel,
+  parentCategoryRefId: entity.parent?.refId ?? null,
+  image: entity.image,
+  banner: entity.banner,
+});
+
+export const mapCategoryEntitiesToPublicListItems = (
+  entities: CategoryEntity[],
+): IPublicCategoryListItem[] => entities.map(mapCategoryEntityToPublicListItem);

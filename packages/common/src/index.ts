@@ -1,5 +1,16 @@
 export { buildPaginationOptions, buildPaginatedResult } from './pagination.util';
 export type { PaginationOptions, PaginatedResult } from './pagination.util';
+export {
+  buildCursorPaginationOptions,
+  encodeCursor,
+  decodeCursor,
+  buildCursorPaginatedResult,
+} from './cursor-pagination.util';
+export type {
+  CursorPayload,
+  CursorPaginationOptions,
+  CursorPaginatedResult,
+} from './cursor-pagination.util';
 export { buildSuccessResponse } from './api-response.type';
 export type { ApiResponse, ApiErrorResponse } from './api-response.type';
 export { hashPassword, comparePasswords } from './hash.util';

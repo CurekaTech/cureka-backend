@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
 import { MasterStatus } from '../enums/master-status.enum';
-import { PaginationOptions } from '@packages/common';
+import { CursorPaginatedResult, PaginationOptions } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -86,6 +90,54 @@ export class BrandsRepository {
     return { data, total };
   }
 
+  async findPublicPaginated(
+    options: PaginationOptions,
+  ): Promise<{ data: BrandEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'brand.createdAt',
+      name: 'brand.name',
+      slug: 'brand.slug',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'brand.name';
+    const sortOrder = options.sortOrder ?? 'ASC';
+
+    const qb = this.repo
+      .createQueryBuilder('brand')
+      .where('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy(sortColumn, sortOrder)
+      .skip(skip)
+      .take(take);
+
+    if (options.search) {
+      qb.andWhere(
+        '(brand.name ILIKE :search OR brand.slug ILIKE :search OR brand.refId ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<BrandEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'brand',
+      sortableColumns: {
+        createdAt: 'brand.createdAt',
+        name: 'brand.name',
+        slug: 'brand.slug',
+        status: 'brand.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: '(brand.name ILIKE :search OR brand.slug ILIKE :search)',
+    });
+  }
+
   async findAllActive(): Promise<BrandEntity[]> {
     return this.repo.find({
       where: { status: MasterStatus.ACTIVE },
@@ -93,8 +145,7 @@ export class BrandsRepository {
     });
   }
 
-  async findAllByStatus(status?: MasterStatus): Promise<BrandEntity[]> {
-    const qb = this.repo.createQueryBuilder('brand').orderBy('brand.name', 'ASC');
+  async findAllByStatus(status?: MasterStatus): Promise<BrandEntity[]> {    const qb = this.repo.createQueryBuilder('brand').orderBy('brand.name', 'ASC');
     if (status) {
       qb.where('brand.status = :status', { status });
     }
