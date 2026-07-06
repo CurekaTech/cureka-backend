@@ -1,9 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  buildPaginatedResult,
-  buildPaginationOptions,
-  PaginatedResult,
-} from '@packages/common';
+import { buildPaginatedResult, buildPaginationOptions, PaginatedResult } from '@packages/common';
 import {
   buildQueryCacheHash,
   CacheKeys,
@@ -99,7 +95,11 @@ export class PublicProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
-        return buildPaginatedResult(mapProductEntitiesToPublicCards(data), total, paginationOptions);
+        return buildPaginatedResult(
+          mapProductEntitiesToPublicCards(data),
+          total,
+          paginationOptions,
+        );
       },
     });
     const tEnrich = Date.now();
@@ -157,7 +157,11 @@ export class PublicProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
-        return buildPaginatedResult(mapVariantEntitiesToPublicSearchItems(data), total, paginationOptions);
+        return buildPaginatedResult(
+          mapVariantEntitiesToPublicSearchItems(data),
+          total,
+          paginationOptions,
+        );
       },
     });
     const tEnrich = Date.now();
@@ -208,7 +212,8 @@ export class PublicProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichDetail(raw);
-    const imageCount = result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
+    const imageCount =
+      result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
     this.logger.log(
       `[PERF] findBySlug slug="${slug}" | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
@@ -274,31 +279,31 @@ export class PublicProductsService {
     const queryBindings = parseCategoryFilterQueryBindings(query);
     const [category, brand, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
-      query.categoryRefId
-        ? this.categoriesRepository.findByRefId(query.categoryRefId)
-        : query.categorySlug
-          ? this.categoriesRepository.findBySlug(query.categorySlug)
+        query.categoryRefId
+          ? this.categoriesRepository.findByRefId(query.categoryRefId)
+          : query.categorySlug
+            ? this.categoriesRepository.findBySlug(query.categorySlug)
+            : Promise.resolve(null),
+        query.brandRefId
+          ? this.brandsRepository.findByRefId(query.brandRefId)
+          : query.brandSlug
+            ? this.brandsRepository.findBySlug(query.brandSlug)
+            : Promise.resolve(null),
+        query.productNatureRefId
+          ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
           : Promise.resolve(null),
-      query.brandRefId
-        ? this.brandsRepository.findByRefId(query.brandRefId)
-        : query.brandSlug
-          ? this.brandsRepository.findBySlug(query.brandSlug)
+        query.healthConcernRefId
+          ? this.healthConcernsRepository.findByRefId(query.healthConcernRefId)
+          : query.healthConcernSlug
+            ? this.healthConcernsRepository.findBySlug(query.healthConcernSlug)
+            : Promise.resolve(null),
+        query.wellnessGoalRefId
+          ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
           : Promise.resolve(null),
-      query.productNatureRefId
-        ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
-        : Promise.resolve(null),
-      query.healthConcernRefId
-        ? this.healthConcernsRepository.findByRefId(query.healthConcernRefId)
-        : query.healthConcernSlug
-          ? this.healthConcernsRepository.findBySlug(query.healthConcernSlug)
-          : Promise.resolve(null),
-      query.wellnessGoalRefId
-        ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
-        : Promise.resolve(null),
-      queryBindings
-        ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
-        : Promise.resolve(undefined),
-    ]);
+        queryBindings
+          ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
+          : Promise.resolve(undefined),
+      ]);
 
     return {
       categoryId: category?.id,
@@ -335,9 +340,10 @@ export class PublicProductsService {
     const data = await Promise.all(
       result.data.map(async (card) => {
         if (!card.primaryImageUrl) return card;
-        const key = typeof card.primaryImageUrl === 'string'
-          ? card.primaryImageUrl
-          : (card.primaryImageUrl as { key?: string }).key ?? '(unknown)';
+        const key =
+          typeof card.primaryImageUrl === 'string'
+            ? card.primaryImageUrl
+            : ((card.primaryImageUrl as { key?: string }).key ?? '(unknown)');
         const t = Date.now();
         const primaryImageUrl = await this.storageUrlEnricher.toReference(card.primaryImageUrl);
         this.logger.log(`  [IMG] key="${key}" signing=${Date.now() - t}ms`);
@@ -402,7 +408,8 @@ export class PublicProductsService {
   private async enrichProductInformation(
     items: IPublicProductDetail['productInformation'],
   ): Promise<IPublicProductDetail['productInformation']> {
-    const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const labelSortOrders =
+      await this.productInformationLabelsRepository.findActiveSortOrdersByName();
     return enrichProductInformation(items, labelSortOrders);
   }
 }

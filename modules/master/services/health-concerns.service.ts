@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FastifyRequest } from 'fastify';
+import { EVENTS, HealthConcernUpdatedEvent } from '@packages/events';
 import { HealthConcernsRepository } from '../repositories/health-concerns.repository';
 import {
   CreateHealthConcernDto,
@@ -40,6 +42,7 @@ export class HealthConcernsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IHealthConcern> {
@@ -100,6 +103,7 @@ export class HealthConcernsService {
       createdBy,
     });
 
+    await this.emitHealthConcernUpdated(entity.refId, 'created');
     return this.enrichHealthConcern(mapHealthConcernEntityToResponse(entity));
   }
 
@@ -151,6 +155,7 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found after update`);
     }
 
+    await this.emitHealthConcernUpdated(refId, 'updated');
     return this.enrichHealthConcern(mapHealthConcernEntityToResponse(result));
   }
 
@@ -173,6 +178,7 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found after status update`);
     }
 
+    await this.emitHealthConcernUpdated(refId, 'status_updated');
     return this.enrichHealthConcern(mapHealthConcernEntityToResponse(updated));
   }
 
@@ -183,6 +189,17 @@ export class HealthConcernsService {
     }
     await this.deletionGuard.assertHealthConcernDeletable(existing.id, existing.name);
     await this.healthConcernsRepository.softDeleteByRefId(refId);
+    await this.emitHealthConcernUpdated(refId, 'deleted');
+  }
+
+  private async emitHealthConcernUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.HEALTH_CONCERN_UPDATED,
+      new HealthConcernUpdatedEvent(refId, action),
+    );
   }
 
   private enrichHealthConcern(healthConcern: IHealthConcern): Promise<IHealthConcern> {

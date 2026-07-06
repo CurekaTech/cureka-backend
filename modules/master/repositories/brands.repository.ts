@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 
@@ -79,6 +80,13 @@ export class BrandsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllActive(): Promise<BrandEntity[]> {
+    return this.repo.find({
+      where: { status: MasterStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
   }
 
   async existsBySlug(slug: string): Promise<boolean> {

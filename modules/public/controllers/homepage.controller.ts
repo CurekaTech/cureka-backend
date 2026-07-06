@@ -16,7 +16,11 @@ export class HomepageController {
   @ResponseMessage('Homepage sections retrieved successfully')
   @Get('sections')
   getSections(@Query() query: HomepageSectionsQueryDto) {
-    return this.homepageSectionsService.getSections(resolveHomepageSectionsFromFlags(query));
+    const requested = resolveHomepageSectionsFromFlags(query);
+    if (requested !== undefined) {
+      return this.homepageSectionsService.getFlaggedSections(requested);
+    }
+    return this.homepageSectionsService.getActiveSectionsWithData();
   }
 
   @ResponseMessage('Active home sections retrieved successfully')

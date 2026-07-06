@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
 export class HealthConcernsRepository {
@@ -97,5 +98,24 @@ export class HealthConcernsRepository {
         .andWhere('healthConcern.id != :excludeId', { excludeId })
         .getCount()) > 0
     );
+  }
+
+  async findAllActive(): Promise<HealthConcernEntity[]> {
+    return this.repo.find({
+      where: { status: MasterStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async findActiveHomePageConcerns(): Promise<HealthConcernEntity[]> {
+    return this.repo.find({
+      where: {
+        inHomePage: true,
+        status: MasterStatus.ACTIVE,
+      },
+      order: {
+        name: 'ASC',
+      },
+    });
   }
 }

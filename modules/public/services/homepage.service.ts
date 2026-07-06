@@ -3,16 +3,19 @@ import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cach
 import { BannersService } from '@modules/master/services/banners.service';
 import { IHomepageBannersBundle } from '@modules/master/interfaces/banner.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
+import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
+import { IHomepageExpertCuratedBundle } from '../interfaces/homepage-section.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 
 @Injectable()
 export class HomepageService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly bannersService: BannersService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
@@ -41,6 +44,29 @@ export class HomepageService {
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadShopByCategoryTreeUncached(),
     });
+  }
+
+  async getExpertCuratedBundles(): Promise<IHomepageExpertCuratedBundle[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.expertCuratedBundles(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadExpertCuratedBundlesUncached(),
+    });
+  }
+
+  /** Used by cache refresh after health concern mutations. */
+  async loadExpertCuratedBundlesUncached(): Promise<IHomepageExpertCuratedBundle[]> {
+    const concerns = await this.healthConcernsRepository.findActiveHomePageConcerns();
+
+    return Promise.all(
+      concerns.map(async (concern) => ({
+        refId: concern.refId,
+        name: concern.name,
+        slug: concern.slug,
+        description: concern.description ?? '',
+        icon: await this.storageUrlEnricher.toReference(concern.icon),
+      })),
+    );
   }
 
   /** Used by cache refresh after category mutations. */
