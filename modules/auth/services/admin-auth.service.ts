@@ -340,7 +340,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
         name: 'Bulk Upload',
         key: 'products-bulk-upload',
         icon: 'Download',
-        href: '#bulk-upload',
+        href: '/products/bulk-upload/history',
         requiredPermissions: ['products.create'],
       },
     ],

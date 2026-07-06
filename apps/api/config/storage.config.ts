@@ -17,9 +17,13 @@ export const storageConfig = registerAs('storage', () => ({
   uploadDir: resolveUploadDir(),
   maxImageFileSize: parseInt(process.env['UPLOAD_MAX_IMAGE_FILE_SIZE'] ?? '1048576', 10),
   maxVideoFileSize: parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10),
-  allowedMimeTypes: process.env['UPLOAD_ALLOWED_MIME_TYPES']
-    ? process.env['UPLOAD_ALLOWED_MIME_TYPES'].split(',').map((t) => t.trim()).filter(Boolean)
-    : [...ALLOWED_UPLOAD_MIME_TYPES],
+  allowedMimeTypes: [
+    ...(process.env['UPLOAD_ALLOWED_MIME_TYPES']
+      ? process.env['UPLOAD_ALLOWED_MIME_TYPES'].split(',').map((t) => t.trim()).filter(Boolean)
+      : [...ALLOWED_UPLOAD_MIME_TYPES]),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+  ],
   gcs: {
     bucket: process.env['GCS_BUCKET_NAME'],
     credentialsPath: resolveGcsCredentialsPath(process.env['GCS_CREDENTIALS_PATH']),

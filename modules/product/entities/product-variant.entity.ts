@@ -158,6 +158,12 @@ export class ProductVariantEntity {
 
 
 
+  @Column({ name: 'tax_class', type: 'varchar', length: 100, nullable: true })
+
+  taxClass!: string | null;
+
+
+
   @Index()
 
   @Column({

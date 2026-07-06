@@ -18,4 +18,5 @@ export interface IUploadFileResult {
 export interface IStorageProvider {
   upload(input: IUploadFileInput): Promise<IUploadFileResult>;
   delete(relativePath: string): Promise<void>;
+  createReadStream(relativePath: string): Promise<Readable>;
 }
