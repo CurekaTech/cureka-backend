@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CountryEntity } from '../entities/country.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 
@@ -76,6 +77,14 @@ export class CountriesRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<CountryEntity[]> {
+    const qb = this.repo.createQueryBuilder('country').orderBy('country.name', 'ASC');
+    if (status) {
+      qb.where('country.status = :status', { status });
+    }
+    return qb.getMany();
   }
 
   async existsByCode(code: string): Promise<boolean> {

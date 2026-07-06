@@ -35,11 +35,13 @@ import { ProductVariantsController } from './controllers/product-variants.contro
 import { ProductFaqsController } from './controllers/product-faqs.controller';
 import { ProductTagsController } from './controllers/product-tags.controller';
 import { ProductInformationLabelsController } from './controllers/product-information-labels.controller';
+import { ProductWizardController } from './controllers/product-wizard.controller';
 import { ProductCacheListener } from './listeners/product-cache.listener';
 import { ProductTagsRepository } from './repositories/product-tags.repository';
 import { ProductTagsService } from './services/product-tags.service';
 import { ProductInformationLabelsRepository } from './repositories/product-information-labels.repository';
 import { ProductInformationLabelsService } from './services/product-information-labels.service';
+import { ProductWizardBootstrapService } from './services/product-wizard-bootstrap.service';
 
 @Module({
   imports: [
@@ -62,7 +64,7 @@ import { ProductInformationLabelsService } from './services/product-information-
       ProductCategoryFilterMappingEntity,
     ]),
   ],
-  controllers: [ProductsController, ProductVariantsController, ProductFaqsController, ProductTagsController, ProductInformationLabelsController],
+  controllers: [ProductsController, ProductVariantsController, ProductFaqsController, ProductTagsController, ProductInformationLabelsController, ProductWizardController],
   providers: [
     ProductsRepository,
     ProductVariantsRepository,
@@ -76,6 +78,7 @@ import { ProductInformationLabelsService } from './services/product-information-
     ProductFaqsService,
     ProductTagsService,
     ProductInformationLabelsService,
+    ProductWizardBootstrapService,
     SimpleProductStrategy,
     VariableProductStrategy,
     BundleProductStrategy,

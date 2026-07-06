@@ -82,6 +82,14 @@ export class BrandsRepository {
     return { data, total };
   }
 
+  async findAllByStatus(status?: MasterStatus): Promise<BrandEntity[]> {
+    const qb = this.repo.createQueryBuilder('brand').orderBy('brand.name', 'ASC');
+    if (status) {
+      qb.where('brand.status = :status', { status });
+    }
+    return qb.getMany();
+  }
+
   async existsBySlug(slug: string): Promise<boolean> {
     const count = await this.repo.count({ where: { slug } });
     return count > 0;

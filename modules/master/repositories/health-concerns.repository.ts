@@ -110,6 +110,16 @@ export class HealthConcernsRepository {
     return { data, total };
   }
 
+  async findAllByStatus(status?: MasterStatus): Promise<HealthConcernEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('healthConcern')
+      .orderBy('healthConcern.name', 'ASC');
+    if (status) {
+      qb.where('healthConcern.status = :status', { status });
+    }
+    return qb.getMany();
+  }
+
   async existsBySlug(slug: string): Promise<boolean> {
     return (await this.repo.count({ where: { slug } })) > 0;
   }

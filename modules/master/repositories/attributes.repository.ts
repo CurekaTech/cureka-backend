@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AttributeEntity } from '../entities/attribute.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 
@@ -78,5 +79,13 @@ export class AttributesRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<AttributeEntity[]> {
+    const qb = this.repo.createQueryBuilder('attribute').orderBy('attribute.name', 'ASC');
+    if (status) {
+      qb.where('attribute.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }
