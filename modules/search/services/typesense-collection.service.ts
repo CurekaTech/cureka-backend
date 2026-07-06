@@ -1,10 +1,17 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
+  ENTITY_SEARCH_QUERY_FIELDS,
   PRODUCT_COLLECTION_FIELDS,
   PRODUCT_POPULAR_SORT_FIELD,
   PRODUCT_SEARCH_QUERY_FIELDS,
 } from '../constants/typesense-product.schema';
+import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
+import { ITypesenseSearchRuntimeConfig } from '../interfaces/typesense-search-runtime-config.interface';
 import { TypesenseClientService } from './typesense-client.service';
+
+function toTypesenseFilterValue(value: string): string {
+  return `\`${value.replace(/`/g, '\\`')}\``;
+}
 
 function getHttpStatus(error: unknown): number | undefined {
   if (typeof error === 'object' && error !== null && 'httpStatus' in error) {
@@ -19,6 +26,7 @@ export class TypesenseCollectionService implements OnModuleInit {
   private readonly logger = new Logger(TypesenseCollectionService.name);
   private fieldNamesCache: Set<string> | null = null;
   private fieldNamesCacheExpiresAt = 0;
+  private searchRuntimeConfig: ITypesenseSearchRuntimeConfig | null = null;
   private static readonly FIELD_CACHE_TTL_MS = 60_000;
 
   constructor(private readonly typesenseClient: TypesenseClientService) {}
@@ -31,6 +39,7 @@ export class TypesenseCollectionService implements OnModuleInit {
 
     try {
       await this.ensureCollection();
+      await this.warmSearchRuntimeConfig();
     } catch (error) {
       this.logger.error(
         `Failed to ensure Typesense collection: ${error instanceof Error ? error.message : String(error)}`,
@@ -98,15 +107,57 @@ export class TypesenseCollectionService implements OnModuleInit {
     this.invalidateFieldCache();
   }
 
-  async getSearchQueryBy(): Promise<string> {
+  async getSearchRuntimeConfig(): Promise<ITypesenseSearchRuntimeConfig> {
+    if (this.searchRuntimeConfig) {
+      return this.searchRuntimeConfig;
+    }
+
+    return this.warmSearchRuntimeConfig();
+  }
+
+  async warmSearchRuntimeConfig(): Promise<ITypesenseSearchRuntimeConfig> {
     const fieldNames = await this.getCollectionFieldNames();
-    const searchable = PRODUCT_SEARCH_QUERY_FIELDS.filter((field) => fieldNames.has(field));
-    return searchable.length ? searchable.join(',') : 'name';
+    const productQueryBy = this.resolveQueryBy(PRODUCT_SEARCH_QUERY_FIELDS, fieldNames);
+    const entityQueryBy = this.resolveQueryBy(ENTITY_SEARCH_QUERY_FIELDS, fieldNames);
+    const hasEntityType = fieldNames.has('entityType');
+
+    this.searchRuntimeConfig = {
+      hasEntityType,
+      hasPopularSortField: fieldNames.has(PRODUCT_POPULAR_SORT_FIELD),
+      productQueryBy,
+      entityQueryBy,
+      entityTypeFilters: hasEntityType
+        ? {
+            [SEARCH_ENTITY_TYPES.CATEGORY]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.CATEGORY)}`,
+            [SEARCH_ENTITY_TYPES.BRAND]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.BRAND)}`,
+            [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.HEALTH_CONCERN)}`,
+            [SEARCH_ENTITY_TYPES.PRODUCT]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.PRODUCT)}`,
+          }
+        : {},
+    };
+
+    return this.searchRuntimeConfig;
+  }
+
+  async getSearchQueryBy(): Promise<string> {
+    return (await this.getSearchRuntimeConfig()).productQueryBy;
+  }
+
+  async getEntitySearchQueryBy(): Promise<string> {
+    return (await this.getSearchRuntimeConfig()).entityQueryBy;
   }
 
   async hasCollectionField(fieldName: string): Promise<boolean> {
     const fieldNames = await this.getCollectionFieldNames();
     return fieldNames.has(fieldName);
+  }
+
+  private resolveQueryBy(
+    fields: readonly string[],
+    fieldNames: Set<string>,
+  ): string {
+    const searchable = fields.filter((field) => fieldNames.has(field));
+    return searchable.length ? searchable.join(',') : 'name';
   }
 
   private async getCollectionFieldNames(): Promise<Set<string>> {
@@ -129,5 +180,6 @@ export class TypesenseCollectionService implements OnModuleInit {
   private invalidateFieldCache(): void {
     this.fieldNamesCache = null;
     this.fieldNamesCacheExpiresAt = 0;
+    this.searchRuntimeConfig = null;
   }
 }

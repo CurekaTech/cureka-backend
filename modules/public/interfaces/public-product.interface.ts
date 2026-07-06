@@ -197,7 +197,11 @@ export interface IPublicProductDetail {
   variants: IPublicProductVariant[];
   media: IPublicProductMedia[];
   healthConcerns: Array<{ refId: string; name: string }>;
-  wellnessGoals: Array<{ refId: string; name: string; image: IStorageFileReferenceResponse | null }>;
+  wellnessGoals: Array<{
+    refId: string;
+    name: string;
+    image: IStorageFileReferenceResponse | null;
+  }>;
   categoryFilters: IProductCategoryFilterBinding[];
   tags: Array<{ refId: string; name: string; slug: string }>;
   faqs: Array<{ refId: string; question: string; answer: string }>;

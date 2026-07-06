@@ -86,6 +86,13 @@ export class BrandsRepository {
     return { data, total };
   }
 
+  async findAllActive(): Promise<BrandEntity[]> {
+    return this.repo.find({
+      where: { status: MasterStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
+  }
+
   async findAllByStatus(status?: MasterStatus): Promise<BrandEntity[]> {
     const qb = this.repo.createQueryBuilder('brand').orderBy('brand.name', 'ASC');
     if (status) {

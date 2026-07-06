@@ -30,6 +30,8 @@ describe('typesense-product.mapper', () => {
 
     expect(document).toEqual({
       id: 'SUN20260001',
+      refId: 'SUN20260001',
+      entityType: 'Product',
       name: 'Dolo 650mg',
       slug: 'dolo-650mg',
       brand: 'Micro Labs',

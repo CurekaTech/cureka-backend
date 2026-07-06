@@ -12,6 +12,11 @@ export class BrandTypesenseListener {
   @OnEvent(EVENTS.BRAND_UPDATED)
   async handleBrandUpdated(event: BrandUpdatedEvent): Promise<void> {
     try {
+      if (event.action === 'deleted') {
+        await this.indexer.removeBrand(event.refId);
+        return;
+      }
+
       await this.indexer.reindexByBrandRefId(event.refId);
     } catch (error) {
       this.logger.error(
