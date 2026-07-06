@@ -26,6 +26,7 @@ import { ProductInformationLabelsRepository } from '@modules/product/repositorie
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
+import { resolvePublicPriceRange } from '../utils/price-range-query.util';
 import {
   IPublicImporterSummary,
   IPublicManufacturerSummary,
@@ -66,6 +67,7 @@ export class PublicProductsService {
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
+    const priceRange = resolvePublicPriceRange(query);
     const queryHash = buildQueryCacheHash({
       categoryId: filters.categoryId,
       brandId: filters.brandId,
@@ -83,6 +85,9 @@ export class PublicProductsService {
       wellnessGoalRefId: query.wellnessGoalRefId,
       variantSlug: query.variantSlug,
       tagSlug: query.tagSlug,
+      minPrice: priceRange?.minPrice,
+      maxPrice: priceRange?.maxPrice,
+      priceRange: query.priceRange,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -111,6 +116,8 @@ export class PublicProductsService {
           variantSlug: query.variantSlug,
           tagSlug: query.tagSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
+          minPrice: priceRange?.minPrice,
+          maxPrice: priceRange?.maxPrice,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(mapProductEntitiesToPublicCards(data), total, paginationOptions);
@@ -149,6 +156,7 @@ export class PublicProductsService {
   ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
+    const priceRange = resolvePublicPriceRange(query);
     const queryHash = buildQueryCacheHash({
       categoryId: filters.categoryId,
       brandId: filters.brandId,
@@ -165,6 +173,9 @@ export class PublicProductsService {
       productNatureRefId: query.productNatureRefId,
       wellnessGoalRefId: query.wellnessGoalRefId,
       variantSlug: query.variantSlug,
+      minPrice: priceRange?.minPrice,
+      maxPrice: priceRange?.maxPrice,
+      priceRange: query.priceRange,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -192,6 +203,8 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
+          minPrice: priceRange?.minPrice,
+          maxPrice: priceRange?.maxPrice,
         });
         this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(mapVariantEntitiesToPublicSearchItems(data), total, paginationOptions);

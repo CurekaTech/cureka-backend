@@ -334,6 +334,26 @@ function buildProductsUrl(state: CategoryListingState): string {
 | `categoryFilterValues` | string[] | Required with `categoryFilterRefId` |
 | `categoryFilters` | string (JSON) | Multi-filter; see Option B above |
 
+### Price range
+
+Filter by **active variant selling price**. A product is included when it has at least one active variant whose `sellingPrice` falls within the range.
+
+| Param | Type | Notes |
+|-------|------|-------|
+| `priceRange` | string | Inclusive range as `min,max` or `min-max`, e.g. `100,500` or `100-500` |
+| `minPrice` | number | Minimum price (optional; can combine with `maxPrice` instead of `priceRange`) |
+| `maxPrice` | number | Maximum price (optional) |
+
+Examples:
+
+```http
+GET /api/v1/public/products?categorySlug=hair&priceRange=100,500&page=1&limit=20
+GET /api/v1/public/products?categorySlug=hair&minPrice=100&maxPrice=500
+GET /api/v1/public/products?categorySlug=hair&minPrice=500
+```
+
+If both `priceRange` and `minPrice`/`maxPrice` are sent, explicit `minPrice`/`maxPrice` take precedence for any bound not already set.
+
 ### Other filters (unchanged)
 
 | Param | Type |

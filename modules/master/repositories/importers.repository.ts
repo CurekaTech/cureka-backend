@@ -3,6 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ImporterEntity } from '../entities/importer.entity';
 import { MasterStatus } from '../enums/master-status.enum';
+import { CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
@@ -93,6 +98,25 @@ export class ImportersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<ImporterEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'importer',
+      sortableColumns: {
+        createdAt: 'importer.createdAt',
+        name: 'importer.name',
+        code: 'importer.code',
+        iec: 'importer.iec',
+        status: 'importer.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression:
+        '(importer.name ILIKE :search OR importer.code ILIKE :search OR importer.iec ILIKE :search)',
+    });
   }
 
   async findAllByStatus(status?: MasterStatus): Promise<ImporterEntity[]> {

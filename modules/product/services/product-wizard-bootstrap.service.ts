@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { buildCursorPaginationOptions } from '@packages/common';
 import { mapAttributeEntitiesToResponse } from '@modules/master/mappers/attribute.mapper';
 import { mapBrandEntitiesToResponse } from '@modules/master/mappers/brand.mapper';
 import { mapCategoryEntitiesToResponse } from '@modules/master/mappers/category.mapper';
@@ -24,7 +25,8 @@ import { MasterListStatusFilter } from '@modules/master/enums/master-list-status
 import { resolveMasterListStatus } from '@modules/master/utils/master-list-query.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductWizardBootstrapQueryDto } from '../dto/product-wizard-bootstrap-query.dto';
-import { IProductWizardBootstrap } from '../interfaces/product-wizard-bootstrap.interface';
+import { ProductWizardMasterType } from '../enums/product-wizard-master-type.enum';
+import { IProductWizardBootstrapResponse } from '../interfaces/product-wizard-bootstrap.interface';
 import { mapProductInformationLabelEntitiesToResponse } from '../mappers/product-information-label.mapper';
 import { mapProductTagEntitiesToResponse } from '../mappers/product-tag.mapper';
 import { ProductInformationLabelsRepository } from '../repositories/product-information-labels.repository';
@@ -57,98 +59,173 @@ export class ProductWizardBootstrapService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
-  async getBootstrap(query: ProductWizardBootstrapQueryDto): Promise<IProductWizardBootstrap> {
+  async getBootstrap(
+    query: ProductWizardBootstrapQueryDto,
+  ): Promise<IProductWizardBootstrapResponse> {
     const status = resolveMasterListStatus(
       query.status ?? MasterListStatusFilter.ACTIVE,
     );
-    const parentCategoryId = await this.resolveParentCategoryId(query.parentCategoryRefId);
+    const pagination = buildCursorPaginationOptions(query);
 
-    const [
-      brands,
-      categories,
-      healthConcerns,
-      wellnessGoals,
-      productTags,
-      units,
-      attributes,
-      productInformationLabels,
-      manufacturers,
-      packers,
-      importers,
-      countries,
-    ] = await Promise.all([
-      this.brandsRepository.findAllByStatus(status),
-      this.categoriesRepository.findForWizardBootstrap({
-        status,
-        hierarchyLevel: query.categoryHierarchyLevel,
-        parentCategoryId,
-      }),
-      this.healthConcernsRepository.findAllByStatus(status),
-      this.wellnessGoalsRepository.findAllByStatus(status),
-      this.productTagsRepository.findAllByStatus(status),
-      this.unitsRepository.findAllByStatus(status),
-      this.attributesRepository.findAllByStatus(status),
-      this.productInformationLabelsRepository.findAllByStatus(status),
-      this.manufacturersRepository.findAllByStatus(status),
-      this.packersRepository.findAllByStatus(status),
-      this.importersRepository.findAllByStatus(status),
-      this.countriesRepository.findAllByStatus(status),
-    ]);
+    switch (query.type) {
+      case ProductWizardMasterType.BRAND: {
+        const page = await this.brandsRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mapBrandEntitiesToResponse(page.data),
+          [...BRAND_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
 
-    const mappedCategories = this.mapCategoriesForWizard(categories, status);
+      case ProductWizardMasterType.CATEGORY: {
+        const parentCategoryId = await this.resolveParentCategoryId(query.parentCategoryRefId);
+        const page = await this.categoriesRepository.findWizardCursorPaginated({
+          ...pagination,
+          status,
+          hierarchyLevel: query.categoryHierarchyLevel,
+          parentCategoryId,
+        });
+        const mappedCategories = this.mapCategoriesForWizard(page.data, status);
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mappedCategories,
+          [...CATEGORY_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
 
-    const [
-      enrichedBrands,
-      enrichedCategories,
-      enrichedHealthConcerns,
-      enrichedWellnessGoals,
-      enrichedManufacturers,
-      enrichedPackers,
-      enrichedImporters,
-    ] = await Promise.all([
-      this.storageUrlEnricher.enrichManyFields(
-        mapBrandEntitiesToResponse(brands),
-        [...BRAND_MEDIA_FIELDS],
-      ),
-      this.storageUrlEnricher.enrichManyFields(mappedCategories, [...CATEGORY_MEDIA_FIELDS]),
-      this.storageUrlEnricher.enrichManyFields(
-        mapHealthConcernEntitiesToResponse(healthConcerns),
-        [...HEALTH_CONCERN_MEDIA_FIELDS],
-      ),
-      this.storageUrlEnricher.enrichManyFields(
-        mapWellnessGoalEntitiesToResponse(wellnessGoals),
-        [...WELLNESS_GOAL_MEDIA_FIELDS],
-      ),
-      this.storageUrlEnricher.enrichManyFields(
-        mapManufacturerEntitiesToResponse(manufacturers),
-        [...MANUFACTURER_MEDIA_FIELDS],
-      ),
-      this.storageUrlEnricher.enrichManyFields(
-        mapPackerEntitiesToResponse(packers),
-        [...PACKER_MEDIA_FIELDS],
-      ),
-      this.storageUrlEnricher.enrichManyFields(
-        mapImporterEntitiesToResponse(importers),
-        [...IMPORTER_MEDIA_FIELDS],
-      ),
-    ]);
+      case ProductWizardMasterType.HEALTH_CONCERN: {
+        const page = await this.healthConcernsRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mapHealthConcernEntitiesToResponse(page.data),
+          [...HEALTH_CONCERN_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
 
-    return {
-      brands: enrichedBrands,
-      categories: enrichedCategories,
-      healthConcerns: enrichedHealthConcerns,
-      wellnessGoals: enrichedWellnessGoals,
-      productTags: mapProductTagEntitiesToResponse(productTags),
-      units: mapUnitEntitiesToResponse(units),
-      attributes: mapAttributeEntitiesToResponse(attributes),
-      productInformationLabels: mapProductInformationLabelEntitiesToResponse(
-        productInformationLabels,
-      ),
-      manufacturers: enrichedManufacturers,
-      packers: enrichedPackers,
-      importers: enrichedImporters,
-      countries: mapCountryEntitiesToResponse(countries),
-    };
+      case ProductWizardMasterType.WELLNESS_GOAL: {
+        const page = await this.wellnessGoalsRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mapWellnessGoalEntitiesToResponse(page.data),
+          [...WELLNESS_GOAL_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
+
+      case ProductWizardMasterType.PRODUCT_TAG: {
+        const page = await this.productTagsRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        return {
+          type: query.type,
+          data: mapProductTagEntitiesToResponse(page.data),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          limit: page.limit,
+        };
+      }
+
+      case ProductWizardMasterType.UNIT: {
+        const page = await this.unitsRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        return {
+          type: query.type,
+          data: mapUnitEntitiesToResponse(page.data),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          limit: page.limit,
+        };
+      }
+
+      case ProductWizardMasterType.ATTRIBUTE: {
+        const page = await this.attributesRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        return {
+          type: query.type,
+          data: mapAttributeEntitiesToResponse(page.data),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          limit: page.limit,
+        };
+      }
+
+      case ProductWizardMasterType.PRODUCT_INFORMATION_LABEL: {
+        const page = await this.productInformationLabelsRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        return {
+          type: query.type,
+          data: mapProductInformationLabelEntitiesToResponse(page.data),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          limit: page.limit,
+        };
+      }
+
+      case ProductWizardMasterType.MANUFACTURER: {
+        const page = await this.manufacturersRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mapManufacturerEntitiesToResponse(page.data),
+          [...MANUFACTURER_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
+
+      case ProductWizardMasterType.PACKER: {
+        const page = await this.packersRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mapPackerEntitiesToResponse(page.data),
+          [...PACKER_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
+
+      case ProductWizardMasterType.IMPORTER: {
+        const page = await this.importersRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        const data = await this.storageUrlEnricher.enrichManyFields(
+          mapImporterEntitiesToResponse(page.data),
+          [...IMPORTER_MEDIA_FIELDS],
+        );
+        return { type: query.type, data, nextCursor: page.nextCursor, hasMore: page.hasMore, limit: page.limit };
+      }
+
+      case ProductWizardMasterType.COUNTRY: {
+        const page = await this.countriesRepository.findCursorPaginated({
+          ...pagination,
+          status,
+        });
+        return {
+          type: query.type,
+          data: mapCountryEntitiesToResponse(page.data),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          limit: page.limit,
+        };
+      }
+    }
   }
 
   private async resolveParentCategoryId(
@@ -173,7 +250,7 @@ export class ProductWizardBootstrapService {
   }
 
   private mapCategoriesForWizard(
-    categories: Awaited<ReturnType<CategoriesRepository['findForWizardBootstrap']>>,
+    categories: Awaited<ReturnType<CategoriesRepository['findWizardCursorPaginated']>>['data'],
     status?: MasterStatus,
   ): ICategory[] {
     return mapCategoryEntitiesToResponse(categories).map((category) => ({

@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { MasterStatus } from '../enums/master-status.enum';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -79,6 +83,22 @@ export class AttributesRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<AttributeEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'attribute',
+      sortableColumns: {
+        createdAt: 'attribute.createdAt',
+        name: 'attribute.name',
+        status: 'attribute.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: 'attribute.name ILIKE :search',
+    });
   }
 
   async findAllByStatus(status?: MasterStatus): Promise<AttributeEntity[]> {

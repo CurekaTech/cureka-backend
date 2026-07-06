@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -108,6 +112,24 @@ export class HealthConcernsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<HealthConcernEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'healthConcern',
+      sortableColumns: {
+        createdAt: 'healthConcern.createdAt',
+        name: 'healthConcern.name',
+        slug: 'healthConcern.slug',
+        status: 'healthConcern.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression:
+        '(healthConcern.name ILIKE :search OR healthConcern.slug ILIKE :search)',
+    });
   }
 
   async findAllByStatus(status?: MasterStatus): Promise<HealthConcernEntity[]> {

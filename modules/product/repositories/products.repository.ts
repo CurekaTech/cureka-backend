@@ -51,6 +51,8 @@ export interface PublicProductListOptions {
   variantSlug?: string;
   tagSlug?: string;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
+  minPrice?: number;
+  maxPrice?: number;
 }
 
 @Injectable()
@@ -625,6 +627,23 @@ export class ProductsRepository {
     if (options.variantSlug) {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
     }
+    this.applyPublicVariantPriceRangeFilter(qb, options);
+  }
+
+  private applyPublicVariantPriceRangeFilter(
+    qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
+    options: PublicProductListOptions,
+  ): void {
+    if (options.minPrice !== undefined) {
+      qb.andWhere('variant.sellingPrice >= :minPrice', {
+        minPrice: options.minPrice,
+      });
+    }
+    if (options.maxPrice !== undefined) {
+      qb.andWhere('variant.sellingPrice <= :maxPrice', {
+        maxPrice: options.maxPrice,
+      });
+    }
   }
 
   private applyPublicVariantSearchSort(
@@ -748,6 +767,38 @@ export class ProductsRepository {
         { tagSlug: options.tagSlug },
       );
     }
+    this.applyPublicPriceRangeFilter(qb, options, 'product');
+  }
+
+  private applyPublicPriceRangeFilter(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    options: PublicProductListOptions,
+    productAlias: string,
+  ): void {
+    if (options.minPrice === undefined && options.maxPrice === undefined) {
+      return;
+    }
+
+    qb.setParameter('priceVariantStatus', VariantStatus.ACTIVE);
+
+    const conditions = [
+      `pv.product_id = ${productAlias}.id`,
+      'pv.deleted_at IS NULL',
+      'pv.status = :priceVariantStatus',
+    ];
+
+    if (options.minPrice !== undefined) {
+      conditions.push('pv.selling_price::numeric >= :minPrice');
+      qb.setParameter('minPrice', options.minPrice);
+    }
+    if (options.maxPrice !== undefined) {
+      conditions.push('pv.selling_price::numeric <= :maxPrice');
+      qb.setParameter('maxPrice', options.maxPrice);
+    }
+
+    qb.andWhere(
+      `EXISTS (SELECT 1 FROM product_variants pv WHERE ${conditions.join(' AND ')})`,
+    );
   }
 
   private applyPublicListSort(
