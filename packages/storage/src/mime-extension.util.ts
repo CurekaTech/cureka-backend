@@ -11,6 +11,8 @@ const MIME_TO_EXTENSION: Record<string, string> = {
   'video/quicktime': '.mov',
   'video/x-msvideo': '.avi',
   'video/mpeg': '.mpeg',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'text/csv': '.csv',
 };
 
 export const resolveUploadExtension = (mimetype: string, originalFilename: string): string => {
@@ -18,7 +20,7 @@ export const resolveUploadExtension = (mimetype: string, originalFilename: strin
   if (fromMime) return fromMime;
 
   const fromName = extname(originalFilename).toLowerCase();
-  if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf', '.mp4', '.webm', '.mov', '.avi', '.mpeg', '.mpg'].includes(fromName)) {
+  if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf', '.mp4', '.webm', '.mov', '.avi', '.mpeg', '.mpg', '.xlsx', '.csv'].includes(fromName)) {
     if (fromName === '.jpeg') return '.jpg';
     if (fromName === '.mpg') return '.mpeg';
     return fromName;

@@ -11,6 +11,9 @@ export class ProductCacheListener {
 
   @OnEvent(EVENTS.PRODUCT_UPDATED)
   async handleProductUpdated(event: ProductUpdatedEvent): Promise<void> {
+    if (process.env['BYPASS_PRODUCT_CACHE_LISTENER'] === 'true') {
+      return;
+    }
     await this.cacheStrategy.invalidateOnly({
       patterns: [
         CacheKeys.products.listPattern(),

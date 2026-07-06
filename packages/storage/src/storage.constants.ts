@@ -19,6 +19,8 @@ export const ALLOWED_VIDEO_MIME_TYPES = [
 export const ALLOWED_UPLOAD_MIME_TYPES = [
   ...ALLOWED_IMAGE_MIME_TYPES,
   ...ALLOWED_VIDEO_MIME_TYPES,
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
 ] as const;
 
 export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];

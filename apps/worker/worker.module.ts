@@ -2,11 +2,16 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { LoggerModule } from 'nestjs-pino';
+import { appConfig, databaseConfig, storageConfig } from '../api/config';
+import { DatabaseModule } from '@database/database.module';
+import { ProductModule } from '@modules/product/product.module';
+import { QueueModule } from '@packages/queue';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      load: [appConfig, databaseConfig, storageConfig],
       envFilePath: '.env',
     }),
     LoggerModule.forRoot({
@@ -18,17 +23,9 @@ import { LoggerModule } from 'nestjs-pino';
             : undefined,
       },
     }),
-    BullModule.forRootAsync({
-      useFactory: () => ({
-        connection: {
-          host: process.env['REDIS_HOST'] ?? 'localhost',
-          port: parseInt(process.env['REDIS_PORT'] ?? '6379', 10),
-          password: process.env['REDIS_PASSWORD'],
-        },
-      }),
-    }),
-    // Register queue processors here as modules grow
-    // e.g. NotificationsWorkerModule, EmailWorkerModule
+    DatabaseModule,
+    QueueModule.forRoot(),
+    ProductModule,
   ],
 })
 export class WorkerModule {}
