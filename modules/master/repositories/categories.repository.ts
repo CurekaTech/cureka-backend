@@ -5,6 +5,7 @@ import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 
@@ -59,8 +60,58 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  /** Walks up the hierarchy and returns the root ancestor for any category id. */
+  async findRootAncestor(categoryId: string): Promise<CategoryEntity | null> {
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_category_id
+        FROM categories
+        WHERE id = $1 AND deleted_at IS NULL
+        UNION ALL
+        SELECT c.id, c.parent_category_id
+        FROM categories c
+        INNER JOIN ancestors a ON c.id = a.parent_category_id
+        WHERE c.deleted_at IS NULL
+      )
+      SELECT id FROM ancestors
+      WHERE parent_category_id IS NULL
+      LIMIT 1
+      `,
+      [categoryId],
+    );
+
+    const rootId = rows[0]?.id;
+    if (!rootId) {
+      return this.findById(categoryId);
+    }
+
+    return this.findById(rootId);
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  /** Counts root categories that have the given homepage flag enabled (optionally excluding one). */
+  async countRootCategoriesByFlag(
+    flag: 'isInHeader' | 'isInShopBy',
+    excludeId?: string,
+  ): Promise<number> {
+    const column = flag === 'isInHeader' ? 'category.isInHeader' : 'category.isInShopBy';
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .where(`${column} = :enabled`, { enabled: true })
+      .andWhere('category.parentCategoryId IS NULL')
+      .andWhere('category.hierarchyLevel = :level', {
+        level: String(CategoryHierarchyLevel.ROOT),
+      });
+
+    if (excludeId) {
+      qb.andWhere('category.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
   }
 
   async updateByRefId(refId: string, data: Partial<CategoryEntity>): Promise<CategoryEntity | null> {
@@ -139,6 +190,35 @@ export class CategoriesRepository {
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.hierarchyId', 'ASC')
       .getMany();
+  }
+
+  async findForWizardBootstrap(options: {
+    status?: MasterStatus;
+    hierarchyLevel?: CategoryHierarchyLevel;
+    parentCategoryId?: string;
+  } = {}): Promise<CategoryEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC');
+
+    if (options.status) {
+      qb.where('category.status = :status', { status: options.status });
+    }
+    if (options.hierarchyLevel !== undefined) {
+      qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {
+        hierarchyLevel: String(options.hierarchyLevel),
+      });
+    }
+    if (options.parentCategoryId !== undefined) {
+      qb.andWhere('category.parentCategoryId = :parentCategoryId', {
+        parentCategoryId: options.parentCategoryId,
+      });
+    }
+
+    return qb.getMany();
   }
 
   async findRootCategories(): Promise<CategoryEntity[]> {
@@ -235,6 +315,21 @@ export class CategoriesRepository {
       .andWhere('category.parentCategoryId IS NULL')
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
+  /** Latest shop-by root categories (newest first), capped to `limit`. */
+  async findLatestShopByRootCategories(limit: number): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.isInShopBy = :isInShopBy', { isInShopBy: true })
+      .andWhere('category.hierarchyLevel = :level', {
+        level: String(CategoryHierarchyLevel.ROOT),
+      })
+      .andWhere('category.parentCategoryId IS NULL')
+      .orderBy('category.createdAt', 'DESC')
+      .addOrderBy('category.hierarchyId', 'DESC')
+      .take(limit)
       .getMany();
   }
 

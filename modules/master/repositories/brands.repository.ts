@@ -89,9 +89,41 @@ export class BrandsRepository {
     });
   }
 
+  async findAllByStatus(status?: MasterStatus): Promise<BrandEntity[]> {
+    const qb = this.repo.createQueryBuilder('brand').orderBy('brand.name', 'ASC');
+    if (status) {
+      qb.where('brand.status = :status', { status });
+    }
+    return qb.getMany();
+  }
+
   async existsBySlug(slug: string): Promise<boolean> {
     const count = await this.repo.count({ where: { slug } });
     return count > 0;
+  }
+
+  /** Counts brands flagged for the homepage (optionally excluding one brand). */
+  async countInHomePage(excludeId?: string): Promise<number> {
+    const qb = this.repo
+      .createQueryBuilder('brand')
+      .where('brand.inHomePage = :enabled', { enabled: true });
+
+    if (excludeId) {
+      qb.andWhere('brand.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
+  }
+
+  /** Active brands shown on the homepage (newest first), capped to `limit`. */
+  async findHomePageBrands(limit: number): Promise<BrandEntity[]> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.inHomePage = :enabled', { enabled: true })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('brand.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   async existsBySlugExcluding(slug: string, excludeId: string): Promise<boolean> {

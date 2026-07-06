@@ -14,6 +14,7 @@ import {
   ResolvedCartCheckoutAdminSettings,
 } from './cart-checkout-admin-settings.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 
 @Injectable()
 export class CartPricingService {
@@ -33,6 +34,7 @@ export class CartPricingService {
     cartId: string;
     couponId: string | null;
     items: CartLineItem[];
+    paymentMethod?: OrderPaymentMethod;
     manager?: EntityManager;
     clearInvalidCoupon?: boolean;
     strict?: boolean;
@@ -46,12 +48,13 @@ export class CartPricingService {
         discountAmount: 0,
         shippingAmount: 0,
         handlingAmount: 0,
+        platformFee: 0,
+        codCharge: 0,
+        prepaidDiscount: 0,
       });
     }
 
     const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-    const flatFees = this.cartCheckoutAdminSettingsService.resolveCartFlatFees(checkoutAdminSettings);
-    const handlingAmount = flatFees.handlingAmount ?? 0;
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -99,7 +102,47 @@ export class CartPricingService {
       }
     }
 
+    // All threshold-based charges compare against the order payable amount
+    // (subtotal − discount), matching the admin-setting descriptions.
     const payableBeforeShipping = roundMoney(subtotal - discountAmount);
+    const settings = this.cartCheckoutAdminSettingsService;
+
+    // Handling charge: applied while payable ≤ handling_charge_threshold.
+    const handlingAmount = settings.isChargeApplicable(
+      payableBeforeShipping,
+      settings.getHandlingChargeThreshold(checkoutAdminSettings),
+    )
+      ? settings.getHandlingCharge(checkoutAdminSettings)
+      : 0;
+
+    // Platform fee: waived once subtotal reaches the platform-fee threshold.
+    const platformFee =
+      subtotal < settings.getPlatformFeeThreshold(checkoutAdminSettings)
+        ? settings.getPlatformFee(checkoutAdminSettings)
+        : 0;
+
+    // COD charge: only for COD orders, and only while payable ≤ cod_charge_threshold.
+    const codCharge =
+      params.paymentMethod === OrderPaymentMethod.COD &&
+      settings.isChargeApplicable(
+        payableBeforeShipping,
+        settings.getCodChargeThreshold(checkoutAdminSettings),
+      )
+        ? settings.getCodCharge(checkoutAdminSettings)
+        : 0;
+
+    // Prepaid discount: only for prepaid (non-COD) orders, while payable ≤ prepaid_charge_threshold.
+    const isPrepaidPayment =
+      params.paymentMethod !== undefined && params.paymentMethod !== OrderPaymentMethod.COD;
+    const prepaidDiscount =
+      isPrepaidPayment &&
+      settings.isChargeApplicable(
+        payableBeforeShipping,
+        settings.getPrepaidChargeThreshold(checkoutAdminSettings),
+      )
+        ? settings.getPrepaidCharge(checkoutAdminSettings)
+        : 0;
+
     const shippingAmount = this.resolveShippingAmount(
       payableBeforeShipping,
       coupon,
@@ -112,6 +155,9 @@ export class CartPricingService {
       discountAmount,
       shippingAmount,
       handlingAmount,
+      platformFee,
+      codCharge,
+      prepaidDiscount,
     });
   }
 
@@ -121,9 +167,18 @@ export class CartPricingService {
     discountAmount: number;
     shippingAmount: number;
     handlingAmount: number;
+    platformFee: number;
+    codCharge: number;
+    prepaidDiscount: number;
   }): CartPricing {
     const grandTotal = roundMoney(
-      parts.subtotal - parts.discountAmount + parts.shippingAmount + parts.handlingAmount,
+      parts.subtotal -
+        parts.discountAmount +
+        parts.shippingAmount +
+        parts.handlingAmount +
+        parts.platformFee +
+        parts.codCharge -
+        parts.prepaidDiscount,
     );
 
     return {
@@ -132,6 +187,9 @@ export class CartPricingService {
       discountAmount: parts.discountAmount,
       shippingAmount: parts.shippingAmount,
       handlingAmount: parts.handlingAmount,
+      platformFee: parts.platformFee,
+      codCharge: parts.codCharge,
+      prepaidDiscount: parts.prepaidDiscount,
       grandTotal: Math.max(0, grandTotal),
     };
   }
@@ -157,7 +215,9 @@ export class CartPricingService {
       return 0;
     }
 
-    return roundMoney(this.flatShippingFee);
+    const shippingCharge =
+      this.cartCheckoutAdminSettingsService.getShippingCharge(checkoutAdminSettings);
+    return roundMoney(shippingCharge);
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {

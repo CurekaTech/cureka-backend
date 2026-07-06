@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HealthConcernEntity } from '../entities/health-concern.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
-import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
 export class HealthConcernsRepository {
@@ -32,6 +32,30 @@ export class HealthConcernsRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  /** Counts health concerns flagged for the homepage (optionally excluding one). */
+  async countInHomePage(excludeId?: string): Promise<number> {
+    const qb = this.repo
+      .createQueryBuilder('healthConcern')
+      .where('healthConcern.inHomePage = :enabled', { enabled: true });
+
+    if (excludeId) {
+      qb.andWhere('healthConcern.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
+  }
+
+  /** Active health concerns shown on the homepage (newest first), capped to `limit`. */
+  async findHomePageConcerns(limit: number): Promise<HealthConcernEntity[]> {
+    return this.repo
+      .createQueryBuilder('healthConcern')
+      .where('healthConcern.inHomePage = :enabled', { enabled: true })
+      .andWhere('healthConcern.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('healthConcern.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   async updateByRefId(
@@ -84,6 +108,16 @@ export class HealthConcernsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<HealthConcernEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('healthConcern')
+      .orderBy('healthConcern.name', 'ASC');
+    if (status) {
+      qb.where('healthConcern.status = :status', { status });
+    }
+    return qb.getMany();
   }
 
   async existsBySlug(slug: string): Promise<boolean> {

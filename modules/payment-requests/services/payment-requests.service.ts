@@ -24,6 +24,7 @@ import {
   ValidateAdminCouponDto,
 } from '../dto/payment-request.dto';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
+import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
 import { PaymentRequestItemsRepository } from '../repositories/payment-request-items.repository';
@@ -54,6 +55,7 @@ export class PaymentRequestsService {
     private readonly cashfreeService: CashfreePaymentService,
     private readonly gatewayResolver: PaymentGatewayResolverService,
     private readonly couponCheckoutService: CouponCheckoutService,
+    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) { }
 
   async checkoutFromCart(userId: string, addressId: string) {
@@ -372,6 +374,8 @@ export class PaymentRequestsService {
       undefined,
       summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
       summary.handlingAmount > 0 ? summary.handlingAmount.toFixed(2) : undefined,
+      summary.platformFee > 0 ? summary.platformFee.toFixed(2) : undefined,
+      summary.codCharge > 0 ? summary.codCharge.toFixed(2) : undefined,
     );
 
     const paymentRequest = await this.dataSource.transaction(async (manager) => {
@@ -388,6 +392,8 @@ export class PaymentRequestsService {
           tax: totals.tax,
           shipping: totals.shipping,
           handling: totals.handling,
+          platformFee: totals.platformFee,
+          codCharge: totals.codCharge,
           totalAmount: totals.totalAmount,
           currency: 'INR',
           notes: 'Storefront checkout',
@@ -428,7 +434,22 @@ export class PaymentRequestsService {
     const couponResult = await this.resolveCoupon(dto.couponCode, customerId, subtotal, dto.items);
     const finalDiscountVal = (Number(dto.discount ?? '0') + couponResult.discount).toFixed(2);
 
-    const totals = this.computeTotals(pricedItems, finalDiscountVal, dto.tax, dto.shipping, dto.handling, dto.finalAmount);
+    // Resolve platform fee
+    const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
+    const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
+    const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
+
+    const totals = this.computeTotals(
+      pricedItems,
+      finalDiscountVal,
+      dto.tax,
+      dto.shipping,
+      dto.handling,
+      platformFee.toFixed(2),
+      '0.00',
+      dto.finalAmount,
+    );
 
     return this.dataSource.transaction(async (manager) => {
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
@@ -446,6 +467,8 @@ export class PaymentRequestsService {
           tax: totals.tax,
           shipping: totals.shipping,
           handling: totals.handling,
+          platformFee: totals.platformFee,
+          codCharge: totals.codCharge,
           totalAmount: totals.totalAmount,
           currency: 'INR',
           notes: dto.notes ?? null,
@@ -492,7 +515,22 @@ export class PaymentRequestsService {
     const couponResult = await this.resolveCoupon(dto.couponCode, existing.customerId, subtotal, dto.items);
     const finalDiscountVal = (Number(dto.discount ?? '0') + couponResult.discount).toFixed(2);
 
-    const totals = this.computeTotals(pricedItems, finalDiscountVal, dto.tax, dto.shipping, dto.handling, dto.finalAmount);
+    // Resolve platform fee
+    const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
+    const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
+    const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
+
+    const totals = this.computeTotals(
+      pricedItems,
+      finalDiscountVal,
+      dto.tax,
+      dto.shipping,
+      dto.handling,
+      platformFee.toFixed(2),
+      '0.00',
+      dto.finalAmount,
+    );
 
     return this.dataSource.transaction(async (manager) => {
       await this.paymentRequestsRepository.updateById(
@@ -505,6 +543,8 @@ export class PaymentRequestsService {
           tax: totals.tax,
           shipping: totals.shipping,
           handling: totals.handling,
+          platformFee: totals.platformFee,
+          codCharge: totals.codCharge,
           totalAmount: totals.totalAmount,
           notes: dto.notes ?? existing.notes,
           paymentLink: null,
@@ -751,6 +791,8 @@ export class PaymentRequestsService {
         paymentMethod: fresh.paymentProvider as OrderPaymentMethod,
         createdBy: updatedBy,
         ...couponDetails,
+        platformFee: fresh.platformFee,
+        codCharge: fresh.codCharge,
         items: fresh.items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
@@ -1010,6 +1052,8 @@ export class PaymentRequestsService {
     tax?: string,
     shipping?: string,
     handling?: string,
+    platformFee?: string,
+    codCharge?: string,
     finalAmount?: string,
   ) {
     const subtotalNum = items.reduce((sum, item) => sum + Number(item.total), 0);
@@ -1017,7 +1061,9 @@ export class PaymentRequestsService {
     const taxNum = Number(tax ?? '0');
     const shippingNum = Number(shipping ?? '0');
     const handlingNum = Number(handling ?? '0');
-    const computed = subtotalNum - discountNum + taxNum + shippingNum + handlingNum;
+    const platformFeeNum = Number(platformFee ?? '0');
+    const codChargeNum = Number(codCharge ?? '0');
+    const computed = subtotalNum - discountNum + taxNum + shippingNum + handlingNum + platformFeeNum + codChargeNum;
     const totalAmountNum = finalAmount ? Number(finalAmount) : computed;
 
     if (totalAmountNum <= 0) throw new BadRequestException('Amount must be greater than zero');
@@ -1027,6 +1073,8 @@ export class PaymentRequestsService {
       tax: taxNum.toFixed(2),
       shipping: shippingNum.toFixed(2),
       handling: handlingNum.toFixed(2),
+      platformFee: platformFeeNum.toFixed(2),
+      codCharge: codChargeNum.toFixed(2),
       totalAmount: totalAmountNum.toFixed(2),
     };
   }
@@ -1035,11 +1083,21 @@ export class PaymentRequestsService {
     const pricedItems = await this.resolveAndValidateItems(dto.items);
     const subtotal = pricedItems.reduce((sum, item) => sum + parseFloat(item.total), 0);
     const result = await this.resolveCoupon(dto.couponCode, dto.customerId, subtotal, dto.items);
+    
+    // Resolve platform fee
+    const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
+    const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
+    const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
+
+    const finalAmount = Math.max(0, subtotal - result.discount + platformFee);
+
     return {
       couponCode: result.code,
       discountAmount: result.discount.toFixed(2),
       subtotal: subtotal.toFixed(2),
-      finalAmount: Math.max(0, subtotal - result.discount).toFixed(2),
+      platformFee: platformFee.toFixed(2),
+      finalAmount: finalAmount.toFixed(2),
     };
   }
 

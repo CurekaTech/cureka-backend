@@ -1,27 +1,83 @@
 import { Injectable } from '@nestjs/common';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
-import { IHomepageBannersBundle } from '@modules/master/interfaces/banner.interface';
+import { IHomepageBannersBundle, IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
-import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
+import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
+import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { IPublicBestSellersSection } from '../interfaces/public-best-sellers.interface';
+import {
+  IPublicBrandBannersSection,
+  IPublicHeroBannerSection,
+} from '../interfaces/public-banner-section.interface';
+import { IPublicBrandCard } from '../interfaces/public-brand.interface';
+import { IPublicHealthConcernCard } from '../interfaces/public-health-concern.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
-import { IHomepageExpertCuratedBundle } from '../interfaces/homepage-section.interface';
+import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
+import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+
+/** Max products returned per Best Sellers category tab in the homepage section. */
+const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
+
+/** Max category tabs shown in the homepage Best Sellers section (latest first). */
+const BEST_SELLERS_MAX_CATEGORIES = 10;
+
+/**
+ * Tag slug that marks a product as a best seller. Only root categories containing at
+ * least one published product with this tag appear in the Best Sellers section.
+ */
+const BEST_SELLERS_TAG_SLUG = 'bestsellers';
+
+/** Max wellness goals shown in the homepage "Shop by Wellness Goals" section. */
+const SHOP_BY_WELLNESS_GOALS_LIMIT = 10;
+
+/** Max brands shown in the homepage "Brands We Trust" section. */
+const BRANDS_WE_TRUST_LIMIT = 10;
+
+/** Max health concerns shown in the homepage "Expert-Curated Wellness Bundles" section. */
+const EXPERT_CURATED_BUNDLES_LIMIT = 10;
 
 @Injectable()
 export class HomepageService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly productsRepository: ProductsRepository,
+    private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly healthConcernsRepository: HealthConcernsRepository,
+    private readonly brandsRepository: BrandsRepository,
     private readonly bannersService: BannersService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
   getHomepageBanners(): Promise<IHomepageBannersBundle> {
     return this.bannersService.getHomepageBanners();
+  }
+
+  /**
+   * Hero Banner section — HERO_PRIMARY + HERO_SECONDARY banners.
+   * Returns storage references; signed URLs are added after the sections cache read.
+   */
+  async getHeroBannerSection(): Promise<IPublicHeroBannerSection> {
+    const { hero } = await this.bannersService.getHomepageBannerReferences();
+    return { primary: hero.primary, secondary: hero.secondary };
+  }
+
+  /** Festival Banners section — MAIN_PROMO placement. */
+  async getFestivalBanners(): Promise<IStorefrontBannerItem[]> {
+    const { mainPromo } = await this.bannersService.getHomepageBannerReferences();
+    return mainPromo;
+  }
+
+  /** Brand Banners section — BRAND_WISE placement, split into left/right slots. */
+  async getBrandBanners(): Promise<IPublicBrandBannersSection> {
+    const { brandWise } = await this.bannersService.getHomepageBannerReferences();
+    return { left: brandWise.left, right: brandWise.right };
   }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
@@ -46,7 +102,92 @@ export class HomepageService {
     });
   }
 
-  async getExpertCuratedBundles(): Promise<IHomepageExpertCuratedBundle[]> {
+  /** Used by cache refresh after category mutations. */
+  async loadShopByCategoryTreeUncached(): Promise<IPublicCategoryTree[]> {
+    const categories = await this.categoriesRepository.findActiveCategories();
+    return this.buildShopByCategoryTree(categories);
+  }
+
+  async getBestSellers(): Promise<IPublicBestSellersSection> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.bestSellers(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadBestSellersUncached(),
+    });
+  }
+
+  /** Used by cache refresh after product/category mutations. */
+  async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
+    // Load published products carrying the bestsellers tag, then group by root category.
+    // This matches GET /homepage/best-sellers and avoids dropping products when the
+    // root category is inactive or soft-deleted.
+    const { data } = await this.productsRepository.findPublishedPaginated({
+      page: 1,
+      limit: BEST_SELLERS_MAX_CATEGORIES * BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+      sortBy: 'publishedAt',
+      sortOrder: 'DESC',
+      tagSlug: BEST_SELLERS_TAG_SLUG,
+    });
+
+    const grouped = new Map<
+      string,
+      { refId: string; name: string; slug: string; products: typeof data }
+    >();
+
+    for (const product of data) {
+      const category = product.category;
+      if (!category) continue;
+
+      let tab = grouped.get(category.id);
+      if (!tab) {
+        if (grouped.size >= BEST_SELLERS_MAX_CATEGORIES) continue;
+        tab = {
+          refId: category.refId,
+          name: category.name,
+          slug: category.slug,
+          products: [],
+        };
+        grouped.set(category.id, tab);
+      }
+
+      if (tab.products.length < BEST_SELLERS_PRODUCTS_PER_CATEGORY) {
+        tab.products.push(product);
+      }
+    }
+
+    const tabs = [...grouped.values()].map((category, position) => ({
+      index: position + 1,
+      refId: category.refId,
+      name: category.name,
+      slug: category.slug,
+      products: mapProductEntitiesToPublicCards(category.products),
+    }));
+
+    return { categories: tabs };
+  }
+
+  async getShopByWellnessGoals(): Promise<IPublicWellnessGoalCard[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.shopByWellnessGoals(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadShopByWellnessGoalsUncached(),
+    });
+  }
+
+  /** Used by cache refresh after wellness goal mutations. */
+  async loadShopByWellnessGoalsUncached(): Promise<IPublicWellnessGoalCard[]> {
+    const goals = await this.wellnessGoalsRepository.findHomePageGoals(
+      SHOP_BY_WELLNESS_GOALS_LIMIT,
+    );
+
+    return goals.map((goal) => ({
+      refId: goal.refId,
+      name: goal.name,
+      image: this.storageUrlEnricher.persist(goal.image),
+    }));
+  }
+
+  async getExpertCuratedBundles(): Promise<IPublicHealthConcernCard[]> {
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.expertCuratedBundles(),
       module: CacheModuleName.HOMEPAGE,
@@ -54,26 +195,39 @@ export class HomepageService {
     });
   }
 
-  /** Used by cache refresh after health concern mutations. */
-  async loadExpertCuratedBundlesUncached(): Promise<IHomepageExpertCuratedBundle[]> {
-    const concerns = await this.healthConcernsRepository.findActiveHomePageConcerns();
-
-    return Promise.all(
-      concerns.map(async (concern) => ({
-        refId: concern.refId,
-        name: concern.name,
-        slug: concern.slug,
-        description: concern.description ?? '',
-        icon: await this.storageUrlEnricher.toReference(concern.icon),
-      })),
+  /** Used by cache refresh after health concern mutations. Banner is intentionally omitted. */
+  async loadExpertCuratedBundlesUncached(): Promise<IPublicHealthConcernCard[]> {
+    const concerns = await this.healthConcernsRepository.findHomePageConcerns(
+      EXPERT_CURATED_BUNDLES_LIMIT,
     );
+
+    return concerns.map((concern) => ({
+      refId: concern.refId,
+      name: concern.name,
+      slug: concern.slug,
+      description: concern.description,
+      icon: this.storageUrlEnricher.persist(concern.icon),
+    }));
   }
 
-  /** Used by cache refresh after category mutations. */
-  async loadShopByCategoryTreeUncached(): Promise<IPublicCategoryTree[]> {
-    const categories = await this.categoriesRepository.findActiveCategories();
-    const tree = this.buildShopByCategoryTree(categories);
-    return this.enrichCategoryTree(tree);
+  async getBrandsWeTrust(): Promise<IPublicBrandCard[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.brandsWeTrust(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadBrandsWeTrustUncached(),
+    });
+  }
+
+  /** Used by cache refresh after brand mutations. */
+  async loadBrandsWeTrustUncached(): Promise<IPublicBrandCard[]> {
+    const brands = await this.brandsRepository.findHomePageBrands(BRANDS_WE_TRUST_LIMIT);
+
+    return brands.map((brand) => ({
+      refId: brand.refId,
+      name: brand.name,
+      slug: brand.slug,
+      logo: this.storageUrlEnricher.persist(brand.logo),
+    }));
   }
 
   private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicHeaderCategory[] {
@@ -126,24 +280,5 @@ export class HomepageService {
           category.isInShopBy && category.hierarchyLevel === CategoryHierarchyLevel.ROOT,
       ),
     ).map(buildNode);
-  }
-
-  private async enrichCategoryTree(tree: IPublicCategoryTree[]): Promise<IPublicCategoryTree[]> {
-    return Promise.all(tree.map((node) => this.enrichCategoryNode(node)));
-  }
-
-  private async enrichCategoryNode(node: IPublicCategoryTree): Promise<IPublicCategoryTree> {
-    const [image, banner, children] = await Promise.all([
-      this.storageUrlEnricher.toReference(node.image),
-      this.storageUrlEnricher.toReference(node.banner),
-      Promise.all((node.children ?? []).map((child) => this.enrichCategoryNode(child))),
-    ]);
-
-    return {
-      ...node,
-      image,
-      banner,
-      children,
-    };
   }
 }

@@ -49,6 +49,7 @@ export interface PublicProductListOptions {
   healthConcernId?: string;
   wellnessGoalId?: string;
   variantSlug?: string;
+  tagSlug?: string;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
@@ -237,6 +238,80 @@ export class ProductsRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  /**
+   * Counts, per tag slug, how many distinct (non-deleted) products in a category
+   * already carry that tag. Used to cap the number of products sharing a tag within
+   * a category (e.g. max N "bestSeller" products under "Skin Care").
+   */
+  async countProductsPerTagSlugInCategory(
+    categoryId: string,
+    tagSlugs: string[],
+    excludeProductId: string | null,
+    manager?: EntityManager,
+  ): Promise<Map<string, number>> {
+    if (!categoryId || !tagSlugs.length) return new Map();
+
+    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
+    const qb = repository
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .select('tag.slug', 'slug')
+      .addSelect('COUNT(DISTINCT product.id)', 'count')
+      .where('product.categoryId = :categoryId', { categoryId })
+      .andWhere('tag.slug IN (:...tagSlugs)', { tagSlugs })
+      .groupBy('tag.slug');
+
+    if (excludeProductId) {
+      qb.andWhere('product.id != :excludeProductId', { excludeProductId });
+    }
+
+    const rows = await qb.getRawMany<{ slug: string; count: string }>();
+    return new Map(rows.map((row) => [row.slug, parseInt(row.count, 10)]));
+  }
+
+  /**
+   * Returns the root categories that contain at least one published product carrying
+   * the given tag (e.g. "bestsellers"), newest best-seller first. The category itself
+   * does NOT need to be a shop-by category. Used to drive the homepage Best Sellers tabs.
+   */
+  async findRootCategoriesWithTag(
+    tagSlug: string,
+    limit: number,
+  ): Promise<Array<{ id: string; refId: string; name: string; slug: string }>> {
+    if (!tagSlug || limit <= 0) return [];
+
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .innerJoin('categories', 'category', 'category.id = product.category_id')
+      .select('category.id', 'id')
+      .addSelect('category.ref_id', 'refId')
+      .addSelect('category.name', 'name')
+      .addSelect('category.slug', 'slug')
+      .addSelect('MAX(product.published_at)', 'latest')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.deleted_at IS NULL')
+      .andWhere('tag.slug = :tagSlug', { tagSlug })
+      .andWhere('category.deleted_at IS NULL')
+      .andWhere('category.status = :categoryStatus', { categoryStatus: 'active' })
+      .groupBy('category.id')
+      .addGroupBy('category.ref_id')
+      .addGroupBy('category.name')
+      .addGroupBy('category.slug')
+      .orderBy('MAX(product.published_at)', 'DESC')
+      .limit(limit)
+      .getRawMany<{ id: string; refId: string; name: string; slug: string }>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      refId: row.refId,
+      name: row.name,
+      slug: row.slug,
+    }));
   }
 
   async findIdsByRefIds(
@@ -663,6 +738,16 @@ export class ProductsRepository {
         { variantSlug: options.variantSlug },
       );
     }
+    if (options.tagSlug) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_tag_mappings ptm
+          INNER JOIN product_tags tag ON tag.id = ptm.tag_id
+          WHERE ptm.product_id = product.id AND tag.slug = :tagSlug
+        )`,
+        { tagSlug: options.tagSlug },
+      );
+    }
   }
 
   private applyPublicListSort(
@@ -908,6 +993,40 @@ export class ProductsRepository {
       .getRawMany<{ refId: string }>();
 
     return rows.map((row) => row.refId);
+  }
+
+  /**
+   * Distinct category-filter values used by published products within a category listing
+   * scope (matches any hierarchy level on the product).
+   */
+  async findCategoryFilterFacetValues(
+    categoryId: string,
+    categoryFilterIds: string[],
+  ): Promise<Array<{ categoryFilterId: string; value: string }>> {
+    if (!categoryFilterIds.length) {
+      return [];
+    }
+
+    return this.repo.manager.query<Array<{ categoryFilterId: string; value: string }>>(
+      `
+      SELECT DISTINCT
+        pcfm.category_filter_id AS "categoryFilterId",
+        pcfm.value AS value
+      FROM product_category_filter_mappings pcfm
+      INNER JOIN products product ON product.id = pcfm.product_id
+      WHERE product.status = $2
+        AND product.deleted_at IS NULL
+        AND pcfm.category_filter_id = ANY($1::uuid[])
+        AND (
+          product.category_id = $3 OR
+          product.sub_category_id = $3 OR
+          product.sub_sub_category_id = $3 OR
+          product.sub_sub_sub_category_id = $3
+        )
+      ORDER BY pcfm.value ASC
+      `,
+      [categoryFilterIds, ProductStatus.PUBLISHED, categoryId],
+    );
   }
 
   async findPublishedRefIdsByCategoryId(categoryId: string): Promise<string[]> {

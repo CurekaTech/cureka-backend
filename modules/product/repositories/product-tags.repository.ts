@@ -5,6 +5,7 @@ import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 
 @Injectable()
 export class ProductTagsRepository {
@@ -95,5 +96,13 @@ export class ProductTagsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<ProductTagEntity[]> {
+    const qb = this.repo.createQueryBuilder('tag').orderBy('tag.name', 'ASC');
+    if (status) {
+      qb.where('tag.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

@@ -18,6 +18,46 @@ export class StorageUrlEnricher {
     return this.storageService.toFileReferenceResponse(persisted);
   }
 
+  /**
+   * Recursively walks a value and signs every storage reference (`{ key, name }`)
+   * it finds, returning `{ key, name, url }`. Use this to enrich cached payloads
+   * AFTER reading them from Redis, so short-lived signed URLs are never persisted
+   * in a cache that outlives them.
+   */
+  async enrichDeep<T>(value: T): Promise<T> {
+    return (await this.enrichDeepValue(value)) as T;
+  }
+
+  private async enrichDeepValue(value: unknown): Promise<unknown> {
+    if (Array.isArray(value)) {
+      return Promise.all(value.map((item) => this.enrichDeepValue(item)));
+    }
+
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    // Only traverse plain objects; leave Dates, class instances, etc. untouched.
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+
+    if (typeof record['key'] === 'string' && typeof record['name'] === 'string') {
+      return this.toReference(record as unknown as IStorageFileReference);
+    }
+
+    const entries = await Promise.all(
+      Object.entries(record).map(
+        async ([key, item]) => [key, await this.enrichDeepValue(item)] as const,
+      ),
+    );
+
+    return Object.fromEntries(entries);
+  }
+
   /** Normalize upload paths or references before saving to the database. */
   persist(
     value: string | IStorageFileReference | null | undefined,

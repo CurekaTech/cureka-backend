@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Put, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Put, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ResponseMessage } from '@packages/common';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { UpdateSettingValueDto, ToggleSettingStatusDto } from '../dto/admin-setting.dto';
+import { UpdateSettingValueDto, ToggleSettingStatusDto, BulkUpdateSettingsDto } from '../dto/admin-setting.dto';
 import { AdminSettingsService } from '../services/admin-settings.service';
 
 @ApiTags('Admin Settings')
@@ -15,10 +15,23 @@ export class AdminSettingsController {
   constructor(private readonly adminSettingsService: AdminSettingsService) {}
 
   @ApiOperation({ summary: 'Get all admin settings' })
+  @ApiQuery({ name: 'type', required: false, type: String, description: 'Filter settings by type: cart_charges, payment_methods, or logistic_partners' })
   @ResponseMessage('Admin settings retrieved successfully')
   @Get()
-  findAll() {
-    return this.adminSettingsService.findAll();
+  findAll(@Query('type') type?: string) {
+    return this.adminSettingsService.findAll(type);
+  }
+
+  @ApiOperation({ summary: 'Bulk update admin settings by type' })
+  @ApiQuery({ name: 'type', required: true, type: String, description: 'Type: cart_charges, payment_methods, or logistic_partners' })
+  @ResponseMessage('Admin settings updated successfully')
+  @Put()
+  bulkUpdate(
+    @Query('type') type: string,
+    @Body() dto: BulkUpdateSettingsDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.adminSettingsService.bulkUpdate(type, dto, user.email);
   }
 
   @ApiOperation({ summary: 'Update admin setting value' })

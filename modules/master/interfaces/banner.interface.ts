@@ -2,7 +2,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { BannerPlacement } from '../enums/banner-placement.enum';
 import { BannerSlot } from '../enums/banner-slot.enum';
 import { BannerResourceType } from '../enums/banner-resource-type.enum';
-import { IStorageFileReferenceResponse } from '@packages/storage';
+import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IBanner {
   id: string;
@@ -28,7 +28,8 @@ export interface IBanner {
 export interface IStorefrontBannerItem {
   refId: string;
   title: string;
-  imageUrl: IStorageFileReferenceResponse;
+  slot: BannerSlot;
+  imageUrl: IStorageFileReference | IStorageFileReferenceResponse;
   ctaHref: string | null;
 }
 

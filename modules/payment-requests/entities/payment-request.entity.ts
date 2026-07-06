@@ -34,6 +34,12 @@ export class PaymentRequestEntity extends BaseEntity {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   handling!: string;
 
+  @Column({ name: 'platform_fee', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  platformFee!: string;
+
+  @Column({ name: 'cod_charge', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  codCharge!: string;
+
   @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2 })
   totalAmount!: string;
 

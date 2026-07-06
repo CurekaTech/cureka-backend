@@ -15,7 +15,6 @@ export class HomeSectionsRepository {
   async findAllSorted(): Promise<HomeSectionEntity[]> {
     return this.repo
       .createQueryBuilder('section')
-      .where('section.type != :heroType', { heroType: HomeSectionType.HERO_BANNER })
       .orderBy('section.sectionIndex', 'ASC')
       .addOrderBy('section.createdAt', 'ASC')
       .getMany();
@@ -25,7 +24,6 @@ export class HomeSectionsRepository {
     return this.repo
       .createQueryBuilder('section')
       .where('section.status = :status', { status: MasterStatus.ACTIVE })
-      .andWhere('section.type != :heroType', { heroType: HomeSectionType.HERO_BANNER })
       .orderBy('section.sectionIndex', 'ASC')
       .addOrderBy('section.createdAt', 'ASC')
       .getMany();
@@ -41,10 +39,6 @@ export class HomeSectionsRepository {
 
   async existsByType(type: HomeSectionType): Promise<boolean> {
     return (await this.repo.count({ where: { type } })) > 0;
-  }
-
-  async softDeleteHeroBanners(): Promise<void> {
-    await this.repo.softDelete({ type: HomeSectionType.HERO_BANNER });
   }
 
   async removeDuplicateTypes(): Promise<void> {

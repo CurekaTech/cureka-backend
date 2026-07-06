@@ -18,6 +18,8 @@ export class ProductCacheListener {
         CacheKeys.publicProducts.listPattern(),
         CacheKeys.publicProducts.variantSearchPattern(),
         CacheKeys.publicProducts.detailPattern(),
+        CacheKeys.homepage.bestSellersPattern(),
+        CacheKeys.homepage.sectionsPattern(),
       ],
       keys: [CacheKeys.products.detail(event.refId)],
     });

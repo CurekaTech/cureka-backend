@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ManufacturerEntity } from '../entities/manufacturer.entity';
 import { CategoryEntity } from '../entities/category.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
@@ -111,5 +112,15 @@ export class ManufacturersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<ManufacturerEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('manufacturer')
+      .orderBy('manufacturer.name', 'ASC');
+    if (status) {
+      qb.where('manufacturer.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

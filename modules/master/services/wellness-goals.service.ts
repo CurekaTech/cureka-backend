@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
+import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { WellnessGoalsRepository } from '../repositories/wellness-goals.repository';
 import {
   CreateWellnessGoalDto,
@@ -24,6 +25,7 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { HOMEPAGE_FLAG_LIMIT } from '../constants/homepage-flag-limit.constant';
 
 const WELLNESS_GOAL_MEDIA_FIELDS = ['image'] as const;
 
@@ -38,6 +40,7 @@ export class WellnessGoalsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly cacheStrategy: CacheStrategyService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IWellnessGoal> {
@@ -69,8 +72,11 @@ export class WellnessGoalsService {
     image: string | null,
     createdBy: string,
   ): Promise<IWellnessGoal> {
+    await this.assertInHomePageWithinLimit(dto.inHomePage ?? false);
+
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
+      description: dto.description ?? null,
       image: this.storageUrlEnricher.persist(image),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
@@ -80,6 +86,7 @@ export class WellnessGoalsService {
       createdBy,
     });
 
+    await this.invalidateHomePageCache();
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(entity));
   }
 
@@ -114,8 +121,13 @@ export class WellnessGoalsService {
       throw new NotFoundException(`Wellness goal with refId ${refId} not found`);
     }
 
+    if (dto.inHomePage !== undefined) {
+      await this.assertInHomePageWithinLimit(dto.inHomePage, existing.id);
+    }
+
     const payload: Partial<WellnessGoalEntity> = { updatedBy };
     if (dto.name !== undefined) payload.name = dto.name;
+    if (dto.description !== undefined) payload.description = dto.description;
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.inHomePage !== undefined) payload.inHomePage = dto.inHomePage;
     if (image !== undefined) payload.image = this.storageUrlEnricher.persist(image);
@@ -125,6 +137,7 @@ export class WellnessGoalsService {
       throw new NotFoundException(`Wellness goal with refId ${refId} not found after update`);
     }
 
+    await this.invalidateHomePageCache();
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(updated));
   }
 
@@ -147,6 +160,7 @@ export class WellnessGoalsService {
       throw new NotFoundException(`Wellness goal with refId ${refId} not found after status update`);
     }
 
+    await this.invalidateHomePageCache();
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(updated));
   }
 
@@ -157,6 +171,31 @@ export class WellnessGoalsService {
     }
     await this.deletionGuard.assertWellnessGoalDeletable(existing.id, existing.name);
     await this.wellnessGoalsRepository.softDeleteByRefId(refId);
+    await this.invalidateHomePageCache();
+  }
+
+  /** Enforces that at most {@link HOMEPAGE_FLAG_LIMIT} wellness goals are shown on the homepage. */
+  private async assertInHomePageWithinLimit(
+    enabling: boolean,
+    excludeId?: string,
+  ): Promise<void> {
+    if (!enabling) return;
+
+    const count = await this.wellnessGoalsRepository.countInHomePage(excludeId);
+    if (count + 1 > HOMEPAGE_FLAG_LIMIT) {
+      throw new BadRequestException(
+        `A maximum of ${HOMEPAGE_FLAG_LIMIT} wellness goals can be shown on the homepage`,
+      );
+    }
+  }
+
+  private async invalidateHomePageCache(): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.homepage.shopByWellnessGoalsPattern(),
+        CacheKeys.homepage.sectionsPattern(),
+      ],
+    });
   }
 
   private enrichWellnessGoal(wellnessGoal: IWellnessGoal): Promise<IWellnessGoal> {

@@ -26,6 +26,9 @@ const EMPTY_CART: CartResponse = {
   discountAmount: 0,
   shippingAmount: 0,
   handlingAmount: 0,
+  platformFee: 0,
+  codCharge: 0,
+  prepaidDiscount: 0,
   grandTotal: 0,
 };
 

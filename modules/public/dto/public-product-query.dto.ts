@@ -73,4 +73,9 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsString()
   @MaxLength(500)
   variantSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  tagSlug?: string;
 }

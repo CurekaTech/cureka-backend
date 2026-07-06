@@ -4,6 +4,8 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { IProductInformationItem } from '@modules/product/interfaces/product-information.interface';
 import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
+import { PaginatedResult } from '@packages/common';
+import { IPublicCategoryProductListingContext } from './public-category.interface';
 
 /** Cached/stored shape — logo is enriched to include a signed url on API responses. */
 export interface IPublicPartySummary {
@@ -93,7 +95,7 @@ export interface IPublicProductCard {
   brandName: string | null;
   productNatureRefId: string | null;
   productNatureName: string | null;
-  primaryImageUrl: IStorageFileReferenceResponse | null;
+  primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
@@ -209,4 +211,9 @@ export interface IPublicProductDetail {
     childProductSlug: string;
     quantity: number;
   }>;
+}
+
+export interface IPublicProductListResponse extends PaginatedResult<IPublicProductCard> {
+  /** Present when the listing is filtered by categorySlug or categoryRefId. */
+  category?: IPublicCategoryProductListingContext | null;
 }

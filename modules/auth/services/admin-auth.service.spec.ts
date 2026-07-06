@@ -47,7 +47,7 @@ describe('AdminAuthService - Menu Filtering', () => {
       expect(keys).toContain('cms');
       expect(keys).toContain('role-management');
       expect(keys).toContain('audit-logs');
-      expect(keys).toContain('system-settings');
+      expect(keys).toContain('settings');
     });
 
     it('should filter menu items strictly based on user permissions', async () => {
@@ -75,7 +75,7 @@ describe('AdminAuthService - Menu Filtering', () => {
       expect(keys).toContain('dashboard'); // Dashboard has no requiredPermissions, always visible
       expect(keys).toContain('orders'); // accessible via orders.read
       expect(keys).toContain('role-management'); // accessible via roles.read
-      expect(keys).toContain('system-settings'); // accessible via settings.read
+      expect(keys).toContain('settings'); // accessible via settings.read
 
       expect(keys).not.toContain('masters');
       expect(keys).not.toContain('products');
