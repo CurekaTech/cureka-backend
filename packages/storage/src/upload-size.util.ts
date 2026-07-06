@@ -14,14 +14,19 @@ export class UploadSizeLimitExceededError extends Error {
   }
 }
 
-export const isVideoMimeType = (mimetype: string): boolean =>
-  (ALLOWED_VIDEO_MIME_TYPES as readonly string[]).includes(mimetype);
+export const isLargePayloadMimeType = (mimetype: string): boolean =>
+  (ALLOWED_VIDEO_MIME_TYPES as readonly string[]).includes(mimetype) ||
+  [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'application/pdf',
+  ].includes(mimetype);
 
 export const resolveMaxFileSizeForMime = (
   mimetype: string,
   limits?: { maxImageFileSize?: number; maxVideoFileSize?: number },
 ): number =>
-  isVideoMimeType(mimetype)
+  isLargePayloadMimeType(mimetype)
     ? (limits?.maxVideoFileSize ?? DEFAULT_MAX_VIDEO_FILE_SIZE)
     : (limits?.maxImageFileSize ?? DEFAULT_MAX_IMAGE_FILE_SIZE);
 

@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Readable } from 'stream';
 import {
   IStorageProvider,
   IUploadFileInput,
@@ -197,6 +198,14 @@ export class StorageService {
       throw new BadRequestException('Invalid file path');
     }
     await this.provider.delete(key);
+  }
+
+  async createReadStream(relativePath: string): Promise<Readable> {
+    const key = normalizeStorageKey(relativePath);
+    if (!key || key.includes('..')) {
+      throw new BadRequestException('Invalid file path');
+    }
+    return this.provider.createReadStream(key);
   }
 
   private assertAllowedMimeType(mimetype: string): void {
