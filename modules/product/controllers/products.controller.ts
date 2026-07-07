@@ -100,7 +100,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Update product metadata and mappings',
     description:
-      'JSON or multipart/form-data. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
+      'JSON or multipart/form-data. Product type may be changed between simple (single) and variable (variant); when converting variable → simple, send exactly one variant (without attributes) to keep. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product updated successfully')
