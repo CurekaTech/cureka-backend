@@ -70,6 +70,14 @@ export class ShipwayService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
+    const requestLog = {
+      path,
+      method: init.method ?? 'GET',
+      body: init.body ? JSON.parse(String(init.body)) : undefined,
+      url: `${this.baseUrl}${path}`,
+    };
+    this.logger.log(requestLog, 'Shipway API request');
+
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
@@ -85,6 +93,14 @@ export class ShipwayService {
       const text = await response.text();
       type ShipwayApiBody<U> = U & { message?: string; success?: boolean };
       const data: ShipwayApiBody<T> = text ? JSON.parse(text) : {};
+
+      const responseLog = {
+        path,
+        status: response.status,
+        ok: response.ok,
+        body: data,
+      };
+      this.logger.log(responseLog, 'Shipway API response');
 
       if (!response.ok) {
         const message = data.message ?? `Shipway request failed with HTTP ${response.status}`;

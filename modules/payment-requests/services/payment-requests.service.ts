@@ -736,6 +736,10 @@ export class PaymentRequestsService {
       return;
     }
 
+    this.logger.log(
+      `Marking payment request ${existing.refId} as PAID via ${updatedBy}. providerPaymentId=${providerPaymentId ?? 'N/A'}`,
+    );
+
     const runInTransaction = async (txManager: EntityManager) => {
       const fresh = await this.paymentRequestsRepository.findById(existing.id, txManager);
       if (!fresh || fresh.status === PaymentRequestStatus.PAID) {

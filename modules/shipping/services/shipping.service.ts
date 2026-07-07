@@ -34,6 +34,8 @@ export class ShippingService {
       throw new NotFoundException(`Order ${orderId} not found`);
     }
 
+    this.logger.log(`Shipway push requested for order ${order.orderNumber} (${order.id})`);
+
     if (!this.isReadyForShipway(order)) {
       this.logger.log(`Skipping Shipway push for order ${order.orderNumber}; order is not ready`);
       return null;
@@ -41,12 +43,20 @@ export class ShippingService {
 
     const existing = await this.shipmentsRepository.findByOrderId(order.id);
     if (existing?.pushedAt) {
+      this.logger.log(`Existing shipment already pushed for order ${order.orderNumber}; skipping duplicate push`);
       return existing;
     }
 
     const payload = this.buildPushOrderPayload(order);
+    this.logger.log({ orderId: order.id, orderNumber: order.orderNumber, payload }, 'Built Shipway push payload');
+
     const response = await this.shipwayService.pushOrder(payload);
+    this.logger.log({ orderId: order.id, orderNumber: order.orderNumber, response }, 'Received Shipway push response');
+
     if (!response.success) {
+      this.logger.warn(
+        `Shipway rejected order push for order ${order.orderNumber}: ${response.message ?? 'no message'}`,
+      );
       throw new BadRequestException(response.message || 'Shipway rejected order push');
     }
 
