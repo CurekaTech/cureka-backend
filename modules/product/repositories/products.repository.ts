@@ -1074,6 +1074,59 @@ export class ProductsRepository {
       .filter((product): product is ProductEntity => Boolean(product?.variants.length));
   }
 
+  /** Lightweight published products for wishlist/list cards (no PDP relations). */
+  async findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+
+    const products = await this.repo.find({
+      where: { id: In(ids), status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        brand: true,
+      },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    await this.attachPublicListRelations(products);
+
+    for (const product of products) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+      );
+    }
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    return ids
+      .map((id) => productById.get(id))
+      .filter((product): product is ProductEntity => Boolean(product?.variants.length));
+  }
+
+  async existsPublishedById(id: string): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('product')
+      .where('product.id = :id', { id })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .getCount();
+
+    return count > 0;
+  }
+
   async findPublishedRefIdsByBrandId(brandId: string): Promise<string[]> {
     const rows = await this.repo
       .createQueryBuilder('product')

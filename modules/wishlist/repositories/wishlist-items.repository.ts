@@ -36,8 +36,9 @@ export class WishlistItemsRepository {
     });
   }
 
-  findProductIdsByUserId(userId: string): Promise<string[]> {
-    return this.repo
+  findProductIdsByUserId(userId: string, manager?: EntityManager): Promise<string[]> {
+    const repository = manager ? manager.getRepository(WishlistItemEntity) : this.repo;
+    return repository
       .createQueryBuilder('item')
       .select('item.product_id', 'productId')
       .where('item.user_id = :userId', { userId })
