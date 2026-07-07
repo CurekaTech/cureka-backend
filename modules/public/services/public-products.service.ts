@@ -67,6 +67,7 @@ export class PublicProductsService {
     const queryHash = buildQueryCacheHash({
       categoryId: filters.categoryId,
       brandId: filters.brandId,
+      brandIds: filters.brandIds,
       productNatureId: filters.productNatureId,
       healthConcernId: filters.healthConcernId,
       wellnessGoalId: filters.wellnessGoalId,
@@ -106,6 +107,7 @@ export class PublicProductsService {
           productType: query.productType,
           categoryId: filters.categoryId,
           brandId: filters.brandId,
+          brandIds: filters.brandIds,
           productNatureId: filters.productNatureId,
           healthConcernId: filters.healthConcernId,
           wellnessGoalId: filters.wellnessGoalId,
@@ -160,6 +162,7 @@ export class PublicProductsService {
     const queryHash = buildQueryCacheHash({
       categoryId: filters.categoryId,
       brandId: filters.brandId,
+      brandIds: filters.brandIds,
       productNatureId: filters.productNatureId,
       healthConcernId: filters.healthConcernId,
       wellnessGoalId: filters.wellnessGoalId,
@@ -198,6 +201,7 @@ export class PublicProductsService {
           productType: query.productType,
           categoryId: filters.categoryId,
           brandId: filters.brandId,
+          brandIds: filters.brandIds,
           productNatureId: filters.productNatureId,
           healthConcernId: filters.healthConcernId,
           wellnessGoalId: filters.wellnessGoalId,
@@ -325,20 +329,64 @@ export class PublicProductsService {
     return '(unrecognized)';
   }
 
+  private async resolveBrandFilters(
+    query: PublicProductQueryDto,
+  ): Promise<{ brandId?: string; brandIds?: string[] }> {
+    if (query.brandRefId) {
+      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
+      if (!brand) {
+        throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
+      }
+      return { brandId: brand.id };
+    }
+
+    if (!query.brandSlug?.trim()) {
+      return {};
+    }
+
+    const slugs = [
+      ...new Set(
+        query.brandSlug
+          .split(',')
+          .map((slug) => slug.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (slugs.length === 0) {
+      return {};
+    }
+
+    if (slugs.length === 1) {
+      const brand = await this.brandsRepository.findBySlug(slugs[0]);
+      if (!brand) {
+        throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
+      }
+      return { brandId: brand.id };
+    }
+
+    const brands = await this.brandsRepository.findBySlugs(slugs);
+    const foundSlugs = new Set(brands.map((brand) => brand.slug));
+    const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
+    if (missingSlugs.length > 0) {
+      throw new NotFoundException(
+        `Brand with slug "${missingSlugs.join('", "')}" not found`,
+      );
+    }
+
+    return { brandIds: brands.map((brand) => brand.id) };
+  }
+
   private async resolveListFilters(query: PublicProductQueryDto) {
     const queryBindings = parseCategoryFilterQueryBindings(query);
-    const [category, brand, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
+    const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
         query.categoryRefId
           ? this.categoriesRepository.findByRefId(query.categoryRefId)
           : query.categorySlug
             ? this.categoriesRepository.findBySlug(query.categorySlug)
             : Promise.resolve(null),
-        query.brandRefId
-          ? this.brandsRepository.findByRefId(query.brandRefId)
-          : query.brandSlug
-            ? this.brandsRepository.findBySlug(query.brandSlug)
-            : Promise.resolve(null),
+        this.resolveBrandFilters(query),
         query.productNatureRefId
           ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
           : Promise.resolve(null),
@@ -363,14 +411,6 @@ export class PublicProductsService {
       );
     }
 
-    if ((query.brandRefId || query.brandSlug) && !brand) {
-      throw new NotFoundException(
-        query.brandRefId
-          ? `Brand with refId "${query.brandRefId}" not found`
-          : `Brand with slug "${query.brandSlug}" not found`,
-      );
-    }
-
     if ((query.healthConcernRefId || query.healthConcernSlug) && !healthConcern) {
       throw new NotFoundException(
         query.healthConcernRefId
@@ -381,7 +421,8 @@ export class PublicProductsService {
 
     return {
       categoryId: category?.id,
-      brandId: brand?.id,
+      brandId: brandFilters.brandId,
+      brandIds: brandFilters.brandIds,
       productNatureId: nature?.id,
       healthConcernId: healthConcern?.id,
       wellnessGoalId: wellnessGoal?.id,

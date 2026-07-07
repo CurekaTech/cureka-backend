@@ -38,6 +38,16 @@ export class BrandsRepository {
       .getOne();
   }
 
+  async findBySlugs(slugs: string[]): Promise<BrandEntity[]> {
+    if (!slugs.length) return [];
+
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug IN (:...slugs)', { slugs })
+      .andWhere('brand.deletedAt IS NULL')
+      .getMany();
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
