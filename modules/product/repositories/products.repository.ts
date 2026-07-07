@@ -400,7 +400,7 @@ export class ProductsRepository {
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
     }
-    if (options.status) {
+    if (options.status != null) {
       qb.andWhere('product.status = :status', { status: options.status });
     }
     if (options.categoryId) {

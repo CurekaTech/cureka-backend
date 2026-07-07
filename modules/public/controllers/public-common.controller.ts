@@ -18,7 +18,7 @@ export class PublicCommonController {
   @ApiOperation({
     summary: 'Get active brands or categories (paginated)',
     description:
-      'Pass `type=brand` or `type=category` with optional page, limit, search, sortBy, and sortOrder.',
+      'Pass `type=brand` or `type=category` with optional page, limit, search, sortBy, and sortOrder. For categories, pass `slug` to load that category with its active direct children.',
   })
   @ResponseMessage('Active masters retrieved successfully')
   @Get('masters')

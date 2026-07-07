@@ -275,6 +275,8 @@ export class ProductsService {
     const filters = await this.resolveListFilters(query);
     const queryHash = buildQueryCacheHash({
       ...filters,
+      productType: query.productType,
+      status: query.status,
       variantSlug: query.variantSlug,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,

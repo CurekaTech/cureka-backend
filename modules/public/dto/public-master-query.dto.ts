@@ -47,4 +47,9 @@ export class PublicMasterQueryDto {
   @IsOptional()
   @IsRefId()
   parentCategoryRefId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  slug?: string;
 }

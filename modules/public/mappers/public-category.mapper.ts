@@ -51,3 +51,30 @@ export const mapCategoryEntityToPublicListItem = (
 export const mapCategoryEntitiesToPublicListItems = (
   entities: CategoryEntity[],
 ): IPublicCategoryListItem[] => entities.map(mapCategoryEntityToPublicListItem);
+
+export const buildPublicCategoryListTree = (
+  root: CategoryEntity,
+  descendants: CategoryEntity[],
+): IPublicCategoryListItem => {
+  const childrenByParentId = new Map<string, CategoryEntity[]>();
+
+  for (const category of descendants) {
+    if (!category.parentCategoryId) continue;
+    const siblings = childrenByParentId.get(category.parentCategoryId) ?? [];
+    siblings.push(category);
+    childrenByParentId.set(category.parentCategoryId, siblings);
+  }
+
+  const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
+    [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
+
+  const buildNode = (entity: CategoryEntity): IPublicCategoryListItem => {
+    const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map(buildNode);
+    return {
+      ...mapCategoryEntityToPublicListItem(entity),
+      ...(children.length > 0 ? { children } : {}),
+    };
+  };
+
+  return buildNode(root);
+};
