@@ -12,8 +12,17 @@ export class AddHeroBannerHomeSection1780846400000 implements MigrationInterface
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       UPDATE "home_sections"
-      SET "deleted_at" = NULL, "status" = 'active'
-      WHERE "type" = 'heroBanner' AND "deleted_at" IS NOT NULL
+      SET "deleted_at" = NULL, "status" = 'active', "section_index" = 0
+      WHERE "id" = (
+        SELECT "id" FROM "home_sections"
+        WHERE "type" = 'heroBanner' AND "deleted_at" IS NOT NULL
+        ORDER BY "created_at" ASC
+        LIMIT 1
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM "home_sections"
+        WHERE "type" = 'heroBanner' AND "deleted_at" IS NULL
+      )
     `);
 
     await queryRunner.query(`

@@ -31,6 +31,7 @@ export interface ProductListOptions {
   status?: ProductStatus;
   categoryId?: string;
   brandId?: string;
+  brandIds?: string[];
   productNatureId?: string;
   variantSlug?: string;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
@@ -45,6 +46,7 @@ export interface PublicProductListOptions {
   productType?: string;
   categoryId?: string;
   brandId?: string;
+  brandIds?: string[];
   productNatureId?: string;
   healthConcernId?: string;
   wellnessGoalId?: string;
@@ -404,7 +406,9 @@ export class ProductsRepository {
     if (options.categoryId) {
       qb.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
     }
-    if (options.brandId) {
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -598,7 +602,9 @@ export class ProductsRepository {
         { categoryId: options.categoryId },
       );
     }
-    if (options.brandId) {
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -720,7 +726,9 @@ export class ProductsRepository {
         { categoryId: options.categoryId },
       );
     }
-    if (options.brandId) {
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -1023,6 +1031,46 @@ export class ProductsRepository {
     const productByRefId = new Map(products.map((product) => [product.refId, product]));
     return refIds
       .map((refId) => productByRefId.get(refId))
+      .filter((product): product is ProductEntity => Boolean(product?.variants.length));
+  }
+
+  async findPublishedById(id: string): Promise<ProductEntity | null> {
+    const products = await this.findPublishedByIds([id]);
+    return products[0] ?? null;
+  }
+
+  async findPublishedByIds(ids: string[]): Promise<ProductEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+
+    const products = await this.repo.find({
+      where: { id: In(ids), status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+      },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    await this.attachDetailRelations(products, this.repo.manager);
+
+    for (const product of products) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+      );
+    }
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    return ids
+      .map((id) => productById.get(id))
       .filter((product): product is ProductEntity => Boolean(product?.variants.length));
   }
 

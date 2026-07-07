@@ -49,7 +49,7 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(300)
+  @MaxLength(1000)
   brandSlug?: string;
 
   @IsOptional()
