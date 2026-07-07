@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { WellnessGoalsRepository } from '../repositories/wellness-goals.repository';
@@ -72,6 +72,10 @@ export class WellnessGoalsService {
     image: string | null,
     createdBy: string,
   ): Promise<IWellnessGoal> {
+    if (await this.wellnessGoalsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A wellness goal with name "${dto.name}" already exists`);
+    }
+
     await this.assertInHomePageWithinLimit(dto.inHomePage ?? false);
 
     const entity = await this.wellnessGoalsRepository.create({
@@ -123,6 +127,12 @@ export class WellnessGoalsService {
 
     if (dto.inHomePage !== undefined) {
       await this.assertInHomePageWithinLimit(dto.inHomePage, existing.id);
+    }
+
+    if (dto.name !== undefined && dto.name !== existing.name) {
+      if (await this.wellnessGoalsRepository.existsByName(dto.name, refId)) {
+        throw new ConflictException(`A wellness goal with name "${dto.name}" already exists`);
+      }
     }
 
     const payload: Partial<WellnessGoalEntity> = { updatedBy };

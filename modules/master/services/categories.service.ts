@@ -127,6 +127,10 @@ export class CategoriesService {
       this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, dto.isInShopBy ?? false),
     ]);
 
+    if (await this.categoriesRepository.existsByNameAmongSiblings(dto.name, parentCategoryId)) {
+      throw new ConflictException(`A category with name "${dto.name}" already exists at this level`);
+    }
+
     const maxSiblingPosition =
       await this.categoriesRepository.getMaxPositionAmongSiblings(parentCategoryId);
     const position = dto.position ?? maxSiblingPosition + 1;
@@ -292,6 +296,24 @@ export class CategoriesService {
       this.assertCategoryFlagWithinLimit('isInHeader', hierarchyLevel, effectiveIsInHeader, existing.id),
       this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, effectiveIsInShopBy, existing.id),
     ]);
+
+    const nameToCheck = dto.name ?? existing.name;
+    if (
+      (dto.name !== undefined && dto.name !== existing.name) ||
+      dto.parentCategoryRefId !== undefined
+    ) {
+      if (
+        await this.categoriesRepository.existsByNameAmongSiblings(
+          nameToCheck,
+          parentCategoryId,
+          refId,
+        )
+      ) {
+        throw new ConflictException(
+          `A category with name "${nameToCheck}" already exists at this level`,
+        );
+      }
+    }
 
     const updatePayload: Partial<CategoryEntity> = {
       hierarchyLevel,

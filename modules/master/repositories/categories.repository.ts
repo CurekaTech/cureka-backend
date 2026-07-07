@@ -64,6 +64,61 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  async findActiveBySlug(slug: string): Promise<CategoryEntity | null> {
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .where('category.slug = :slug', { slug })
+      .andWhere('category.status = :status', { status: MasterStatus.ACTIVE })
+      .getOne();
+  }
+
+  async findActiveChildren(parentId: string): Promise<CategoryEntity[]> {
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .where('category.parentCategoryId = :parentId', { parentId })
+      .andWhere('category.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
+  async findActiveDescendantsOf(parentId: string): Promise<CategoryEntity[]> {
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      WITH RECURSIVE descendants AS (
+        SELECT id
+        FROM categories
+        WHERE parent_category_id = $1
+          AND deleted_at IS NULL
+          AND status = 'active'
+        UNION ALL
+        SELECT c.id
+        FROM categories c
+        INNER JOIN descendants d ON c.parent_category_id = d.id
+        WHERE c.deleted_at IS NULL
+          AND status = 'active'
+      )
+      SELECT id FROM descendants
+      `,
+      [parentId],
+    );
+
+    const ids = rows.map((row) => row.id);
+    if (!ids.length) {
+      return [];
+    }
+
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .whereInIds(ids)
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
   /** Walks up the hierarchy and returns the root ancestor for any category id. */
   async findRootAncestor(categoryId: string): Promise<CategoryEntity | null> {
     const rows = await this.repo.manager.query<Array<{ id: string }>>(
@@ -95,6 +150,29 @@ export class CategoriesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async existsByNameAmongSiblings(
+    name: string,
+    parentCategoryId: string | null,
+    excludeRefId?: string,
+  ): Promise<boolean> {
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .where('LOWER(TRIM(category.name)) = LOWER(TRIM(:name))', { name })
+      .andWhere('category.deletedAt IS NULL');
+
+    if (parentCategoryId === null) {
+      qb.andWhere('category.parentCategoryId IS NULL');
+    } else {
+      qb.andWhere('category.parentCategoryId = :parentCategoryId', { parentCategoryId });
+    }
+
+    if (excludeRefId) {
+      qb.andWhere('category.refId != :excludeRefId', { excludeRefId });
+    }
+
+    return (await qb.getCount()) > 0;
   }
 
   /** Counts root categories that have the given homepage flag enabled (optionally excluding one). */
