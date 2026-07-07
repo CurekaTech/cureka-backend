@@ -191,16 +191,7 @@ export class BulkUploadValidatorService {
         });
       }
 
-      if (!group.productNature) {
-        groupErrors.push({
-          rowNumber: group.rowNumber,
-          sku: 'PARENT',
-          column: 'Product Nature',
-          invalidValue: '',
-          reason: 'Product nature is mandatory.',
-          suggestedFix: 'Enter a valid product nature (e.g. Capsule, Tablet).',
-        });
-      } else {
+      if (group.productNature) {
         const refId = this.natureMap.get(group.productNature.toLowerCase().trim());
         if (!refId) {
           groupErrors.push({

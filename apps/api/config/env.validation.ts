@@ -90,6 +90,13 @@ export const envValidationSchema = Joi.object({
   SHIPWAY_CARRIER_ID: Joi.number().integer().positive().optional(),
   SHIPWAY_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   SHIPWAY_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
+  SHIPROCKET_EMAIL: Joi.string().allow('').optional(),
+  SHIPROCKET_LICENSE_KEY: Joi.string().allow('').optional(),
+  SHIPROCKET_BASE_URL: Joi.string().uri().optional(),
+  SHIPROCKET_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).optional(),
+  SHIPROCKET_CHECKOUT_SESSION_PATH: Joi.string().optional(),
+  SHIPROCKET_CHECKOUT_VERIFY_PATH: Joi.string().optional(),
+  SHIPROCKET_CHECKOUT_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
   STOREFRONT_URL: Joi.string().uri().optional(),
 

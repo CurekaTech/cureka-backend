@@ -12,9 +12,12 @@ import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
+import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartService } from '@modules/orders/services/cart.service';
 import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
+import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
+import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
 import {
   CreatePaymentRequestDto,
   GenerateLinkPrefillDto,
@@ -46,6 +49,7 @@ export class PaymentRequestsService {
     private readonly configService: ConfigService,
     private readonly usersRepository: UsersRepository,
     private readonly usersService: UsersService,
+    private readonly userAddressesService: UserAddressesService,
     private readonly ordersService: OrdersService,
     private readonly checkoutService: CheckoutService,
     private readonly cartService: CartService,
@@ -54,11 +58,17 @@ export class PaymentRequestsService {
     private readonly razorpayService: RazorpayPaymentLinksService,
     private readonly cashfreeService: CashfreePaymentService,
     private readonly gatewayResolver: PaymentGatewayResolverService,
+    private readonly checkoutResolver: CheckoutResolverService,
+    private readonly shiprocketCheckoutProvider: ShiprocketCheckoutProvider,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) { }
 
   async checkoutFromCart(userId: string, addressId: string) {
+    if ((await this.checkoutResolver.resolveProvider()) === 'shiprocket') {
+      return this.createShiprocketCheckoutSession(userId, addressId);
+    }
+
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     if (activeGateway === 'cashfree') {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(userId, addressId);
@@ -135,6 +145,10 @@ export class PaymentRequestsService {
 
   /** Storefront checkout modal — separate from payment-link flow. */
   async checkoutModalFromCart(userId: string, addressId: string) {
+    if ((await this.checkoutResolver.resolveProvider()) === 'shiprocket') {
+      return this.createShiprocketCheckoutSession(userId, addressId);
+    }
+
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     if (activeGateway === 'cashfree') {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(userId, addressId);
@@ -248,6 +262,32 @@ export class PaymentRequestsService {
   }
 
   async verifyModalCheckoutPayment(userId: string, dto: CheckoutVerifyPaymentDto) {
+    if (dto.shiprocket_session_id || dto.shiprocket_order_id) {
+      const sessionId = dto.shiprocket_session_id ?? dto.shiprocket_order_id!;
+      const paymentRequest = await this.paymentRequestsRepository.findByProviderReferenceId(sessionId);
+      if (!paymentRequest || paymentRequest.customerId !== userId) {
+        throw new NotFoundException('Checkout payment request not found');
+      }
+
+      const verification = await this.shiprocketCheckoutProvider.verifyPayment(sessionId);
+      if (!verification.paid) {
+        throw new BadRequestException('Shiprocket Checkout payment verification failed or order is not paid yet');
+      }
+
+      await this.handlePaymentLinkPaid(
+        sessionId,
+        dto.shiprocket_payment_id ?? verification.paymentId,
+        'shiprocket-checkout',
+      );
+      await this.cartService.clear(userId);
+
+      return {
+        paymentRequestId: paymentRequest.id,
+        refId: paymentRequest.refId,
+        totalAmount: paymentRequest.totalAmount,
+      };
+    }
+
     if (dto.cf_order_id) {
       const paymentRequest = await this.resolveCashfreeCheckoutPaymentRequest(
         userId,
@@ -424,6 +464,83 @@ export class PaymentRequestsService {
     });
 
     return { paymentRequest, customer, totals };
+  }
+
+  private async createShiprocketCheckoutSession(userId: string, addressId: string) {
+    const { paymentRequest, customer } = await this.createCheckoutPaymentRequest(userId, addressId);
+    const address = await this.userAddressesService.findOne(userId, addressId);
+    const callbackUrl = this.getStorefrontPaymentCallbackUrl();
+    const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
+    const customerName =
+      [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+      customer.mobileNumber ||
+      'Customer';
+
+    const session = await this.shiprocketCheckoutProvider.createSession({
+      merchantOrderId: paymentRequest.refId,
+      paymentRequestId: paymentRequest.id,
+      amount: Number(paymentRequest.totalAmount),
+      currency: paymentRequest.currency,
+      customer: {
+        id: customer.id,
+        name: customerName,
+        email: customer.email ?? undefined,
+        phone: parsedPhone,
+      },
+      shippingAddress: {
+        name: address.recipientName,
+        phone: address.phoneNumber,
+        line1: address.addressLine1,
+        line2: address.addressLine2,
+        landmark: address.landmark,
+        city: address.city,
+        state: address.state,
+        pincode: address.pincode,
+      },
+      items: paymentRequest.items.map((item) => ({
+        name: item.product?.name ?? 'Product',
+        sku: item.variant?.sku ?? item.refId,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        total: Number(item.total),
+      })),
+      successUrl: callbackUrl
+        ? `${callbackUrl}?checkout_provider=shiprocket&payment_request_ref_id=${paymentRequest.refId}&status=success`
+        : undefined,
+      failureUrl: callbackUrl
+        ? `${callbackUrl}?checkout_provider=shiprocket&payment_request_ref_id=${paymentRequest.refId}&status=failure`
+        : undefined,
+      metadata: {
+        paymentRequestId: paymentRequest.id,
+        paymentRequestRefId: paymentRequest.refId,
+        customerId: userId,
+        underlyingGateway: 'razorpay',
+      },
+    });
+
+    await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+      providerReferenceId: session.sessionId,
+      paymentReference: session.sessionId,
+      paymentLink: session.checkoutUrl,
+      paymentProvider: 'RAZORPAY',
+      status: PaymentRequestStatus.LINK_GENERATED,
+      expiresAt: session.expiresAt ?? null,
+      updatedBy: userId,
+    });
+
+    return {
+      gateway: 'shiprocket',
+      checkoutProvider: 'shiprocket',
+      underlyingGateway: 'razorpay',
+      paymentData: {
+        paymentRequestId: paymentRequest.id,
+        refId: paymentRequest.refId,
+        shiprocketSessionId: session.sessionId,
+        checkoutUrl: session.checkoutUrl,
+        expiresAt: session.expiresAt ?? null,
+        totalAmount: paymentRequest.totalAmount,
+      },
+    };
   }
 
   async create(dto: CreatePaymentRequestDto, createdBy: string): Promise<PaymentRequestEntity> {
@@ -863,6 +980,20 @@ export class PaymentRequestsService {
       return;
     }
     await this.markRequestAsPaid(existing, providerPaymentId, updatedBy);
+  }
+
+  async handleShiprocketCheckoutPaymentSuccess(
+    sessionId: string,
+    providerPaymentId?: string,
+    updatedBy = 'shiprocket-checkout-webhook',
+  ): Promise<void> {
+    const verification = await this.shiprocketCheckoutProvider.verifyPayment(sessionId);
+    if (!verification.paid) {
+      this.logger.warn(`Shiprocket Checkout session ${sessionId} is not paid. status=${verification.status ?? 'N/A'}`);
+      return;
+    }
+
+    await this.handlePaymentLinkPaid(sessionId, providerPaymentId ?? verification.paymentId, updatedBy);
   }
 
   async handlePaymentLinkPaid(
