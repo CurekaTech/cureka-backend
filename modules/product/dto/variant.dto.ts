@@ -196,6 +196,11 @@ export class CreateVariantDto {
   @Min(1)
   expiresIn?: number;
 
+  @ApiPropertyOptional({ example: 'active', enum: ['active', 'inactive', 'archived'] })
+  @IsOptional()
+  @IsString()
+  status?: any;
+
   @ApiPropertyOptional({ type: [VariantAttributeValueDto] })
   @IsOptional()
   @IsArray()
