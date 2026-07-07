@@ -42,11 +42,22 @@ import { ProductTagsService } from './services/product-tags.service';
 import { ProductInformationLabelsRepository } from './repositories/product-information-labels.repository';
 import { ProductInformationLabelsService } from './services/product-information-labels.service';
 import { ProductWizardBootstrapService } from './services/product-wizard-bootstrap.service';
+import { BulkUploadEntity } from './entities/bulk-upload.entity';
+import { BulkUploadsRepository } from './repositories/bulk-uploads.repository';
+import { BulkUploadController } from './controllers/bulk-upload.controller';
+import { BulkUploadService } from './services/bulk-upload.service';
+import { QueueModule } from '@packages/queue';
+import { BulkUploadProcessor } from './processors/bulk-upload.processor';
+import { BulkUploadParserService } from './services/bulk-upload-parser.service';
+import { BulkUploadValidatorService } from './services/bulk-upload-validator.service';
+import { GalleryModule } from '../gallery/gallery.module';
 
 @Module({
   imports: [
     MasterModule,
     UploadsModule,
+    GalleryModule,
+    QueueModule.registerQueue('bulk-upload'),
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,
@@ -62,9 +73,17 @@ import { ProductWizardBootstrapService } from './services/product-wizard-bootstr
       ProductFaqMappingEntity,
       ProductAttributeMappingEntity,
       ProductCategoryFilterMappingEntity,
+      BulkUploadEntity,
     ]),
   ],
-  controllers: [ProductsController, ProductVariantsController, ProductFaqsController, ProductTagsController, ProductInformationLabelsController, ProductWizardController],
+  controllers: [    BulkUploadController,
+    ProductsController,
+    ProductVariantsController,
+    ProductFaqsController,
+    ProductTagsController,
+    ProductInformationLabelsController,
+    ProductWizardController,
+  ],
   providers: [
     ProductsRepository,
     ProductVariantsRepository,
@@ -84,6 +103,11 @@ import { ProductWizardBootstrapService } from './services/product-wizard-bootstr
     BundleProductStrategy,
     ProductStrategyFactory,
     ProductCacheListener,
+    BulkUploadsRepository,
+    BulkUploadService,
+    BulkUploadProcessor,
+    BulkUploadParserService,
+    BulkUploadValidatorService,
   ],
   exports: [
     ProductsService,
@@ -91,6 +115,11 @@ import { ProductWizardBootstrapService } from './services/product-wizard-bootstr
     ProductVariantsRepository,
     ProductMasterResolverService,
     ProductInformationLabelsRepository,
+    BulkUploadsRepository,
+    BulkUploadService,
+    BulkUploadProcessor,
+    BulkUploadParserService,
+    BulkUploadValidatorService,
   ],
 })
 export class ProductModule {}

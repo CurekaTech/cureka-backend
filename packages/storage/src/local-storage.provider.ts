@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createWriteStream } from 'fs';
+import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, stat, unlink } from 'fs/promises';
 import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
+import { Readable } from 'stream';
 import { IUploadFileInput, IUploadFileResult } from './storage.provider.interface';
 import { IStorageProviderWithAccessibleUrl } from './storage-accessible-url.interface';
 import { resolveUploadExtension } from './mime-extension.util';
@@ -47,5 +48,10 @@ export class LocalStorageProvider implements IStorageProviderWithAccessibleUrl {
   async delete(relativePath: string): Promise<void> {
     const absolutePath = join(this.uploadDir, relativePath);
     await unlink(absolutePath);
+  }
+
+  async createReadStream(relativePath: string): Promise<Readable> {
+    const absolutePath = join(this.uploadDir, relativePath);
+    return createReadStream(absolutePath);
   }
 }

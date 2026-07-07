@@ -44,6 +44,11 @@ export class ProductVariantsRepository {
     return (await qb.getCount()) > 0;
   }
 
+  async getAllSkus(): Promise<string[]> {
+    const results = await this.repo.find({ select: ['sku'] });
+    return results.map((r) => r.sku);
+  }
+
   async existsByVendorSku(vendorSku: string, excludeId?: string): Promise<boolean> {
     const qb = this.repo
       .createQueryBuilder('variant')

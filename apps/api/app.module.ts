@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
 import { AppCacheModule } from '@packages/cache';
+import { QueueModule } from '@packages/queue';
 import { AuthModule } from '@modules/auth/auth.module';
 import { AdminUsersModule } from '@modules/admin-users/admin-users.module';
 import { UsersModule } from '@modules/users/users.module';
@@ -23,6 +24,7 @@ import { PaymentRequestsModule } from '@modules/payment-requests/payment-request
 import { SearchModule } from '@modules/search/search.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { WishlistModule } from '@modules/wishlist/wishlist.module';
+import { GalleryModule } from '@modules/gallery/gallery.module';
 
 @Module({
   imports: [
@@ -42,6 +44,9 @@ import { WishlistModule } from '@modules/wishlist/wishlist.module';
 
     // Redis cache (from packages/cache)
     AppCacheModule.forRoot(),
+
+    // Redis queue (from packages/queue)
+    QueueModule.forRoot(),
 
     // Domain events (from packages/events)
     EventsModule,
@@ -67,6 +72,7 @@ import { WishlistModule } from '@modules/wishlist/wishlist.module';
     SearchModule,
     AdminSettingsModule,
     WishlistModule,
+    GalleryModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

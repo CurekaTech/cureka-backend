@@ -5,6 +5,7 @@ import { existsSync } from 'fs';
 import { isAbsolute, join } from 'path';
 import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
+import { Readable } from 'stream';
 import { IUploadFileInput, IUploadFileResult } from './storage.provider.interface';
 import { IStorageProviderWithAccessibleUrl } from './storage-accessible-url.interface';
 import { resolveUploadExtension } from './mime-extension.util';
@@ -79,6 +80,10 @@ export class GcsStorageProvider implements IStorageProviderWithAccessibleUrl {
       .bucket(this.bucketName)
       .file(relativePath)
       .delete({ ignoreNotFound: true });
+  }
+
+  async createReadStream(relativePath: string): Promise<Readable> {
+    return this.storage.bucket(this.bucketName).file(relativePath).createReadStream();
   }
 
   private resolveCredentialsPath(pathValue: string): string {
