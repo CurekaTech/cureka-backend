@@ -1,8 +1,9 @@
 import { IStorageFileReferenceResponse } from '@packages/storage';
-import { ShipmentResponse } from '@modules/shipping/mappers/shipment.mapper';
+import { mapShipmentToResponse, ShipmentResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
+import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { resolvePrimaryProductImageRef } from '../utils/resolve-primary-product-image.util';
 
 export type OrderItemResponse = {
@@ -30,7 +31,6 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> & {
   /** Number of distinct line items in the order. */
   lineItemCount: number;
   items: OrderItemResponse[];
-  /** Shipway shipment record when the order has been pushed to Shipway. */
   shipment: ShipmentResponse | null;
 };
 
@@ -61,9 +61,8 @@ async function mapOrderItemToResponse(
 }
 
 export async function mapOrderToResponse(
-  order: OrderEntity,
+  order: OrderEntity & { shipment?: ShipmentEntity | null },
   enricher: StorageUrlEnricher,
-  shipment: ShipmentResponse | null = null,
 ): Promise<OrderResponse> {
   const items = await Promise.all(
     (order.items ?? []).map((item) => mapOrderItemToResponse(item, enricher)),
@@ -72,7 +71,8 @@ export async function mapOrderToResponse(
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const lineItemCount = items.length;
 
-  const { user: _user, items: _items, ...orderFields } = order;
+  const { user: _user, items: _items, shipment: shipmentEntity, ...orderFields } = order;
+  const shipment = shipmentEntity ? mapShipmentToResponse(shipmentEntity) : null;
 
   return {
     ...orderFields,

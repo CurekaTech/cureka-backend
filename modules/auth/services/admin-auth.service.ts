@@ -337,6 +337,34 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['product_informations.read'],
       },
       {
+        name: 'Media Gallery',
+        key: 'media-gallery',
+        icon: 'Photo',
+        subItems: [
+          {
+            name: 'Upload Images',
+            key: 'media-gallery-upload',
+            icon: 'Upload',
+            href: '/gallery/upload',
+            requiredPermissions: ['gallery.create'],
+          },
+          {
+            name: 'Gallery List',
+            key: 'media-gallery-list',
+            icon: 'Photo',
+            href: '/gallery/list',
+            requiredPermissions: ['gallery.read'],
+          },
+          {
+            name: 'Delete Images',
+            key: 'media-gallery-delete',
+            icon: 'Trash',
+            href: '/gallery/delete',
+            requiredPermissions: ['gallery.delete'],
+          },
+        ],
+      },
+      {
         name: 'Bulk Upload',
         key: 'products-bulk-upload',
         icon: 'Download',
