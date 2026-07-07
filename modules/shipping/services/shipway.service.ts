@@ -1,5 +1,6 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHmac, timingSafeEqual } from 'crypto';
 import {
   IShipwayCancelPayload,
   IShipwayCancelResponse,
@@ -9,6 +10,7 @@ import {
   IShipwayPushOrderPayload,
   IShipwayPushOrderResponse,
   IShipwayTrackingResponse,
+  IShipwayWebhookEvent,
 } from '../interfaces/shipway-api.interface';
 
 @Injectable()
@@ -18,12 +20,14 @@ export class ShipwayService {
   private readonly licenseKey: string;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly webhookSecret: string;
 
   constructor(private readonly configService: ConfigService) {
     this.email = this.configService.get<string>('shipway.email') ?? '';
     this.licenseKey = this.configService.get<string>('shipway.licenseKey') ?? '';
     this.baseUrl = (this.configService.get<string>('shipway.baseUrl') ?? 'https://app.shipway.com').replace(/\/+$/, '');
     this.timeoutMs = this.configService.get<number>('shipway.timeoutMs') ?? 15000;
+    this.webhookSecret = this.configService.get<string>('shipway.webhookSecret') ?? '';
   }
 
   pushOrder(payload: IShipwayPushOrderPayload): Promise<IShipwayPushOrderResponse> {
@@ -99,6 +103,30 @@ export class ShipwayService {
       throw new ServiceUnavailableException('Shipway API is unavailable');
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  verifyWebhookSignature(rawBody: string, signature?: string): void {
+    if (!this.webhookSecret) {
+      return;
+    }
+
+    if (!signature) {
+      throw new BadRequestException('Missing Shipway webhook signature');
+    }
+
+    const expectedDigest = createHmac('sha256', this.webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    const signatureBuffer = Buffer.from(signature, 'utf8');
+    const expectedBuffer = Buffer.from(expectedDigest, 'utf8');
+
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
+      throw new BadRequestException('Invalid Shipway webhook signature');
     }
   }
 

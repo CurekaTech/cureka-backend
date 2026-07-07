@@ -12,6 +12,7 @@ import { ShipmentEventsRepository } from './repositories/shipment-events.reposit
 import { ShipwayService } from './services/shipway.service';
 import { ShippingQueueService } from './services/shipping-queue.service';
 import { ShippingService } from './services/shipping.service';
+import { ShipwayWebhookController } from './controllers/shipway-webhook.controller';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ShippingService } from './services/shipping.service';
     ]),
     QueueModule.registerQueue(QUEUE_NAMES.SHIPPING),
   ],
+  controllers: [ShipwayWebhookController],
   providers: [
     OrdersRepository,
     ShipmentsRepository,
@@ -31,6 +33,6 @@ import { ShippingService } from './services/shipping.service';
     ShippingQueueService,
     ShippingService,
   ],
-  exports: [ShippingQueueService, ShippingService],
+  exports: [ShippingQueueService, ShippingService, ShipmentsRepository],
 })
 export class ShippingModule {}

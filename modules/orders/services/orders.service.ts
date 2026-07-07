@@ -18,6 +18,8 @@ import { mapOrderToResponse } from '../mappers/order.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
+import { ShippingQueueService } from '@modules/shipping/services/shipping-queue.service';
+import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
@@ -33,6 +35,8 @@ export class OrdersService {
     private readonly userAddressesService: UserAddressesService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly couponCheckoutService: CouponCheckoutService,
+    private readonly shippingQueueService: ShippingQueueService,
+    private readonly shipmentsRepository: ShipmentsRepository,
   ) {}
 
   checkout(userId: string, dto: CheckoutDto) {
@@ -213,7 +217,11 @@ export class OrdersService {
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    return mapOrderToResponse(order, this.storageUrlEnricher);
+    const shipment = await this.shipmentsRepository.findByOrderId(id);
+    return mapOrderToResponse(
+      { ...order, shipment },
+      this.storageUrlEnricher,
+    );
   }
 
   async cancel(userId: string, id: string) {
@@ -256,7 +264,7 @@ export class OrdersService {
       totalPrice: string;
     }>;
   }) {
-    return this.dataSource.transaction(async (manager) => {
+    const order = await this.dataSource.transaction(async (manager) => {
       const address = await manager.getRepository(UserAddressEntity).findOne({
         where: { userId: params.customerId, isDefault: true },
         order: { updatedAt: 'DESC' },
@@ -360,6 +368,9 @@ export class OrdersService {
       if (!order) throw new NotFoundException('Order not found after creation');
       return order;
     });
+
+    await this.shippingQueueService.enqueuePushOrder(order.id);
+    return order;
   }
 
   private async generateOrderNumber(): Promise<string> {

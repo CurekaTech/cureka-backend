@@ -1,0 +1,36 @@
+import { BadRequestException, Body, Controller, Headers, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { ApiExcludeController } from '@nestjs/swagger';
+import { FastifyRequest } from 'fastify';
+import { ShipwayService } from '../services/shipway.service';
+import { ShippingService } from '../services/shipping.service';
+import { IShipwayWebhookEvent } from '../interfaces/shipway-api.interface';
+
+@ApiExcludeController()
+@Controller('shipments')
+export class ShipwayWebhookController {
+  constructor(
+    private readonly shipwayService: ShipwayService,
+    private readonly shippingService: ShippingService,
+  ) {}
+
+  @Post('webhook')
+  @HttpCode(HttpStatus.OK)
+  async webhook(
+    @Req() req: FastifyRequest,
+    @Body() payload: Record<string, unknown>,
+    @Headers('x-webhook-signature') webhookSignature?: string,
+    @Headers('x-shipway-signature') shipwaySignature?: string,
+  ) {
+    const rawBody = JSON.stringify(payload);
+    const signature = webhookSignature ?? shipwaySignature;
+    this.shipwayService.verifyWebhookSignature(rawBody, signature);
+
+    const event = payload as IShipwayWebhookEvent;
+    await this.shippingService.handleShipwayWebhook(event);
+
+    return {
+      received: true,
+      requestId: req.id,
+    };
+  }
+}
