@@ -2,16 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { LoggerModule } from 'nestjs-pino';
-import { appConfig, databaseConfig, storageConfig } from '../api/config';
+import { appConfig, databaseConfig, shipwayConfig, storageConfig } from '../api/config';
 import { DatabaseModule } from '@database/database.module';
 import { ProductModule } from '@modules/product/product.module';
 import { QueueModule } from '@packages/queue';
+import { ShippingWorkerModule } from '@modules/shipping/shipping-worker.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, storageConfig],
+      load: [appConfig, databaseConfig, storageConfig, shipwayConfig],
       envFilePath: '.env',
     }),
     LoggerModule.forRoot({
@@ -26,6 +27,7 @@ import { QueueModule } from '@packages/queue';
     DatabaseModule,
     QueueModule.forRoot(),
     ProductModule,
+    ShippingWorkerModule,
   ],
 })
 export class WorkerModule {}

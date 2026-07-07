@@ -38,6 +38,15 @@ export class OrdersRepository {
     });
   }
 
+  findByIdWithItems(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
+      where: { id },
+      relations: { items: true },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
   async findByUserPaginated(options: {
     userId: string;
     status?: OrderStatus;

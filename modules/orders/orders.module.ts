@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
+import { ShippingModule } from '@modules/shipping/shipping.module';
 import { UsersModule } from '@modules/users/users.module';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
@@ -36,6 +37,7 @@ import { OrdersService } from './services/orders.service';
     MasterModule,
     UsersModule,
     UploadsModule,
+    ShippingModule,
   ],
   controllers: [CartController, OrdersController],
   providers: [
