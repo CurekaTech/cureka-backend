@@ -29,14 +29,18 @@ export class ShippingService {
   ) {}
 
   async pushOrderToShipway(orderId: string): Promise<ShipmentEntity | null> {
+    console.log(`ShippingService.pushOrderToShipway start orderId=${orderId}`);
     const order = await this.ordersRepository.findByIdWithItems(orderId);
     if (!order) {
+      console.log(`ShippingService.pushOrderToShipway order not found orderId=${orderId}`);
       throw new NotFoundException(`Order ${orderId} not found`);
     }
 
+    console.log(`ShippingService.pushOrderToShipway order found orderNumber=${order.orderNumber} orderId=${order.id}`);
     this.logger.log(`Shipway push requested for order ${order.orderNumber} (${order.id})`);
 
     if (!this.isReadyForShipway(order)) {
+      console.log(`ShippingService.pushOrderToShipway skipping not ready orderNumber=${order.orderNumber}`);
       this.logger.log(`Skipping Shipway push for order ${order.orderNumber}; order is not ready`);
       return null;
     }
@@ -48,9 +52,12 @@ export class ShippingService {
     }
 
     const payload = this.buildPushOrderPayload(order);
+    console.log(`ShippingService.pushOrderToShipway built payload for orderId=${order.id}`);
     this.logger.log({ orderId: order.id, orderNumber: order.orderNumber, payload }, 'Built Shipway push payload');
 
+    console.log(`ShippingService.pushOrderToShipway calling ShipwayService.pushOrder orderId=${order.id}`);
     const response = await this.shipwayService.pushOrder(payload);
+    console.log(`ShippingService.pushOrderToShipway received response orderId=${order.id} success=${Boolean(response.success)}`);
     this.logger.log({ orderId: order.id, orderNumber: order.orderNumber, response }, 'Received Shipway push response');
 
     if (!response.success) {

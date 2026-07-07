@@ -16,6 +16,7 @@ export class ShippingQueueService {
   ) {}
 
   enqueuePushOrder(orderId: string) {
+    console.log(`ShippingQueueService.enqueuePushOrder orderId=${orderId}`);
     const data: PushOrderToShipwayJobData = { orderId };
     return this.queue.add(SHIPPING_JOB_NAMES.PUSH_ORDER_TO_SHIPWAY, data, {
       jobId: `shipway-push-${orderId}`,

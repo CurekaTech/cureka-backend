@@ -34,6 +34,13 @@ export class PaymentsWebhookController {
     const orderId = orderData?.['order_id'];
     const cfPaymentId = paymentData?.['cf_payment_id'];
 
+    console.log('PaymentsWebhookController.cashfreeWebhook start', {
+      eventType,
+      orderId,
+      cfPaymentId,
+      signature,
+      timestamp,
+    });
     this.logger.log(
       { eventType, orderId, cfPaymentId, payload },
       'Cashfree webhook received',
@@ -45,7 +52,18 @@ export class PaymentsWebhookController {
           orderId,
           cfPaymentId ? String(cfPaymentId) : undefined,
         );
+        console.log('PaymentsWebhookController.cashfreeWebhook handled payment success', {
+          orderId,
+          cfPaymentId,
+        });
+      } else {
+        console.log('PaymentsWebhookController.cashfreeWebhook missing orderId', { payload });
       }
+    } else {
+      console.log('PaymentsWebhookController.cashfreeWebhook skipped event', {
+        eventType,
+        paymentStatus: paymentData?.['payment_status'],
+      });
     }
 
     return { received: true, event: eventType, requestId: req.id };
@@ -78,18 +96,33 @@ export class PaymentsWebhookController {
     const notes = paymentEntity?.entity?.notes;
     const paymentRequestId = notes?.paymentRequestId as string | undefined;
 
+    console.log('PaymentsWebhookController.webhook start', {
+      event,
+      linkId,
+      orderId,
+      paymentRequestId,
+      signature,
+    });
     this.logger.log(
       { event, linkId, orderId, paymentRequestId, payload },
       'Razorpay webhook received',
     );
 
     if (event === 'payment_link.paid' && linkId) {
+      console.log('PaymentsWebhookController.webhook branch payment_link.paid', { linkId });
       await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
     } else if (event === 'payment_link.cancelled' && linkId) {
+      console.log('PaymentsWebhookController.webhook branch payment_link.cancelled', { linkId });
       await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
     } else if (event === 'payment_link.expired' && linkId) {
+      console.log('PaymentsWebhookController.webhook branch payment_link.expired', { linkId });
       await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
     } else if (event === 'payment.captured' || event === 'order.paid') {
+      console.log('PaymentsWebhookController.webhook branch payment captured/order paid', {
+        paymentRequestId,
+        orderId,
+        linkId,
+      });
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
       } else if (orderId) {
@@ -98,13 +131,21 @@ export class PaymentsWebhookController {
         await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
       }
     } else if (event === 'payment.failed') {
+      console.log('PaymentsWebhookController.webhook branch payment.failed', {
+        paymentRequestId,
+        orderId,
+        linkId,
+      });
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentFailed(paymentRequestId, paymentEntity?.entity?.error_description);
       }
     } else if (event === 'payment.pending') {
+      console.log('PaymentsWebhookController.webhook branch payment.pending', { paymentRequestId });
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
       }
+    } else {
+      console.log('PaymentsWebhookController.webhook branch no matching event', { event });
     }
 
     return { received: true, event, requestId: req.id };

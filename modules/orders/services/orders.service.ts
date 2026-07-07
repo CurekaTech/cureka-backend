@@ -371,10 +371,17 @@ export class OrdersService {
         manager,
       );
       if (!order) throw new NotFoundException('Order not found after creation');
+      console.log('OrdersService.createOrderFromPaymentRequest transaction complete', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerId: params.customerId,
+      });
       return order;
     });
 
-    await this.shippingQueueService.enqueuePushOrder(order.id);
+    console.log(`OrdersService.createOrderFromPaymentRequest enqueuePushOrder orderId=${order.id}`);
+    const pushJob = await this.shippingQueueService.enqueuePushOrder(order.id);
+    console.log(`OrdersService.createOrderFromPaymentRequest queued Shipway job id=${pushJob.id} name=${pushJob.name}`);
     return order;
   }
 
