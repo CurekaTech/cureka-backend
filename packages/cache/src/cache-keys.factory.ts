@@ -85,4 +85,10 @@ export const CacheKeys = {
     tokenPattern: () => 'session:context:token:*',
     idPattern: () => 'session:context:id:*',
   },
+  wishlist: {
+    ids: (userId: string) => `wishlist:ids:${userId}`,
+    page: (userId: string, page: number, limit: number) =>
+      `wishlist:page:${userId}:${page}:${limit}`,
+    pagePattern: (userId: string) => `wishlist:page:${userId}:*`,
+  },
 } as const;

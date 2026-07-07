@@ -841,4 +841,21 @@ export class ProductsService {
   ): Promise<void> {
     await this.eventEmitter.emitAsync(EVENTS.PRODUCT_UPDATED, new ProductUpdatedEvent(refId, action));
   }
+
+  /** Published storefront products for cross-module consumers (wishlist, etc.). */
+  findPublishedById(id: string): Promise<ProductEntity | null> {
+    return this.productsRepository.findPublishedById(id);
+  }
+
+  findPublishedByIds(ids: string[]): Promise<ProductEntity[]> {
+    return this.productsRepository.findPublishedByIds(ids);
+  }
+
+  findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
+    return this.productsRepository.findPublishedListByIds(ids);
+  }
+
+  existsPublishedById(id: string): Promise<boolean> {
+    return this.productsRepository.existsPublishedById(id);
+  }
 }
