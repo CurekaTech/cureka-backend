@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PackerEntity } from '../entities/packer.entity';
+import { MasterStatus } from '../enums/master-status.enum';
+import { CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
@@ -91,5 +97,30 @@ export class PackersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<PackerEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'packer',
+      sortableColumns: {
+        createdAt: 'packer.createdAt',
+        name: 'packer.name',
+        code: 'packer.code',
+        status: 'packer.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: '(packer.name ILIKE :search OR packer.code ILIKE :search)',
+    });
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<PackerEntity[]> {
+    const qb = this.repo.createQueryBuilder('packer').orderBy('packer.name', 'ASC');
+    if (status) {
+      qb.where('packer.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

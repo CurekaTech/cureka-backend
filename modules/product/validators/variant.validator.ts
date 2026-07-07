@@ -48,7 +48,7 @@ export const validateUniqueVariantCombinations = (
 
   if (duplicates.length) {
     throw new BadRequestException(
-      `Duplicate variant attribute combinations detected for this product`,
+      `Duplicate variant attribute combinations detected for this product (${duplicates.join(', ')})`,
     );
   }
 };

@@ -28,6 +28,7 @@ const EMPTY_CART: CartResponse = {
   handlingAmount: 0,
   platformFee: 0,
   codCharge: 0,
+  prepaidDiscount: 0,
   grandTotal: 0,
 };
 
@@ -298,8 +299,7 @@ export class CartService {
         const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
 
         const isAvailable =
-          variant !== undefined &&
-          variant.status === VariantStatus.ACTIVE &&
+          variant?.status === VariantStatus.ACTIVE &&
           product?.status === ProductStatus.PUBLISHED;
 
         return {
@@ -354,24 +354,65 @@ export class CartService {
   }
 
   private formatVariantLabel(variant?: ProductVariantEntity): string | null {
-    const attributeValues = variant?.attributeValues ?? [];
-    if (!attributeValues.length) {
+    if (!variant) {
       return null;
     }
 
-    const parts = attributeValues
-      .map((item) => {
-        const value = item.value?.trim();
-        if (!value) {
-          return null;
-        }
+    const parts: string[] = [];
 
-        const name = item.attribute?.name?.trim();
-        return name ? `${name}: ${value}` : value;
-      })
-      .filter((part): part is string => Boolean(part));
+    for (const item of variant.attributeValues ?? []) {
+      const value = item.value?.trim();
+      if (!value) {
+        continue;
+      }
+
+      const name = item.attribute?.name?.trim();
+      parts.push(name ? `${name}: ${value}` : value);
+    }
+
+    const weightLabel = this.formatVariantWeight(variant);
+    if (weightLabel && !this.hasDetailPart(parts, 'weight')) {
+      parts.push(`Weight: ${weightLabel}`);
+    }
+
+    const dimensionsLabel = this.formatVariantDimensions(variant);
+    if (dimensionsLabel && !this.hasDetailPart(parts, 'dimension')) {
+      parts.push(`Dimensions: ${dimensionsLabel}`);
+    }
 
     return parts.length ? parts.join(' · ') : null;
+  }
+
+  private formatVariantWeight(variant: ProductVariantEntity): string | null {
+    const weight = variant.weight?.toString().trim();
+    if (!weight) {
+      return null;
+    }
+
+    const unit = variant.weightUnit?.trim();
+    return unit ? `${weight} ${unit}` : weight;
+  }
+
+  private formatVariantDimensions(variant: ProductVariantEntity): string | null {
+    const values = [variant.length, variant.width, variant.height];
+    if (values.every((value) => value == null || `${value}`.trim() === '')) {
+      return null;
+    }
+
+    const unit =
+      variant.lengthUnit?.trim() ??
+      variant.widthUnit?.trim() ??
+      variant.heightUnit?.trim() ??
+      '';
+    const dimensions = values
+      .map((value) => (value == null || `${value}`.trim() === '' ? '-' : `${value}`.trim()))
+      .join(' x ');
+
+    return unit ? `${dimensions} ${unit}` : dimensions;
+  }
+
+  private hasDetailPart(parts: string[], keyword: 'weight' | 'dimension'): boolean {
+    return parts.some((part) => part.toLowerCase().includes(keyword));
   }
 
   private resolvePrimaryImageRef(

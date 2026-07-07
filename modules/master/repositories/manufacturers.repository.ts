@@ -3,6 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ManufacturerEntity } from '../entities/manufacturer.entity';
 import { CategoryEntity } from '../entities/category.entity';
+import { MasterStatus } from '../enums/master-status.enum';
+import { CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
@@ -111,5 +117,32 @@ export class ManufacturersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<ManufacturerEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'manufacturer',
+      sortableColumns: {
+        createdAt: 'manufacturer.createdAt',
+        name: 'manufacturer.name',
+        code: 'manufacturer.code',
+        status: 'manufacturer.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: '(manufacturer.name ILIKE :search OR manufacturer.code ILIKE :search)',
+    });
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<ManufacturerEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('manufacturer')
+      .orderBy('manufacturer.name', 'ASC');
+    if (status) {
+      qb.where('manufacturer.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

@@ -36,7 +36,7 @@ import { ProductMasterResolverService } from './product-master-resolver.service'
 import { ProductStrategyFactory } from '../strategies/product-strategies';
 import { mapProductEntitiesToResponse, mapProductEntityToDetailResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
 import { IProductDetail } from '../interfaces/product-detail.interface';
-import { generateProductSlug, assertProductUrlSlugLength } from '../utils/product-slug.util';
+import { generateProductSlug, assertProductUrlSlugLength, generateTagSlug } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
@@ -47,6 +47,9 @@ import { ProductNaturesRepository } from '@modules/master/repositories/product-n
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
+
+/** Max products in a single category that may share the same tag (e.g. "bestSeller"). */
+const MAX_PRODUCTS_PER_CATEGORY_TAG = 10;
 
 @Injectable()
 export class ProductsService {
@@ -128,6 +131,8 @@ export class ProductsService {
         validateVariantAttributeScope(variant.attributes ?? [], allowed);
       }
     }
+
+    await this.assertTagUsageWithinCategoryLimit(masters.categoryId, dto.tagNames ?? [], null);
 
     const refId = await generateUniqueRefId(dto.name, (candidate) =>
       this.productsRepository.existsByRefId(candidate),
@@ -220,6 +225,43 @@ export class ProductsService {
     await this.emitProductUpdated(product.refId, 'created');
 
     return this.enrichProduct(mapProductEntityToResponse(loaded));
+  }
+
+  /**
+   * Enforces that a category does not exceed {@link MAX_PRODUCTS_PER_CATEGORY_TAG}
+   * products sharing the same tag. Runs before tags are persisted.
+   */
+  private async assertTagUsageWithinCategoryLimit(
+    categoryId: string | null | undefined,
+    tagNames: string[],
+    excludeProductId: string | null,
+  ): Promise<void> {
+    if (!categoryId || !tagNames.length) return;
+
+    const normalizedNames = [
+      ...new Set(tagNames.map((name) => name.trim()).filter((name) => name.length > 0)),
+    ];
+    if (!normalizedNames.length) return;
+
+    const slugByName = new Map(normalizedNames.map((name) => [name, generateTagSlug(name)]));
+    const uniqueSlugs = [...new Set(slugByName.values())];
+
+    const counts = await this.productsRepository.countProductsPerTagSlugInCategory(
+      categoryId,
+      uniqueSlugs,
+      excludeProductId,
+    );
+
+    const exceeded = normalizedNames.filter((name) => {
+      const existing = counts.get(slugByName.get(name)!) ?? 0;
+      return existing + 1 > MAX_PRODUCTS_PER_CATEGORY_TAG;
+    });
+
+    if (exceeded.length) {
+      throw new BadRequestException(
+        `This category already has the maximum of ${MAX_PRODUCTS_PER_CATEGORY_TAG} products for tag(s): ${exceeded.join(', ')}`,
+      );
+    }
   }
 
   private logProductCreateFailure(source: 'json' | 'multipart', error: unknown): void {
@@ -420,6 +462,14 @@ export class ProductsService {
       dto.categoryFilters !== undefined
         ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
         : null;
+
+    if (dto.tagNames) {
+      await this.assertTagUsageWithinCategoryLimit(
+        masters?.categoryId ?? existing.categoryId,
+        dto.tagNames,
+        existing.id,
+      );
+    }
 
     await this.dataSource.transaction(async (manager) => {
       await this.productsRepository.updateByRefId(refId, payload, manager);
@@ -790,5 +840,22 @@ export class ProductsService {
     action: 'created' | 'updated' | 'deleted' | 'status_updated',
   ): Promise<void> {
     await this.eventEmitter.emitAsync(EVENTS.PRODUCT_UPDATED, new ProductUpdatedEvent(refId, action));
+  }
+
+  /** Published storefront products for cross-module consumers (wishlist, etc.). */
+  findPublishedById(id: string): Promise<ProductEntity | null> {
+    return this.productsRepository.findPublishedById(id);
+  }
+
+  findPublishedByIds(ids: string[]): Promise<ProductEntity[]> {
+    return this.productsRepository.findPublishedByIds(ids);
+  }
+
+  findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
+    return this.productsRepository.findPublishedListByIds(ids);
+  }
+
+  existsPublishedById(id: string): Promise<boolean> {
+    return this.productsRepository.existsPublishedById(id);
   }
 }

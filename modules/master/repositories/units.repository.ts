@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationOptions } from '@packages/common';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 import { UnitEntity } from '../entities/unit.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
 export class UnitsRepository {
@@ -62,5 +67,29 @@ export class UnitsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<UnitEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'unit',
+      sortableColumns: {
+        createdAt: 'unit.createdAt',
+        name: 'unit.name',
+        status: 'unit.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: 'unit.name ILIKE :search',
+    });
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<UnitEntity[]> {
+    const qb = this.repo.createQueryBuilder('unit').orderBy('unit.name', 'ASC');
+    if (status) {
+      qb.where('unit.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

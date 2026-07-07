@@ -31,6 +31,7 @@ export interface ProductListOptions {
   status?: ProductStatus;
   categoryId?: string;
   brandId?: string;
+  brandIds?: string[];
   productNatureId?: string;
   variantSlug?: string;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
@@ -45,11 +46,15 @@ export interface PublicProductListOptions {
   productType?: string;
   categoryId?: string;
   brandId?: string;
+  brandIds?: string[];
   productNatureId?: string;
   healthConcernId?: string;
   wellnessGoalId?: string;
   variantSlug?: string;
+  tagSlug?: string;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
+  minPrice?: number;
+  maxPrice?: number;
 }
 
 @Injectable()
@@ -239,6 +244,80 @@ export class ProductsRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
+  /**
+   * Counts, per tag slug, how many distinct (non-deleted) products in a category
+   * already carry that tag. Used to cap the number of products sharing a tag within
+   * a category (e.g. max N "bestSeller" products under "Skin Care").
+   */
+  async countProductsPerTagSlugInCategory(
+    categoryId: string,
+    tagSlugs: string[],
+    excludeProductId: string | null,
+    manager?: EntityManager,
+  ): Promise<Map<string, number>> {
+    if (!categoryId || !tagSlugs.length) return new Map();
+
+    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
+    const qb = repository
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .select('tag.slug', 'slug')
+      .addSelect('COUNT(DISTINCT product.id)', 'count')
+      .where('product.categoryId = :categoryId', { categoryId })
+      .andWhere('tag.slug IN (:...tagSlugs)', { tagSlugs })
+      .groupBy('tag.slug');
+
+    if (excludeProductId) {
+      qb.andWhere('product.id != :excludeProductId', { excludeProductId });
+    }
+
+    const rows = await qb.getRawMany<{ slug: string; count: string }>();
+    return new Map(rows.map((row) => [row.slug, parseInt(row.count, 10)]));
+  }
+
+  /**
+   * Returns the root categories that contain at least one published product carrying
+   * the given tag (e.g. "bestsellers"), newest best-seller first. The category itself
+   * does NOT need to be a shop-by category. Used to drive the homepage Best Sellers tabs.
+   */
+  async findRootCategoriesWithTag(
+    tagSlug: string,
+    limit: number,
+  ): Promise<Array<{ id: string; refId: string; name: string; slug: string }>> {
+    if (!tagSlug || limit <= 0) return [];
+
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .innerJoin('categories', 'category', 'category.id = product.category_id')
+      .select('category.id', 'id')
+      .addSelect('category.ref_id', 'refId')
+      .addSelect('category.name', 'name')
+      .addSelect('category.slug', 'slug')
+      .addSelect('MAX(product.published_at)', 'latest')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.deleted_at IS NULL')
+      .andWhere('tag.slug = :tagSlug', { tagSlug })
+      .andWhere('category.deleted_at IS NULL')
+      .andWhere('category.status = :categoryStatus', { categoryStatus: 'active' })
+      .groupBy('category.id')
+      .addGroupBy('category.ref_id')
+      .addGroupBy('category.name')
+      .addGroupBy('category.slug')
+      .orderBy('MAX(product.published_at)', 'DESC')
+      .limit(limit)
+      .getRawMany<{ id: string; refId: string; name: string; slug: string }>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      refId: row.refId,
+      name: row.name,
+      slug: row.slug,
+    }));
+  }
+
   async findIdsByRefIds(
     refIds: string[],
     manager?: EntityManager,
@@ -327,7 +406,9 @@ export class ProductsRepository {
     if (options.categoryId) {
       qb.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
     }
-    if (options.brandId) {
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -521,7 +602,9 @@ export class ProductsRepository {
         { categoryId: options.categoryId },
       );
     }
-    if (options.brandId) {
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -549,6 +632,23 @@ export class ProductsRepository {
     }
     if (options.variantSlug) {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
+    }
+    this.applyPublicVariantPriceRangeFilter(qb, options);
+  }
+
+  private applyPublicVariantPriceRangeFilter(
+    qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
+    options: PublicProductListOptions,
+  ): void {
+    if (options.minPrice !== undefined) {
+      qb.andWhere('variant.sellingPrice >= :minPrice', {
+        minPrice: options.minPrice,
+      });
+    }
+    if (options.maxPrice !== undefined) {
+      qb.andWhere('variant.sellingPrice <= :maxPrice', {
+        maxPrice: options.maxPrice,
+      });
     }
   }
 
@@ -626,7 +726,9 @@ export class ProductsRepository {
         { categoryId: options.categoryId },
       );
     }
-    if (options.brandId) {
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -663,6 +765,48 @@ export class ProductsRepository {
         { variantSlug: options.variantSlug },
       );
     }
+    if (options.tagSlug) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_tag_mappings ptm
+          INNER JOIN product_tags tag ON tag.id = ptm.tag_id
+          WHERE ptm.product_id = product.id AND tag.slug = :tagSlug
+        )`,
+        { tagSlug: options.tagSlug },
+      );
+    }
+    this.applyPublicPriceRangeFilter(qb, options, 'product');
+  }
+
+  private applyPublicPriceRangeFilter(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    options: PublicProductListOptions,
+    productAlias: string,
+  ): void {
+    if (options.minPrice === undefined && options.maxPrice === undefined) {
+      return;
+    }
+
+    qb.setParameter('priceVariantStatus', VariantStatus.ACTIVE);
+
+    const conditions = [
+      `pv.product_id = ${productAlias}.id`,
+      'pv.deleted_at IS NULL',
+      'pv.status = :priceVariantStatus',
+    ];
+
+    if (options.minPrice !== undefined) {
+      conditions.push('pv.selling_price::numeric >= :minPrice');
+      qb.setParameter('minPrice', options.minPrice);
+    }
+    if (options.maxPrice !== undefined) {
+      conditions.push('pv.selling_price::numeric <= :maxPrice');
+      qb.setParameter('maxPrice', options.maxPrice);
+    }
+
+    qb.andWhere(
+      `EXISTS (SELECT 1 FROM product_variants pv WHERE ${conditions.join(' AND ')})`,
+    );
   }
 
   private applyPublicListSort(
@@ -890,6 +1034,99 @@ export class ProductsRepository {
       .filter((product): product is ProductEntity => Boolean(product?.variants.length));
   }
 
+  async findPublishedById(id: string): Promise<ProductEntity | null> {
+    const products = await this.findPublishedByIds([id]);
+    return products[0] ?? null;
+  }
+
+  async findPublishedByIds(ids: string[]): Promise<ProductEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+
+    const products = await this.repo.find({
+      where: { id: In(ids), status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+      },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    await this.attachDetailRelations(products, this.repo.manager);
+
+    for (const product of products) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+      );
+    }
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    return ids
+      .map((id) => productById.get(id))
+      .filter((product): product is ProductEntity => Boolean(product?.variants.length));
+  }
+
+  /** Lightweight published products for wishlist/list cards (no PDP relations). */
+  async findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+
+    const products = await this.repo.find({
+      where: { id: In(ids), status: ProductStatus.PUBLISHED },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        brand: true,
+      },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    await this.attachPublicListRelations(products);
+
+    for (const product of products) {
+      product.variants = (product.variants ?? []).filter(
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+      );
+    }
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    return ids
+      .map((id) => productById.get(id))
+      .filter((product): product is ProductEntity => Boolean(product?.variants.length));
+  }
+
+  async existsPublishedById(id: string): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('product')
+      .where('product.id = :id', { id })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .getCount();
+
+    return count > 0;
+  }
+
   async findPublishedRefIdsByBrandId(brandId: string): Promise<string[]> {
     const rows = await this.repo
       .createQueryBuilder('product')
@@ -908,6 +1145,40 @@ export class ProductsRepository {
       .getRawMany<{ refId: string }>();
 
     return rows.map((row) => row.refId);
+  }
+
+  /**
+   * Distinct category-filter values used by published products within a category listing
+   * scope (matches any hierarchy level on the product).
+   */
+  async findCategoryFilterFacetValues(
+    categoryId: string,
+    categoryFilterIds: string[],
+  ): Promise<Array<{ categoryFilterId: string; value: string }>> {
+    if (!categoryFilterIds.length) {
+      return [];
+    }
+
+    return this.repo.manager.query<Array<{ categoryFilterId: string; value: string }>>(
+      `
+      SELECT DISTINCT
+        pcfm.category_filter_id AS "categoryFilterId",
+        pcfm.value AS value
+      FROM product_category_filter_mappings pcfm
+      INNER JOIN products product ON product.id = pcfm.product_id
+      WHERE product.status = $2
+        AND product.deleted_at IS NULL
+        AND pcfm.category_filter_id = ANY($1::uuid[])
+        AND (
+          product.category_id = $3 OR
+          product.sub_category_id = $3 OR
+          product.sub_sub_category_id = $3 OR
+          product.sub_sub_sub_category_id = $3
+        )
+      ORDER BY pcfm.value ASC
+      `,
+      [categoryFilterIds, ProductStatus.PUBLISHED, categoryId],
+    );
   }
 
   async findPublishedRefIdsByCategoryId(categoryId: string): Promise<string[]> {

@@ -23,6 +23,7 @@ import { RolesModule } from '@modules/roles/roles.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { SearchModule } from '@modules/search/search.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
+import { WishlistModule } from '@modules/wishlist/wishlist.module';
 import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 
@@ -71,6 +72,7 @@ import { ShippingModule } from '@modules/shipping/shipping.module';
     PaymentRequestsModule,
     SearchModule,
     AdminSettingsModule,
+    WishlistModule,
     GalleryModule,
     ShippingModule,
   ],

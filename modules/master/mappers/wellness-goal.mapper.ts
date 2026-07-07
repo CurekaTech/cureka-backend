@@ -6,6 +6,7 @@ export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWe
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
+  description: entity.description,
   image: entity.image,
   status: entity.status,
   inHomePage: entity.inHomePage,

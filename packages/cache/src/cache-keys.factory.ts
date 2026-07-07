@@ -50,8 +50,18 @@ export const CacheKeys = {
     categoryHeaderPattern: () => 'homepage:category:header*',
     shopByCategory: () => 'homepage:section:shopByCategory',
     shopByCategoryPattern: () => 'homepage:section:shopByCategory*',
+    bestSellers: () => 'homepage:section:bestSellers',
+    bestSellersPattern: () => 'homepage:section:bestSellers*',
+    shopByWellnessGoals: () => 'homepage:section:shopByWellnessGoals',
+    shopByWellnessGoalsPattern: () => 'homepage:section:shopByWellnessGoals*',
+    brandsWeTrust: () => 'homepage:section:brandsWeTrust',
+    brandsWeTrustPattern: () => 'homepage:section:brandsWeTrust*',
+    expertCuratedBundles: () => 'homepage:section:expertCuratedBundles',
+    expertCuratedBundlesPattern: () => 'homepage:section:expertCuratedBundles*',
     homeSections: () => 'homepage:home-sections',
     homeSectionsPattern: () => 'homepage:home-sections*',
+    sections: (variant = 'all') => `homepage:sections:${variant}`,
+    sectionsPattern: () => 'homepage:sections*',
   },
   publicProducts: {
     list: (queryHash: string) => `public:products:v2:list:${queryHash}`,
@@ -74,5 +84,11 @@ export const CacheKeys = {
     bySessionId: (sessionId: string) => `session:context:id:${sessionId}`,
     tokenPattern: () => 'session:context:token:*',
     idPattern: () => 'session:context:id:*',
+  },
+  wishlist: {
+    ids: (userId: string) => `wishlist:ids:${userId}`,
+    page: (userId: string, page: number, limit: number) =>
+      `wishlist:page:${userId}:${page}:${limit}`,
+    pagePattern: (userId: string) => `wishlist:page:${userId}:*`,
   },
 } as const;

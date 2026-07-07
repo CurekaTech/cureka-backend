@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
-import { PaginationOptions } from '@packages/common';
+import { MasterStatus } from '../enums/master-status.enum';
+import { CursorPaginatedResult, PaginationOptions } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -26,7 +31,21 @@ export class BrandsRepository {
   }
 
   async findBySlug(slug: string): Promise<BrandEntity | null> {
-    return this.repo.findOne({ where: { slug } });
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.deletedAt IS NULL')
+      .getOne();
+  }
+
+  async findBySlugs(slugs: string[]): Promise<BrandEntity[]> {
+    if (!slugs.length) return [];
+
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug IN (:...slugs)', { slugs })
+      .andWhere('brand.deletedAt IS NULL')
+      .getMany();
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -81,9 +100,99 @@ export class BrandsRepository {
     return { data, total };
   }
 
+  async findPublicPaginated(
+    options: PaginationOptions,
+  ): Promise<{ data: BrandEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'brand.createdAt',
+      name: 'brand.name',
+      slug: 'brand.slug',
+    };
+    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'brand.name';
+    const sortOrder = options.sortOrder ?? 'ASC';
+
+    const qb = this.repo
+      .createQueryBuilder('brand')
+      .where('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy(sortColumn, sortOrder)
+      .skip(skip)
+      .take(take);
+
+    if (options.search) {
+      qb.andWhere(
+        '(brand.name ILIKE :search OR brand.slug ILIKE :search OR brand.refId ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<BrandEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'brand',
+      sortableColumns: {
+        createdAt: 'brand.createdAt',
+        name: 'brand.name',
+        slug: 'brand.slug',
+        status: 'brand.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: '(brand.name ILIKE :search OR brand.slug ILIKE :search)',
+    });
+  }
+
+  async findAllActive(): Promise<BrandEntity[]> {
+    return this.repo.find({
+      where: { status: MasterStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<BrandEntity[]> {    const qb = this.repo.createQueryBuilder('brand').orderBy('brand.name', 'ASC');
+    if (status) {
+      qb.where('brand.status = :status', { status });
+    }
+    return qb.getMany();
+  }
+
   async existsBySlug(slug: string): Promise<boolean> {
-    const count = await this.repo.count({ where: { slug } });
+    const count = await this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.deletedAt IS NULL')
+      .getCount();
     return count > 0;
+  }
+
+  /** Counts brands flagged for the homepage (optionally excluding one brand). */
+  async countInHomePage(excludeId?: string): Promise<number> {
+    const qb = this.repo
+      .createQueryBuilder('brand')
+      .where('brand.inHomePage = :enabled', { enabled: true });
+
+    if (excludeId) {
+      qb.andWhere('brand.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
+  }
+
+  /** Active brands shown on the homepage (newest first), capped to `limit`. */
+  async findHomePageBrands(limit: number): Promise<BrandEntity[]> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.inHomePage = :enabled', { enabled: true })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('brand.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   async existsBySlugExcluding(slug: string, excludeId: string): Promise<boolean> {
@@ -91,6 +200,7 @@ export class BrandsRepository {
       .createQueryBuilder('brand')
       .where('brand.slug = :slug', { slug })
       .andWhere('brand.id != :excludeId', { excludeId })
+      .andWhere('brand.deletedAt IS NULL')
       .getCount();
     return count > 0;
   }

@@ -50,21 +50,11 @@ export class CartPricingService {
         handlingAmount: 0,
         platformFee: 0,
         codCharge: 0,
+        prepaidDiscount: 0,
       });
     }
 
     const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-    const flatFees = this.cartCheckoutAdminSettingsService.resolveCartFlatFees(checkoutAdminSettings);
-    const handlingAmount = flatFees.handlingAmount ?? 0;
-
-    // Platform Fee calculation
-    const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
-    const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
-    const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
-
-    // COD Charge calculation
-    const codChargeVal = this.cartCheckoutAdminSettingsService.getCodCharge(checkoutAdminSettings);
-    const codCharge = params.paymentMethod === OrderPaymentMethod.COD ? codChargeVal : 0;
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -112,7 +102,47 @@ export class CartPricingService {
       }
     }
 
+    // All threshold-based charges compare against the order payable amount
+    // (subtotal − discount), matching the admin-setting descriptions.
     const payableBeforeShipping = roundMoney(subtotal - discountAmount);
+    const settings = this.cartCheckoutAdminSettingsService;
+
+    // Handling charge: applied while payable ≤ handling_charge_threshold.
+    const handlingAmount = settings.isChargeApplicable(
+      payableBeforeShipping,
+      settings.getHandlingChargeThreshold(checkoutAdminSettings),
+    )
+      ? settings.getHandlingCharge(checkoutAdminSettings)
+      : 0;
+
+    // Platform fee: waived once subtotal reaches the platform-fee threshold.
+    const platformFee =
+      subtotal < settings.getPlatformFeeThreshold(checkoutAdminSettings)
+        ? settings.getPlatformFee(checkoutAdminSettings)
+        : 0;
+
+    // COD charge: only for COD orders, and only while payable ≤ cod_charge_threshold.
+    const codCharge =
+      params.paymentMethod === OrderPaymentMethod.COD &&
+      settings.isChargeApplicable(
+        payableBeforeShipping,
+        settings.getCodChargeThreshold(checkoutAdminSettings),
+      )
+        ? settings.getCodCharge(checkoutAdminSettings)
+        : 0;
+
+    // Prepaid discount: only for prepaid (non-COD) orders, while payable ≤ prepaid_charge_threshold.
+    const isPrepaidPayment =
+      params.paymentMethod !== undefined && params.paymentMethod !== OrderPaymentMethod.COD;
+    const prepaidDiscount =
+      isPrepaidPayment &&
+      settings.isChargeApplicable(
+        payableBeforeShipping,
+        settings.getPrepaidChargeThreshold(checkoutAdminSettings),
+      )
+        ? settings.getPrepaidCharge(checkoutAdminSettings)
+        : 0;
+
     const shippingAmount = this.resolveShippingAmount(
       payableBeforeShipping,
       coupon,
@@ -127,6 +157,7 @@ export class CartPricingService {
       handlingAmount,
       platformFee,
       codCharge,
+      prepaidDiscount,
     });
   }
 
@@ -138,6 +169,7 @@ export class CartPricingService {
     handlingAmount: number;
     platformFee: number;
     codCharge: number;
+    prepaidDiscount: number;
   }): CartPricing {
     const grandTotal = roundMoney(
       parts.subtotal -
@@ -145,7 +177,8 @@ export class CartPricingService {
         parts.shippingAmount +
         parts.handlingAmount +
         parts.platformFee +
-        parts.codCharge,
+        parts.codCharge -
+        parts.prepaidDiscount,
     );
 
     return {
@@ -156,6 +189,7 @@ export class CartPricingService {
       handlingAmount: parts.handlingAmount,
       platformFee: parts.platformFee,
       codCharge: parts.codCharge,
+      prepaidDiscount: parts.prepaidDiscount,
       grandTotal: Math.max(0, grandTotal),
     };
   }

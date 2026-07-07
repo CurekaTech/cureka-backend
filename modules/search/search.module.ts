@@ -5,6 +5,7 @@ import { UploadsModule } from '@modules/uploads/uploads.module';
 import { PublicSearchController } from './controllers/public-search.controller';
 import { BrandTypesenseListener } from './listeners/brand-typesense.listener';
 import { CategoryTypesenseListener } from './listeners/category-typesense.listener';
+import { HealthConcernTypesenseListener } from './listeners/health-concern-typesense.listener';
 import { ProductTypesenseListener } from './listeners/product-typesense.listener';
 import { PublicSearchService } from './services/public-search.service';
 import { TypesenseClientService } from './services/typesense-client.service';
@@ -22,6 +23,7 @@ import { TypesenseIndexerService } from './services/typesense-indexer.service';
     ProductTypesenseListener,
     BrandTypesenseListener,
     CategoryTypesenseListener,
+    HealthConcernTypesenseListener,
   ],
   exports: [TypesenseIndexerService, PublicSearchService],
 })

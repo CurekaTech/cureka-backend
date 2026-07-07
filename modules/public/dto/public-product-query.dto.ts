@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductCategoryFilterQueryDto } from '@modules/product/dto/product-category-filter.dto';
@@ -49,7 +49,7 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(300)
+  @MaxLength(1000)
   brandSlug?: string;
 
   @IsOptional()
@@ -73,4 +73,26 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsString()
   @MaxLength(500)
   variantSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  tagSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  priceRange?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  minPrice?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  maxPrice?: number;
 }

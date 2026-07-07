@@ -203,18 +203,35 @@ export class ProductVariantsRepository {
     const existingBySku = new Map(existing.map((variant) => [variant.sku, variant]));
     const payloadSkus = new Set(variants.map((variant) => variant.sku));
 
+    // Remove variants dropped from the payload first so their combination keys
+    // do not block new/updated variants (partial unique index ignores soft-deleted rows).
+    for (const variant of existing) {
+      if (!payloadSkus.has(variant.sku)) {
+        await variantRepo.softDelete(variant.id);
+      }
+    }
+
+    // Clear combination keys on variants being updated so attribute swaps (e.g. L↔M)
+    // do not hit UQ_product_variants_combination mid-sync.
+    const variantIdsToUpdate = variants
+      .map((dto) => existingBySku.get(dto.sku)?.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (variantIdsToUpdate.length) {
+      await variantRepo
+        .createQueryBuilder()
+        .update(ProductVariantEntity)
+        .set({ combinationKey: null })
+        .where('id IN (:...ids)', { ids: variantIdsToUpdate })
+        .execute();
+    }
+
     for (const dto of variants) {
       const matched = existingBySku.get(dto.sku);
       if (matched) {
         await this.updateVariant(manager, matched, dto, productSlug, attributeIdByRefId);
       } else {
         await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId);
-      }
-    }
-
-    for (const variant of existing) {
-      if (!payloadSkus.has(variant.sku)) {
-        await variantRepo.softDelete(variant.id);
       }
     }
   }
@@ -297,28 +314,33 @@ export class ProductVariantsRepository {
       existing.id,
     );
 
-    await variantRepo.update(
-      { id: existing.id },
-      {
-        vendorSku: dto.vendorSku ?? null,
-        barcode: dto.barcode ?? null,
-        mrp: dto.mrp.toFixed(2),
-        sellingPrice: dto.sellingPrice.toFixed(2),
-        discountPercentage: discountPercentage.toFixed(2),
-        stock: dto.stock,
-        weight: dto.weight?.toFixed(3) ?? null,
-        weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
-        length: dto.length?.toFixed(2) ?? null,
-        lengthUnit: pickVariantUnit(dto, 'lengthUnit', 'length_unit'),
-        width: dto.width?.toFixed(2) ?? null,
-        widthUnit: pickVariantUnit(dto, 'widthUnit', 'width_unit'),
-        height: dto.height?.toFixed(2) ?? null,
-        heightUnit: pickVariantUnit(dto, 'heightUnit', 'height_unit'),
-        expiresIn: dto.expiresIn ?? null,
-        slug,
-        combinationKey,
-      },
-    );
+    try {
+      await variantRepo.update(
+        { id: existing.id },
+        {
+          vendorSku: dto.vendorSku ?? null,
+          barcode: dto.barcode ?? null,
+          mrp: dto.mrp.toFixed(2),
+          sellingPrice: dto.sellingPrice.toFixed(2),
+          discountPercentage: discountPercentage.toFixed(2),
+          stock: dto.stock,
+          weight: dto.weight?.toFixed(3) ?? null,
+          weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
+          length: dto.length?.toFixed(2) ?? null,
+          lengthUnit: pickVariantUnit(dto, 'lengthUnit', 'length_unit'),
+          width: dto.width?.toFixed(2) ?? null,
+          widthUnit: pickVariantUnit(dto, 'widthUnit', 'width_unit'),
+          height: dto.height?.toFixed(2) ?? null,
+          heightUnit: pickVariantUnit(dto, 'heightUnit', 'height_unit'),
+          expiresIn: dto.expiresIn ?? null,
+          slug,
+          combinationKey,
+        },
+      );
+    } catch (error) {
+      this.handleUniqueViolation(error, combinationKey, dto.sku, slug);
+      throw error;
+    }
 
     await attributeRepo.delete({ variantId: existing.id });
     if (attributeInputs.length) {

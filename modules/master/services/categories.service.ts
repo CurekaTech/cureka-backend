@@ -38,8 +38,14 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { HOMEPAGE_FLAG_LIMIT } from '../constants/homepage-flag-limit.constant';
 
 const CATEGORY_MEDIA_FIELDS = ['image', 'banner'] as const;
+
+const CATEGORY_FLAG_LABELS: Record<'isInHeader' | 'isInShopBy', string> = {
+  isInHeader: 'header',
+  isInShopBy: 'shop by category',
+};
 
 const CATEGORY_UPLOAD_FIELDS = {
   image: UploadFolder.IMAGES,
@@ -116,6 +122,11 @@ export class CategoriesService {
       hierarchyLevel === CategoryHierarchyLevel.ROOT
         ? await this.resolveCategoryFilters(dto.categoryFilterRefIds ?? [])
         : [];
+    await Promise.all([
+      this.assertCategoryFlagWithinLimit('isInHeader', hierarchyLevel, dto.isInHeader ?? false),
+      this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, dto.isInShopBy ?? false),
+    ]);
+
     const maxSiblingPosition =
       await this.categoriesRepository.getMaxPositionAmongSiblings(parentCategoryId);
     const position = dto.position ?? maxSiblingPosition + 1;
@@ -274,6 +285,13 @@ export class CategoriesService {
     ) {
       categoryFilters = [];
     }
+
+    const effectiveIsInHeader = dto.isInHeader ?? existing.isInHeader;
+    const effectiveIsInShopBy = dto.isInShopBy ?? existing.isInShopBy;
+    await Promise.all([
+      this.assertCategoryFlagWithinLimit('isInHeader', hierarchyLevel, effectiveIsInHeader, existing.id),
+      this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, effectiveIsInShopBy, existing.id),
+    ]);
 
     const updatePayload: Partial<CategoryEntity> = {
       hierarchyLevel,
@@ -456,6 +474,27 @@ export class CategoriesService {
       EVENTS.CATEGORY_UPDATED,
       new CategoryUpdatedEvent(refId, action),
     );
+  }
+
+  /**
+   * Enforces that at most {@link HOMEPAGE_FLAG_LIMIT} root categories carry a given
+   * homepage placement flag. Only root categories are capped since they drive the
+   * top-level header / shop-by layout; nested categories are unrestricted.
+   */
+  private async assertCategoryFlagWithinLimit(
+    flag: 'isInHeader' | 'isInShopBy',
+    hierarchyLevel: CategoryHierarchyLevel,
+    enabling: boolean,
+    excludeId?: string,
+  ): Promise<void> {
+    if (!enabling || hierarchyLevel !== CategoryHierarchyLevel.ROOT) return;
+
+    const count = await this.categoriesRepository.countRootCategoriesByFlag(flag, excludeId);
+    if (count + 1 > HOMEPAGE_FLAG_LIMIT) {
+      throw new BadRequestException(
+        `A maximum of ${HOMEPAGE_FLAG_LIMIT} categories can be shown in the ${CATEGORY_FLAG_LABELS[flag]} section`,
+      );
+    }
   }
 
   private getNextHierarchyLevel(currentLevel: CategoryHierarchyLevel): CategoryHierarchyLevel {

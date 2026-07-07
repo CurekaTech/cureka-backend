@@ -33,6 +33,7 @@ export const mapBannerToStorefrontItem = (
   ({
   refId: entity.refId,
   title: entity.title,
+  slot: entity.slot,
   imageUrl: entity.imageUrl,
   ctaHref,
   }) as unknown as IStorefrontBannerItem;

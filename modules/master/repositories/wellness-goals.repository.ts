@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
-import { PaginationOptions } from '@packages/common';
+import { MasterStatus } from '../enums/master-status.enum';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -37,6 +42,30 @@ export class WellnessGoalsRepository {
     await this.repo.softDelete({ refId });
   }
 
+  /** Counts wellness goals flagged for the homepage (optionally excluding one). */
+  async countInHomePage(excludeId?: string): Promise<number> {
+    const qb = this.repo
+      .createQueryBuilder('wellnessGoal')
+      .where('wellnessGoal.inHomePage = :enabled', { enabled: true });
+
+    if (excludeId) {
+      qb.andWhere('wellnessGoal.id != :excludeId', { excludeId });
+    }
+
+    return qb.getCount();
+  }
+
+  /** Active wellness goals shown on the homepage (newest first), capped to `limit`. */
+  async findHomePageGoals(limit: number): Promise<WellnessGoalEntity[]> {
+    return this.repo
+      .createQueryBuilder('wellnessGoal')
+      .where('wellnessGoal.inHomePage = :enabled', { enabled: true })
+      .andWhere('wellnessGoal.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('wellnessGoal.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
+  }
+
   async findAllPaginated(
     options: PaginationOptions,
   ): Promise<{ data: WellnessGoalEntity[]; total: number }> {
@@ -63,5 +92,31 @@ export class WellnessGoalsRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<WellnessGoalEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'wellnessGoal',
+      sortableColumns: {
+        createdAt: 'wellnessGoal.createdAt',
+        name: 'wellnessGoal.name',
+        status: 'wellnessGoal.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: 'wellnessGoal.name ILIKE :search',
+    });
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<WellnessGoalEntity[]> {
+    const qb = this.repo
+      .createQueryBuilder('wellnessGoal')
+      .orderBy('wellnessGoal.name', 'ASC');
+    if (status) {
+      qb.where('wellnessGoal.status = :status', { status });
+    }
+    return qb.getMany();
   }
 }

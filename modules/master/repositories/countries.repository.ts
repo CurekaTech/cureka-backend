@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CountryEntity } from '../entities/country.entity';
-import { PaginationOptions } from '@packages/common';
+import { MasterStatus } from '../enums/master-status.enum';
+import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import {
+  executeMasterCursorQuery,
+  MasterCursorStatusOptions,
+} from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -76,6 +81,31 @@ export class CountriesRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findCursorPaginated(
+    options: MasterCursorStatusOptions,
+  ): Promise<CursorPaginatedResult<CountryEntity>> {
+    return executeMasterCursorQuery(this.repo, options, {
+      alias: 'country',
+      sortableColumns: {
+        createdAt: 'country.createdAt',
+        name: 'country.name',
+        code: 'country.code',
+        status: 'country.status',
+      },
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+      searchExpression: '(country.name ILIKE :search OR country.code ILIKE :search)',
+    });
+  }
+
+  async findAllByStatus(status?: MasterStatus): Promise<CountryEntity[]> {
+    const qb = this.repo.createQueryBuilder('country').orderBy('country.name', 'ASC');
+    if (status) {
+      qb.where('country.status = :status', { status });
+    }
+    return qb.getMany();
   }
 
   async existsByCode(code: string): Promise<boolean> {

@@ -9,6 +9,7 @@ import { ShipmentEntity } from './entities/shipment.entity';
 import { ShipmentEventEntity } from './entities/shipment-event.entity';
 import { ShipmentsRepository } from './repositories/shipments.repository';
 import { ShipmentEventsRepository } from './repositories/shipment-events.repository';
+import { ShipmentsController } from './controllers/shipments.controller';
 import { ShipwayService } from './services/shipway.service';
 import { ShippingQueueService } from './services/shipping-queue.service';
 import { ShippingService } from './services/shipping.service';

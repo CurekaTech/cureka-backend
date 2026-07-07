@@ -3,6 +3,8 @@ import { DataSource } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
+import { mapShipmentToResponse } from '@modules/shipping/mappers/shipment.mapper';
+import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
@@ -92,6 +94,7 @@ export class OrdersService {
           handlingAmount: toMoneyString(summary.handlingAmount),
           platformFee: toMoneyString(summary.platformFee),
           codCharge: toMoneyString(summary.codCharge),
+          prepaidDiscount: toMoneyString(summary.prepaidDiscount),
           grandTotal: toMoneyString(summary.grandTotal),
           couponId: appliedCoupon?.id ?? null,
           couponCode: appliedCoupon?.code ?? null,

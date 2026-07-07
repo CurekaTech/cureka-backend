@@ -96,8 +96,6 @@ export class PaymentRequestsService {
         updatedBy: userId,
       });
 
-      await this.cartService.clear(userId);
-
       return {
         gateway: 'cashfree',
         paymentData: {
@@ -121,8 +119,6 @@ export class PaymentRequestsService {
       if (!withLink.paymentLink) {
         throw new BadRequestException('Failed to generate payment link');
       }
-
-      await this.cartService.clear(userId);
 
       return {
         gateway: 'razorpay',
@@ -174,8 +170,6 @@ export class PaymentRequestsService {
         status: PaymentRequestStatus.LINK_GENERATED,
         updatedBy: userId,
       });
-
-      await this.cartService.clear(userId);
 
       return {
         gateway: 'cashfree',
@@ -255,19 +249,26 @@ export class PaymentRequestsService {
 
   async verifyModalCheckoutPayment(userId: string, dto: CheckoutVerifyPaymentDto) {
     if (dto.cf_order_id) {
-      const orderId = dto.cf_order_id;
-      const cashfreeOrder = await this.cashfreeService.getOrder(orderId);
+      const paymentRequest = await this.resolveCashfreeCheckoutPaymentRequest(
+        userId,
+        dto.cf_order_id,
+      );
+
+      // Cashfree GET /orders/{order_id} expects the merchant order_id (our refId), not cf_order_id.
+      const cashfreeOrder = await this.cashfreeService.getOrder(paymentRequest.refId);
       if (cashfreeOrder['order_status'] !== 'PAID') {
         throw new BadRequestException('Payment verification failed or order is not paid yet');
       }
 
-      const curekaOrderId = cashfreeOrder['order_id'];
-      const paymentRequest = await this.paymentRequestsRepository.findById(curekaOrderId);
-      if (!paymentRequest || paymentRequest.customerId !== userId) {
-        throw new NotFoundException('Checkout payment request not found');
-      }
+      const providerPaymentId =
+        dto.cf_payment_id ||
+        String(cashfreeOrder['cf_payment_id'] ?? cashfreeOrder['cf_order_id'] ?? '');
 
-      await this.handleCashfreePaymentSuccess(curekaOrderId, dto.cf_payment_id || String(cashfreeOrder['cf_order_id']), userId);
+      await this.handleCashfreePaymentSuccess(
+        paymentRequest.refId,
+        providerPaymentId || undefined,
+        userId,
+      );
       await this.cartService.clear(userId);
 
       return {
@@ -315,6 +316,25 @@ export class PaymentRequestsService {
     });
 
     return { paymentRequestId: paymentRequest.id, status: PaymentRequestStatus.CANCELLED };
+  }
+
+  private async resolveCashfreeCheckoutPaymentRequest(
+    userId: string,
+    cfOrderIdOrRefId: string,
+  ) {
+    let paymentRequest = await this.paymentRequestsRepository.findByProviderReferenceId(
+      cfOrderIdOrRefId,
+    );
+
+    if (!paymentRequest) {
+      paymentRequest = await this.paymentRequestsRepository.findById(cfOrderIdOrRefId);
+    }
+
+    if (!paymentRequest || paymentRequest.customerId !== userId) {
+      throw new NotFoundException('Checkout payment request not found');
+    }
+
+    return paymentRequest;
   }
 
   private async createCheckoutPaymentRequest(userId: string, addressId: string) {
