@@ -117,12 +117,23 @@ export class PaymentsWebhookController {
     } else if (event === 'payment_link.expired' && linkId) {
       console.log('PaymentsWebhookController.webhook branch payment_link.expired', { linkId });
       await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
-    } else if (event === 'payment.captured' || event === 'order.paid') {
-      console.log('PaymentsWebhookController.webhook branch payment captured/order paid', {
-        paymentRequestId,
-        orderId,
-        linkId,
-      });
+    } else if (event === 'payment.authorized' || event === 'payment.captured' || event === 'order.paid') {
+      if (event === 'payment.authorized') {
+        console.log('PaymentsWebhookController.webhook branch payment.authorized received', {
+          paymentRequestId,
+          orderId,
+          linkId,
+          paymentId: paymentEntity?.entity?.id,
+        });
+      } else {
+        console.log('PaymentsWebhookController.webhook branch payment captured/order paid', {
+          event,
+          paymentRequestId,
+          orderId,
+          linkId,
+          paymentId: paymentEntity?.entity?.id,
+        });
+      }
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
       } else if (orderId) {
