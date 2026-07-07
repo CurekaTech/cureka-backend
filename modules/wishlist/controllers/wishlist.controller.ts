@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -29,8 +30,14 @@ export class WishlistController {
   @ApiOperation({ summary: 'List wishlist products for the authenticated user' })
   @ResponseMessage('Wishlist retrieved successfully')
   @Get()
-  findAll(@CurrentSessionUser() user: IUserSessionContext) {
-    return this.wishlistService.findAll(user.sub);
+  findAll(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    return this.wishlistService.findAll(user.sub, pageNum, limitNum);
   }
 
   @ApiOperation({ summary: 'List wishlisted product ids for the authenticated user' })

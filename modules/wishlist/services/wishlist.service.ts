@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { generateUniqueRefId } from '@packages/common';
+import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } from '@packages/common';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { mapProductEntitiesToPublicCards } from '@modules/public/mappers/public-product.mapper';
 import { IPublicProductCard } from '@modules/public/interfaces/public-product.interface';
@@ -21,12 +21,23 @@ export class WishlistService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
-  async findAll(userId: string): Promise<IWishlistResponse> {
-    const items = await this.wishlistItemsRepository.findAllByUserId(userId);
+  async findAll(userId: string, page = 1, limit = 20): Promise<IWishlistResponse> {
+    const pagination = buildPaginationOptions({ page, limit });
+    const [items, total] = await this.wishlistItemsRepository.findPaginatedByUserId(
+      userId,
+      pagination.page,
+      pagination.limit,
+    );
     const productIds = items.map((item) => item.productId);
 
     if (!productIds.length) {
-      return { items: [] };
+      return {
+        items: [],
+        total,
+        page: pagination.page,
+        limit: pagination.limit,
+        hasNextPage: false,
+      };
     }
 
     const products = await this.productsRepository.findPublishedByIds(productIds);
@@ -38,7 +49,15 @@ export class WishlistService {
       .map((productId) => cardByProductId.get(productId))
       .filter((card): card is IPublicProductCard => Boolean(card));
 
-    return { items: orderedItems };
+    const paginated = buildPaginatedResult(orderedItems, total, pagination);
+
+    return {
+      items: paginated.data,
+      total: paginated.total,
+      page: paginated.page,
+      limit: paginated.limit,
+      hasNextPage: paginated.hasNextPage,
+    };
   }
 
   async findProductIds(userId: string): Promise<IWishlistIdsResponse> {

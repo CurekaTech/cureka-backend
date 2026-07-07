@@ -23,6 +23,19 @@ export class WishlistItemsRepository {
     });
   }
 
+  findPaginatedByUserId(
+    userId: string,
+    page: number,
+    limit: number,
+  ): Promise<[WishlistItemEntity[], number]> {
+    return this.repo.findAndCount({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+  }
+
   findProductIdsByUserId(userId: string): Promise<string[]> {
     return this.repo
       .createQueryBuilder('item')
