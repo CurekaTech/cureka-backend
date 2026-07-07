@@ -44,7 +44,7 @@ export interface IParsedBundleItem {
 export interface IParsedProductGroup {
   rowNumber: number;
   name: string;
-  productNature: string;
+  productNature?: string;
   productType: string;
   category: string;
   subCategory?: string;
@@ -443,7 +443,7 @@ export class BulkUploadParserService {
    * Assures sheet contains mandatory headers.
    */
   private validateRequiredHeaders(headerMap: Map<string, number>): void {
-    const required = ['product name', 'product nature', 'product type', 'category'];
+    const required = ['product name', 'product type', 'category'];
     const missing: string[] = [];
 
     for (const req of required) {
