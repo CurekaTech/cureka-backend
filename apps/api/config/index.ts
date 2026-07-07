@@ -4,4 +4,5 @@ export { jwtConfig } from './jwt.config';
 export { storageConfig } from './storage.config';
 export { typesenseConfig } from './typesense.config';
 export { ordersConfig } from './orders.config';
+export { shipwayConfig } from './shipway.config';
 export { envValidationSchema } from './env.validation';

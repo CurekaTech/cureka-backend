@@ -251,6 +251,22 @@ export class BulkUploadValidatorService {
         }
       }
 
+      if (group.wellnessGoals && group.wellnessGoals.length > 0) {
+        for (const goal of group.wellnessGoals) {
+          const refId = this.wellnessGoalMap.get(goal.toLowerCase().trim());
+          if (!refId) {
+            groupErrors.push({
+              rowNumber: group.rowNumber,
+              sku: 'PARENT',
+              column: 'Wellness Goals',
+              invalidValue: goal,
+              reason: `Wellness goal "${goal}" does not exist in master records.`,
+              suggestedFix: 'Use a pre-defined active wellness goal name.',
+            });
+          }
+        }
+      }
+
       if (group.manufacturer) {
         const refId = this.manufacturerMap.get(group.manufacturer.toLowerCase().trim());
         if (!refId) {

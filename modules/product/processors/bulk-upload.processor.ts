@@ -139,9 +139,14 @@ export class BulkUploadProcessor extends WorkerHost {
                     taxClass: v.taxClass,
                     stock: v.stock,
                     weight: v.weight,
+                    weightUnit: v.weightUnit,
                     length: v.length,
+                    lengthUnit: v.lengthUnit,
                     width: v.width,
+                    widthUnit: v.widthUnit,
                     height: v.height,
+                    heightUnit: v.heightUnit,
+                    status: v.status,
                     attributes: processedAttributes,
                     images: processedImages,
                   };
@@ -185,21 +190,52 @@ export class BulkUploadProcessor extends WorkerHost {
                 metaTitle: group.metaTitle,
                 metaDescription: group.metaDescription,
                 metaKeywords: group.metaKeywords,
+                categoryFilters: group.categoryFilters.length ? group.categoryFilters : undefined,
+                sizeChart: group.sizeChart
+                  ? this.storageService.toFileReference(group.sizeChart)
+                  : undefined,
                 manufacturerRefId: refs.manufacturerRefId,
                 packerRefId: refs.packerRefId,
                 importerRefId: refs.importerRefId,
                 countryOfOriginRefId: refs.countryOfOriginRefId,
                 components: group.components,
                 expiresInMonths: group.expiresInMonths,
-                productInformation: group.highlights && group.highlights.length > 0
-                  ? [
-                      {
-                        label: 'Product Highlights',
-                        description: group.highlights.join('|'),
-                        sortOrder: 1,
-                      },
-                    ]
-                  : undefined,
+                customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
+                productInformation: (() => {
+                  const info: any[] = [];
+                  let sortOrder = 1;
+                  
+                  const addInfo = (label: string, content: string | string[] | undefined) => {
+                    if (content) {
+                      const text = Array.isArray(content) ? content.join('|') : content;
+                      if (text && text.trim()) {
+                        info.push({ label, description: text, sortOrder: sortOrder++ });
+                      }
+                    }
+                  };
+
+                  addInfo('Product Highlights', group.highlights);
+                  addInfo('Key Features', group.keyFeatures);
+                  addInfo('Usage and Safety', group.usageAndSafety);
+                  addInfo('Ingredients and Nutrition', group.ingredientsAndNutrition);
+                  addInfo('Compliance Detail', group.complianceDetail);
+                  addInfo('Additional Info', group.additionalInfo);
+                  addInfo('Key Benefits', group.keyBenefits);
+                  addInfo('Expert Advice', group.expertAdvice);
+                  addInfo('Key Ingredients', group.keyIngredients);
+                  addInfo('Other Ingredients', group.otherIngredients);
+                  addInfo('Preventive Notes', group.preventiveNotes);
+                  addInfo('Accessories', group.accessories);
+                  addInfo('Direction of Use', group.directionOfUse);
+                  addInfo('Feeding Table', group.feedingTable);
+                  addInfo('Safety Information', group.safetyInformation);
+                  addInfo('Indications', group.indications);
+                  addInfo('Kit contains', group.kitContains);
+                  addInfo('Offers', group.offers);
+                  addInfo('Description', group.description);
+
+                  return info.length > 0 ? info : undefined;
+                })(),
                 variants: processedVariants,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {

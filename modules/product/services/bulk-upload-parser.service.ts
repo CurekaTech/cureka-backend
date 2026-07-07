@@ -23,9 +23,14 @@ export interface IParsedVariant {
   taxClass?: string;
   stock: number;
   weight?: number;
+  weightUnit?: string;
   length?: number;
+  lengthUnit?: string;
   width?: number;
+  widthUnit?: string;
   height?: number;
+  heightUnit?: string;
+  status?: string;
   attributes: IParsedAttribute[];
   images: IParsedImage[];
 }
@@ -47,6 +52,7 @@ export interface IParsedProductGroup {
   subSubSubCategory?: string;
   brand?: string;
   healthConcerns: string[];
+  wellnessGoals: string[];
   productTags: string[];
   vendor?: string;
   vendorSku?: string;
@@ -57,10 +63,25 @@ export interface IParsedProductGroup {
   ingredientsAndNutrition?: string;
   complianceDetail?: string;
   additionalInfo?: string;
+  keyBenefits?: string;
+  expertAdvice?: string;
+  keyIngredients?: string;
+  otherIngredients?: string;
+  preventiveNotes?: string;
+  accessories?: string;
+  directionOfUse?: string;
+  feedingTable?: string;
+  safetyInformation?: string;
+  indications?: string;
+  kitContains?: string;
+  offers?: string;
+  faqs: { question: string; answer: string }[];
   metaTitle?: string;
   metaDescription?: string;
   slugUrl?: string;
   metaKeywords: string[];
+  categoryFilters: { categoryFilterRefId: string; values: string[] }[];
+  sizeChart?: string;
   subscriptionEnabled: boolean;
   returnAllowed: boolean;
   returnPolicy?: string;
@@ -94,11 +115,30 @@ export class BulkUploadParserService {
   /**
    * Resolves plain text value from ExcelJS cell, handling richText, formula result, and object formats.
    */
-  private getCellText(cell: exceljs.Cell): string {
+  private richTextToHtml(richText: Array<{ text?: string; font?: { bold?: boolean; italic?: boolean; underline?: boolean } }>): string {
+    return richText
+      .map((segment) => {
+        const text = segment.text ?? '';
+        if (!text) return '';
+
+        let formatted = text;
+        if (segment.font?.underline) formatted = `<u>${formatted}</u>`;
+        if (segment.font?.italic) formatted = `<em>${formatted}</em>`;
+        if (segment.font?.bold) formatted = `<strong>${formatted}</strong>`;
+        return formatted;
+      })
+      .join('')
+      .trim();
+  }
+
+  private getCellText(cell: exceljs.Cell, options?: { preserveRichTextAsHtml?: boolean }): string {
     const val = cell.value;
     if (val === null || val === undefined) return '';
     if (typeof val === 'object') {
       if ('richText' in val && Array.isArray((val as any).richText)) {
+        if (options?.preserveRichTextAsHtml) {
+          return this.richTextToHtml((val as any).richText);
+        }
         return (val as any).richText.map((t: any) => t.text || '').join('').trim();
       }
       if ('text' in val) {
@@ -109,6 +149,42 @@ export class BulkUploadParserService {
       }
     }
     return String(val).trim();
+  }
+
+  private parseCategoryFilters(raw: string): { categoryFilterRefId: string; values: string[] }[] {
+    if (!raw.trim()) return [];
+
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const record = item as Record<string, unknown>;
+            const categoryFilterRefId = String(record.categoryFilterRefId ?? '').trim();
+            const values = Array.isArray(record.values)
+              ? record.values.map((value) => String(value).trim()).filter(Boolean)
+              : [];
+            return categoryFilterRefId && values.length ? { categoryFilterRefId, values } : null;
+          })
+          .filter((item): item is { categoryFilterRefId: string; values: string[] } => Boolean(item));
+      }
+    } catch {
+      // Fall through to compact spreadsheet syntax: CFL20261234:Red|Blue;CFL20264567:Large
+    }
+
+    return raw
+      .split(';')
+      .map((entry) => {
+        const [refIdPart, valuesPart] = entry.split(':');
+        const categoryFilterRefId = (refIdPart ?? '').trim();
+        const values = (valuesPart ?? '')
+          .split('|')
+          .map((value) => value.trim())
+          .filter(Boolean);
+        return categoryFilterRefId && values.length ? { categoryFilterRefId, values } : null;
+      })
+      .filter((item): item is { categoryFilterRefId: string; values: string[] } => Boolean(item));
   }
 
   /**
@@ -160,6 +236,13 @@ export class BulkUploadParserService {
         const cell = row.getCell(idx);
         return this.getCellText(cell);
       };
+      const getRichVal = (colName: string): string => {
+        const cleanedCol = this.cleanHeader(colName);
+        const idx = headerMap.get(cleanedCol);
+        if (idx === undefined) return '';
+        const cell = row.getCell(idx);
+        return this.getCellText(cell, { preserveRichTextAsHtml: true });
+      };
 
       const name = getVal('product name');
       const productType = (getVal('product type') || 'simple').toLowerCase();
@@ -197,20 +280,35 @@ export class BulkUploadParserService {
           subSubSubCategory: getVal('sub sub sub category') || undefined,
           brand: getVal('brand') || undefined,
           healthConcerns: getVal('health concerns') ? getVal('health concerns').split('|').map(s => s.trim()).filter(Boolean) : [],
+          wellnessGoals: getVal('wellness goals') ? getVal('wellness goals').split('|').map(s => s.trim()).filter(Boolean) : [],
           productTags: getVal('product tags') ? getVal('product tags').split('|').map(s => s.trim()).filter(Boolean) : [],
           vendor: getVal('vendor') || undefined,
           vendorSku: vendorSku || undefined,
-          description: getVal('description') || undefined,
-          highlights: getVal('product highlights') ? getVal('product highlights').split('|').map(s => s.trim()).filter(Boolean) : [],
-          keyFeatures: getVal('key features') ? getVal('key features').split('|').map(s => s.trim()).filter(Boolean) : [],
-          usageAndSafety: getVal('usage and safety') || undefined,
-          ingredientsAndNutrition: getVal('ingredients and nutrition') || undefined,
-          complianceDetail: getVal('compliance detail') || undefined,
-          additionalInfo: getVal('additional info') || undefined,
+          description: getRichVal('description') || undefined,
+          highlights: getRichVal('product highlights') ? getRichVal('product highlights').split('|').map(s => s.trim()).filter(Boolean) : [],
+          keyFeatures: getRichVal('key features') ? getRichVal('key features').split('|').map(s => s.trim()).filter(Boolean) : [],
+          usageAndSafety: getRichVal('usage and safety') || undefined,
+          ingredientsAndNutrition: getRichVal('ingredients and nutrition') || undefined,
+          complianceDetail: getRichVal('compliance detail') || undefined,
+          additionalInfo: getRichVal('additional info') || undefined,
+          keyBenefits: getRichVal('key benefits') || undefined,
+          expertAdvice: getRichVal('expert advice') || undefined,
+          keyIngredients: getRichVal('key ingredients') || undefined,
+          otherIngredients: getRichVal('other ingredients') || undefined,
+          preventiveNotes: getRichVal('preventive notes') || undefined,
+          accessories: getRichVal('accessories') || undefined,
+          directionOfUse: getRichVal('direction of use') || undefined,
+          feedingTable: getRichVal('feeding table') || undefined,
+          safetyInformation: getRichVal('safety information') || undefined,
+          indications: getRichVal('indications') || undefined,
+          kitContains: getRichVal('kit contains') || undefined,
+          offers: getRichVal('offers') || undefined,
           metaTitle: getVal('meta title') || undefined,
           metaDescription: getVal('meta description') || undefined,
           slugUrl: getVal('slug url') || undefined,
           metaKeywords: getVal('meta keywords') ? getVal('meta keywords').split(',').map(s => s.trim()).filter(Boolean) : [],
+          categoryFilters: this.parseCategoryFilters(getVal('category filters')),
+          sizeChart: getVal('size chart filename/path') || getVal('size chart') || undefined,
           subscriptionEnabled: getVal('subscription available').toLowerCase() === 'yes',
           returnAllowed: getVal('return policy').toLowerCase().includes('return') || getVal('return window days') !== '',
           returnPolicy: getVal('return policy') || undefined,
@@ -226,9 +324,20 @@ export class BulkUploadParserService {
           countryOfOrigin: getVal('country of origin') || undefined,
           components: getVal('components') || undefined,
           expiresInMonths: getVal('shelf life in months') ? parseInt(getVal('shelf life in months'), 10) : undefined,
+          faqs: [],
           variants: [],
           bundleItems: [],
         };
+
+        // Parse up to 3 FAQs
+        for (let i = 1; i <= 3; i++) {
+          const question = getVal(`faq ${i} question`);
+          const answer = getRichVal(`faq ${i} answer`);
+          if (question && answer) {
+            group.faqs.push({ question, answer });
+          }
+        }
+
         groupedProducts.set(groupingKey, group);
         batchBuffer.push(group);
       }
@@ -260,7 +369,7 @@ export class BulkUploadParserService {
         if (primaryImg) {
           images.push({ filename: primaryImg, isPrimary: true, sortOrder: 0 });
         }
-        for (let i = 2; i <= 3; i++) {
+        for (let i = 2; i <= 5; i++) {
           const galleryImg = getVal(`gallery image ${i}`);
           if (galleryImg) {
             images.push({ filename: galleryImg, isPrimary: false, sortOrder: i - 1 });
@@ -277,9 +386,14 @@ export class BulkUploadParserService {
           taxClass: getVal('tax class') || undefined,
           stock,
           weight,
+          weightUnit: getVal('weight unit') || undefined,
           length,
+          lengthUnit: getVal('dimension unit') || undefined,
           width,
+          widthUnit: getVal('dimension unit') || undefined,
           height,
+          heightUnit: getVal('dimension unit') || undefined,
+          status: getVal('variant status') || undefined,
           attributes,
           images,
         });
