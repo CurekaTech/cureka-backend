@@ -732,7 +732,17 @@ export class PaymentRequestsService {
     updatedBy = 'razorpay-webhook',
     manager?: EntityManager,
   ): Promise<void> {
+    console.log('PaymentRequestsService.markRequestAsPaid start', {
+      paymentRequestRefId: existing.refId,
+      paymentRequestId: existing.id,
+      providerPaymentId,
+      updatedBy,
+      currentStatus: existing.status,
+    });
     if (existing.status === PaymentRequestStatus.PAID) {
+      console.log('PaymentRequestsService.markRequestAsPaid skipped because already PAID', {
+        paymentRequestRefId: existing.refId,
+      });
       return;
     }
 
@@ -783,7 +793,7 @@ export class PaymentRequestsService {
         }
       }
 
-      await this.ordersService.createOrderFromPaymentRequest({
+      const createdOrder = await this.ordersService.createOrderFromPaymentRequest({
         customerId: fresh.customerId,
         paymentRequestId: fresh.id,
         paymentRequestRefId: fresh.refId,
@@ -805,6 +815,11 @@ export class PaymentRequestsService {
           totalPrice: item.total,
         })),
       });
+      console.log('PaymentRequestsService.markRequestAsPaid created order', {
+        paymentRequestRefId: fresh.refId,
+        orderId: createdOrder.id,
+        orderNumber: createdOrder.orderNumber,
+      });
     };
 
     if (manager) {
@@ -816,6 +831,10 @@ export class PaymentRequestsService {
     }
 
     this.logger.log(`Order created and payment request ${existing.refId} marked as PAID`);
+    console.log('PaymentRequestsService.markRequestAsPaid completed', {
+      paymentRequestRefId: existing.refId,
+      paymentRequestId: existing.id,
+    });
   }
 
   private getStorefrontPaymentCallbackUrl(): string | undefined {
@@ -832,8 +851,14 @@ export class PaymentRequestsService {
     providerPaymentId?: string,
     updatedBy = 'cashfree-webhook',
   ): Promise<void> {
+    console.log('PaymentRequestsService.handleCashfreePaymentSuccess', {
+      orderId,
+      providerPaymentId,
+      updatedBy,
+    });
     const existing = await this.paymentRequestsRepository.findById(orderId);
     if (!existing) {
+      console.log('PaymentRequestsService.handleCashfreePaymentSuccess not found', { orderId });
       this.logger.warn(`Payment request not found for Cashfree orderId ${orderId}`);
       return;
     }
@@ -845,8 +870,14 @@ export class PaymentRequestsService {
     providerPaymentId?: string,
     updatedBy = 'razorpay-webhook',
   ): Promise<void> {
+    console.log('PaymentRequestsService.handlePaymentLinkPaid', {
+      providerReferenceId,
+      providerPaymentId,
+      updatedBy,
+    });
     const existing = await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId);
     if (!existing) {
+      console.log('PaymentRequestsService.handlePaymentLinkPaid not found', { providerReferenceId });
       this.logger.warn(`Payment request not found for provider reference ${providerReferenceId}`);
       return;
     }
@@ -854,8 +885,13 @@ export class PaymentRequestsService {
   }
 
   async handlePaymentCaptured(paymentRequestId: string, providerPaymentId?: string): Promise<void> {
+    console.log('PaymentRequestsService.handlePaymentCaptured', {
+      paymentRequestId,
+      providerPaymentId,
+    });
     const existing = await this.paymentRequestsRepository.findById(paymentRequestId);
     if (!existing) {
+      console.log('PaymentRequestsService.handlePaymentCaptured not found', { paymentRequestId });
       this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
       return;
     }

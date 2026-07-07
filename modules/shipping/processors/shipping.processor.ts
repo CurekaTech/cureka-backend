@@ -17,6 +17,7 @@ export class ShippingProcessor extends WorkerHost {
   }
 
   async process(job: Job<ShippingJobData, unknown, string>): Promise<unknown> {
+    console.log(`ShippingProcessor.process start jobName=${job.name} jobId=${job.id}`);
     this.logger.log(`Processing shipping job ${job.name} (${job.id})`);
 
     let result: unknown;
@@ -32,6 +33,7 @@ export class ShippingProcessor extends WorkerHost {
     }
 
     this.logger.log({ jobId: job.id, jobName: job.name, result }, 'Shipping job completed');
+    console.log(`ShippingProcessor.process completed jobName=${job.name} jobId=${job.id} result=${JSON.stringify(result)}`);
     return result;
   }
 }
