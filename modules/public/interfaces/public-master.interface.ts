@@ -19,6 +19,7 @@ export interface IPublicCategoryListItem {
   parentCategoryRefId: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  children?: IPublicCategoryListItem[];
 }
 
 export interface IPublicMasterListResponse<T = unknown> extends PaginatedResult<T> {

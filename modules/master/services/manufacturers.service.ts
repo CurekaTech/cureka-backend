@@ -60,6 +60,9 @@ export class ManufacturersService {
     if (await this.manufacturersRepository.existsByCode(dto.code)) {
       throw new ConflictException(`A manufacturer with code "${dto.code}" already exists`);
     }
+    if (await this.manufacturersRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A manufacturer with name "${dto.name}" already exists`);
+    }
 
     const categories: CategoryEntity[] = await this.resolveCategoryRefIds(
       dto.categoryRefIds ?? [],
@@ -133,6 +136,12 @@ export class ManufacturersService {
     if (dto.code && dto.code !== existing.code) {
       if (await this.manufacturersRepository.existsByCodeExcluding(dto.code, existing.id)) {
         throw new ConflictException(`A manufacturer with code "${dto.code}" already exists`);
+      }
+    }
+
+    if (dto.name !== undefined && dto.name !== existing.name) {
+      if (await this.manufacturersRepository.existsByName(dto.name, refId)) {
+        throw new ConflictException(`A manufacturer with name "${dto.name}" already exists`);
       }
     }
 

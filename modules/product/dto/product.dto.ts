@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   Allow,
   ArrayMinSize,
@@ -365,6 +365,7 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
 
   @ApiPropertyOptional({ enum: ProductStatus })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 

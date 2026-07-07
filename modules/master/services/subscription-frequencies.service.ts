@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   buildQueryCacheHash,
@@ -39,6 +39,12 @@ export class SubscriptionFrequenciesService {
     dto: CreateSubscriptionFrequencyDto,
     createdBy: string,
   ): Promise<ISubscriptionFrequency> {
+    if (await this.subscriptionFrequenciesRepository.existsByName(dto.name)) {
+      throw new ConflictException(
+        `A subscription frequency with name "${dto.name}" already exists`,
+      );
+    }
+
     const entity = await this.subscriptionFrequenciesRepository.create({
       name: dto.name,
       value: dto.value,
@@ -95,6 +101,14 @@ export class SubscriptionFrequenciesService {
     const existing = await this.subscriptionFrequenciesRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Subscription frequency with refId ${refId} not found`);
+    }
+
+    if (dto.name !== undefined && dto.name !== existing.name) {
+      if (await this.subscriptionFrequenciesRepository.existsByName(dto.name, refId)) {
+        throw new ConflictException(
+          `A subscription frequency with name "${dto.name}" already exists`,
+        );
+      }
     }
 
     const updated = await this.subscriptionFrequenciesRepository.updateByRefId(refId, {
