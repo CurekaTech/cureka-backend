@@ -79,7 +79,9 @@ export class ShipwayService {
       });
 
       const text = await response.text();
-      const data = text ? (JSON.parse(text) as T & { message?: string; success?: boolean }) : ({} as T);
+      const data = text
+        ? (JSON.parse(text) as T & { message?: string; success?: boolean })
+        : ({} as T & { message?: string; success?: boolean });
 
       if (!response.ok) {
         const message = data.message ?? `Shipway request failed with HTTP ${response.status}`;
