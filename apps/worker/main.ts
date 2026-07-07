@@ -8,10 +8,13 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   // Workers don't expose HTTP — they process queues only
+  console.log('Worker bootstrap: before app.init()');
   await app.init();
+  console.log('Worker bootstrap: after app.init()');
 
   const logger = app.get(Logger);
   logger.log('Worker process started');
+  console.log('Worker process started');
 }
 
 bootstrap().catch((err) => {
