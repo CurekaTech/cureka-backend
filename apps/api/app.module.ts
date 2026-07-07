@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, ordersConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
+import { appConfig, databaseConfig, jwtConfig, ordersConfig, shipwayConfig, storageConfig, typesenseConfig, envValidationSchema } from './config';
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
@@ -25,13 +25,14 @@ import { SearchModule } from '@modules/search/search.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { WishlistModule } from '@modules/wishlist/wishlist.module';
 import { GalleryModule } from '@modules/gallery/gallery.module';
+import { ShippingModule } from '@modules/shipping/shipping.module';
 
 @Module({
   imports: [
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig],
+      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig, shipwayConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,
@@ -73,6 +74,7 @@ import { GalleryModule } from '@modules/gallery/gallery.module';
     AdminSettingsModule,
     WishlistModule,
     GalleryModule,
+    ShippingModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

@@ -82,6 +82,14 @@ export const envValidationSchema = Joi.object({
 
   SHIPPING_FREE_THRESHOLD: Joi.number().min(0).default(900),
   SHIPPING_FLAT_FEE: Joi.number().min(0).default(50),
+  SHIPWAY_EMAIL: Joi.string().allow('').optional(),
+  SHIPWAY_LICENSE_KEY: Joi.string().allow('').optional(),
+  SHIPWAY_BASE_URL: Joi.string().uri().default('https://app.shipway.com'),
+  SHIPWAY_WAREHOUSE_ID: Joi.string().allow('').optional(),
+  SHIPWAY_RETURN_WAREHOUSE_ID: Joi.string().allow('').optional(),
+  SHIPWAY_CARRIER_ID: Joi.number().integer().positive().optional(),
+  SHIPWAY_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  SHIPWAY_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
   /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
   STOREFRONT_URL: Joi.string().uri().optional(),
 
@@ -96,4 +104,3 @@ export const envValidationSchema = Joi.object({
   TYPESENSE_SEARCH_API_KEY: Joi.string().optional(),
   TYPESENSE_COLLECTION: Joi.string().default('products'),
 });
-
