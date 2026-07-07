@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, HttpStatus, Logger, Post, Req } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
 import { PaymentRequestsService } from '../services/payment-requests.service';
@@ -8,6 +8,8 @@ import { CashfreePaymentService } from '../services/cashfree-payment.service';
 @ApiExcludeController()
 @Controller('payment')
 export class PaymentsWebhookController {
+  private readonly logger = new Logger(PaymentsWebhookController.name);
+
   constructor(
     private readonly razorpayService: RazorpayPaymentLinksService,
     private readonly paymentRequestsService: PaymentRequestsService,
@@ -29,10 +31,15 @@ export class PaymentsWebhookController {
     const data = payload['data'] as Record<string, any> | undefined;
     const orderData = data?.['order'] as Record<string, any> | undefined;
     const paymentData = data?.['payment'] as Record<string, any> | undefined;
+    const orderId = orderData?.['order_id'];
+    const cfPaymentId = paymentData?.['cf_payment_id'];
+
+    this.logger.log(
+      { eventType, orderId, cfPaymentId, payload },
+      'Cashfree webhook received',
+    );
 
     if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' && paymentData?.['payment_status'] === 'SUCCESS') {
-      const orderId = orderData?.['order_id'];
-      const cfPaymentId = paymentData?.['cf_payment_id'];
       if (orderId) {
         await this.paymentRequestsService.handleCashfreePaymentSuccess(
           orderId,
@@ -70,6 +77,11 @@ export class PaymentsWebhookController {
     const orderId = orderEntity?.entity?.id ?? paymentEntity?.entity?.order_id;
     const notes = paymentEntity?.entity?.notes;
     const paymentRequestId = notes?.paymentRequestId as string | undefined;
+
+    this.logger.log(
+      { event, linkId, orderId, paymentRequestId, payload },
+      'Razorpay webhook received',
+    );
 
     if (event === 'payment_link.paid' && linkId) {
       await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
