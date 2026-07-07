@@ -1,4 +1,5 @@
 import { IStorageFileReferenceResponse } from '@packages/storage';
+import { ShipmentResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
@@ -29,6 +30,8 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> & {
   /** Number of distinct line items in the order. */
   lineItemCount: number;
   items: OrderItemResponse[];
+  /** Shipway shipment record when the order has been pushed to Shipway. */
+  shipment: ShipmentResponse | null;
 };
 
 async function mapOrderItemToResponse(
@@ -60,6 +63,7 @@ async function mapOrderItemToResponse(
 export async function mapOrderToResponse(
   order: OrderEntity,
   enricher: StorageUrlEnricher,
+  shipment: ShipmentResponse | null = null,
 ): Promise<OrderResponse> {
   const items = await Promise.all(
     (order.items ?? []).map((item) => mapOrderItemToResponse(item, enricher)),
@@ -75,5 +79,6 @@ export async function mapOrderToResponse(
     itemCount,
     lineItemCount,
     items,
+    shipment,
   };
 }

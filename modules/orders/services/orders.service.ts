@@ -3,6 +3,8 @@ import { DataSource } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
+import { mapShipmentToResponse } from '@modules/shipping/mappers/shipment.mapper';
+import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
@@ -33,6 +35,7 @@ export class OrdersService {
     private readonly userAddressesService: UserAddressesService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly couponCheckoutService: CouponCheckoutService,
+    private readonly shippingService: ShippingService,
   ) {}
 
   checkout(userId: string, dto: CheckoutDto) {
@@ -214,7 +217,11 @@ export class OrdersService {
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    return mapOrderToResponse(order, this.storageUrlEnricher);
+
+    const shipmentEntity = await this.shippingService.getShipmentByOrderId(id);
+    const shipment = shipmentEntity ? mapShipmentToResponse(shipmentEntity) : null;
+
+    return mapOrderToResponse(order, this.storageUrlEnricher, shipment);
   }
 
   async cancel(userId: string, id: string) {
