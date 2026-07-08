@@ -14,6 +14,7 @@ import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
+import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
 
 export interface ProductCategoryFilterCriterion {
@@ -368,13 +369,6 @@ export class ProductsRepository {
     options: ProductListOptions,
   ): Promise<{ data: ProductEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
-    const SORTABLE: Record<string, string> = {
-      createdAt: 'product.createdAt',
-      name: 'product.name',
-      status: 'product.status',
-      publishedAt: 'product.publishedAt',
-    };
-    const sortColumn = (options.sortBy && SORTABLE[options.sortBy]) ?? 'product.createdAt';
     const sortOrder = options.sortOrder ?? 'DESC';
 
     const qb = this.repo
@@ -382,9 +376,10 @@ export class ProductsRepository {
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.brand', 'brand')
-      .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);
+
+    this.applyAdminListSort(qb, options.sortBy, sortOrder);
 
     if (options.search) {
       qb.andWhere(
@@ -649,6 +644,54 @@ export class ProductsRepository {
       qb.andWhere('variant.sellingPrice <= :maxPrice', {
         maxPrice: options.maxPrice,
       });
+    }
+  }
+
+  private applyAdminListSort(
+    qb: SelectQueryBuilder<ProductEntity>,
+    sortBy: string | undefined,
+    sortOrder: 'ASC' | 'DESC',
+  ): void {
+    switch (sortBy) {
+      case 'price':
+        qb.addSelect(
+          `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.deleted_at IS NULL)`,
+          'admin_sort_price',
+        );
+        qb.orderBy('admin_sort_price', sortOrder, 'NULLS LAST');
+        return;
+      case 'stock':
+        qb.addSelect(
+          `(SELECT COALESCE(SUM(pv.stock), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.deleted_at IS NULL)`,
+          'admin_sort_stock',
+        );
+        qb.orderBy('admin_sort_stock', sortOrder, 'NULLS LAST');
+        return;
+      case 'sku':
+        qb.addSelect(
+          `(SELECT MIN(pv.sku) FROM product_variants pv WHERE pv.product_id = product.id AND pv.deleted_at IS NULL)`,
+          'admin_sort_sku',
+        );
+        qb.orderBy('admin_sort_sku', sortOrder, 'NULLS LAST');
+        return;
+      default: {
+        const SORTABLE: Record<string, string> = {
+          refId: 'product.refId',
+          name: 'product.name',
+          slug: 'product.slug',
+          productType: 'product.productType',
+          status: 'product.status',
+          publishedAt: 'product.publishedAt',
+          createdAt: 'product.createdAt',
+          updatedAt: 'product.updatedAt',
+          categoryName: 'category.name',
+          brandName: 'brand.name',
+          productNatureName: 'productNature.name',
+        };
+        const resolvedSortBy = sortBy ?? DEFAULT_ADMIN_PRODUCT_LIST_SORT;
+        const sortColumn = SORTABLE[resolvedSortBy] ?? SORTABLE[DEFAULT_ADMIN_PRODUCT_LIST_SORT];
+        qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+      }
     }
   }
 

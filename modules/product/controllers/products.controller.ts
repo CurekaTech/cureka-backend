@@ -50,7 +50,11 @@ export class ProductsController {
     return this.productsService.createFromJsonBody(req.body, user.email);
   }
 
-  @ApiOperation({ summary: 'Paginated product list with filters' })
+  @ApiOperation({
+    summary: 'Paginated product list with filters',
+    description:
+      'Supports pagination, search, status/productType filters, and sorting via sortBy + sortOrder (ASC|DESC). sortBy: refId, name, slug, productType, status, categoryName, brandName, productNatureName, price, stock, sku, publishedAt, createdAt, updatedAt.',
+  })
   @ResponseMessage('Products retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
