@@ -25,9 +25,20 @@ export class ShipwayService {
   constructor(private readonly configService: ConfigService) {
     this.email = this.configService.get<string>('shipway.email') ?? '';
     this.licenseKey = this.configService.get<string>('shipway.licenseKey') ?? '';
-    this.baseUrl = (this.configService.get<string>('shipway.baseUrl') ?? 'https://app.shipway.com').replace(/\/+$/, '');
+    this.baseUrl = this.normalizeBaseUrl(this.configService.get<string>('shipway.baseUrl') ?? 'https://app.shipway.com');
     this.timeoutMs = this.configService.get<number>('shipway.timeoutMs') ?? 15000;
     this.webhookSecret = this.configService.get<string>('shipway.webhookSecret') ?? '';
+
+    this.logger.log(
+      {
+        baseUrl: this.baseUrl,
+        timeoutMs: this.timeoutMs,
+        emailConfigured: Boolean(this.email),
+        licenseKeyConfigured: Boolean(this.licenseKey),
+        webhookSecretConfigured: Boolean(this.webhookSecret),
+      },
+      'Shipway service configured',
+    );
   }
 
   pushOrder(payload: IShipwayPushOrderPayload): Promise<IShipwayPushOrderResponse> {
@@ -67,19 +78,27 @@ export class ShipwayService {
       throw new ServiceUnavailableException('Shipway credentials are not configured');
     }
 
+    this.assertApiBaseUrl();
+    const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     const requestLog = {
       path,
       method: init.method ?? 'GET',
-      body: init.body ? JSON.parse(String(init.body)) : undefined,
-      url: `${this.baseUrl}${path}`,
+      body: init.body ? this.parseRequestBodyForLog(init.body) : undefined,
+      url,
+      timeoutMs: this.timeoutMs,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: 'Basic <redacted>',
+      },
     };
     this.logger.log(requestLog, 'Shipway API request');
 
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await fetch(url, {
         ...init,
         headers: {
           Authorization: this.buildAuthHeader(),
@@ -91,20 +110,24 @@ export class ShipwayService {
       });
 
       const text = await response.text();
-      type ShipwayApiBody<U> = U & { message?: string; success?: boolean };
-      const data: ShipwayApiBody<T> = text ? JSON.parse(text) : {};
+      type ShipwayApiBody<U> = U & { message?: string; error?: string; status?: string; success?: boolean };
+      const data = this.parseResponseBody<T>(text) as ShipwayApiBody<T>;
+      const responseHeaders = Object.fromEntries(response.headers.entries());
 
       const responseLog = {
         path,
+        url,
         status: response.status,
+        statusText: response.statusText,
         ok: response.ok,
+        headers: responseHeaders,
         body: data,
       };
       this.logger.log(responseLog, 'Shipway API response');
 
       if (!response.ok) {
-        const message = data.message ?? `Shipway request failed with HTTP ${response.status}`;
-        this.logger.warn({ path, status: response.status, message }, 'Shipway API request failed');
+        const message = this.extractShipwayErrorMessage(data, response.status);
+        this.logger.warn({ path, url, status: response.status, responseHeaders, body: data, message }, 'Shipway API request failed');
         throw new ServiceUnavailableException(message);
       }
 
@@ -114,7 +137,14 @@ export class ShipwayService {
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Shipway API request failed: ${message}`);
+      this.logger.error(
+        {
+          path,
+          url,
+          error: error instanceof Error ? { name: error.name, message, stack: error.stack } : { message },
+        },
+        'Shipway API request failed with exception',
+      );
       throw new ServiceUnavailableException('Shipway API is unavailable');
     } finally {
       clearTimeout(timeout);
@@ -147,5 +177,58 @@ export class ShipwayService {
 
   private buildAuthHeader(): string {
     return `Basic ${Buffer.from(`${this.email}:${this.licenseKey}`).toString('base64')}`;
+  }
+
+  private normalizeBaseUrl(rawBaseUrl: string): string {
+    const trimmed = rawBaseUrl.trim().replace(/\/+$/, '') || 'https://app.shipway.com';
+    try {
+      const url = new URL(trimmed);
+      if (url.pathname === '/api') {
+        url.pathname = '';
+      }
+      return url.toString().replace(/\/+$/, '');
+    } catch {
+      return trimmed;
+    }
+  }
+
+  private assertApiBaseUrl(): void {
+    try {
+      const url = new URL(this.baseUrl);
+      if (/webhook|shipments\/webhook/i.test(url.pathname)) {
+        throw new ServiceUnavailableException(
+          'SHIPWAY_BASE_URL must be the Shipway API host, not the webhook endpoint',
+        );
+      }
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw new ServiceUnavailableException('SHIPWAY_BASE_URL is not a valid URL');
+    }
+  }
+
+  private parseRequestBodyForLog(body: BodyInit): unknown {
+    if (typeof body !== 'string') return body;
+
+    try {
+      return JSON.parse(body);
+    } catch {
+      return body;
+    }
+  }
+
+  private parseResponseBody<T>(text: string): T | { rawBody?: string } {
+    if (!text) return {} as T;
+
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return { rawBody: text };
+    }
+  }
+
+  private extractShipwayErrorMessage(data: { message?: string; error?: string; status?: string }, status: number): string {
+    return data.message ?? data.error ?? data.status ?? `Shipway request failed with HTTP ${status}`;
   }
 }

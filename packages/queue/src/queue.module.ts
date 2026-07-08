@@ -15,19 +15,28 @@ export class QueueModule {
         BullModule.forRootAsync({
           imports: [ConfigModule],
           inject: [ConfigService],
-          useFactory: (config: ConfigService) => ({
-            connection: {
-              host: config.get<string>('REDIS_HOST') ?? 'localhost',
-              port: config.get<number>('REDIS_PORT') ?? 6379,
-              password: config.get<string>('REDIS_PASSWORD'),
-            },
-            defaultJobOptions: {
-              removeOnComplete: 100,
-              removeOnFail: 200,
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 2000 },
-            },
-          }),
+          useFactory: (config: ConfigService) => {
+            const redisPort = Number(config.get<string | number>('REDIS_PORT') ?? 6379);
+            const redisUsername = config.get<string>('REDIS_USERNAME') || undefined;
+            const redisPassword = config.get<string>('REDIS_PASSWORD') || undefined;
+            const redisTlsEnabled = config.get<string>('REDIS_TLS') === 'true';
+
+            return {
+              connection: {
+                host: config.get<string>('REDIS_HOST') ?? 'localhost',
+                port: Number.isFinite(redisPort) ? redisPort : 6379,
+                username: redisUsername,
+                password: redisPassword,
+                tls: redisTlsEnabled ? {} : undefined,
+              },
+              defaultJobOptions: {
+                removeOnComplete: 100,
+                removeOnFail: 200,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 },
+              },
+            };
+          },
         }),
       ],
       exports: [BullModule],
