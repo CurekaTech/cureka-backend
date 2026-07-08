@@ -25,4 +25,19 @@ export class CheckoutVerifyPaymentDto {
   @IsString()
   @MaxLength(100)
   cf_payment_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiprocket_session_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiprocket_order_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiprocket_payment_id?: string;
 }

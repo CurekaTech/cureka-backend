@@ -6,6 +6,11 @@ import { IAdminSetting } from '../interfaces/admin-setting.interface';
 import { AdminSettingStatus } from '../enums/admin-setting-status.enum';
 import { AdminSettingEntity } from '../entities/admin-setting.entity';
 
+const SHIPROCKET_CHECKOUT_ENABLED_KEY = 'shiprocketCheckoutEnabled';
+const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'pay_you', 'cash_free'];
+const PAYMENT_SETTING_KEYS = [...PAYMENT_GATEWAY_KEYS, SHIPROCKET_CHECKOUT_ENABLED_KEY];
+const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY];
+
 @Injectable()
 export class AdminSettingsService {
   constructor(private readonly adminSettingsRepository: AdminSettingsRepository) {}
@@ -21,8 +26,7 @@ export class AdminSettingsService {
     const normalizedType = type.toLowerCase().trim();
 
     if (normalizedType === 'payment_setting' || normalizedType === 'payment_methods') {
-      const paymentSettingKeys = ['razor_pay', 'pay_you', 'cash_free'];
-      return response.filter((setting) => paymentSettingKeys.includes(setting.key));
+      return response.filter((setting) => PAYMENT_SETTING_KEYS.includes(setting.key));
     }
 
     if (normalizedType === 'payment_charges' || normalizedType === 'cart_charges') {
@@ -76,12 +80,10 @@ export class AdminSettingsService {
       'prepaid_charge_threshold',
     ];
 
-    const paymentMethodsKeys = ['razor_pay', 'pay_you', 'cash_free'];
-
     const allowedKeys =
       normalizedType === 'cart_charges' || normalizedType === 'payment_charges'
         ? cartChargesKeys
-        : paymentMethodsKeys;
+        : PAYMENT_SETTING_KEYS;
 
     for (const item of dto.settings) {
       if (!allowedKeys.includes(item.key)) {
@@ -89,6 +91,7 @@ export class AdminSettingsService {
           `Setting key "${item.key}" is not allowed for type "${type}"`,
         );
       }
+      this.validateSettingValue(item.key, item.value);
     }
 
     const updatedEntities = await this.adminSettingsRepository.transaction(async (manager) => {
@@ -97,9 +100,9 @@ export class AdminSettingsService {
       const existingMap = new Map(existingEntities.map((e) => [e.key, e]));
 
       if (normalizedType === 'payment_methods' || normalizedType === 'payment_setting') {
-        const activeItem = dto.settings.find((s) => s.status === AdminSettingStatus.ACTIVE);
+        const activeItem = dto.settings.find((s) => PAYMENT_GATEWAY_KEYS.includes(s.key) && s.status === AdminSettingStatus.ACTIVE);
         if (activeItem) {
-          const otherKeys = paymentMethodsKeys.filter((k) => k !== activeItem.key);
+          const otherKeys = PAYMENT_GATEWAY_KEYS.filter((k) => k !== activeItem.key);
           for (const otherKey of otherKeys) {
             await this.adminSettingsRepository.updateByKey(
               otherKey,
@@ -141,6 +144,7 @@ export class AdminSettingsService {
     if (!existing) {
       throw new NotFoundException(`Setting with key "${key}" not found`);
     }
+    this.validateSettingValue(key, dto.value);
 
     await this.adminSettingsRepository.updateByKey(key, {
       value: dto.value,
@@ -157,8 +161,6 @@ export class AdminSettingsService {
       if (!existing) {
         throw new NotFoundException(`Setting with key "${key}" not found`);
       }
-
-      const PAYMENT_GATEWAY_KEYS = ['cash_free', 'razor_pay', 'pay_you'];
 
       if (PAYMENT_GATEWAY_KEYS.includes(key) && dto.status === AdminSettingStatus.ACTIVE) {
         const otherKeys = PAYMENT_GATEWAY_KEYS.filter((k) => k !== key);
@@ -188,5 +190,16 @@ export class AdminSettingsService {
     });
 
     return mapAdminSettingEntityToResponse(updatedEntity);
+  }
+
+  private validateSettingValue(key: string, value?: string): void {
+    if (value === undefined || !BOOLEAN_SETTING_KEYS.includes(key)) {
+      return;
+    }
+
+    const normalized = value.toLowerCase().trim();
+    if (!['true', 'false', '1', '0'].includes(normalized)) {
+      throw new BadRequestException(`Setting "${key}" must be a boolean value`);
+    }
   }
 }
