@@ -12,6 +12,7 @@ import { OrderEntity } from './entities/order.entity';
 import { OrderItemEntity } from './entities/order-item.entity';
 import { CartController } from './controllers/cart.controller';
 import { OrdersController } from './controllers/orders.controller';
+import { AdminOrdersController } from './controllers/admin-orders.controller';
 import { CartsRepository } from './repositories/carts.repository';
 import { CartItemsRepository } from './repositories/cart-items.repository';
 import { CouponUsagesRepository } from './repositories/coupon-usages.repository';
@@ -39,7 +40,7 @@ import { OrdersService } from './services/orders.service';
     UploadsModule,
     ShippingModule,
   ],
-  controllers: [CartController, OrdersController],
+  controllers: [CartController, OrdersController, AdminOrdersController],
   providers: [
     CartsRepository,
     CartItemsRepository,

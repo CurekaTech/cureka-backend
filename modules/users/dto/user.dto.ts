@@ -11,6 +11,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserGender } from '../enums/user-gender.enum';
@@ -148,6 +149,19 @@ export class StaffUserQueryDto {
   @IsOptional()
   @IsIn([UserRole.VENDOR, UserRole.TELECALLER])
   role?: UserRole;
+}
+
+/**
+ * List users with optional status filter (admin panel).
+ * When `status` is omitted, both ACTIVE and INACTIVE users are returned.
+ */
+export class UserListQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsEnum(UserStatus)
+  status?: UserStatus;
 }
 
 /** Admin DTO to create a new customer user (used in payment-request wizard). */

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
+import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { mapShipmentToResponse } from '@modules/shipping/mappers/shipment.mapper';
@@ -12,11 +12,11 @@ import { CartsRepository } from '../repositories/carts.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
 import { OrdersRepository } from '../repositories/orders.repository';
 import { CheckoutDto } from '../dto/checkout.dto';
-import { OrderQueryDto, PlaceOrderDto } from '../dto/order.dto';
+import { OrderQueryDto, PlaceOrderDto, AdminOrderQueryDto } from '../dto/order.dto';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
-import { mapOrderToResponse } from '../mappers/order.mapper';
+import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
@@ -226,6 +226,36 @@ export class OrdersService {
       data.map((order) => mapOrderToResponse(order, this.storageUrlEnricher)),
     );
     return buildPaginatedResult(mapped, total, { page, limit, sortOrder: 'DESC' });
+  }
+
+  async findAllForAdmin(query: AdminOrderQueryDto) {
+    const paginationOptions = buildPaginationOptions(query);
+    const { data, total } = await this.ordersRepository.findAllPaginated({
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      search: paginationOptions.search,
+      orderStatus: query.orderStatus,
+      paymentStatus: query.paymentStatus,
+      paymentMethod: query.paymentMethod,
+      userId: query.customerId,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+      sortBy: query.sortBy,
+      sortOrder: paginationOptions.sortOrder,
+    });
+
+    const mapped = await Promise.all(
+      data.map((order) => mapOrderToAdminResponse(order, this.storageUrlEnricher)),
+    );
+    return buildPaginatedResult(mapped, total, paginationOptions);
+  }
+
+  async findOneForAdmin(idOrRefId: string) {
+    const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (!order) {
+      throw new NotFoundException(`Order ${idOrRefId} not found`);
+    }
+    return mapOrderToAdminResponse(order, this.storageUrlEnricher);
   }
 
   async findOne(userId: string, id: string) {

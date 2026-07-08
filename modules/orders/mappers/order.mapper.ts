@@ -1,3 +1,4 @@
+import { UserEntity } from '@modules/users/entities/user.entity';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 import { mapShipmentToResponse, ShipmentResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -32,6 +33,18 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> & {
   lineItemCount: number;
   items: OrderItemResponse[];
   shipment: ShipmentResponse | null;
+};
+
+export type AdminOrderCustomerResponse = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  mobileNumber: string | null;
+};
+
+export type AdminOrderResponse = OrderResponse & {
+  customer: AdminOrderCustomerResponse | null;
 };
 
 async function mapOrderItemToResponse(
@@ -80,5 +93,27 @@ export async function mapOrderToResponse(
     lineItemCount,
     items,
     shipment,
+  };
+}
+
+function mapOrderCustomer(user?: UserEntity | null): AdminOrderCustomerResponse | null {
+  if (!user) return null;
+  return {
+    id: user.id,
+    firstName: user.firstName ?? null,
+    lastName: user.lastName ?? null,
+    email: user.email ?? null,
+    mobileNumber: user.mobileNumber ?? null,
+  };
+}
+
+export async function mapOrderToAdminResponse(
+  order: OrderEntity & { user?: UserEntity | null; shipment?: ShipmentEntity | null },
+  enricher: StorageUrlEnricher,
+): Promise<AdminOrderResponse> {
+  const base = await mapOrderToResponse(order, enricher);
+  return {
+    ...base,
+    customer: mapOrderCustomer(order.user),
   };
 }
