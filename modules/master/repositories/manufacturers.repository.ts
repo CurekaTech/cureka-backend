@@ -11,6 +11,7 @@ import {
 } from '../utils/master-cursor-query.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
 @Injectable()
 export class ManufacturersRepository {
@@ -49,6 +50,10 @@ export class ManufacturersRepository {
 
   async existsByCode(code: string): Promise<boolean> {
     return (await this.repo.count({ where: { code } })) > 0;
+  }
+
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'manufacturer', name, excludeRefId);
   }
 
   async existsByCodeExcluding(code: string, excludeId: string): Promise<boolean> {

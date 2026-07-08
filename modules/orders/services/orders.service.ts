@@ -1,9 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
+import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
-import { mapShipmentToResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -12,11 +11,11 @@ import { CartsRepository } from '../repositories/carts.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
 import { OrdersRepository } from '../repositories/orders.repository';
 import { CheckoutDto } from '../dto/checkout.dto';
-import { OrderQueryDto, PlaceOrderDto } from '../dto/order.dto';
+import { OrderQueryDto, PlaceOrderDto, AdminOrderQueryDto } from '../dto/order.dto';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
-import { mapOrderToResponse } from '../mappers/order.mapper';
+import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
@@ -25,6 +24,8 @@ import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly ordersRepository: OrdersRepository,
@@ -55,7 +56,10 @@ export class OrdersService {
     }
 
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
-    const summary = await this.checkoutService.validateCheckout(userId, { addressId: dto.addressId }, dto.paymentMethod);
+    const summary = await this.checkoutService.validateCheckout(userId, {
+      addressId: dto.addressId,
+      paymentMethod: dto.paymentMethod,
+    });
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -216,14 +220,44 @@ export class OrdersService {
     return buildPaginatedResult(mapped, total, { page, limit, sortOrder: 'DESC' });
   }
 
+  async findAllForAdmin(query: AdminOrderQueryDto) {
+    const paginationOptions = buildPaginationOptions(query);
+    const { data, total } = await this.ordersRepository.findAllPaginated({
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      search: paginationOptions.search,
+      orderStatus: query.orderStatus,
+      paymentStatus: query.paymentStatus,
+      paymentMethod: query.paymentMethod,
+      userId: query.customerId,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+      sortBy: query.sortBy,
+      sortOrder: paginationOptions.sortOrder,
+    });
+
+    const mapped = await Promise.all(
+      data.map((order) => mapOrderToAdminResponse(order, this.storageUrlEnricher)),
+    );
+    return buildPaginatedResult(mapped, total, paginationOptions);
+  }
+
+  async findOneForAdmin(idOrRefId: string) {
+    const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (!order) {
+      throw new NotFoundException(`Order ${idOrRefId} not found`);
+    }
+    return mapOrderToAdminResponse(order, this.storageUrlEnricher);
+  }
+
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-
-    const shipmentEntity = await this.shippingService.getShipmentByOrderId(id);
-    const shipment = shipmentEntity ? mapShipmentToResponse(shipmentEntity) : null;
-
-    return mapOrderToResponse(order, this.storageUrlEnricher, shipment);
+    const shipment = await this.shippingService.getShipmentByOrderId(id);
+    return mapOrderToResponse(
+      { ...order, shipment },
+      this.storageUrlEnricher,
+    );
   }
 
   async cancel(userId: string, id: string) {
@@ -368,10 +402,17 @@ export class OrdersService {
         manager,
       );
       if (!order) throw new NotFoundException('Order not found after creation');
+      console.log('OrdersService.createOrderFromPaymentRequest transaction complete', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerId: params.customerId,
+      });
       return order;
     });
 
-    await this.shippingQueueService.enqueuePushOrder(order.id);
+    console.log(`OrdersService.createOrderFromPaymentRequest enqueuePushOrder orderId=${order.id}`);
+    const pushJob = await this.shippingQueueService.enqueuePushOrder(order.id);
+    console.log(`OrdersService.createOrderFromPaymentRequest queued Shipway job id=${pushJob.id} name=${pushJob.name}`);
     return order;
   }
 

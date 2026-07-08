@@ -205,6 +205,11 @@ export class PermissionsService {
             permissions: getPerms('product_informations'),
           },
           {
+            name: 'Media Gallery',
+            key: 'products-media-gallery',
+            permissions: getPerms('gallery', ['create', 'read', 'delete']),
+          },
+          {
             name: 'Bulk Upload',
             key: 'products-bulk-upload',
             permissions: getPerms('products', ['create']),

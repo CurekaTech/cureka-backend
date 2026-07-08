@@ -33,7 +33,7 @@ export const CacheKeys = {
   },
   products: {
     list: (page: number, limit: number, filters = 'all') =>
-      `products:list:${page}:${limit}:${filters}`,
+      `products:list:v2:${page}:${limit}:${filters}`,
     listPattern: () => 'products:list:*',
     detail: (refId: string) => `products:detail:${refId}`,
     detailPattern: (refId?: string) =>

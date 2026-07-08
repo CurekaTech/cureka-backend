@@ -40,6 +40,7 @@ import { generateProductSlug, assertProductUrlSlugLength, generateTagSlug } from
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
+import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
 import { ProductType } from '../enums/product-type.enum';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -275,6 +276,8 @@ export class ProductsService {
     const filters = await this.resolveListFilters(query);
     const queryHash = buildQueryCacheHash({
       ...filters,
+      productType: query.productType,
+      status: query.status,
       variantSlug: query.variantSlug,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       page: paginationOptions.page,
@@ -362,18 +365,38 @@ export class ProductsService {
       payload.slug = slug;
     }
 
-    // Only SIMPLE → VARIABLE conversion is allowed; all other type changes are blocked.
-    const effectiveProductType = dto.productType ?? existing.productType;
-    if (dto.productType && dto.productType !== existing.productType) {
-      const allowedConversion =
-        existing.productType === ProductType.SIMPLE && dto.productType === ProductType.VARIABLE;
-      if (!allowedConversion) {
+    const isSimpleToVariable =
+      existing.productType === ProductType.SIMPLE && dto.productType === ProductType.VARIABLE;
+    const isVariableToSimple =
+      existing.productType === ProductType.VARIABLE && dto.productType === ProductType.SIMPLE;
+    const isProductTypeChanging = Boolean(dto.productType && dto.productType !== existing.productType);
+
+    if (isProductTypeChanging && !isSimpleToVariable && !isVariableToSimple) {
+      throw new BadRequestException(
+        `Product type cannot be changed from "${existing.productType}" to "${dto.productType}"`,
+      );
+    }
+    if (isProductTypeChanging) {
+      payload.productType = dto.productType!;
+    }
+
+    if (isVariableToSimple) {
+      if (dto.variants && dto.variants.length !== 1) {
         throw new BadRequestException(
-          `Product type cannot be changed from "${existing.productType}" to "${dto.productType}"`,
+          'When converting to a single product, provide exactly one variant to keep',
         );
       }
-      payload.productType = dto.productType;
+      if (dto.variants?.[0]?.attributes?.length) {
+        throw new BadRequestException('Single products cannot have variant attributes');
+      }
+      if (!dto.variants && (existing.variants?.length ?? 0) > 1) {
+        throw new BadRequestException(
+          'When converting a variant product to a single product, include exactly one variant in the payload to keep',
+        );
+      }
     }
+
+    const effectiveProductType = dto.productType ?? existing.productType;
 
     const masters =
       dto.productNatureRefId ||
@@ -504,7 +527,7 @@ export class ProductsService {
           );
           await this.relationsRepository.syncProductFaqs(manager, existing.id, faqIds);
         }
-        if (dto.attributeRefIds) {
+        if (dto.attributeRefIds && !isVariableToSimple) {
           await this.relationsRepository.syncProductAttributes(
             manager,
             existing.id,
@@ -530,6 +553,19 @@ export class ProductsService {
           dto.variants,
           attributeIdByRefId,
         );
+      }
+
+      if (isVariableToSimple) {
+        await this.relationsRepository.syncProductAttributes(manager, existing.id, []);
+
+        if (!needsVariantSync && existing.variants?.length === 1) {
+          const variantId = existing.variants[0].id;
+          await manager.getRepository(VariantAttributeValueEntity).delete({ variantId });
+          await manager.getRepository(ProductVariantEntity).update(
+            { id: variantId },
+            { combinationKey: null },
+          );
+        }
       }
 
       if (needsMediaSync) {

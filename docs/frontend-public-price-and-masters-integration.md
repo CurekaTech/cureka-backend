@@ -69,6 +69,50 @@ Returns only **active** records.
 | `sortOrder` | `ASC` | `ASC` \| `DESC` |
 | `categoryHierarchyLevel` | — | Category only: `0` root, `1` child, `2` grandchild, `3` great-grandchild |
 | `parentCategoryRefId` | — | Category only: children of this parent |
+| `slug` | — | Category only: return that category with **all active descendants** nested recursively in `children` (404 if not found) |
+
+### Category by slug
+
+```http
+GET /api/v1/public/masters?type=category&slug=hair
+```
+
+Returns one item in `data` with nested `children` at every level (full subtree):
+
+```json
+{
+  "type": "category",
+  "data": [
+    {
+      "refId": "HAR20261234",
+      "name": "Moisturizer",
+      "slug": "moisturizer",
+      "children": [
+        {
+          "refId": "HAR20265678",
+          "name": "Face",
+          "slug": "face",
+          "children": [
+            {
+              "refId": "HAR20269999",
+              "name": "Day Cream",
+              "slug": "day-cream"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20,
+  "totalPages": 1,
+  "hasNextPage": false,
+  "hasPreviousPage": false
+}
+```
+
+When `slug` is set, pagination applies to the wrapper only (`total` is always `1`); the full descendant tree is returned (not paginated).
 
 ### Examples
 

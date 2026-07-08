@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   Allow,
   ArrayMinSize,
@@ -27,6 +27,10 @@ import {
 } from './variant.dto';
 import { CustomProductFaqDto, ProductInformationItemDto } from './product-support.dto';
 import { ProductCategoryFilterBindingDto, ProductCategoryFilterQueryDto } from './product-category-filter.dto';
+import {
+  ADMIN_PRODUCT_LIST_SORT_FIELDS,
+  AdminProductListSortField,
+} from '../constants/admin-product-list-sort.constants';
 
 export class ProductFileReferenceDto {
   @ApiProperty({ example: 'documents/size-charts/abc123.pdf' })
@@ -347,11 +351,15 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @MaxLength(100)
   search?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    enum: ADMIN_PRODUCT_LIST_SORT_FIELDS,
+    default: 'createdAt',
+    description:
+      'Sort field: refId, name, slug, productType, status, categoryName, brandName, productNatureName, price, stock, sku, publishedAt, createdAt, updatedAt',
+  })
   @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  sortBy?: string;
+  @IsIn([...ADMIN_PRODUCT_LIST_SORT_FIELDS])
+  sortBy?: AdminProductListSortField;
 
   @ApiPropertyOptional({ enum: ['ASC', 'DESC'] })
   @IsOptional()
@@ -365,6 +373,7 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
 
   @ApiPropertyOptional({ enum: ProductStatus })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 

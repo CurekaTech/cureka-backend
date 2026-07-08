@@ -276,6 +276,27 @@ export const MENU_HIERARCHY: MenuItem[] = [
     ],
   },
   {
+    name: 'Users',
+    key: 'users',
+    icon: 'Users',
+    subItems: [
+      {
+        name: 'Active',
+        key: 'active-users',
+        icon: 'LayoutGrid',
+        href: '/users?status=active',
+        requiredPermissions: ['users.view'],
+      },
+      {
+        name: 'Inactive',
+        key: 'inactive-users',
+        icon: 'LayoutGrid',
+        href: '/users?status=inactive',
+        requiredPermissions: ['users.view'],
+      }
+    ],
+  },
+  {
     name: 'Products',
     key: 'products',
     icon: 'Package',
@@ -300,17 +321,17 @@ export const MENU_HIERARCHY: MenuItem[] = [
             requiredPermissions: ['products.read'],
           },
           {
+            name: 'Active',
+            key: 'products-list-approved',
+            icon: '',
+            href: '/products?status=approved',
+            requiredPermissions: ['products.read'],
+          },
+          {
             name: 'Pending Review',
             key: 'products-list-pending',
             icon: '',
             href: '/products?status=pending_review',
-            requiredPermissions: ['products.read'],
-          },
-          {
-            name: 'Approved',
-            key: 'products-list-approved',
-            icon: '',
-            href: '/products?status=approved',
             requiredPermissions: ['products.read'],
           },
           {
@@ -335,34 +356,6 @@ export const MENU_HIERARCHY: MenuItem[] = [
         icon: 'ListTree',
         href: '/master/product-information',
         requiredPermissions: ['product_informations.read'],
-      },
-      {
-        name: 'Media Gallery',
-        key: 'media-gallery',
-        icon: 'Photo',
-        subItems: [
-          {
-            name: 'Upload Images',
-            key: 'media-gallery-upload',
-            icon: 'Upload',
-            href: '/gallery/upload',
-            requiredPermissions: ['gallery.create'],
-          },
-          {
-            name: 'Gallery List',
-            key: 'media-gallery-list',
-            icon: 'Photo',
-            href: '/gallery/list',
-            requiredPermissions: ['gallery.read'],
-          },
-          {
-            name: 'Delete Images',
-            key: 'media-gallery-delete',
-            icon: 'Trash',
-            href: '/gallery/delete',
-            requiredPermissions: ['gallery.delete'],
-          },
-        ],
       },
       {
         name: 'Bulk Upload',

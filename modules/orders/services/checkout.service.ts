@@ -8,7 +8,6 @@ import { CheckoutDto } from '../dto/checkout.dto';
 import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
-import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 
 @Injectable()
 export class CheckoutService {
@@ -19,7 +18,7 @@ export class CheckoutService {
     private readonly cartPricingService: CartPricingService,
   ) {}
 
-  async validateCheckout(userId: string, dto: CheckoutDto, paymentMethod?: OrderPaymentMethod): Promise<CheckoutSummary> {
+  async validateCheckout(userId: string, dto: CheckoutDto): Promise<CheckoutSummary> {
     await this.userAddressesService.findOne(userId, dto.addressId);
 
     const cart = await this.cartService.getActiveCartEntity(userId);
@@ -52,7 +51,7 @@ export class CheckoutService {
       cartId: cart.id,
       couponId: cart.couponId,
       items: lineItems,
-      paymentMethod,
+      paymentMethod: dto.paymentMethod,
       strict: true,
     });
 

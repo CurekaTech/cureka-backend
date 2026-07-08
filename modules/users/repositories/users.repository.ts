@@ -5,6 +5,9 @@ import { UserEntity } from '../entities/user.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { UserRole } from '../enums/user-role.enum';
+import { UserStatus } from '../enums/user-status.enum';
+
+type UserListOptions = PaginationOptions & { status?: UserStatus };
 
 @Injectable()
 export class UsersRepository {
@@ -87,7 +90,7 @@ export class UsersRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
     const sortOrder = options.sortOrder ?? 'DESC';
@@ -110,6 +113,10 @@ export class UsersRepository {
       .skip(skip)
       .take(take);
 
+    if (options.status) {
+      qb.andWhere('user.status = :status', { status: options.status });
+    }
+
     if (options.search) {
       qb.andWhere(
         `(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search OR user.mobileNumber ILIKE :search OR user.refId ILIKE :search)`,
@@ -123,7 +130,7 @@ export class UsersRepository {
   }
 
   async findCustomersPaginated(
-    options: PaginationOptions,
+    options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
     const sortOrder = options.sortOrder ?? 'DESC';
@@ -165,6 +172,10 @@ export class UsersRepository {
       .addOrderBy('user.createdAt', 'DESC')
       .skip(skip)
       .take(take);
+
+    if (options.status) {
+      qb.andWhere('user.status = :status', { status: options.status });
+    }
 
     if (options.search) {
       qb.andWhere(

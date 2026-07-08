@@ -20,6 +20,7 @@ import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, Category
 import { ICategory, ICategoryTree } from '../interfaces/category.interface';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
+import { resolveMasterListStatus } from '../utils/master-list-query.util';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryEntity } from '../entities/category.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
@@ -127,6 +128,10 @@ export class CategoriesService {
       this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, dto.isInShopBy ?? false),
     ]);
 
+    if (await this.categoriesRepository.existsByNameAmongSiblings(dto.name, parentCategoryId)) {
+      throw new ConflictException(`A category with name "${dto.name}" already exists at this level`);
+    }
+
     const maxSiblingPosition =
       await this.categoriesRepository.getMaxPositionAmongSiblings(parentCategoryId);
     const position = dto.position ?? maxSiblingPosition + 1;
@@ -185,10 +190,16 @@ export class CategoriesService {
       ...paginationOptions,
       hierarchyLevel: query.hierarchyLevel,
       parentCategoryId,
+      status: resolveMasterListStatus(query.status),
+      isInHeader: query.isInHeader,
+      isInShopBy: query.isInShopBy,
     };
     const queryHash = buildQueryCacheHash({
       hierarchyLevel: query.hierarchyLevel,
       parentCategoryRefId: query.parentCategoryRefId,
+      status: query.status,
+      isInHeader: query.isInHeader,
+      isInShopBy: query.isInShopBy,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -292,6 +303,24 @@ export class CategoriesService {
       this.assertCategoryFlagWithinLimit('isInHeader', hierarchyLevel, effectiveIsInHeader, existing.id),
       this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, effectiveIsInShopBy, existing.id),
     ]);
+
+    const nameToCheck = dto.name ?? existing.name;
+    if (
+      (dto.name !== undefined && dto.name !== existing.name) ||
+      dto.parentCategoryRefId !== undefined
+    ) {
+      if (
+        await this.categoriesRepository.existsByNameAmongSiblings(
+          nameToCheck,
+          parentCategoryId,
+          refId,
+        )
+      ) {
+        throw new ConflictException(
+          `A category with name "${nameToCheck}" already exists at this level`,
+        );
+      }
+    }
 
     const updatePayload: Partial<CategoryEntity> = {
       hierarchyLevel,

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UsersModule } from '@modules/users/users.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
+import { CheckoutModule } from '@modules/checkout/checkout.module';
 import { PaymentRequestEntity } from './entities/payment-request.entity';
 import { PaymentRequestItemEntity } from './entities/payment-request-item.entity';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
@@ -22,6 +23,7 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     UsersModule,
     OrdersModule,
     AdminSettingsModule,
+    CheckoutModule,
   ],
   providers: [
     PaymentRequestsRepository,

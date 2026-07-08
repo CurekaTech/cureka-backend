@@ -17,15 +17,23 @@ export class ShippingProcessor extends WorkerHost {
   }
 
   async process(job: Job<ShippingJobData, unknown, string>): Promise<unknown> {
+    console.log(`ShippingProcessor.process start jobName=${job.name} jobId=${job.id}`);
     this.logger.log(`Processing shipping job ${job.name} (${job.id})`);
 
+    let result: unknown;
     switch (job.name) {
       case SHIPPING_JOB_NAMES.PUSH_ORDER_TO_SHIPWAY:
-        return this.shippingService.pushOrderToShipway(job.data.orderId);
+        result = await this.shippingService.pushOrderToShipway(job.data.orderId);
+        break;
       case SHIPPING_JOB_NAMES.SYNC_SHIPMENT_STATUS:
-        return this.shippingService.syncShipmentStatus(job.data.orderId);
+        result = await this.shippingService.syncShipmentStatus(job.data.orderId);
+        break;
       default:
         throw new Error(`Unsupported shipping job: ${job.name}`);
     }
+
+    this.logger.log({ jobId: job.id, jobName: job.name, result }, 'Shipping job completed');
+    console.log(`ShippingProcessor.process completed jobName=${job.name} jobId=${job.id} result=${JSON.stringify(result)}`);
+    return result;
   }
 }

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
-import { CreateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto } from '../dto/user.dto';
+import { CreateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
 import { ICustomerUserListItem, IUser } from '../interfaces/user.interface';
 import {
   mapCustomerUserEntitiesToListItems,
@@ -18,7 +18,6 @@ import {
   PaginatedResult,
   generateUniqueRefId,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { SessionCacheService } from '@modules/auth/services/session-cache.service';
@@ -240,16 +239,22 @@ export class UsersService {
 
   // ── Admin-facing CRUD methods ────────────────────────────────────────────────
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IUser>> {
+  async findAll(query: UserListQueryDto): Promise<PaginatedResult<IUser>> {
     const paginationOptions = buildPaginationOptions(query);
-    const { data, total } = await this.usersRepository.findAllPaginated(paginationOptions);
+    const { data, total } = await this.usersRepository.findAllPaginated({
+      ...paginationOptions,
+      status: query.status,
+    });
     const result = buildPaginatedResult(mapUserEntitiesToResponse(data), total, paginationOptions);
     return this.storageUrlEnricher.enrichPaginated(result, [...USER_MEDIA_FIELDS]);
   }
 
-  async findCustomers(query: PaginationQueryDto): Promise<PaginatedResult<ICustomerUserListItem>> {
+  async findCustomers(query: UserListQueryDto): Promise<PaginatedResult<ICustomerUserListItem>> {
     const paginationOptions = buildPaginationOptions(query);
-    const { data, total } = await this.usersRepository.findCustomersPaginated(paginationOptions);
+    const { data, total } = await this.usersRepository.findCustomersPaginated({
+      ...paginationOptions,
+      status: query.status,
+    });
     return buildPaginatedResult(
       mapCustomerUserEntitiesToListItems(data),
       total,

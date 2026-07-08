@@ -5,9 +5,12 @@ import { CategoriesRepository } from '@modules/master/repositories/categories.re
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicMasterQueryDto } from '../dto/public-master-query.dto';
 import { PublicMasterType } from '../enums/public-master-type.enum';
-import { IPublicMasterListResponse } from '../interfaces/public-master.interface';
+import { IPublicMasterListResponse, IPublicCategoryListItem } from '../interfaces/public-master.interface';
 import { mapBrandEntitiesToPublicListItems } from '../mappers/public-brand.mapper';
-import { mapCategoryEntitiesToPublicListItems } from '../mappers/public-category.mapper';
+import {
+  buildPublicCategoryListTree,
+  mapCategoryEntitiesToPublicListItems,
+} from '../mappers/public-category.mapper';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { IPublicCoupon } from '../interfaces/public-coupon.interface';
 import { mapCouponEntitiesToPublic } from '../mappers/public-coupon.mapper';
@@ -44,6 +47,10 @@ export class PublicCommonService {
       }
 
       case PublicMasterType.CATEGORY: {
+        if (query.slug) {
+          return this.findCategoryBySlug(query);
+        }
+
         const parentCategoryId = await this.resolveParentCategoryId(query.parentCategoryRefId);
         const { data, total } = await this.categoriesRepository.findPublicPaginated({
           ...paginationOptions,
@@ -58,6 +65,47 @@ export class PublicCommonService {
         };
       }
     }
+  }
+
+  private async findCategoryBySlug(
+    query: PublicMasterQueryDto,
+  ): Promise<IPublicMasterListResponse<IPublicCategoryListItem>> {
+    const category = await this.categoriesRepository.findActiveBySlug(query.slug!);
+    if (!category) {
+      throw new NotFoundException(`Category with slug "${query.slug}" not found`);
+    }
+
+    const descendants = await this.categoriesRepository.findActiveDescendantsOf(category.id);
+    const mapped = buildPublicCategoryListTree(category, descendants);
+    const enriched = await this.enrichCategoryListItemTree(mapped);
+
+    const paginationOptions = buildPaginationOptions(query);
+
+    return {
+      type: query.type,
+      data: [enriched],
+      total: 1,
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    };
+  }
+
+  private async enrichCategoryListItemTree(
+    item: IPublicCategoryListItem,
+  ): Promise<IPublicCategoryListItem> {
+    const enriched = await this.storageUrlEnricher.enrichFields(item, [...CATEGORY_MEDIA_FIELDS]);
+    if (!item.children?.length) {
+      return enriched;
+    }
+
+    const enrichedChildren = await Promise.all(
+      item.children.map((child) => this.enrichCategoryListItemTree(child)),
+    );
+
+    return { ...enriched, children: enrichedChildren };
   }
 
   private async resolveParentCategoryId(

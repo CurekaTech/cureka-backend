@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { SubscriptionFrequencyEntity } from '../entities/subscription-frequency.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
 @Injectable()
 export class SubscriptionFrequenciesRepository {
@@ -23,6 +24,10 @@ export class SubscriptionFrequenciesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'subscriptionFrequency', name, excludeRefId);
   }
 
   async updateByRefId(

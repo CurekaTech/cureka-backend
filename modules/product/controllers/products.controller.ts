@@ -50,7 +50,11 @@ export class ProductsController {
     return this.productsService.createFromJsonBody(req.body, user.email);
   }
 
-  @ApiOperation({ summary: 'Paginated product list with filters' })
+  @ApiOperation({
+    summary: 'Paginated product list with filters',
+    description:
+      'Supports pagination, search, status/productType filters, and sorting via sortBy + sortOrder (ASC|DESC). sortBy: refId, name, slug, productType, status, categoryName, brandName, productNatureName, price, stock, sku, publishedAt, createdAt, updatedAt.',
+  })
   @ResponseMessage('Products retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
@@ -100,7 +104,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Update product metadata and mappings',
     description:
-      'JSON or multipart/form-data. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
+      'JSON or multipart/form-data. Product type may be changed between simple (single) and variable (variant); when converting variable → simple, send exactly one variant (without attributes) to keep. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product updated successfully')

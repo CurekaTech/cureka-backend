@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { PaginationQueryDto, RefIdPipe, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
@@ -10,7 +10,7 @@ import { IUserSessionContext } from '@modules/auth/interfaces/session.interface'
 import { UploadsService } from '@modules/uploads/services/uploads.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { UsersService } from '../services/users.service';
-import { UpdateUserProfileDto } from '../dto/user.dto';
+import { UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
 import { IUser } from '../interfaces/user.interface';
 
 /**
@@ -27,12 +27,13 @@ export class UsersController {
   /**
    * GET /api/v1/users
    * Paginated list of all website users (super admin only).
+   * Optional `status` filter (ACTIVE | INACTIVE); omit to return all users.
    */
   @ResponseMessage('Users retrieved successfully')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: UserListQueryDto) {
     return this.usersService.findAll(query);
   }
 
@@ -44,7 +45,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get('customers')
-  findCustomers(@Query() query: PaginationQueryDto) {
+  findCustomers(@Query() query: UserListQueryDto) {
     return this.usersService.findCustomers(query);
   }
 
