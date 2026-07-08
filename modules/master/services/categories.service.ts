@@ -20,6 +20,7 @@ import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, Category
 import { ICategory, ICategoryTree } from '../interfaces/category.interface';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
+import { resolveMasterListStatus } from '../utils/master-list-query.util';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryEntity } from '../entities/category.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
@@ -189,10 +190,16 @@ export class CategoriesService {
       ...paginationOptions,
       hierarchyLevel: query.hierarchyLevel,
       parentCategoryId,
+      status: resolveMasterListStatus(query.status),
+      isInHeader: query.isInHeader,
+      isInShopBy: query.isInShopBy,
     };
     const queryHash = buildQueryCacheHash({
       hierarchyLevel: query.hierarchyLevel,
       parentCategoryRefId: query.parentCategoryRefId,
+      status: query.status,
+      isInHeader: query.isInHeader,
+      isInShopBy: query.isInShopBy,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,

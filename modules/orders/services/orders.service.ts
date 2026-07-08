@@ -58,7 +58,10 @@ export class OrdersService {
     }
 
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
-    const summary = await this.checkoutService.validateCheckout(userId, { addressId: dto.addressId }, dto.paymentMethod);
+    const summary = await this.checkoutService.validateCheckout(userId, {
+      addressId: dto.addressId,
+      paymentMethod: dto.paymentMethod,
+    });
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');

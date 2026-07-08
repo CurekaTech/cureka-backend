@@ -14,7 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { IsRefId } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from './master-list-query.dto';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 
@@ -141,7 +141,7 @@ export class CategoryPlacementQueryDto {
   parentCategoryRefId?: string;
 }
 
-export class CategoryQueryDto extends PaginationQueryDto {
+export class CategoryQueryDto extends MasterListQueryDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (value === undefined || value === null || value === '') return undefined;
@@ -154,4 +154,14 @@ export class CategoryQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsRefId()
   parentCategoryRefId?: string;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  isInHeader?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  isInShopBy?: boolean;
 }
