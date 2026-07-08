@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
+import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { IHomepageBannersBundle, IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
@@ -11,6 +12,9 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { IPublicBestSellersSection } from '../interfaces/public-best-sellers.interface';
+import { IPublicWatchAndShopItem, IPublicWatchAndShopSection } from '../interfaces/public-watch-and-shop.interface';
+import { IPublicHealthReadsSection } from '../interfaces/public-health-reads.interface';
+import { BlogPostsService } from '@modules/blog/services/blog-posts.service';
 import {
   IPublicBrandBannersSection,
   IPublicHeroBannerSection,
@@ -52,6 +56,8 @@ export class HomepageService {
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly brandsRepository: BrandsRepository,
     private readonly bannersService: BannersService,
+    private readonly watchAndShopService: WatchAndShopService,
+    private readonly blogPostsService: BlogPostsService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
@@ -164,6 +170,54 @@ export class HomepageService {
     }));
 
     return { categories: tabs };
+  }
+
+  async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.watchAndShop(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadWatchAndShopUncached(),
+    });
+  }
+
+  /** Used by cache refresh after Watch & Shop item mutations. */
+  async loadWatchAndShopUncached(): Promise<IPublicWatchAndShopSection> {
+    const storefrontItems = await this.watchAndShopService.loadWatchAndShopUncached();
+    if (!storefrontItems.length) {
+      return { items: [] };
+    }
+
+    const productRefIds = [...new Set(storefrontItems.map((item) => item.productRefId))];
+    const products = await this.productsRepository.findPublishedByRefIds(productRefIds);
+    const productByRefId = new Map(products.map((product) => [product.refId, product]));
+
+    const items = (
+      await Promise.all(
+        storefrontItems.map(async (item) => {
+          const product = productByRefId.get(item.productRefId);
+          if (!product) return null;
+
+          return {
+            refId: item.refId,
+            title: item.title,
+            videoUrl: item.videoUrl,
+            mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
+            sortOrder: item.sortOrder,
+            product: mapProductEntitiesToPublicCards([product])[0]!,
+          };
+        }),
+      )
+    ).filter((item): item is IPublicWatchAndShopItem => item !== null);
+
+    return { items };
+  }
+
+  async getHealthReads(): Promise<IPublicHealthReadsSection> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.healthReads(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.blogPostsService.loadHealthReadsUncached(),
+    });
   }
 
   async getShopByWellnessGoals(): Promise<IPublicWellnessGoalCard[]> {

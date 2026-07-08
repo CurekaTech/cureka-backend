@@ -12,6 +12,7 @@ import { UserSessionsRepository } from './repositories/user-sessions.repository'
 import { SessionService } from './services/session.service';
 import { SessionCacheService } from './services/session-cache.service';
 import { SessionCookieGuard } from './guards/session-cookie.guard';
+import { OptionalSessionCookieGuard } from './guards/optional-session-cookie.guard';
 import { AdminAuthController } from './controllers/admin-auth.controller';
 import { UserAuthController } from './controllers/user-auth.controller';
 import { AuthController } from './controllers/auth.controller';
@@ -45,6 +46,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     SessionCacheService,
     VerifiedUserGuard,
     SessionCookieGuard,
+    OptionalSessionCookieGuard,
   ],
   exports: [
     CoreAuthModule,
@@ -54,6 +56,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     SessionCacheService,
     VerifiedUserGuard,
     SessionCookieGuard,
+    OptionalSessionCookieGuard,
   ],
 })
 export class AuthModule {}

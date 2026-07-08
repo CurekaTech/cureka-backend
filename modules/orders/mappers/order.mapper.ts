@@ -3,6 +3,7 @@ import { ShipmentResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
+import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { resolvePrimaryProductImageRef } from '../utils/resolve-primary-product-image.util';
 
 export type OrderItemResponse = {
@@ -61,7 +62,7 @@ async function mapOrderItemToResponse(
 }
 
 export async function mapOrderToResponse(
-  order: OrderEntity,
+  order: OrderEntity & { shipment?: ShipmentEntity | null },
   enricher: StorageUrlEnricher,
   shipment: ShipmentResponse | null = null,
 ): Promise<OrderResponse> {
@@ -72,13 +73,13 @@ export async function mapOrderToResponse(
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const lineItemCount = items.length;
 
-  const { user: _user, items: _items, ...orderFields } = order;
+  const { user: _user, items: _items, shipment: _shipment, ...orderFields } = order;
 
   return {
     ...orderFields,
     itemCount,
     lineItemCount,
     items,
-    shipment,
+    shipment: shipment ?? null,
   };
 }
