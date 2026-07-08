@@ -16,6 +16,9 @@ import { buildSkipTake } from '@packages/database';
 interface CategoryFindOptions extends PaginationOptions {
   hierarchyLevel?: CategoryHierarchyLevel;
   parentCategoryId?: string | null;
+  status?: MasterStatus;
+  isInHeader?: boolean;
+  isInShopBy?: boolean;
 }
 
 @Injectable()
@@ -249,6 +252,15 @@ export class CategoriesRepository {
           parentCategoryId: options.parentCategoryId,
         });
       }
+    }
+    if (options.status != null) {
+      qb.andWhere('category.status = :status', { status: options.status });
+    }
+    if (options.isInHeader !== undefined) {
+      qb.andWhere('category.isInHeader = :isInHeader', { isInHeader: options.isInHeader });
+    }
+    if (options.isInShopBy !== undefined) {
+      qb.andWhere('category.isInShopBy = :isInShopBy', { isInShopBy: options.isInShopBy });
     }
 
     const [data, total] = await qb.getManyAndCount();
