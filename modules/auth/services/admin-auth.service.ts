@@ -276,6 +276,27 @@ export const MENU_HIERARCHY: MenuItem[] = [
     ],
   },
   {
+    name: 'Users',
+    key: 'users',
+    icon: 'Users',
+    subItems: [
+      {
+        name: 'Active',
+        key: 'active-users',
+        icon: 'LayoutGrid',
+        href: '/users?status=active',
+        requiredPermissions: ['users.view'],
+      },
+      {
+        name: 'Inactive',
+        key: 'inactive-users',
+        icon: 'LayoutGrid',
+        href: '/users?status=inactive',
+        requiredPermissions: ['users.view'],
+      }
+    ],
+  },
+  {
     name: 'Products',
     key: 'products',
     icon: 'Package',
@@ -300,17 +321,17 @@ export const MENU_HIERARCHY: MenuItem[] = [
             requiredPermissions: ['products.read'],
           },
           {
+            name: 'Active',
+            key: 'products-list-approved',
+            icon: '',
+            href: '/products?status=approved',
+            requiredPermissions: ['products.read'],
+          },
+          {
             name: 'Pending Review',
             key: 'products-list-pending',
             icon: '',
             href: '/products?status=pending_review',
-            requiredPermissions: ['products.read'],
-          },
-          {
-            name: 'Approved',
-            key: 'products-list-approved',
-            icon: '',
-            href: '/products?status=approved',
             requiredPermissions: ['products.read'],
           },
           {
