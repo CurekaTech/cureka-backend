@@ -3,7 +3,6 @@ import { DataSource } from 'typeorm';
 import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
-import { mapShipmentToResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -21,7 +20,6 @@ import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 import { ShippingQueueService } from '@modules/shipping/services/shipping-queue.service';
-import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
@@ -39,8 +37,8 @@ export class OrdersService {
     private readonly userAddressesService: UserAddressesService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly couponCheckoutService: CouponCheckoutService,
+    private readonly shippingService: ShippingService,
     private readonly shippingQueueService: ShippingQueueService,
-    private readonly shipmentsRepository: ShipmentsRepository,
   ) {}
 
   checkout(userId: string, dto: CheckoutDto) {
@@ -255,7 +253,7 @@ export class OrdersService {
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    const shipment = await this.shipmentsRepository.findByOrderId(id);
+    const shipment = await this.shippingService.getShipmentByOrderId(id);
     return mapOrderToResponse(
       { ...order, shipment },
       this.storageUrlEnricher,

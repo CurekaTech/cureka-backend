@@ -26,6 +26,8 @@ import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.modu
 import { WishlistModule } from '@modules/wishlist/wishlist.module';
 import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
+import { SupportModule } from '@modules/support/support.module';
+import { BlogModule } from '@modules/blog/blog.module';
 
 @Module({
   imports: [
@@ -75,6 +77,8 @@ import { ShippingModule } from '@modules/shipping/shipping.module';
     WishlistModule,
     GalleryModule,
     ShippingModule,
+    SupportModule,
+    BlogModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

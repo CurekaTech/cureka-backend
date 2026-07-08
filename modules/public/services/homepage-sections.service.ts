@@ -32,6 +32,8 @@ export class HomepageSectionsService {
     [HomeSectionType.FESTIVAL_BANNERS]: () => this.homepageService.getFestivalBanners(),
     [HomeSectionType.BRAND_BANNERS]: () => this.homepageService.getBrandBanners(),
     [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
+    [HomeSectionType.WATCH_AND_SHOP]: () => this.homepageService.getWatchAndShop(),
+    [HomeSectionType.HEALTH_READS]: () => this.homepageService.getHealthReads(),
   };
 
   constructor(

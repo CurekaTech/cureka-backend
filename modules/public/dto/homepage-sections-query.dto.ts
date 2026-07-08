@@ -53,6 +53,16 @@ export class HomepageSectionsQueryDto {
   @IsOptional()
   @Transform(parseBoolean)
   @IsBoolean()
+  watchAndShop?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  healthReads?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
   featuredProducts?: boolean;
 }
 
@@ -68,6 +78,8 @@ export const resolveHomepageSectionsFromFlags = (
     [HomepageSectionKey.FESTIVAL_BANNERS, query.festivalBanners],
     [HomepageSectionKey.BRAND_BANNERS, query.brandBanners],
     [HomepageSectionKey.BEST_SELLERS, query.bestSellers],
+    [HomepageSectionKey.WATCH_AND_SHOP, query.watchAndShop],
+    [HomepageSectionKey.HEALTH_READS, query.healthReads],
     [HomepageSectionKey.FEATURED_PRODUCTS, query.featuredProducts],
   ];
 
