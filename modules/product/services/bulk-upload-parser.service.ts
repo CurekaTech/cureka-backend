@@ -5,6 +5,7 @@ import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.in
 import {
   BulkUploadProductInformationLabel,
   isFixedBulkUploadColumn,
+  isDeprecatedBulkUploadColumn,
   normalizeBulkUploadHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
@@ -591,6 +592,10 @@ export class BulkUploadParserService {
 
     for (const [normalizedHeader, columnIndex] of headerMap.entries()) {
       if (isFixedBulkUploadColumn(normalizedHeader)) {
+        continue;
+      }
+
+      if (isDeprecatedBulkUploadColumn(normalizedHeader)) {
         continue;
       }
 

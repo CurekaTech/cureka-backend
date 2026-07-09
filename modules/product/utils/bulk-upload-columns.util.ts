@@ -191,6 +191,26 @@ export const resolveProductInformationLabelName = (
 export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
   FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
 
+/**
+ * Legacy columns removed from the current template.
+ * Old spreadsheets may still include these headers — they are ignored (not imported).
+ */
+export const DEPRECATED_BULK_UPLOAD_COLUMNS = new Set(
+  [
+    'Usage and Safety',
+    'Ingredients and Nutrition',
+    'Compliance Detail',
+    'Additional Info',
+    'Indications',
+    'Kit Contains',
+    'Offers',
+    'Key Features',
+  ].map(normalizeBulkUploadHeader),
+);
+
+export const isDeprecatedBulkUploadColumn = (normalizedHeader: string): boolean =>
+  DEPRECATED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
+
 export const buildBulkUploadTemplateHeaders = (
   productInformationLabelNames: string[],
 ): string[] => {

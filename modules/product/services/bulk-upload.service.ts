@@ -233,6 +233,7 @@ export class BulkUploadService {
         fileUrl: record.fileUrl,
         imagesZipUrl: record.imagesZipUrl,
         errorFileUrl: record.errorFileUrl,
+        errorSummary: record.errorSummary,
         totalRows: record.totalRows,
         processedRows: record.processedRows,
         successfulRows: record.successfulRows,
