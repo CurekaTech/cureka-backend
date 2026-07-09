@@ -1,7 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { generateUniqueRefId } from '@packages/common';
-import { CreateUserAddressDto, UpdateUserAddressDto } from '../dto/user-address.dto';
+import {
+  AdminCustomerAddressDto,
+  CreateUserAddressDto,
+  UpdateUserAddressDto,
+} from '../dto/user-address.dto';
 import { UserAddressEntity } from '../entities/user-address.entity';
 import { IUserAddress } from '../interfaces/user-address.interface';
 import { mapUserAddressEntityToResponse } from '../mappers/user-address.mapper';
@@ -49,6 +53,149 @@ export class UserAddressesService {
 
       return mapUserAddressEntityToResponse(created);
     });
+  }
+
+  async createMany(userId: string, dtos: CreateUserAddressDto[]): Promise<IUserAddress[]> {
+    if (!dtos.length) return [];
+
+    return this.dataSource.transaction(async (manager) => {
+      const existingCount = await this.addressesRepository.countByUserId(userId, manager);
+      const explicitDefaultIndex = dtos.findIndex((dto) => dto.isDefault === true);
+      const shouldSetDefault = explicitDefaultIndex >= 0 || existingCount === 0;
+
+      if (shouldSetDefault) {
+        await this.addressesRepository.clearDefaultForUser(userId, undefined, manager);
+      }
+
+      const created: IUserAddress[] = [];
+      for (let index = 0; index < dtos.length; index += 1) {
+        const dto = dtos[index];
+        const isDefault =
+          dto.isDefault === true ||
+          (explicitDefaultIndex < 0 && existingCount === 0 && index === 0);
+
+        created.push(
+          await this.createAddressRecord(userId, dto, isDefault, manager),
+        );
+      }
+
+      return created;
+    });
+  }
+
+  /**
+   * Upsert customer addresses from admin panel.
+   * Items with refId are updated; items without refId are created.
+   * Existing addresses omitted from the payload are soft-deleted.
+   */
+  async syncForUser(
+    userId: string,
+    addresses: AdminCustomerAddressDto[],
+  ): Promise<IUserAddress[]> {
+    return this.dataSource.transaction(async (manager) => {
+      const existing = await manager.getRepository(UserAddressEntity).find({
+        where: { userId },
+      });
+      const existingByRefId = new Map(existing.map((address) => [address.refId, address]));
+      const payloadRefIds = new Set(
+        addresses.map((address) => address.refId).filter((refId): refId is string => !!refId),
+      );
+
+      for (const address of existing) {
+        if (!payloadRefIds.has(address.refId)) {
+          await this.addressesRepository.softDeleteById(address.id, manager);
+        }
+      }
+
+      if (addresses.some((address) => address.isDefault === true)) {
+        await this.addressesRepository.clearDefaultForUser(userId, undefined, manager);
+      }
+
+      const synced: IUserAddress[] = [];
+      let createdCount = 0;
+
+      for (const dto of addresses) {
+        if (dto.refId) {
+          const owned = existingByRefId.get(dto.refId);
+          if (!owned) {
+            throw new NotFoundException(`Address with refId "${dto.refId}" not found`);
+          }
+
+          if (dto.isDefault === true) {
+            await this.addressesRepository.clearDefaultForUser(userId, owned.id, manager);
+          }
+
+          const updated = await this.addressesRepository.updateById(
+            owned.id,
+            {
+              recipientName: dto.recipientName,
+              phoneNumber: dto.phoneNumber,
+              pincode: dto.pincode,
+              addressLine1: dto.addressLine1,
+              addressLine2: dto.addressLine2 ?? null,
+              landmark: dto.landmark ?? null,
+              city: dto.city,
+              state: dto.state,
+              addressType: dto.addressType,
+              ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
+              updatedBy: userId,
+            },
+            manager,
+          );
+
+          if (!updated) {
+            throw new NotFoundException(`Address with refId "${dto.refId}" not found`);
+          }
+
+          synced.push(mapUserAddressEntityToResponse(updated));
+          continue;
+        }
+
+        const remaining = await this.addressesRepository.countByUserId(userId, manager);
+        const isDefault =
+          dto.isDefault === true || (remaining === 0 && createdCount === 0);
+
+        synced.push(
+          await this.createAddressRecord(userId, dto, isDefault, manager),
+        );
+        createdCount += 1;
+      }
+
+      return synced;
+    });
+  }
+
+  private async createAddressRecord(
+    userId: string,
+    dto: CreateUserAddressDto,
+    isDefault: boolean,
+    manager: EntityManager,
+  ): Promise<IUserAddress> {
+    const refId = await generateUniqueRefId(dto.recipientName, (candidate) =>
+      this.addressesRepository.existsByRefId(candidate),
+    );
+
+    const created = await this.addressesRepository.create(
+      {
+        refId,
+        userId,
+        recipientName: dto.recipientName,
+        phoneNumber: dto.phoneNumber,
+        pincode: dto.pincode,
+        addressLine1: dto.addressLine1,
+        addressLine2: dto.addressLine2 ?? null,
+        landmark: dto.landmark ?? null,
+        city: dto.city,
+        state: dto.state,
+        addressType: dto.addressType,
+        isDefault,
+        createdBy: userId,
+        updatedBy: userId,
+      },
+      manager,
+    );
+
+    return mapUserAddressEntityToResponse(created);
   }
 
   async findAll(userId: string): Promise<IUserAddress[]> {

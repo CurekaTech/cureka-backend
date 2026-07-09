@@ -10,6 +10,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { IsRefId } from '@packages/common';
 import {
   INDIAN_MOBILE_REGEX,
   INDIAN_MOBILE_VALIDATION_MESSAGE,
@@ -96,3 +97,11 @@ export class CreateUserAddressDto {
 }
 
 export class UpdateUserAddressDto extends PartialType(CreateUserAddressDto) {}
+
+/** Admin customer wizard — create or update an address (refId present = update). */
+export class AdminCustomerAddressDto extends CreateUserAddressDto {
+  @ApiPropertyOptional({ example: 'RAH20261234', description: 'Omit to create; include to update existing address' })
+  @IsOptional()
+  @IsRefId()
+  refId?: string;
+}

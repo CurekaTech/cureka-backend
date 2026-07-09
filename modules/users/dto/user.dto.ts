@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -9,6 +10,7 @@ import {
   IsUrl,
   Matches,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { PaginationQueryDto } from '@packages/common';
@@ -16,6 +18,7 @@ import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserGender } from '../enums/user-gender.enum';
 import { UserMaritalStatus } from '../enums/user-marital-status.enum';
+import { AdminCustomerAddressDto, CreateUserAddressDto } from './user-address.dto';
 import {
   INDIAN_MOBILE_REGEX,
   INDIAN_MOBILE_VALIDATION_MESSAGE,
@@ -70,6 +73,15 @@ export class UpdateUserProfileAdminDto extends UpdateUserProfileDto {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+}
+
+/** Admin customer update — profile fields plus address sync. */
+export class UpdateAdminCustomerDto extends UpdateUserProfileAdminDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminCustomerAddressDto)
+  addresses?: AdminCustomerAddressDto[];
 }
 
 /** Create vendor / telecaller staff in users table (admin panel). */
@@ -186,4 +198,10 @@ export class CreateAdminCustomerDto {
   @IsEmail()
   @MaxLength(255)
   email?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateUserAddressDto)
+  addresses?: CreateUserAddressDto[];
 }

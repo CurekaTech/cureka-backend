@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
-import { CreateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
+import { CreateAdminCustomerDto, UpdateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
 import { ICustomerUserListItem, IUser } from '../interfaces/user.interface';
 import {
   mapCustomerUserEntitiesToListItems,
@@ -24,6 +24,7 @@ import { SessionCacheService } from '@modules/auth/services/session-cache.servic
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { RolesRepository } from '@modules/roles/repositories/roles.repository';
 import { RoleEntity } from '@modules/roles/entities/role.entity';
+import { UserAddressesService } from './user-addresses.service';
 
 const USER_MEDIA_FIELDS = ['profileImageUrl'] as const;
 
@@ -34,6 +35,7 @@ export class UsersService {
     private readonly sessionCacheService: SessionCacheService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly rolesRepository: RolesRepository,
+    private readonly userAddressesService: UserAddressesService,
   ) {}
 
   private mapProfileDtoToEntity(dto: UpdateUserProfileDto): Partial<UserEntity> {
@@ -121,6 +123,10 @@ export class UsersService {
       createdBy,
       updatedBy: createdBy,
     });
+
+    if (dto.addresses?.length) {
+      await this.userAddressesService.createMany(entity.id, dto.addresses);
+    }
 
     return this.enrichUser(mapUserEntityToResponse(entity));
   }
@@ -268,6 +274,44 @@ export class UsersService {
       throw new NotFoundException(`User with refId ${refId} not found`);
     }
     return this.enrichUser(mapUserEntityToResponse(entity));
+  }
+
+  async updateCustomer(refId: string, dto: UpdateAdminCustomerDto): Promise<IUser> {
+    const existing = await this.usersRepository.findByRefId(refId);
+    if (!existing) {
+      throw new NotFoundException(`User with refId ${refId} not found`);
+    }
+
+    if (dto.email && dto.email !== existing.email) {
+      const emailTaken = await this.usersRepository.existsByEmail(dto.email);
+      if (emailTaken) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    if (dto.mobileNumber && dto.mobileNumber !== existing.mobileNumber) {
+      const mobileTaken = await this.usersRepository.isMobileTakenByOther(
+        dto.mobileNumber,
+        existing.id,
+      );
+      if (mobileTaken) {
+        throw new ConflictException('Mobile number is already in use');
+      }
+    }
+
+    const updated = await this.usersRepository.updateByRefId(
+      refId,
+      this.mapProfileDtoToEntity(dto),
+    );
+    if (!updated) {
+      throw new NotFoundException(`User with refId ${refId} not found after update`);
+    }
+
+    if (dto.addresses !== undefined) {
+      await this.userAddressesService.syncForUser(existing.id, dto.addresses);
+    }
+
+    return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   async update(refId: string, dto: UpdateUserProfileAdminDto): Promise<IUser> {
