@@ -80,6 +80,30 @@ export class ProductVariantEntity {
 
 
 
+  @Column({ name: 'gtin_number', type: 'varchar', length: 100, nullable: true })
+
+  gtinNumber!: string | null;
+
+
+
+  @Column({ name: 'hsn_code', type: 'varchar', length: 50, nullable: true })
+
+  hsnCode!: string | null;
+
+
+
+  @Column({ name: 'batch_number', type: 'varchar', length: 100, nullable: true })
+
+  batchNumber!: string | null;
+
+
+
+  @Column({ name: 'expiry_date', type: 'date', nullable: true })
+
+  expiryDate!: string | null;
+
+
+
   @Column({ type: 'decimal', precision: 12, scale: 2 })
 
   mrp!: string;

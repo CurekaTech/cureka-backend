@@ -20,6 +20,12 @@ type SpecificationFields = Pick<
   | 'metaDescription'
   | 'metaKeywords'
   | 'sizeChart'
+  | 'externalProductId'
+  | 'singleProductUrl'
+  | 'packMetadata'
+  | 'manufacturerAddress'
+  | 'packerAddress'
+  | 'importerAddress'
 >;
 
 export const mapSpecificationFields = (
@@ -44,4 +50,16 @@ export const mapSpecificationFields = (
   ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription ?? null }),
   ...(dto.metaKeywords !== undefined && { metaKeywords: dto.metaKeywords ?? null }),
   ...(dto.sizeChart !== undefined && { sizeChart: dto.sizeChart ?? null }),
+  ...(dto.externalProductId !== undefined && { externalProductId: dto.externalProductId ?? null }),
+  ...(dto.singleProductUrl !== undefined && { singleProductUrl: dto.singleProductUrl ?? null }),
+  ...(dto.packMetadata !== undefined && { packMetadata: dto.packMetadata ?? [] }),
+  ...(dto.manufacturerAddress !== undefined && {
+    manufacturerAddress: dto.manufacturerAddress ?? null,
+  }),
+  ...(dto.packerAddress !== undefined && {
+    packerAddress: dto.packerAddress ?? null,
+  }),
+  ...(dto.importerAddress !== undefined && {
+    importerAddress: dto.importerAddress ?? null,
+  }),
 });
