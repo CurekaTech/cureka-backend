@@ -159,6 +159,7 @@ export class OrdersService {
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
 
+      
       if (appliedCoupon) {
         await this.couponCheckoutService.validateCoupon(appliedCoupon, {
           userId,
