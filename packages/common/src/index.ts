@@ -27,3 +27,4 @@ export {
 } from './validation-error.util';
 export type { ValidationErrorDetail } from './validation-error.util';
 export { LoggingValidationPipe } from './pipes/logging-validation.pipe';
+export { PathAwareLoggingValidationPipe } from './pipes/path-aware-logging-validation.pipe';
