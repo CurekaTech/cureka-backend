@@ -20,6 +20,7 @@ import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
+import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
@@ -39,6 +40,7 @@ export class OrdersService {
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
+    private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
   ) {}
 
   
@@ -211,6 +213,7 @@ export class OrdersService {
     });
 
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
+    await this.enqueueUnicommercePush(order.id);
     return this.findOne(userId, order.id);
   }
 
@@ -419,8 +422,18 @@ export class OrdersService {
     });
 
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'payment-request-order');
+    await this.enqueueUnicommercePush(order.id);
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
+  }
+
+  private async enqueueUnicommercePush(orderId: string): Promise<void> {
+    try {
+      await this.unicommerceOrderQueueService.enqueuePushOrder(orderId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to enqueue UniCommerce push for order ${orderId}: ${message}`);
+    }
   }
 
   private async pushOrderToShipwaySafely(orderId: string, orderNumber: string, source: string): Promise<void> {

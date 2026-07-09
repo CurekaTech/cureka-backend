@@ -3,6 +3,7 @@ export const QUEUE_NAMES = {
   EMAILS: 'emails',
   ORDER_PROCESSING: 'order-processing',
   ANALYTICS: 'analytics',
+  UNICOMMERCE: 'unicommerce',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
