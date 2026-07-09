@@ -651,10 +651,25 @@ export class BulkUploadParserService {
     getRichVal: (colName: string) => string,
   ): Array<{ label: string; description: string; sortOrder?: number }> {
     const explicitColumns: Array<{ header: string; label: string }> = [
-      { header: 'key benefits', label: 'Key Benefits' },
-      { header: 'expert advice', label: 'Expert Advice' },
+      { header: 'product highlights', label: 'Product Highlights' },
+      { header: 'safety information', label: 'Safety Information' },
+      { header: 'feeding table', label: 'Feeding Table' },
+      { header: 'direction of use', label: 'Direction of Use' },
+      { header: 'preventive note', label: 'Preventive Note' },
       { header: 'key ingredients', label: 'Key Ingredients' },
+      { header: 'description', label: 'Description' },
+      { header: 'size chart', label: 'Size Chart' },
+      { header: 'accessories', label: 'Accessories' },
       { header: 'other ingredients', label: 'Other Ingredients' },
+      { header: 'expert advice', label: 'Expert Advice' },
+      { header: 'key benefits', label: 'Key Benefits' },
+      { header: 'usage and safety', label: 'Usage and Safety' },
+      { header: 'ingredients and nutrition', label: 'Ingredients and Nutrition' },
+      { header: 'compliance detail', label: 'Compliance Detail' },
+      { header: 'additional info', label: 'Additional Info' },
+      { header: 'indications', label: 'Indications' },
+      { header: 'kit contains', label: 'Kit Contains' },
+      { header: 'offers', label: 'Offers' },
     ];
 
     const items: Array<{ label: string; description: string; sortOrder?: number }> = [];
