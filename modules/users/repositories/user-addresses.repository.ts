@@ -25,6 +25,15 @@ export class UserAddressesRepository {
     return repository.findOne({ where: { id, userId } });
   }
 
+  findByRefIdAndUserId(
+    refId: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<UserAddressEntity | null> {
+    const repository = manager ? manager.getRepository(UserAddressEntity) : this.repo;
+    return repository.findOne({ where: { refId, userId } });
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return this.repo.exists({ where: { refId } });
   }

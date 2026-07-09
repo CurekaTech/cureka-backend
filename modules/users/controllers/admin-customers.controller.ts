@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { PaginationQueryDto, ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { CreateAdminCustomerDto, UpdateUserProfileAdminDto } from '../dto/user.dto';
+import { CreateAdminCustomerDto, UpdateAdminCustomerDto } from '../dto/user.dto';
 import { UsersService } from '../services/users.service';
 
 /**
@@ -49,9 +49,9 @@ export class AdminCustomersController {
   @Put(':refId')
   update(
     @Param('refId') refId: string,
-    @Body() dto: UpdateUserProfileAdminDto,
+    @Body() dto: UpdateAdminCustomerDto,
   ) {
-    return this.usersService.update(refId, dto);
+    return this.usersService.updateCustomer(refId, dto);
   }
 
   @ApiOperation({

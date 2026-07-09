@@ -710,8 +710,16 @@ export class PaymentRequestsService {
     return buildPaginatedResult(data, total, { page, limit, sortOrder: 'DESC' });
   }
 
-  async findOne(id: string): Promise<PaymentRequestEntity> {
-    return this.getRequestOrThrow(id);
+  async findOne(id: string) {
+    const request = await this.getRequestOrThrow(id);
+    const addresses = await this.userAddressesService.findAll(request.customerId);
+
+    return {
+      ...request,
+      customer: request.customer
+        ? { ...request.customer, addresses }
+        : request.customer,
+    };
   }
 
   async cancel(id: string, updatedBy: string): Promise<PaymentRequestEntity> {
