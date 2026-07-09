@@ -17,15 +17,6 @@
       "compilerOptions": {
         "tsConfigPath": "apps/api/tsconfig.app.json"
       }
-    },
-    "worker": {
-      "type": "application",
-      "root": "apps/worker",
-      "entryFile": "main",
-      "sourceRoot": "apps/worker",
-      "compilerOptions": {
-        "tsConfigPath": "apps/worker/tsconfig.app.json"
-      }
     }
   }
 }

@@ -3,7 +3,6 @@ export const QUEUE_NAMES = {
   EMAILS: 'emails',
   ORDER_PROCESSING: 'order-processing',
   ANALYTICS: 'analytics',
-  SHIPPING: 'shipping',
   UNICOMMERCE: 'unicommerce',
 } as const;
 

@@ -58,17 +58,7 @@ export class OrdersRepository {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
     return repository.findOne({
       where: { id },
-      relations: { items: true },
-      order: { items: { createdAt: 'ASC' } },
-    });
-  }
-
-  /** Loads an order with items, their products (for refId), and the customer (for email). */
-  findForUnicommercePush(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
-    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
-    return repository.findOne({
-      where: { id },
-      relations: { user: true, items: { product: true } },
+      relations: { user: true, items: { variant: true } },
       order: { items: { createdAt: 'ASC' } },
     });
   }
@@ -79,6 +69,16 @@ export class OrdersRepository {
     return this.repo.findOne({
       where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
       relations: { user: true, items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  /** Loads an order with items, their products (for refId), and the customer (for email). */
+  findForUnicommercePush(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
+      where: { id },
+      relations: { user: true, items: { product: true } },
       order: { items: { createdAt: 'ASC' } },
     });
   }

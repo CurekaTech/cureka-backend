@@ -34,4 +34,12 @@ export const shipwayConfig = registerAs('shipway', () => ({
 
   /** HTTP request timeout in milliseconds for all Shipway API calls. */
   timeoutMs: parseInt(process.env['SHIPWAY_TIMEOUT_MS'] ?? '15000', 10),
+
+  /** Fallback parcel weight in grams when order item variants do not have weight data. */
+  defaultWeightGrams: parseFloat(process.env['SHIPWAY_DEFAULT_WEIGHT_GRAMS'] ?? '500'),
+
+  /** Fallback parcel dimensions in centimeters when item variants do not have dimensions. */
+  defaultLengthCm: parseFloat(process.env['SHIPWAY_DEFAULT_LENGTH_CM'] ?? '10'),
+  defaultBreadthCm: parseFloat(process.env['SHIPWAY_DEFAULT_BREADTH_CM'] ?? '10'),
+  defaultHeightCm: parseFloat(process.env['SHIPWAY_DEFAULT_HEIGHT_CM'] ?? '5'),
 }));

@@ -8,10 +8,11 @@ import { OrdersRepository } from '@modules/orders/repositories/orders.repository
 import { UnicommerceOrderApiService } from './services/unicommerce-order-api.service';
 import { UnicommerceOrderService } from './services/unicommerce-order.service';
 import { UnicommerceOrderQueueService } from './services/unicommerce-order-queue.service';
+import { UnicommerceOrderProcessor } from './processors/unicommerce-order.processor';
 
 /**
  * Outbound UniCommerce "Post Orders" integration (Cureka -> UniCommerce).
- * Shared by the API app (enqueue) and the worker app (process).
+ * Enqueues and processes push jobs in the API app.
  */
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { UnicommerceOrderQueueService } from './services/unicommerce-order-queue
     UnicommerceOrderApiService,
     UnicommerceOrderService,
     UnicommerceOrderQueueService,
+    UnicommerceOrderProcessor,
   ],
   exports: [UnicommerceOrderService, UnicommerceOrderQueueService],
 })
