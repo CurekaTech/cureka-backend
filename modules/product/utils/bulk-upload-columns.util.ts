@@ -11,7 +11,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Sub Category',
   'Sub Sub Category',
   'Sub Sub Sub Category',
-  'Brand',
+  'Brand*',
   'Health Concerns',
   'Wellness Goals',
   'Product Tags',
@@ -85,10 +85,18 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Height (cm)',
   'Dimension Unit',
   'Variant Status',
-  'Key Benefits',
-  'Expert Advice',
+  'Product Highlights',
+  'Safety Information',
+  'Feeding Table',
+  'Direction of Use',
+  'Preventive Note',
   'Key Ingredients',
+  'Description',
+  'Size Chart',
+  'Accessories',
   'Other Ingredients',
+  'Expert Advice',
+  'Key Benefits',
   'FAQ 1 Question',
   'FAQ 1 Answer',
   'FAQ 2 Question',
@@ -141,6 +149,13 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Components',
   'Shelf Life in Months',
   'Product Status',
+  'Usage and Safety',
+  'Ingredients and Nutrition',
+  'Compliance Detail',
+  'Additional Info',
+  'Indications',
+  'Kit Contains',
+  'Offers',
 ] as const;
 
 /**
@@ -191,28 +206,73 @@ export const resolveProductInformationLabelName = (
 export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
   FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
 
+/**
+ * Legacy columns removed from the current template.
+ * Old spreadsheets may still include these headers — they are ignored (not imported).
+ */
+export const DEPRECATED_BULK_UPLOAD_COLUMNS = new Set(
+  [
+    'Key Features',
+    'ds',
+    'test',
+    'test_2',
+    'test_3',
+  ].map(normalizeBulkUploadHeader),
+);
+
+export const isDeprecatedBulkUploadColumn = (normalizedHeader: string): boolean =>
+  DEPRECATED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
+
+export const buildCategoryFilterColumnHeader = (filterName: string): string =>
+  `CF_${filterName.trim()}`;
+
+export const parseCategoryFilterNameFromHeader = (header: string): string | null => {
+  const trimmed = header.trim();
+  if (!/^CF_/i.test(trimmed)) return null;
+  const name = trimmed.slice(3).trim();
+  return name || null;
+};
+
+export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
+  normalizedHeader.startsWith('cf_');
+
+const CLIENT_TEMPLATE_HEADER_EXCLUSIONS = new Set([
+  'Product Nature *',
+  'Vendor',
+  'Vendor Name',
+  'Vendor SKU',
+  'Product ID (String)',
+  'Manufacturer',
+  'Packer',
+  'Importer',
+  'Gallery Image 2',
+  'Category Filters',
+]);
+
 export const buildBulkUploadTemplateHeaders = (
-  productInformationLabelNames: string[],
+  extraProductInformationLabels: string[] = [],
 ): string[] => {
-  const templateHeaders = BULK_UPLOAD_FIXED_COLUMN_HEADERS.filter(
-    (header) =>
-      ![
-        'Vendor',
-        'Product ID (String)',
-        'Manufacturer',
-        'Packer',
-        'Importer',
-        'Gallery Image 2',
-      ].includes(header),
+  const baseHeaders = BULK_UPLOAD_FIXED_COLUMN_HEADERS.filter(
+    (header) => !CLIENT_TEMPLATE_HEADER_EXCLUSIONS.has(header),
   );
 
-  const variantStatusIndex = BULK_UPLOAD_FIXED_COLUMN_HEADERS.indexOf('Variant Status');
-  const normalizedVariantStatus = normalizeBulkUploadHeader('Variant Status');
-  const resolvedVariantStatusIndex = templateHeaders.findIndex(
-    (header) => normalizeBulkUploadHeader(header) === normalizedVariantStatus,
+  const knownHeaders = new Set(baseHeaders.map(normalizeBulkUploadHeader));
+  const extras = extraProductInformationLabels.filter((label) => {
+    const normalized = normalizeBulkUploadHeader(label);
+    return (
+      !knownHeaders.has(normalized) &&
+      !isDeprecatedBulkUploadColumn(normalized) &&
+      !isFixedBulkUploadColumn(normalized)
+    );
+  });
+
+  if (!extras.length) {
+    return [...baseHeaders];
+  }
+
+  const variantStatusIndex = baseHeaders.findIndex(
+    (header) => normalizeBulkUploadHeader(header) === normalizeBulkUploadHeader('Variant Status'),
   );
-  const index = resolvedVariantStatusIndex >= 0 ? resolvedVariantStatusIndex : variantStatusIndex;
-  const beforeInfo = templateHeaders.slice(0, index + 1);
-  const afterInfo = templateHeaders.slice(index + 1);
-  return [...beforeInfo, ...productInformationLabelNames, ...afterInfo];
+  const index = variantStatusIndex >= 0 ? variantStatusIndex : baseHeaders.length - 1;
+  return [...baseHeaders.slice(0, index + 1), ...extras, ...baseHeaders.slice(index + 1)];
 };

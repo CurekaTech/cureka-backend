@@ -8,19 +8,27 @@ import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
 import { generateUniqueRefId } from '@packages/common';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { join } from 'path';
-import { mkdir, unlink } from 'fs/promises';
+import { mkdir, unlink, writeFile } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 import { Readable } from 'stream';
+import * as ExcelJS from 'exceljs';
+import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
+import {
+  buildBulkUploadTemplateHeaders,
+  buildCategoryFilterColumnHeader,
+} from '../utils/bulk-upload-columns.util';
 
 @Injectable()
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
+  private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
 
   constructor(
     private readonly storageService: StorageService,
     private readonly repository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
+    private readonly categoryFiltersRepository: CategoryFiltersRepository,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
 
@@ -201,6 +209,54 @@ export class BulkUploadService {
     };
   }
 
+  async getTemplateFile(): Promise<{ fileName: string; fileBuffer: Buffer }> {
+    const fileName = BulkUploadService.TEMPLATE_FILE_NAME;
+    const fileBuffer = await this.buildTemplateBuffer();
+    const templatePath = join(process.cwd(), 'docs', fileName);
+    await writeFile(templatePath, fileBuffer);
+    return { fileName, fileBuffer };
+  }
+
+  private async buildTemplateBuffer(): Promise<Buffer> {
+    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
+    const categoryFilterHeaders = activeFilters.map((filter) =>
+      buildCategoryFilterColumnHeader(filter.name),
+    );
+    const headers = [...buildBulkUploadTemplateHeaders(), ...categoryFilterHeaders];
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Bulk Import Template');
+    const headerRow = worksheet.addRow(headers);
+    this.styleHeaderRow(headerRow);
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const referenceSheet = workbook.addWorksheet('Category Filter Reference');
+    referenceSheet.getCell('A1').value = 'Column Header';
+    referenceSheet.getCell('B1').value = 'Filter Name';
+    referenceSheet.getCell('C1').value = 'Allowed Values';
+    this.styleHeaderRow(referenceSheet.getRow(1));
+
+    let rowNumber = 2;
+    for (const filter of activeFilters) {
+      const row = referenceSheet.getRow(rowNumber);
+      row.getCell(1).value = buildCategoryFilterColumnHeader(filter.name);
+      row.getCell(2).value = filter.name;
+      row.getCell(3).value = (filter.values ?? []).join(' | ');
+      rowNumber++;
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+
+  private styleHeaderRow(row: ExcelJS.Row): void {
+    row.font = { bold: true };
+    row.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    });
+  }
+
   async getJobStatus(refId: string) {
     const record = await this.repository.findByRefId(refId);
     if (!record) {
@@ -233,6 +289,7 @@ export class BulkUploadService {
         fileUrl: record.fileUrl,
         imagesZipUrl: record.imagesZipUrl,
         errorFileUrl: record.errorFileUrl,
+        errorSummary: record.errorSummary,
         totalRows: record.totalRows,
         processedRows: record.processedRows,
         successfulRows: record.successfulRows,

@@ -14,9 +14,20 @@ import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
+import { CategoryFilterEntity } from '@modules/master/entities/category-filter.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { IParsedProductGroup } from './bulk-upload-parser.service';
-import { BulkUploadProductInformationLabel } from '../utils/bulk-upload-columns.util';
+import {
+  BulkUploadProductInformationLabel,
+  buildCategoryFilterColumnHeader,
+} from '../utils/bulk-upload-columns.util';
+
+type CachedCategoryFilter = {
+  refId: string;
+  name: string;
+  allowedValues: Set<string>;
+  categoryIds: Set<string>;
+};
 
 export interface IValidationError {
   rowNumber: number;
@@ -49,6 +60,10 @@ export class BulkUploadValidatorService {
   private skuToProductRefIdMap = new Map<string, string>(); // SKU (lowercase) -> parent product refId
   private dbSkus = new Set<string>();
   private dbExternalProductIds = new Set<string>();
+  private externalProductIdToProductRefIdMap = new Map<string, string>(); // externalProductId (lowercase) -> product refId
+  private categoryIdByName = new Map<string, string>(); // category name (lowercase) -> id
+  private categoryFilterByLookupKey = new Map<string, CachedCategoryFilter>(); // name/refId (lowercase) -> filter
+  private activeCategoryFilterNames = new Set<string>(); // normalized filter names
   private activeProductInformationLabels = new Map<string, BulkUploadProductInformationLabel>();
   private productInformationLabelSortOrders = new Map<string, number>();
 
@@ -75,9 +90,10 @@ export class BulkUploadValidatorService {
       skusWithProducts,
       externalProductIds,
       productInformationLabels,
+      categoryFilters,
     ] = await Promise.all([
       this.dataSource.getRepository(ProductNatureEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(CategoryEntity).find({ select: ['name', 'refId'] }),
+      this.dataSource.getRepository(CategoryEntity).find({ select: ['id', 'name', 'refId'] }),
       this.dataSource.getRepository(BrandEntity).find({ select: ['name', 'refId'] }),
       this.dataSource.getRepository(HealthConcernEntity).find({ select: ['name', 'refId'] }),
       this.dataSource.getRepository(WellnessGoalEntity).find({ select: ['name', 'refId'] }),
@@ -97,7 +113,7 @@ export class BulkUploadValidatorService {
         },
       }),
       this.dataSource.getRepository(ProductEntity).find({
-        select: ['externalProductId'],
+        select: ['refId', 'externalProductId'],
         where: {},
       }),
       this.dataSource.getRepository(ProductInformationLabelEntity).find({
@@ -105,11 +121,26 @@ export class BulkUploadValidatorService {
         where: { status: MasterStatus.ACTIVE },
         order: { sortOrder: 'ASC', createdAt: 'ASC' },
       }),
+      this.dataSource.getRepository(CategoryFilterEntity).find({
+        where: { status: MasterStatus.ACTIVE },
+        relations: { categories: true },
+        select: {
+          id: true,
+          refId: true,
+          name: true,
+          values: true,
+          status: true,
+          categories: {
+            id: true,
+          },
+        },
+      }),
     ]);
 
     this.natureMap = new Map(natures.map((n: any) => [n.name.toLowerCase().trim(), n.refId]));
     this.brandMap = new Map(brands.map((b: any) => [b.name.toLowerCase().trim(), b.refId]));
     this.categoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
+    this.categoryIdByName = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.id]));
     this.subCategoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
     this.subSubCategoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
     this.subSubSubCategoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
@@ -136,13 +167,34 @@ export class BulkUploadValidatorService {
       productInformationLabels.map((label) => [label.name, label.sortOrder]),
     );
 
+    this.categoryFilterByLookupKey = new Map();
+    this.activeCategoryFilterNames = new Set();
+    for (const filter of categoryFilters) {
+      const cached: CachedCategoryFilter = {
+        refId: filter.refId,
+        name: filter.name,
+        allowedValues: new Set((filter.values ?? []).map((value) => value.trim())),
+        categoryIds: new Set((filter.categories ?? []).map((category) => category.id)),
+      };
+      const normalizedName = filter.name.toLowerCase().trim();
+      this.categoryFilterByLookupKey.set(normalizedName, cached);
+      this.categoryFilterByLookupKey.set(filter.refId.toLowerCase().trim(), cached);
+      this.activeCategoryFilterNames.add(normalizedName);
+    }
+
     this.dbSkus = new Set();
     this.skuToProductRefIdMap = new Map();
+    this.externalProductIdToProductRefIdMap = new Map();
     this.dbExternalProductIds = new Set(
       externalProductIds
         .map((product) => product.externalProductId?.toLowerCase().trim())
         .filter((value): value is string => Boolean(value)),
     );
+    for (const product of externalProductIds) {
+      const normalizedExternalId = product.externalProductId?.toLowerCase().trim();
+      if (!normalizedExternalId) continue;
+      this.externalProductIdToProductRefIdMap.set(normalizedExternalId, product.refId);
+    }
     for (const v of skusWithProducts) {
       if (v.sku) {
         const normSku = v.sku.toLowerCase().trim();
@@ -153,7 +205,7 @@ export class BulkUploadValidatorService {
       }
     }
 
-    this.logger.log(`Caches primed: Natures=${this.natureMap.size}, Brands=${this.brandMap.size}, Categories=${this.categoryMap.size}, DB SKUs=${this.dbSkus.size}`);
+    this.logger.log(`Caches primed: Natures=${this.natureMap.size}, Brands=${this.brandMap.size}, Categories=${this.categoryMap.size}, CategoryFilters=${this.activeCategoryFilterNames.size}, DB SKUs=${this.dbSkus.size}`);
     console.log('[BULK_UPLOAD_DEBUG][Validator.primeValidationCache] CATEGORY_CACHE_READY', {
       categoryCount: this.categoryMap.size,
       hasDieabities: this.categoryMap.has('dieabities'),
@@ -170,6 +222,10 @@ export class BulkUploadValidatorService {
     return this.productInformationLabelSortOrders;
   }
 
+  getActiveCategoryFilterNames(): ReadonlySet<string> {
+    return this.activeCategoryFilterNames;
+  }
+
   /**
    * Resolves attribute refId by normalized name.
    */
@@ -182,6 +238,30 @@ export class BulkUploadValidatorService {
    */
   resolveProductRefIdBySku(sku: string): string | undefined {
     return this.skuToProductRefIdMap.get(sku.toLowerCase().trim());
+  }
+
+  resolveExistingProductRefIdForGroup(group: IParsedProductGroup): string | undefined {
+    if (!group.variants?.length) {
+      return undefined;
+    }
+
+    const foundRefIds = new Set<string>();
+    for (const variant of group.variants) {
+      const refId = this.resolveProductRefIdBySku(variant.sku);
+      if (refId) {
+        foundRefIds.add(refId);
+      }
+    }
+
+    if (foundRefIds.size === 0) {
+      return undefined;
+    }
+
+    if (foundRefIds.size === 1) {
+      return Array.from(foundRefIds)[0];
+    }
+
+    return undefined;
   }
 
   /**
@@ -230,6 +310,24 @@ export class BulkUploadValidatorService {
 
     for (const group of batch) {
       const groupErrors: IValidationError[] = [];
+      const existingProductRefIds = new Set(
+        group.variants
+          .map((variant) => this.resolveProductRefIdBySku(variant.sku))
+          .filter((refId): refId is string => Boolean(refId)),
+      );
+      const resolvedExistingProductRefId =
+        existingProductRefIds.size === 1 ? Array.from(existingProductRefIds)[0] : undefined;
+
+      if (existingProductRefIds.size > 1) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: group.variants[0]?.sku ?? 'PARENT',
+          column: 'Product SKU Code',
+          invalidValue: group.variants.map((variant) => variant.sku).join(', '),
+          reason: 'Sheet row maps to multiple existing products by SKU. A single row can only update one product.',
+          suggestedFix: 'Keep all SKUs of a row under the same product or split into separate rows.',
+        });
+      }
 
       // A. Mandatory Parent Field Validations
       if (!group.name) {
@@ -291,7 +389,16 @@ export class BulkUploadValidatorService {
         }
       }
 
-      if (group.brand) {
+      if (!group.brand) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column: 'Brand',
+          invalidValue: '',
+          reason: 'Brand name is mandatory.',
+          suggestedFix: 'Enter a valid brand name from Brand master.',
+        });
+      } else {
         const refId = this.brandMap.get(group.brand.toLowerCase().trim());
         if (!refId) {
           groupErrors.push({
@@ -408,19 +515,26 @@ export class BulkUploadValidatorService {
           sheetExternalProductIds.add(normalizedExternalId);
         }
 
-        if (this.dbExternalProductIds.has(normalizedExternalId)) {
+        const existingExternalIdProductRefId =
+          this.externalProductIdToProductRefIdMap.get(normalizedExternalId);
+        if (
+          existingExternalIdProductRefId &&
+          (!resolvedExistingProductRefId || existingExternalIdProductRefId !== resolvedExistingProductRefId)
+        ) {
           groupErrors.push({
             rowNumber: group.rowNumber,
             sku: 'PARENT',
             column: 'Product ID (String)',
             invalidValue: group.externalProductId,
             reason: `Product ID "${group.externalProductId}" already exists in the database.`,
-            suggestedFix: 'Use a new unique external product ID.',
+            suggestedFix:
+              'Use a new unique external product ID or upload with SKU(s) of that same existing product.',
           });
         }
       }
 
       this.validatePackMetadata(group, groupErrors);
+      this.validateCategoryFilters(group, groupErrors);
 
       // B. Simple and Variable Product Validations
       if (group.productType === 'simple' || group.productType === 'variable') {
@@ -466,13 +580,22 @@ export class BulkUploadValidatorService {
 
           // Check DB duplicates
           if (this.dbSkus.has(normSku)) {
+            const existingSkuProductRefId = this.resolveProductRefIdBySku(variant.sku);
+            if (
+              resolvedExistingProductRefId &&
+              existingSkuProductRefId &&
+              existingSkuProductRefId === resolvedExistingProductRefId
+            ) {
+              continue;
+            }
             groupErrors.push({
               rowNumber: variant.rowNumber,
               sku: variant.sku,
               column: 'Product SKU Code',
               invalidValue: variant.sku,
               reason: `Product SKU Code "${variant.sku}" already exists in the database.`,
-              suggestedFix: 'Change the Product SKU Code to a new unique value.',
+              suggestedFix:
+                'Use this SKU only to update its existing product, or change to a new unique SKU.',
             });
           }
 
@@ -633,6 +756,64 @@ export class BulkUploadValidatorService {
           reason: `${packLabel} selling price cannot exceed pack MRP.`,
           suggestedFix: `Lower Pack Selling Price ${pack.packNumber} or adjust Pack MRP ${pack.packNumber}.`,
         });
+      }
+    }
+  }
+
+  private validateCategoryFilters(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
+    if (!group.categoryFilters.length) return;
+
+    const categoryId = group.category
+      ? this.categoryIdByName.get(group.category.toLowerCase().trim())
+      : undefined;
+
+    for (const binding of group.categoryFilters) {
+      const lookupKey = binding.categoryFilterRefId.toLowerCase().trim();
+      const filter = this.categoryFilterByLookupKey.get(lookupKey);
+      const columnName = filter
+        ? buildCategoryFilterColumnHeader(filter.name)
+        : binding.categoryFilterRefId.startsWith('CF_')
+          ? binding.categoryFilterRefId
+          : buildCategoryFilterColumnHeader(binding.categoryFilterRefId);
+
+      if (!filter) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: group.variants[0]?.sku ?? 'PARENT',
+          column: columnName,
+          invalidValue: binding.categoryFilterRefId,
+          reason: `Category filter "${binding.categoryFilterRefId}" does not exist in master records.`,
+          suggestedFix: 'Use only active category filter columns from the downloaded template.',
+        });
+        continue;
+      }
+
+      if (categoryId && !filter.categoryIds.has(categoryId)) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: group.variants[0]?.sku ?? 'PARENT',
+          column: columnName,
+          invalidValue: binding.values.join('|'),
+          reason: `Category filter "${filter.name}" is not assigned to category "${group.category}".`,
+          suggestedFix: 'Select a category that has this filter, or remove the value from this column.',
+        });
+        continue;
+      }
+
+      for (const value of binding.values) {
+        if (!filter.allowedValues.has(value)) {
+          const allowed = [...filter.allowedValues].join(', ');
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: group.variants[0]?.sku ?? 'PARENT',
+            column: columnName,
+            invalidValue: value,
+            reason: `Value "${value}" is not allowed for category filter "${filter.name}".`,
+            suggestedFix: allowed
+              ? `Use one of the allowed values: ${allowed}.`
+              : 'Use a value configured for this category filter in master data.',
+          });
+        }
       }
     }
   }

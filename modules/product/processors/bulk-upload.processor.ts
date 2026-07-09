@@ -9,7 +9,7 @@ import { BulkUploadValidatorService, IValidationError } from '../services/bulk-u
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
-import { CreateProductDto } from '../dto/product.dto';
+import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
 import { createWriteStream, createReadStream } from 'fs';
@@ -22,6 +22,45 @@ import * as exceljs from 'exceljs';
 @Processor('bulk-upload')
 export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message;
+    }
+
+    if (error && typeof error === 'object') {
+      const response = (error as { response?: unknown }).response;
+      if (typeof response === 'string' && response.trim()) {
+        return response;
+      }
+      if (response && typeof response === 'object') {
+        const message = (response as { message?: unknown }).message;
+        if (Array.isArray(message)) {
+          const joined = message.map(String).filter(Boolean).join(', ');
+          if (joined) return joined;
+        }
+        if (typeof message === 'string' && message.trim()) {
+          return message;
+        }
+      }
+    }
+
+    const fallback = String(error);
+    return fallback && fallback !== '[object Object]'
+      ? fallback
+      : 'Unexpected bulk upload processor error.';
+  }
+
+  private buildSystemError(error: unknown): IValidationError {
+    return {
+      rowNumber: 0,
+      sku: 'SYSTEM',
+      column: 'Processor',
+      invalidValue: 'N/A',
+      reason: this.getErrorMessage(error),
+      suggestedFix: 'Check file format, required headers, recognized columns, and master-data values.',
+    };
+  }
 
   private resolveUploadMimeType(filename: string): string {
     const lower = filename.toLowerCase();
@@ -313,8 +352,16 @@ export class BulkUploadProcessor extends WorkerHost {
                 ? group.bundleItems.length
                 : group.variants.length);
 
-              // Reuses validated creation sequence from existing service
-              await this.productsService.createDraft(dto, 'system-bulk-upload');
+              const existingProductRefId = this.validatorService.resolveExistingProductRefIdForGroup(group);
+              if (existingProductRefId) {
+                await this.productsService.update(
+                  existingProductRefId,
+                  dto as UpdateProductDto,
+                  'system-bulk-upload',
+                );
+              } else {
+                await this.productsService.createDraft(dto, 'system-bulk-upload');
+              }
               successfulProducts += rowCount;
             } catch (dbError) {
               this.logger.error(`Failed to create product '${group.name}' inside database:`, dbError);
@@ -358,6 +405,7 @@ export class BulkUploadProcessor extends WorkerHost {
           });
         },
         this.validatorService.getActiveProductInformationLabels(),
+        this.validatorService.getActiveCategoryFilterNames(),
       );
 
       // 3. Generate and upload Error Report Excel sheet if failures exist
@@ -384,21 +432,32 @@ export class BulkUploadProcessor extends WorkerHost {
       );
       return { success: true, totalRowsScanned, successfulProducts, failedProducts, errorsCount: allErrors.length, errorFileUrl };
     } catch (error) {
-      this.logger.error(`Error during processing of ${uploadRefId}:`, error);
+      const systemError = this.buildSystemError(error);
+      if (error instanceof Error) {
+        this.logger.error(
+          `Error during processing of ${uploadRefId}: ${systemError.reason}`,
+          error.stack,
+        );
+      } else {
+        this.logger.error(`Error during processing of ${uploadRefId}: ${systemError.reason}`);
+      }
+
+      const existingRecord = await this.bulkUploadsRepository.findByRefId(uploadRefId);
+      const existingErrors = Array.isArray(existingRecord?.errorSummary)
+        ? existingRecord.errorSummary
+        : [];
+      const totalRows = Math.max(existingRecord?.totalRows ?? 0, 1);
+      const processedRows = Math.max(existingRecord?.processedRows ?? 0, totalRows);
+      const failedRows = Math.max(existingRecord?.failedRows ?? 0, 1);
 
       await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
         status: BulkUploadStatus.FAILED,
+        totalRows,
+        processedRows,
+        successfulRows: existingRecord?.successfulRows ?? 0,
+        failedRows,
         completedAt: new Date(),
-        errorSummary: [
-          {
-            rowNumber: 0,
-            sku: 'SYSTEM',
-            column: 'Processor',
-            invalidValue: 'N/A',
-            reason: error instanceof Error ? error.message : String(error),
-            suggestedFix: 'Check file formats, headers, and column constraints.',
-          },
-        ],
+        errorSummary: [...existingErrors, systemError],
       });
 
       throw error;

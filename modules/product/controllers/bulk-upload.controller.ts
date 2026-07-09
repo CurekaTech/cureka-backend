@@ -1,6 +1,6 @@
-import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
@@ -25,6 +25,21 @@ export class BulkUploadController {
       isMultipart: req.isMultipart(),
     });
     return this.bulkUploadService.createBulkUploadJob(req, user.email);
+  }
+
+  @ApiOperation({ summary: 'Download bulk upload sample XLSX template' })
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('template/download')
+  async downloadTemplate(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.bulkUploadService.getTemplateFile();
+    return reply
+      .code(200)
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
   }
 
   @ApiOperation({ summary: 'Get bulk upload history list' })
