@@ -387,6 +387,24 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsRefId()
   brandRefId?: string;
 
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['BRA20261234', 'BRA20261235'],
+    description: 'Filter by multiple brands. Comma-separated or repeated query param.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    return String(value)
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  })
+  @IsArray()
+  @IsString({ each: true })
+  brandRefIds?: string[];
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsRefId()
