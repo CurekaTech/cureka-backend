@@ -4,6 +4,7 @@ import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.modu
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
+import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
@@ -39,6 +40,7 @@ import { OrdersService } from './services/orders.service';
     UsersModule,
     UploadsModule,
     ShippingModule,
+    UnicommerceOrderModule,
   ],
   controllers: [CartController, OrdersController, AdminOrdersController],
   providers: [
