@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CursorPaginatedResult, PaginationOptions } from '@packages/common';
@@ -28,6 +28,11 @@ export class BrandsRepository {
 
   async findByRefId(refId: string): Promise<BrandEntity | null> {
     return this.repo.findOne({ where: { refId } });
+  }
+
+  async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
+    if (!refIds.length) return [];
+    return this.repo.find({ where: { refId: In(refIds) } });
   }
 
   async findBySlug(slug: string): Promise<BrandEntity | null> {
