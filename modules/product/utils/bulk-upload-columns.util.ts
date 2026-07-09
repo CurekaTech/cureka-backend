@@ -11,7 +11,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Sub Category',
   'Sub Sub Category',
   'Sub Sub Sub Category',
-  'Brand',
+  'Brand*',
   'Health Concerns',
   'Wellness Goals',
   'Product Tags',
@@ -223,13 +223,30 @@ export const DEPRECATED_BULK_UPLOAD_COLUMNS = new Set(
 export const isDeprecatedBulkUploadColumn = (normalizedHeader: string): boolean =>
   DEPRECATED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
 
+export const buildCategoryFilterColumnHeader = (filterName: string): string =>
+  `CF_${filterName.trim()}`;
+
+export const parseCategoryFilterNameFromHeader = (header: string): string | null => {
+  const trimmed = header.trim();
+  if (!/^CF_/i.test(trimmed)) return null;
+  const name = trimmed.slice(3).trim();
+  return name || null;
+};
+
+export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
+  normalizedHeader.startsWith('cf_');
+
 const CLIENT_TEMPLATE_HEADER_EXCLUSIONS = new Set([
+  'Product Nature *',
   'Vendor',
+  'Vendor Name',
+  'Vendor SKU',
   'Product ID (String)',
   'Manufacturer',
   'Packer',
   'Importer',
   'Gallery Image 2',
+  'Category Filters',
 ]);
 
 export const buildBulkUploadTemplateHeaders = (
