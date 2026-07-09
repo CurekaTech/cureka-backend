@@ -23,6 +23,17 @@ import * as exceljs from 'exceljs';
 export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
 
+  private resolveUploadMimeType(filename: string): string {
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    return 'image/jpeg';
+  }
+
   constructor(
     private readonly bulkUploadsRepository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
@@ -152,7 +163,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
                       const uploadRes = await this.storageService.uploadImage({
                         stream: imgStream,
-                        mimetype: img.filename.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                        mimetype: this.resolveUploadMimeType(img.filename),
                         originalFilename: img.filename,
                         folder: 'products',
                       });

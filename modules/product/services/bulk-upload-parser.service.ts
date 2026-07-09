@@ -190,6 +190,14 @@ export class BulkUploadParserService {
     return getVal('product sku code') || getVal('sku code');
   }
 
+  private getFirstAvailable(getVal: (colName: string) => string, names: string[]): string {
+    for (const name of names) {
+      const value = getVal(name);
+      if (value) return value;
+    }
+    return '';
+  }
+
   private parsePackMetadata(getVal: (colName: string) => string): IProductPackMetadataItem[] {
     const packs: IProductPackMetadataItem[] = [];
 
@@ -314,9 +322,13 @@ export class BulkUploadParserService {
         return this.getCellText(cell, { preserveRichTextAsHtml: true });
       };
 
-      const productInformation = this.parseProductInformationRow(
+      let productInformation = this.parseProductInformationRow(
         row,
         productInformationColumnMap,
+      );
+      productInformation = this.mergeProductInformation(
+        productInformation,
+        this.parseExplicitProductInformation(getRichVal),
       );
 
       const name = getVal('product name');
@@ -349,7 +361,9 @@ export class BulkUploadParserService {
         group = {
           rowNumber,
           name,
-          externalProductId: getVal('product id (string)') || getVal('product id') || undefined,
+          externalProductId:
+            this.getFirstAvailable(getVal, ['product id (string)', 'product id', 'product id string']) ||
+            undefined,
           singleProductUrl: getVal('single product url') || undefined,
           manufacturerAddress: getVal('manufacturer address') || undefined,
           packerAddress: getVal('packer address') || undefined,
@@ -365,7 +379,7 @@ export class BulkUploadParserService {
           healthConcerns: getVal('health concerns') ? getVal('health concerns').split('|').map(s => s.trim()).filter(Boolean) : [],
           wellnessGoals: getVal('wellness goals') ? getVal('wellness goals').split('|').map(s => s.trim()).filter(Boolean) : [],
           productTags: getVal('product tags') ? getVal('product tags').split('|').map(s => s.trim()).filter(Boolean) : [],
-          vendor: getVal('vendor') || undefined,
+          vendor: this.getFirstAvailable(getVal, ['vendor', 'vendor name']) || undefined,
           vendorSku: vendorSku || undefined,
           productInformation,
           faqs: [],
@@ -384,9 +398,9 @@ export class BulkUploadParserService {
           replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
           replaceWindowDays: getVal('replacement window days') ? parseInt(getVal('replacement window days'), 10) : undefined,
           status: getVal('product status') || undefined,
-          manufacturer: getVal('manufacturer') || undefined,
-          packer: getVal('packer') || undefined,
-          importer: getVal('importer') || undefined,
+          manufacturer: this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
+          packer: this.getFirstAvailable(getVal, ['packer', 'packer name']) || undefined,
+          importer: this.getFirstAvailable(getVal, ['importer', 'importer name']) || undefined,
           countryOfOrigin: getVal('country of origin') || undefined,
           components: getVal('components') || undefined,
           expiresInMonths: getVal('shelf life in months') ? parseInt(getVal('shelf life in months'), 10) : undefined,
@@ -415,7 +429,8 @@ export class BulkUploadParserService {
       // Add variant details if simple or variable
       if (productType === 'simple' || productType === 'variable') {
         const mrp = parseFloat(getVal('mrp (rs)')) || 0;
-        const sellingPrice = parseFloat(getVal('selling price (rs)')) || 0;
+        const sellingPrice =
+          parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) || 0;
         const discountPercentage = parseFloat(getVal('discount percentage')) || undefined;
         const stock = parseInt(getVal('quantity / stock'), 10) || 0;
         const weight = parseFloat(getVal('weight (kg)')) || undefined;
@@ -440,7 +455,10 @@ export class BulkUploadParserService {
           images.push({ filename: primaryImg, isPrimary: true, sortOrder: 0 });
         }
         for (let i = 2; i <= 5; i++) {
-          const galleryImg = getVal(`gallery image ${i}`);
+          const galleryImg =
+            i === 2
+              ? this.getFirstAvailable(getVal, ['gallery image 2', 'gallery image 2 (video)'])
+              : getVal(`gallery image ${i}`);
           if (galleryImg) {
             images.push({ filename: galleryImg, isPrimary: false, sortOrder: i - 1 });
           }
@@ -606,6 +624,25 @@ export class BulkUploadParserService {
       });
     }
 
+    return items;
+  }
+
+  private parseExplicitProductInformation(
+    getRichVal: (colName: string) => string,
+  ): Array<{ label: string; description: string; sortOrder?: number }> {
+    const explicitColumns: Array<{ header: string; label: string }> = [
+      { header: 'key benefits', label: 'Key Benefits' },
+      { header: 'expert advice', label: 'Expert Advice' },
+      { header: 'key ingredients', label: 'Key Ingredients' },
+      { header: 'other ingredients', label: 'Other Ingredients' },
+    ];
+
+    const items: Array<{ label: string; description: string; sortOrder?: number }> = [];
+    explicitColumns.forEach((item, index) => {
+      const description = getRichVal(item.header).trim();
+      if (!description) return;
+      items.push({ label: item.label, description, sortOrder: 1000 + index });
+    });
     return items;
   }
 
