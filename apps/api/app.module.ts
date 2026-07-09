@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { Module, Scope } from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { PathAwareLoggingValidationPipe } from '@packages/common';
 import { ConfigModule } from '@nestjs/config';
 import { appConfig, databaseConfig, jwtConfig, ordersConfig, shiprocketConfig, shipwayConfig, storageConfig, typesenseConfig, unicommerceOrderConfig, envValidationSchema } from './config';
 import { DatabaseModule } from './database/database.module';
@@ -84,6 +85,11 @@ import { BlogModule } from '@modules/blog/blog.module';
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    {
+      provide: APP_PIPE,
+      scope: Scope.REQUEST,
+      useClass: PathAwareLoggingValidationPipe,
+    },
   ],
 })
 export class AppModule {}
