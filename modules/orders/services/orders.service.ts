@@ -3,7 +3,6 @@ import { DataSource } from 'typeorm';
 import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
-import { mapShipmentToResponse } from '@modules/shipping/mappers/shipment.mapper';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -263,7 +262,7 @@ export class OrdersService {
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    const shipment = await this.shipmentsRepository.findByOrderId(id);
+    const shipment = await this.shippingService.getShipmentByOrderId(id);
     return mapOrderToResponse(
       { ...order, shipment },
       this.storageUrlEnricher,

@@ -7,5 +7,7 @@ export enum HomepageSectionKey {
   FESTIVAL_BANNERS = 'festivalBanners',
   BRAND_BANNERS = 'brandBanners',
   BEST_SELLERS = 'bestSellers',
+  WATCH_AND_SHOP = 'watchAndShop',
+  HEALTH_READS = 'healthReads',
   FEATURED_PRODUCTS = 'featuredProducts',
 }

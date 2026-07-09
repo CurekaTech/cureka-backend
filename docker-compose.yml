@@ -58,6 +58,16 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # File storage — set STORAGE_DRIVER=gcs in production (blog, banners, products, etc.)
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-gcs}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      UPLOAD_MAX_IMAGE_FILE_SIZE: ${UPLOAD_MAX_IMAGE_FILE_SIZE:-1048576}
+      UPLOAD_MAX_VIDEO_FILE_SIZE: ${UPLOAD_MAX_VIDEO_FILE_SIZE:-20971520}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      GCS_CREDENTIALS_PATH: ${GCS_CREDENTIALS_PATH:-/app/secrets/gcs-service-account.json}
+      GCS_SIGNED_URL_TTL_SECONDS: ${GCS_SIGNED_URL_TTL_SECONDS:-3600}
+    volumes:
+      - ${GCS_CREDENTIALS_HOST_PATH:-./secrets/gcs-service-account.json}:${GCS_CREDENTIALS_PATH:-/app/secrets/gcs-service-account.json}:ro
     depends_on:
       postgres:
         condition: service_healthy

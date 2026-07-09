@@ -73,6 +73,16 @@ export class OrdersRepository {
     });
   }
 
+  findByIdOrRefId(idOrRefId: string): Promise<OrderEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    return this.repo.findOne({
+      where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
+      relations: { user: true, items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
   async findByUserPaginated(options: {
     userId: string;
     status?: OrderStatus;

@@ -212,11 +212,13 @@ export class StorageService {
     const allowed = this.configService.get<string[]>('storage.allowedMimeTypes')
       ?? [...ALLOWED_UPLOAD_MIME_TYPES];
 
-    if (!allowed.includes(mimetype)) {
-      throw new BadRequestException(
-        `Unsupported file type "${mimetype}". Allowed: ${allowed.join(', ')}`,
-      );
+    if (allowed.includes(mimetype) || mimetype.startsWith('video/')) {
+      return;
     }
+
+    throw new BadRequestException(
+      `Unsupported file type "${mimetype}". Allowed: ${allowed.join(', ')}`,
+    );
   }
 
   private getAccessibleUrlCacheTtlMs(): number {
