@@ -53,4 +53,23 @@ describe('UnicommerceAuthController', () => {
     expect(res.code).toHaveBeenCalledWith(401);
     expect(res.send).toHaveBeenCalledWith({ status: 'INVALID_CREDENTIALS' });
   });
+
+  it('passes connector payload fields through to auth service', async () => {
+    authService.authenticate.mockReturnValue({
+      status: 'SUCCESS',
+      accessToken: 'token-123',
+    });
+    const res = createReply();
+    const dto = {
+      username: 'seller',
+      password: 'secret',
+      merchantID: 'seller',
+      channelWarehouseCodeToUniwareFacilityCode: '{}',
+    };
+
+    await controller.getAuthTokenViaBody(dto, res);
+
+    expect(authService.authenticate).toHaveBeenCalledWith(dto);
+    expect(res.send).toHaveBeenCalledWith({ status: 'SUCCESS', accessToken: 'token-123' });
+  });
 });

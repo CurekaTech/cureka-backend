@@ -63,6 +63,16 @@ export class OrdersRepository {
     });
   }
 
+  /** Loads an order with items, their products (for refId), and the customer (for email). */
+  findForUnicommercePush(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
+      where: { id },
+      relations: { user: true, items: { product: true } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
   findByIdOrRefId(idOrRefId: string): Promise<OrderEntity | null> {
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);

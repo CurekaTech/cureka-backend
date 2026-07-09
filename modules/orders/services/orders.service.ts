@@ -20,6 +20,7 @@ import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 import { ShippingQueueService } from '@modules/shipping/services/shipping-queue.service';
+import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
@@ -39,6 +40,7 @@ export class OrdersService {
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly shippingService: ShippingService,
     private readonly shippingQueueService: ShippingQueueService,
+    private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
   ) {}
 
   checkout(userId: string, dto: CheckoutDto) {
@@ -65,7 +67,8 @@ export class OrdersService {
       throw new BadRequestException('Cart is empty');
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    let createdOrderId: string | undefined;
+    const result = await this.dataSource.transaction(async (manager) => {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
 
@@ -201,8 +204,24 @@ export class OrdersService {
 
       const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
+      createdOrderId = createdOrder.id;
       return mapOrderToResponse(order, this.storageUrlEnricher);
     });
+
+    if (createdOrderId) {
+      await this.enqueueUnicommercePush(createdOrderId);
+    }
+
+    return result;
+  }
+
+  private async enqueueUnicommercePush(orderId: string): Promise<void> {
+    try {
+      await this.unicommerceOrderQueueService.enqueuePushOrder(orderId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to enqueue UniCommerce push for order ${orderId}: ${message}`);
+    }
   }
 
   async findMyOrders(userId: string, query: OrderQueryDto) {
@@ -413,6 +432,7 @@ export class OrdersService {
     console.log(`OrdersService.createOrderFromPaymentRequest enqueuePushOrder orderId=${order.id}`);
     const pushJob = await this.shippingQueueService.enqueuePushOrder(order.id);
     console.log(`OrdersService.createOrderFromPaymentRequest queued Shipway job id=${pushJob.id} name=${pushJob.name}`);
+    await this.enqueueUnicommercePush(order.id);
     return order;
   }
 

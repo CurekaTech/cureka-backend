@@ -17,13 +17,20 @@ export class UnicommerceAuthService {
   authenticate(dto: UnicommerceAuthDto): IUnicommerceAuthResponse {
     const validUsername = this.configService.get<string>('UNICOMMERCE_USERNAME');
     const validPassword = this.configService.get<string>('UNICOMMERCE_PASSWORD');
+    const username = dto.username?.trim() || dto.merchantID?.trim();
 
-    if (!validUsername || !validPassword || dto.username !== validUsername || dto.password !== validPassword) {
+    if (
+      !validUsername ||
+      !validPassword ||
+      !username ||
+      username !== validUsername ||
+      dto.password !== validPassword
+    ) {
       return { status: 'INVALID_CREDENTIALS' };
     }
 
     const accessToken = this.jwtService.sign(
-      { sub: dto.username, type: 'unicommerce' },
+      { sub: username, type: 'unicommerce' },
       { expiresIn: UNICOMMERCE_TOKEN_EXPIRY },
     );
 

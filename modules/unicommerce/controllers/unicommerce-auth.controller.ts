@@ -1,7 +1,19 @@
-import { Body, Controller, Get, HttpStatus, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Post,
+  Query,
+  Res,
+  UseFilters,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { FastifyReply } from 'fastify';
 import { UnicommerceAuthService } from '../services/unicommerce-auth.service';
 import { UnicommerceAuthDto } from '../dto/unicommerce-auth.dto';
+import { UnicommerceAuthExceptionFilter } from '../filters/unicommerce-auth-exception.filter';
 
 /**
  * Implements the Unicommerce marketplace authentication API.
@@ -18,6 +30,15 @@ import { UnicommerceAuthDto } from '../dto/unicommerce-auth.dto';
  *   Authorization: <accessToken>   (or apikey header, per integration config)
  */
 @Controller('unicommerce')
+@UseFilters(UnicommerceAuthExceptionFilter)
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false,
+    transform: true,
+    transformOptions: { enableImplicitConversion: false },
+  }),
+)
 export class UnicommerceAuthController {
   constructor(private readonly unicommerceAuthService: UnicommerceAuthService) {}
 
