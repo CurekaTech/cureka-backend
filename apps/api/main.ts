@@ -43,7 +43,7 @@ async function bootstrap(): Promise<void> {
     }),
     // Suppress verbose NestJS bootstrap noise (InstanceLoader, RoutesResolver, etc.).
     // Pino takes over at info level after app.useLogger() is called below.
-    { logger: ['warn', 'error'] },
+    { logger: ['warn', 'error'], rawBody: true },
   );
 
   // @fastify/cors uses fastify-plugin internally, which breaks Fastify's

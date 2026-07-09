@@ -18,6 +18,12 @@ export class BulkUploadController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post()
   async upload(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
+    console.log('[BULK_UPLOAD_DEBUG][Controller.upload] API_CALLED', {
+      method: req.method,
+      url: req.url,
+      userEmail: user.email,
+      isMultipart: req.isMultipart(),
+    });
     return this.bulkUploadService.createBulkUploadJob(req, user.email);
   }
 
@@ -31,6 +37,7 @@ export class BulkUploadController {
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
+    console.log('[BULK_UPLOAD_DEBUG][Controller.history] API_CALLED', { page: pageNum, limit: limitNum });
     return this.bulkUploadService.getHistory(pageNum, limitNum);
   }
 
@@ -44,6 +51,7 @@ export class BulkUploadController {
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
+    console.log('[BULK_UPLOAD_DEBUG][Controller.getHistory] API_CALLED', { page: pageNum, limit: limitNum });
     return this.bulkUploadService.getHistory(pageNum, limitNum);
   }
 
@@ -52,6 +60,7 @@ export class BulkUploadController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get(':refId')
   async getStatus(@Param('refId', RefIdPipe) refId: string) {
+    console.log('[BULK_UPLOAD_DEBUG][Controller.getStatus] API_CALLED', { refId });
     return this.bulkUploadService.getJobStatus(refId);
   }
 }

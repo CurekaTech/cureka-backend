@@ -23,7 +23,10 @@ export class ShipwayWebhookController {
     @Headers('x-webhook-signature') webhookSignature?: string,
     @Headers('x-shipway-signature') shipwaySignature?: string,
   ) {
-    const rawBody = JSON.stringify(payload);
+    const rawBodySource = (req as FastifyRequest & { rawBody?: Buffer | string }).rawBody;
+    const rawBody = Buffer.isBuffer(rawBodySource)
+      ? rawBodySource.toString('utf8')
+      : rawBodySource ?? JSON.stringify(payload);
     const signature = webhookSignature ?? shipwaySignature;
     this.shipwayService.verifyWebhookSignature(rawBody, signature);
 

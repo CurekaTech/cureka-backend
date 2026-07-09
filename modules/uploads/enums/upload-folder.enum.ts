@@ -5,4 +5,7 @@ export enum UploadFolder {
   VIDEOS = 'videos',
   ICONS = 'icons',
   AVATARS = 'avatars',
+  SUPPORT_ATTACHMENTS = 'support-attachments',
+  BLOG_IMAGES = 'blog-images',
+  BLOG_VIDEOS = 'blog-videos',
 }

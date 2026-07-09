@@ -14,6 +14,10 @@ export const ALLOWED_VIDEO_MIME_TYPES = [
   'video/quicktime',
   'video/x-msvideo',
   'video/mpeg',
+  'video/ogg',
+  'video/x-matroska',
+  'video/3gpp',
+  'video/x-flv',
 ] as const;
 
 export const ALLOWED_UPLOAD_MIME_TYPES = [

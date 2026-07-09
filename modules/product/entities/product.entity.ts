@@ -26,6 +26,7 @@ import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { ProductNatureEntity } from '@modules/master/entities/product-nature.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
+import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 
 @Entity('products')
@@ -152,6 +153,25 @@ export class ProductEntity extends BaseEntity {
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;
+
+  @Index()
+  @Column({ name: 'external_product_id', type: 'varchar', length: 255, nullable: true })
+  externalProductId!: string | null;
+
+  @Column({ name: 'single_product_url', type: 'varchar', length: 1000, nullable: true })
+  singleProductUrl!: string | null;
+
+  @Column({ name: 'pack_metadata', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  packMetadata!: IProductPackMetadataItem[];
+
+  @Column({ name: 'manufacturer_address', type: 'text', nullable: true })
+  manufacturerAddress!: string | null;
+
+  @Column({ name: 'packer_address', type: 'text', nullable: true })
+  packerAddress!: string | null;
+
+  @Column({ name: 'importer_address', type: 'text', nullable: true })
+  importerAddress!: string | null;
 
   @ManyToOne(() => ProductNatureEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'product_nature_id' })

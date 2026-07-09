@@ -11,6 +11,8 @@ import { IPublicCategoryTree } from './public-category.interface';
 import { IPublicHealthConcernCard } from './public-health-concern.interface';
 import { IPublicProductCard } from './public-product.interface';
 import { IPublicWellnessGoalCard } from './public-wellness-goal.interface';
+import { IPublicWatchAndShopSection } from './public-watch-and-shop.interface';
+import { IPublicHealthReadsSection } from './public-health-reads.interface';
 
 export type HomepageSectionDataMap = {
   [HomepageSectionKey.HERO_BANNER]: IPublicHeroBannerSection;
@@ -21,6 +23,8 @@ export type HomepageSectionDataMap = {
   [HomepageSectionKey.FESTIVAL_BANNERS]: IStorefrontBannerItem[];
   [HomepageSectionKey.BRAND_BANNERS]: IPublicBrandBannersSection;
   [HomepageSectionKey.BEST_SELLERS]: IPublicBestSellersSection;
+  [HomepageSectionKey.WATCH_AND_SHOP]: IPublicWatchAndShopSection;
+  [HomepageSectionKey.HEALTH_READS]: IPublicHealthReadsSection;
   [HomepageSectionKey.FEATURED_PRODUCTS]: IPublicProductCard[];
 };
 

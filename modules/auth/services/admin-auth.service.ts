@@ -15,7 +15,7 @@ export class AdminAuthService {
   constructor(
     private readonly adminUsersService: AdminUsersService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
     const entity = await this.adminUsersService.findByEmailWithPassword(dto.email);
@@ -126,11 +126,11 @@ export class AdminAuthService {
 
           return hasAccess
             ? {
-                name: item.name,
-                key: item.key,
-                icon: item.icon,
-                href: item.href,
-              }
+              name: item.name,
+              key: item.key,
+              icon: item.icon,
+              href: item.href,
+            }
             : null;
         })
         .filter(Boolean) as MenuItem[];
@@ -364,6 +364,12 @@ export const MENU_HIERARCHY: MenuItem[] = [
         href: '/products/bulk-upload/history',
         requiredPermissions: ['products.create'],
       },
+      {
+        key: "products-gallery",
+        name: "Media Gallery",
+        icon: "ImageIcon",
+        href: "/products/gallery",
+      },
     ],
   },
   {
@@ -416,6 +422,34 @@ export const MENU_HIERARCHY: MenuItem[] = [
     ],
   },
   {
+    name: 'Blogs',
+    key: 'blogs',
+    icon: 'BookOpen',
+    subItems: [
+      {
+        name: 'Blog Categories',
+        key: 'blog-categories',
+        icon: 'FolderKanban',
+        href: '/blog/categories',
+        requiredPermissions: ['blog_categories.read'],
+      },
+      {
+        name: 'Blog Posts',
+        key: 'blog-posts',
+        icon: 'ImageIcon',
+        href: '/blog/posts',
+        requiredPermissions: ['blog_posts.read'],
+      },
+      {
+        name: 'Blog Comments',
+        key: 'blog-comments',
+        icon: 'MessageSquare',
+        href: '/blog/comments',
+        requiredPermissions: ['blog_comments.read'],
+      },
+    ],
+  },
+  {
     name: 'Role Management',
     key: 'role-management',
     icon: 'ShieldCheck',
@@ -433,6 +467,48 @@ export const MENU_HIERARCHY: MenuItem[] = [
         icon: 'Users',
         href: '/roles-permissions/admin-users',
         requiredPermissions: ['admin_users.read'],
+      },
+    ],
+  },
+  {
+    name: 'Help & Support',
+    key: 'support',
+    icon: 'HelpCircle',
+    subItems: [
+      {
+        name: 'Categories',
+        key: 'support-categories',
+        icon: 'FolderKanban',
+        href: '/support/categories',
+        requiredPermissions: ['support_categories.read'],
+      },
+      {
+        name: 'Articles',
+        key: 'support-articles',
+        icon: 'ImageIcon',
+        href: '/support/articles',
+        requiredPermissions: ['support_articles.read'],
+      },
+      {
+        name: 'FAQs',
+        key: 'support-faqs',
+        icon: 'ListTree',
+        href: '/support/faqs',
+        requiredPermissions: ['support_faqs.read'],
+      },
+      {
+        name: 'Tickets',
+        key: 'support-tickets',
+        icon: 'Receipt',
+        href: '/support/tickets',
+        requiredPermissions: ['support_tickets.read'],
+      },
+      {
+        name: 'Reason Master',
+        key: 'support-reason-master',
+        icon: 'ListChecks',
+        href: '/support/reason-master',
+        requiredPermissions: ['reason_masters.read'],
       },
     ],
   },

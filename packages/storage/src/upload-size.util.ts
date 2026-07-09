@@ -15,6 +15,7 @@ export class UploadSizeLimitExceededError extends Error {
 }
 
 export const isLargePayloadMimeType = (mimetype: string): boolean =>
+  mimetype.startsWith('video/') ||
   (ALLOWED_VIDEO_MIME_TYPES as readonly string[]).includes(mimetype) ||
   [
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

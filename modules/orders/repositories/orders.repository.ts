@@ -58,7 +58,7 @@ export class OrdersRepository {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
     return repository.findOne({
       where: { id },
-      relations: { items: true },
+      relations: { user: true, items: { variant: true } },
       order: { items: { createdAt: 'ASC' } },
     });
   }

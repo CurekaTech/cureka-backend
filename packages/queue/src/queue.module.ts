@@ -16,15 +16,18 @@ export class QueueModule {
           imports: [ConfigModule],
           inject: [ConfigService],
           useFactory: (config: ConfigService) => {
-            const tls = config.get<string>('REDIS_TLS', 'false') === 'true';
+            const redisPort = Number(config.get<string | number>('REDIS_PORT') ?? 6379);
+            const redisUsername = config.get<string>('REDIS_USERNAME') || undefined;
+            const redisPassword = config.get<string>('REDIS_PASSWORD') || undefined;
+            const redisTlsEnabled = config.get<string>('REDIS_TLS') === 'true';
+
             return {
               connection: {
                 host: config.get<string>('REDIS_HOST') ?? 'localhost',
-                port: config.get<number>('REDIS_PORT') ?? 6379,
-                username: config.get<string>('REDIS_USERNAME') || undefined,
-                password: config.get<string>('REDIS_PASSWORD'),
-                tls: tls ? {} : undefined,
-                maxRetriesPerRequest: null,
+                port: Number.isFinite(redisPort) ? redisPort : 6379,
+                username: redisUsername,
+                password: redisPassword,
+                tls: redisTlsEnabled ? {} : undefined,
               },
               defaultJobOptions: {
                 removeOnComplete: 100,

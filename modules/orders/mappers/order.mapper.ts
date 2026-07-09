@@ -32,6 +32,7 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> & {
   /** Number of distinct line items in the order. */
   lineItemCount: number;
   items: OrderItemResponse[];
+  /** Shipway shipment record when the order has been pushed to Shipway. */
   shipment: ShipmentResponse | null;
 };
 
