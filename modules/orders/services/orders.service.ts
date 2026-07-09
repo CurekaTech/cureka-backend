@@ -19,7 +19,7 @@ import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.ma
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
-import { ShippingQueueService } from '@modules/shipping/services/shipping-queue.service';
+import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { toMoneyString } from '../utils/money.util';
 
 @Injectable()
@@ -38,9 +38,10 @@ export class OrdersService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly shippingService: ShippingService,
-    private readonly shippingQueueService: ShippingQueueService,
+    private readonly shipmentsRepository: ShipmentsRepository,
   ) {}
 
+  
   checkout(userId: string, dto: CheckoutDto) {
     return this.checkoutService.validateCheckout(userId, dto);
   }
@@ -65,7 +66,7 @@ export class OrdersService {
       throw new BadRequestException('Cart is empty');
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const order = await this.dataSource.transaction(async (manager) => {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
 
@@ -157,6 +158,7 @@ export class OrdersService {
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
 
+      
       if (appliedCoupon) {
         await this.couponCheckoutService.validateCoupon(appliedCoupon, {
           userId,
@@ -201,8 +203,15 @@ export class OrdersService {
 
       const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
-      return mapOrderToResponse(order, this.storageUrlEnricher);
+      this.logger.log(
+        { orderId: order.id, orderNumber: order.orderNumber, userId, paymentMethod: order.paymentMethod },
+        'Order created successfully',
+      );
+      return order;
     });
+
+    await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
+    return this.findOne(userId, order.id);
   }
 
   async findMyOrders(userId: string, query: OrderQueryDto) {
@@ -402,18 +411,61 @@ export class OrdersService {
         manager,
       );
       if (!order) throw new NotFoundException('Order not found after creation');
-      console.log('OrdersService.createOrderFromPaymentRequest transaction complete', {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        customerId: params.customerId,
-      });
+      this.logger.log(
+        { orderId: order.id, orderNumber: order.orderNumber, customerId: params.customerId },
+        'Payment request order creation transaction completed',
+      );
       return order;
     });
 
-    console.log(`OrdersService.createOrderFromPaymentRequest enqueuePushOrder orderId=${order.id}`);
-    const pushJob = await this.shippingQueueService.enqueuePushOrder(order.id);
-    console.log(`OrdersService.createOrderFromPaymentRequest queued Shipway job id=${pushJob.id} name=${pushJob.name}`);
-    return order;
+    await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'payment-request-order');
+
+    return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
+  }
+
+  private async pushOrderToShipwaySafely(orderId: string, orderNumber: string, source: string): Promise<void> {
+    this.logger.log(
+      { orderId, orderNumber, source },
+      'Calling Shipway synchronously after order creation',
+    );
+
+    try {
+      const shipment = await this.shippingService.pushOrderToShipway(orderId);
+      this.logger.log(
+        {
+          orderId,
+          orderNumber,
+          source,
+          shipmentId: shipment?.id ?? null,
+          awbNumber: shipment?.awbNumber ?? null,
+          trackingUrl: shipment?.trackingUrl ?? null,
+          shipmentStatus: shipment?.shipmentStatus ?? null,
+        },
+        'Shipway synchronous push finished',
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          orderId,
+          orderNumber,
+          source,
+          error: this.serializeError(error),
+        },
+        'Failed to push order to Shipway after order creation',
+      );
+    }
+  }
+
+  private serializeError(error: unknown) {
+    if (error instanceof Error) {
+      return {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      };
+    }
+
+    return { message: String(error) };
   }
 
   private async generateOrderNumber(): Promise<string> {
