@@ -9,7 +9,7 @@ import { BulkUploadValidatorService, IValidationError } from '../services/bulk-u
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
-import { CreateProductDto } from '../dto/product.dto';
+import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
 import { createWriteStream, createReadStream } from 'fs';
@@ -352,8 +352,16 @@ export class BulkUploadProcessor extends WorkerHost {
                 ? group.bundleItems.length
                 : group.variants.length);
 
-              // Reuses validated creation sequence from existing service
-              await this.productsService.createDraft(dto, 'system-bulk-upload');
+              const existingProductRefId = this.validatorService.resolveExistingProductRefIdForGroup(group);
+              if (existingProductRefId) {
+                await this.productsService.update(
+                  existingProductRefId,
+                  dto as UpdateProductDto,
+                  'system-bulk-upload',
+                );
+              } else {
+                await this.productsService.createDraft(dto, 'system-bulk-upload');
+              }
               successfulProducts += rowCount;
             } catch (dbError) {
               this.logger.error(`Failed to create product '${group.name}' inside database:`, dbError);
@@ -397,6 +405,7 @@ export class BulkUploadProcessor extends WorkerHost {
           });
         },
         this.validatorService.getActiveProductInformationLabels(),
+        this.validatorService.getActiveCategoryFilterNames(),
       );
 
       // 3. Generate and upload Error Report Excel sheet if failures exist

@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
+import { MasterStatus } from '../enums/master-status.enum';
 
 interface CategoryFilterFindOptions extends PaginationOptions {
   categoryId?: string;
@@ -27,7 +28,59 @@ export class CategoryFiltersRepository {
 
   async findByRefIds(refIds: string[]): Promise<CategoryFilterEntity[]> {
     if (!refIds.length) return [];
-    return this.repo.find({ where: { refId: In([...new Set(refIds)]) } });
+    return this.repo.find({
+      where: { refId: In([...new Set(refIds)]) },
+      relations: { categories: true },
+      select: {
+        id: true,
+        refId: true,
+        name: true,
+        status: true,
+        values: true,
+        categories: {
+          id: true,
+        },
+      },
+    });
+  }
+
+  async findAllActiveOrderedByName(): Promise<CategoryFilterEntity[]> {
+    return this.repo.find({
+      where: { status: MasterStatus.ACTIVE },
+      relations: { categories: true },
+      order: { name: 'ASC' },
+      select: {
+        id: true,
+        refId: true,
+        name: true,
+        values: true,
+        status: true,
+        categories: {
+          id: true,
+        },
+      },
+    });
+  }
+
+  async findByRefIdsOrNames(keys: string[]): Promise<CategoryFilterEntity[]> {
+    const normalizedKeys = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+    if (!normalizedKeys.length) return [];
+
+    const loweredNames = normalizedKeys.map((key) => key.toLowerCase());
+    return this.repo
+      .createQueryBuilder('categoryFilter')
+      .leftJoinAndSelect('categoryFilter.categories', 'category')
+      .where('categoryFilter.refId IN (:...keys)', { keys: normalizedKeys })
+      .orWhere('LOWER(categoryFilter.name) IN (:...loweredNames)', { loweredNames })
+      .select([
+        'categoryFilter.id',
+        'categoryFilter.refId',
+        'categoryFilter.name',
+        'categoryFilter.status',
+        'categoryFilter.values',
+        'category.id',
+      ])
+      .getMany();
   }
 
   async existsByRefId(refId: string): Promise<boolean> {

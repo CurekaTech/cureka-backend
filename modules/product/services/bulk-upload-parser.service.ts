@@ -6,6 +6,7 @@ import {
   BulkUploadProductInformationLabel,
   isFixedBulkUploadColumn,
   isDeprecatedBulkUploadColumn,
+  isBulkUploadCategoryFilterColumn,
   normalizeBulkUploadHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
@@ -187,6 +188,46 @@ export class BulkUploadParserService {
       .filter((item): item is { categoryFilterRefId: string; values: string[] } => Boolean(item));
   }
 
+  private extractDynamicCategoryFilterColumns(
+    worksheet: exceljs.Worksheet,
+  ): Map<number, string> {
+    const dynamicColumns = new Map<number, string>();
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell, colNumber) => {
+      const original = this.getCellText(cell).trim();
+      if (!original) return;
+      const normalized = normalizeBulkUploadHeader(original);
+      if (!normalized.startsWith('cf_')) return;
+
+      const name = original.slice(original.indexOf('_') + 1).trim();
+      if (!name) return;
+      dynamicColumns.set(colNumber, name);
+    });
+    return dynamicColumns;
+  }
+
+  private parseDynamicCategoryFilters(
+    row: exceljs.Row,
+    dynamicColumns: Map<number, string>,
+  ): { categoryFilterRefId: string; values: string[] }[] {
+    const bindings: { categoryFilterRefId: string; values: string[] }[] = [];
+    for (const [columnIndex, filterName] of dynamicColumns.entries()) {
+      const raw = this.getCellText(row.getCell(columnIndex));
+      if (!raw.trim()) continue;
+      const values = raw
+        .split('|')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (!values.length) continue;
+      bindings.push({
+        // Resolver accepts both refId and name lookup keys.
+        categoryFilterRefId: filterName,
+        values,
+      });
+    }
+    return bindings;
+  }
+
   private resolveProductSkuCode(getVal: (colName: string) => string): string {
     return getVal('product sku code') || getVal('sku code');
   }
@@ -285,6 +326,7 @@ export class BulkUploadParserService {
     batchSize: number,
     onBatch: (batch: IParsedProductGroup[], totalRowsScanned: number) => Promise<void>,
     activeProductInformationLabels: ReadonlyMap<string, BulkUploadProductInformationLabel>,
+    activeCategoryFilterNames: ReadonlySet<string> = new Set(),
   ): Promise<number> {
     const isCsv = mimetype === 'text/csv' || extname(filePath).toLowerCase() === '.csv';
     const workbook = new exceljs.Workbook();
@@ -309,10 +351,12 @@ export class BulkUploadParserService {
 
     const headerMap = this.extractHeaders(worksheet);
     this.validateRequiredHeaders(headerMap);
+    this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
     const productInformationColumnMap = this.resolveProductInformationColumns(
       headerMap,
       activeProductInformationLabels,
     );
+    const dynamicCategoryFilterColumns = this.extractDynamicCategoryFilterColumns(worksheet);
 
     const groupedProducts = new Map<string, IParsedProductGroup>();
     let batchBuffer: IParsedProductGroup[] = [];
@@ -423,6 +467,13 @@ export class BulkUploadParserService {
           variants: [],
           bundleItems: [],
         };
+        const dynamicCategoryFilters = this.parseDynamicCategoryFilters(
+          row,
+          dynamicCategoryFilterColumns,
+        );
+        if (dynamicCategoryFilters.length) {
+          group.categoryFilters = [...group.categoryFilters, ...dynamicCategoryFilters];
+        }
 
         // Parse up to 10 FAQs
         for (let i = 1; i <= 10; i++) {
@@ -567,6 +618,30 @@ export class BulkUploadParserService {
     }
   }
 
+  private validateCategoryFilterHeaders(
+    headerMap: Map<string, number>,
+    activeCategoryFilterNames: ReadonlySet<string>,
+  ): void {
+    const unknownColumns: string[] = [];
+
+    for (const normalizedHeader of headerMap.keys()) {
+      if (!isBulkUploadCategoryFilterColumn(normalizedHeader)) {
+        continue;
+      }
+
+      const filterName = normalizedHeader.slice(3).trim();
+      if (!filterName || !activeCategoryFilterNames.has(filterName)) {
+        unknownColumns.push(`CF_${normalizedHeader.slice(3)}`);
+      }
+    }
+
+    if (unknownColumns.length > 0) {
+      throw new BadRequestException(
+        `Invalid template. These category filter columns are not recognized in master records: ${unknownColumns.join(', ')}`,
+      );
+    }
+  }
+
   private parseExpiryDate(raw: string): string | undefined {
     const value = raw.trim();
     if (!value) return undefined;
@@ -596,6 +671,9 @@ export class BulkUploadParserService {
       }
 
       if (isDeprecatedBulkUploadColumn(normalizedHeader)) {
+        continue;
+      }
+      if (isBulkUploadCategoryFilterColumn(normalizedHeader)) {
         continue;
       }
 

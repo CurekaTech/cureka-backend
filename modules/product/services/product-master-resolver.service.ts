@@ -56,7 +56,6 @@ export class ProductMasterResolverService {
       wellnessGoalIds,
       faqIds,
       attributeResolution,
-      categoryFilterBindings,
     ] = await Promise.all([
       dto.productNatureRefId
         ? this.requireByRefId(
@@ -136,8 +135,11 @@ export class ProductMasterResolverService {
       ),
       this.resolveFaqIds(dto.faqRefIds ?? []),
       this.resolveAttributes(dto),
-      this.resolveCategoryFilterBindings(dto.categoryFilters),
     ]);
+    const categoryFilterBindings = await this.resolveCategoryFilterBindings(
+      dto.categoryFilters,
+      category.id,
+    );
 
     if (dto.productType === ProductType.VARIABLE && !attributeResolution.attributeIds.length) {
       throw new BadRequestException('attributeRefIds are required for variable products');
@@ -165,6 +167,7 @@ export class ProductMasterResolverService {
 
   async resolveCategoryFilterBindings(
     bindings: ProductCategoryFilterBindingDto[] | undefined,
+    categoryId?: string,
   ): Promise<Array<{ categoryFilterId: string; values: string[] }>> {
     const activeBindings = (bindings ?? []).filter(
       (binding) =>
@@ -173,21 +176,32 @@ export class ProductMasterResolverService {
     );
     if (!activeBindings.length) return [];
 
-    const uniqueRefIds = [...new Set(activeBindings.map((binding) => binding.categoryFilterRefId))];
-    const filters = await this.categoryFiltersRepository.findByRefIds(uniqueRefIds);
-    const byRefId = new Map(filters.map((filter) => [filter.refId, filter]));
+    const uniqueKeys = [...new Set(activeBindings.map((binding) => binding.categoryFilterRefId))];
+    const filters = await this.categoryFiltersRepository.findByRefIdsOrNames(uniqueKeys);
+    const byRefId = new Map(filters.map((filter) => [filter.refId.toLowerCase(), filter]));
+    const byName = new Map(filters.map((filter) => [filter.name.toLowerCase().trim(), filter]));
     const mergedValuesByFilterId = new Map<string, Set<string>>();
 
     for (const binding of activeBindings) {
-      const filter = byRefId.get(binding.categoryFilterRefId);
+      const lookupKey = binding.categoryFilterRefId.toLowerCase().trim();
+      const filter = byRefId.get(lookupKey) ?? byName.get(lookupKey);
       if (!filter) {
         throw new NotFoundException(
-          `Category filter with refId "${binding.categoryFilterRefId}" not found`,
+          `Category filter "${binding.categoryFilterRefId}" not found`,
         );
       }
       if (filter.status !== MasterStatus.ACTIVE) {
         throw new BadRequestException(
           `Category filter "${filter.name}" is not active`,
+        );
+      }
+
+      if (
+        categoryId &&
+        !filter.categories?.some((assignedCategory) => assignedCategory.id === categoryId)
+      ) {
+        throw new BadRequestException(
+          `Category filter "${filter.name}" is not assigned to the selected category.`,
         );
       }
 
