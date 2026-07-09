@@ -10,6 +10,7 @@ import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto } from '../dto/product.dto';
+import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
@@ -37,6 +38,13 @@ export class BulkUploadProcessor extends WorkerHost {
 
   async process(job: Job<{ uploadRefId: string; fileUrl: string; imagesZipUrl?: string }, any, string>): Promise<any> {
     const { uploadRefId, fileUrl, imagesZipUrl } = job.data;
+    console.log('[BULK_UPLOAD_DEBUG][Processor.process] JOB_RECEIVED', {
+      uploadRefId,
+      fileUrl,
+      imagesZipUrl,
+      jobId: job.id,
+      jobName: job.name,
+    });
     this.logger.log(`Received bulk upload job for refId: ${uploadRefId}, file: ${fileUrl}, zip: ${imagesZipUrl}`);
 
     // Enable cache bypass during processing of the heavy bulk sheets
@@ -54,6 +62,10 @@ export class BulkUploadProcessor extends WorkerHost {
       // 1. Prime validation cache and load Media Gallery mappings
       await this.validatorService.primeValidationCache();
       const galleryMap = await this.galleryService.getAllGalleryMap();
+      console.log('[BULK_UPLOAD_DEBUG][Processor.process] CACHE_AND_GALLERY_READY', {
+        uploadRefId,
+        galleryImageCount: galleryMap.size,
+      });
 
       // Update status to processing in database
       await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
@@ -64,14 +76,22 @@ export class BulkUploadProcessor extends WorkerHost {
       await mkdir(tempDir, { recursive: true });
       const readStream = await this.storageService.createReadStream(fileUrl);
       await pipeline(readStream, createWriteStream(tempFilePath));
+      console.log('[BULK_UPLOAD_DEBUG][Processor.process] FILE_DOWNLOADED', {
+        uploadRefId,
+        fileUrl,
+        tempFilePath,
+      });
       this.logger.log(`Downloaded storage file to temp path: ${tempFilePath}`);
 
       // 2. Parse and group rows in chunks
       const sheetSkus = new Set<string>();
+      const sheetExternalProductIds = new Set<string>();
       const allErrors: IValidationError[] = [];
       let totalProductsGrouped = 0;
       let successfulProducts = 0;
       let failedProducts = 0;
+
+      const labelSortOrders = this.validatorService.getProductInformationLabelSortOrders();
 
       const totalRowsScanned = await this.parserService.parseAndBatch(
         tempFilePath,
@@ -79,9 +99,33 @@ export class BulkUploadProcessor extends WorkerHost {
         100, // chunk size of 100 products
         async (batch, scannedRows) => {
           totalProductsGrouped += batch.length;
+          console.log('[BULK_UPLOAD_DEBUG][Processor.process] BATCH_PARSED', {
+            uploadRefId,
+            scannedRows,
+            batchSize: batch.length,
+            groups: batch.map((group) => ({
+              rowNumber: group.rowNumber,
+              name: group.name,
+              category: group.category,
+              subCategory: group.subCategory,
+              subSubCategory: group.subSubCategory,
+              subSubSubCategory: group.subSubSubCategory,
+              sku: group.variants[0]?.sku ?? null,
+            })),
+          });
           
           // Execute batch validation
-          const { errors, validatedProducts } = this.validatorService.validateBatch(batch, sheetSkus);
+          const { errors, validatedProducts } = this.validatorService.validateBatch(
+            batch,
+            sheetSkus,
+            sheetExternalProductIds,
+          );
+          console.log('[BULK_UPLOAD_DEBUG][Processor.process] BATCH_VALIDATED', {
+            uploadRefId,
+            errorCount: errors.length,
+            validatedCount: validatedProducts.length,
+            errors,
+          });
 
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           for (const group of validatedProducts) {
@@ -133,6 +177,10 @@ export class BulkUploadProcessor extends WorkerHost {
                   return {
                     sku: v.sku,
                     barcode: v.barcode,
+                    gtinNumber: v.gtinNumber,
+                    hsnCode: v.hsnCode,
+                    batchNumber: v.batchNumber,
+                    expiryDate: v.expiryDate,
                     mrp: v.mrp,
                     sellingPrice: v.sellingPrice,
                     discountPercentage: v.discountPercentage,
@@ -164,6 +212,13 @@ export class BulkUploadProcessor extends WorkerHost {
                 }
               }
 
+              const normalizedProductInformation = group.productInformation.length
+                ? normalizeProductInformation(group.productInformation, labelSortOrders)
+                : undefined;
+              const descriptionFromProductInformation = normalizedProductInformation?.find(
+                (item) => item.label.toLowerCase().trim() === 'description',
+              )?.description;
+
               const dto: CreateProductDto = {
                 name: group.name,
                 productType: group.productType as ProductType,
@@ -173,7 +228,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 subSubCategoryRefId: refs.subSubCategoryRefId,
                 subSubSubCategoryRefId: refs.subSubSubCategoryRefId,
                 brandRefId: refs.brandRefId!,
-                description: group.description,
+                description: descriptionFromProductInformation,
                 tagNames: group.productTags,
                 healthConcernRefIds: refs.healthConcernRefIds,
                 wellnessGoalRefIds: refs.wellnessGoalRefIds,
@@ -187,12 +242,22 @@ export class BulkUploadProcessor extends WorkerHost {
                 replaceAllowed: group.replaceAllowed,
                 replaceWindowDays: group.replaceWindowDays,
                 slug: group.slugUrl || undefined,
+                externalProductId: group.externalProductId,
+                singleProductUrl: group.singleProductUrl,
+                packMetadata: group.packMetadata.length ? group.packMetadata : undefined,
+                manufacturerAddress: group.manufacturerAddress,
+                packerAddress: group.packerAddress,
+                importerAddress: group.importerAddress,
                 metaTitle: group.metaTitle,
                 metaDescription: group.metaDescription,
                 metaKeywords: group.metaKeywords,
                 categoryFilters: group.categoryFilters.length ? group.categoryFilters : undefined,
                 sizeChart: group.sizeChart
-                  ? this.storageService.toFileReference(group.sizeChart)
+                  ? (() => {
+                      const normalized = group.sizeChart.toLowerCase().trim();
+                      const galleryPath = galleryMap.get(normalized);
+                      return this.storageService.toFileReference(galleryPath ?? group.sizeChart);
+                    })()
                   : undefined,
                 manufacturerRefId: refs.manufacturerRefId,
                 packerRefId: refs.packerRefId,
@@ -201,41 +266,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 components: group.components,
                 expiresInMonths: group.expiresInMonths,
                 customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
-                productInformation: (() => {
-                  const info: any[] = [];
-                  let sortOrder = 1;
-                  
-                  const addInfo = (label: string, content: string | string[] | undefined) => {
-                    if (content) {
-                      const text = Array.isArray(content) ? content.join('|') : content;
-                      if (text && text.trim()) {
-                        info.push({ label, description: text, sortOrder: sortOrder++ });
-                      }
-                    }
-                  };
-
-                  addInfo('Product Highlights', group.highlights);
-                  addInfo('Key Features', group.keyFeatures);
-                  addInfo('Usage and Safety', group.usageAndSafety);
-                  addInfo('Ingredients and Nutrition', group.ingredientsAndNutrition);
-                  addInfo('Compliance Detail', group.complianceDetail);
-                  addInfo('Additional Info', group.additionalInfo);
-                  addInfo('Key Benefits', group.keyBenefits);
-                  addInfo('Expert Advice', group.expertAdvice);
-                  addInfo('Key Ingredients', group.keyIngredients);
-                  addInfo('Other Ingredients', group.otherIngredients);
-                  addInfo('Preventive Notes', group.preventiveNotes);
-                  addInfo('Accessories', group.accessories);
-                  addInfo('Direction of Use', group.directionOfUse);
-                  addInfo('Feeding Table', group.feedingTable);
-                  addInfo('Safety Information', group.safetyInformation);
-                  addInfo('Indications', group.indications);
-                  addInfo('Kit contains', group.kitContains);
-                  addInfo('Offers', group.offers);
-                  addInfo('Description', group.description);
-
-                  return info.length > 0 ? info : undefined;
-                })(),
+                productInformation: normalizedProductInformation,
                 variants: processedVariants,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {
@@ -295,7 +326,8 @@ export class BulkUploadProcessor extends WorkerHost {
             failedRows: failedProducts,
             errorSummary: allErrors.slice(0, 100), // Limit summary field payload size in db log
           });
-        }
+        },
+        this.validatorService.getActiveProductInformationLabels(),
       );
 
       // 3. Generate and upload Error Report Excel sheet if failures exist

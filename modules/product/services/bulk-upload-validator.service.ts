@@ -12,7 +12,11 @@ import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
+import { ProductEntity } from '../entities/product.entity';
+import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { IParsedProductGroup } from './bulk-upload-parser.service';
+import { BulkUploadProductInformationLabel } from '../utils/bulk-upload-columns.util';
 
 export interface IValidationError {
   rowNumber: number;
@@ -44,6 +48,9 @@ export class BulkUploadValidatorService {
   private countryMap = new Map<string, string>(); // name (lowercase) -> refId
   private skuToProductRefIdMap = new Map<string, string>(); // SKU (lowercase) -> parent product refId
   private dbSkus = new Set<string>();
+  private dbExternalProductIds = new Set<string>();
+  private activeProductInformationLabels = new Map<string, BulkUploadProductInformationLabel>();
+  private productInformationLabelSortOrders = new Map<string, number>();
 
   constructor(private readonly dataSource: DataSource) {}
 
@@ -66,6 +73,8 @@ export class BulkUploadValidatorService {
       importers,
       countries,
       skusWithProducts,
+      externalProductIds,
+      productInformationLabels,
     ] = await Promise.all([
       this.dataSource.getRepository(ProductNatureEntity).find({ select: ['name', 'refId'] }),
       this.dataSource.getRepository(CategoryEntity).find({ select: ['name', 'refId'] }),
@@ -87,6 +96,15 @@ export class BulkUploadValidatorService {
           },
         },
       }),
+      this.dataSource.getRepository(ProductEntity).find({
+        select: ['externalProductId'],
+        where: {},
+      }),
+      this.dataSource.getRepository(ProductInformationLabelEntity).find({
+        select: ['name', 'sortOrder', 'status'],
+        where: { status: MasterStatus.ACTIVE },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      }),
     ]);
 
     this.natureMap = new Map(natures.map((n: any) => [n.name.toLowerCase().trim(), n.refId]));
@@ -104,8 +122,27 @@ export class BulkUploadValidatorService {
     this.importerMap = new Map(importers.map((i: any) => [i.name.toLowerCase().trim(), i.refId]));
     this.countryMap = new Map(countries.map((co: any) => [co.name.toLowerCase().trim(), co.refId]));
 
+    this.activeProductInformationLabels = new Map(
+      productInformationLabels.map((label) => [
+        label.name.toLowerCase().trim(),
+        {
+          name: label.name,
+          sortOrder: label.sortOrder,
+          status: label.status,
+        },
+      ]),
+    );
+    this.productInformationLabelSortOrders = new Map(
+      productInformationLabels.map((label) => [label.name, label.sortOrder]),
+    );
+
     this.dbSkus = new Set();
     this.skuToProductRefIdMap = new Map();
+    this.dbExternalProductIds = new Set(
+      externalProductIds
+        .map((product) => product.externalProductId?.toLowerCase().trim())
+        .filter((value): value is string => Boolean(value)),
+    );
     for (const v of skusWithProducts) {
       if (v.sku) {
         const normSku = v.sku.toLowerCase().trim();
@@ -117,6 +154,20 @@ export class BulkUploadValidatorService {
     }
 
     this.logger.log(`Caches primed: Natures=${this.natureMap.size}, Brands=${this.brandMap.size}, Categories=${this.categoryMap.size}, DB SKUs=${this.dbSkus.size}`);
+    console.log('[BULK_UPLOAD_DEBUG][Validator.primeValidationCache] CATEGORY_CACHE_READY', {
+      categoryCount: this.categoryMap.size,
+      hasDieabities: this.categoryMap.has('dieabities'),
+      hasVelitExercitationem: this.categoryMap.has('velit exercitationem'),
+      sampleCategories: Array.from(this.categoryMap.keys()).slice(0, 20),
+    });
+  }
+
+  getActiveProductInformationLabels(): ReadonlyMap<string, BulkUploadProductInformationLabel> {
+    return this.activeProductInformationLabels;
+  }
+
+  getProductInformationLabelSortOrders(): ReadonlyMap<string, number> {
+    return this.productInformationLabelSortOrders;
   }
 
   /**
@@ -172,6 +223,7 @@ export class BulkUploadValidatorService {
   validateBatch(
     batch: IParsedProductGroup[],
     sheetSkus: Set<string>,
+    sheetExternalProductIds: Set<string> = new Set(),
   ): { errors: IValidationError[]; validatedProducts: IParsedProductGroup[] } {
     const errors: IValidationError[] = [];
     const validatedProducts: IParsedProductGroup[] = [];
@@ -215,7 +267,18 @@ export class BulkUploadValidatorService {
           suggestedFix: 'Enter a valid category name.',
         });
       } else {
-        const refId = this.categoryMap.get(group.category.toLowerCase().trim());
+        const normalizedCategory = group.category.toLowerCase().trim();
+        const refId = this.categoryMap.get(normalizedCategory);
+        console.log('[BULK_UPLOAD_DEBUG][Validator.validateBatch] CATEGORY_CHECK', {
+          rowNumber: group.rowNumber,
+          rawCategory: group.category,
+          normalizedCategory,
+          found: Boolean(refId),
+          refId: refId ?? null,
+          availableMatchHints: Array.from(this.categoryMap.keys()).filter((name) =>
+            name.includes(normalizedCategory) || normalizedCategory.includes(name),
+          ).slice(0, 10),
+        });
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
@@ -253,6 +316,22 @@ export class BulkUploadValidatorService {
               invalidValue: goal,
               reason: `Wellness goal "${goal}" does not exist in master records.`,
               suggestedFix: 'Use a pre-defined active wellness goal name.',
+            });
+          }
+        }
+      }
+
+      if (group.healthConcerns && group.healthConcerns.length > 0) {
+        for (const concern of group.healthConcerns) {
+          const refId = this.healthConcernMap.get(concern.toLowerCase().trim());
+          if (!refId) {
+            groupErrors.push({
+              rowNumber: group.rowNumber,
+              sku: 'PARENT',
+              column: 'Health Concerns',
+              invalidValue: concern,
+              reason: `Health concern "${concern}" does not exist in master records.`,
+              suggestedFix: 'Use a pre-defined active health concern name.',
             });
           }
         }
@@ -314,16 +393,45 @@ export class BulkUploadValidatorService {
         }
       }
 
+      if (group.externalProductId) {
+        const normalizedExternalId = group.externalProductId.toLowerCase().trim();
+        if (sheetExternalProductIds.has(normalizedExternalId)) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: 'PARENT',
+            column: 'Product ID (String)',
+            invalidValue: group.externalProductId,
+            reason: `Product ID "${group.externalProductId}" is duplicated within the spreadsheet.`,
+            suggestedFix: 'Assign a unique external product ID per product row.',
+          });
+        } else {
+          sheetExternalProductIds.add(normalizedExternalId);
+        }
+
+        if (this.dbExternalProductIds.has(normalizedExternalId)) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: 'PARENT',
+            column: 'Product ID (String)',
+            invalidValue: group.externalProductId,
+            reason: `Product ID "${group.externalProductId}" already exists in the database.`,
+            suggestedFix: 'Use a new unique external product ID.',
+          });
+        }
+      }
+
+      this.validatePackMetadata(group, groupErrors);
+
       // B. Simple and Variable Product Validations
       if (group.productType === 'simple' || group.productType === 'variable') {
         if (group.variants.length === 0) {
           groupErrors.push({
             rowNumber: group.rowNumber,
             sku: 'PARENT',
-            column: 'SKU Code',
+            column: 'Product SKU Code',
             invalidValue: '',
-            reason: 'At least one variant or SKU row must be associated with the product.',
-            suggestedFix: 'Add a variant row specifying SKU code, MRP, Selling Price, and stock.',
+            reason: 'At least one variant or product SKU row must be associated with the product.',
+            suggestedFix: 'Add a variant row specifying Product SKU Code, MRP, Selling Price, and stock.',
           });
         }
 
@@ -332,10 +440,10 @@ export class BulkUploadValidatorService {
             groupErrors.push({
               rowNumber: variant.rowNumber,
               sku: 'EMPTY',
-              column: 'SKU Code',
+              column: 'Product SKU Code',
               invalidValue: '',
-              reason: 'SKU code is mandatory.',
-              suggestedFix: 'Define a unique SKU code.',
+              reason: 'Product SKU Code is mandatory.',
+              suggestedFix: 'Define a unique Product SKU Code.',
             });
             continue;
           }
@@ -347,10 +455,10 @@ export class BulkUploadValidatorService {
             groupErrors.push({
               rowNumber: variant.rowNumber,
               sku: variant.sku,
-              column: 'SKU Code',
+              column: 'Product SKU Code',
               invalidValue: variant.sku,
-              reason: `SKU code "${variant.sku}" is duplicated within the spreadsheet.`,
-              suggestedFix: 'Assign unique SKU codes to distinct variants.',
+              reason: `Product SKU Code "${variant.sku}" is duplicated within the spreadsheet.`,
+              suggestedFix: 'Assign unique Product SKU Codes to distinct variants.',
             });
           } else {
             sheetSkus.add(normSku);
@@ -361,10 +469,10 @@ export class BulkUploadValidatorService {
             groupErrors.push({
               rowNumber: variant.rowNumber,
               sku: variant.sku,
-              column: 'SKU Code',
+              column: 'Product SKU Code',
               invalidValue: variant.sku,
-              reason: `SKU code "${variant.sku}" already exists in the database.`,
-              suggestedFix: 'Change the SKU to a new unique code.',
+              reason: `Product SKU Code "${variant.sku}" already exists in the database.`,
+              suggestedFix: 'Change the Product SKU Code to a new unique value.',
             });
           }
 
@@ -464,5 +572,68 @@ export class BulkUploadValidatorService {
     }
 
     return { errors, validatedProducts };
+  }
+
+  private validatePackMetadata(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
+    for (const pack of group.packMetadata ?? []) {
+      const packLabel = `Pack ${pack.packNumber}`;
+      const hasSku = Boolean(pack.skuCode?.trim());
+      const hasPrice = pack.mrp !== undefined || pack.sellingPrice !== undefined;
+      const hasOtherFields = Boolean(
+        pack.name?.trim() ||
+          pack.barcode?.trim() ||
+          pack.productId?.trim() ||
+          pack.url?.trim() ||
+          pack.unit?.trim(),
+      );
+
+      if ((hasPrice || hasOtherFields) && !hasSku) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column: `${packLabel} SKU Code`,
+          invalidValue: '',
+          reason: `${packLabel} is partially filled but missing Pack SKU Code.`,
+          suggestedFix: `Provide Pack SKU Code ${pack.packNumber} when other ${packLabel} fields are set.`,
+        });
+      }
+
+      if (pack.mrp !== undefined && pack.mrp <= 0) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column: `${packLabel} MRP`,
+          invalidValue: String(pack.mrp),
+          reason: `${packLabel} MRP must be greater than zero.`,
+          suggestedFix: `Enter a valid numerical value for Pack MRP ${pack.packNumber}.`,
+        });
+      }
+
+      if (pack.sellingPrice !== undefined && pack.sellingPrice <= 0) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column: `${packLabel} Selling Price`,
+          invalidValue: String(pack.sellingPrice),
+          reason: `${packLabel} selling price must be greater than zero.`,
+          suggestedFix: `Enter a valid numerical value for Pack Selling Price ${pack.packNumber}.`,
+        });
+      }
+
+      if (
+        pack.mrp !== undefined &&
+        pack.sellingPrice !== undefined &&
+        pack.sellingPrice > pack.mrp
+      ) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column: `${packLabel} Selling Price`,
+          invalidValue: `${pack.sellingPrice} vs MRP ${pack.mrp}`,
+          reason: `${packLabel} selling price cannot exceed pack MRP.`,
+          suggestedFix: `Lower Pack Selling Price ${pack.packNumber} or adjust Pack MRP ${pack.packNumber}.`,
+        });
+      }
+    }
   }
 }

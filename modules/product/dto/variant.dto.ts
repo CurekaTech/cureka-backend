@@ -87,6 +87,30 @@ export class CreateVariantDto {
   @MaxLength(100)
   barcode?: string;
 
+  @ApiPropertyOptional({ example: '8901234567890' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  gtinNumber?: string;
+
+  @ApiPropertyOptional({ example: '30049099' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  hsnCode?: string;
+
+  @ApiPropertyOptional({ example: 'BATCH-2026-001' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  batchNumber?: string;
+
+  @ApiPropertyOptional({ example: '2026-12-31', description: 'ISO date (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  expiryDate?: string;
+
   @ApiProperty({ example: 1200 })
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

@@ -4,6 +4,7 @@ import { ProductMediaType } from '../enums/product-media-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 import { IProductInformationItem } from './product-information.interface';
+import { IProductPackMetadataItem } from './product-pack-metadata.interface';
 
 export interface IVariantAttributeValue {
   attributeRefId: string;
@@ -25,6 +26,10 @@ export interface IProductVariant {
   slug: string;
   vendorSku: string | null;
   barcode: string | null;
+  gtinNumber: string | null;
+  hsnCode: string | null;
+  batchNumber: string | null;
+  expiryDate: string | null;
   mrp: number;
   sellingPrice: number;
   discountPercentage: number | null;
@@ -97,6 +102,12 @@ export interface IProduct {
   vendorId: string | null;
   name: string;
   slug: string;
+  externalProductId: string | null;
+  singleProductUrl: string | null;
+  packMetadata: IProductPackMetadataItem[];
+  manufacturerAddress: string | null;
+  packerAddress: string | null;
+  importerAddress: string | null;
   description: string | null;
   components: string | null;
   productType: ProductType;

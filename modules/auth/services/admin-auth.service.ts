@@ -15,7 +15,7 @@ export class AdminAuthService {
   constructor(
     private readonly adminUsersService: AdminUsersService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
     const entity = await this.adminUsersService.findByEmailWithPassword(dto.email);
@@ -126,11 +126,11 @@ export class AdminAuthService {
 
           return hasAccess
             ? {
-                name: item.name,
-                key: item.key,
-                icon: item.icon,
-                href: item.href,
-              }
+              name: item.name,
+              key: item.key,
+              icon: item.icon,
+              href: item.href,
+            }
             : null;
         })
         .filter(Boolean) as MenuItem[];
@@ -363,6 +363,12 @@ export const MENU_HIERARCHY: MenuItem[] = [
         icon: 'Download',
         href: '/products/bulk-upload/history',
         requiredPermissions: ['products.create'],
+      },
+      {
+        key: "products-gallery",
+        name: "Media Gallery",
+        icon: "ImageIcon",
+        href: "/products/gallery",
       },
     ],
   },
