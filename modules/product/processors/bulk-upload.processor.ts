@@ -23,6 +23,17 @@ import * as exceljs from 'exceljs';
 export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
 
+  private resolveUploadMimeType(filename: string): string {
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    return 'image/jpeg';
+  }
+
   constructor(
     private readonly bulkUploadsRepository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
@@ -130,6 +141,25 @@ export class BulkUploadProcessor extends WorkerHost {
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           for (const group of validatedProducts) {
             try {
+              if (group.sizeChart) {
+                const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
+                if (!galleryMap.has(normalizedSizeChart)) {
+                  failedProducts += Math.max(
+                    1,
+                    group.productType === 'bundle' ? group.bundleItems.length : group.variants.length,
+                  );
+                  allErrors.push({
+                    rowNumber: group.rowNumber,
+                    sku: 'PARENT',
+                    column: 'Size Chart Filename/Path',
+                    invalidValue: group.sizeChart,
+                    reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
+                    suggestedFix: 'Upload the file to Media Gallery first and use exact filename in sheet.',
+                  });
+                  continue;
+                }
+              }
+
               const refs = this.validatorService.resolveReferences(group);
               
               // Process images for variants (copy from ZIP or temp path to persistent products/ path)
@@ -152,7 +182,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
                       const uploadRes = await this.storageService.uploadImage({
                         stream: imgStream,
-                        mimetype: img.filename.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                        mimetype: this.resolveUploadMimeType(img.filename),
                         originalFilename: img.filename,
                         folder: 'products',
                       });
