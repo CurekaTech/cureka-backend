@@ -16,8 +16,10 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Wellness Goals',
   'Product Tags',
   'Vendor',
+  'Vendor Name',
   'Vendor SKU',
   'Product ID (String)',
+  'Product Id',
   'Product SKU Code*',
   'Barcode (EAN/UPC)',
   'GTIN Number',
@@ -72,6 +74,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Child Quantity',
   'MRP (Rs)*',
   'Selling Price (Rs)*',
+  'Discount Price (RS)',
   'Discount Percentage',
   'Tax Class',
   'Quantity / Stock',
@@ -82,6 +85,10 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Height (cm)',
   'Dimension Unit',
   'Variant Status',
+  'Key Benefits',
+  'Expert Advice',
+  'Key Ingredients',
+  'Other Ingredients',
   'FAQ 1 Question',
   'FAQ 1 Answer',
   'FAQ 2 Question',
@@ -104,6 +111,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'FAQ 10 Answer',
   'Primary Image Filename',
   'Gallery Image 2',
+  'Gallery Image 2 (Video)',
   'Gallery Image 3',
   'Gallery Image 4',
   'Gallery Image 5',
@@ -121,10 +129,13 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Replacement Allowed',
   'Replacement Window Days',
   'Manufacturer',
+  'Manufacturer Name',
   'Manufacturer Address',
   'Packer',
+  'Packer Name',
   'Packer Address',
   'Importer',
+  'Importer Name',
   'Importer Address',
   'Country of Origin',
   'Components',
@@ -146,6 +157,10 @@ export const LEGACY_PRODUCT_INFORMATION_HEADER_ALIASES = new Map<string, string>
     ['preventive notes', 'Preventive Note'],
     ['preventive note', 'Preventive Note'],
     ['product highlights', 'Product Highlights'],
+    ['key benefits', 'Key Benefits'],
+    ['expert advice', 'Expert Advice'],
+    ['key ingredients', 'Key Ingredients'],
+    ['other ingredients', 'Other Ingredients'],
   ].map(([legacy, label]) => [legacy, label] as const),
 );
 
@@ -176,11 +191,48 @@ export const resolveProductInformationLabelName = (
 export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
   FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
 
+/**
+ * Legacy columns removed from the current template.
+ * Old spreadsheets may still include these headers — they are ignored (not imported).
+ */
+export const DEPRECATED_BULK_UPLOAD_COLUMNS = new Set(
+  [
+    'Usage and Safety',
+    'Ingredients and Nutrition',
+    'Compliance Detail',
+    'Additional Info',
+    'Indications',
+    'Kit Contains',
+    'Offers',
+    'Key Features',
+  ].map(normalizeBulkUploadHeader),
+);
+
+export const isDeprecatedBulkUploadColumn = (normalizedHeader: string): boolean =>
+  DEPRECATED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
+
 export const buildBulkUploadTemplateHeaders = (
   productInformationLabelNames: string[],
 ): string[] => {
+  const templateHeaders = BULK_UPLOAD_FIXED_COLUMN_HEADERS.filter(
+    (header) =>
+      ![
+        'Vendor',
+        'Product ID (String)',
+        'Manufacturer',
+        'Packer',
+        'Importer',
+        'Gallery Image 2',
+      ].includes(header),
+  );
+
   const variantStatusIndex = BULK_UPLOAD_FIXED_COLUMN_HEADERS.indexOf('Variant Status');
-  const beforeInfo = BULK_UPLOAD_FIXED_COLUMN_HEADERS.slice(0, variantStatusIndex + 1);
-  const afterInfo = BULK_UPLOAD_FIXED_COLUMN_HEADERS.slice(variantStatusIndex + 1);
+  const normalizedVariantStatus = normalizeBulkUploadHeader('Variant Status');
+  const resolvedVariantStatusIndex = templateHeaders.findIndex(
+    (header) => normalizeBulkUploadHeader(header) === normalizedVariantStatus,
+  );
+  const index = resolvedVariantStatusIndex >= 0 ? resolvedVariantStatusIndex : variantStatusIndex;
+  const beforeInfo = templateHeaders.slice(0, index + 1);
+  const afterInfo = templateHeaders.slice(index + 1);
   return [...beforeInfo, ...productInformationLabelNames, ...afterInfo];
 };

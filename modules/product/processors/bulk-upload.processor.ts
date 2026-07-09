@@ -23,6 +23,56 @@ import * as exceljs from 'exceljs';
 export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
 
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message;
+    }
+
+    if (error && typeof error === 'object') {
+      const response = (error as { response?: unknown }).response;
+      if (typeof response === 'string' && response.trim()) {
+        return response;
+      }
+      if (response && typeof response === 'object') {
+        const message = (response as { message?: unknown }).message;
+        if (Array.isArray(message)) {
+          const joined = message.map(String).filter(Boolean).join(', ');
+          if (joined) return joined;
+        }
+        if (typeof message === 'string' && message.trim()) {
+          return message;
+        }
+      }
+    }
+
+    const fallback = String(error);
+    return fallback && fallback !== '[object Object]'
+      ? fallback
+      : 'Unexpected bulk upload processor error.';
+  }
+
+  private buildSystemError(error: unknown): IValidationError {
+    return {
+      rowNumber: 0,
+      sku: 'SYSTEM',
+      column: 'Processor',
+      invalidValue: 'N/A',
+      reason: this.getErrorMessage(error),
+      suggestedFix: 'Check file format, required headers, recognized columns, and master-data values.',
+    };
+  }
+
+  private resolveUploadMimeType(filename: string): string {
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    return 'image/jpeg';
+  }
+
   constructor(
     private readonly bulkUploadsRepository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
@@ -130,6 +180,25 @@ export class BulkUploadProcessor extends WorkerHost {
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           for (const group of validatedProducts) {
             try {
+              if (group.sizeChart) {
+                const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
+                if (!galleryMap.has(normalizedSizeChart)) {
+                  failedProducts += Math.max(
+                    1,
+                    group.productType === 'bundle' ? group.bundleItems.length : group.variants.length,
+                  );
+                  allErrors.push({
+                    rowNumber: group.rowNumber,
+                    sku: 'PARENT',
+                    column: 'Size Chart Filename/Path',
+                    invalidValue: group.sizeChart,
+                    reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
+                    suggestedFix: 'Upload the file to Media Gallery first and use exact filename in sheet.',
+                  });
+                  continue;
+                }
+              }
+
               const refs = this.validatorService.resolveReferences(group);
               
               // Process images for variants (copy from ZIP or temp path to persistent products/ path)
@@ -152,7 +221,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
                       const uploadRes = await this.storageService.uploadImage({
                         stream: imgStream,
-                        mimetype: img.filename.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                        mimetype: this.resolveUploadMimeType(img.filename),
                         originalFilename: img.filename,
                         folder: 'products',
                       });
@@ -354,21 +423,32 @@ export class BulkUploadProcessor extends WorkerHost {
       );
       return { success: true, totalRowsScanned, successfulProducts, failedProducts, errorsCount: allErrors.length, errorFileUrl };
     } catch (error) {
-      this.logger.error(`Error during processing of ${uploadRefId}:`, error);
+      const systemError = this.buildSystemError(error);
+      if (error instanceof Error) {
+        this.logger.error(
+          `Error during processing of ${uploadRefId}: ${systemError.reason}`,
+          error.stack,
+        );
+      } else {
+        this.logger.error(`Error during processing of ${uploadRefId}: ${systemError.reason}`);
+      }
+
+      const existingRecord = await this.bulkUploadsRepository.findByRefId(uploadRefId);
+      const existingErrors = Array.isArray(existingRecord?.errorSummary)
+        ? existingRecord.errorSummary
+        : [];
+      const totalRows = Math.max(existingRecord?.totalRows ?? 0, 1);
+      const processedRows = Math.max(existingRecord?.processedRows ?? 0, totalRows);
+      const failedRows = Math.max(existingRecord?.failedRows ?? 0, 1);
 
       await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
         status: BulkUploadStatus.FAILED,
+        totalRows,
+        processedRows,
+        successfulRows: existingRecord?.successfulRows ?? 0,
+        failedRows,
         completedAt: new Date(),
-        errorSummary: [
-          {
-            rowNumber: 0,
-            sku: 'SYSTEM',
-            column: 'Processor',
-            invalidValue: 'N/A',
-            reason: error instanceof Error ? error.message : String(error),
-            suggestedFix: 'Check file formats, headers, and column constraints.',
-          },
-        ],
+        errorSummary: [...existingErrors, systemError],
       });
 
       throw error;
