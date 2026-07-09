@@ -29,6 +29,14 @@ type CachedCategoryFilter = {
   categoryIds: Set<string>;
 };
 
+const ACTIVE_MASTER_WHERE = { status: MasterStatus.ACTIVE };
+
+const masterRecordUnavailableReason = (label: string, value: string): string =>
+  `${label} "${value}" does not exist or is inactive in master records.`;
+
+const masterRecordUnavailableFix = (label: string): string =>
+  `Use an active ${label} from master data.`;
+
 export interface IValidationError {
   rowNumber: number;
   sku: string;
@@ -92,17 +100,50 @@ export class BulkUploadValidatorService {
       productInformationLabels,
       categoryFilters,
     ] = await Promise.all([
-      this.dataSource.getRepository(ProductNatureEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(CategoryEntity).find({ select: ['id', 'name', 'refId'] }),
-      this.dataSource.getRepository(BrandEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(HealthConcernEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(WellnessGoalEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(ProductTagEntity).find({ select: ['name', 'slug'] }),
-      this.dataSource.getRepository(AttributeEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(ManufacturerEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(PackerEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(ImporterEntity).find({ select: ['name', 'refId'] }),
-      this.dataSource.getRepository(CountryEntity).find({ select: ['name', 'refId'] }),
+      this.dataSource.getRepository(ProductNatureEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(CategoryEntity).find({
+        select: ['id', 'name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(BrandEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(HealthConcernEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(WellnessGoalEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(ProductTagEntity).find({
+        select: ['name', 'slug'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(AttributeEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(ManufacturerEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(PackerEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(ImporterEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
+      this.dataSource.getRepository(CountryEntity).find({
+        select: ['name', 'refId'],
+        where: ACTIVE_MASTER_WHERE,
+      }),
       this.dataSource.getRepository(ProductVariantEntity).find({
         relations: { product: true },
         select: {
@@ -132,6 +173,7 @@ export class BulkUploadValidatorService {
           status: true,
           categories: {
             id: true,
+            status: true,
           },
         },
       }),
@@ -174,7 +216,11 @@ export class BulkUploadValidatorService {
         refId: filter.refId,
         name: filter.name,
         allowedValues: new Set((filter.values ?? []).map((value) => value.trim())),
-        categoryIds: new Set((filter.categories ?? []).map((category) => category.id)),
+        categoryIds: new Set(
+          (filter.categories ?? [])
+            .filter((category) => category.status === MasterStatus.ACTIVE)
+            .map((category) => category.id),
+        ),
       };
       const normalizedName = filter.name.toLowerCase().trim();
       this.categoryFilterByLookupKey.set(normalizedName, cached);
@@ -349,8 +395,8 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Product Nature',
             invalidValue: group.productNature,
-            reason: `Product nature "${group.productNature}" does not exist in master records.`,
-            suggestedFix: 'Use a pre-defined active product nature.',
+            reason: masterRecordUnavailableReason('Product nature', group.productNature),
+            suggestedFix: masterRecordUnavailableFix('product nature'),
           });
         }
       }
@@ -383,8 +429,8 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Category',
             invalidValue: group.category,
-            reason: `Category "${group.category}" does not exist in master records.`,
-            suggestedFix: 'Ensure category matches one of the master names.',
+            reason: masterRecordUnavailableReason('Category', group.category),
+            suggestedFix: masterRecordUnavailableFix('category'),
           });
         }
       }
@@ -406,11 +452,13 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Brand',
             invalidValue: group.brand,
-            reason: `Brand "${group.brand}" does not exist in master records.`,
-            suggestedFix: 'Register the brand name in Brand master first.',
+            reason: masterRecordUnavailableReason('Brand', group.brand),
+            suggestedFix: masterRecordUnavailableFix('brand'),
           });
         }
       }
+
+      this.validateSubCategories(group, groupErrors);
 
       if (group.wellnessGoals && group.wellnessGoals.length > 0) {
         for (const goal of group.wellnessGoals) {
@@ -421,8 +469,8 @@ export class BulkUploadValidatorService {
               sku: 'PARENT',
               column: 'Wellness Goals',
               invalidValue: goal,
-              reason: `Wellness goal "${goal}" does not exist in master records.`,
-              suggestedFix: 'Use a pre-defined active wellness goal name.',
+              reason: masterRecordUnavailableReason('Wellness goal', goal),
+              suggestedFix: masterRecordUnavailableFix('wellness goal'),
             });
           }
         }
@@ -437,8 +485,8 @@ export class BulkUploadValidatorService {
               sku: 'PARENT',
               column: 'Health Concerns',
               invalidValue: concern,
-              reason: `Health concern "${concern}" does not exist in master records.`,
-              suggestedFix: 'Use a pre-defined active health concern name.',
+              reason: masterRecordUnavailableReason('Health concern', concern),
+              suggestedFix: masterRecordUnavailableFix('health concern'),
             });
           }
         }
@@ -452,8 +500,8 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Manufacturer',
             invalidValue: group.manufacturer,
-            reason: `Manufacturer "${group.manufacturer}" does not exist in master records.`,
-            suggestedFix: 'Register the manufacturer name in Manufacturer master first.',
+            reason: masterRecordUnavailableReason('Manufacturer', group.manufacturer),
+            suggestedFix: masterRecordUnavailableFix('manufacturer'),
           });
         }
       }
@@ -466,8 +514,8 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Packer',
             invalidValue: group.packer,
-            reason: `Packer "${group.packer}" does not exist in master records.`,
-            suggestedFix: 'Register the packer name in Packer master first.',
+            reason: masterRecordUnavailableReason('Packer', group.packer),
+            suggestedFix: masterRecordUnavailableFix('packer'),
           });
         }
       }
@@ -480,8 +528,8 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Importer',
             invalidValue: group.importer,
-            reason: `Importer "${group.importer}" does not exist in master records.`,
-            suggestedFix: 'Register the importer name in Importer master first.',
+            reason: masterRecordUnavailableReason('Importer', group.importer),
+            suggestedFix: masterRecordUnavailableFix('importer'),
           });
         }
       }
@@ -494,8 +542,8 @@ export class BulkUploadValidatorService {
             sku: 'PARENT',
             column: 'Country of Origin',
             invalidValue: group.countryOfOrigin,
-            reason: `Country "${group.countryOfOrigin}" does not exist in master records.`,
-            suggestedFix: 'Register the country name in Country master first.',
+            reason: masterRecordUnavailableReason('Country', group.countryOfOrigin),
+            suggestedFix: masterRecordUnavailableFix('country'),
           });
         }
       }
@@ -530,6 +578,22 @@ export class BulkUploadValidatorService {
             suggestedFix:
               'Use a new unique external product ID or upload with SKU(s) of that same existing product.',
           });
+        }
+      }
+
+      if (group.productTags && group.productTags.length > 0) {
+        for (const tag of group.productTags) {
+          const slug = this.tagMap.get(tag.toLowerCase().trim());
+          if (!slug) {
+            groupErrors.push({
+              rowNumber: group.rowNumber,
+              sku: 'PARENT',
+              column: 'Product Tags',
+              invalidValue: tag,
+              reason: masterRecordUnavailableReason('Product tag', tag),
+              suggestedFix: masterRecordUnavailableFix('product tag'),
+            });
+          }
         }
       }
 
@@ -632,6 +696,21 @@ export class BulkUploadValidatorService {
               suggestedFix: 'Lower the selling price or adjust the MRP.',
             });
           }
+
+          for (const attribute of variant.attributes ?? []) {
+            if (!attribute.name?.trim()) continue;
+            const refId = this.attributeMap.get(attribute.name.toLowerCase().trim());
+            if (!refId) {
+              groupErrors.push({
+                rowNumber: variant.rowNumber,
+                sku: variant.sku,
+                column: `Attribute: ${attribute.name}`,
+                invalidValue: attribute.name,
+                reason: masterRecordUnavailableReason('Attribute', attribute.name),
+                suggestedFix: masterRecordUnavailableFix('attribute'),
+              });
+            }
+          }
         }
       }
 
@@ -695,6 +774,32 @@ export class BulkUploadValidatorService {
     }
 
     return { errors, validatedProducts };
+  }
+
+  private validateSubCategories(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
+    const checks: Array<{ value?: string; column: string; map: Map<string, string> }> = [
+      { value: group.subCategory, column: 'Sub Category', map: this.subCategoryMap },
+      { value: group.subSubCategory, column: 'Sub Sub Category', map: this.subSubCategoryMap },
+      {
+        value: group.subSubSubCategory,
+        column: 'Sub Sub Sub Category',
+        map: this.subSubSubCategoryMap,
+      },
+    ];
+
+    for (const { value, column, map } of checks) {
+      if (!value?.trim()) continue;
+      if (!map.get(value.toLowerCase().trim())) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column,
+          invalidValue: value,
+          reason: masterRecordUnavailableReason(column, value),
+          suggestedFix: masterRecordUnavailableFix('category'),
+        });
+      }
+    }
   }
 
   private validatePackMetadata(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
@@ -782,7 +887,7 @@ export class BulkUploadValidatorService {
           sku: group.variants[0]?.sku ?? 'PARENT',
           column: columnName,
           invalidValue: binding.categoryFilterRefId,
-          reason: `Category filter "${binding.categoryFilterRefId}" does not exist in master records.`,
+          reason: masterRecordUnavailableReason('Category filter', binding.categoryFilterRefId),
           suggestedFix: 'Use only active category filter columns from the downloaded template.',
         });
         continue;

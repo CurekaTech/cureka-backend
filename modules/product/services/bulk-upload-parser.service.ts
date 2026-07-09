@@ -637,7 +637,7 @@ export class BulkUploadParserService {
 
     if (unknownColumns.length > 0) {
       throw new BadRequestException(
-        `Invalid template. These category filter columns are not recognized in master records: ${unknownColumns.join(', ')}`,
+        `Invalid template. These category filter columns are not recognized or are inactive in master records: ${unknownColumns.join(', ')}`,
       );
     }
   }
