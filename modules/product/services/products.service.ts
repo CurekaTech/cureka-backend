@@ -589,14 +589,7 @@ export class ProductsService {
     if (!updated) {
       throw new NotFoundException(`Product with refId ${refId} not found after update`);
     }
-    this.validateForSubmission(updated);
-
-    await this.productsRepository.updateFieldsByRefId(refId, {
-      status: ProductStatus.PENDING_REVIEW,
-      rejectionReason: null,
-    });
-
-    await this.emitProductUpdated(refId, 'status_updated');
+    await this.emitProductUpdated(refId, 'updated');
     return this.findOne(refId);
   }
 

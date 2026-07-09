@@ -141,6 +141,25 @@ export class BulkUploadProcessor extends WorkerHost {
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           for (const group of validatedProducts) {
             try {
+              if (group.sizeChart) {
+                const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
+                if (!galleryMap.has(normalizedSizeChart)) {
+                  failedProducts += Math.max(
+                    1,
+                    group.productType === 'bundle' ? group.bundleItems.length : group.variants.length,
+                  );
+                  allErrors.push({
+                    rowNumber: group.rowNumber,
+                    sku: 'PARENT',
+                    column: 'Size Chart Filename/Path',
+                    invalidValue: group.sizeChart,
+                    reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
+                    suggestedFix: 'Upload the file to Media Gallery first and use exact filename in sheet.',
+                  });
+                  continue;
+                }
+              }
+
               const refs = this.validatorService.resolveReferences(group);
               
               // Process images for variants (copy from ZIP or temp path to persistent products/ path)

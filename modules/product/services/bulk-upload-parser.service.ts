@@ -260,6 +260,21 @@ export class BulkUploadParserService {
     return packs;
   }
 
+  private normalizeDiscountPercentage(raw: string): number | undefined {
+    const value = raw.trim();
+    if (!value) return undefined;
+
+    const parsed = parseFloat(value);
+    if (Number.isNaN(parsed)) return undefined;
+
+    // Excel percentage-formatted cells can arrive as 0.2 for 20%.
+    if (parsed > 0 && parsed <= 1) {
+      return parsed * 100;
+    }
+
+    return parsed;
+  }
+
   /**
    * Reads an XLSX/CSV file stream, validates headers, groups rows, and returns chunk batches of grouped products.
    */
@@ -431,7 +446,7 @@ export class BulkUploadParserService {
         const mrp = parseFloat(getVal('mrp (rs)')) || 0;
         const sellingPrice =
           parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) || 0;
-        const discountPercentage = parseFloat(getVal('discount percentage')) || undefined;
+        const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
         const stock = parseInt(getVal('quantity / stock'), 10) || 0;
         const weight = parseFloat(getVal('weight (kg)')) || undefined;
         const length = parseFloat(getVal('length (cm)')) || undefined;
