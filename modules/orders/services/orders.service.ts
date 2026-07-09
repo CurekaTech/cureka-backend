@@ -42,6 +42,7 @@ export class OrdersService {
     private readonly shipmentsRepository: ShipmentsRepository,
   ) {}
 
+  
   checkout(userId: string, dto: CheckoutDto) {
     return this.checkoutService.validateCheckout(userId, dto);
   }
