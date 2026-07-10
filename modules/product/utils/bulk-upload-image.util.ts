@@ -6,6 +6,13 @@ export const BULK_UPLOAD_COMMON_MEDIA_SAMPLE_COUNT = 6;
 export const isRemoteImageUrl = (value: string): boolean =>
   /^https?:\/\//i.test(value.trim());
 
+export const isStorageImageKey = (value: string): boolean =>
+  /^(images|videos)\//i.test(value.trim());
+
+/** Public http(s) URL or already-uploaded storage key usable as media[].url. */
+export const isBulkUploadImageUrlValue = (value: string): boolean =>
+  isRemoteImageUrl(value) || isStorageImageKey(value);
+
 export interface IBulkUploadImageInput {
   filename?: string;
   url?: string;
@@ -13,27 +20,41 @@ export interface IBulkUploadImageInput {
   sortOrder: number;
 }
 
-/** Prefer keeping both when present so URL download can fall back to gallery/ZIP filename. */
+/**
+ * Media fields require a URL (public http(s) or storage key).
+ * Filename/name is optional (gallery/ZIP hint only).
+ * If the name column holds a URL/key and the URL column is empty, it is treated as the URL.
+ */
 export const resolveBulkUploadImageInput = (
   filename?: string,
   url?: string,
 ): Pick<IBulkUploadImageInput, 'filename' | 'url'> | null => {
-  const normalizedUrl = url?.trim() || undefined;
-  const normalizedFilename = filename?.trim() || undefined;
+  let normalizedUrl = url?.trim() || undefined;
+  let normalizedFilename = filename?.trim() || undefined;
 
-  if (!normalizedUrl && !normalizedFilename) {
+  if (
+    !normalizedUrl &&
+    normalizedFilename &&
+    isBulkUploadImageUrlValue(normalizedFilename)
+  ) {
+    normalizedUrl = normalizedFilename;
+    normalizedFilename = undefined;
+  }
+
+  // URL is required for every media field
+  if (!normalizedUrl) {
     return null;
   }
 
   return {
-    ...(normalizedUrl ? { url: normalizedUrl } : {}),
+    url: normalizedUrl,
     ...(normalizedFilename ? { filename: normalizedFilename } : {}),
   };
 };
 
 export const isBulkUploadImagePresent = (
   image: Pick<IBulkUploadImageInput, 'filename' | 'url'>,
-): boolean => Boolean(image.url?.trim() || image.filename?.trim());
+): boolean => Boolean(image.url?.trim());
 
 export const resolveBulkUploadSizeChart = (
   url?: string,
@@ -95,6 +116,7 @@ const pushResolvedImage = (
 };
 
 /**
+<<<<<<< HEAD
  * Reads Primary Image + Gallery Image 2..N columns in sheet order.
  * First non-empty slot becomes primary (sortOrder 0); gaps are removed.
  */
@@ -134,6 +156,11 @@ export const parsePrimaryAndGalleryImages = (
 /**
  * Reads common_media_1..N (+ optional _url) from a row in column-index order.
  * Template ships with 6 sample columns; any higher index present in the sheet is accepted.
+=======
+ * Reads common_media_1..N (+ optional name, required URL) from a row.
+ * Template ships with 5 sample columns; any higher index present in the sheet is accepted.
+ * Entries without a URL are skipped (name-only is not enough).
+>>>>>>> c4dd4cb (feat: update bulk upload media handling to enforce URL requirement, improve image resolution logic, and enhance common media parsing)
  */
 export const parseCommonMediaColumns = (
   getVal: (columnName: string) => string,
