@@ -542,13 +542,33 @@ export class BulkUploadParserService {
           this.expandInlineVariants(group);
         }
         batchBuffer.push(group);
-      } else if (productType === 'variable' && rowAttributeDetailNames.length) {
-        group.attributeDetailNames = rowAttributeDetailNames;
-      } else if (productInformation.length) {
-        group.productInformation = this.mergeProductInformation(
-          group.productInformation,
-          productInformation,
-        );
+      } else {
+        // Merge common media from later rows of the same variable/bundle group
+        const rowCommonMedia = parseCommonMediaColumns(getVal, headerMap);
+        if (rowCommonMedia.length) {
+          const existingKeys = new Set(
+            group.commonMedia.map((item) => `${item.filename ?? ''}|${item.url ?? ''}`),
+          );
+          for (const item of rowCommonMedia) {
+            const key = `${item.filename ?? ''}|${item.url ?? ''}`;
+            if (existingKeys.has(key)) continue;
+            group.commonMedia.push({
+              ...item,
+              isPrimary: group.commonMedia.length === 0,
+              sortOrder: group.commonMedia.length,
+            });
+            existingKeys.add(key);
+          }
+        }
+
+        if (productType === 'variable' && rowAttributeDetailNames.length) {
+          group.attributeDetailNames = rowAttributeDetailNames;
+        } else if (productInformation.length) {
+          group.productInformation = this.mergeProductInformation(
+            group.productInformation,
+            productInformation,
+          );
+        }
       }
 
       // Add variant details if simple or variable
@@ -641,12 +661,14 @@ export class BulkUploadParserService {
     }
 
     group.variants = usedSlots.map(([variantIndex, slot]) => {
-      const images = slot.images.map((image) => ({
-        filename: image.filename,
-        url: image.url,
-        isPrimary: image.sortOrder === 0,
-        sortOrder: image.sortOrder,
-      }));
+      const images = slot.images
+        .map((image) => resolveBulkUploadImageInput(image.filename, image.url))
+        .filter((image): image is NonNullable<typeof image> => image !== null)
+        .map((image, index) => ({
+          ...image,
+          isPrimary: index === 0,
+          sortOrder: index,
+        }));
 
       const attributes: IParsedAttribute[] = [];
       for (let attributeIndex = 1; attributeIndex <= 5; attributeIndex++) {

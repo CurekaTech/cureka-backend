@@ -284,36 +284,40 @@ Suggested sections:
 ## 10) Bulk upload (Excel)
 
 Variable products can also receive common media via spreadsheet columns.
+The same rule applies to **all** bulk media fields (primary/gallery/common/inline): **URL is required**, filename/name is optional.
 
 ### Sample template columns (5)
 
 | Column | Purpose |
 |--------|---------|
-| `common_media_1` … `common_media_5` | Gallery / ZIP filename |
-| `common_media_1_url` … `common_media_5_url` | Direct URL or storage path (wins over filename) |
+| `common_media_1_url` … `common_media_5_url` | **Required** — public `http(s)` image URL or `images/…` storage key |
+| `common_media_1` … `common_media_5` | Optional name/filename (gallery/ZIP hint only) |
 
 ### Upload supports N columns
 
 Template shows 5 for convenience. You may add more columns in the sheet, e.g.:
 
-- `common_media_6`
 - `common_media_6_url`
-- `common_media_7`
+- `common_media_6`
+- `common_media_7_url`
 - …
 
 Any `common_media_<n>` / `common_media_<n>_url` present is parsed (not limited to 5).
+Rows with only a filename and no URL are ignored.
 
 ### Behavior
 
-- Values resolve like other bulk images (URL → download/upload, filename → Media Gallery or ZIP).
+- Public URL is downloaded into `images/` (same as admin uploads).
+- Storage keys (`images/…`) are used as-is.
+- Optional filename is used only if the public URL download fails (gallery / ZIP fallback).
 - Stored as product `media[]` with `type: "common"`.
 - On GET for variable products, merged into every variant’s `images` (same as manual create).
 
 ### Example row (variable)
 
-| common_media_1 | common_media_2 | common_media_3_url |
-|----------------|----------------|-------------------|
-| shared-hero.webp | shared-side.webp | https://cdn.example.com/demo.mp4 |
+| common_media_1_url | common_media_2_url | common_media_3_url |
+|--------------------|--------------------|-------------------|
+| https://cdn.example.com/shared-hero.webp | https://cdn.example.com/shared-side.webp | https://cdn.example.com/demo.mp4 |
 
 ---
 
