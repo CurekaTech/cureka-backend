@@ -11,6 +11,7 @@
 Admin customer APIs now support **multiple addresses** via `addresses[]` during both:
 
 - `POST /admin/customers` (create customer)
+- `GET /admin/customers/:refId` (customer detail **with addresses**)
 - `PUT /admin/customers/:refId` (update customer + sync addresses)
 
 Addresses are stored in `user_addresses` and linked by `userId`.
@@ -21,6 +22,61 @@ Addresses are stored in `user_addresses` and linked by `userId`.
 
 - **Bearer token required**
 - Allowed roles: `SUPER_ADMIN`, `ADMIN`, `telecaller`
+
+---
+
+## 2.1) Get Customer Detail
+
+### Endpoint
+
+`GET /api/v1/admin/customers/:refId`
+
+### Success response (200)
+
+```json
+{
+  "success": true,
+  "message": "Customer retrieved successfully",
+  "data": {
+    "id": "e45a0b7b-23f0-4566-a36b-95bb8e46927d",
+    "refId": "USR20261234",
+    "firstName": "Rahul",
+    "lastName": "Sharma",
+    "email": "rahul@example.com",
+    "mobileNumber": "9876543210",
+    "isGuest": false,
+    "isRegistered": true,
+    "status": "ACTIVE",
+    "role": "customer",
+    "addresses": [
+      {
+        "id": "...",
+        "refId": "ADD20261234",
+        "userId": "e45a0b7b-23f0-4566-a36b-95bb8e46927d",
+        "recipientName": "Rahul Sharma",
+        "phoneNumber": "9876543210",
+        "pincode": "560001",
+        "addressLine1": "42, MG Road",
+        "addressLine2": "Near Metro Station",
+        "landmark": "Opp City Mall",
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "addressType": "HOME",
+        "isDefault": true,
+        "createdAt": "2026-07-09T10:00:00.000Z",
+        "updatedAt": "2026-07-09T10:00:00.000Z"
+      }
+    ]
+  },
+  "timestamp": "2026-07-10T10:00:00.000Z"
+}
+```
+
+### Notes
+
+- Returns `404` if refId is not found or the user is not a customer.
+- `addresses` is always an array (empty `[]` when none exist).
+- Default address is listed first.
 
 ---
 
@@ -58,7 +114,7 @@ Addresses are stored in `user_addresses` and linked by `userId`.
       "addressLine1": "12, Marine Drive",
       "city": "Mumbai",
       "state": "Maharashtra",
-      "addressType": "WORK"
+      "addressType": "OFFICE"
     }
   ]
 }
@@ -140,7 +196,7 @@ Each address object supports:
 | `landmark` | string | No | Max 255 |
 | `city` | string | Yes | Max 100 |
 | `state` | string | Yes | Max 100 |
-| `addressType` | enum | Yes | `HOME` \| `WORK` \| `OTHER` |
+| `addressType` | enum | Yes | `HOME` \| `OFFICE` \| `OTHER` |
 | `isDefault` | boolean | No | Default selection |
 
 ---

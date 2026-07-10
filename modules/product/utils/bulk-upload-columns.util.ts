@@ -123,6 +123,16 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Gallery Image 4 URL',
   'Gallery Image 5',
   'Gallery Image 5 URL',
+  'common_media_1',
+  'common_media_1_url',
+  'common_media_2',
+  'common_media_2_url',
+  'common_media_3',
+  'common_media_3_url',
+  'common_media_4',
+  'common_media_4_url',
+  'common_media_5',
+  'common_media_5_url',
   'Meta Title',
   'Meta Description',
   'Slug URL',
@@ -204,9 +214,6 @@ export const resolveProductInformationLabelName = (
   return activeLabelsByNormalizedName.get(normalizedAlias)?.name ?? null;
 };
 
-export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
-  FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
-
 /**
  * Legacy columns removed from the current template.
  * Old spreadsheets may still include these headers — they are ignored (not imported).
@@ -241,8 +248,13 @@ import {
   buildVariableTemplateExtraHeaders,
   isVariableBulkUploadColumn,
 } from './bulk-upload-variable.util';
+import { isCommonMediaBulkUploadColumn } from './bulk-upload-image.util';
 
 export { buildVariableTemplateExtraHeaders, isVariableBulkUploadColumn };
+export { isCommonMediaBulkUploadColumn, buildCommonMediaTemplateHeaders } from './bulk-upload-image.util';
+
+export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
+  FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader) || isCommonMediaBulkUploadColumn(normalizedHeader);
 
 const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
   const seen = new Set<string>();

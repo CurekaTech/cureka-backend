@@ -6,7 +6,7 @@ import {
 import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
 import { CreateAdminCustomerDto, UpdateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
-import { ICustomerUserListItem, IUser } from '../interfaces/user.interface';
+import { ICustomerDetail, ICustomerUserListItem, IUser } from '../interfaces/user.interface';
 import {
   mapCustomerUserEntitiesToListItems,
   mapUserEntityToResponse,
@@ -274,6 +274,20 @@ export class UsersService {
       throw new NotFoundException(`User with refId ${refId} not found`);
     }
     return this.enrichUser(mapUserEntityToResponse(entity));
+  }
+
+  async findCustomerByRefId(refId: string): Promise<ICustomerDetail> {
+    const entity = await this.usersRepository.findByRefId(refId);
+    if (!entity || entity.role !== UserRole.CUSTOMER) {
+      throw new NotFoundException(`Customer with refId ${refId} not found`);
+    }
+
+    const [user, addresses] = await Promise.all([
+      this.enrichUser(mapUserEntityToResponse(entity)),
+      this.userAddressesService.findAll(entity.id),
+    ]);
+
+    return { ...user, addresses };
   }
 
   async updateCustomer(refId: string, dto: UpdateAdminCustomerDto): Promise<IUser> {

@@ -6,6 +6,8 @@ import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity
 import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import {
   IPublicCategorySummary,
   IPublicImporterSummary,
@@ -13,6 +15,7 @@ import {
   IPublicPackerSummary,
   IPublicProductCard,
   IPublicProductDetail,
+  IPublicProductMedia,
   IPublicProductPriceSummary,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
@@ -88,7 +91,10 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
 };
 
 const getPrimaryImageUrl = (entity: ProductEntity): IStorageFileReference | null => {
-  const media = entity.media ?? [];
+  const media = (entity.media ?? []).filter(
+    (item) =>
+      item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON,
+  );
   const primary = media.find((item) => item.isPrimary) ?? media[0];
   return primary?.url ?? null;
 };
@@ -163,17 +169,65 @@ const getVariantPrimaryImageUrl = (
   variantId: string,
 ): IStorageFileReference | null => {
   const media = product.media ?? [];
-  const variantMedia = media.filter((item) => item.variantId === variantId);
+  const variantMedia = media.filter(
+    (item) => item.variantId === variantId && item.type !== ProductMediaType.COMMON,
+  );
   const variantPrimary =
     variantMedia.find((item) => item.isPrimary) ?? variantMedia[0];
   if (variantPrimary?.url) {
     return variantPrimary.url;
   }
 
-  const productMedia = media.filter((item) => !item.variantId);
+  const productMedia = media.filter(
+    (item) =>
+      !item.variantId &&
+      (item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON),
+  );
   const productPrimary =
     productMedia.find((item) => item.isPrimary) ?? productMedia[0] ?? media[0];
   return productPrimary?.url ?? null;
+};
+
+const mapPublicMediaItem = (
+  item: NonNullable<ProductEntity['media']>[number],
+): IPublicProductMedia =>
+  ({
+    id: item.id,
+    type: item.type,
+    url: item.url,
+    sortOrder: item.sortOrder,
+    isPrimary: item.isPrimary,
+    variantId: item.variantId,
+  }) as IPublicProductMedia;
+
+const getCommonPublicMedia = (entity: ProductEntity): IPublicProductMedia[] =>
+  (entity.media ?? [])
+    .filter((item) => item.type === ProductMediaType.COMMON && !item.variantId)
+    .map(mapPublicMediaItem)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+const getVariantPublicImages = (
+  entity: ProductEntity,
+  variantId: string,
+  commonMedia: IPublicProductMedia[],
+): IPublicProductMedia[] => {
+  const variantImages = (entity.media ?? [])
+    .filter((item) => item.variantId === variantId && item.type !== ProductMediaType.COMMON)
+    .map(mapPublicMediaItem)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  if (!commonMedia.length) return variantImages;
+  if (!variantImages.length) {
+    return commonMedia.map((item, index) => ({
+      ...item,
+      isPrimary: item.isPrimary || index === 0,
+    }));
+  }
+
+  return [
+    ...commonMedia.map((item) => ({ ...item, isPrimary: false })),
+    ...variantImages,
+  ];
 };
 
 export const mapVariantEntityToPublicSearchItem = (
@@ -308,29 +362,34 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     refId: mapping.attribute?.refId ?? '',
     name: mapping.attribute?.name ?? '',
   })),
-  variants: getActiveVariants(entity).map((variant) => ({
-    id: variant.id,
-    sku: variant.sku,
-    slug: variant.slug,
-    mrp: toNumber(variant.mrp) ?? 0,
-    sellingPrice: toNumber(variant.sellingPrice) ?? 0,
-    discountPercentage: toNumber(variant.discountPercentage),
-    stock: variant.stock,
-    weight: toNumber(variant.weight),
-    weightUnit: variant.weightUnit,
-    length: toNumber(variant.length),
-    lengthUnit: variant.lengthUnit,
-    width: toNumber(variant.width),
-    widthUnit: variant.widthUnit,
-    height: toNumber(variant.height),
-    heightUnit: variant.heightUnit,
-    status: variant.status,
-    attributes: (variant.attributeValues ?? []).map((item) => ({
-      attributeRefId: item.attribute?.refId ?? '',
-      attributeName: item.attribute?.name ?? '',
-      value: item.value,
-    })),
-  })),
+  variants: (() => {
+    const commonMedia =
+      entity.productType === ProductType.VARIABLE ? getCommonPublicMedia(entity) : [];
+    return getActiveVariants(entity).map((variant) => ({
+      id: variant.id,
+      sku: variant.sku,
+      slug: variant.slug,
+      mrp: toNumber(variant.mrp) ?? 0,
+      sellingPrice: toNumber(variant.sellingPrice) ?? 0,
+      discountPercentage: toNumber(variant.discountPercentage),
+      stock: variant.stock,
+      weight: toNumber(variant.weight),
+      weightUnit: variant.weightUnit,
+      length: toNumber(variant.length),
+      lengthUnit: variant.lengthUnit,
+      width: toNumber(variant.width),
+      widthUnit: variant.widthUnit,
+      height: toNumber(variant.height),
+      heightUnit: variant.heightUnit,
+      status: variant.status,
+      attributes: (variant.attributeValues ?? []).map((item) => ({
+        attributeRefId: item.attribute?.refId ?? '',
+        attributeName: item.attribute?.name ?? '',
+        value: item.value,
+      })),
+      images: getVariantPublicImages(entity, variant.id, commonMedia),
+    }));
+  })(),
   media: (entity.media ?? []).map((item) => ({
     id: item.id,
     type: item.type,

@@ -35,7 +35,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Create product and submit for checker review',
     description:
-      'JSON or multipart/form-data. Variant images: variants[].images + variantImages_<sku> files. Product images: media[] + images files. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
+      'JSON or multipart/form-data. Variant images: variants[].images + variantImages_<sku> files. Product images: media[] + images files. For variable products, use media[].type=`common` for images/videos shared across all variants (auto-merged into every variant on GET). Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart".',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product created and submitted for review')

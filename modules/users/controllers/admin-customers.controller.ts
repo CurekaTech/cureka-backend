@@ -21,9 +21,9 @@ import { UsersService } from '../services/users.service';
  * Admin endpoints for customer management used by the payment-request wizard.
  *
  * POST  /admin/customers         – create a new customer
- * PUT   /admin/customers/:refId  – update an existing customer
  * GET   /admin/customers/search  – search customers by name / phone / email
- *       (also available at GET /users/customers?search=, kept for backward compat)
+ * GET   /admin/customers/:refId  – customer detail with addresses
+ * PUT   /admin/customers/:refId  – update an existing customer
  */
 @ApiTags('Admin Customers')
 @ApiBearerAuth()
@@ -44,16 +44,6 @@ export class AdminCustomersController {
     return this.usersService.createCustomer(dto, user.email);
   }
 
-  @ApiOperation({ summary: 'Update customer details (admin payment-request wizard)' })
-  @ResponseMessage('Customer updated successfully')
-  @Put(':refId')
-  update(
-    @Param('refId') refId: string,
-    @Body() dto: UpdateAdminCustomerDto,
-  ) {
-    return this.usersService.updateCustomer(refId, dto);
-  }
-
   @ApiOperation({
     summary: 'Search customers by name / phone / email (paginated)',
     description:
@@ -63,5 +53,24 @@ export class AdminCustomersController {
   @Get('search')
   search(@Query() query: PaginationQueryDto) {
     return this.usersService.findCustomers(query);
+  }
+
+  @ApiOperation({
+    summary: 'Get customer detail by refId (includes addresses)',
+  })
+  @ResponseMessage('Customer retrieved successfully')
+  @Get(':refId')
+  findOne(@Param('refId') refId: string) {
+    return this.usersService.findCustomerByRefId(refId);
+  }
+
+  @ApiOperation({ summary: 'Update customer details (admin payment-request wizard)' })
+  @ResponseMessage('Customer updated successfully')
+  @Put(':refId')
+  update(
+    @Param('refId') refId: string,
+    @Body() dto: UpdateAdminCustomerDto,
+  ) {
+    return this.usersService.updateCustomer(refId, dto);
   }
 }

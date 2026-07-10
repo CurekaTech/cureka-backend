@@ -22,6 +22,8 @@ import {
   parseAttributeDetailsFromRow,
 } from '../utils/bulk-upload-variable.util';
 import {
+  isCommonMediaBulkUploadColumn,
+  parseCommonMediaColumns,
   resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
@@ -118,6 +120,8 @@ export interface IParsedProductGroup {
   variableUploadMode?: 'explicit' | 'inline';
   attributeDetailNames?: string[];
   inlineVariantSlots?: Map<number, IInlineVariantSlot>;
+  /** Shared media for variable products (type=common). */
+  commonMedia: IParsedImage[];
   variants: IParsedVariant[];
   bundleItems: IParsedBundleItem[];
 }
@@ -512,6 +516,7 @@ export class BulkUploadParserService {
           variableUploadMode: isInlineVariable ? 'inline' : productType === 'variable' ? 'explicit' : undefined,
           attributeDetailNames: rowAttributeDetailNames.length ? rowAttributeDetailNames : undefined,
           inlineVariantSlots: isInlineVariable ? inlineVariantSlots : undefined,
+          commonMedia: parseCommonMediaColumns(getVal, headerMap),
           variants: [],
           bundleItems: [],
         };
@@ -944,6 +949,9 @@ export class BulkUploadParserService {
         continue;
       }
       if (isVariableBulkUploadColumn(normalizedHeader)) {
+        continue;
+      }
+      if (isCommonMediaBulkUploadColumn(normalizedHeader)) {
         continue;
       }
 
