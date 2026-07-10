@@ -2,15 +2,15 @@ import {
   ArgumentsHost,
   Catch,
   ExceptionFilter,
-  HttpStatus,
   Logger,
 } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
+import { sendUnicommerceAuthResponse } from '../utils/unicommerce-auth-response.util';
 
 /**
  * UniCommerce evaluates auth responses with:
  *   #getAuthTokenJson.get('status').getAsString() == 'SUCCESS'
- * Any non-{status} payload (e.g. global { success: false }) breaks that expression.
+ * Always return HTTP 200 + { status } so their connector can parse the body.
  */
 @Catch()
 export class UnicommerceAuthExceptionFilter implements ExceptionFilter {
@@ -20,6 +20,6 @@ export class UnicommerceAuthExceptionFilter implements ExceptionFilter {
     const res = host.switchToHttp().getResponse<FastifyReply>();
     const message = exception instanceof Error ? exception.message : String(exception);
     this.logger.warn(`UniCommerce auth request failed: ${message}`);
-    void res.code(HttpStatus.UNAUTHORIZED).send({ status: 'INVALID_CREDENTIALS' });
+    sendUnicommerceAuthResponse(res, { status: 'INVALID_CREDENTIALS' });
   }
 }

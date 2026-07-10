@@ -20,6 +20,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<FastifyReply>();
     const request = ctx.getRequest<FastifyRequest>();
 
+    if (this.isUnicommerceAuthTokenRequest(request.url)) {
+      this.logException(request, HttpStatus.OK, exception, 'INVALID_CREDENTIALS');
+      void response
+        .code(HttpStatus.OK)
+        .header('Content-Type', 'application/json; charset=UTF-8')
+        .send({ status: 'INVALID_CREDENTIALS' });
+      return;
+    }
+
     const normalized = this.normalizeException(exception);
     this.logException(request, normalized.statusCode, exception, normalized.message);
 
@@ -138,6 +147,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error: HttpStatus[statusCode] ?? 'Error',
       message: messages[code] ?? exception.message,
     };
+  }
+
+  private isUnicommerceAuthTokenRequest(url: string): boolean {
+    const path = url.split('?')[0] ?? url;
+    return path.endsWith('/unicommerce/authToken');
   }
 
   private logException(

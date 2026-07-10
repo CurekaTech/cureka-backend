@@ -23,6 +23,7 @@ describe('UnicommerceAuthController', () => {
   function createReply(): FastifyReply {
     return {
       code: jest.fn().mockReturnThis(),
+      header: jest.fn().mockReturnThis(),
       send: jest.fn(),
     } as unknown as FastifyReply;
   }
@@ -42,7 +43,7 @@ describe('UnicommerceAuthController', () => {
     expect(res.send).toHaveBeenCalledWith({ status: 'SUCCESS', accessToken: 'token-123' });
   });
 
-  it('returns INVALID_CREDENTIALS with 401 for POST authToken', async () => {
+  it('returns INVALID_CREDENTIALS with HTTP 200 for POST authToken', async () => {
     authService.authenticate.mockReturnValue({ status: 'INVALID_CREDENTIALS' });
     const res = createReply();
     const dto = { username: 'seller', password: 'wrong' };
@@ -50,7 +51,8 @@ describe('UnicommerceAuthController', () => {
     await controller.getAuthTokenViaBody(dto, res);
 
     expect(authService.authenticate).toHaveBeenCalledWith(dto);
-    expect(res.code).toHaveBeenCalledWith(401);
+    expect(res.code).toHaveBeenCalledWith(200);
+    expect(res.header).toHaveBeenCalledWith('Content-Type', 'application/json; charset=UTF-8');
     expect(res.send).toHaveBeenCalledWith({ status: 'INVALID_CREDENTIALS' });
   });
 

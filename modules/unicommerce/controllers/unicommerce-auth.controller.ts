@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  HttpStatus,
   Post,
   Query,
   Res,
@@ -14,6 +13,7 @@ import { FastifyReply } from 'fastify';
 import { UnicommerceAuthService } from '../services/unicommerce-auth.service';
 import { UnicommerceAuthDto } from '../dto/unicommerce-auth.dto';
 import { UnicommerceAuthExceptionFilter } from '../filters/unicommerce-auth-exception.filter';
+import { sendUnicommerceAuthResponse } from '../utils/unicommerce-auth-response.util';
 
 /**
  * Implements the Unicommerce marketplace authentication API.
@@ -60,7 +60,6 @@ export class UnicommerceAuthController {
 
   private sendAuthResponse(res: FastifyReply, dto: UnicommerceAuthDto): void {
     const result = this.unicommerceAuthService.authenticate(dto);
-    const statusCode = result.status === 'SUCCESS' ? HttpStatus.OK : HttpStatus.UNAUTHORIZED;
-    void res.code(statusCode).send(result);
+    sendUnicommerceAuthResponse(res, result);
   }
 }
