@@ -140,6 +140,8 @@ export class BulkUploadProcessor extends WorkerHost {
       let totalProductsGrouped = 0;
       let successfulProducts = 0;
       let failedProducts = 0;
+      let productsCreated = 0;
+      let productsUpdated = 0;
 
       const labelSortOrders = this.validatorService.getProductInformationLabelSortOrders();
 
@@ -235,16 +237,24 @@ export class BulkUploadProcessor extends WorkerHost {
                     }
                   }
 
-                  const processedAttributes = v.attributes ? v.attributes.map((attr) => {
-                    const attrRefId = this.validatorService.resolveAttributeRefId(attr.name);
-                    return {
-                      attributeRefId: attrRefId!,
-                      value: attr.value,
-                    };
-                  }).filter(a => !!a.attributeRefId) : [];
+                  const processedAttributes = v.attributes
+                    ? v.attributes
+                        .map((attr) => {
+                          const lookup = attr.refId ?? attr.name;
+                          const attrRefId = lookup
+                            ? this.validatorService.resolveAttributeRefId(lookup)
+                            : undefined;
+                          return {
+                            attributeRefId: attrRefId!,
+                            value: attr.value,
+                          };
+                        })
+                        .filter((item) => !!item.attributeRefId)
+                    : [];
 
                   return {
                     sku: v.sku,
+                    vendorSku: group.vendorSku,
                     barcode: v.barcode,
                     gtinNumber: v.gtinNumber,
                     hsnCode: v.hsnCode,
@@ -359,8 +369,10 @@ export class BulkUploadProcessor extends WorkerHost {
                   dto as UpdateProductDto,
                   'system-bulk-upload',
                 );
+                productsUpdated += 1;
               } else {
                 await this.productsService.createDraft(dto, 'system-bulk-upload');
+                productsCreated += 1;
               }
               successfulProducts += rowCount;
             } catch (dbError) {
@@ -420,10 +432,33 @@ export class BulkUploadProcessor extends WorkerHost {
         finalStatus = successfulProducts > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
       }
 
+      const uploadSummary = {
+        sheetRows: totalRowsScanned,
+        productsCreated,
+        productsUpdated,
+        variantSlotsSucceeded: successfulProducts,
+        variantSlotsFailed: failedProducts,
+        message:
+          `Sheet rows: ${totalRowsScanned}. Products created: ${productsCreated}, updated: ${productsUpdated}. ` +
+          `Variant slots succeeded: ${successfulProducts}, failed: ${failedProducts}. ` +
+          `(One variable row can contain up to 5 variant slots — not 5 sheet rows.)`,
+      };
+
+      if (uploadSummary.productsUpdated > 0 || uploadSummary.productsCreated > 0) {
+        allErrors.push({
+          rowNumber: 0,
+          sku: 'SUMMARY',
+          column: '__upload_summary__',
+          invalidValue: JSON.stringify(uploadSummary),
+          reason: uploadSummary.message,
+          suggestedFix: '',
+        });
+      }
+
       await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
         status: finalStatus,
         completedAt: new Date(),
-        errorSummary: allErrors, // Write full validation errors list at completion
+        errorSummary: allErrors,
         errorFileUrl,
       });
 
@@ -530,6 +565,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
     // Add rows
     for (const err of errors) {
+      if (err.column === '__upload_summary__') continue;
       const row = worksheet.addRow({
         rowNumber: err.rowNumber,
         sku: err.sku,
