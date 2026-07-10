@@ -498,9 +498,9 @@ export class BulkUploadService {
       ['Attribute Details', `${options.attributeOne} | ${options.attributeTwo}`],
       ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
       ['Product Status', 'active'],
-      ['common_media_1', 'shared-hero.webp'],
-      ['common_media_2', 'shared-side.webp'],
-      ['common_media_3_url', 'https://example.com/shared-demo.mp4'],
+      ['common_media_1_url', 'https://example.com/images/shared-hero.webp'],
+      ['common_media_2_url', 'https://example.com/images/shared-side.webp'],
+      ['common_media_3_url', 'https://example.com/videos/shared-demo.mp4'],
     ]);
 
     const variantDefs = [

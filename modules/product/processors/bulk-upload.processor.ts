@@ -17,6 +17,8 @@ import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
+import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { CreateProductMediaDto } from '../dto/variant.dto';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
@@ -78,65 +80,97 @@ export class BulkUploadProcessor extends WorkerHost {
     return 'image/jpeg';
   }
 
+  /**
+   * Resolve sheet media for product_media (same end state as admin CRUD media[].url).
+   * URL is required at parse time. Resolution order:
+   * 1) public http(s) URL → download into UploadFolder.IMAGES
+   * 2) storage key/path in URL → use as-is
+   * 3) optional filename → Media Gallery / images ZIP (fallback only)
+   */
   private async resolveBulkUploadImage(
     img: IParsedImage,
     galleryMap: Map<string, string>,
   ): Promise<{ url: string; isPrimary: boolean; sortOrder: number } | null> {
-    const remoteUrl = img.url?.trim();
+    const mediaUrl = img.url?.trim();
     const filename = img.filename?.trim();
 
-    // Prefer gallery/ZIP filename when a remote URL looks like a placeholder (example.com)
-    // or when both are present and we can resolve the filename locally first.
-    if (filename) {
-      const resolvedFromFile = await this.tryResolveBulkUploadImageFromFilename(
-        filename,
-        img.isPrimary,
-        img.sortOrder,
-        galleryMap,
-      );
-      if (resolvedFromFile) {
-        return resolvedFromFile;
-      }
+    if (!mediaUrl) {
+      return null;
     }
 
-    if (remoteUrl) {
-      if (isRemoteImageUrl(remoteUrl)) {
-        try {
-          const response = await fetch(remoteUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          const arrayBuffer = await response.arrayBuffer();
-          const uploadRes = await this.storageService.uploadImage({
-            stream: Readable.from(Buffer.from(arrayBuffer)),
-            mimetype: response.headers.get('content-type') || this.resolveUploadMimeType(remoteUrl),
-            originalFilename: remoteUrl.split('/').pop()?.split('?')[0] || 'image.jpg',
-            folder: 'products',
-          });
-
-          return {
-            url: uploadRes.path,
-            isPrimary: img.isPrimary,
-            sortOrder: img.sortOrder,
-          };
-        } catch (imgError) {
-          this.logger.warn(
-            `Could not download image from URL '${remoteUrl}': ${imgError instanceof Error ? imgError.message : String(imgError)}`,
-          );
-          return null;
+    // 1) Public image URL → download (primary path for bulk media)
+    if (isRemoteImageUrl(mediaUrl)) {
+      try {
+        const response = await fetch(mediaUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
-      }
 
-      // Non-http storage path / key — use as-is.
+        const arrayBuffer = await response.arrayBuffer();
+        const originalFilename =
+          filename ||
+          mediaUrl.split('/').pop()?.split('?')[0] ||
+          'image.jpg';
+        const uploadRes = await this.storageService.uploadImage({
+          stream: Readable.from(Buffer.from(arrayBuffer)),
+          mimetype: response.headers.get('content-type') || this.resolveUploadMimeType(originalFilename),
+          originalFilename,
+          folder: UploadFolder.IMAGES,
+        });
+
+        return {
+          url: uploadRes.path,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder,
+        };
+      } catch (imgError) {
+        this.logger.warn(
+          `Could not download public image URL '${mediaUrl}': ${imgError instanceof Error ? imgError.message : String(imgError)}. Falling back to optional filename if present.`,
+        );
+      }
+    } else {
+      // 2) Storage key/path (admin CRUD style), e.g. images/abc.webp
       return {
-        url: remoteUrl,
+        url: mediaUrl,
         isPrimary: img.isPrimary,
         sortOrder: img.sortOrder,
       };
     }
 
+    // 3) Optional filename fallback (gallery / ZIP / storage key in name column)
+    if (filename) {
+      if (/^(images|videos)\//i.test(filename)) {
+        return {
+          url: filename,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder,
+        };
+      }
+
+      return this.tryResolveBulkUploadImageFromFilename(
+        filename,
+        img.isPrimary,
+        img.sortOrder,
+        galleryMap,
+      );
+    }
+
     return null;
+  }
+
+  /** Same shape as admin CRUD `media[]` entries with type=common. */
+  private toCommonMediaDto(
+    resolved: { url: string; isPrimary: boolean; sortOrder: number },
+    index: number,
+  ): CreateProductMediaDto {
+    return {
+      type: ProductMediaType.COMMON,
+      url: resolved.url,
+      isPrimary: resolved.isPrimary ?? index === 0,
+      sortOrder: resolved.sortOrder ?? index,
+      // collectProductMedia / createMedia ignore variantSku for COMMON
+      variantSku: undefined,
+    };
   }
 
   private async tryResolveBulkUploadImageFromFilename(
@@ -162,7 +196,7 @@ export class BulkUploadProcessor extends WorkerHost {
         stream: imgStream,
         mimetype: this.resolveUploadMimeType(filename),
         originalFilename: filename,
-        folder: 'products',
+        folder: UploadFolder.IMAGES,
       });
 
       return {
@@ -395,21 +429,39 @@ export class BulkUploadProcessor extends WorkerHost {
                 })
               ) : undefined;
 
-              const processedCommonMedia = [];
+              const processedCommonMedia: CreateProductMediaDto[] = [];
+              const unresolvedCommonMedia: IParsedImage[] = [];
               for (const img of group.commonMedia ?? []) {
                 const resolved = await this.resolveBulkUploadImage(img, galleryMap);
-                if (resolved) {
-                  processedCommonMedia.push({
-                    type: ProductMediaType.COMMON,
-                    url: resolved.url,
-                    isPrimary: resolved.isPrimary ?? processedCommonMedia.length === 0,
-                    sortOrder: resolved.sortOrder ?? processedCommonMedia.length,
+                if (!resolved?.url) {
+                  unresolvedCommonMedia.push(img);
+                  this.logger.warn(
+                    `[BULK_UPLOAD] common media unresolved product="${group.name}" filename=${img.filename ?? ''} url=${img.url ?? ''}`,
+                  );
+                  continue;
+                }
+                // Same as admin CRUD: media[] with type=common, variantSku omitted
+                processedCommonMedia.push(
+                  this.toCommonMediaDto(resolved, processedCommonMedia.length),
+                );
+              }
+              this.logger.log(
+                `[BULK_UPLOAD] product="${group.name}" commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length} types=${processedCommonMedia.map((m) => m.type).join(',')}`,
+              );
+              if (unresolvedCommonMedia.length) {
+                for (const img of unresolvedCommonMedia) {
+                  allErrors.push({
+                    rowNumber: group.rowNumber,
+                    sku: 'PARENT',
+                    column: 'common_media',
+                    invalidValue: img.filename || img.url || '',
+                    reason:
+                      'Common media URL could not be downloaded or resolved to a storage path.',
+                    suggestedFix:
+                      'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
                   });
                 }
               }
-              this.logger.log(
-                `[BULK_UPLOAD] product="${group.name}" commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length}`,
-              );
 
               const attributeRefIds = new Set<string>();
               if (processedVariants) {
