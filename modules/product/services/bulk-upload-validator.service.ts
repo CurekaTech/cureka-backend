@@ -925,10 +925,10 @@ export class BulkUploadValidatorService {
       groupErrors.push({
         rowNumber: group.rowNumber,
         sku: 'PARENT',
-        column: 'Attribute Details',
+        column: 'Attribute Details 1',
         invalidValue: '',
-        reason: 'Inline variable products require Attribute Details.',
-        suggestedFix: 'Fill Attribute Details with active attribute names (e.g. Color | Size).',
+        reason: 'Inline variable products require at least one Attribute Details column.',
+        suggestedFix: 'Fill Attribute Details 1 (and Attribute Details 2, 3, … as needed).',
       });
       return;
     }
@@ -939,11 +939,11 @@ export class BulkUploadValidatorService {
         groupErrors.push({
           rowNumber: group.rowNumber,
           sku: 'PARENT',
-          column: 'Attribute Details',
+          column: `Attribute Details ${index + 1}`,
           invalidValue: attributeName,
           reason: masterRecordUnavailableReason('Attribute', attributeName),
           suggestedFix:
-            'Use pipe-separated attribute names in Attribute Details (e.g. Color | Size). Names must match active master attributes.',
+            'Use one attribute name per column (Attribute Details 1 = Color, Attribute Details 2 = Size), or pipe-separated in one cell (Color | Size). Names must match active master attributes.',
         });
       }
     }

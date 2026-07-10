@@ -255,7 +255,7 @@ export const buildAttVariantSlotHeaders = (
 
 /** Variable-only columns appended into the unified bulk upload template. */
 export const buildVariableTemplateExtraHeaders = (): string[] => [
-  'Attribute Details',
+  ...buildAttributeDetailsHeaders(),
   ...buildAttVariantSlotHeaders(),
 ];
 
