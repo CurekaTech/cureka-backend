@@ -53,7 +53,7 @@ describe('registerUnicommerceContentTypeCompat', () => {
     expect(done).toHaveBeenCalledWith(null, 'payload');
   });
 
-  it('does not override an existing Content-Type on UniCommerce routes', () => {
+  it('does not override application/json Content-Type on UniCommerce routes', () => {
     const request = createMockRequest({
       headers: { 'content-type': 'application/json; charset=utf-8' },
     });
@@ -62,6 +62,18 @@ describe('registerUnicommerceContentTypeCompat', () => {
     hook(request, {}, 'payload', done);
 
     expect(request.headers['content-type']).toBe('application/json; charset=utf-8');
+    expect(done).toHaveBeenCalledWith(null, 'payload');
+  });
+
+  it('rewrites text/xml to application/json on UniCommerce POST', () => {
+    const request = createMockRequest({
+      headers: { 'content-type': 'text/xml; charset=UTF-8' },
+    });
+    const done = jest.fn();
+
+    hook(request, {}, 'payload', done);
+
+    expect(request.headers['content-type']).toBe('application/json');
     expect(done).toHaveBeenCalledWith(null, 'payload');
   });
 

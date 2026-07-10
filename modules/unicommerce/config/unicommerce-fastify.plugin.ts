@@ -12,10 +12,38 @@ interface FastifyPreParsingHook {
   ): void;
 }
 
+/** UniCommerce HTTP client often labels JSON bodies as text/xml. */
+const UNICOMMERCE_JSON_CONTENT_TYPES = new Set([
+  'text/xml',
+  'application/xml',
+  'text/plain',
+]);
+
+function normalizeContentType(contentType: string | string[] | undefined): string {
+  if (Array.isArray(contentType)) {
+    return contentType[0]?.trim() ?? '';
+  }
+  return contentType?.trim() ?? '';
+}
+
+function shouldTreatAsJson(contentType: string): boolean {
+  if (!contentType) {
+    return true;
+  }
+
+  const mediaType = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (mediaType === 'application/json') {
+    return false;
+  }
+
+  return UNICOMMERCE_JSON_CONTENT_TYPES.has(mediaType);
+}
+
 /**
- * UniCommerce panel sends JSON POST bodies without a Content-Type header.
- * Fastify skips JSON parsing in that case, so @Body() arrives empty and validation fails.
- * For UniCommerce routes only, default missing Content-Type to application/json.
+ * UniCommerce HTTP client quirks on marketplace routes:
+ * - POST bodies may omit Content-Type entirely
+ * - POST bodies may be JSON while Content-Type is text/xml (see connector auth logs)
+ * Fastify rejects those with 415 before NestJS can read @Body().
  */
 export function registerUnicommerceContentTypeCompat(fastify: FastifyPreParsingHook): void {
   fastify.addHook('preParsing', (request, _reply, payload, done) => {
@@ -30,8 +58,8 @@ export function registerUnicommerceContentTypeCompat(fastify: FastifyPreParsingH
       return;
     }
 
-    const contentType = request.headers['content-type'];
-    if (!contentType || !String(contentType).trim()) {
+    const contentType = normalizeContentType(request.headers['content-type']);
+    if (shouldTreatAsJson(contentType)) {
       request.headers['content-type'] = 'application/json';
     }
 
