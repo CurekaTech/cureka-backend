@@ -14,6 +14,7 @@ import { ProductCategoryFilterMappingEntity } from '../entities/product-category
 import { CreateProductMediaDto } from '../dto/variant.dto';
 import { CustomProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
+import { ProductMediaType } from '../enums/product-media-type.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
 import { StorageService } from '@packages/storage';
@@ -219,7 +220,12 @@ export class ProductRelationsRepository {
       media.map((item) =>
         repo.create({
           productId,
-          variantId: item.variantSku ? (skuToVariantId.get(item.variantSku) ?? null) : null,
+          variantId:
+            item.type === ProductMediaType.COMMON
+              ? null
+              : item.variantSku
+                ? (skuToVariantId.get(item.variantSku) ?? null)
+                : null,
           type: item.type,
           url: this.storageService.persistFileReference(item.url!)!,
           sortOrder: item.sortOrder ?? 0,

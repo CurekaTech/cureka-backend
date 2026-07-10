@@ -12,6 +12,8 @@ import {
   IProductCategoryFilterBinding,
 } from '../interfaces/product.interface';
 import { IProductDetail } from '../interfaces/product-detail.interface';
+import { ProductMediaType } from '../enums/product-media-type.enum';
+import { ProductType } from '../enums/product-type.enum';
 import { mapCategoryEntityToDetailResponse } from '@modules/master/mappers/category.mapper';
 import { mapBrandEntityToResponse } from '@modules/master/mappers/brand.mapper';
 import { mapProductNatureEntityToResponse } from '@modules/master/mappers/product-nature.mapper';
@@ -125,19 +127,20 @@ const mapAttribute = (
   name: mapping.attribute?.name ?? '',
 });
 
-const mapVariantImage = (media: ProductEntity['media'][number]) => ({
-  id: media.id,
-  type: media.type,
-  url: media.url,
-  sortOrder: media.sortOrder,
-  isPrimary: media.isPrimary,
-});
+const mapVariantImage = (media: ProductEntity['media'][number]): IProductVariantImage =>
+  ({
+    id: media.id,
+    type: media.type,
+    url: media.url,
+    sortOrder: media.sortOrder,
+    isPrimary: media.isPrimary,
+  }) as IProductVariantImage;
 
 const groupVariantImages = (media: ProductEntity['media']) => {
-  const grouped = new Map<string, ReturnType<typeof mapVariantImage>[]>();
+  const grouped = new Map<string, IProductVariantImage[]>();
 
   for (const item of media ?? []) {
-    if (!item.variantId) continue;
+    if (!item.variantId || item.type === ProductMediaType.COMMON) continue;
     const list = grouped.get(item.variantId) ?? [];
     list.push(mapVariantImage(item));
     grouped.set(item.variantId, list);
@@ -153,16 +156,48 @@ const groupVariantImages = (media: ProductEntity['media']) => {
   return grouped;
 };
 
+const getCommonMedia = (media: ProductEntity['media']): IProductVariantImage[] =>
+  (media ?? [])
+    .filter((item) => item.type === ProductMediaType.COMMON && !item.variantId)
+    .map(mapVariantImage)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+/** For variable products, prepend shared common media onto every variant's images. */
+const mergeCommonIntoVariantImages = (
+  variantImages: IProductVariantImage[],
+  commonMedia: IProductVariantImage[],
+): IProductVariantImage[] => {
+  if (!commonMedia.length) return variantImages;
+
+  if (!variantImages.length) {
+    return commonMedia.map((item, index) => ({
+      ...item,
+      isPrimary: item.isPrimary || index === 0,
+    }));
+  }
+
+  return [
+    ...commonMedia.map((item) => ({ ...item, isPrimary: false })),
+    ...variantImages,
+  ];
+};
+
 const mapVariants = (entity: ProductEntity): IProductVariant[] => {
   const imagesByVariantId = groupVariantImages(entity.media ?? []);
+  const commonMedia =
+    entity.productType === ProductType.VARIABLE ? getCommonMedia(entity.media ?? []) : [];
+
   return (entity.variants ?? []).map((variant) =>
-    mapVariant(variant, imagesByVariantId.get(variant.id) ?? []),
+    mapVariant(
+      variant,
+      mergeCommonIntoVariantImages(imagesByVariantId.get(variant.id) ?? [], commonMedia),
+    ),
   );
 };
 
 const mapVariant = (
   variant: ProductEntity['variants'][number],
-  images: ReturnType<typeof mapVariantImage>[],
+  images: IProductVariantImage[],
 ): IProductVariant => ({
   id: variant.id,
   sku: variant.sku,
@@ -193,19 +228,20 @@ const mapVariant = (
     attributeName: item.attribute?.name ?? '',
     value: item.value,
   })),
-  images: images as IProductVariantImage[],
+  images,
   createdAt: variant.createdAt,
   updatedAt: variant.updatedAt,
 });
 
-const mapMedia = (media: ProductEntity['media'][number]) => ({
-  id: media.id,
-  type: media.type,
-  url: media.url,
-  sortOrder: media.sortOrder,
-  isPrimary: media.isPrimary,
-  variantId: media.variantId,
-});
+const mapMedia = (media: ProductEntity['media'][number]): IProductMedia =>
+  ({
+    id: media.id,
+    type: media.type,
+    url: media.url,
+    sortOrder: media.sortOrder,
+    isPrimary: media.isPrimary,
+    variantId: media.variantId,
+  }) as IProductMedia;
 
 const mapWellnessGoal = (
   mapping: ProductEntity['wellnessGoalMappings'][number],

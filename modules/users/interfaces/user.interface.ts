@@ -4,6 +4,7 @@ import { UserGender } from '../enums/user-gender.enum';
 import { UserMaritalStatus } from '../enums/user-marital-status.enum';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 import { IRole } from '@modules/roles/interfaces/role.interface';
+import { IUserAddress } from './user-address.interface';
 
 export interface IUser {
   id: string;
@@ -44,4 +45,9 @@ export interface ICustomerUserListItem {
   status: UserStatus;
   role: UserRole;
   roleId?: string;
+}
+
+/** Admin customer detail — profile plus linked addresses. */
+export interface ICustomerDetail extends IUser {
+  addresses: IUserAddress[];
 }

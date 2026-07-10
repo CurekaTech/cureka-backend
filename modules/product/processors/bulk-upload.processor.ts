@@ -16,6 +16,7 @@ import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductMediaType } from '../enums/product-media-type.enum';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
@@ -373,6 +374,19 @@ export class BulkUploadProcessor extends WorkerHost {
                 })
               ) : undefined;
 
+              const processedCommonMedia = [];
+              for (const img of group.commonMedia ?? []) {
+                const resolved = await this.resolveBulkUploadImage(img, galleryMap);
+                if (resolved) {
+                  processedCommonMedia.push({
+                    type: ProductMediaType.COMMON,
+                    url: resolved.url,
+                    isPrimary: resolved.isPrimary ?? processedCommonMedia.length === 0,
+                    sortOrder: resolved.sortOrder ?? processedCommonMedia.length,
+                  });
+                }
+              }
+
               const attributeRefIds = new Set<string>();
               if (processedVariants) {
                 for (const pv of processedVariants) {
@@ -438,6 +452,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 expiresInMonths: group.expiresInMonths,
                 customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
                 productInformation: normalizedProductInformation,
+                media: processedCommonMedia.length ? processedCommonMedia : undefined,
                 variants: processedVariants,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {
