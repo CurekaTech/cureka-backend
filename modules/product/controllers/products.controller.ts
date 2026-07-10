@@ -53,7 +53,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Paginated product list with filters',
     description:
-      'Supports pagination, search, status/productType filters, and sorting via sortBy + sortOrder (ASC|DESC). sortBy: refId, name, slug, productType, status, categoryName, brandName, productNatureName, price, stock, sku, publishedAt, createdAt, updatedAt.',
+      'Supports pagination, search, status/productType filters, brandRefId (single) or brandRefIds (multiple), and sorting via sortBy + sortOrder (ASC|DESC). sortBy: refId, name, slug, productType, status, categoryName, brandName, productNatureName, price, stock, sku, publishedAt, createdAt, updatedAt.',
   })
   @ResponseMessage('Products retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)

@@ -32,6 +32,62 @@ import {
   AdminProductListSortField,
 } from '../constants/admin-product-list-sort.constants';
 
+export class ProductPackMetadataDto {
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  packNumber!: number;
+
+  @ApiPropertyOptional({ example: 'Family Pack' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'PACK-SKU-001' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  skuCode?: string;
+
+  @ApiPropertyOptional({ example: '8901234567890' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  barcode?: string;
+
+  @ApiPropertyOptional({ example: 'EXT-PACK-001' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  productId?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/pack-1' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  url?: string;
+
+  @ApiPropertyOptional({ example: '2 tablets' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  unit?: string;
+
+  @ApiPropertyOptional({ example: 299 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  mrp?: number;
+
+  @ApiPropertyOptional({ example: 249 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  sellingPrice?: number;
+}
+
 export class ProductFileReferenceDto {
   @ApiProperty({ example: 'documents/size-charts/abc123.pdf' })
   @IsString()
@@ -66,6 +122,43 @@ export class CreateProductDto {
     message: `Slug must not exceed ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters`,
   })
   slug?: string;
+
+  @ApiPropertyOptional({
+    example: 'EXT-PROD-001',
+    description: 'External product identifier from import sheets or third-party systems',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  externalProductId?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/products/sample-product' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  singleProductUrl?: string;
+
+  @ApiPropertyOptional({ type: [ProductPackMetadataDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductPackMetadataDto)
+  packMetadata?: ProductPackMetadataDto[];
+
+  @ApiPropertyOptional({ example: '123 Industrial Area, Ahmedabad, Gujarat' })
+  @IsOptional()
+  @IsString()
+  manufacturerAddress?: string;
+
+  @ApiPropertyOptional({ example: '45 Packaging Lane, Mumbai, Maharashtra' })
+  @IsOptional()
+  @IsString()
+  packerAddress?: string;
+
+  @ApiPropertyOptional({ example: '12 Import Zone, Delhi' })
+  @IsOptional()
+  @IsString()
+  importerAddress?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -386,6 +479,24 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsOptional()
   @IsRefId()
   brandRefId?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['BRA20261234', 'BRA20261235'],
+    description: 'Filter by multiple brands. Comma-separated or repeated query param.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    return String(value)
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  })
+  @IsArray()
+  @IsString({ each: true })
+  brandRefIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

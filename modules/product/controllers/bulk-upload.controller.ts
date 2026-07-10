@@ -1,6 +1,6 @@
-import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
@@ -18,7 +18,28 @@ export class BulkUploadController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post()
   async upload(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
+    console.log('[BULK_UPLOAD_DEBUG][Controller.upload] API_CALLED', {
+      method: req.method,
+      url: req.url,
+      userEmail: user.email,
+      isMultipart: req.isMultipart(),
+    });
     return this.bulkUploadService.createBulkUploadJob(req, user.email);
+  }
+
+  @ApiOperation({ summary: 'Download bulk upload sample XLSX template' })
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('template/download')
+  async downloadTemplate(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.bulkUploadService.getTemplateFile();
+    return reply
+      .code(200)
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
   }
 
   @ApiOperation({ summary: 'Get bulk upload history list' })
@@ -31,6 +52,7 @@ export class BulkUploadController {
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
+    console.log('[BULK_UPLOAD_DEBUG][Controller.history] API_CALLED', { page: pageNum, limit: limitNum });
     return this.bulkUploadService.getHistory(pageNum, limitNum);
   }
 
@@ -44,6 +66,7 @@ export class BulkUploadController {
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
+    console.log('[BULK_UPLOAD_DEBUG][Controller.getHistory] API_CALLED', { page: pageNum, limit: limitNum });
     return this.bulkUploadService.getHistory(pageNum, limitNum);
   }
 
@@ -52,6 +75,7 @@ export class BulkUploadController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get(':refId')
   async getStatus(@Param('refId', RefIdPipe) refId: string) {
+    console.log('[BULK_UPLOAD_DEBUG][Controller.getStatus] API_CALLED', { refId });
     return this.bulkUploadService.getJobStatus(refId);
   }
 }

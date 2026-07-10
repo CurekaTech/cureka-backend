@@ -1,6 +1,15 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import * as exceljs from 'exceljs';
 import { extname } from 'path';
+import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
+import {
+  BulkUploadProductInformationLabel,
+  isFixedBulkUploadColumn,
+  isDeprecatedBulkUploadColumn,
+  isBulkUploadCategoryFilterColumn,
+  normalizeBulkUploadHeader,
+  resolveProductInformationLabelName,
+} from '../utils/bulk-upload-columns.util';
 
 export interface IParsedAttribute {
   name: string;
@@ -17,6 +26,10 @@ export interface IParsedVariant {
   rowNumber: number;
   sku: string;
   barcode?: string;
+  gtinNumber?: string;
+  hsnCode?: string;
+  batchNumber?: string;
+  expiryDate?: string;
   mrp: number;
   sellingPrice: number;
   discountPercentage?: number;
@@ -44,6 +57,12 @@ export interface IParsedBundleItem {
 export interface IParsedProductGroup {
   rowNumber: number;
   name: string;
+  externalProductId?: string;
+  singleProductUrl?: string;
+  manufacturerAddress?: string;
+  packerAddress?: string;
+  importerAddress?: string;
+  packMetadata: IProductPackMetadataItem[];
   productNature?: string;
   productType: string;
   category: string;
@@ -56,25 +75,7 @@ export interface IParsedProductGroup {
   productTags: string[];
   vendor?: string;
   vendorSku?: string;
-  description?: string;
-  highlights: string[];
-  keyFeatures: string[];
-  usageAndSafety?: string;
-  ingredientsAndNutrition?: string;
-  complianceDetail?: string;
-  additionalInfo?: string;
-  keyBenefits?: string;
-  expertAdvice?: string;
-  keyIngredients?: string;
-  otherIngredients?: string;
-  preventiveNotes?: string;
-  accessories?: string;
-  directionOfUse?: string;
-  feedingTable?: string;
-  safetyInformation?: string;
-  indications?: string;
-  kitContains?: string;
-  offers?: string;
+  productInformation: Array<{ label: string; description: string; sortOrder?: number }>;
   faqs: { question: string; answer: string }[];
   metaTitle?: string;
   metaDescription?: string;
@@ -187,6 +188,135 @@ export class BulkUploadParserService {
       .filter((item): item is { categoryFilterRefId: string; values: string[] } => Boolean(item));
   }
 
+  private extractDynamicCategoryFilterColumns(
+    worksheet: exceljs.Worksheet,
+  ): Map<number, string> {
+    const dynamicColumns = new Map<number, string>();
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell, colNumber) => {
+      const original = this.getCellText(cell).trim();
+      if (!original) return;
+      const normalized = normalizeBulkUploadHeader(original);
+      if (!normalized.startsWith('cf_')) return;
+
+      const name = original.slice(original.indexOf('_') + 1).trim();
+      if (!name) return;
+      dynamicColumns.set(colNumber, name);
+    });
+    return dynamicColumns;
+  }
+
+  private parseDynamicCategoryFilters(
+    row: exceljs.Row,
+    dynamicColumns: Map<number, string>,
+  ): { categoryFilterRefId: string; values: string[] }[] {
+    const bindings: { categoryFilterRefId: string; values: string[] }[] = [];
+    for (const [columnIndex, filterName] of dynamicColumns.entries()) {
+      const raw = this.getCellText(row.getCell(columnIndex));
+      if (!raw.trim()) continue;
+      const values = raw
+        .split('|')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (!values.length) continue;
+      bindings.push({
+        // Resolver accepts both refId and name lookup keys.
+        categoryFilterRefId: filterName,
+        values,
+      });
+    }
+    return bindings;
+  }
+
+  private resolveProductSkuCode(getVal: (colName: string) => string): string {
+    return getVal('product sku code') || getVal('sku code');
+  }
+
+  private getFirstAvailable(getVal: (colName: string) => string, names: string[]): string {
+    for (const name of names) {
+      const value = getVal(name);
+      if (value) return value;
+    }
+    return '';
+  }
+
+  private parsePackMetadata(getVal: (colName: string) => string): IProductPackMetadataItem[] {
+    const packs: IProductPackMetadataItem[] = [];
+
+    const addPack = (
+      packNumber: number,
+      fields: {
+        name?: string;
+        skuCode?: string;
+        barcode?: string;
+        productId?: string;
+        url?: string;
+        unit?: string;
+        mrp?: string;
+        sellingPrice?: string;
+      },
+    ): void => {
+      const hasAnyValue = Object.values(fields).some((value) => value && value.trim());
+      if (!hasAnyValue) return;
+
+      const mrp = fields.mrp ? parseFloat(fields.mrp) : undefined;
+      const sellingPrice = fields.sellingPrice ? parseFloat(fields.sellingPrice) : undefined;
+
+      packs.push({
+        packNumber,
+        name: fields.name?.trim() || undefined,
+        skuCode: fields.skuCode?.trim() || undefined,
+        barcode: fields.barcode?.trim() || undefined,
+        productId: fields.productId?.trim() || undefined,
+        url: fields.url?.trim() || undefined,
+        unit: fields.unit?.trim() || undefined,
+        mrp: mrp !== undefined && !Number.isNaN(mrp) ? mrp : undefined,
+        sellingPrice:
+          sellingPrice !== undefined && !Number.isNaN(sellingPrice) ? sellingPrice : undefined,
+      });
+    };
+
+    addPack(1, {
+      skuCode: getVal('pack sku code 1'),
+      barcode: getVal('barcode 1 (ean/upc)'),
+      productId: getVal('pack product id 1'),
+      url: getVal('url pack 1'),
+      unit: getVal('pack unit 1'),
+      mrp: getVal('pack mrp 1'),
+      sellingPrice: getVal('pack selling price 1'),
+    });
+
+    for (let packNumber = 2; packNumber <= 4; packNumber++) {
+      addPack(packNumber, {
+        name: getVal(`pack name ${packNumber}`),
+        skuCode: getVal(`pack sku code ${packNumber}`),
+        barcode: getVal(`barcode ${packNumber} (ean/upc)`),
+        productId: getVal(`pack product id ${packNumber}`),
+        url: getVal(`url pack ${packNumber}`),
+        unit: getVal(`pack unit ${packNumber}`),
+        mrp: getVal(`pack mrp ${packNumber}`),
+        sellingPrice: getVal(`pack selling price ${packNumber}`),
+      });
+    }
+
+    return packs;
+  }
+
+  private normalizeDiscountPercentage(raw: string): number | undefined {
+    const value = raw.trim();
+    if (!value) return undefined;
+
+    const parsed = parseFloat(value);
+    if (Number.isNaN(parsed)) return undefined;
+
+    // Excel percentage-formatted cells can arrive as 0.2 for 20%.
+    if (parsed > 0 && parsed <= 1) {
+      return parsed * 100;
+    }
+
+    return parsed;
+  }
+
   /**
    * Reads an XLSX/CSV file stream, validates headers, groups rows, and returns chunk batches of grouped products.
    */
@@ -195,6 +325,8 @@ export class BulkUploadParserService {
     mimetype: string,
     batchSize: number,
     onBatch: (batch: IParsedProductGroup[], totalRowsScanned: number) => Promise<void>,
+    activeProductInformationLabels: ReadonlyMap<string, BulkUploadProductInformationLabel>,
+    activeCategoryFilterNames: ReadonlySet<string> = new Set(),
   ): Promise<number> {
     const isCsv = mimetype === 'text/csv' || extname(filePath).toLowerCase() === '.csv';
     const workbook = new exceljs.Workbook();
@@ -219,6 +351,12 @@ export class BulkUploadParserService {
 
     const headerMap = this.extractHeaders(worksheet);
     this.validateRequiredHeaders(headerMap);
+    this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
+    const productInformationColumnMap = this.resolveProductInformationColumns(
+      headerMap,
+      activeProductInformationLabels,
+    );
+    const dynamicCategoryFilterColumns = this.extractDynamicCategoryFilterColumns(worksheet);
 
     const groupedProducts = new Map<string, IParsedProductGroup>();
     let batchBuffer: IParsedProductGroup[] = [];
@@ -237,20 +375,31 @@ export class BulkUploadParserService {
         return this.getCellText(cell);
       };
       const getRichVal = (colName: string): string => {
-        const cleanedCol = this.cleanHeader(colName);
+        const cleanedCol = normalizeBulkUploadHeader(colName);
         const idx = headerMap.get(cleanedCol);
         if (idx === undefined) return '';
         const cell = row.getCell(idx);
         return this.getCellText(cell, { preserveRichTextAsHtml: true });
       };
 
+      let productInformation = this.parseProductInformationRow(
+        row,
+        productInformationColumnMap,
+      );
+      productInformation = this.mergeProductInformation(
+        productInformation,
+        this.parseExplicitProductInformation(getRichVal),
+      );
+
       const name = getVal('product name');
       const productType = (getVal('product type') || 'simple').toLowerCase();
       const vendorSku = getVal('vendor sku');
       const bundleSku = getVal('bundle sku');
 
+      const productSkuCode = this.resolveProductSkuCode(getVal);
+
       // Skip row if it is completely empty
-      if (!name && !vendorSku && !bundleSku && !getVal('sku code')) {
+      if (!name && !vendorSku && !bundleSku && !productSkuCode) {
         continue;
       }
 
@@ -272,6 +421,14 @@ export class BulkUploadParserService {
         group = {
           rowNumber,
           name,
+          externalProductId:
+            this.getFirstAvailable(getVal, ['product id (string)', 'product id', 'product id string']) ||
+            undefined,
+          singleProductUrl: getVal('single product url') || undefined,
+          manufacturerAddress: getVal('manufacturer address') || undefined,
+          packerAddress: getVal('packer address') || undefined,
+          importerAddress: getVal('importer address') || undefined,
+          packMetadata: this.parsePackMetadata(getVal),
           productNature: getVal('product nature'),
           productType,
           category: getVal('category'),
@@ -282,27 +439,10 @@ export class BulkUploadParserService {
           healthConcerns: getVal('health concerns') ? getVal('health concerns').split('|').map(s => s.trim()).filter(Boolean) : [],
           wellnessGoals: getVal('wellness goals') ? getVal('wellness goals').split('|').map(s => s.trim()).filter(Boolean) : [],
           productTags: getVal('product tags') ? getVal('product tags').split('|').map(s => s.trim()).filter(Boolean) : [],
-          vendor: getVal('vendor') || undefined,
+          vendor: this.getFirstAvailable(getVal, ['vendor', 'vendor name']) || undefined,
           vendorSku: vendorSku || undefined,
-          description: getRichVal('description') || undefined,
-          highlights: getRichVal('product highlights') ? getRichVal('product highlights').split('|').map(s => s.trim()).filter(Boolean) : [],
-          keyFeatures: getRichVal('key features') ? getRichVal('key features').split('|').map(s => s.trim()).filter(Boolean) : [],
-          usageAndSafety: getRichVal('usage and safety') || undefined,
-          ingredientsAndNutrition: getRichVal('ingredients and nutrition') || undefined,
-          complianceDetail: getRichVal('compliance detail') || undefined,
-          additionalInfo: getRichVal('additional info') || undefined,
-          keyBenefits: getRichVal('key benefits') || undefined,
-          expertAdvice: getRichVal('expert advice') || undefined,
-          keyIngredients: getRichVal('key ingredients') || undefined,
-          otherIngredients: getRichVal('other ingredients') || undefined,
-          preventiveNotes: getRichVal('preventive notes') || undefined,
-          accessories: getRichVal('accessories') || undefined,
-          directionOfUse: getRichVal('direction of use') || undefined,
-          feedingTable: getRichVal('feeding table') || undefined,
-          safetyInformation: getRichVal('safety information') || undefined,
-          indications: getRichVal('indications') || undefined,
-          kitContains: getRichVal('kit contains') || undefined,
-          offers: getRichVal('offers') || undefined,
+          productInformation,
+          faqs: [],
           metaTitle: getVal('meta title') || undefined,
           metaDescription: getVal('meta description') || undefined,
           slugUrl: getVal('slug url') || undefined,
@@ -318,19 +458,25 @@ export class BulkUploadParserService {
           replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
           replaceWindowDays: getVal('replacement window days') ? parseInt(getVal('replacement window days'), 10) : undefined,
           status: getVal('product status') || undefined,
-          manufacturer: getVal('manufacturer') || undefined,
-          packer: getVal('packer') || undefined,
-          importer: getVal('importer') || undefined,
+          manufacturer: this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
+          packer: this.getFirstAvailable(getVal, ['packer', 'packer name']) || undefined,
+          importer: this.getFirstAvailable(getVal, ['importer', 'importer name']) || undefined,
           countryOfOrigin: getVal('country of origin') || undefined,
           components: getVal('components') || undefined,
           expiresInMonths: getVal('shelf life in months') ? parseInt(getVal('shelf life in months'), 10) : undefined,
-          faqs: [],
           variants: [],
           bundleItems: [],
         };
+        const dynamicCategoryFilters = this.parseDynamicCategoryFilters(
+          row,
+          dynamicCategoryFilterColumns,
+        );
+        if (dynamicCategoryFilters.length) {
+          group.categoryFilters = [...group.categoryFilters, ...dynamicCategoryFilters];
+        }
 
-        // Parse up to 3 FAQs
-        for (let i = 1; i <= 3; i++) {
+        // Parse up to 10 FAQs
+        for (let i = 1; i <= 10; i++) {
           const question = getVal(`faq ${i} question`);
           const answer = getRichVal(`faq ${i} answer`);
           if (question && answer) {
@@ -340,13 +486,19 @@ export class BulkUploadParserService {
 
         groupedProducts.set(groupingKey, group);
         batchBuffer.push(group);
+      } else if (productInformation.length) {
+        group.productInformation = this.mergeProductInformation(
+          group.productInformation,
+          productInformation,
+        );
       }
 
       // Add variant details if simple or variable
       if (productType === 'simple' || productType === 'variable') {
         const mrp = parseFloat(getVal('mrp (rs)')) || 0;
-        const sellingPrice = parseFloat(getVal('selling price (rs)')) || 0;
-        const discountPercentage = parseFloat(getVal('discount percentage')) || undefined;
+        const sellingPrice =
+          parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) || 0;
+        const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
         const stock = parseInt(getVal('quantity / stock'), 10) || 0;
         const weight = parseFloat(getVal('weight (kg)')) || undefined;
         const length = parseFloat(getVal('length (cm)')) || undefined;
@@ -370,7 +522,10 @@ export class BulkUploadParserService {
           images.push({ filename: primaryImg, isPrimary: true, sortOrder: 0 });
         }
         for (let i = 2; i <= 5; i++) {
-          const galleryImg = getVal(`gallery image ${i}`);
+          const galleryImg =
+            i === 2
+              ? this.getFirstAvailable(getVal, ['gallery image 2', 'gallery image 2 (video)'])
+              : getVal(`gallery image ${i}`);
           if (galleryImg) {
             images.push({ filename: galleryImg, isPrimary: false, sortOrder: i - 1 });
           }
@@ -378,8 +533,12 @@ export class BulkUploadParserService {
 
         group.variants.push({
           rowNumber,
-          sku: getVal('sku code'),
+          sku: productSkuCode,
           barcode: getVal('barcode (ean/upc)') || undefined,
+          gtinNumber: getVal('gtin number') || undefined,
+          hsnCode: getVal('hsn code') || undefined,
+          batchNumber: getVal('batch number') || undefined,
+          expiryDate: this.parseExpiryDate(getVal('expiry date')),
           mrp,
           sellingPrice,
           discountPercentage,
@@ -431,7 +590,7 @@ export class BulkUploadParserService {
     const headerRow = worksheet.getRow(1);
     headerRow.eachCell((cell, colNumber) => {
       const val = this.getCellText(cell);
-      const cleaned = this.cleanHeader(val);
+      const cleaned = normalizeBulkUploadHeader(val);
       if (cleaned) {
         headerMap.set(cleaned, colNumber);
       }
@@ -457,5 +616,159 @@ export class BulkUploadParserService {
         `Invalid template. Missing mandatory columns: ${missing.join(', ')}`,
       );
     }
+  }
+
+  private validateCategoryFilterHeaders(
+    headerMap: Map<string, number>,
+    activeCategoryFilterNames: ReadonlySet<string>,
+  ): void {
+    const unknownColumns: string[] = [];
+
+    for (const normalizedHeader of headerMap.keys()) {
+      if (!isBulkUploadCategoryFilterColumn(normalizedHeader)) {
+        continue;
+      }
+
+      const filterName = normalizedHeader.slice(3).trim();
+      if (!filterName || !activeCategoryFilterNames.has(filterName)) {
+        unknownColumns.push(`CF_${normalizedHeader.slice(3)}`);
+      }
+    }
+
+    if (unknownColumns.length > 0) {
+      throw new BadRequestException(
+        `Invalid template. These category filter columns are not recognized or are inactive in master records: ${unknownColumns.join(', ')}`,
+      );
+    }
+  }
+
+  private parseExpiryDate(raw: string): string | undefined {
+    const value = raw.trim();
+    if (!value) return undefined;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return undefined;
+    }
+
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  private resolveProductInformationColumns(
+    headerMap: Map<string, number>,
+    activeProductInformationLabels: ReadonlyMap<string, BulkUploadProductInformationLabel>,
+  ): Map<number, { label: string; sortOrder: number }> {
+    const unknownColumns: string[] = [];
+    const columnMap = new Map<number, { label: string; sortOrder: number }>();
+
+    for (const [normalizedHeader, columnIndex] of headerMap.entries()) {
+      if (isFixedBulkUploadColumn(normalizedHeader)) {
+        continue;
+      }
+
+      if (isDeprecatedBulkUploadColumn(normalizedHeader)) {
+        continue;
+      }
+      if (isBulkUploadCategoryFilterColumn(normalizedHeader)) {
+        continue;
+      }
+
+      const labelName = resolveProductInformationLabelName(
+        normalizedHeader,
+        activeProductInformationLabels,
+      );
+      if (!labelName) {
+        unknownColumns.push(normalizedHeader);
+        continue;
+      }
+
+      const label = activeProductInformationLabels.get(normalizeBulkUploadHeader(labelName));
+      columnMap.set(columnIndex, {
+        label: labelName,
+        sortOrder: label?.sortOrder ?? 0,
+      });
+    }
+
+    if (unknownColumns.length > 0) {
+      throw new BadRequestException(
+        `Invalid template. These columns are not recognized fixed fields or active product information labels: ${unknownColumns.join(', ')}`,
+      );
+    }
+
+    return columnMap;
+  }
+
+  private parseProductInformationRow(
+    row: exceljs.Row,
+    productInformationColumnMap: Map<number, { label: string; sortOrder: number }>,
+  ): Array<{ label: string; description: string; sortOrder?: number }> {
+    const items: Array<{ label: string; description: string; sortOrder?: number }> = [];
+
+    for (const [columnIndex, meta] of productInformationColumnMap.entries()) {
+      const cell = row.getCell(columnIndex);
+      const description = this.getCellText(cell, { preserveRichTextAsHtml: true });
+      if (!description.trim()) {
+        continue;
+      }
+
+      items.push({
+        label: meta.label,
+        description,
+        sortOrder: meta.sortOrder,
+      });
+    }
+
+    return items;
+  }
+
+  private parseExplicitProductInformation(
+    getRichVal: (colName: string) => string,
+  ): Array<{ label: string; description: string; sortOrder?: number }> {
+    const explicitColumns: Array<{ header: string; label: string }> = [
+      { header: 'product highlights', label: 'Product Highlights' },
+      { header: 'safety information', label: 'Safety Information' },
+      { header: 'feeding table', label: 'Feeding Table' },
+      { header: 'direction of use', label: 'Direction of Use' },
+      { header: 'preventive note', label: 'Preventive Note' },
+      { header: 'key ingredients', label: 'Key Ingredients' },
+      { header: 'description', label: 'Description' },
+      { header: 'size chart', label: 'Size Chart' },
+      { header: 'accessories', label: 'Accessories' },
+      { header: 'other ingredients', label: 'Other Ingredients' },
+      { header: 'expert advice', label: 'Expert Advice' },
+      { header: 'key benefits', label: 'Key Benefits' },
+      { header: 'usage and safety', label: 'Usage and Safety' },
+      { header: 'ingredients and nutrition', label: 'Ingredients and Nutrition' },
+      { header: 'compliance detail', label: 'Compliance Detail' },
+      { header: 'additional info', label: 'Additional Info' },
+      { header: 'indications', label: 'Indications' },
+      { header: 'kit contains', label: 'Kit Contains' },
+      { header: 'offers', label: 'Offers' },
+    ];
+
+    const items: Array<{ label: string; description: string; sortOrder?: number }> = [];
+    explicitColumns.forEach((item, index) => {
+      const description = getRichVal(item.header).trim();
+      if (!description) return;
+      items.push({ label: item.label, description, sortOrder: 1000 + index });
+    });
+    return items;
+  }
+
+  private mergeProductInformation(
+    existing: Array<{ label: string; description: string; sortOrder?: number }>,
+    incoming: Array<{ label: string; description: string; sortOrder?: number }>,
+  ): Array<{ label: string; description: string; sortOrder?: number }> {
+    const merged = new Map(existing.map((item) => [item.label.toLowerCase(), item]));
+
+    for (const item of incoming) {
+      merged.set(item.label.toLowerCase(), item);
+    }
+
+    return Array.from(merged.values());
   }
 }

@@ -280,6 +280,8 @@ export class ProductsService {
       status: query.status,
       variantSlug: query.variantSlug,
       categoryFilterCriteria: filters.categoryFilterCriteria,
+      brandId: filters.brandId,
+      brandIds: filters.brandIds,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -302,6 +304,7 @@ export class ProductsService {
           status: query.status,
           categoryId: filters.categoryId,
           brandId: filters.brandId,
+          brandIds: filters.brandIds,
           productNatureId: filters.productNatureId,
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
@@ -589,14 +592,7 @@ export class ProductsService {
     if (!updated) {
       throw new NotFoundException(`Product with refId ${refId} not found after update`);
     }
-    this.validateForSubmission(updated);
-
-    await this.productsRepository.updateFieldsByRefId(refId, {
-      status: ProductStatus.PENDING_REVIEW,
-      rejectionReason: null,
-    });
-
-    await this.emitProductUpdated(refId, 'status_updated');
+    await this.emitProductUpdated(refId, 'updated');
     return this.findOne(refId);
   }
 
@@ -850,11 +846,11 @@ export class ProductsService {
 
   private async resolveListFilters(query: ProductQueryDto) {
     const queryBindings = parseCategoryFilterQueryBindings(query);
-    const [category, brand, nature, categoryFilterCriteria] = await Promise.all([
+    const [category, brandFilters, nature, categoryFilterCriteria] = await Promise.all([
       query.categoryRefId
         ? this.categoriesRepository.findByRefId(query.categoryRefId)
         : Promise.resolve(null),
-      query.brandRefId ? this.brandsRepository.findByRefId(query.brandRefId) : Promise.resolve(null),
+      this.resolveBrandFilters(query),
       query.productNatureRefId
         ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
         : Promise.resolve(null),
@@ -865,10 +861,45 @@ export class ProductsService {
 
     return {
       categoryId: category?.id,
-      brandId: brand?.id,
+      brandId: brandFilters.brandId,
+      brandIds: brandFilters.brandIds,
       productNatureId: nature?.id,
       categoryFilterCriteria,
     };
+  }
+
+  private async resolveBrandFilters(
+    query: ProductQueryDto,
+  ): Promise<{ brandId?: string; brandIds?: string[] }> {
+    const refIds = [
+      ...new Set([
+        ...(query.brandRefIds ?? []),
+        ...(query.brandRefId ? [query.brandRefId] : []),
+      ]),
+    ];
+
+    if (refIds.length === 0) {
+      return {};
+    }
+
+    if (refIds.length === 1) {
+      const brand = await this.brandsRepository.findByRefId(refIds[0]);
+      if (!brand) {
+        throw new NotFoundException(`Brand with refId "${refIds[0]}" not found`);
+      }
+      return { brandId: brand.id };
+    }
+
+    const brands = await this.brandsRepository.findByRefIds(refIds);
+    const foundRefIds = new Set(brands.map((brand) => brand.refId));
+    const missingRefIds = refIds.filter((refId) => !foundRefIds.has(refId));
+    if (missingRefIds.length > 0) {
+      throw new NotFoundException(
+        `Brand with refId "${missingRefIds.join('", "')}" not found`,
+      );
+    }
+
+    return { brandIds: brands.map((brand) => brand.id) };
   }
 
   private async emitProductUpdated(
