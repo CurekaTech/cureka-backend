@@ -237,19 +237,29 @@ export class PermissionsService {
             permissions: getPerms('banners'),
           },
           {
+            name: 'Watch & Shop',
+            key: 'cms-watch-and-shop',
+            permissions: getPerms('watch_and_shop'),
+          },
+          {
+            name: 'Expert Talks & Podcasts',
+            key: 'cms-expert-talks',
+            permissions: getPerms('expert_talks'),
+          },
+          {
             name: 'Home Section Indexing',
             key: 'cms-home-sections',
-            permissions: getPerms('cms'),
+            permissions: getPerms('home_sections'),
           },
           {
             name: 'Header Indexing',
             key: 'cms-header-indexing',
-            permissions: getPerms('cms', ['read', 'update']),
+            permissions: getPerms('header_indexing'),
           },
           {
             name: 'Shop By Indexing',
             key: 'cms-shopby-indexing',
-            permissions: getPerms('cms', ['read', 'update']),
+            permissions: getPerms('shop_by_indexing'),
           },
         ],
       },

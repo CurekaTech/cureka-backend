@@ -399,6 +399,20 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['banners.read'],
       },
       {
+        name: 'Watch & Shop',
+        key: 'cms-watch-and-shop',
+        icon: 'ShoppingBag',
+        href: '/master/watch-and-shop',
+        requiredPermissions: ['watch_and_shop.read'],
+      },
+      {
+        name: 'Expert Talks & Podcasts',
+        key: 'cms-expert-talks',
+        icon: 'Mic',
+        href: '/cms/expert/expert-talks',
+        requiredPermissions: ['expert_talks.read'],
+      },
+      {
         name: 'Home Section Indexing',
         key: 'cms-home-sections',
         icon: 'ListTree',
