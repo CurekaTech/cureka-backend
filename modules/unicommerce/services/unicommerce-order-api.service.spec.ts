@@ -41,9 +41,7 @@ describe('UnicommerceOrderApiService', () => {
     const service = new UnicommerceOrderApiService(
       buildConfig({ ...baseValues, 'unicommerceOrder.clientId': '' }),
     );
-    await expect(service.postOrder(payload)).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(service.postOrder(payload)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('posts with UniCommerce auth headers and returns parsed body', async () => {
@@ -74,8 +72,6 @@ describe('UnicommerceOrderApiService', () => {
       text: () => Promise.resolve(JSON.stringify({ message: 'bad order' })),
     }) as unknown as typeof fetch;
 
-    await expect(service.postOrder(payload)).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(service.postOrder(payload)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

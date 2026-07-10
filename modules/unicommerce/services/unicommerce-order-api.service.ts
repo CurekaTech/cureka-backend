@@ -19,20 +19,17 @@ export class UnicommerceOrderApiService {
   isConfigured(): boolean {
     return Boolean(
       this.configService.get<string>('unicommerceOrder.clientId') &&
-        this.configService.get<string>('unicommerceOrder.merchantId') &&
-        this.configService.get<string>('unicommerceOrder.securityKey'),
+      this.configService.get<string>('unicommerceOrder.merchantId') &&
+      this.configService.get<string>('unicommerceOrder.securityKey'),
     );
   }
 
-  async postOrder(
-    payload: IUnicommercePostOrderPayload,
-  ): Promise<IUnicommercePostOrderResponse> {
+  async postOrder(payload: IUnicommercePostOrderPayload): Promise<IUnicommercePostOrderResponse> {
     const baseUrl = (
       this.configService.get<string>('unicommerceOrder.baseUrl') ??
       'https://genericproxy.unicommerce.com'
     ).replace(/\/+$/, '');
-    const endpoint =
-      this.configService.get<string>('unicommerceOrder.endpoint') ?? '/uc/v1/order';
+    const endpoint = this.configService.get<string>('unicommerceOrder.endpoint') ?? '/uc/v1/order';
     const clientId = this.configService.get<string>('unicommerceOrder.clientId') ?? '';
     const merchantId = this.configService.get<string>('unicommerceOrder.merchantId') ?? '';
     const securityKey = this.configService.get<string>('unicommerceOrder.securityKey') ?? '';

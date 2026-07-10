@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
+import { ExpertTalkService } from '@modules/master/services/expert-talk.service';
 import { IHomepageBannersBundle, IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
@@ -14,6 +15,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { IPublicBestSellersSection } from '../interfaces/public-best-sellers.interface';
 import { IPublicWatchAndShopItem, IPublicWatchAndShopSection } from '../interfaces/public-watch-and-shop.interface';
 import { IPublicHealthReadsSection } from '../interfaces/public-health-reads.interface';
+import { IPublicCuratedWellnessEssentialsSection } from '../interfaces/public-expert-talk.interface';
 import { BlogPostsService } from '@modules/blog/services/blog-posts.service';
 import {
   IPublicBrandBannersSection,
@@ -25,6 +27,7 @@ import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+import { HOMEPAGE_SECTION_PREVIEW_LIMIT, HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT } from '../constants/homepage-section-preview-limit.constant';
 
 /** Max products returned per Best Sellers category tab in the homepage section. */
 const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
@@ -57,6 +60,7 @@ export class HomepageService {
     private readonly brandsRepository: BrandsRepository,
     private readonly bannersService: BannersService,
     private readonly watchAndShopService: WatchAndShopService,
+    private readonly expertTalkService: ExpertTalkService,
     private readonly blogPostsService: BlogPostsService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
@@ -182,7 +186,9 @@ export class HomepageService {
 
   /** Used by cache refresh after Watch & Shop item mutations. */
   async loadWatchAndShopUncached(): Promise<IPublicWatchAndShopSection> {
-    const storefrontItems = await this.watchAndShopService.loadWatchAndShopUncached();
+    const storefrontItems = await this.watchAndShopService.loadWatchAndShopUncached(
+      HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT,
+    );
     if (!storefrontItems.length) {
       return { items: [] };
     }
@@ -218,6 +224,32 @@ export class HomepageService {
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.blogPostsService.loadHealthReadsUncached(),
     });
+  }
+
+  async getCuratedWellnessEssentials(): Promise<IPublicCuratedWellnessEssentialsSection> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.curatedWellnessEssentials(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadCuratedWellnessEssentialsUncached(),
+    });
+  }
+
+  /** Used by cache refresh after Expert Talk item mutations. */
+  async loadCuratedWellnessEssentialsUncached(): Promise<IPublicCuratedWellnessEssentialsSection> {
+    const items = await this.expertTalkService.loadExpertTalksUncached(
+      HOMEPAGE_SECTION_PREVIEW_LIMIT,
+    );
+    return {
+      expertTalks: items.map((item) => ({
+        refId: item.refId,
+        title: item.title,
+        description: item.description,
+        videoUrl: item.videoUrl,
+        thumbnail: item.thumbnail,
+        contentType: item.contentType,
+        sortOrder: item.sortOrder,
+      })),
+    };
   }
 
   async getShopByWellnessGoals(): Promise<IPublicWellnessGoalCard[]> {

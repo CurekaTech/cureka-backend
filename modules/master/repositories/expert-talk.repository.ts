@@ -3,28 +3,29 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { ExpertTalkContentType } from '../enums/expert-talk-content-type.enum';
 import { MasterStatus } from '../enums/master-status.enum';
-import { WatchAndShopItemEntity } from '../entities/watch-and-shop-item.entity';
+import { ExpertTalkItemEntity } from '../entities/expert-talk-item.entity';
 
-export interface WatchAndShopFindOptions extends PaginationOptions {
+export interface ExpertTalkFindOptions extends PaginationOptions {
   status?: MasterStatus;
-  requirePlayableMedia?: boolean;
-  activeAt?: Date;
+  contentType?: ExpertTalkContentType;
+  requireVideoUrl?: boolean;
 }
 
 @Injectable()
-export class WatchAndShopRepository {
+export class ExpertTalkRepository {
   constructor(
-    @InjectRepository(WatchAndShopItemEntity)
-    private readonly repo: Repository<WatchAndShopItemEntity>,
+    @InjectRepository(ExpertTalkItemEntity)
+    private readonly repo: Repository<ExpertTalkItemEntity>,
   ) {}
 
-  async create(data: Partial<WatchAndShopItemEntity>): Promise<WatchAndShopItemEntity> {
+  async create(data: Partial<ExpertTalkItemEntity>): Promise<ExpertTalkItemEntity> {
     const entity = this.repo.create(data);
     return this.repo.save(entity);
   }
 
-  async findByRefId(refId: string): Promise<WatchAndShopItemEntity | null> {
+  async findByRefId(refId: string): Promise<ExpertTalkItemEntity | null> {
     return this.repo.findOne({ where: { refId } });
   }
 
@@ -34,8 +35,8 @@ export class WatchAndShopRepository {
 
   async updateByRefId(
     refId: string,
-    data: Partial<WatchAndShopItemEntity>,
-  ): Promise<WatchAndShopItemEntity | null> {
+    data: Partial<ExpertTalkItemEntity>,
+  ): Promise<ExpertTalkItemEntity | null> {
     await this.repo.update({ refId }, data);
     return this.findByRefId(refId);
   }
@@ -45,8 +46,8 @@ export class WatchAndShopRepository {
   }
 
   async findAllPaginated(
-    options: WatchAndShopFindOptions,
-  ): Promise<{ data: WatchAndShopItemEntity[]; total: number }> {
+    options: ExpertTalkFindOptions,
+  ): Promise<{ data: ExpertTalkItemEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
     const SORTABLE_COLUMNS: Record<string, string> = {
@@ -54,6 +55,7 @@ export class WatchAndShopRepository {
       title: 'item.title',
       sortOrder: 'item.sortOrder',
       status: 'item.status',
+      contentType: 'item.contentType',
     };
     const sortColumn =
       (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'item.sortOrder';
@@ -70,44 +72,31 @@ export class WatchAndShopRepository {
       qb.andWhere('item.status = :status', { status: options.status });
     }
 
-    if (options.requirePlayableMedia) {
-      qb.andWhere(
-        "(item.video_url IS NOT NULL AND TRIM(item.video_url) <> '') OR item.media_url IS NOT NULL",
-      );
+    if (options.contentType) {
+      qb.andWhere('item.content_type = :contentType', {
+        contentType: options.contentType,
+      });
     }
 
-    if (options.activeAt) {
-      qb.andWhere('(item.starts_at IS NULL OR item.starts_at <= :activeAt)', {
-        activeAt: options.activeAt,
-      });
-      qb.andWhere('(item.ends_at IS NULL OR item.ends_at >= :activeAt)', {
-        activeAt: options.activeAt,
-      });
+    if (options.requireVideoUrl) {
+      qb.andWhere("item.video_url IS NOT NULL AND TRIM(item.video_url) <> ''");
     }
 
     if (options.search) {
-      qb.andWhere(
-        '(item.title ILIKE :search OR item.product_ref_id ILIKE :search)',
-        { search: `%${options.search}%` },
-      );
+      qb.andWhere('(item.title ILIKE :search OR item.description ILIKE :search)', {
+        search: `%${options.search}%`,
+      });
     }
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 
-  async findActiveForStorefront(
-    now: Date = new Date(),
-    limit?: number,
-  ): Promise<WatchAndShopItemEntity[]> {
+  async findActiveForStorefront(limit?: number): Promise<ExpertTalkItemEntity[]> {
     const qb = this.repo
       .createQueryBuilder('item')
       .where('item.status = :status', { status: MasterStatus.ACTIVE })
-      .andWhere('(item.starts_at IS NULL OR item.starts_at <= :now)', { now })
-      .andWhere('(item.ends_at IS NULL OR item.ends_at >= :now)', { now })
-      .andWhere(
-        "(item.video_url IS NOT NULL AND TRIM(item.video_url) <> '') OR item.media_url IS NOT NULL",
-      )
+      .andWhere("item.video_url IS NOT NULL AND TRIM(item.video_url) <> ''")
       .orderBy('item.sort_order', 'ASC')
       .addOrderBy('item.created_at', 'ASC');
 
@@ -120,8 +109,8 @@ export class WatchAndShopRepository {
 
   async updateSortOrders(
     items: Array<{ refId: string; sortOrder: number }>,
-  ): Promise<WatchAndShopItemEntity[]> {
-    const updated: WatchAndShopItemEntity[] = [];
+  ): Promise<ExpertTalkItemEntity[]> {
+    const updated: ExpertTalkItemEntity[] = [];
 
     for (const item of items) {
       await this.repo.update({ refId: item.refId }, { sortOrder: item.sortOrder });

@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } from '@packages/common';
+import {
+  buildPaginatedResult,
+  buildPaginationOptions,
+  generateUniqueRefId,
+} from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
@@ -43,7 +47,6 @@ export class OrdersService {
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
   ) {}
 
-  
   checkout(userId: string, dto: CheckoutDto) {
     return this.checkoutService.validateCheckout(userId, dto);
   }
@@ -134,10 +137,9 @@ export class OrdersService {
         if (variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
-        await manager.getRepository(ProductVariantEntity).update(
-          { id: item.variantId },
-          { stock: variant.stock - item.quantity },
-        );
+        await manager
+          .getRepository(ProductVariantEntity)
+          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
 
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
@@ -160,7 +162,6 @@ export class OrdersService {
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
 
-      
       if (appliedCoupon) {
         await this.couponCheckoutService.validateCoupon(appliedCoupon, {
           userId,
@@ -200,13 +201,22 @@ export class OrdersService {
 
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
       if (cart.couponId) {
-        await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
+        await this.cartsRepository.updateById(
+          cart.id,
+          { couponId: null, updatedBy: userId },
+          manager,
+        );
       }
 
       const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
       this.logger.log(
-        { orderId: order.id, orderNumber: order.orderNumber, userId, paymentMethod: order.paymentMethod },
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId,
+          paymentMethod: order.paymentMethod,
+        },
         'Order created successfully',
       );
       return order;
@@ -266,10 +276,7 @@ export class OrdersService {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
     const shipment = await this.shippingService.getShipmentByOrderId(id);
-    return mapOrderToResponse(
-      { ...order, shipment },
-      this.storageUrlEnricher,
-    );
+    return mapOrderToResponse({ ...order, shipment }, this.storageUrlEnricher);
   }
 
   async cancel(userId: string, id: string) {
@@ -358,7 +365,6 @@ export class OrdersService {
         manager,
       );
 
-
       const orderItemsPayload = [];
       for (const item of params.items) {
         const variant = await manager.getRepository(ProductVariantEntity).findOne({
@@ -369,10 +375,9 @@ export class OrdersService {
         if (variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
-        await manager.getRepository(ProductVariantEntity).update(
-          { id: item.variantId },
-          { stock: variant.stock - item.quantity },
-        );
+        await manager
+          .getRepository(ProductVariantEntity)
+          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
         );
@@ -436,7 +441,11 @@ export class OrdersService {
     }
   }
 
-  private async pushOrderToShipwaySafely(orderId: string, orderNumber: string, source: string): Promise<void> {
+  private async pushOrderToShipwaySafely(
+    orderId: string,
+    orderNumber: string,
+    source: string,
+  ): Promise<void> {
     this.logger.log(
       { orderId, orderNumber, source },
       'Calling Shipway synchronously after order creation',

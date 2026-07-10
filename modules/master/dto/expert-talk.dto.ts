@@ -3,7 +3,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
-  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -15,22 +14,27 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto, IsRefId } from '@packages/common';
+import { ExpertTalkContentType } from '../enums/expert-talk-content-type.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 
-export class CreateWatchAndShopItemDto {
+export class CreateExpertTalkItemDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(500)
+  title!: string;
+
   @IsOptional()
   @IsString()
-  @MaxLength(255)
-  title?: string;
-
-  @IsOptional()
-  @IsUrl({ require_protocol: true })
-  @MaxLength(2000)
-  videoUrl?: string;
+  description?: string;
 
   @IsNotEmpty()
-  @IsRefId()
-  productRefId!: string;
+  @IsUrl({ require_protocol: true })
+  @MaxLength(2000)
+  videoUrl!: string;
+
+  @IsOptional()
+  @IsEnum(ExpertTalkContentType)
+  contentType?: ExpertTalkContentType;
 
   @IsOptional()
   @Type(() => Number)
@@ -41,33 +45,33 @@ export class CreateWatchAndShopItemDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
-
-  @IsOptional()
-  @IsDateString()
-  startsAt?: string;
-
-  @IsOptional()
-  @IsDateString()
-  endsAt?: string;
 }
 
-export class UpdateWatchAndShopItemDto extends PartialType(CreateWatchAndShopItemDto) {}
+export class UpdateExpertTalkItemDto extends PartialType(CreateExpertTalkItemDto) {}
 
-export class UpdateWatchAndShopItemStatusDto {
+export class UpdateExpertTalkItemStatusDto {
   @IsNotEmpty()
   @IsEnum(MasterStatus)
   status!: MasterStatus;
 }
 
-export class WatchAndShopItemQueryDto extends PaginationQueryDto {
+export class ExpertTalkItemQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsEnum(ExpertTalkContentType)
+  contentType?: ExpertTalkContentType;
 }
 
-export class PublicWatchAndShopQueryDto extends PaginationQueryDto {}
+export class PublicExpertTalkQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsEnum(ExpertTalkContentType)
+  contentType?: ExpertTalkContentType;
+}
 
-export class ReorderWatchAndShopItemDto {
+export class ReorderExpertTalkItemDto {
   @IsNotEmpty()
   @IsRefId()
   refId!: string;
@@ -79,10 +83,10 @@ export class ReorderWatchAndShopItemDto {
   sortOrder!: number;
 }
 
-export class ReorderWatchAndShopItemsDto {
+export class ReorderExpertTalkItemsDto {
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => ReorderWatchAndShopItemDto)
-  items!: ReorderWatchAndShopItemDto[];
+  @Type(() => ReorderExpertTalkItemDto)
+  items!: ReorderExpertTalkItemDto[];
 }

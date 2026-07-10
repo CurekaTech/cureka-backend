@@ -5,15 +5,18 @@ import { UploadsModule } from '@modules/uploads/uploads.module';
 import { BlogModule } from '@modules/blog/blog.module';
 import { HomepageController } from './controllers/homepage.controller';
 import { PublicCommonController } from './controllers/public-common.controller';
+import { PublicExpertTalkController } from './controllers/public-expert-talk.controller';
+import { PublicWatchAndShopController } from './controllers/public-watch-and-shop.controller';
 import { PublicProductsController } from './controllers/public-products.controller';
 import { HomepageService } from './services/homepage.service';
 import { HomepageSectionsService } from './services/homepage-sections.service';
 import { PublicCommonService } from './services/public-common.service';
+import { PublicWatchAndShopService } from './services/public-watch-and-shop.service';
 import { PublicProductsService } from './services/public-products.service';
 
 @Module({
   imports: [MasterModule, ProductModule, UploadsModule, BlogModule],
-  controllers: [HomepageController, PublicCommonController, PublicProductsController],
-  providers: [HomepageService, HomepageSectionsService, PublicCommonService, PublicProductsService],
+  controllers: [HomepageController, PublicCommonController, PublicExpertTalkController, PublicWatchAndShopController, PublicProductsController],
+  providers: [HomepageService, HomepageSectionsService, PublicCommonService, PublicWatchAndShopService, PublicProductsService],
 })
 export class PublicModule {}

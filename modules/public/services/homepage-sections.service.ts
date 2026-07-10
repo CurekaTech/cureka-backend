@@ -34,6 +34,8 @@ export class HomepageSectionsService {
     [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
     [HomeSectionType.WATCH_AND_SHOP]: () => this.homepageService.getWatchAndShop(),
     [HomeSectionType.HEALTH_READS]: () => this.homepageService.getHealthReads(),
+    [HomeSectionType.CURATED_WELLNESS_ESSENTIALS]: () =>
+      this.homepageService.getCuratedWellnessEssentials(),
   };
 
   constructor(

@@ -41,7 +41,7 @@ const BLOG_UPLOAD_FIELDS = {
   featuredVideoFile: UploadFolder.BLOG_VIDEOS,
 } as const;
 
-const HEALTH_READS_HOMEPAGE_LIMIT = 6;
+const HEALTH_READS_HOMEPAGE_LIMIT = 3;
 
 @Injectable()
 export class BlogPostsService {
