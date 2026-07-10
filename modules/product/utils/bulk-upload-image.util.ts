@@ -13,22 +13,22 @@ export interface IBulkUploadImageInput {
   sortOrder: number;
 }
 
-/** URL takes priority over gallery/ZIP filename when both are provided. */
+/** Prefer keeping both when present so URL download can fall back to gallery/ZIP filename. */
 export const resolveBulkUploadImageInput = (
   filename?: string,
   url?: string,
 ): Pick<IBulkUploadImageInput, 'filename' | 'url'> | null => {
-  const normalizedUrl = url?.trim();
-  if (normalizedUrl) {
-    return { url: normalizedUrl };
+  const normalizedUrl = url?.trim() || undefined;
+  const normalizedFilename = filename?.trim() || undefined;
+
+  if (!normalizedUrl && !normalizedFilename) {
+    return null;
   }
 
-  const normalizedFilename = filename?.trim();
-  if (normalizedFilename) {
-    return { filename: normalizedFilename };
-  }
-
-  return null;
+  return {
+    ...(normalizedUrl ? { url: normalizedUrl } : {}),
+    ...(normalizedFilename ? { filename: normalizedFilename } : {}),
+  };
 };
 
 export const isBulkUploadImagePresent = (
