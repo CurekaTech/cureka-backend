@@ -4,8 +4,12 @@ import { Logger } from '@nestjs/common';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
-import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup } from '../services/bulk-upload-parser.service';
+import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup, IParsedImage } from '../services/bulk-upload-parser.service';
 import { BulkUploadValidatorService, IValidationError } from '../services/bulk-upload-validator.service';
+import {
+  isBulkUploadSizeChartResolvableWithoutGallery,
+  isRemoteImageUrl,
+} from '../utils/bulk-upload-image.util';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
@@ -71,6 +75,114 @@ export class BulkUploadProcessor extends WorkerHost {
     if (lower.endsWith('.mov')) return 'video/quicktime';
     if (lower.endsWith('.webm')) return 'video/webm';
     return 'image/jpeg';
+  }
+
+  private async resolveBulkUploadImage(
+    img: IParsedImage,
+    galleryMap: Map<string, string>,
+  ): Promise<{ url: string; isPrimary: boolean; sortOrder: number } | null> {
+    const remoteUrl = img.url?.trim();
+    if (remoteUrl) {
+      if (isRemoteImageUrl(remoteUrl)) {
+        try {
+          const response = await fetch(remoteUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const arrayBuffer = await response.arrayBuffer();
+          const uploadRes = await this.storageService.uploadImage({
+            stream: Readable.from(Buffer.from(arrayBuffer)),
+            mimetype: response.headers.get('content-type') || this.resolveUploadMimeType(remoteUrl),
+            originalFilename: remoteUrl.split('/').pop()?.split('?')[0] || 'image.jpg',
+            folder: 'products',
+          });
+
+          return {
+            url: uploadRes.path,
+            isPrimary: img.isPrimary,
+            sortOrder: img.sortOrder,
+          };
+        } catch (imgError) {
+          this.logger.warn(
+            `Could not download image from URL '${remoteUrl}': ${imgError instanceof Error ? imgError.message : String(imgError)}`,
+          );
+          return null;
+        }
+      }
+
+      return {
+        url: remoteUrl,
+        isPrimary: img.isPrimary,
+        sortOrder: img.sortOrder,
+      };
+    }
+
+    const filename = img.filename?.trim();
+    if (!filename) {
+      return null;
+    }
+
+    try {
+      let imgStream: Readable;
+      const normName = filename.toLowerCase().trim();
+      const galleryImgUrl = galleryMap.get(normName);
+
+      if (galleryImgUrl) {
+        imgStream = await this.storageService.createReadStream(galleryImgUrl);
+        this.logger.log(`Resolved image ${filename} from Media Gallery.`);
+      } else {
+        const tempImgPath = `bulk-uploads/temp-images/${filename}`;
+        imgStream = await this.storageService.createReadStream(tempImgPath);
+      }
+
+      const uploadRes = await this.storageService.uploadImage({
+        stream: imgStream,
+        mimetype: this.resolveUploadMimeType(filename),
+        originalFilename: filename,
+        folder: 'products',
+      });
+
+      return {
+        url: uploadRes.path,
+        isPrimary: img.isPrimary,
+        sortOrder: img.sortOrder,
+      };
+    } catch (imgError) {
+      this.logger.warn(
+        `Could not resolve image '${filename}' from Gallery or temp-images: ${imgError instanceof Error ? imgError.message : String(imgError)}`,
+      );
+      return null;
+    }
+  }
+
+  private async resolveBulkUploadSizeChart(
+    sizeChart: string,
+    galleryMap: Map<string, string>,
+  ): Promise<string | null> {
+    const value = sizeChart.trim();
+    if (!value) {
+      return null;
+    }
+
+    if (isBulkUploadSizeChartResolvableWithoutGallery(value)) {
+      if (isRemoteImageUrl(value)) {
+        const resolved = await this.resolveBulkUploadImage(
+          {
+            url: value,
+            isPrimary: false,
+            sortOrder: 0,
+          },
+          galleryMap,
+        );
+        return resolved?.url ?? null;
+      }
+
+      return value;
+    }
+
+    const normalized = value.toLowerCase().trim();
+    return galleryMap.get(normalized) ?? value;
   }
 
   constructor(
@@ -184,7 +296,10 @@ export class BulkUploadProcessor extends WorkerHost {
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           for (const group of validatedProducts) {
             try {
-              if (group.sizeChart) {
+              if (
+                group.sizeChart &&
+                !isBulkUploadSizeChartResolvableWithoutGallery(group.sizeChart)
+              ) {
                 const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
                 if (!galleryMap.has(normalizedSizeChart)) {
                   const sheetRows = countSheetRowsForProductGroup(group);
@@ -196,7 +311,8 @@ export class BulkUploadProcessor extends WorkerHost {
                     column: 'Size Chart Filename/Path',
                     invalidValue: group.sizeChart,
                     reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
-                    suggestedFix: 'Upload the file to Media Gallery first and use exact filename in sheet.',
+                    suggestedFix:
+                      'Upload the file to Media Gallery first, provide Size Chart URL, or use an images/ storage path.',
                   });
                   continue;
                 }
@@ -204,37 +320,13 @@ export class BulkUploadProcessor extends WorkerHost {
 
               const refs = this.validatorService.resolveReferences(group);
               
-              // Process images for variants (copy from ZIP or temp path to persistent products/ path)
               const processedVariants = group.variants ? await Promise.all(
                 group.variants.map(async (v) => {
                   const processedImages = [];
                   for (const img of v.images) {
-                    try {
-                      let imgStream: Readable;
-                      const normName = img.filename.toLowerCase().trim();
-                      const galleryImgUrl = galleryMap.get(normName);
-
-                      if (galleryImgUrl) {
-                        imgStream = await this.storageService.createReadStream(galleryImgUrl);
-                        this.logger.log(`Resolved image ${img.filename} from Media Gallery.`);
-                      } else {
-                        const tempImgPath = `bulk-uploads/temp-images/${img.filename}`;
-                        imgStream = await this.storageService.createReadStream(tempImgPath);
-                      }
-
-                      const uploadRes = await this.storageService.uploadImage({
-                        stream: imgStream,
-                        mimetype: this.resolveUploadMimeType(img.filename),
-                        originalFilename: img.filename,
-                        folder: 'products',
-                      });
-                      processedImages.push({
-                        url: uploadRes.path,
-                        isPrimary: img.isPrimary,
-                        sortOrder: img.sortOrder,
-                      });
-                    } catch (imgError) {
-                      this.logger.warn(`Could not resolve image '${img.filename}' from Gallery or temp-images: ${imgError instanceof Error ? imgError.message : String(imgError)}`);
+                    const resolved = await this.resolveBulkUploadImage(img, galleryMap);
+                    if (resolved) {
+                      processedImages.push(resolved);
                     }
                   }
 
@@ -333,11 +425,10 @@ export class BulkUploadProcessor extends WorkerHost {
                 metaKeywords: group.metaKeywords,
                 categoryFilters: group.categoryFilters.length ? group.categoryFilters : undefined,
                 sizeChart: group.sizeChart
-                  ? (() => {
-                      const normalized = group.sizeChart.toLowerCase().trim();
-                      const galleryPath = galleryMap.get(normalized);
-                      return this.storageService.toFileReference(galleryPath ?? group.sizeChart);
-                    })()
+                  ? this.storageService.toFileReference(
+                      (await this.resolveBulkUploadSizeChart(group.sizeChart, galleryMap)) ??
+                        group.sizeChart,
+                    )
                   : undefined,
                 manufacturerRefId: refs.manufacturerRefId,
                 packerRefId: refs.packerRefId,
