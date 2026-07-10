@@ -14,5 +14,6 @@ export class WatchAndShopCacheSyncService {
   async invalidateHomepageWatchAndShop(): Promise<void> {
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.watchAndShopPattern());
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.sectionsPattern());
+    await this.cacheInvalidation.invalidateByPattern(CacheKeys.watchAndShop.listPattern());
   }
 }

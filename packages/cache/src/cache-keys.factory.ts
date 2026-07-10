@@ -41,6 +41,14 @@ export const CacheKeys = {
     featured: () => 'products:featured',
     featuredPattern: () => 'products:featured*',
   },
+  watchAndShop: {
+    list: (queryHash: string) => `watch-and-shop:list:${queryHash}`,
+    listPattern: () => 'watch-and-shop:list:*',
+  },
+  expertTalks: {
+    list: (queryHash: string) => `expert-talks:list:${queryHash}`,
+    listPattern: () => 'expert-talks:list:*',
+  },
   homepage: {
     banners: () => 'homepage:banners',
     bannersPattern: () => 'homepage:banners*',
@@ -62,6 +70,8 @@ export const CacheKeys = {
     brandsWeTrustPattern: () => 'homepage:section:brandsWeTrust*',
     expertCuratedBundles: () => 'homepage:section:expertCuratedBundles',
     expertCuratedBundlesPattern: () => 'homepage:section:expertCuratedBundles*',
+    curatedWellnessEssentials: () => 'homepage:section:curatedWellnessEssentials',
+    curatedWellnessEssentialsPattern: () => 'homepage:section:curatedWellnessEssentials*',
     homeSections: () => 'homepage:home-sections',
     homeSectionsPattern: () => 'homepage:home-sections*',
     sections: (variant = 'all') => `homepage:sections:${variant}`,

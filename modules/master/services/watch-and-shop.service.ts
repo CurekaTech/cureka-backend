@@ -47,6 +47,7 @@ import {
   UpdateWatchAndShopItemStatusDto,
 
   WatchAndShopItemQueryDto,
+  PublicWatchAndShopQueryDto,
 
 } from '../dto/watch-and-shop.dto';
 
@@ -508,19 +509,36 @@ export class WatchAndShopService {
 
 
 
-  async loadWatchAndShopUncached(): Promise<IStorefrontWatchAndShopItem[]> {
+  async loadWatchAndShopUncached(
+    limit?: number,
+  ): Promise<IStorefrontWatchAndShopItem[]> {
+    const items = await this.watchAndShopRepository.findActiveForStorefront(
+      new Date(),
+      limit,
+    );
 
-    const items = await this.watchAndShopRepository.findActiveForStorefront();
-
-    return items
-
-      .filter((item) => Boolean(item.videoUrl?.trim()) || Boolean(item.mediaUrl))
-
-      .map(mapWatchAndShopToStorefrontItem);
-
+    return items.map(mapWatchAndShopToStorefrontItem);
   }
 
+  async findActivePublicPaginated(
+    query: PublicWatchAndShopQueryDto,
+  ): Promise<PaginatedResult<IStorefrontWatchAndShopItem>> {
+    const pagination = buildPaginationOptions(query);
+    const { data, total } = await this.watchAndShopRepository.findAllPaginated({
+      ...pagination,
+      status: MasterStatus.ACTIVE,
+      requirePlayableMedia: true,
+      activeAt: new Date(),
+    });
 
+    const storefrontItems = data.map(mapWatchAndShopToStorefrontItem);
+    const enriched = await this.storageUrlEnricher.enrichManyFields(
+      storefrontItems,
+      [...WATCH_AND_SHOP_MEDIA_FIELDS],
+    );
+
+    return buildPaginatedResult(enriched, total, pagination);
+  }
 
   private async normalizeAndValidateDto(
 

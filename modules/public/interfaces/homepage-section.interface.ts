@@ -13,6 +13,7 @@ import { IPublicProductCard } from './public-product.interface';
 import { IPublicWellnessGoalCard } from './public-wellness-goal.interface';
 import { IPublicWatchAndShopSection } from './public-watch-and-shop.interface';
 import { IPublicHealthReadsSection } from './public-health-reads.interface';
+import { IPublicCuratedWellnessEssentialsSection } from './public-expert-talk.interface';
 
 export type HomepageSectionDataMap = {
   [HomepageSectionKey.HERO_BANNER]: IPublicHeroBannerSection;
@@ -31,7 +32,9 @@ export type HomepageSectionDataMap = {
 export type HomepageSectionsResponse = Partial<HomepageSectionDataMap>;
 
 /** Any section data payload the storefront may render. */
-export type HomepageSectionData = HomepageSectionDataMap[HomepageSectionKey];
+export type HomepageSectionData =
+  | HomepageSectionDataMap[HomepageSectionKey]
+  | IPublicCuratedWellnessEssentialsSection;
 
 /** One ordered homepage section envelope: metadata + (optional) rendered data. */
 export interface IHomepageSection {
