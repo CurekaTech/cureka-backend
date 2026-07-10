@@ -4,7 +4,7 @@ import { Logger } from '@nestjs/common';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
-import { BulkUploadParserService } from '../services/bulk-upload-parser.service';
+import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup } from '../services/bulk-upload-parser.service';
 import { BulkUploadValidatorService, IValidationError } from '../services/bulk-upload-validator.service';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
@@ -138,8 +138,10 @@ export class BulkUploadProcessor extends WorkerHost {
       const sheetExternalProductIds = new Set<string>();
       const allErrors: IValidationError[] = [];
       let totalProductsGrouped = 0;
-      let successfulProducts = 0;
-      let failedProducts = 0;
+      let successfulSheetRows = 0;
+      let failedSheetRows = 0;
+      let successfulVariantSlots = 0;
+      let failedVariantSlots = 0;
       let productsCreated = 0;
       let productsUpdated = 0;
 
@@ -185,10 +187,9 @@ export class BulkUploadProcessor extends WorkerHost {
               if (group.sizeChart) {
                 const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
                 if (!galleryMap.has(normalizedSizeChart)) {
-                  failedProducts += Math.max(
-                    1,
-                    group.productType === 'bundle' ? group.bundleItems.length : group.variants.length,
-                  );
+                  const sheetRows = countSheetRowsForProductGroup(group);
+                  failedSheetRows += sheetRows;
+                  failedVariantSlots += countVariantSlotsForProductGroup(group);
                   allErrors.push({
                     rowNumber: group.rowNumber,
                     sku: 'PARENT',
@@ -358,9 +359,8 @@ export class BulkUploadProcessor extends WorkerHost {
                   : undefined,
               };
 
-              const rowCount = Math.max(1, group.productType === 'bundle'
-                ? group.bundleItems.length
-                : group.variants.length);
+              const sheetRows = countSheetRowsForProductGroup(group);
+              const variantSlots = countVariantSlotsForProductGroup(group);
 
               const existingProductRefId = this.validatorService.resolveExistingProductRefIdForGroup(group);
               if (existingProductRefId) {
@@ -374,13 +374,12 @@ export class BulkUploadProcessor extends WorkerHost {
                 await this.productsService.createDraft(dto, 'system-bulk-upload');
                 productsCreated += 1;
               }
-              successfulProducts += rowCount;
+              successfulSheetRows += sheetRows;
+              successfulVariantSlots += variantSlots;
             } catch (dbError) {
               this.logger.error(`Failed to create product '${group.name}' inside database:`, dbError);
-              const rowCount = Math.max(1, group.productType === 'bundle'
-                ? group.bundleItems.length
-                : group.variants.length);
-              failedProducts += rowCount;
+              failedSheetRows += countSheetRowsForProductGroup(group);
+              failedVariantSlots += countVariantSlotsForProductGroup(group);
               allErrors.push({
                 rowNumber: group.rowNumber,
                 sku: 'PARENT',
@@ -396,10 +395,8 @@ export class BulkUploadProcessor extends WorkerHost {
           const validatedSet = new Set(validatedProducts);
           for (const group of batch) {
             if (!validatedSet.has(group)) {
-              const rowCount = Math.max(1, group.productType === 'bundle'
-                ? group.bundleItems.length
-                : group.variants.length);
-              failedProducts += rowCount;
+              failedSheetRows += countSheetRowsForProductGroup(group);
+              failedVariantSlots += countVariantSlotsForProductGroup(group);
             }
           }
 
@@ -411,8 +408,8 @@ export class BulkUploadProcessor extends WorkerHost {
           await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
             totalRows: scannedRows,
             processedRows: scannedRows,
-            successfulRows: successfulProducts,
-            failedRows: failedProducts,
+            successfulRows: successfulSheetRows,
+            failedRows: failedSheetRows,
             errorSummary: allErrors.slice(0, 100), // Limit summary field payload size in db log
           });
         },
@@ -428,20 +425,23 @@ export class BulkUploadProcessor extends WorkerHost {
 
       // Determine final status
       let finalStatus = BulkUploadStatus.COMPLETED;
-      if (failedProducts > 0) {
-        finalStatus = successfulProducts > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
+      if (failedSheetRows > 0) {
+        finalStatus = successfulSheetRows > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
       }
 
       const uploadSummary = {
         sheetRows: totalRowsScanned,
         productsCreated,
         productsUpdated,
-        variantSlotsSucceeded: successfulProducts,
-        variantSlotsFailed: failedProducts,
+        successfulSheetRows,
+        failedSheetRows,
+        variantSlotsSucceeded: successfulVariantSlots,
+        variantSlotsFailed: failedVariantSlots,
         message:
-          `Sheet rows: ${totalRowsScanned}. Products created: ${productsCreated}, updated: ${productsUpdated}. ` +
-          `Variant slots succeeded: ${successfulProducts}, failed: ${failedProducts}. ` +
-          `(One variable row can contain up to 5 variant slots — not 5 sheet rows.)`,
+          `Sheet rows: ${totalRowsScanned}. Rows succeeded: ${successfulSheetRows}, failed: ${failedSheetRows}. ` +
+          `Products created: ${productsCreated}, updated: ${productsUpdated}. ` +
+          `Variant slots processed: ${successfulVariantSlots} succeeded, ${failedVariantSlots} failed ` +
+          `(inline variable row with 4 slots = 1 sheet row, 4 variants).`,
       };
 
       if (uploadSummary.productsUpdated > 0 || uploadSummary.productsCreated > 0) {
@@ -463,9 +463,18 @@ export class BulkUploadProcessor extends WorkerHost {
       });
 
       this.logger.log(
-        `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} rows. Successful: ${successfulProducts}. Failed: ${failedProducts}.`
+        `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} sheet rows. Successful rows: ${successfulSheetRows}. Failed rows: ${failedSheetRows}.`
       );
-      return { success: true, totalRowsScanned, successfulProducts, failedProducts, errorsCount: allErrors.length, errorFileUrl };
+      return {
+        success: true,
+        totalRowsScanned,
+        successfulSheetRows,
+        failedSheetRows,
+        successfulVariantSlots,
+        failedVariantSlots,
+        errorsCount: allErrors.length,
+        errorFileUrl,
+      };
     } catch (error) {
       const systemError = this.buildSystemError(error);
       if (error instanceof Error) {

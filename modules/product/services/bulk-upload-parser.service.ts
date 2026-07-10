@@ -116,6 +116,23 @@ export interface IParsedProductGroup {
   bundleItems: IParsedBundleItem[];
 }
 
+/** How many spreadsheet rows one parsed product group represents (not variant count). */
+export const countSheetRowsForProductGroup = (group: IParsedProductGroup): number => {
+  if (group.productType === 'variable' && group.variableUploadMode === 'explicit') {
+    return new Set([group.rowNumber, ...group.variants.map((variant) => variant.rowNumber)]).size;
+  }
+  if (group.productType === 'bundle') {
+    return new Set([group.rowNumber, ...group.bundleItems.map((item) => item.rowNumber)]).size;
+  }
+  return 1;
+};
+
+export const countVariantSlotsForProductGroup = (group: IParsedProductGroup): number =>
+  Math.max(
+    1,
+    group.productType === 'bundle' ? group.bundleItems.length : group.variants.length,
+  );
+
 @Injectable()
 export class BulkUploadParserService {
   private readonly logger = new Logger(BulkUploadParserService.name);
