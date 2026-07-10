@@ -15,9 +15,10 @@ import { Readable } from 'stream';
 import * as ExcelJS from 'exceljs';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import {
-  buildBulkUploadTemplateHeaders,
+  buildUnifiedBulkUploadHeaders,
   buildCategoryFilterColumnHeader,
 } from '../utils/bulk-upload-columns.util';
+import { AttributesRepository } from '@modules/master/repositories/attributes.repository';
 
 @Injectable()
 export class BulkUploadService {
@@ -29,6 +30,7 @@ export class BulkUploadService {
     private readonly repository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
     private readonly categoryFiltersRepository: CategoryFiltersRepository,
+    private readonly attributesRepository: AttributesRepository,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
 
@@ -222,13 +224,36 @@ export class BulkUploadService {
     const categoryFilterHeaders = activeFilters.map((filter) =>
       buildCategoryFilterColumnHeader(filter.name),
     );
-    const headers = [...buildBulkUploadTemplateHeaders(), ...categoryFilterHeaders];
+    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Bulk Import Template');
-    const headerRow = worksheet.addRow(headers);
+
+    const activeAttributes = await this.attributesRepository.findAllPaginated({
+      page: 1,
+      limit: 5,
+      sortBy: 'name',
+      sortOrder: 'ASC',
+    });
+    const attributeOne = activeAttributes.data.find((item) => item.name === 'Color')?.name
+      ?? activeAttributes.data[0]?.name
+      ?? 'Color';
+    const attributeTwo = activeAttributes.data.find((item) => item.name === 'Size')?.name
+      ?? activeAttributes.data[1]?.name
+      ?? 'Size';
+
+    const importSheet = workbook.addWorksheet('Bulk Import Template');
+    const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
-    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+    importSheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    importSheet.addRow(this.buildSimpleSampleRow(headers));
+    importSheet.addRow(
+      this.buildVariableInlineSampleRow(headers, {
+        attributeOne,
+        attributeTwo,
+        variantCount: 4,
+      }),
+    );
 
     const referenceSheet = workbook.addWorksheet('Category Filter Reference');
     referenceSheet.getCell('A1').value = 'Column Header';
@@ -257,11 +282,129 @@ export class BulkUploadService {
     });
   }
 
+  private buildSimpleSampleRow(headers: string[]): Array<string | number | null> {
+    const values = new Map<string, string | number | null>([
+      ['Product Name*', 'Simple Demo Vitamin C 500mg'],
+      ['Product Type *', 'simple'],
+      ['Category *', 'Health & Wellness'],
+      ['Brand*', 'Samsung'],
+      ['Product SKU Code*', 'HEA/SAM/SMP-001'],
+      ['MRP (Rs)*', 499],
+      ['Selling Price (Rs)*', 399],
+      ['Discount Percentage', 20],
+      ['Quantity / Stock', 100],
+      ['Weight (kg)', 0.15],
+      ['Weight Unit', 'g'],
+      ['Length (cm)', 10],
+      ['Width (cm)', 5],
+      ['Height (cm)', 5],
+      ['Dimension Unit', 'cm'],
+      ['Barcode (EAN/UPC)', '8901234567890'],
+      ['HSN Code', '21069099'],
+      ['Tax Class', 'GST 12%'],
+      ['Product Description', 'Daily vitamin C supplement for immunity support.'],
+      ['Product Highlights', 'High potency | Easy to swallow'],
+      ['Product Status', 'active'],
+      ['Variant Status', 'active'],
+    ]);
+
+    return headers.map((header) => values.get(header) ?? null);
+  }
+
+  private applyInlineVariantSlotValues(
+    values: Map<string, string | number | null>,
+    slot: number,
+    options: {
+      colorValue: string;
+      sizeValue: string;
+      mrp?: number;
+      sellingPrice?: number;
+      stock?: number;
+      weight?: number;
+      length?: number;
+      width?: number;
+      height?: number;
+    },
+  ): void {
+    const {
+      colorValue,
+      sizeValue,
+      mrp = 999,
+      sellingPrice = 799,
+      stock = 25,
+      weight = 21,
+      length = 10,
+      width = 5,
+      height = 5,
+    } = options;
+    values.set(`att_mrp_${slot}`, mrp);
+    values.set(`att_selling_price_${slot}`, sellingPrice);
+    values.set(`att_stock_${slot}`, stock);
+    values.set(`att_weight_${slot}`, weight);
+    values.set(`att_weight_unit_${slot}`, 'g');
+    values.set(`att_length_${slot}`, length);
+    values.set(`att_length_unit_${slot}`, 'cm');
+    values.set(`att_width_${slot}`, width);
+    values.set(`att_width_unit_${slot}`, 'cm');
+    values.set(`att_height_${slot}`, height);
+    values.set(`att_height_unit_${slot}`, 'cm');
+    values.set(`att_discount_type_${slot}`, 'percentage');
+    values.set(`att_discount_percentage_${slot}`, 20);
+    values.set(`att_discount_value_${slot}`, 200);
+    values.set(`att_attribute_1_value_${slot}`, colorValue);
+    values.set(`att_attribute_2_value_${slot}`, sizeValue);
+  }
+
+  private buildVariableInlineSampleRow(
+    headers: string[],
+    options: {
+      attributeOne: string;
+      attributeTwo: string;
+      variantCount?: number;
+    },
+  ): Array<string | number | null> {
+    const variantCount = Math.min(Math.max(options.variantCount ?? 4, 1), 5);
+    const values = new Map<string, string | number | null>([
+      ['Product Name*', 'Variable Demo Multivitamin Serum'],
+      ['Product Type *', 'variable'],
+      ['Category *', 'Health & Wellness'],
+      ['Brand*', 'Samsung'],
+      ['Vendor SKU', 'VAR-INLINE-DEMO-001'],
+      ['Attribute Details 1', options.attributeOne],
+      ['Attribute Details 2', options.attributeTwo],
+      ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
+      ['Product Status', 'active'],
+    ]);
+
+    const variantDefs = [
+      { colorValue: 'Red', sizeValue: '100ml', mrp: 999, sellingPrice: 799, stock: 30, weight: 21, length: 10, width: 5, height: 5 },
+      { colorValue: 'Blue', sizeValue: '100ml', mrp: 999, sellingPrice: 799, stock: 25, weight: 25, length: 12, width: 6, height: 6 },
+      { colorValue: 'Green', sizeValue: '200ml', mrp: 1199, sellingPrice: 999, stock: 20, weight: 30, length: 14, width: 7, height: 7 },
+      { colorValue: 'Black', sizeValue: '200ml', mrp: 1199, sellingPrice: 999, stock: 15, weight: 35, length: 16, width: 8, height: 8 },
+      { colorValue: 'White', sizeValue: '100ml', mrp: 899, sellingPrice: 749, stock: 10, weight: 18, length: 9, width: 4, height: 4 },
+    ];
+
+    for (let slot = 1; slot <= variantCount; slot++) {
+      this.applyInlineVariantSlotValues(values, slot, variantDefs[slot - 1]);
+    }
+
+    return headers.map((header) => values.get(header) ?? null);
+  }
+
   async getJobStatus(refId: string) {
     const record = await this.repository.findByRefId(refId);
     if (!record) {
       throw new NotFoundException(`Bulk upload job with refId "${refId}" not found`);
     }
+
+    const rawSummary = Array.isArray(record.errorSummary) ? record.errorSummary : [];
+    const uploadSummaryEntry = rawSummary.find(
+      (item) => item?.column === '__upload_summary__',
+    );
+    const errorSummary = rawSummary.filter((item) => item?.column !== '__upload_summary__');
+    const uploadSummary = uploadSummaryEntry
+      ? JSON.parse(String(uploadSummaryEntry.invalidValue ?? '{}'))
+      : undefined;
 
     return {
       refId: record.refId,
@@ -273,8 +416,9 @@ export class BulkUploadService {
         failedRows: record.failedRows,
         percentage: record.totalRows > 0 ? Math.round((record.processedRows / record.totalRows) * 100) : 0,
       },
+      uploadSummary,
       errorFileUrl: record.errorFileUrl,
-      errorSummary: record.errorSummary,
+      errorSummary,
       createdAt: record.createdAt,
       completedAt: record.completedAt,
     };

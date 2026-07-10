@@ -64,6 +64,10 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Attribute 2 Value',
   'Attribute 3 Name',
   'Attribute 3 Value',
+  'Attribute 4 Name',
+  'Attribute 4 Value',
+  'Attribute 5 Name',
+  'Attribute 5 Value',
   'Bundle SKU',
   'Bundle MRP (Rs)',
   'Bundle Selling Price (Rs)',
@@ -235,6 +239,46 @@ export const parseCategoryFilterNameFromHeader = (header: string): string | null
 
 export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
   normalizedHeader.startsWith('cf_');
+
+import {
+  buildVariableTemplateExtraHeaders,
+  isVariableBulkUploadColumn,
+} from './bulk-upload-variable.util';
+
+export { buildVariableTemplateExtraHeaders, isVariableBulkUploadColumn };
+
+const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const header of headers) {
+    const normalized = normalizeBulkUploadHeader(header);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(header);
+  }
+  return result;
+};
+
+/**
+ * One sheet for mixed simple + variable uploads.
+ * Includes simple/bundle columns, explicit variant columns, inline variant slot columns, and CF_ columns.
+ */
+export const buildUnifiedBulkUploadHeaders = (
+  categoryFilterHeaders: string[] = [],
+): string[] => {
+  const baseHeaders = buildBulkUploadTemplateHeaders();
+  const attributeFiveValueIndex = baseHeaders.findIndex(
+    (header) => normalizeBulkUploadHeader(header) === normalizeBulkUploadHeader('Attribute 5 Value'),
+  );
+  const insertAt = attributeFiveValueIndex >= 0 ? attributeFiveValueIndex + 1 : baseHeaders.length;
+
+  return dedupeHeadersByNormalizedName([
+    ...baseHeaders.slice(0, insertAt),
+    ...buildVariableTemplateExtraHeaders(),
+    ...baseHeaders.slice(insertAt),
+    ...categoryFilterHeaders,
+  ]);
+};
 
 const CLIENT_TEMPLATE_HEADER_EXCLUSIONS = new Set([
   'Product Nature *',

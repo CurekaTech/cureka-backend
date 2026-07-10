@@ -7,12 +7,23 @@ import {
   isFixedBulkUploadColumn,
   isDeprecatedBulkUploadColumn,
   isBulkUploadCategoryFilterColumn,
+  isVariableBulkUploadColumn,
   normalizeBulkUploadHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
+import {
+  IInlineVariantSlot,
+  MAX_GENERATED_VARIANTS,
+  createEmptyInlineVariantSlot,
+  flattenAttributeDetailNames,
+  isInlineVariantSlotUsed,
+  parseAttColumnHeader,
+  parseAttributeDetailsFromRow,
+} from '../utils/bulk-upload-variable.util';
 
 export interface IParsedAttribute {
   name: string;
+  refId?: string;
   value: string;
 }
 
@@ -98,6 +109,9 @@ export interface IParsedProductGroup {
   countryOfOrigin?: string;
   components?: string;
   expiresInMonths?: number;
+  variableUploadMode?: 'explicit' | 'inline';
+  attributeDetailNames?: string[];
+  inlineVariantSlots?: Map<number, IInlineVariantSlot>;
   variants: IParsedVariant[];
   bundleItems: IParsedBundleItem[];
 }
@@ -416,6 +430,11 @@ export class BulkUploadParserService {
       }
 
       let group = groupedProducts.get(groupingKey);
+      const rowAttributeDetailNames = parseAttributeDetailsFromRow(getVal, headerMap);
+      const inlineVariantSlots = this.parseInlineVariantSlots(row, headerMap);
+      const isInlineVariable =
+        productType === 'variable' && this.hasInlineVariableInput(inlineVariantSlots);
+
       if (!group) {
         // Create new parent group
         group = {
@@ -464,6 +483,9 @@ export class BulkUploadParserService {
           countryOfOrigin: getVal('country of origin') || undefined,
           components: getVal('components') || undefined,
           expiresInMonths: getVal('shelf life in months') ? parseInt(getVal('shelf life in months'), 10) : undefined,
+          variableUploadMode: isInlineVariable ? 'inline' : productType === 'variable' ? 'explicit' : undefined,
+          attributeDetailNames: rowAttributeDetailNames.length ? rowAttributeDetailNames : undefined,
+          inlineVariantSlots: isInlineVariable ? inlineVariantSlots : undefined,
           variants: [],
           bundleItems: [],
         };
@@ -485,7 +507,12 @@ export class BulkUploadParserService {
         }
 
         groupedProducts.set(groupingKey, group);
+        if (group.variableUploadMode === 'inline') {
+          this.expandInlineVariants(group);
+        }
         batchBuffer.push(group);
+      } else if (productType === 'variable' && rowAttributeDetailNames.length) {
+        group.attributeDetailNames = rowAttributeDetailNames;
       } else if (productInformation.length) {
         group.productInformation = this.mergeProductInformation(
           group.productInformation,
@@ -494,7 +521,7 @@ export class BulkUploadParserService {
       }
 
       // Add variant details if simple or variable
-      if (productType === 'simple' || productType === 'variable') {
+      if ((productType === 'simple' || productType === 'variable') && !this.shouldSkipInlineParentVariant(group)) {
         const mrp = parseFloat(getVal('mrp (rs)')) || 0;
         const sellingPrice =
           parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) || 0;
@@ -505,15 +532,11 @@ export class BulkUploadParserService {
         const width = parseFloat(getVal('width (cm)')) || undefined;
         const height = parseFloat(getVal('height (cm)')) || undefined;
 
-        // Parse attributes
-        const attributes: { name: string; value: string }[] = [];
-        for (let i = 1; i <= 3; i++) {
-          const attrName = getVal(`attribute ${i} name`);
-          const attrVal = getVal(`attribute ${i} value`);
-          if (attrName && attrVal) {
-            attributes.push({ name: attrName, value: attrVal });
-          }
-        }
+        const attributeDetailNames =
+          group.attributeDetailNames?.length
+            ? group.attributeDetailNames
+            : parseAttributeDetailsFromRow(getVal, headerMap);
+        const attributes = this.parseVariantAttributes(getVal, headerMap, attributeDetailNames);
 
         // Parse images
         const images: { filename: string; isPrimary: boolean; sortOrder: number }[] = [];
@@ -580,6 +603,192 @@ export class BulkUploadParserService {
     }
 
     return scannedRowsCount;
+  }
+
+  private expandInlineVariants(group: IParsedProductGroup): void {
+    const attributeNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
+    group.attributeDetailNames = attributeNames.length ? attributeNames : group.attributeDetailNames;
+    const slots = group.inlineVariantSlots ?? new Map<number, IInlineVariantSlot>();
+
+    const usedSlots = [...slots.entries()]
+      .filter(([, slot]) => isInlineVariantSlotUsed(slot))
+      .sort(([a], [b]) => a - b);
+
+    if (!usedSlots.length) {
+      return;
+    }
+
+    if (usedSlots.length > MAX_GENERATED_VARIANTS) {
+      throw new BadRequestException(
+        `Variable product "${group.name}" defines ${usedSlots.length} inline variants, which exceeds the limit of ${MAX_GENERATED_VARIANTS}.`,
+      );
+    }
+
+    group.variants = usedSlots.map(([variantIndex, slot]) => {
+      const images = slot.images.map((image) => ({
+        filename: image.filename,
+        isPrimary: image.sortOrder === 0,
+        sortOrder: image.sortOrder,
+      }));
+
+      const attributes: IParsedAttribute[] = [];
+      for (let attributeIndex = 1; attributeIndex <= 5; attributeIndex++) {
+        const value = slot.attributeValues.get(attributeIndex);
+        if (!value?.trim()) continue;
+        const name =
+          attributeNames[attributeIndex - 1] ??
+          `Attribute ${attributeIndex}`;
+        attributes.push({ name, value });
+      }
+
+      return {
+        rowNumber: group.rowNumber,
+        sku: '',
+        mrp: slot.mrp ?? 0,
+        sellingPrice: slot.sellingPrice ?? 0,
+        discountPercentage: slot.discountPercentage,
+        stock: slot.stock ?? 0,
+        weight: slot.weight,
+        weightUnit: slot.weightUnit,
+        length: slot.length,
+        lengthUnit: slot.lengthUnit,
+        width: slot.width,
+        widthUnit: slot.widthUnit,
+        height: slot.height,
+        heightUnit: slot.heightUnit,
+        attributes,
+        images,
+      };
+    });
+  }
+
+  private hasInlineVariableInput(slots: Map<number, IInlineVariantSlot>): boolean {
+    return [...slots.values()].some((slot) => isInlineVariantSlotUsed(slot));
+  }
+
+  private parseInlineVariantSlots(
+    row: exceljs.Row,
+    headerMap: Map<string, number>,
+  ): Map<number, IInlineVariantSlot> {
+    const slots = new Map<number, IInlineVariantSlot>();
+
+    const ensureSlot = (variantIndex: number): IInlineVariantSlot => {
+      const existing = slots.get(variantIndex);
+      if (existing) return existing;
+      const created = createEmptyInlineVariantSlot();
+      slots.set(variantIndex, created);
+      return created;
+    };
+
+    for (const [normalizedHeader, columnIndex] of headerMap.entries()) {
+      const meta = parseAttColumnHeader(normalizedHeader);
+      if (!meta) continue;
+
+      const raw = this.getCellText(row.getCell(columnIndex));
+      if (!raw.trim()) continue;
+
+      const slot = ensureSlot(meta.variantIndex);
+
+      switch (meta.field) {
+        case 'mrp':
+          slot.mrp = parseFloat(raw) || 0;
+          break;
+        case 'selling_price':
+          slot.sellingPrice = parseFloat(raw) || 0;
+          break;
+        case 'stock':
+          slot.stock = parseInt(raw, 10) || 0;
+          break;
+        case 'discount_type':
+          slot.discountType = raw;
+          break;
+        case 'discount_percentage':
+          slot.discountPercentage = this.normalizeDiscountPercentage(raw);
+          break;
+        case 'discount_value':
+          slot.discountValue = parseFloat(raw) || 0;
+          break;
+        case 'weight':
+          slot.weight = parseFloat(raw) || undefined;
+          break;
+        case 'weight_unit':
+          slot.weightUnit = raw;
+          break;
+        case 'length':
+          slot.length = parseFloat(raw) || undefined;
+          break;
+        case 'length_unit':
+          slot.lengthUnit = raw;
+          break;
+        case 'width':
+          slot.width = parseFloat(raw) || undefined;
+          break;
+        case 'width_unit':
+          slot.widthUnit = raw;
+          break;
+        case 'height':
+          slot.height = parseFloat(raw) || undefined;
+          break;
+        case 'height_unit':
+          slot.heightUnit = raw;
+          break;
+        case 'attribute_value':
+          if (meta.attributeIndex) {
+            slot.attributeValues.set(meta.attributeIndex, raw);
+          }
+          break;
+        case 'image':
+          slot.images.push({
+            filename: raw,
+            sortOrder: (meta.imageIndex ?? 1) - 1,
+          });
+          break;
+        default:
+          break;
+      }
+    }
+
+    for (const slot of slots.values()) {
+      slot.images.sort((a, b) => a.sortOrder - b.sortOrder);
+    }
+
+    return slots;
+  }
+
+  private parseVariantAttributes(
+    getVal: (colName: string) => string,
+    headerMap: Map<string, number>,
+    attributeDetailNames: string[] = [],
+  ): IParsedAttribute[] {
+    const attributes: IParsedAttribute[] = [];
+    const maxIndex = this.getMaxAttributeColumnIndex(headerMap);
+
+    for (let index = 1; index <= maxIndex; index++) {
+      const name = getVal(`attribute ${index} name`) || attributeDetailNames[index - 1];
+      const value = getVal(`attribute ${index} value`);
+      if (!value.trim() || !name?.trim()) continue;
+
+      attributes.push({
+        name,
+        value,
+      });
+    }
+
+    return attributes;
+  }
+
+  private getMaxAttributeColumnIndex(headerMap: Map<string, number>): number {
+    let maxIndex = 5;
+    for (const header of headerMap.keys()) {
+      const match = header.match(/^attribute (\d+) (name|value)$/);
+      if (!match) continue;
+      maxIndex = Math.max(maxIndex, parseInt(match[1], 10));
+    }
+    return maxIndex;
+  }
+
+  private shouldSkipInlineParentVariant(group: IParsedProductGroup): boolean {
+    return group.variableUploadMode === 'inline';
   }
 
   /**
@@ -674,6 +883,9 @@ export class BulkUploadParserService {
         continue;
       }
       if (isBulkUploadCategoryFilterColumn(normalizedHeader)) {
+        continue;
+      }
+      if (isVariableBulkUploadColumn(normalizedHeader)) {
         continue;
       }
 

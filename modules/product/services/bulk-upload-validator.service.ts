@@ -21,6 +21,14 @@ import {
   BulkUploadProductInformationLabel,
   buildCategoryFilterColumnHeader,
 } from '../utils/bulk-upload-columns.util';
+import {
+  MAX_GENERATED_VARIANTS,
+  buildSkuPrefix,
+  findDuplicateCombinationLabels,
+  findMaxSkuSequenceForPrefix,
+  flattenAttributeDetailNames,
+  formatGeneratedSku,
+} from '../utils/bulk-upload-variable.util';
 
 type CachedCategoryFilter = {
   refId: string;
@@ -66,6 +74,9 @@ export class BulkUploadValidatorService {
   private importerMap = new Map<string, string>(); // name (lowercase) -> refId
   private countryMap = new Map<string, string>(); // name (lowercase) -> refId
   private skuToProductRefIdMap = new Map<string, string>(); // SKU (lowercase) -> parent product refId
+  private vendorSkuToProductRefIdMap = new Map<string, string>(); // vendor SKU (lowercase) -> parent product refId
+  private productRefIdToVariantSkusMap = new Map<string, string[]>(); // product refId -> variant SKUs (stable order)
+  private productNameBrandToRefIdMap = new Map<string, string>(); // name|brand -> product refId (unique only)
   private dbSkus = new Set<string>();
   private dbExternalProductIds = new Set<string>();
   private externalProductIdToProductRefIdMap = new Map<string, string>(); // externalProductId (lowercase) -> product refId
@@ -97,6 +108,7 @@ export class BulkUploadValidatorService {
       countries,
       skusWithProducts,
       externalProductIds,
+      productsWithBrand,
       productInformationLabels,
       categoryFilters,
     ] = await Promise.all([
@@ -148,13 +160,20 @@ export class BulkUploadValidatorService {
         relations: { product: true },
         select: {
           sku: true,
+          vendorSku: true,
           product: {
             refId: true,
           },
         },
+        order: { id: 'ASC' },
       }),
       this.dataSource.getRepository(ProductEntity).find({
         select: ['refId', 'externalProductId'],
+        where: {},
+      }),
+      this.dataSource.getRepository(ProductEntity).find({
+        select: ['refId', 'name'],
+        relations: { brand: true },
         where: {},
       }),
       this.dataSource.getRepository(ProductInformationLabelEntity).find({
@@ -189,7 +208,13 @@ export class BulkUploadValidatorService {
     this.healthConcernMap = new Map(concerns.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
     this.wellnessGoalMap = new Map(goals.map((g: any) => [g.name.toLowerCase().trim(), g.refId]));
     this.tagMap = new Map(tags.map((t: any) => [t.name.toLowerCase().trim(), t.slug]));
-    this.attributeMap = new Map(attributes.map((a: any) => [a.name.toLowerCase().trim(), a.refId]));
+    this.attributeMap = new Map();
+    for (const attribute of attributes) {
+      const refId = attribute.refId;
+      const normalizedName = attribute.name.toLowerCase().trim();
+      this.attributeMap.set(normalizedName, refId);
+      this.attributeMap.set(refId.toLowerCase().trim(), refId);
+    }
     this.manufacturerMap = new Map(manufacturers.map((m: any) => [m.name.toLowerCase().trim(), m.refId]));
     this.packerMap = new Map(packers.map((p: any) => [p.name.toLowerCase().trim(), p.refId]));
     this.importerMap = new Map(importers.map((i: any) => [i.name.toLowerCase().trim(), i.refId]));
@@ -230,6 +255,9 @@ export class BulkUploadValidatorService {
 
     this.dbSkus = new Set();
     this.skuToProductRefIdMap = new Map();
+    this.vendorSkuToProductRefIdMap = new Map();
+    this.productRefIdToVariantSkusMap = new Map();
+    this.productNameBrandToRefIdMap = new Map();
     this.externalProductIdToProductRefIdMap = new Map();
     this.dbExternalProductIds = new Set(
       externalProductIds
@@ -247,7 +275,30 @@ export class BulkUploadValidatorService {
         this.dbSkus.add(normSku);
         if (v.product) {
           this.skuToProductRefIdMap.set(normSku, v.product.refId);
+          const variantSkus = this.productRefIdToVariantSkusMap.get(v.product.refId) ?? [];
+          variantSkus.push(v.sku);
+          this.productRefIdToVariantSkusMap.set(v.product.refId, variantSkus);
         }
+      }
+      const normVendorSku = v.vendorSku?.toLowerCase().trim();
+      if (normVendorSku && v.product?.refId) {
+        this.vendorSkuToProductRefIdMap.set(normVendorSku, v.product.refId);
+      }
+    }
+
+    const nameBrandCounts = new Map<string, number>();
+    for (const product of productsWithBrand) {
+      const brandName = product.brand?.name?.toLowerCase().trim();
+      if (!product.name?.trim() || !brandName) continue;
+      const key = `${product.name.toLowerCase().trim()}|${brandName}`;
+      nameBrandCounts.set(key, (nameBrandCounts.get(key) ?? 0) + 1);
+    }
+    for (const product of productsWithBrand) {
+      const brandName = product.brand?.name?.toLowerCase().trim();
+      if (!product.name?.trim() || !brandName) continue;
+      const key = `${product.name.toLowerCase().trim()}|${brandName}`;
+      if (nameBrandCounts.get(key) === 1) {
+        this.productNameBrandToRefIdMap.set(key, product.refId);
       }
     }
 
@@ -273,10 +324,15 @@ export class BulkUploadValidatorService {
   }
 
   /**
-   * Resolves attribute refId by normalized name.
+   * Resolves attribute refId by normalized name or refId lookup key.
    */
-  resolveAttributeRefId(name: string): string | undefined {
-    return this.attributeMap.get(name.toLowerCase().trim());
+  resolveAttributeRefId(nameOrRefId: string): string | undefined {
+    return this.attributeMap.get(nameOrRefId.toLowerCase().trim());
+  }
+
+  resolveAttributeDisplayName(nameOrRefId: string): string {
+    const refId = this.resolveAttributeRefId(nameOrRefId);
+    return refId ?? nameOrRefId;
   }
 
   /**
@@ -287,16 +343,30 @@ export class BulkUploadValidatorService {
   }
 
   resolveExistingProductRefIdForGroup(group: IParsedProductGroup): string | undefined {
-    if (!group.variants?.length) {
-      return undefined;
+    const foundRefIds = new Set<string>();
+
+    if (group.externalProductId?.trim()) {
+      const refId = this.externalProductIdToProductRefIdMap.get(
+        group.externalProductId.toLowerCase().trim(),
+      );
+      if (refId) foundRefIds.add(refId);
     }
 
-    const foundRefIds = new Set<string>();
-    for (const variant of group.variants) {
+    if (group.vendorSku?.trim()) {
+      const refId = this.vendorSkuToProductRefIdMap.get(group.vendorSku.toLowerCase().trim());
+      if (refId) foundRefIds.add(refId);
+    }
+
+    for (const variant of group.variants ?? []) {
+      if (!variant.sku?.trim()) continue;
       const refId = this.resolveProductRefIdBySku(variant.sku);
-      if (refId) {
-        foundRefIds.add(refId);
-      }
+      if (refId) foundRefIds.add(refId);
+    }
+
+    if (group.name?.trim() && group.brand?.trim()) {
+      const key = `${group.name.toLowerCase().trim()}|${group.brand.toLowerCase().trim()}`;
+      const refId = this.productNameBrandToRefIdMap.get(key);
+      if (refId) foundRefIds.add(refId);
     }
 
     if (foundRefIds.size === 0) {
@@ -356,13 +426,20 @@ export class BulkUploadValidatorService {
 
     for (const group of batch) {
       const groupErrors: IValidationError[] = [];
-      const existingProductRefIds = new Set(
-        group.variants
-          .map((variant) => this.resolveProductRefIdBySku(variant.sku))
-          .filter((refId): refId is string => Boolean(refId)),
-      );
-      const resolvedExistingProductRefId =
-        existingProductRefIds.size === 1 ? Array.from(existingProductRefIds)[0] : undefined;
+      let resolvedExistingProductRefId = this.resolveExistingProductRefIdForGroup(group);
+      const existingProductRefIds = new Set<string>();
+      if (resolvedExistingProductRefId) {
+        existingProductRefIds.add(resolvedExistingProductRefId);
+      }
+      for (const variant of group.variants) {
+        const refId = variant.sku?.trim()
+          ? this.resolveProductRefIdBySku(variant.sku)
+          : undefined;
+        if (refId) existingProductRefIds.add(refId);
+      }
+      if (!resolvedExistingProductRefId && existingProductRefIds.size === 1) {
+        resolvedExistingProductRefId = Array.from(existingProductRefIds)[0];
+      }
 
       if (existingProductRefIds.size > 1) {
         groupErrors.push({
@@ -565,19 +642,22 @@ export class BulkUploadValidatorService {
 
         const existingExternalIdProductRefId =
           this.externalProductIdToProductRefIdMap.get(normalizedExternalId);
-        if (
-          existingExternalIdProductRefId &&
-          (!resolvedExistingProductRefId || existingExternalIdProductRefId !== resolvedExistingProductRefId)
-        ) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: 'PARENT',
-            column: 'Product ID (String)',
-            invalidValue: group.externalProductId,
-            reason: `Product ID "${group.externalProductId}" already exists in the database.`,
-            suggestedFix:
-              'Use a new unique external product ID or upload with SKU(s) of that same existing product.',
-          });
+        if (existingExternalIdProductRefId) {
+          if (
+            resolvedExistingProductRefId &&
+            resolvedExistingProductRefId !== existingExternalIdProductRefId
+          ) {
+            groupErrors.push({
+              rowNumber: group.rowNumber,
+              sku: 'PARENT',
+              column: 'Product ID (String)',
+              invalidValue: group.externalProductId,
+              reason: `Product ID "${group.externalProductId}" belongs to a different existing product than the SKU/vendor match.`,
+              suggestedFix: 'Use a consistent external product ID and SKU/vendor for the same product.',
+            });
+          } else {
+            resolvedExistingProductRefId = existingExternalIdProductRefId;
+          }
         }
       }
 
@@ -601,117 +681,10 @@ export class BulkUploadValidatorService {
       this.validateCategoryFilters(group, groupErrors);
 
       // B. Simple and Variable Product Validations
-      if (group.productType === 'simple' || group.productType === 'variable') {
-        if (group.variants.length === 0) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: 'PARENT',
-            column: 'Product SKU Code',
-            invalidValue: '',
-            reason: 'At least one variant or product SKU row must be associated with the product.',
-            suggestedFix: 'Add a variant row specifying Product SKU Code, MRP, Selling Price, and stock.',
-          });
-        }
-
-        for (const variant of group.variants) {
-          if (!variant.sku) {
-            groupErrors.push({
-              rowNumber: variant.rowNumber,
-              sku: 'EMPTY',
-              column: 'Product SKU Code',
-              invalidValue: '',
-              reason: 'Product SKU Code is mandatory.',
-              suggestedFix: 'Define a unique Product SKU Code.',
-            });
-            continue;
-          }
-
-          const normSku = variant.sku.toLowerCase().trim();
-
-          // Check inside-sheet SKU duplicates
-          if (sheetSkus.has(normSku)) {
-            groupErrors.push({
-              rowNumber: variant.rowNumber,
-              sku: variant.sku,
-              column: 'Product SKU Code',
-              invalidValue: variant.sku,
-              reason: `Product SKU Code "${variant.sku}" is duplicated within the spreadsheet.`,
-              suggestedFix: 'Assign unique Product SKU Codes to distinct variants.',
-            });
-          } else {
-            sheetSkus.add(normSku);
-          }
-
-          // Check DB duplicates
-          if (this.dbSkus.has(normSku)) {
-            const existingSkuProductRefId = this.resolveProductRefIdBySku(variant.sku);
-            if (
-              resolvedExistingProductRefId &&
-              existingSkuProductRefId &&
-              existingSkuProductRefId === resolvedExistingProductRefId
-            ) {
-              continue;
-            }
-            groupErrors.push({
-              rowNumber: variant.rowNumber,
-              sku: variant.sku,
-              column: 'Product SKU Code',
-              invalidValue: variant.sku,
-              reason: `Product SKU Code "${variant.sku}" already exists in the database.`,
-              suggestedFix:
-                'Use this SKU only to update its existing product, or change to a new unique SKU.',
-            });
-          }
-
-          // Price validations
-          if (variant.mrp <= 0) {
-            groupErrors.push({
-              rowNumber: variant.rowNumber,
-              sku: variant.sku,
-              column: 'MRP',
-              invalidValue: String(variant.mrp),
-              reason: 'MRP must be greater than zero.',
-              suggestedFix: 'Enter a valid numerical MRP.',
-            });
-          }
-
-          if (variant.sellingPrice <= 0) {
-            groupErrors.push({
-              rowNumber: variant.rowNumber,
-              sku: variant.sku,
-              column: 'Selling Price',
-              invalidValue: String(variant.sellingPrice),
-              reason: 'Selling price must be greater than zero.',
-              suggestedFix: 'Enter a valid numerical selling price.',
-            });
-          }
-
-          if (variant.sellingPrice > variant.mrp) {
-            groupErrors.push({
-              rowNumber: variant.rowNumber,
-              sku: variant.sku,
-              column: 'Selling Price',
-              invalidValue: `${variant.sellingPrice} vs MRP ${variant.mrp}`,
-              reason: 'Selling price cannot exceed the product MRP.',
-              suggestedFix: 'Lower the selling price or adjust the MRP.',
-            });
-          }
-
-          for (const attribute of variant.attributes ?? []) {
-            if (!attribute.name?.trim()) continue;
-            const refId = this.attributeMap.get(attribute.name.toLowerCase().trim());
-            if (!refId) {
-              groupErrors.push({
-                rowNumber: variant.rowNumber,
-                sku: variant.sku,
-                column: `Attribute: ${attribute.name}`,
-                invalidValue: attribute.name,
-                reason: masterRecordUnavailableReason('Attribute', attribute.name),
-                suggestedFix: masterRecordUnavailableFix('attribute'),
-              });
-            }
-          }
-        }
+      if (group.productType === 'simple') {
+        this.validateSimpleProductVariants(group, groupErrors, sheetSkus, resolvedExistingProductRefId);
+      } else if (group.productType === 'variable') {
+        this.validateVariableProduct(group, groupErrors, sheetSkus, resolvedExistingProductRefId);
       }
 
       // C. Bundle Product Validations
@@ -774,6 +747,380 @@ export class BulkUploadValidatorService {
     }
 
     return { errors, validatedProducts };
+  }
+
+  private validateSimpleProductVariants(
+    group: IParsedProductGroup,
+    groupErrors: IValidationError[],
+    sheetSkus: Set<string>,
+    resolvedExistingProductRefId?: string,
+  ): void {
+    if (group.variants.length === 0) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: 'PARENT',
+        column: 'Product SKU Code',
+        invalidValue: '',
+        reason: 'At least one variant or product SKU row must be associated with the product.',
+        suggestedFix: 'Add a variant row specifying Product SKU Code, MRP, Selling Price, and stock.',
+      });
+      return;
+    }
+
+    for (const variant of group.variants) {
+      this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, true);
+      this.validateVariantPricing(variant, groupErrors);
+    }
+  }
+
+  private validateVariableProduct(
+    group: IParsedProductGroup,
+    groupErrors: IValidationError[],
+    sheetSkus: Set<string>,
+    resolvedExistingProductRefId?: string,
+  ): void {
+    if (group.variableUploadMode === 'inline') {
+      this.validateInlineVariableProduct(group, groupErrors);
+    }
+
+    if (group.variants.length === 0) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: 'PARENT',
+        column: 'Product SKU Code',
+        invalidValue: '',
+        reason: 'At least one variable product variant must be associated with the product.',
+        suggestedFix:
+          'Add explicit variant rows or fill att_mrp_1 columns for inline variant slots.',
+      });
+      return;
+    }
+
+    if (group.variants.length > MAX_GENERATED_VARIANTS) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: 'PARENT',
+        column: 'Attribute Values',
+        invalidValue: String(group.variants.length),
+        reason: `Variable product would create ${group.variants.length} variants, which exceeds the limit of ${MAX_GENERATED_VARIANTS}.`,
+        suggestedFix: 'Reduce attribute value combinations before uploading.',
+      });
+      return;
+    }
+
+    this.assignMissingVariableSkus(group, sheetSkus, resolvedExistingProductRefId);
+
+    const resolvedVariantAttributes: Array<
+      Array<{ attributeRefId: string; value: string; label: string }>
+    > = [];
+
+    for (const [index, variant] of group.variants.entries()) {
+      const variantNumber = index + 1;
+      this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
+      this.validateVariantPricing(variant, groupErrors);
+
+      if (group.variableUploadMode === 'inline') {
+        if (variant.mrp <= 0) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: variant.sku || `VARIANT-${variantNumber}`,
+            column: `att_mrp_${variantNumber}`,
+            invalidValue: String(variant.mrp),
+            reason: `att_mrp_${variantNumber} is required for inline variant slot ${variantNumber}.`,
+            suggestedFix: `Provide att_mrp_${variantNumber} on the parent row.`,
+          });
+        }
+        if (variant.sellingPrice <= 0) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: variant.sku || `VARIANT-${variantNumber}`,
+            column: `att_selling_price_${variantNumber}`,
+            invalidValue: String(variant.sellingPrice),
+            reason: `att_selling_price_${variantNumber} is required for inline variant slot ${variantNumber}.`,
+            suggestedFix: `Provide att_selling_price_${variantNumber} on the parent row.`,
+          });
+        }
+        if (variant.stock <= 0) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: variant.sku || `VARIANT-${variantNumber}`,
+            column: `att_stock_${variantNumber}`,
+            invalidValue: String(variant.stock),
+            reason: `att_stock_${variantNumber} is required for inline variant slot ${variantNumber}.`,
+            suggestedFix: `Provide att_stock_${variantNumber} on the parent row.`,
+          });
+        }
+      }
+
+      if (!variant.attributes?.length) {
+        groupErrors.push({
+          rowNumber: variant.rowNumber,
+          sku: variant.sku || 'PARENT',
+          column: 'Attribute 1 Value',
+          invalidValue: '',
+          reason: 'Each variable product variant must include attributes.',
+          suggestedFix: 'Provide attribute refId/name and value for every variant row.',
+        });
+        continue;
+      }
+
+      const resolvedAttributes: Array<{ attributeRefId: string; value: string; label: string }> = [];
+      const attributeDetailNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
+      for (const attribute of variant.attributes) {
+        const lookup = attribute.name;
+        if (!lookup?.trim()) continue;
+
+        let attributeRefId = this.resolveAttributeRefId(lookup);
+        let resolvedLabel = lookup;
+        if (!attributeRefId) {
+          for (const candidate of flattenAttributeDetailNames([lookup])) {
+            attributeRefId = this.resolveAttributeRefId(candidate);
+            if (attributeRefId) {
+              resolvedLabel = candidate;
+              break;
+            }
+          }
+        }
+
+        if (!attributeRefId) {
+          groupErrors.push({
+            rowNumber: variant.rowNumber,
+            sku: variant.sku || 'PARENT',
+            column: `Attribute: ${attribute.name}`,
+            invalidValue: lookup,
+            reason: masterRecordUnavailableReason('Attribute', lookup),
+            suggestedFix: masterRecordUnavailableFix('attribute'),
+          });
+          continue;
+        }
+        resolvedAttributes.push({
+          attributeRefId,
+          value: attribute.value,
+          label:
+            resolvedLabel ||
+            attributeDetailNames.find(
+              (name) => name.toLowerCase() === lookup.toLowerCase(),
+            ) ||
+            attributeRefId,
+        });
+      }
+
+      if (resolvedAttributes.length) {
+        resolvedVariantAttributes.push(resolvedAttributes);
+      }
+    }
+
+    const duplicateCombinations = findDuplicateCombinationLabels(resolvedVariantAttributes);
+    for (const combination of duplicateCombinations) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: group.variants[0]?.sku ?? 'PARENT',
+        column: 'Attribute Values',
+        invalidValue: combination,
+        reason: `Duplicate variant attribute combinations detected (${combination}).`,
+        suggestedFix: 'Ensure each variant row has a unique attribute combination.',
+      });
+    }
+  }
+
+  private validateInlineVariableProduct(
+    group: IParsedProductGroup,
+    groupErrors: IValidationError[],
+  ): void {
+    const attributeNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
+    group.attributeDetailNames = attributeNames.length ? attributeNames : group.attributeDetailNames;
+
+    if (!attributeNames.length) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: 'PARENT',
+        column: 'Attribute Details 1',
+        invalidValue: '',
+        reason: 'Inline variable products require at least one Attribute Details column.',
+        suggestedFix: 'Fill Attribute Details 1 (and Attribute Details 2, 3, … as needed).',
+      });
+      return;
+    }
+
+    for (const [index, attributeName] of attributeNames.entries()) {
+      const attributeRefId = this.resolveAttributeRefId(attributeName);
+      if (!attributeRefId) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: 'PARENT',
+          column: `Attribute Details ${index + 1}`,
+          invalidValue: attributeName,
+          reason: masterRecordUnavailableReason('Attribute', attributeName),
+          suggestedFix:
+            'Use one attribute name per column (Attribute Details 1 = Color, Attribute Details 2 = Size), or pipe-separated in one cell (Color | Size). Names must match active master attributes.',
+        });
+      }
+    }
+
+    for (const [index, attributeName] of attributeNames.entries()) {
+      for (const [variantIndex, variant] of group.variants.entries()) {
+        const slotNumber = variantIndex + 1;
+        const hasValue = variant.attributes.some(
+          (attribute) => attribute.name?.toLowerCase() === attributeName.toLowerCase(),
+        );
+        if (!hasValue) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: variant.sku || `VARIANT-${slotNumber}`,
+            column: `att_attribute_${index + 1}_value_${slotNumber}`,
+            invalidValue: '',
+            reason: `Variant slot ${slotNumber} is missing a value for attribute "${attributeName}".`,
+            suggestedFix: `Provide att_attribute_${index + 1}_value_${slotNumber} or Attribute ${index + 1} Value.`,
+          });
+        }
+      }
+    }
+  }
+
+  private assignMissingVariableSkus(
+    group: IParsedProductGroup,
+    sheetSkus: Set<string>,
+    existingProductRefId?: string,
+  ): void {
+    if (!group.category?.trim() || !group.brand?.trim()) {
+      return;
+    }
+
+    const hasMissingSku = group.variants.some((variant) => !variant.sku?.trim());
+    if (!hasMissingSku) {
+      return;
+    }
+
+    const prefix = buildSkuPrefix(group.category, group.brand);
+    const existingSkus = [...this.dbSkus, ...sheetSkus];
+    let sequence = findMaxSkuSequenceForPrefix(prefix, existingSkus);
+    const reservedInGroup = new Set<string>();
+    const reusableSkus = existingProductRefId
+      ? [...(this.productRefIdToVariantSkusMap.get(existingProductRefId) ?? [])]
+      : [];
+
+    for (const [index, variant] of group.variants.entries()) {
+      if (variant.sku?.trim()) {
+        reservedInGroup.add(variant.sku.toLowerCase().trim());
+        continue;
+      }
+
+      const reusedSku = reusableSkus[index]?.trim();
+      if (reusedSku) {
+        variant.sku = reusedSku;
+        reservedInGroup.add(reusedSku.toLowerCase());
+        continue;
+      }
+
+      let sku = '';
+      do {
+        sequence += 1;
+        sku = formatGeneratedSku(prefix, sequence);
+      } while (
+        this.dbSkus.has(sku.toLowerCase()) ||
+        sheetSkus.has(sku.toLowerCase()) ||
+        reservedInGroup.has(sku.toLowerCase())
+      );
+
+      variant.sku = sku;
+      reservedInGroup.add(sku.toLowerCase());
+    }
+  }
+
+  private validateVariantSku(
+    variant: IParsedProductGroup['variants'][number],
+    groupErrors: IValidationError[],
+    sheetSkus: Set<string>,
+    resolvedExistingProductRefId: string | undefined,
+    skuMandatory: boolean,
+  ): void {
+    if (!variant.sku?.trim()) {
+      if (skuMandatory) {
+        groupErrors.push({
+          rowNumber: variant.rowNumber,
+          sku: 'EMPTY',
+          column: 'Product SKU Code',
+          invalidValue: '',
+          reason: 'Product SKU Code is mandatory.',
+          suggestedFix: 'Define a unique Product SKU Code.',
+        });
+      }
+      return;
+    }
+
+    const normSku = variant.sku.toLowerCase().trim();
+    if (sheetSkus.has(normSku)) {
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku,
+        column: 'Product SKU Code',
+        invalidValue: variant.sku,
+        reason: `Product SKU Code "${variant.sku}" is duplicated within the spreadsheet.`,
+        suggestedFix: 'Assign unique Product SKU Codes to distinct variants.',
+      });
+      return;
+    }
+
+    sheetSkus.add(normSku);
+
+    if (this.dbSkus.has(normSku)) {
+      const existingSkuProductRefId = this.resolveProductRefIdBySku(variant.sku);
+      if (
+        resolvedExistingProductRefId &&
+        existingSkuProductRefId &&
+        existingSkuProductRefId === resolvedExistingProductRefId
+      ) {
+        return;
+      }
+
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku,
+        column: 'Product SKU Code',
+        invalidValue: variant.sku,
+        reason: `Product SKU Code "${variant.sku}" already exists in the database.`,
+        suggestedFix:
+          'Leave Product SKU Code empty to update by Vendor SKU / product name, or use the same SKU to update that product.',
+      });
+    }
+  }
+
+  private validateVariantPricing(
+    variant: IParsedProductGroup['variants'][number],
+    groupErrors: IValidationError[],
+  ): void {
+    if (variant.mrp <= 0) {
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku || 'PARENT',
+        column: 'MRP',
+        invalidValue: String(variant.mrp),
+        reason: 'MRP must be greater than zero.',
+        suggestedFix: 'Enter a valid numerical MRP.',
+      });
+    }
+
+    if (variant.sellingPrice <= 0) {
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku || 'PARENT',
+        column: 'Selling Price',
+        invalidValue: String(variant.sellingPrice),
+        reason: 'Selling price must be greater than zero.',
+        suggestedFix: 'Enter a valid numerical selling price.',
+      });
+    }
+
+    if (variant.sellingPrice > variant.mrp) {
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku || 'PARENT',
+        column: 'Selling Price',
+        invalidValue: `${variant.sellingPrice} vs MRP ${variant.mrp}`,
+        reason: 'Selling price cannot exceed the product MRP.',
+        suggestedFix: 'Lower the selling price or adjust the MRP.',
+      });
+    }
   }
 
   private validateSubCategories(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
