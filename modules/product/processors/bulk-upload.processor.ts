@@ -83,6 +83,22 @@ export class BulkUploadProcessor extends WorkerHost {
     galleryMap: Map<string, string>,
   ): Promise<{ url: string; isPrimary: boolean; sortOrder: number } | null> {
     const remoteUrl = img.url?.trim();
+    const filename = img.filename?.trim();
+
+    // Prefer gallery/ZIP filename when a remote URL looks like a placeholder (example.com)
+    // or when both are present and we can resolve the filename locally first.
+    if (filename) {
+      const resolvedFromFile = await this.tryResolveBulkUploadImageFromFilename(
+        filename,
+        img.isPrimary,
+        img.sortOrder,
+        galleryMap,
+      );
+      if (resolvedFromFile) {
+        return resolvedFromFile;
+      }
+    }
+
     if (remoteUrl) {
       if (isRemoteImageUrl(remoteUrl)) {
         try {
@@ -112,6 +128,7 @@ export class BulkUploadProcessor extends WorkerHost {
         }
       }
 
+      // Non-http storage path / key — use as-is.
       return {
         url: remoteUrl,
         isPrimary: img.isPrimary,
@@ -119,11 +136,15 @@ export class BulkUploadProcessor extends WorkerHost {
       };
     }
 
-    const filename = img.filename?.trim();
-    if (!filename) {
-      return null;
-    }
+    return null;
+  }
 
+  private async tryResolveBulkUploadImageFromFilename(
+    filename: string,
+    isPrimary: boolean,
+    sortOrder: number,
+    galleryMap: Map<string, string>,
+  ): Promise<{ url: string; isPrimary: boolean; sortOrder: number } | null> {
     try {
       let imgStream: Readable;
       const normName = filename.toLowerCase().trim();
@@ -146,8 +167,8 @@ export class BulkUploadProcessor extends WorkerHost {
 
       return {
         url: uploadRes.path,
-        isPrimary: img.isPrimary,
-        sortOrder: img.sortOrder,
+        isPrimary,
+        sortOrder,
       };
     } catch (imgError) {
       this.logger.warn(
@@ -386,6 +407,9 @@ export class BulkUploadProcessor extends WorkerHost {
                   });
                 }
               }
+              this.logger.log(
+                `[BULK_UPLOAD] product="${group.name}" commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length}`,
+              );
 
               const attributeRefIds = new Set<string>();
               if (processedVariants) {
