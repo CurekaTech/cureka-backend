@@ -762,7 +762,7 @@ export class BulkUploadValidatorService {
         column: 'Product SKU Code',
         invalidValue: '',
         reason: 'At least one variant or product SKU row must be associated with the product.',
-        suggestedFix: 'Add a variant row specifying Product SKU Code, MRP, Selling Price, and stock.',
+        suggestedFix: 'Add a variant row specifying Product SKU Code, MRP, and Selling Price.',
       });
       return;
     }
@@ -840,26 +840,17 @@ export class BulkUploadValidatorService {
             suggestedFix: `Provide att_selling_price_${variantNumber} on the parent row.`,
           });
         }
-        if (variant.stock <= 0) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: variant.sku || `VARIANT-${variantNumber}`,
-            column: `att_stock_${variantNumber}`,
-            invalidValue: String(variant.stock),
-            reason: `att_stock_${variantNumber} is required for inline variant slot ${variantNumber}.`,
-            suggestedFix: `Provide att_stock_${variantNumber} on the parent row.`,
-          });
-        }
       }
 
       if (!variant.attributes?.length) {
         groupErrors.push({
           rowNumber: variant.rowNumber,
           sku: variant.sku || 'PARENT',
-          column: 'Attribute 1 Value',
+          column: 'att_attribute_1_value_1',
           invalidValue: '',
           reason: 'Each variable product variant must include attributes.',
-          suggestedFix: 'Provide attribute refId/name and value for every variant row.',
+          suggestedFix:
+            'Provide att_attribute_1_value_1 (and att_attribute_2_value_1, …) for every variant row or inline slot.',
         });
         continue;
       }
@@ -934,10 +925,10 @@ export class BulkUploadValidatorService {
       groupErrors.push({
         rowNumber: group.rowNumber,
         sku: 'PARENT',
-        column: 'Attribute Details 1',
+        column: 'Attribute Details',
         invalidValue: '',
-        reason: 'Inline variable products require at least one Attribute Details column.',
-        suggestedFix: 'Fill Attribute Details 1 (and Attribute Details 2, 3, … as needed).',
+        reason: 'Inline variable products require Attribute Details.',
+        suggestedFix: 'Fill Attribute Details with active attribute names (e.g. Color | Size).',
       });
       return;
     }
@@ -948,11 +939,11 @@ export class BulkUploadValidatorService {
         groupErrors.push({
           rowNumber: group.rowNumber,
           sku: 'PARENT',
-          column: `Attribute Details ${index + 1}`,
+          column: 'Attribute Details',
           invalidValue: attributeName,
           reason: masterRecordUnavailableReason('Attribute', attributeName),
           suggestedFix:
-            'Use one attribute name per column (Attribute Details 1 = Color, Attribute Details 2 = Size), or pipe-separated in one cell (Color | Size). Names must match active master attributes.',
+            'Use pipe-separated attribute names in Attribute Details (e.g. Color | Size). Names must match active master attributes.',
         });
       }
     }

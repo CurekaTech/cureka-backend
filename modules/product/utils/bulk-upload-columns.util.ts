@@ -58,16 +58,6 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Pack Unit 4',
   'Pack MRP 4',
   'Pack Selling Price 4',
-  'Attribute 1 Name',
-  'Attribute 1 Value',
-  'Attribute 2 Name',
-  'Attribute 2 Value',
-  'Attribute 3 Name',
-  'Attribute 3 Value',
-  'Attribute 4 Name',
-  'Attribute 4 Value',
-  'Attribute 5 Name',
-  'Attribute 5 Value',
   'Bundle SKU',
   'Bundle MRP (Rs)',
   'Bundle Selling Price (Rs)',
@@ -122,17 +112,24 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'FAQ 10 Question',
   'FAQ 10 Answer',
   'Primary Image Filename',
+  'Primary Image URL',
   'Gallery Image 2',
+  'Gallery Image 2 URL',
   'Gallery Image 2 (Video)',
+  'Gallery Image 2 (Video) URL',
   'Gallery Image 3',
+  'Gallery Image 3 URL',
   'Gallery Image 4',
+  'Gallery Image 4 URL',
   'Gallery Image 5',
+  'Gallery Image 5 URL',
   'Meta Title',
   'Meta Description',
   'Slug URL',
   'Meta Keywords',
   'Category Filters',
   'Size Chart Filename/Path',
+  'Size Chart URL',
   'Subscription Available',
   'Return Policy',
   'Return Window Days',
@@ -267,10 +264,10 @@ export const buildUnifiedBulkUploadHeaders = (
   categoryFilterHeaders: string[] = [],
 ): string[] => {
   const baseHeaders = buildBulkUploadTemplateHeaders();
-  const attributeFiveValueIndex = baseHeaders.findIndex(
-    (header) => normalizeBulkUploadHeader(header) === normalizeBulkUploadHeader('Attribute 5 Value'),
+  const bundleSkuIndex = baseHeaders.findIndex(
+    (header) => normalizeBulkUploadHeader(header) === normalizeBulkUploadHeader('Bundle SKU'),
   );
-  const insertAt = attributeFiveValueIndex >= 0 ? attributeFiveValueIndex + 1 : baseHeaders.length;
+  const insertAt = bundleSkuIndex >= 0 ? bundleSkuIndex : baseHeaders.length;
 
   return dedupeHeadersByNormalizedName([
     ...baseHeaders.slice(0, insertAt),

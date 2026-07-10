@@ -14,12 +14,17 @@ import {
 import {
   IInlineVariantSlot,
   MAX_GENERATED_VARIANTS,
+  VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
   createEmptyInlineVariantSlot,
   flattenAttributeDetailNames,
   isInlineVariantSlotUsed,
   parseAttColumnHeader,
   parseAttributeDetailsFromRow,
 } from '../utils/bulk-upload-variable.util';
+import {
+  resolveBulkUploadImageInput,
+  resolveBulkUploadSizeChart,
+} from '../utils/bulk-upload-image.util';
 
 export interface IParsedAttribute {
   name: string;
@@ -28,7 +33,8 @@ export interface IParsedAttribute {
 }
 
 export interface IParsedImage {
-  filename: string;
+  filename?: string;
+  url?: string;
   isPrimary: boolean;
   sortOrder: number;
 }
@@ -484,7 +490,10 @@ export class BulkUploadParserService {
           slugUrl: getVal('slug url') || undefined,
           metaKeywords: getVal('meta keywords') ? getVal('meta keywords').split(',').map(s => s.trim()).filter(Boolean) : [],
           categoryFilters: this.parseCategoryFilters(getVal('category filters')),
-          sizeChart: getVal('size chart filename/path') || getVal('size chart') || undefined,
+          sizeChart: resolveBulkUploadSizeChart(
+            getVal('size chart url'),
+            this.getFirstAvailable(getVal, ['size chart filename/path', 'size chart']),
+          ),
           subscriptionEnabled: getVal('subscription available').toLowerCase() === 'yes',
           returnAllowed: getVal('return policy').toLowerCase().includes('return') || getVal('return window days') !== '',
           returnPolicy: getVal('return policy') || undefined,
@@ -554,22 +563,7 @@ export class BulkUploadParserService {
             ? group.attributeDetailNames
             : parseAttributeDetailsFromRow(getVal, headerMap);
         const attributes = this.parseVariantAttributes(getVal, headerMap, attributeDetailNames);
-
-        // Parse images
-        const images: { filename: string; isPrimary: boolean; sortOrder: number }[] = [];
-        const primaryImg = getVal('primary image filename');
-        if (primaryImg) {
-          images.push({ filename: primaryImg, isPrimary: true, sortOrder: 0 });
-        }
-        for (let i = 2; i <= 5; i++) {
-          const galleryImg =
-            i === 2
-              ? this.getFirstAvailable(getVal, ['gallery image 2', 'gallery image 2 (video)'])
-              : getVal(`gallery image ${i}`);
-          if (galleryImg) {
-            images.push({ filename: galleryImg, isPrimary: false, sortOrder: i - 1 });
-          }
-        }
+        const images = this.parseVariantImages(getVal);
 
         group.variants.push({
           rowNumber,
@@ -644,6 +638,7 @@ export class BulkUploadParserService {
     group.variants = usedSlots.map(([variantIndex, slot]) => {
       const images = slot.images.map((image) => ({
         filename: image.filename,
+        url: image.url,
         isPrimary: image.sortOrder === 0,
         sortOrder: image.sortOrder,
       }));
@@ -755,10 +750,10 @@ export class BulkUploadParserService {
           }
           break;
         case 'image':
-          slot.images.push({
-            filename: raw,
-            sortOrder: (meta.imageIndex ?? 1) - 1,
-          });
+          this.upsertInlineSlotImage(slot, meta.imageIndex ?? 1, { filename: raw });
+          break;
+        case 'image_url':
+          this.upsertInlineSlotImage(slot, meta.imageIndex ?? 1, { url: raw });
           break;
         default:
           break;
@@ -772,17 +767,63 @@ export class BulkUploadParserService {
     return slots;
   }
 
+  private parseVariantImages(getVal: (columnName: string) => string): IParsedImage[] {
+    const images: IParsedImage[] = [];
+
+    const primary = resolveBulkUploadImageInput(
+      getVal('primary image filename'),
+      getVal('primary image url'),
+    );
+    if (primary) {
+      images.push({ ...primary, isPrimary: true, sortOrder: 0 });
+    }
+
+    for (let index = 2; index <= 5; index++) {
+      const nameColumns =
+        index === 2 ? ['gallery image 2', 'gallery image 2 (video)'] : [`gallery image ${index}`];
+      const urlColumns =
+        index === 2
+          ? ['gallery image 2 url', 'gallery image 2 (video) url']
+          : [`gallery image ${index} url`];
+      const resolved = resolveBulkUploadImageInput(
+        this.getFirstAvailable(getVal, nameColumns),
+        this.getFirstAvailable(getVal, urlColumns),
+      );
+      if (resolved) {
+        images.push({ ...resolved, isPrimary: false, sortOrder: index - 1 });
+      }
+    }
+
+    return images;
+  }
+
+  private upsertInlineSlotImage(
+    slot: IInlineVariantSlot,
+    imageIndex: number,
+    patch: { filename?: string; url?: string },
+  ): void {
+    const sortOrder = imageIndex - 1;
+    const existing = slot.images.find((image) => image.sortOrder === sortOrder);
+    if (existing) {
+      if (patch.url) existing.url = patch.url;
+      if (patch.filename) existing.filename = patch.filename;
+      return;
+    }
+
+    slot.images.push({ ...patch, sortOrder });
+  }
+
   private parseVariantAttributes(
     getVal: (colName: string) => string,
     headerMap: Map<string, number>,
     attributeDetailNames: string[] = [],
   ): IParsedAttribute[] {
     const attributes: IParsedAttribute[] = [];
-    const maxIndex = this.getMaxAttributeColumnIndex(headerMap);
+    const maxIndex = this.getMaxAttAttributeColumnIndex(headerMap);
 
     for (let index = 1; index <= maxIndex; index++) {
-      const name = getVal(`attribute ${index} name`) || attributeDetailNames[index - 1];
-      const value = getVal(`attribute ${index} value`);
+      const name = attributeDetailNames[index - 1];
+      const value = getVal(`att_attribute_${index}_value_1`);
       if (!value.trim() || !name?.trim()) continue;
 
       attributes.push({
@@ -794,10 +835,10 @@ export class BulkUploadParserService {
     return attributes;
   }
 
-  private getMaxAttributeColumnIndex(headerMap: Map<string, number>): number {
-    let maxIndex = 5;
+  private getMaxAttAttributeColumnIndex(headerMap: Map<string, number>): number {
+    let maxIndex = VARIABLE_TEMPLATE_ATTRIBUTE_COUNT;
     for (const header of headerMap.keys()) {
-      const match = header.match(/^attribute (\d+) (name|value)$/);
+      const match = header.match(/^att_attribute_(\d+)_value_\d+$/);
       if (!match) continue;
       maxIndex = Math.max(maxIndex, parseInt(match[1], 10));
     }

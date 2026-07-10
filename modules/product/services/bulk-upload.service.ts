@@ -19,11 +19,20 @@ import {
   buildCategoryFilterColumnHeader,
 } from '../utils/bulk-upload-columns.util';
 import { AttributesRepository } from '@modules/master/repositories/attributes.repository';
+import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
+import { BrandsRepository } from '@modules/master/repositories/brands.repository';
+import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
+import { ProductTagsRepository } from '../repositories/product-tags.repository';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 
 @Injectable()
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
   private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
+  /** Header + sample rows kept visible while scrolling the wide import sheet. */
+  private static readonly IMPORT_TEMPLATE_FROZEN_ROW_COUNT = 3;
 
   constructor(
     private readonly storageService: StorageService,
@@ -31,6 +40,11 @@ export class BulkUploadService {
     private readonly redisConnection: RedisConnectionService,
     private readonly categoryFiltersRepository: CategoryFiltersRepository,
     private readonly attributesRepository: AttributesRepository,
+    private readonly categoriesRepository: CategoriesRepository,
+    private readonly brandsRepository: BrandsRepository,
+    private readonly healthConcernsRepository: HealthConcernsRepository,
+    private readonly wellnessGoalsRepository: WellnessGoalsRepository,
+    private readonly productTagsRepository: ProductTagsRepository,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
 
@@ -220,7 +234,24 @@ export class BulkUploadService {
   }
 
   private async buildTemplateBuffer(): Promise<Buffer> {
-    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
+    const [
+      activeFilters,
+      activeCategories,
+      activeBrands,
+      activeAttributesResult,
+      activeHealthConcerns,
+      activeWellnessGoals,
+      activeProductTags,
+    ] = await Promise.all([
+      this.categoryFiltersRepository.findAllActiveOrderedByName(),
+      this.categoriesRepository.findActiveCategories(),
+      this.brandsRepository.findAllActive(),
+      this.attributesRepository.findAllByStatus(MasterStatus.ACTIVE),
+      this.healthConcernsRepository.findAllActive(),
+      this.wellnessGoalsRepository.findAllByStatus(MasterStatus.ACTIVE),
+      this.productTagsRepository.findAllByStatus(MasterStatus.ACTIVE),
+    ]);
+
     const categoryFilterHeaders = activeFilters.map((filter) =>
       buildCategoryFilterColumnHeader(filter.name),
     );
@@ -228,23 +259,23 @@ export class BulkUploadService {
 
     const workbook = new ExcelJS.Workbook();
 
-    const activeAttributes = await this.attributesRepository.findAllPaginated({
-      page: 1,
-      limit: 5,
-      sortBy: 'name',
-      sortOrder: 'ASC',
-    });
-    const attributeOne = activeAttributes.data.find((item) => item.name === 'Color')?.name
-      ?? activeAttributes.data[0]?.name
+    const attributeOne = activeAttributesResult.find((item) => item.name === 'Color')?.name
+      ?? activeAttributesResult[0]?.name
       ?? 'Color';
-    const attributeTwo = activeAttributes.data.find((item) => item.name === 'Size')?.name
-      ?? activeAttributes.data[1]?.name
+    const attributeTwo = activeAttributesResult.find((item) => item.name === 'Size')?.name
+      ?? activeAttributesResult[1]?.name
       ?? 'Size';
 
     const importSheet = workbook.addWorksheet('Bulk Import Template');
     const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
-    importSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    importSheet.views = [
+      {
+        state: 'frozen',
+        ySplit: BulkUploadService.IMPORT_TEMPLATE_FROZEN_ROW_COUNT,
+        activeCell: 'A4',
+      },
+    ];
 
     importSheet.addRow(this.buildSimpleSampleRow(headers));
     importSheet.addRow(
@@ -255,23 +286,117 @@ export class BulkUploadService {
       }),
     );
 
-    const referenceSheet = workbook.addWorksheet('Category Filter Reference');
-    referenceSheet.getCell('A1').value = 'Column Header';
-    referenceSheet.getCell('B1').value = 'Filter Name';
-    referenceSheet.getCell('C1').value = 'Allowed Values';
-    this.styleHeaderRow(referenceSheet.getRow(1));
+    const categoryNameById = new Map(
+      activeCategories.map((category) => [category.id, category.name]),
+    );
 
-    let rowNumber = 2;
-    for (const filter of activeFilters) {
-      const row = referenceSheet.getRow(rowNumber);
-      row.getCell(1).value = buildCategoryFilterColumnHeader(filter.name);
-      row.getCell(2).value = filter.name;
-      row.getCell(3).value = (filter.values ?? []).join(' | ');
-      rowNumber++;
-    }
+    this.addReferenceWorksheet(workbook, 'Category Reference', [
+      'Category Name',
+      'Hierarchy Level',
+      'Parent Category',
+      'Use In Sheet Column',
+    ], activeCategories.map((category) => [
+      category.name,
+      this.formatCategoryHierarchyLevel(category.hierarchyLevel),
+      category.parentCategoryId
+        ? categoryNameById.get(category.parentCategoryId) ?? ''
+        : '',
+      this.sheetColumnForCategoryLevel(category.hierarchyLevel),
+    ]));
+
+    this.addReferenceWorksheet(workbook, 'Brand Reference', [
+      'Brand Name',
+      'Use In Sheet Column',
+    ], activeBrands.map((brand) => [brand.name, 'Brand*']));
+
+    this.addReferenceWorksheet(workbook, 'Attribute Reference', [
+      'Attribute Name',
+      'Use In Sheet Column',
+    ], activeAttributesResult.map((attribute) => [
+      attribute.name,
+      'Attribute Details',
+    ]));
+
+    this.addReferenceWorksheet(workbook, 'Category Filter Reference', [
+      'Column Header',
+      'Filter Name',
+      'Allowed Values',
+      'Assigned Categories',
+    ], activeFilters.map((filter) => [
+      buildCategoryFilterColumnHeader(filter.name),
+      filter.name,
+      (filter.values ?? []).join(' | '),
+      (filter.categories ?? [])
+        .map((category) => categoryNameById.get(category.id) ?? '')
+        .filter(Boolean)
+        .join(' | '),
+    ]));
+
+    this.addReferenceWorksheet(workbook, 'Health Concern Reference', [
+      'Health Concern Name',
+      'Use In Sheet Column',
+    ], activeHealthConcerns.map((item) => [item.name, 'Health Concerns']));
+
+    this.addReferenceWorksheet(workbook, 'Wellness Goal Reference', [
+      'Wellness Goal Name',
+      'Use In Sheet Column',
+    ], activeWellnessGoals.map((item) => [item.name, 'Wellness Goals']));
+
+    this.addReferenceWorksheet(workbook, 'Product Tag Reference', [
+      'Product Tag Name',
+      'Use In Sheet Column',
+    ], activeProductTags.map((item) => [item.name, 'Product Tags']));
 
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
+  }
+
+  private addReferenceWorksheet(
+    workbook: ExcelJS.Workbook,
+    sheetName: string,
+    referenceHeaders: string[],
+    rows: Array<Array<string | number | null>>,
+  ): void {
+    const sheet = workbook.addWorksheet(sheetName);
+    const headerRow = sheet.addRow(referenceHeaders);
+    this.styleHeaderRow(headerRow);
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    for (const row of rows) {
+      sheet.addRow(row);
+    }
+    referenceHeaders.forEach((_, index) => {
+      sheet.getColumn(index + 1).width = 24;
+    });
+  }
+
+  private formatCategoryHierarchyLevel(level: CategoryHierarchyLevel): string {
+    switch (level) {
+      case CategoryHierarchyLevel.ROOT:
+        return 'Root';
+      case CategoryHierarchyLevel.CHILD:
+        return 'Sub';
+      case CategoryHierarchyLevel.GRANDCHILD:
+        return 'Sub Sub';
+      case CategoryHierarchyLevel.GREAT_GRANDCHILD:
+        return 'Sub Sub Sub';
+      default:
+        return String(level);
+    }
+  }
+
+  private sheetColumnForCategoryLevel(level: CategoryHierarchyLevel): string {
+    switch (level) {
+      case CategoryHierarchyLevel.ROOT:
+        return 'Category *';
+      case CategoryHierarchyLevel.CHILD:
+        return 'Sub Category';
+      case CategoryHierarchyLevel.GRANDCHILD:
+        return 'Sub Sub Category';
+      case CategoryHierarchyLevel.GREAT_GRANDCHILD:
+        return 'Sub Sub Sub Category';
+      default:
+        return 'Category *';
+    }
   }
 
   private styleHeaderRow(row: ExcelJS.Row): void {
@@ -370,8 +495,7 @@ export class BulkUploadService {
       ['Category *', 'Health & Wellness'],
       ['Brand*', 'Samsung'],
       ['Vendor SKU', 'VAR-INLINE-DEMO-001'],
-      ['Attribute Details 1', options.attributeOne],
-      ['Attribute Details 2', options.attributeTwo],
+      ['Attribute Details', `${options.attributeOne} | ${options.attributeTwo}`],
       ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
       ['Product Status', 'active'],
     ]);

@@ -3,6 +3,7 @@ import {
   findDuplicateCombinationKeys,
   IVariantAttributeInput,
 } from './variant-combination-key.util';
+import { BULK_UPLOAD_VARIANT_IMAGE_COUNT } from './bulk-upload-image.util';
 
 export const MAX_GENERATED_VARIANTS = 100;
 export const VARIABLE_TEMPLATE_ATTRIBUTE_COUNT = 5;
@@ -14,6 +15,7 @@ export const VARIABLE_BULK_UPLOAD_COLUMN_PATTERNS: RegExp[] = [
   /^attribute \d+ name$/,
   /^attribute \d+ value$/,
   /^att_[a-z0-9_]+_\d+$/,
+  /^att_image_url_\d+_\d+$/,
   /^att_image_\d+_\d+$/,
   /^att_attribute_\d+_value_\d+$/,
 ];
@@ -34,7 +36,7 @@ export interface IInlineVariantSlot {
   height?: number;
   heightUnit?: string;
   attributeValues: Map<number, string>;
-  images: Array<{ filename: string; sortOrder: number }>;
+  images: Array<{ filename?: string; url?: string; sortOrder: number }>;
 }
 
 export const isVariableBulkUploadColumn = (normalizedHeader: string): boolean =>
@@ -168,6 +170,15 @@ export const parseAttColumnHeader = (normalizedHeader: string): IAttColumnMeta |
     };
   }
 
+  const imageUrlMatch = normalizedHeader.match(/^att_image_url_(\d+)_(\d+)$/);
+  if (imageUrlMatch) {
+    return {
+      field: 'image_url',
+      variantIndex: parseInt(imageUrlMatch[1], 10),
+      imageIndex: parseInt(imageUrlMatch[2], 10),
+    };
+  }
+
   const imageMatch = normalizedHeader.match(/^att_image_(\d+)_(\d+)$/);
   if (imageMatch) {
     return {
@@ -235,14 +246,16 @@ export const buildAttVariantSlotHeaders = (
     for (let attributeIndex = 1; attributeIndex <= VARIABLE_TEMPLATE_ATTRIBUTE_COUNT; attributeIndex++) {
       headers.push(`att_attribute_${attributeIndex}_value_${slot}`);
     }
-    headers.push(`att_image_${slot}_1`, `att_image_${slot}_2`);
+    for (let imageIndex = 1; imageIndex <= BULK_UPLOAD_VARIANT_IMAGE_COUNT; imageIndex++) {
+      headers.push(`att_image_${slot}_${imageIndex}`, `att_image_url_${slot}_${imageIndex}`);
+    }
   }
   return headers;
 };
 
 /** Variable-only columns appended into the unified bulk upload template. */
 export const buildVariableTemplateExtraHeaders = (): string[] => [
-  ...buildAttributeDetailsHeaders(),
+  'Attribute Details',
   ...buildAttVariantSlotHeaders(),
 ];
 
