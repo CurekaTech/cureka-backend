@@ -59,10 +59,10 @@ export class CreateBlogCategoryDto {
   @MaxLength(180)
   slug!: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Up to 3000 characters (~500 words)' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(3000)
   description?: string;
 
   @ApiPropertyOptional()
@@ -129,7 +129,6 @@ export class CreateBlogPostDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(500)
   excerpt?: string;
 
   @ApiProperty()

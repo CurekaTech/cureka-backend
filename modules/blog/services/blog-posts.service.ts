@@ -486,7 +486,13 @@ export class BlogPostsService {
   private async loadLinkedProducts(productRefIds: string[]) {
     if (!productRefIds.length) return [];
     const products = await this.productsRepo.findPublishedByRefIds(productRefIds);
-    return mapProductEntitiesToPublicCards(products);
+    const cards = mapProductEntitiesToPublicCards(products);
+    return Promise.all(
+      cards.map(async (card) => ({
+        ...card,
+        primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
+      })),
+    );
   }
 
   private async logAudit(

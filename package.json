@@ -59,6 +59,7 @@
     "class-validator": "^0.14.1",
     "exceljs": "^4.4.0",
     "fastify": "^4.28.1",
+    "image-size": "^1.2.1",
     "ioredis": "^5.4.1",
     "joi": "^17.13.3",
     "nestjs-pino": "^4.1.0",

@@ -13,7 +13,7 @@ export class BlogPostEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 280 })
   slug!: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
+  @Column({ type: 'text', nullable: true })
   excerpt!: string | null;
 
   @Column({ type: 'text' })

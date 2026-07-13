@@ -93,6 +93,7 @@ export interface IPublicProductCard {
   subCategoryName: string | null;
   brandRefId: string | null;
   brandName: string | null;
+  brandSlug: string | null;
   productNatureRefId: string | null;
   productNatureName: string | null;
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
@@ -159,6 +160,7 @@ export interface IPublicProductDetail {
   subSubSubCategoryName: string | null;
   brandRefId: string | null;
   brandName: string | null;
+  brandSlug: string | null;
   manufacturerRefId: string | null;
   manufacturerName: string | null;
   manufacturerAddress: string | null;
