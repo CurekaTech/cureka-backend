@@ -160,7 +160,9 @@ async function runCli(): Promise<void> {
 
 const normalizeName = (value: string): string => value.toLowerCase().replace(/\s+/g, ' ').trim();
 
-runCli().catch((error) => {
-  console.error('[manufacturer-reset] Failed:', error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (require.main === module) {
+  runCli().catch((error) => {
+    console.error('[manufacturer-reset] Failed:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

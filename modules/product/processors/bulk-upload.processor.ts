@@ -527,7 +527,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 expiresInMonths: group.expiresInMonths,
                 customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
                 productInformation: normalizedProductInformation,
-                media: normalizedCommonMedia.length ? normalizedCommonMedia : undefined,
+                media: processedCommonMedia.length ? processedCommonMedia : undefined,
                 variants: processedVariants,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {

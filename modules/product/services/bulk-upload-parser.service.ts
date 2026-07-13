@@ -26,6 +26,7 @@ import {
   isCommonMediaBulkUploadColumn,
   parseCommonMediaColumns,
   parsePrimaryAndGalleryImages,
+  resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
 

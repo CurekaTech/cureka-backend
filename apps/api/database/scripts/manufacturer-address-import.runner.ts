@@ -478,10 +478,12 @@ async function runCli(): Promise<void> {
   await runManufacturerAddressImport(parseCli(process.argv.slice(2)));
 }
 
-runCli().catch((error) => {
-  console.error(
-    '[manufacturer-address-import] Failed:',
-    error instanceof Error ? error.message : error,
-  );
-  process.exit(1);
-});
+if (require.main === module) {
+  runCli().catch((error) => {
+    console.error(
+      '[manufacturer-address-import] Failed:',
+      error instanceof Error ? error.message : error,
+    );
+    process.exit(1);
+  });
+}

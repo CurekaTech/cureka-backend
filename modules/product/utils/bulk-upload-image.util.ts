@@ -52,6 +52,72 @@ export const resolveBulkUploadImageInput = (
   };
 };
 
+const pushResolvedImage = (
+  images: IBulkUploadImageInput[],
+  filename?: string,
+  url?: string,
+): void => {
+  const resolved = resolveBulkUploadImageInput(filename, url);
+  if (!resolved) return;
+
+  images.push({
+    ...resolved,
+    isPrimary: images.length === 0,
+    sortOrder: images.length,
+  });
+};
+
+/**
+ * Removes empty image slots and assigns contiguous primary/sort-order values.
+ * The first resolvable image becomes primary regardless of its source column.
+ */
+export const compactBulkUploadImageSequence = (
+  images: Array<Partial<IBulkUploadImageInput>>,
+): IBulkUploadImageInput[] =>
+  images
+    .filter((image): image is Partial<IBulkUploadImageInput> & { url: string } =>
+      Boolean(image.url?.trim()),
+    )
+    .map((image, index) => ({
+      ...(image.filename?.trim() ? { filename: image.filename.trim() } : {}),
+      url: image.url.trim(),
+      isPrimary: index === 0,
+      sortOrder: index,
+    }));
+
+/**
+ * Reads the primary image and gallery image 2..6 pairs.
+ * URL takes priority; a URL supplied in the filename column is also accepted.
+ */
+export const parsePrimaryAndGalleryImages = (
+  getVal: (columnName: string) => string,
+  getFirstAvailable: (columnNames: string[]) => string,
+): IBulkUploadImageInput[] => {
+  const images: IBulkUploadImageInput[] = [];
+
+  pushResolvedImage(
+    images,
+    getFirstAvailable(['primary image filename', 'primary image', 'primary image path']),
+    getFirstAvailable(['primary image url']),
+  );
+
+  for (let index = 2; index <= BULK_UPLOAD_GALLERY_IMAGE_COUNT; index += 1) {
+    pushResolvedImage(
+      images,
+      getFirstAvailable([
+        `gallery image ${index}`,
+        `gallery image ${index} filename`,
+        `gallery image ${index} path`,
+      ]),
+      getFirstAvailable([`gallery image ${index} url`]),
+    );
+  }
+
+  // Keep getVal in the signature for callers that provide the normal row accessor.
+  void getVal;
+  return compactBulkUploadImageSequence(images);
+};
+
 export const isBulkUploadImagePresent = (
   image: Pick<IBulkUploadImageInput, 'filename' | 'url'>,
 ): boolean => Boolean(image.url?.trim());
