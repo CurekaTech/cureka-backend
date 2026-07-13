@@ -4,8 +4,10 @@ import { MultipartFile } from '@fastify/multipart';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ClassConstructor } from 'class-transformer/types/interfaces';
+import { Readable } from 'stream';
 import { formatValidationErrorMessage, formatValidationErrorsForLog } from '@packages/common';
 import { StorageService } from '@packages/storage';
+import { validateBlogFeaturedImageBuffer } from '../utils/validate-blog-featured-image.util';
 import { UploadFolder } from '../enums/upload-folder.enum';
 
 export type MultipartFileFieldMap = Record<string, UploadFolder>;
@@ -105,8 +107,15 @@ export class MultipartFormService {
       throw new BadRequestException(`Unexpected file field "${part.fieldname}"`);
     }
 
+    let uploadStream: Readable = part.file;
+    if (folder === UploadFolder.BLOG_IMAGES && part.mimetype.startsWith('image/')) {
+      const buffer = await this.streamToBuffer(part.file);
+      validateBlogFeaturedImageBuffer(buffer);
+      uploadStream = Readable.from(buffer);
+    }
+
     const result = await this.storageService.uploadImage({
-      stream: part.file,
+      stream: uploadStream,
       mimetype: part.mimetype,
       originalFilename: part.filename,
       folder,
@@ -141,5 +150,13 @@ export class MultipartFormService {
     }
 
     return instance;
+  }
+
+  private async streamToBuffer(stream: Readable): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 }

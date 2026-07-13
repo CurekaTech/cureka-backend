@@ -12,7 +12,7 @@ export class BlogCategoryEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 180 })
   slug!: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
+  @Column({ type: 'text', nullable: true })
   description!: string | null;
 
   @Column(storageFileReferenceColumn())
