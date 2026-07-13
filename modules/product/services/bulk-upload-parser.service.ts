@@ -22,8 +22,10 @@ import {
   parseAttributeDetailsFromRow,
 } from '../utils/bulk-upload-variable.util';
 import {
+  compactBulkUploadImageSequence,
   isCommonMediaBulkUploadColumn,
   parseCommonMediaColumns,
+  parsePrimaryAndGalleryImages,
   resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
@@ -148,10 +150,10 @@ export class BulkUploadParserService {
   private readonly logger = new Logger(BulkUploadParserService.name);
 
   /**
-   * Cleans header strings to allow flexible, robust asterisk and space matching.
+   * Cleans header strings to allow flexible asterisk, space, and underscore matching.
    */
   private cleanHeader(str: string): string {
-    return str.toLowerCase().replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+    return normalizeBulkUploadHeader(str);
   }
 
   /**
@@ -661,14 +663,14 @@ export class BulkUploadParserService {
     }
 
     group.variants = usedSlots.map(([variantIndex, slot]) => {
-      const images = slot.images
-        .map((image) => resolveBulkUploadImageInput(image.filename, image.url))
-        .filter((image): image is NonNullable<typeof image> => image !== null)
-        .map((image, index) => ({
-          ...image,
-          isPrimary: index === 0,
-          sortOrder: index,
-        }));
+      const images = compactBulkUploadImageSequence(
+        slot.images.map((image) => ({
+          filename: image.filename,
+          url: image.url,
+          isPrimary: false,
+          sortOrder: image.sortOrder,
+        })),
+      );
 
       const attributes: IParsedAttribute[] = [];
       for (let attributeIndex = 1; attributeIndex <= 5; attributeIndex++) {
@@ -795,33 +797,7 @@ export class BulkUploadParserService {
   }
 
   private parseVariantImages(getVal: (columnName: string) => string): IParsedImage[] {
-    const images: IParsedImage[] = [];
-
-    const primary = resolveBulkUploadImageInput(
-      getVal('primary image filename'),
-      getVal('primary image url'),
-    );
-    if (primary) {
-      images.push({ ...primary, isPrimary: true, sortOrder: 0 });
-    }
-
-    for (let index = 2; index <= 5; index++) {
-      const nameColumns =
-        index === 2 ? ['gallery image 2', 'gallery image 2 (video)'] : [`gallery image ${index}`];
-      const urlColumns =
-        index === 2
-          ? ['gallery image 2 url', 'gallery image 2 (video) url']
-          : [`gallery image ${index} url`];
-      const resolved = resolveBulkUploadImageInput(
-        this.getFirstAvailable(getVal, nameColumns),
-        this.getFirstAvailable(getVal, urlColumns),
-      );
-      if (resolved) {
-        images.push({ ...resolved, isPrimary: false, sortOrder: index - 1 });
-      }
-    }
-
-    return images;
+    return parsePrimaryAndGalleryImages(getVal, (names) => this.getFirstAvailable(getVal, names));
   }
 
   private upsertInlineSlotImage(
