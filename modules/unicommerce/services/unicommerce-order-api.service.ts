@@ -62,16 +62,39 @@ export class UnicommerceOrderApiService {
       });
 
       const text = await response.text();
-      const data: IUnicommercePostOrderResponse = text ? JSON.parse(text) : {};
+      let data: IUnicommercePostOrderResponse = {};
+      if (text) {
+        try {
+          data = JSON.parse(text) as IUnicommercePostOrderResponse;
+        } catch {
+          this.logger.error(
+            { url, orderId: payload.id, httpStatus: response.status, rawBody: text.slice(0, 500) },
+            'UniCommerce Post Orders returned non-JSON response',
+          );
+          throw new ServiceUnavailableException(
+            `UniCommerce Post Orders returned invalid JSON (HTTP ${response.status})`,
+          );
+        }
+      }
 
       this.logger.log(
-        { url, orderId: payload.id, status: response.status, body: data },
+        {
+          url,
+          orderId: payload.id,
+          httpStatus: response.status,
+          responseStatus: data.status,
+          responseMessage: data.message,
+        },
         'UniCommerce Post Orders response',
       );
 
       if (!response.ok) {
         const message =
           data.message ?? `UniCommerce Post Orders failed with HTTP ${response.status}`;
+        this.logger.warn(
+          { url, orderId: payload.id, httpStatus: response.status, responseMessage: message },
+          'UniCommerce Post Orders HTTP error',
+        );
         throw new ServiceUnavailableException(message);
       }
 
@@ -81,7 +104,10 @@ export class UnicommerceOrderApiService {
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`UniCommerce Post Orders request failed: ${message}`);
+      this.logger.error(
+        { orderId: payload.id, error: message },
+        'UniCommerce Post Orders request failed (network/timeout)',
+      );
       throw new ServiceUnavailableException('UniCommerce Post Orders API is unavailable');
     } finally {
       clearTimeout(timeout);
