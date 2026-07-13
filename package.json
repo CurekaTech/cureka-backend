@@ -29,7 +29,10 @@
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "manufacturer:reset": "ts-node -r tsconfig-paths/register apps/api/database/scripts/manufacturer-reset.runner.ts",
     "manufacturer-address:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/manufacturer-address-import.runner.ts",
+<<<<<<< HEAD
     "manufacturer:setup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/manufacturer-setup.runner.ts",
+=======
+>>>>>>> 10979b4 (feat: add manufacturer address import and reset scripts to streamline manufacturer data management)
     "typesense:reindex": "npm run build && node dist/apps/api/database/scripts/typesense-reindex.runner.js",
     "redis:dev": "docker compose -f docker-compose.dev.yml up redis -d",
     "db:dev": "docker compose -f docker-compose.dev.yml up -d"
