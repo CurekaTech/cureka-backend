@@ -4,14 +4,21 @@ import { Logger } from '@nestjs/common';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
-import { BulkUploadParserService } from '../services/bulk-upload-parser.service';
+import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup, IParsedImage } from '../services/bulk-upload-parser.service';
 import { BulkUploadValidatorService, IValidationError } from '../services/bulk-upload-validator.service';
+import {
+  isBulkUploadSizeChartResolvableWithoutGallery,
+  isRemoteImageUrl,
+} from '../utils/bulk-upload-image.util';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductMediaType } from '../enums/product-media-type.enum';
+import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { CreateProductMediaDto } from '../dto/variant.dto';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
@@ -71,6 +78,167 @@ export class BulkUploadProcessor extends WorkerHost {
     if (lower.endsWith('.mov')) return 'video/quicktime';
     if (lower.endsWith('.webm')) return 'video/webm';
     return 'image/jpeg';
+  }
+
+  /**
+   * Resolve sheet media for product_media (same end state as admin CRUD media[].url).
+   * URL is required at parse time. Resolution order:
+   * 1) public http(s) URL → download into UploadFolder.IMAGES
+   * 2) storage key/path in URL → use as-is
+   * 3) optional filename → Media Gallery / images ZIP (fallback only)
+   */
+  private async resolveBulkUploadImage(
+    img: IParsedImage,
+    galleryMap: Map<string, string>,
+  ): Promise<{ url: string; isPrimary: boolean; sortOrder: number } | null> {
+    const mediaUrl = img.url?.trim();
+    const filename = img.filename?.trim();
+
+    if (!mediaUrl) {
+      return null;
+    }
+
+    // 1) Public image URL → download (primary path for bulk media)
+    if (isRemoteImageUrl(mediaUrl)) {
+      try {
+        const response = await fetch(mediaUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const originalFilename =
+          filename ||
+          mediaUrl.split('/').pop()?.split('?')[0] ||
+          'image.jpg';
+        const uploadRes = await this.storageService.uploadImage({
+          stream: Readable.from(Buffer.from(arrayBuffer)),
+          mimetype: response.headers.get('content-type') || this.resolveUploadMimeType(originalFilename),
+          originalFilename,
+          folder: UploadFolder.IMAGES,
+        });
+
+        return {
+          url: uploadRes.path,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder,
+        };
+      } catch (imgError) {
+        this.logger.warn(
+          `Could not download public image URL '${mediaUrl}': ${imgError instanceof Error ? imgError.message : String(imgError)}. Falling back to optional filename if present.`,
+        );
+      }
+    } else {
+      // 2) Storage key/path (admin CRUD style), e.g. images/abc.webp
+      return {
+        url: mediaUrl,
+        isPrimary: img.isPrimary,
+        sortOrder: img.sortOrder,
+      };
+    }
+
+    // 3) Optional filename fallback (gallery / ZIP / storage key in name column)
+    if (filename) {
+      if (/^(images|videos)\//i.test(filename)) {
+        return {
+          url: filename,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder,
+        };
+      }
+
+      return this.tryResolveBulkUploadImageFromFilename(
+        filename,
+        img.isPrimary,
+        img.sortOrder,
+        galleryMap,
+      );
+    }
+
+    return null;
+  }
+
+  /** Same shape as admin CRUD `media[]` entries with type=common. */
+  private toCommonMediaDto(
+    resolved: { url: string; isPrimary: boolean; sortOrder: number },
+    index: number,
+  ): CreateProductMediaDto {
+    return {
+      type: ProductMediaType.COMMON,
+      url: resolved.url,
+      isPrimary: resolved.isPrimary ?? index === 0,
+      sortOrder: resolved.sortOrder ?? index,
+      // collectProductMedia / createMedia ignore variantSku for COMMON
+      variantSku: undefined,
+    };
+  }
+
+  private async tryResolveBulkUploadImageFromFilename(
+    filename: string,
+    isPrimary: boolean,
+    sortOrder: number,
+    galleryMap: Map<string, string>,
+  ): Promise<{ url: string; isPrimary: boolean; sortOrder: number } | null> {
+    try {
+      let imgStream: Readable;
+      const normName = filename.toLowerCase().trim();
+      const galleryImgUrl = galleryMap.get(normName);
+
+      if (galleryImgUrl) {
+        imgStream = await this.storageService.createReadStream(galleryImgUrl);
+        this.logger.log(`Resolved image ${filename} from Media Gallery.`);
+      } else {
+        const tempImgPath = `bulk-uploads/temp-images/${filename}`;
+        imgStream = await this.storageService.createReadStream(tempImgPath);
+      }
+
+      const uploadRes = await this.storageService.uploadImage({
+        stream: imgStream,
+        mimetype: this.resolveUploadMimeType(filename),
+        originalFilename: filename,
+        folder: UploadFolder.IMAGES,
+      });
+
+      return {
+        url: uploadRes.path,
+        isPrimary,
+        sortOrder,
+      };
+    } catch (imgError) {
+      this.logger.warn(
+        `Could not resolve image '${filename}' from Gallery or temp-images: ${imgError instanceof Error ? imgError.message : String(imgError)}`,
+      );
+      return null;
+    }
+  }
+
+  private async resolveBulkUploadSizeChart(
+    sizeChart: string,
+    galleryMap: Map<string, string>,
+  ): Promise<string | null> {
+    const value = sizeChart.trim();
+    if (!value) {
+      return null;
+    }
+
+    if (isBulkUploadSizeChartResolvableWithoutGallery(value)) {
+      if (isRemoteImageUrl(value)) {
+        const resolved = await this.resolveBulkUploadImage(
+          {
+            url: value,
+            isPrimary: false,
+            sortOrder: 0,
+          },
+          galleryMap,
+        );
+        return resolved?.url ?? null;
+      }
+
+      return value;
+    }
+
+    const normalized = value.toLowerCase().trim();
+    return galleryMap.get(normalized) ?? value;
   }
 
   constructor(
@@ -138,8 +306,12 @@ export class BulkUploadProcessor extends WorkerHost {
       const sheetExternalProductIds = new Set<string>();
       const allErrors: IValidationError[] = [];
       let totalProductsGrouped = 0;
-      let successfulProducts = 0;
-      let failedProducts = 0;
+      let successfulSheetRows = 0;
+      let failedSheetRows = 0;
+      let successfulVariantSlots = 0;
+      let failedVariantSlots = 0;
+      let productsCreated = 0;
+      let productsUpdated = 0;
 
       const labelSortOrders = this.validatorService.getProductInformationLabelSortOrders();
 
@@ -180,20 +352,23 @@ export class BulkUploadProcessor extends WorkerHost {
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           for (const group of validatedProducts) {
             try {
-              if (group.sizeChart) {
+              if (
+                group.sizeChart &&
+                !isBulkUploadSizeChartResolvableWithoutGallery(group.sizeChart)
+              ) {
                 const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
                 if (!galleryMap.has(normalizedSizeChart)) {
-                  failedProducts += Math.max(
-                    1,
-                    group.productType === 'bundle' ? group.bundleItems.length : group.variants.length,
-                  );
+                  const sheetRows = countSheetRowsForProductGroup(group);
+                  failedSheetRows += sheetRows;
+                  failedVariantSlots += countVariantSlotsForProductGroup(group);
                   allErrors.push({
                     rowNumber: group.rowNumber,
                     sku: 'PARENT',
                     column: 'Size Chart Filename/Path',
                     invalidValue: group.sizeChart,
                     reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
-                    suggestedFix: 'Upload the file to Media Gallery first and use exact filename in sheet.',
+                    suggestedFix:
+                      'Upload the file to Media Gallery first, provide Size Chart URL, or use an images/ storage path.',
                   });
                   continue;
                 }
@@ -201,50 +376,34 @@ export class BulkUploadProcessor extends WorkerHost {
 
               const refs = this.validatorService.resolveReferences(group);
               
-              // Process images for variants (copy from ZIP or temp path to persistent products/ path)
               const processedVariants = group.variants ? await Promise.all(
                 group.variants.map(async (v) => {
                   const processedImages = [];
                   for (const img of v.images) {
-                    try {
-                      let imgStream: Readable;
-                      const normName = img.filename.toLowerCase().trim();
-                      const galleryImgUrl = galleryMap.get(normName);
-
-                      if (galleryImgUrl) {
-                        imgStream = await this.storageService.createReadStream(galleryImgUrl);
-                        this.logger.log(`Resolved image ${img.filename} from Media Gallery.`);
-                      } else {
-                        const tempImgPath = `bulk-uploads/temp-images/${img.filename}`;
-                        imgStream = await this.storageService.createReadStream(tempImgPath);
-                      }
-
-                      const uploadRes = await this.storageService.uploadImage({
-                        stream: imgStream,
-                        mimetype: this.resolveUploadMimeType(img.filename),
-                        originalFilename: img.filename,
-                        folder: 'products',
-                      });
-                      processedImages.push({
-                        url: uploadRes.path,
-                        isPrimary: img.isPrimary,
-                        sortOrder: img.sortOrder,
-                      });
-                    } catch (imgError) {
-                      this.logger.warn(`Could not resolve image '${img.filename}' from Gallery or temp-images: ${imgError instanceof Error ? imgError.message : String(imgError)}`);
+                    const resolved = await this.resolveBulkUploadImage(img, galleryMap);
+                    if (resolved) {
+                      processedImages.push(resolved);
                     }
                   }
 
-                  const processedAttributes = v.attributes ? v.attributes.map((attr) => {
-                    const attrRefId = this.validatorService.resolveAttributeRefId(attr.name);
-                    return {
-                      attributeRefId: attrRefId!,
-                      value: attr.value,
-                    };
-                  }).filter(a => !!a.attributeRefId) : [];
+                  const processedAttributes = v.attributes
+                    ? v.attributes
+                        .map((attr) => {
+                          const lookup = attr.refId ?? attr.name;
+                          const attrRefId = lookup
+                            ? this.validatorService.resolveAttributeRefId(lookup)
+                            : undefined;
+                          return {
+                            attributeRefId: attrRefId!,
+                            value: attr.value,
+                          };
+                        })
+                        .filter((item) => !!item.attributeRefId)
+                    : [];
 
                   return {
                     sku: v.sku,
+                    vendorSku: group.vendorSku,
                     barcode: v.barcode,
                     gtinNumber: v.gtinNumber,
                     hsnCode: v.hsnCode,
@@ -269,6 +428,40 @@ export class BulkUploadProcessor extends WorkerHost {
                   };
                 })
               ) : undefined;
+
+              const processedCommonMedia: CreateProductMediaDto[] = [];
+              const unresolvedCommonMedia: IParsedImage[] = [];
+              for (const img of group.commonMedia ?? []) {
+                const resolved = await this.resolveBulkUploadImage(img, galleryMap);
+                if (!resolved?.url) {
+                  unresolvedCommonMedia.push(img);
+                  this.logger.warn(
+                    `[BULK_UPLOAD] common media unresolved product="${group.name}" filename=${img.filename ?? ''} url=${img.url ?? ''}`,
+                  );
+                  continue;
+                }
+                // Same as admin CRUD: media[] with type=common, variantSku omitted
+                processedCommonMedia.push(
+                  this.toCommonMediaDto(resolved, processedCommonMedia.length),
+                );
+              }
+              this.logger.log(
+                `[BULK_UPLOAD] product="${group.name}" commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length} types=${processedCommonMedia.map((m) => m.type).join(',')}`,
+              );
+              if (unresolvedCommonMedia.length) {
+                for (const img of unresolvedCommonMedia) {
+                  allErrors.push({
+                    rowNumber: group.rowNumber,
+                    sku: 'PARENT',
+                    column: 'common_media',
+                    invalidValue: img.filename || img.url || '',
+                    reason:
+                      'Common media URL could not be downloaded or resolved to a storage path.',
+                    suggestedFix:
+                      'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
+                  });
+                }
+              }
 
               const attributeRefIds = new Set<string>();
               if (processedVariants) {
@@ -322,11 +515,10 @@ export class BulkUploadProcessor extends WorkerHost {
                 metaKeywords: group.metaKeywords,
                 categoryFilters: group.categoryFilters.length ? group.categoryFilters : undefined,
                 sizeChart: group.sizeChart
-                  ? (() => {
-                      const normalized = group.sizeChart.toLowerCase().trim();
-                      const galleryPath = galleryMap.get(normalized);
-                      return this.storageService.toFileReference(galleryPath ?? group.sizeChart);
-                    })()
+                  ? this.storageService.toFileReference(
+                      (await this.resolveBulkUploadSizeChart(group.sizeChart, galleryMap)) ??
+                        group.sizeChart,
+                    )
                   : undefined,
                 manufacturerRefId: refs.manufacturerRefId,
                 packerRefId: refs.packerRefId,
@@ -336,6 +528,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 expiresInMonths: group.expiresInMonths,
                 customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
                 productInformation: normalizedProductInformation,
+                media: processedCommonMedia.length ? processedCommonMedia : undefined,
                 variants: processedVariants,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {
@@ -348,9 +541,8 @@ export class BulkUploadProcessor extends WorkerHost {
                   : undefined,
               };
 
-              const rowCount = Math.max(1, group.productType === 'bundle'
-                ? group.bundleItems.length
-                : group.variants.length);
+              const sheetRows = countSheetRowsForProductGroup(group);
+              const variantSlots = countVariantSlotsForProductGroup(group);
 
               const existingProductRefId = this.validatorService.resolveExistingProductRefIdForGroup(group);
               if (existingProductRefId) {
@@ -359,16 +551,17 @@ export class BulkUploadProcessor extends WorkerHost {
                   dto as UpdateProductDto,
                   'system-bulk-upload',
                 );
+                productsUpdated += 1;
               } else {
                 await this.productsService.createDraft(dto, 'system-bulk-upload');
+                productsCreated += 1;
               }
-              successfulProducts += rowCount;
+              successfulSheetRows += sheetRows;
+              successfulVariantSlots += variantSlots;
             } catch (dbError) {
               this.logger.error(`Failed to create product '${group.name}' inside database:`, dbError);
-              const rowCount = Math.max(1, group.productType === 'bundle'
-                ? group.bundleItems.length
-                : group.variants.length);
-              failedProducts += rowCount;
+              failedSheetRows += countSheetRowsForProductGroup(group);
+              failedVariantSlots += countVariantSlotsForProductGroup(group);
               allErrors.push({
                 rowNumber: group.rowNumber,
                 sku: 'PARENT',
@@ -384,10 +577,8 @@ export class BulkUploadProcessor extends WorkerHost {
           const validatedSet = new Set(validatedProducts);
           for (const group of batch) {
             if (!validatedSet.has(group)) {
-              const rowCount = Math.max(1, group.productType === 'bundle'
-                ? group.bundleItems.length
-                : group.variants.length);
-              failedProducts += rowCount;
+              failedSheetRows += countSheetRowsForProductGroup(group);
+              failedVariantSlots += countVariantSlotsForProductGroup(group);
             }
           }
 
@@ -399,8 +590,8 @@ export class BulkUploadProcessor extends WorkerHost {
           await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
             totalRows: scannedRows,
             processedRows: scannedRows,
-            successfulRows: successfulProducts,
-            failedRows: failedProducts,
+            successfulRows: successfulSheetRows,
+            failedRows: failedSheetRows,
             errorSummary: allErrors.slice(0, 100), // Limit summary field payload size in db log
           });
         },
@@ -416,21 +607,56 @@ export class BulkUploadProcessor extends WorkerHost {
 
       // Determine final status
       let finalStatus = BulkUploadStatus.COMPLETED;
-      if (failedProducts > 0) {
-        finalStatus = successfulProducts > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
+      if (failedSheetRows > 0) {
+        finalStatus = successfulSheetRows > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
+      }
+
+      const uploadSummary = {
+        sheetRows: totalRowsScanned,
+        productsCreated,
+        productsUpdated,
+        successfulSheetRows,
+        failedSheetRows,
+        variantSlotsSucceeded: successfulVariantSlots,
+        variantSlotsFailed: failedVariantSlots,
+        message:
+          `Sheet rows: ${totalRowsScanned}. Rows succeeded: ${successfulSheetRows}, failed: ${failedSheetRows}. ` +
+          `Products created: ${productsCreated}, updated: ${productsUpdated}. ` +
+          `Variant slots processed: ${successfulVariantSlots} succeeded, ${failedVariantSlots} failed ` +
+          `(inline variable row with 4 slots = 1 sheet row, 4 variants).`,
+      };
+
+      if (uploadSummary.productsUpdated > 0 || uploadSummary.productsCreated > 0) {
+        allErrors.push({
+          rowNumber: 0,
+          sku: 'SUMMARY',
+          column: '__upload_summary__',
+          invalidValue: JSON.stringify(uploadSummary),
+          reason: uploadSummary.message,
+          suggestedFix: '',
+        });
       }
 
       await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
         status: finalStatus,
         completedAt: new Date(),
-        errorSummary: allErrors, // Write full validation errors list at completion
+        errorSummary: allErrors,
         errorFileUrl,
       });
 
       this.logger.log(
-        `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} rows. Successful: ${successfulProducts}. Failed: ${failedProducts}.`
+        `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} sheet rows. Successful rows: ${successfulSheetRows}. Failed rows: ${failedSheetRows}.`
       );
-      return { success: true, totalRowsScanned, successfulProducts, failedProducts, errorsCount: allErrors.length, errorFileUrl };
+      return {
+        success: true,
+        totalRowsScanned,
+        successfulSheetRows,
+        failedSheetRows,
+        successfulVariantSlots,
+        failedVariantSlots,
+        errorsCount: allErrors.length,
+        errorFileUrl,
+      };
     } catch (error) {
       const systemError = this.buildSystemError(error);
       if (error instanceof Error) {
@@ -530,6 +756,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
     // Add rows
     for (const err of errors) {
+      if (err.column === '__upload_summary__') continue;
       const row = worksheet.addRow({
         rowNumber: err.rowNumber,
         sku: err.sku,

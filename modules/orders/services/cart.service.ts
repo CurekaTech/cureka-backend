@@ -420,7 +420,8 @@ export class CartService {
     variantId: string,
   ): IStorageFileReference | null {
     const media = (product?.media ?? []).filter(
-      (item: ProductMediaEntity) => item.type === ProductMediaType.IMAGE,
+      (item: ProductMediaEntity) =>
+        item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON,
     );
     if (!media.length) {
       return null;

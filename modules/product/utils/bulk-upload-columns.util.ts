@@ -58,12 +58,6 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Pack Unit 4',
   'Pack MRP 4',
   'Pack Selling Price 4',
-  'Attribute 1 Name',
-  'Attribute 1 Value',
-  'Attribute 2 Name',
-  'Attribute 2 Value',
-  'Attribute 3 Name',
-  'Attribute 3 Value',
   'Bundle SKU',
   'Bundle MRP (Rs)',
   'Bundle Selling Price (Rs)',
@@ -118,17 +112,34 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'FAQ 10 Question',
   'FAQ 10 Answer',
   'Primary Image Filename',
+  'Primary Image URL',
   'Gallery Image 2',
+  'Gallery Image 2 URL',
   'Gallery Image 2 (Video)',
+  'Gallery Image 2 (Video) URL',
   'Gallery Image 3',
+  'Gallery Image 3 URL',
   'Gallery Image 4',
+  'Gallery Image 4 URL',
   'Gallery Image 5',
+  'Gallery Image 5 URL',
+  'common_media_1',
+  'common_media_1_url',
+  'common_media_2',
+  'common_media_2_url',
+  'common_media_3',
+  'common_media_3_url',
+  'common_media_4',
+  'common_media_4_url',
+  'common_media_5',
+  'common_media_5_url',
   'Meta Title',
   'Meta Description',
   'Slug URL',
   'Meta Keywords',
   'Category Filters',
   'Size Chart Filename/Path',
+  'Size Chart URL',
   'Subscription Available',
   'Return Policy',
   'Return Window Days',
@@ -203,9 +214,6 @@ export const resolveProductInformationLabelName = (
   return activeLabelsByNormalizedName.get(normalizedAlias)?.name ?? null;
 };
 
-export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
-  FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader);
-
 /**
  * Legacy columns removed from the current template.
  * Old spreadsheets may still include these headers — they are ignored (not imported).
@@ -235,6 +243,51 @@ export const parseCategoryFilterNameFromHeader = (header: string): string | null
 
 export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
   normalizedHeader.startsWith('cf_');
+
+import {
+  buildVariableTemplateExtraHeaders,
+  isVariableBulkUploadColumn,
+} from './bulk-upload-variable.util';
+import { isCommonMediaBulkUploadColumn } from './bulk-upload-image.util';
+
+export { buildVariableTemplateExtraHeaders, isVariableBulkUploadColumn };
+export { isCommonMediaBulkUploadColumn, buildCommonMediaTemplateHeaders } from './bulk-upload-image.util';
+
+export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
+  FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader) || isCommonMediaBulkUploadColumn(normalizedHeader);
+
+const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const header of headers) {
+    const normalized = normalizeBulkUploadHeader(header);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(header);
+  }
+  return result;
+};
+
+/**
+ * One sheet for mixed simple + variable uploads.
+ * Includes simple/bundle columns, explicit variant columns, inline variant slot columns, and CF_ columns.
+ */
+export const buildUnifiedBulkUploadHeaders = (
+  categoryFilterHeaders: string[] = [],
+): string[] => {
+  const baseHeaders = buildBulkUploadTemplateHeaders();
+  const bundleSkuIndex = baseHeaders.findIndex(
+    (header) => normalizeBulkUploadHeader(header) === normalizeBulkUploadHeader('Bundle SKU'),
+  );
+  const insertAt = bundleSkuIndex >= 0 ? bundleSkuIndex : baseHeaders.length;
+
+  return dedupeHeadersByNormalizedName([
+    ...baseHeaders.slice(0, insertAt),
+    ...buildVariableTemplateExtraHeaders(),
+    ...baseHeaders.slice(insertAt),
+    ...categoryFilterHeaders,
+  ]);
+};
 
 const CLIENT_TEMPLATE_HEADER_EXCLUSIONS = new Set([
   'Product Nature *',

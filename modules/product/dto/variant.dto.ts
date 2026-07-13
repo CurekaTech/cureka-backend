@@ -260,7 +260,11 @@ export class CreateVariantDto {
 }
 
 export class CreateProductMediaDto {
-  @ApiProperty({ enum: ProductMediaType })
+  @ApiProperty({
+    enum: ProductMediaType,
+    description:
+      'image | video | size_chart | common. Use `common` for media shared across all variants of a variable product (stored at product level; returned on every variant in GET).',
+  })
   @IsEnum(ProductMediaType)
   type!: ProductMediaType;
 
@@ -286,7 +290,10 @@ export class CreateProductMediaDto {
   @IsBoolean()
   isPrimary?: boolean;
 
-  @ApiPropertyOptional({ description: 'Variant SKU for variant-specific media' })
+  @ApiPropertyOptional({
+    description:
+      'Variant SKU for variant-specific media. Ignored when type is `common` (common media is always product-scoped).',
+  })
   @IsOptional()
   @IsString()
   variantSku?: string;

@@ -205,9 +205,13 @@ export const mergeUploadedProductMedia = (
 
 /** Merge product-level media and variant images into rows for product_media. */
 export const collectProductMedia = (dto: CreateProductDto): CreateProductMediaDto[] => {
-  const fromMedia = (dto.media ?? []).filter(
-    (item) => item.url && !isLegacyManualProductKey(item.url),
-  );
+  const fromMedia = (dto.media ?? [])
+    .filter((item) => item.url && !isLegacyManualProductKey(item.url))
+    .map((item) =>
+      item.type === ProductMediaType.COMMON
+        ? { ...item, variantSku: undefined }
+        : item,
+    );
   const fromVariants = (dto.variants ?? []).flatMap(variantImagesToMedia);
 
   return normalizePrimaryFlags([...fromMedia, ...fromVariants]);

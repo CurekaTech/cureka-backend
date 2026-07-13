@@ -15,20 +15,36 @@ import { Readable } from 'stream';
 import * as ExcelJS from 'exceljs';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import {
-  buildBulkUploadTemplateHeaders,
+  buildUnifiedBulkUploadHeaders,
   buildCategoryFilterColumnHeader,
 } from '../utils/bulk-upload-columns.util';
+import { AttributesRepository } from '@modules/master/repositories/attributes.repository';
+import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
+import { BrandsRepository } from '@modules/master/repositories/brands.repository';
+import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
+import { ProductTagsRepository } from '../repositories/product-tags.repository';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 
 @Injectable()
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
   private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
+  /** Header + sample rows kept visible while scrolling the wide import sheet. */
+  private static readonly IMPORT_TEMPLATE_FROZEN_ROW_COUNT = 3;
 
   constructor(
     private readonly storageService: StorageService,
     private readonly repository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
     private readonly categoryFiltersRepository: CategoryFiltersRepository,
+    private readonly attributesRepository: AttributesRepository,
+    private readonly categoriesRepository: CategoriesRepository,
+    private readonly brandsRepository: BrandsRepository,
+    private readonly healthConcernsRepository: HealthConcernsRepository,
+    private readonly wellnessGoalsRepository: WellnessGoalsRepository,
+    private readonly productTagsRepository: ProductTagsRepository,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
 
@@ -218,35 +234,169 @@ export class BulkUploadService {
   }
 
   private async buildTemplateBuffer(): Promise<Buffer> {
-    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
+    const [
+      activeFilters,
+      activeCategories,
+      activeBrands,
+      activeAttributesResult,
+      activeHealthConcerns,
+      activeWellnessGoals,
+      activeProductTags,
+    ] = await Promise.all([
+      this.categoryFiltersRepository.findAllActiveOrderedByName(),
+      this.categoriesRepository.findActiveCategories(),
+      this.brandsRepository.findAllActive(),
+      this.attributesRepository.findAllByStatus(MasterStatus.ACTIVE),
+      this.healthConcernsRepository.findAllActive(),
+      this.wellnessGoalsRepository.findAllByStatus(MasterStatus.ACTIVE),
+      this.productTagsRepository.findAllByStatus(MasterStatus.ACTIVE),
+    ]);
+
     const categoryFilterHeaders = activeFilters.map((filter) =>
       buildCategoryFilterColumnHeader(filter.name),
     );
-    const headers = [...buildBulkUploadTemplateHeaders(), ...categoryFilterHeaders];
+    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Bulk Import Template');
-    const headerRow = worksheet.addRow(headers);
+
+    const attributeOne = activeAttributesResult.find((item) => item.name === 'Color')?.name
+      ?? activeAttributesResult[0]?.name
+      ?? 'Color';
+    const attributeTwo = activeAttributesResult.find((item) => item.name === 'Size')?.name
+      ?? activeAttributesResult[1]?.name
+      ?? 'Size';
+
+    const importSheet = workbook.addWorksheet('Bulk Import Template');
+    const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
-    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+    importSheet.views = [
+      {
+        state: 'frozen',
+        ySplit: BulkUploadService.IMPORT_TEMPLATE_FROZEN_ROW_COUNT,
+        activeCell: 'A4',
+      },
+    ];
 
-    const referenceSheet = workbook.addWorksheet('Category Filter Reference');
-    referenceSheet.getCell('A1').value = 'Column Header';
-    referenceSheet.getCell('B1').value = 'Filter Name';
-    referenceSheet.getCell('C1').value = 'Allowed Values';
-    this.styleHeaderRow(referenceSheet.getRow(1));
+    importSheet.addRow(this.buildSimpleSampleRow(headers));
+    importSheet.addRow(
+      this.buildVariableInlineSampleRow(headers, {
+        attributeOne,
+        attributeTwo,
+        variantCount: 4,
+      }),
+    );
 
-    let rowNumber = 2;
-    for (const filter of activeFilters) {
-      const row = referenceSheet.getRow(rowNumber);
-      row.getCell(1).value = buildCategoryFilterColumnHeader(filter.name);
-      row.getCell(2).value = filter.name;
-      row.getCell(3).value = (filter.values ?? []).join(' | ');
-      rowNumber++;
-    }
+    const categoryNameById = new Map(
+      activeCategories.map((category) => [category.id, category.name]),
+    );
+
+    this.addReferenceWorksheet(workbook, 'Category Reference', [
+      'Category Name',
+      'Hierarchy Level',
+      'Parent Category',
+      'Use In Sheet Column',
+    ], activeCategories.map((category) => [
+      category.name,
+      this.formatCategoryHierarchyLevel(category.hierarchyLevel),
+      category.parentCategoryId
+        ? categoryNameById.get(category.parentCategoryId) ?? ''
+        : '',
+      this.sheetColumnForCategoryLevel(category.hierarchyLevel),
+    ]));
+
+    this.addReferenceWorksheet(workbook, 'Brand Reference', [
+      'Brand Name',
+      'Use In Sheet Column',
+    ], activeBrands.map((brand) => [brand.name, 'Brand*']));
+
+    this.addReferenceWorksheet(workbook, 'Attribute Reference', [
+      'Attribute Name',
+      'Use In Sheet Column',
+    ], activeAttributesResult.map((attribute, index) => [
+      attribute.name,
+      index < 5 ? `Attribute Details ${index + 1}` : 'Attribute Details N',
+    ]));
+
+    this.addReferenceWorksheet(workbook, 'Category Filter Reference', [
+      'Column Header',
+      'Filter Name',
+      'Allowed Values',
+      'Assigned Categories',
+    ], activeFilters.map((filter) => [
+      buildCategoryFilterColumnHeader(filter.name),
+      filter.name,
+      (filter.values ?? []).join(' | '),
+      (filter.categories ?? [])
+        .map((category) => categoryNameById.get(category.id) ?? '')
+        .filter(Boolean)
+        .join(' | '),
+    ]));
+
+    this.addReferenceWorksheet(workbook, 'Health Concern Reference', [
+      'Health Concern Name',
+      'Use In Sheet Column',
+    ], activeHealthConcerns.map((item) => [item.name, 'Health Concerns']));
+
+    this.addReferenceWorksheet(workbook, 'Wellness Goal Reference', [
+      'Wellness Goal Name',
+      'Use In Sheet Column',
+    ], activeWellnessGoals.map((item) => [item.name, 'Wellness Goals']));
+
+    this.addReferenceWorksheet(workbook, 'Product Tag Reference', [
+      'Product Tag Name',
+      'Use In Sheet Column',
+    ], activeProductTags.map((item) => [item.name, 'Product Tags']));
 
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
+  }
+
+  private addReferenceWorksheet(
+    workbook: ExcelJS.Workbook,
+    sheetName: string,
+    referenceHeaders: string[],
+    rows: Array<Array<string | number | null>>,
+  ): void {
+    const sheet = workbook.addWorksheet(sheetName);
+    const headerRow = sheet.addRow(referenceHeaders);
+    this.styleHeaderRow(headerRow);
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    for (const row of rows) {
+      sheet.addRow(row);
+    }
+    referenceHeaders.forEach((_, index) => {
+      sheet.getColumn(index + 1).width = 24;
+    });
+  }
+
+  private formatCategoryHierarchyLevel(level: CategoryHierarchyLevel): string {
+    switch (level) {
+      case CategoryHierarchyLevel.ROOT:
+        return 'Root';
+      case CategoryHierarchyLevel.CHILD:
+        return 'Sub';
+      case CategoryHierarchyLevel.GRANDCHILD:
+        return 'Sub Sub';
+      case CategoryHierarchyLevel.GREAT_GRANDCHILD:
+        return 'Sub Sub Sub';
+      default:
+        return String(level);
+    }
+  }
+
+  private sheetColumnForCategoryLevel(level: CategoryHierarchyLevel): string {
+    switch (level) {
+      case CategoryHierarchyLevel.ROOT:
+        return 'Category *';
+      case CategoryHierarchyLevel.CHILD:
+        return 'Sub Category';
+      case CategoryHierarchyLevel.GRANDCHILD:
+        return 'Sub Sub Category';
+      case CategoryHierarchyLevel.GREAT_GRANDCHILD:
+        return 'Sub Sub Sub Category';
+      default:
+        return 'Category *';
+    }
   }
 
   private styleHeaderRow(row: ExcelJS.Row): void {
@@ -257,11 +407,132 @@ export class BulkUploadService {
     });
   }
 
+  private buildSimpleSampleRow(headers: string[]): Array<string | number | null> {
+    const values = new Map<string, string | number | null>([
+      ['Product Name*', 'Simple Demo Vitamin C 500mg'],
+      ['Product Type *', 'simple'],
+      ['Category *', 'Health & Wellness'],
+      ['Brand*', 'Samsung'],
+      ['Product SKU Code*', 'HEA/SAM/SMP-001'],
+      ['MRP (Rs)*', 499],
+      ['Selling Price (Rs)*', 399],
+      ['Discount Percentage', 20],
+      ['Quantity / Stock', 100],
+      ['Weight (kg)', 0.15],
+      ['Weight Unit', 'g'],
+      ['Length (cm)', 10],
+      ['Width (cm)', 5],
+      ['Height (cm)', 5],
+      ['Dimension Unit', 'cm'],
+      ['Barcode (EAN/UPC)', '8901234567890'],
+      ['HSN Code', '21069099'],
+      ['Tax Class', 'GST 12%'],
+      ['Product Description', 'Daily vitamin C supplement for immunity support.'],
+      ['Product Highlights', 'High potency | Easy to swallow'],
+      ['Product Status', 'active'],
+      ['Variant Status', 'active'],
+    ]);
+
+    return headers.map((header) => values.get(header) ?? null);
+  }
+
+  private applyInlineVariantSlotValues(
+    values: Map<string, string | number | null>,
+    slot: number,
+    options: {
+      colorValue: string;
+      sizeValue: string;
+      mrp?: number;
+      sellingPrice?: number;
+      stock?: number;
+      weight?: number;
+      length?: number;
+      width?: number;
+      height?: number;
+    },
+  ): void {
+    const {
+      colorValue,
+      sizeValue,
+      mrp = 999,
+      sellingPrice = 799,
+      stock = 25,
+      weight = 21,
+      length = 10,
+      width = 5,
+      height = 5,
+    } = options;
+    values.set(`att_mrp_${slot}`, mrp);
+    values.set(`att_selling_price_${slot}`, sellingPrice);
+    values.set(`att_stock_${slot}`, stock);
+    values.set(`att_weight_${slot}`, weight);
+    values.set(`att_weight_unit_${slot}`, 'g');
+    values.set(`att_length_${slot}`, length);
+    values.set(`att_length_unit_${slot}`, 'cm');
+    values.set(`att_width_${slot}`, width);
+    values.set(`att_width_unit_${slot}`, 'cm');
+    values.set(`att_height_${slot}`, height);
+    values.set(`att_height_unit_${slot}`, 'cm');
+    values.set(`att_discount_type_${slot}`, 'percentage');
+    values.set(`att_discount_percentage_${slot}`, 20);
+    values.set(`att_discount_value_${slot}`, 200);
+    values.set(`att_attribute_1_value_${slot}`, colorValue);
+    values.set(`att_attribute_2_value_${slot}`, sizeValue);
+  }
+
+  private buildVariableInlineSampleRow(
+    headers: string[],
+    options: {
+      attributeOne: string;
+      attributeTwo: string;
+      variantCount?: number;
+    },
+  ): Array<string | number | null> {
+    const variantCount = Math.min(Math.max(options.variantCount ?? 4, 1), 5);
+    const values = new Map<string, string | number | null>([
+      ['Product Name*', 'Variable Demo Multivitamin Serum'],
+      ['Product Type *', 'variable'],
+      ['Category *', 'Health & Wellness'],
+      ['Brand*', 'Samsung'],
+      ['Vendor SKU', 'VAR-INLINE-DEMO-001'],
+      ['Attribute Details 1', options.attributeOne],
+      ['Attribute Details 2', options.attributeTwo],
+      ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
+      ['Product Status', 'active'],
+      ['common_media_1_url', 'https://example.com/images/shared-hero.webp'],
+      ['common_media_2_url', 'https://example.com/images/shared-side.webp'],
+      ['common_media_3_url', 'https://example.com/videos/shared-demo.mp4'],
+    ]);
+
+    const variantDefs = [
+      { colorValue: 'Red', sizeValue: '100ml', mrp: 999, sellingPrice: 799, stock: 30, weight: 21, length: 10, width: 5, height: 5 },
+      { colorValue: 'Blue', sizeValue: '100ml', mrp: 999, sellingPrice: 799, stock: 25, weight: 25, length: 12, width: 6, height: 6 },
+      { colorValue: 'Green', sizeValue: '200ml', mrp: 1199, sellingPrice: 999, stock: 20, weight: 30, length: 14, width: 7, height: 7 },
+      { colorValue: 'Black', sizeValue: '200ml', mrp: 1199, sellingPrice: 999, stock: 15, weight: 35, length: 16, width: 8, height: 8 },
+      { colorValue: 'White', sizeValue: '100ml', mrp: 899, sellingPrice: 749, stock: 10, weight: 18, length: 9, width: 4, height: 4 },
+    ];
+
+    for (let slot = 1; slot <= variantCount; slot++) {
+      this.applyInlineVariantSlotValues(values, slot, variantDefs[slot - 1]);
+    }
+
+    return headers.map((header) => values.get(header) ?? null);
+  }
+
   async getJobStatus(refId: string) {
     const record = await this.repository.findByRefId(refId);
     if (!record) {
       throw new NotFoundException(`Bulk upload job with refId "${refId}" not found`);
     }
+
+    const rawSummary = Array.isArray(record.errorSummary) ? record.errorSummary : [];
+    const uploadSummaryEntry = rawSummary.find(
+      (item) => item?.column === '__upload_summary__',
+    );
+    const errorSummary = rawSummary.filter((item) => item?.column !== '__upload_summary__');
+    const uploadSummary = uploadSummaryEntry
+      ? JSON.parse(String(uploadSummaryEntry.invalidValue ?? '{}'))
+      : undefined;
 
     return {
       refId: record.refId,
@@ -273,8 +544,9 @@ export class BulkUploadService {
         failedRows: record.failedRows,
         percentage: record.totalRows > 0 ? Math.round((record.processedRows / record.totalRows) * 100) : 0,
       },
+      uploadSummary,
       errorFileUrl: record.errorFileUrl,
-      errorSummary: record.errorSummary,
+      errorSummary,
       createdAt: record.createdAt,
       completedAt: record.completedAt,
     };
