@@ -1,11 +1,13 @@
 /**
- * Imports product manufacturer addresses from an XLSX worksheet.
+ * Imports manufacturer name + address rows from an XLSX worksheet into manufacturers.
  *
  * Expected columns:
- *   ID | SKU | Name | Manufacture Address
+ *   Name | Manufacture Address
+ *   (ID and SKU are read but not used for matching)
  *
- * Matching priority: ID (external_product_id / refId) -> SKU (variant sku) -> Name.
- * Address is stored on products.manufacturer_address (TEXT — long values supported).
+ * - Creates or updates manufacturers.name + manufacturers.address
+ * - Permanently deletes all soft-deleted manufacturers before import (on --apply)
+ * - Does NOT change product.manufacturer_id assignments
  *
  * Usage:
  *   npm run manufacturer-address:import -- --file="docs/Manufacture details (1).xlsx"
@@ -15,11 +17,14 @@ import 'reflect-metadata';
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname, isAbsolute, resolve } from 'path';
 import { AppDataSource } from '../data-source';
-import { ProductEntity } from '../../../../modules/product/entities/product.entity';
-import { ProductVariantEntity } from '../../../../modules/product/entities/product-variant.entity';
-import { invalidateProductCache } from './product-cleanup.redis';
+import { ManufacturerEntity } from '../../../../modules/master/entities/manufacturer.entity';
+import { MasterStatus } from '../../../../modules/master/enums/master-status.enum';
 import {
   ManufacturerSheetRow,
+  TEST_MANUFACTURER_NAME,
+  loadManufacturerCodeRefIdSets,
+  reserveUniqueManufacturerCode,
+  reserveUniqueManufacturerRefId,
   normalizeText,
   readManufacturerSheetRows,
 } from './manufacturer-import.shared';
@@ -27,6 +32,7 @@ import {
 const DEFAULT_FILE = 'docs/Manufacture details (1).xlsx';
 const DEFAULT_BATCH_SIZE = 500;
 const UPDATED_BY = 'manufacturer-address-import';
+const MANUFACTURER_NAME_MAX = 255;
 
 interface CliOptions {
   file: string;
@@ -37,41 +43,27 @@ interface CliOptions {
 }
 
 type RowStatus =
+  | 'pending_create'
   | 'pending_update'
   | 'unchanged'
   | 'invalid'
-  | 'not_found'
-  | 'ambiguous'
   | 'conflict'
-  | 'duplicate_row';
+  | 'duplicate_row'
+  | 'skipped_placeholder';
 
 interface ReportRow extends ManufacturerSheetRow {
   status: RowStatus;
-  productRefId?: string;
-  matchedBy?: 'id' | 'sku' | 'name';
+  manufacturerRefId?: string;
+  storedName?: string;
   reason?: string;
 }
 
-interface ProductLookup {
-  id: string;
-  refId: string;
-  slug: string;
+interface ResolvedManufacturerUpsert {
+  dedupeKey: string;
   name: string;
-  externalProductId: string | null;
-  manufacturerAddress: string | null;
-}
-
-interface ResolvedUpdate {
-  product: ProductLookup;
   address: string;
+  existing?: ManufacturerEntity;
   sourceRows: number[];
-}
-
-interface ProductLookups {
-  byExternalId: Map<string, ProductLookup[]>;
-  byRefId: Map<string, ProductLookup[]>;
-  bySku: Map<string, ProductLookup[]>;
-  byName: Map<string, ProductLookup[]>;
 }
 
 const parseCli = (argv: string[]): CliOptions => {
@@ -87,14 +79,19 @@ const parseCli = (argv: string[]): CliOptions => {
 
     if (arg === '--help' || arg === '-h') {
       console.log(`
-Product manufacturer address XLSX importer
+Manufacturer sheet importer (name + address -> manufacturers table)
 
 Options:
   --file <path>          XLSX file (default: ${DEFAULT_FILE})
   --sheet <name>         Worksheet name (default: first worksheet)
-  --batch-size <number>  Updates per transaction (default: ${DEFAULT_BATCH_SIZE})
+  --batch-size <number>  Writes per transaction (default: ${DEFAULT_BATCH_SIZE})
   --report <path>        JSON report output path
   --apply                Write changes (without this flag, dry-run only)
+
+Notes:
+  - Soft-deleted manufacturers are permanently removed on --apply
+  - Product manufacturer assignments are NOT changed
+  - ${TEST_MANUFACTURER_NAME} is preserved for existing product links
 `);
       process.exit(0);
     }
@@ -139,177 +136,47 @@ const buildReportPath = (options: CliOptions): string => {
   return resolve(process.cwd(), 'docs', `manufacturer-address-import-${timestamp}.json`);
 };
 
-const pushLookup = (map: Map<string, ProductLookup[]>, key: string, product: ProductLookup): void => {
-  if (!key) return;
-  const matches = map.get(key) ?? [];
-  if (!matches.some((item) => item.id === product.id)) {
-    matches.push(product);
-    map.set(key, matches);
+const toStoredManufacturerName = (name: string, rowId: string): string => {
+  const trimmed = name.trim();
+  if (trimmed.length <= MANUFACTURER_NAME_MAX) {
+    return trimmed;
   }
+
+  const suffix = rowId ? ` [${rowId}]` : '';
+  const maxBaseLength = MANUFACTURER_NAME_MAX - suffix.length;
+  return `${trimmed.slice(0, maxBaseLength)}${suffix}`;
 };
 
-const loadLookups = async (): Promise<ProductLookups> => {
-  const products = await AppDataSource.getRepository(ProductEntity)
-    .createQueryBuilder('product')
-    .select([
-      'product.id',
-      'product.refId',
-      'product.slug',
-      'product.name',
-      'product.externalProductId',
-      'product.manufacturerAddress',
-    ])
-    .where('product.deletedAt IS NULL')
+const purgeSoftDeletedManufacturers = async (): Promise<number> => {
+  const result = await AppDataSource.getRepository(ManufacturerEntity)
+    .createQueryBuilder()
+    .delete()
+    .from(ManufacturerEntity)
+    .where('deleted_at IS NOT NULL')
+    .execute();
+
+  return result.affected ?? 0;
+};
+
+const loadActiveManufacturersByName = async (): Promise<Map<string, ManufacturerEntity>> => {
+  const manufacturers = await AppDataSource.getRepository(ManufacturerEntity)
+    .createQueryBuilder('manufacturer')
+    .where('manufacturer.deletedAt IS NULL')
     .getMany();
 
-  const variants = await AppDataSource.getRepository(ProductVariantEntity)
-    .createQueryBuilder('variant')
-    .innerJoin('variant.product', 'product')
-    .select(['variant.sku', 'variant.vendorSku', 'product.id'])
-    .where('variant.deletedAt IS NULL')
-    .andWhere('product.deletedAt IS NULL')
-    .getMany();
-
-  const productById = new Map(products.map((product) => [product.id, product]));
-  const byExternalId = new Map<string, ProductLookup[]>();
-  const byRefId = new Map<string, ProductLookup[]>();
-  const byName = new Map<string, ProductLookup[]>();
-  const bySku = new Map<string, ProductLookup[]>();
-
-  for (const product of products) {
-    const lookup: ProductLookup = {
-      id: product.id,
-      refId: product.refId,
-      slug: product.slug,
-      name: product.name,
-      externalProductId: product.externalProductId,
-      manufacturerAddress: product.manufacturerAddress,
-    };
-
-    if (product.externalProductId) {
-      pushLookup(byExternalId, normalizeText(product.externalProductId), lookup);
-    }
-    pushLookup(byRefId, normalizeText(product.refId), lookup);
-    pushLookup(byName, normalizeText(product.name), lookup);
+  const byName = new Map<string, ManufacturerEntity>();
+  for (const manufacturer of manufacturers) {
+    byName.set(normalizeText(manufacturer.name), manufacturer);
   }
-
-  for (const variant of variants) {
-    const product = productById.get(variant.productId);
-    if (!product) continue;
-
-    const lookup: ProductLookup = {
-      id: product.id,
-      refId: product.refId,
-      slug: product.slug,
-      name: product.name,
-      externalProductId: product.externalProductId,
-      manufacturerAddress: product.manufacturerAddress,
-    };
-
-    pushLookup(bySku, normalizeText(variant.sku), lookup);
-    if (variant.vendorSku) {
-      pushLookup(bySku, normalizeText(variant.vendorSku), lookup);
-    }
-  }
-
-  return { byExternalId, byRefId, bySku, byName };
-};
-
-const resolveFromMatches = (
-  matches: ProductLookup[],
-): { product?: ProductLookup; status?: RowStatus; reason?: string } => {
-  if (matches.length === 0) {
-    return { status: 'not_found' };
-  }
-  if (matches.length > 1) {
-    return {
-      status: 'ambiguous',
-      reason: 'Identifier matches more than one active product.',
-    };
-  }
-  return { product: matches[0] };
-};
-
-const resolveProduct = (
-  row: ManufacturerSheetRow,
-  lookups: ProductLookups,
-): { product?: ProductLookup; matchedBy?: 'id' | 'sku' | 'name'; status?: RowStatus; reason?: string } => {
-  const address = row.address.trim();
-  if (!address) {
-    return { status: 'invalid', reason: 'Manufacture Address is empty.' };
-  }
-
-  const id = row.id.trim();
-  const sku = row.sku.trim();
-  const name = row.name.trim();
-
-  if (!id && !sku && !name) {
-    return { status: 'invalid', reason: 'ID, SKU, and Name are all empty.' };
-  }
-
-  if (id) {
-    const byExternal = resolveFromMatches(lookups.byExternalId.get(normalizeText(id)) ?? []);
-    if (byExternal.product) {
-      return { ...byExternal, matchedBy: 'id' };
-    }
-    if (byExternal.status === 'ambiguous') {
-      return { ...byExternal, matchedBy: 'id' };
-    }
-
-    const byRef = resolveFromMatches(lookups.byRefId.get(normalizeText(id)) ?? []);
-    if (byRef.product) {
-      return { ...byRef, matchedBy: 'id' };
-    }
-    if (byRef.status === 'ambiguous') {
-      return { ...byRef, matchedBy: 'id' };
-    }
-  }
-
-  if (sku) {
-    const bySku = resolveFromMatches(lookups.bySku.get(normalizeText(sku)) ?? []);
-    if (bySku.product) {
-      return { ...bySku, matchedBy: 'sku' };
-    }
-    if (bySku.status === 'ambiguous') {
-      return { ...bySku, matchedBy: 'sku' };
-    }
-  }
-
-  if (name) {
-    const byName = resolveFromMatches(lookups.byName.get(normalizeText(name)) ?? []);
-    if (byName.product) {
-      return { ...byName, matchedBy: 'name' };
-    }
-    if (byName.status === 'ambiguous') {
-      return { ...byName, matchedBy: 'name' };
-    }
-  }
-
-  return { status: 'not_found', reason: 'No active product matched ID, SKU, or Name.' };
+  return byName;
 };
 
 const writeReport = async (
   reportPath: string,
   options: CliOptions,
   rows: ReportRow[],
-  updated: number,
+  summary: Record<string, number>,
 ): Promise<void> => {
-  const counts = rows.reduce<Record<RowStatus, number>>(
-    (result, row) => {
-      result[row.status] += 1;
-      return result;
-    },
-    {
-      pending_update: 0,
-      unchanged: 0,
-      invalid: 0,
-      not_found: 0,
-      ambiguous: 0,
-      conflict: 0,
-      duplicate_row: 0,
-    },
-  );
-
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(
     reportPath,
@@ -318,8 +185,9 @@ const writeReport = async (
         generatedAt: new Date().toISOString(),
         mode: options.apply ? 'apply' : 'dry-run',
         sourceFile: options.file,
-        targetField: 'products.manufacturer_address',
-        summary: { totalRows: rows.length, updated, ...counts },
+        targetTable: 'manufacturers',
+        productsUnchanged: true,
+        summary: { totalRows: rows.length, ...summary },
         rows,
       },
       null,
@@ -329,11 +197,45 @@ const writeReport = async (
   );
 };
 
-const applyUpdates = async (
-  updates: ResolvedUpdate[],
+const applyUpserts = async (
+  creates: ResolvedManufacturerUpsert[],
+  updates: ResolvedManufacturerUpsert[],
   batchSize: number,
-): Promise<number> => {
+): Promise<{ created: number; updated: number }> => {
+  let created = 0;
   let updated = 0;
+
+  const manufacturerRepo = AppDataSource.getRepository(ManufacturerEntity);
+  const reserved = await loadManufacturerCodeRefIdSets(manufacturerRepo);
+
+  for (let offset = 0; offset < creates.length; offset += batchSize) {
+    const batch = creates.slice(offset, offset + batchSize);
+    await AppDataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(ManufacturerEntity);
+      const entities = batch.map((item) =>
+        repo.create({
+          name: item.name,
+          address: item.address,
+          code: reserveUniqueManufacturerCode(item.name, reserved.codes),
+          refId: reserveUniqueManufacturerRefId(item.name, reserved.refIds),
+          status: MasterStatus.ACTIVE,
+          logo: null,
+          description: null,
+          contactPerson: null,
+          email: null,
+          mobileNumber: null,
+          gstNumber: null,
+          drugLicenseNumber: null,
+          createdBy: UPDATED_BY,
+        }),
+      );
+      await repo.save(entities);
+      created += entities.length;
+    });
+    console.log(
+      `[manufacturer-address-import] Created ${Math.min(offset + batch.length, creates.length)}/${creates.length}`,
+    );
+  }
 
   for (let offset = 0; offset < updates.length; offset += batchSize) {
     const batch = updates.slice(offset, offset + batchSize);
@@ -341,12 +243,12 @@ const applyUpdates = async (
       for (const item of batch) {
         await manager
           .createQueryBuilder()
-          .update(ProductEntity)
+          .update(ManufacturerEntity)
           .set({
-            manufacturerAddress: item.address,
+            address: item.address,
             updatedBy: UPDATED_BY,
           })
-          .where('id = :id', { id: item.product.id })
+          .where('id = :id', { id: item.existing!.id })
           .execute();
         updated += 1;
       }
@@ -356,11 +258,26 @@ const applyUpdates = async (
     );
   }
 
-  return updated;
+  return { created, updated };
 };
 
-async function run(): Promise<void> {
-  const options = parseCli(process.argv.slice(2));
+interface ManufacturerAddressImportOptions {
+  file: string;
+  sheet?: string;
+  apply: boolean;
+  batchSize?: number;
+  report?: string;
+}
+
+export const runManufacturerAddressImport = async (
+  input: ManufacturerAddressImportOptions,
+): Promise<void> => {
+  const options: Required<Pick<ManufacturerAddressImportOptions, 'batchSize'>> &
+    ManufacturerAddressImportOptions = {
+    batchSize: DEFAULT_BATCH_SIZE,
+    ...input,
+  };
+
   options.file = isAbsolute(options.file) ? options.file : resolve(process.cwd(), options.file);
   const reportPath = buildReportPath(options);
 
@@ -368,135 +285,200 @@ async function run(): Promise<void> {
   console.log(
     `[manufacturer-address-import] Mode: ${options.apply ? 'APPLY' : 'DRY RUN (no database changes)'}`,
   );
-  console.log('[manufacturer-address-import] Target: products.manufacturer_address (TEXT)');
+  console.log('[manufacturer-address-import] Target: manufacturers (name + address)');
+  console.log('[manufacturer-address-import] Products: assignments will NOT be changed');
 
   const sheetRows = await readManufacturerSheetRows(options.file, options.sheet);
   console.log(`[manufacturer-address-import] Non-empty sheet rows: ${sheetRows.length}`);
 
-  await AppDataSource.initialize();
+  const ownsDataSource = !AppDataSource.isInitialized;
+  if (ownsDataSource) {
+    await AppDataSource.initialize();
+  }
+
   try {
-    const lookups = await loadLookups();
+    const softDeletedCount = await AppDataSource.getRepository(ManufacturerEntity)
+      .createQueryBuilder('manufacturer')
+      .withDeleted()
+      .where('manufacturer.deletedAt IS NOT NULL')
+      .getCount();
+
+    console.log(
+      `[manufacturer-address-import] Soft-deleted manufacturers to purge permanently: ${softDeletedCount}`,
+    );
+
+    let purged = 0;
+    if (options.apply && softDeletedCount > 0) {
+      purged = await purgeSoftDeletedManufacturers();
+      console.log(`[manufacturer-address-import] Permanently deleted: ${purged}`);
+    }
+
+    const manufacturersByName = await loadActiveManufacturersByName();
     const reportRows: ReportRow[] = [];
-    const updatesByProduct = new Map<string, ResolvedUpdate>();
-    const conflictingProductIds = new Set<string>();
+    const upsertsByKey = new Map<string, ResolvedManufacturerUpsert>();
+    const conflictingKeys = new Set<string>();
 
     for (const row of sheetRows) {
-      const resolved = resolveProduct(row, lookups);
-      if (!resolved.product) {
-        reportRows.push({
-          ...row,
-          status: resolved.status ?? 'not_found',
-          reason: resolved.reason,
-        });
-        continue;
-      }
-
+      const rawName = row.name.trim();
       const address = row.address.trim();
-      if (normalizeText(resolved.product.manufacturerAddress ?? '') === normalizeText(address)) {
+
+      if (!rawName) {
+        reportRows.push({ ...row, status: 'invalid', reason: 'Name is empty.' });
+        continue;
+      }
+      if (!address) {
+        reportRows.push({ ...row, status: 'invalid', reason: 'Manufacture Address is empty.' });
+        continue;
+      }
+
+      if (normalizeText(rawName) === normalizeText(TEST_MANUFACTURER_NAME)) {
         reportRows.push({
           ...row,
-          status: 'unchanged',
-          productRefId: resolved.product.refId,
-          matchedBy: resolved.matchedBy,
+          status: 'skipped_placeholder',
+          reason: `${TEST_MANUFACTURER_NAME} is preserved for product assignments.`,
         });
         continue;
       }
 
-      const existing = updatesByProduct.get(resolved.product.id);
+      const storedName = toStoredManufacturerName(rawName, row.id.trim());
+      const dedupeKey = normalizeText(rawName);
+      const existing = manufacturersByName.get(dedupeKey);
+
       if (existing) {
-        if (normalizeText(existing.address) !== normalizeText(address)) {
-          conflictingProductIds.add(resolved.product.id);
+        if (normalizeText(existing.address ?? '') === normalizeText(address)) {
+          reportRows.push({
+            ...row,
+            status: 'unchanged',
+            manufacturerRefId: existing.refId,
+            storedName,
+          });
+          continue;
+        }
+
+        const pending = upsertsByKey.get(dedupeKey);
+        if (pending) {
+          if (normalizeText(pending.address) !== normalizeText(address)) {
+            conflictingKeys.add(dedupeKey);
+            reportRows.push({
+              ...row,
+              status: 'conflict',
+              manufacturerRefId: existing.refId,
+              storedName,
+              reason: `Conflicting address for "${rawName}" (rows ${pending.sourceRows.join(', ')}).`,
+            });
+          } else {
+            pending.sourceRows.push(row.rowNumber);
+            reportRows.push({
+              ...row,
+              status: 'duplicate_row',
+              manufacturerRefId: existing.refId,
+              storedName,
+            });
+          }
+          continue;
+        }
+
+        upsertsByKey.set(dedupeKey, {
+          dedupeKey,
+          name: storedName,
+          address,
+          existing,
+          sourceRows: [row.rowNumber],
+        });
+        reportRows.push({
+          ...row,
+          status: 'pending_update',
+          manufacturerRefId: existing.refId,
+          storedName,
+        });
+        continue;
+      }
+
+      const pending = upsertsByKey.get(dedupeKey);
+      if (pending) {
+        if (normalizeText(pending.address) !== normalizeText(address)) {
+          conflictingKeys.add(dedupeKey);
           reportRows.push({
             ...row,
             status: 'conflict',
-            productRefId: resolved.product.refId,
-            matchedBy: resolved.matchedBy,
-            reason: `Another row has a different address for this product (rows ${existing.sourceRows.join(', ')}).`,
+            storedName,
+            reason: `Conflicting address for "${rawName}" (rows ${pending.sourceRows.join(', ')}).`,
           });
         } else {
-          existing.sourceRows.push(row.rowNumber);
-          reportRows.push({
-            ...row,
-            status: 'duplicate_row',
-            productRefId: resolved.product.refId,
-            matchedBy: resolved.matchedBy,
-          });
+          pending.sourceRows.push(row.rowNumber);
+          reportRows.push({ ...row, status: 'duplicate_row', storedName });
         }
         continue;
       }
 
-      updatesByProduct.set(resolved.product.id, {
-        product: resolved.product,
+      upsertsByKey.set(dedupeKey, {
+        dedupeKey,
+        name: storedName,
         address,
         sourceRows: [row.rowNumber],
       });
-      reportRows.push({
-        ...row,
-        status: 'pending_update',
-        productRefId: resolved.product.refId,
-        matchedBy: resolved.matchedBy,
-      });
+      reportRows.push({ ...row, status: 'pending_create', storedName });
     }
 
-    const productIdByRefId = new Map<string, string>();
-    for (const products of [lookups.byExternalId, lookups.byRefId, lookups.bySku, lookups.byName]) {
-      for (const matches of products.values()) {
-        for (const product of matches) {
-          productIdByRefId.set(product.refId, product.id);
-        }
-      }
-    }
-
-    for (const productId of conflictingProductIds) {
-      updatesByProduct.delete(productId);
+    for (const key of conflictingKeys) {
+      upsertsByKey.delete(key);
       for (const row of reportRows) {
         if (
-          row.productRefId &&
-          productIdByRefId.get(row.productRefId) === productId &&
-          (row.status === 'pending_update' || row.status === 'duplicate_row')
+          normalizeText(row.name) === key &&
+          (row.status === 'pending_create' || row.status === 'pending_update' || row.status === 'duplicate_row')
         ) {
           row.status = 'conflict';
-          row.reason ??= 'Conflicting addresses exist for this product in the spreadsheet.';
+          row.reason ??= 'Conflicting addresses for the same name in the spreadsheet.';
         }
       }
     }
 
-    const updates = [...updatesByProduct.values()];
-    const updated = options.apply ? await applyUpdates(updates, options.batchSize) : 0;
+    const creates = [...upsertsByKey.values()].filter((item) => !item.existing);
+    const updates = [...upsertsByKey.values()].filter((item) => item.existing);
 
-    if (options.apply && updated > 0) {
-      const cache = await invalidateProductCache(
-        updates.map((item) => ({
-          refId: item.product.refId,
-          slug: item.product.slug,
-        })),
-        false,
-      );
-      console.log(
-        cache.connected
-          ? `[manufacturer-address-import] Redis cache keys deleted: ${cache.keysDeleted}`
-          : '[manufacturer-address-import] Redis unavailable; clear product cache before verification.',
-      );
+    let created = 0;
+    let updated = 0;
+    if (options.apply) {
+      const result = await applyUpserts(creates, updates, options.batchSize);
+      created = result.created;
+      updated = result.updated;
     }
 
-    await writeReport(reportPath, options, reportRows, updated);
+    const summary = reportRows.reduce<Record<string, number>>(
+      (acc, row) => {
+        acc[row.status] = (acc[row.status] ?? 0) + 1;
+        return acc;
+      },
+      {
+        purged_soft_deleted: purged,
+        created,
+        updated,
+      },
+    );
 
-    const skipped = reportRows.filter((row) =>
-      ['invalid', 'not_found', 'ambiguous', 'conflict'].includes(row.status),
-    ).length;
+    await writeReport(reportPath, options, reportRows, summary);
 
     console.log('\n[manufacturer-address-import] Summary');
-    console.log(`  Rows read       : ${sheetRows.length}`);
-    console.log(`  Products matched: ${updates.length}`);
-    console.log(`  ${options.apply ? 'Updated' : 'Would update'}: ${options.apply ? updated : updates.length}`);
-    console.log(`  Skipped         : ${skipped}`);
-    console.log(`  Report          : ${reportPath}`);
+    console.log(`  Rows read                    : ${sheetRows.length}`);
+    console.log(`  Soft-deleted purged          : ${options.apply ? purged : softDeletedCount} (dry-run shows pending)`);
+    console.log(`  ${options.apply ? 'Created' : 'Would create'} manufacturers : ${options.apply ? created : creates.length}`);
+    console.log(`  ${options.apply ? 'Updated' : 'Would update'} manufacturers : ${options.apply ? updated : updates.length}`);
+    console.log(`  Unchanged                    : ${summary.unchanged ?? 0}`);
+    console.log(`  Conflicts / invalid / skipped: ${(summary.conflict ?? 0) + (summary.invalid ?? 0) + (summary.skipped_placeholder ?? 0)}`);
+    console.log(`  Products reassigned          : 0 (unchanged)`);
+    console.log(`  Report                       : ${reportPath}`);
   } finally {
-    await AppDataSource.destroy();
+    if (ownsDataSource && AppDataSource.isInitialized) {
+      await AppDataSource.destroy();
+    }
   }
+};
+
+async function runCli(): Promise<void> {
+  await runManufacturerAddressImport(parseCli(process.argv.slice(2)));
 }
 
-run().catch((error) => {
+runCli().catch((error) => {
   console.error(
     '[manufacturer-address-import] Failed:',
     error instanceof Error ? error.message : error,

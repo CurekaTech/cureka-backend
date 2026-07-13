@@ -49,13 +49,20 @@ Options:
   return options;
 };
 
-async function run(): Promise<void> {
-  const options = parseCli(process.argv.slice(2));
+interface ManufacturerResetOptions {
+  apply: boolean;
+}
+
+export const runManufacturerReset = async (options: ManufacturerResetOptions): Promise<void> => {
   console.log(
     `[manufacturer-reset] Mode: ${options.apply ? 'APPLY' : 'DRY RUN (no database changes)'}`,
   );
 
-  await AppDataSource.initialize();
+  const ownsDataSource = !AppDataSource.isInitialized;
+  if (ownsDataSource) {
+    await AppDataSource.initialize();
+  }
+
   try {
     const manufacturerRepo = AppDataSource.getRepository(ManufacturerEntity);
     const productRepo = AppDataSource.getRepository(ProductEntity);
@@ -140,13 +147,20 @@ async function run(): Promise<void> {
         : '  Redis unavailable; clear product cache before verification.',
     );
   } finally {
-    await AppDataSource.destroy();
+    if (ownsDataSource && AppDataSource.isInitialized) {
+      await AppDataSource.destroy();
+    }
   }
+};
+
+async function runCli(): Promise<void> {
+  const options = parseCli(process.argv.slice(2));
+  await runManufacturerReset(options);
 }
 
 const normalizeName = (value: string): string => value.toLowerCase().replace(/\s+/g, ' ').trim();
 
-run().catch((error) => {
+runCli().catch((error) => {
   console.error('[manufacturer-reset] Failed:', error instanceof Error ? error.message : error);
   process.exit(1);
 });

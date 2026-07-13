@@ -1,6 +1,6 @@
 import * as ExcelJS from 'exceljs';
 import { randomBytes } from 'crypto';
-import { generateUniqueRefId } from '@packages/common';
+import { generateUniqueRefId, generateRefId } from '@packages/common';
 import { ManufacturerEntity } from '../../../../modules/master/entities/manufacturer.entity';
 import { Repository } from 'typeorm';
 
@@ -8,6 +8,21 @@ export const TEST_MANUFACTURER_NAME = 'test_manufacture';
 
 export const normalizeText = (value: string): string =>
   value.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Strips punctuation so minor title differences still match. */
+export const normalizeLooseName = (value: string): string =>
+  normalizeText(value).replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+
+/** Normalizes legacy numeric IDs from Excel (e.g. 16794, "16794.0"). */
+export const normalizeExternalId = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const asNumber = Number(trimmed);
+  if (Number.isFinite(asNumber) && asNumber > 0) {
+    return String(Math.trunc(asNumber));
+  }
+  return normalizeText(trimmed);
+};
 
 export const normalizeHeader = (value: string): string =>
   normalizeText(value).replace(/[_-]+/g, ' ');
@@ -71,6 +86,49 @@ export const generateUniqueManufacturerRefId = async (
   name: string,
 ): Promise<string> =>
   generateUniqueRefId(name, async (refId) => (await repo.count({ where: { refId } })) > 0);
+
+export const loadManufacturerCodeRefIdSets = async (
+  repo: Repository<ManufacturerEntity>,
+): Promise<{ codes: Set<string>; refIds: Set<string> }> => {
+  const rows = await repo
+    .createQueryBuilder('manufacturer')
+    .select(['manufacturer.code', 'manufacturer.refId'])
+    .withDeleted()
+    .getMany();
+
+  return {
+    codes: new Set(rows.map((row) => row.code)),
+    refIds: new Set(rows.map((row) => row.refId)),
+  };
+};
+
+export const reserveUniqueManufacturerCode = (
+  name: string,
+  codes: Set<string>,
+): string => {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const code = generateMasterCode(name);
+    if (!codes.has(code)) {
+      codes.add(code);
+      return code;
+    }
+  }
+  throw new Error(`Failed to reserve unique manufacturer code for "${name}".`);
+};
+
+export const reserveUniqueManufacturerRefId = (
+  name: string,
+  refIds: Set<string>,
+): string => {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const refId = generateRefId(name);
+    if (!refIds.has(refId)) {
+      refIds.add(refId);
+      return refId;
+    }
+  }
+  throw new Error(`Failed to reserve unique manufacturer refId for "${name}".`);
+};
 
 export const getHeaderIndex = (
   headers: Map<string, number>,
