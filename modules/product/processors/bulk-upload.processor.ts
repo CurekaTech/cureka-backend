@@ -445,22 +445,34 @@ export class BulkUploadProcessor extends WorkerHost {
               const unresolvedCommonMedia: IParsedImage[] = [];
               for (const img of group.commonMedia ?? []) {
                 const resolved = await this.resolveBulkUploadImage(img, galleryMap);
-                if (resolved) {
-                  processedCommonMedia.push(resolved);
+                if (!resolved?.url) {
+                  unresolvedCommonMedia.push(img);
+                  this.logger.warn(
+                    `[BULK_UPLOAD] common media unresolved product="${group.name}" filename=${img.filename ?? ''} url=${img.url ?? ''}`,
+                  );
+                  continue;
+                }
+                processedCommonMedia.push(
+                  this.toCommonMediaDto(resolved, processedCommonMedia.length),
+                );
+              }
+              this.logger.log(
+                `[BULK_UPLOAD] product="${group.name}" commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length} types=${processedCommonMedia.map((m) => m.type).join(',')}`,
+              );
+              if (unresolvedCommonMedia.length) {
+                for (const img of unresolvedCommonMedia) {
+                  allErrors.push({
+                    rowNumber: group.rowNumber,
+                    sku: 'PARENT',
+                    column: 'common_media',
+                    invalidValue: img.filename || img.url || '',
+                    reason:
+                      'Common media URL could not be downloaded or resolved to a storage path.',
+                    suggestedFix:
+                      'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
+                  });
                 }
               }
-              const normalizedCommonMedia = compactBulkUploadImageSequence(
-                processedCommonMedia.map((item) => ({
-                  url: item.url,
-                  isPrimary: item.isPrimary,
-                  sortOrder: item.sortOrder,
-                })),
-              ).map((item) => ({
-                type: ProductMediaType.COMMON,
-                url: item.url!,
-                isPrimary: item.isPrimary ?? false,
-                sortOrder: item.sortOrder,
-              }));
 
               const attributeRefIds = new Set<string>();
               if (processedVariants) {

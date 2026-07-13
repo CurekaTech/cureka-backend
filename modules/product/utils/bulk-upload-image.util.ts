@@ -20,6 +20,8 @@ export interface IBulkUploadImageInput {
   sortOrder: number;
 }
 
+export type BulkUploadImageGetVal = (columnName: string) => string;
+
 /**
  * Media fields require a URL (public http(s) or storage key).
  * Filename/name is optional (gallery/ZIP hint only).
@@ -41,7 +43,6 @@ export const resolveBulkUploadImageInput = (
     normalizedFilename = undefined;
   }
 
-  // URL is required for every media field
   if (!normalizedUrl) {
     return null;
   }
@@ -51,6 +52,10 @@ export const resolveBulkUploadImageInput = (
     ...(normalizedFilename ? { filename: normalizedFilename } : {}),
   };
 };
+
+export const isBulkUploadImagePresent = (
+  image: Pick<IBulkUploadImageInput, 'filename' | 'url'>,
+): boolean => Boolean(image.url?.trim());
 
 const pushResolvedImage = (
   images: IBulkUploadImageInput[],
@@ -62,7 +67,7 @@ const pushResolvedImage = (
 
   images.push({
     ...resolved,
-    isPrimary: images.length === 0,
+    isPrimary: false,
     sortOrder: images.length,
   });
 };
@@ -71,56 +76,55 @@ const pushResolvedImage = (
  * Removes empty image slots and assigns contiguous primary/sort-order values.
  * The first resolvable image becomes primary regardless of its source column.
  */
-export const compactBulkUploadImageSequence = (
-  images: Array<Partial<IBulkUploadImageInput>>,
-): IBulkUploadImageInput[] =>
+export const compactBulkUploadImageSequence = <T extends IBulkUploadImageInput>(
+  images: T[],
+): T[] =>
   images
-    .filter((image): image is Partial<IBulkUploadImageInput> & { url: string } =>
-      Boolean(image.url?.trim()),
-    )
+    .filter((image) => isBulkUploadImagePresent(image))
+    .sort((left, right) => left.sortOrder - right.sortOrder)
     .map((image, index) => ({
-      ...(image.filename?.trim() ? { filename: image.filename.trim() } : {}),
-      url: image.url.trim(),
+      ...image,
       isPrimary: index === 0,
       sortOrder: index,
     }));
 
 /**
- * Reads the primary image and gallery image 2..6 pairs.
- * URL takes priority; a URL supplied in the filename column is also accepted.
+ * Reads Primary Image + Gallery Image 2..N columns in sheet order.
+ * First non-empty slot becomes primary (sortOrder 0); gaps are removed.
  */
 export const parsePrimaryAndGalleryImages = (
-  getVal: (columnName: string) => string,
-  getFirstAvailable: (columnNames: string[]) => string,
+  getVal: BulkUploadImageGetVal,
+  getFirstAvailable: (names: string[]) => string,
 ): IBulkUploadImageInput[] => {
   const images: IBulkUploadImageInput[] = [];
 
   pushResolvedImage(
     images,
-    getFirstAvailable(['primary image filename', 'primary image', 'primary image path']),
-    getFirstAvailable(['primary image url']),
+    getFirstAvailable(['primary image filename', 'primary_image_filename', 'primary image', 'primary image path']),
+    getFirstAvailable(['primary image url', 'primary_image_url']),
   );
 
   for (let index = 2; index <= BULK_UPLOAD_GALLERY_IMAGE_COUNT; index += 1) {
-    pushResolvedImage(
-      images,
-      getFirstAvailable([
-        `gallery image ${index}`,
-        `gallery image ${index} filename`,
-        `gallery image ${index} path`,
-      ]),
-      getFirstAvailable([`gallery image ${index} url`]),
-    );
+    const nameColumns =
+      index === 2
+        ? ['gallery image 2', 'gallery image 2 (video)', 'gallery_image_2', 'gallery_image_2_video']
+        : [`gallery image ${index}`, `gallery_image_${index}`];
+    const urlColumns =
+      index === 2
+        ? [
+            'gallery image 2 url',
+            'gallery image 2 (video) url',
+            'gallery_image_2_url',
+            'gallery_image_2_video_url',
+          ]
+        : [`gallery image ${index} url`, `gallery_image_${index}_url`];
+
+    pushResolvedImage(images, getFirstAvailable(nameColumns), getFirstAvailable(urlColumns));
   }
 
-  // Keep getVal in the signature for callers that provide the normal row accessor.
   void getVal;
   return compactBulkUploadImageSequence(images);
 };
-
-export const isBulkUploadImagePresent = (
-  image: Pick<IBulkUploadImageInput, 'filename' | 'url'>,
-): boolean => Boolean(image.url?.trim());
 
 export const resolveBulkUploadSizeChart = (
   url?: string,
@@ -152,81 +156,10 @@ export const buildCommonMediaTemplateHeaders = (
   return headers;
 };
 
-/** Re-assigns sortOrder 0..N and marks only the first image as primary. */
-export const compactBulkUploadImageSequence = <T extends IBulkUploadImageInput>(
-  images: T[],
-): T[] =>
-  images
-    .filter((image) => isBulkUploadImagePresent(image))
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((image, index) => ({
-      ...image,
-      isPrimary: index === 0,
-      sortOrder: index,
-    }));
-
-export type BulkUploadImageGetVal = (columnName: string) => string;
-
-const pushResolvedImage = (
-  images: IBulkUploadImageInput[],
-  filename?: string,
-  url?: string,
-): void => {
-  const resolved = resolveBulkUploadImageInput(filename, url);
-  if (!resolved) return;
-  images.push({
-    ...resolved,
-    isPrimary: false,
-    sortOrder: images.length,
-  });
-};
-
 /**
-<<<<<<< HEAD
- * Reads Primary Image + Gallery Image 2..N columns in sheet order.
- * First non-empty slot becomes primary (sortOrder 0); gaps are removed.
- */
-export const parsePrimaryAndGalleryImages = (
-  getVal: BulkUploadImageGetVal,
-  getFirstAvailable: (names: string[]) => string,
-): IBulkUploadImageInput[] => {
-  const images: IBulkUploadImageInput[] = [];
-
-  pushResolvedImage(
-    images,
-    getFirstAvailable(['primary image filename', 'primary_image_filename']),
-    getFirstAvailable(['primary image url', 'primary_image_url']),
-  );
-
-  for (let index = 2; index <= BULK_UPLOAD_GALLERY_IMAGE_COUNT; index += 1) {
-    const nameColumns =
-      index === 2
-        ? ['gallery image 2', 'gallery image 2 (video)', 'gallery_image_2', 'gallery_image_2_video']
-        : [`gallery image ${index}`, `gallery_image_${index}`];
-    const urlColumns =
-      index === 2
-        ? [
-            'gallery image 2 url',
-            'gallery image 2 (video) url',
-            'gallery_image_2_url',
-            'gallery_image_2_video_url',
-          ]
-        : [`gallery image ${index} url`, `gallery_image_${index}_url`];
-
-    pushResolvedImage(images, getFirstAvailable(nameColumns), getFirstAvailable(urlColumns));
-  }
-
-  return compactBulkUploadImageSequence(images);
-};
-
-/**
- * Reads common_media_1..N (+ optional _url) from a row in column-index order.
- * Template ships with 6 sample columns; any higher index present in the sheet is accepted.
-=======
  * Reads common_media_1..N (+ optional name, required URL) from a row.
- * Template ships with 5 sample columns; any higher index present in the sheet is accepted.
+ * Template ships with 6 sample columns; any higher index present in the sheet is accepted.
  * Entries without a URL are skipped (name-only is not enough).
->>>>>>> c4dd4cb (feat: update bulk upload media handling to enforce URL requirement, improve image resolution logic, and enhance common media parsing)
  */
 export const parseCommonMediaColumns = (
   getVal: (columnName: string) => string,
