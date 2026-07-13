@@ -1,6 +1,10 @@
 import * as ExcelJS from 'exceljs';
 import { randomBytes } from 'crypto';
+<<<<<<< HEAD
 import { generateUniqueRefId, generateRefId } from '@packages/common';
+=======
+import { generateUniqueRefId } from '@packages/common';
+>>>>>>> ba0e083 (feat: add manufacturer address import and reset scripts to streamline manufacturer data management)
 import { ManufacturerEntity } from '../../../../modules/master/entities/manufacturer.entity';
 import { Repository } from 'typeorm';
 
@@ -9,6 +13,7 @@ export const TEST_MANUFACTURER_NAME = 'test_manufacture';
 export const normalizeText = (value: string): string =>
   value.toLowerCase().replace(/\s+/g, ' ').trim();
 
+<<<<<<< HEAD
 /** Strips punctuation so minor title differences still match. */
 export const normalizeLooseName = (value: string): string =>
   normalizeText(value).replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
@@ -24,6 +29,8 @@ export const normalizeExternalId = (value: string): string => {
   return normalizeText(trimmed);
 };
 
+=======
+>>>>>>> ba0e083 (feat: add manufacturer address import and reset scripts to streamline manufacturer data management)
 export const normalizeHeader = (value: string): string =>
   normalizeText(value).replace(/[_-]+/g, ' ');
 
@@ -87,6 +94,7 @@ export const generateUniqueManufacturerRefId = async (
 ): Promise<string> =>
   generateUniqueRefId(name, async (refId) => (await repo.count({ where: { refId } })) > 0);
 
+<<<<<<< HEAD
 export const loadManufacturerCodeRefIdSets = async (
   repo: Repository<ManufacturerEntity>,
 ): Promise<{ codes: Set<string>; refIds: Set<string> }> => {
@@ -130,6 +138,8 @@ export const reserveUniqueManufacturerRefId = (
   throw new Error(`Failed to reserve unique manufacturer refId for "${name}".`);
 };
 
+=======
+>>>>>>> ba0e083 (feat: add manufacturer address import and reset scripts to streamline manufacturer data management)
 export const getHeaderIndex = (
   headers: Map<string, number>,
   aliases: string[],
