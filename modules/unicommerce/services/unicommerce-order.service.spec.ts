@@ -25,6 +25,7 @@ describe('UnicommerceOrderService', () => {
 
   const apiService = {
     postOrder: jest.fn(),
+    isConfigured: jest.fn().mockReturnValue(true),
   } as unknown as UnicommerceOrderApiService;
 
   const service = new UnicommerceOrderService(configService, ordersRepository, apiService);
@@ -52,11 +53,27 @@ describe('UnicommerceOrderService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     configValues['unicommerceOrder.enabled'] = true;
+    (apiService.isConfigured as jest.Mock).mockReturnValue(true);
   });
 
   it('skips push when disabled', async () => {
     configValues['unicommerceOrder.enabled'] = false;
     const result = await service.pushOrder('order-uuid-1');
+    expect(result).toBeNull();
+    expect(ordersRepository.findForUnicommercePush).not.toHaveBeenCalled();
+  });
+
+  it('skips push when credentials are missing', async () => {
+    const missingCredsApi = {
+      postOrder: jest.fn(),
+      isConfigured: jest.fn().mockReturnValue(false),
+    } as unknown as UnicommerceOrderApiService;
+    const serviceWithMissingCreds = new UnicommerceOrderService(
+      configService,
+      ordersRepository,
+      missingCredsApi,
+    );
+    const result = await serviceWithMissingCreds.pushOrder('order-uuid-1');
     expect(result).toBeNull();
     expect(ordersRepository.findForUnicommercePush).not.toHaveBeenCalled();
   });

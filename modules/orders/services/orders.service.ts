@@ -434,10 +434,19 @@ export class OrdersService {
 
   private async enqueueUnicommercePush(orderId: string): Promise<void> {
     try {
-      await this.unicommerceOrderQueueService.enqueuePushOrder(orderId);
+      const job = await this.unicommerceOrderQueueService.enqueuePushOrder(orderId);
+      if (job) {
+        this.logger.log(
+          { orderId, jobId: job.id },
+          'UniCommerce push job enqueued after order creation',
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to enqueue UniCommerce push for order ${orderId}: ${message}`);
+      this.logger.error(
+        { orderId, error: message },
+        'Failed to enqueue UniCommerce push — check Redis connection (REDIS_HOST, REDIS_TLS, etc.)',
+      );
     }
   }
 
