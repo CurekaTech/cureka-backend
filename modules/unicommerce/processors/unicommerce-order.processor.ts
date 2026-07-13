@@ -17,13 +17,39 @@ export class UnicommerceOrderProcessor extends WorkerHost {
   }
 
   async process(job: Job<UnicommerceJobData, unknown, string>): Promise<unknown> {
-    this.logger.log(`Processing UniCommerce job ${job.name} (${job.id})`);
+    this.logger.log(
+      { jobName: job.name, jobId: job.id, orderId: job.data.orderId, attempt: job.attemptsMade + 1 },
+      'Processing UniCommerce job',
+    );
 
-    switch (job.name) {
-      case UNICOMMERCE_JOB_NAMES.PUSH_ORDER:
-        return this.unicommerceOrderService.pushOrder(job.data.orderId);
-      default:
-        throw new Error(`Unsupported UniCommerce job: ${job.name}`);
+    try {
+      switch (job.name) {
+        case UNICOMMERCE_JOB_NAMES.PUSH_ORDER: {
+          const result = await this.unicommerceOrderService.pushOrder(job.data.orderId);
+          if (result === null) {
+            this.logger.warn(
+              { jobId: job.id, orderId: job.data.orderId },
+              'UniCommerce push skipped (disabled, misconfigured, or no-op)',
+            );
+          }
+          return result;
+        }
+        default:
+          throw new Error(`Unsupported UniCommerce job: ${job.name}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        {
+          jobName: job.name,
+          jobId: job.id,
+          orderId: job.data.orderId,
+          attempt: job.attemptsMade + 1,
+          error: message,
+        },
+        'UniCommerce job failed',
+      );
+      throw error;
     }
   }
 }
