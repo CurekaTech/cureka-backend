@@ -9,6 +9,8 @@ import {
   isBulkUploadCategoryFilterColumn,
   isVariableBulkUploadColumn,
   normalizeBulkUploadHeader,
+  parseCategoryFilterNameFromHeader,
+  buildCategoryFilterColumnHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
 import {
@@ -237,12 +239,11 @@ export class BulkUploadParserService {
     headerRow.eachCell((cell, colNumber) => {
       const original = this.getCellText(cell).trim();
       if (!original) return;
-      const normalized = normalizeBulkUploadHeader(original);
-      if (!normalized.startsWith('cf_')) return;
 
-      const name = original.slice(original.indexOf('_') + 1).trim();
-      if (!name) return;
-      dynamicColumns.set(colNumber, name);
+      const filterName = parseCategoryFilterNameFromHeader(original);
+      if (!filterName) return;
+
+      dynamicColumns.set(colNumber, filterName);
     });
     return dynamicColumns;
   }
@@ -923,9 +924,10 @@ export class BulkUploadParserService {
         continue;
       }
 
-      const filterName = normalizedHeader.slice(3).trim();
-      if (!filterName || !activeCategoryFilterNames.has(filterName)) {
-        unknownColumns.push(`CF_${normalizedHeader.slice(3)}`);
+      const filterName = parseCategoryFilterNameFromHeader(normalizedHeader);
+      const normalizedFilterName = filterName?.toLowerCase().trim();
+      if (!normalizedFilterName || !activeCategoryFilterNames.has(normalizedFilterName)) {
+        unknownColumns.push(buildCategoryFilterColumnHeader(filterName || normalizedHeader));
       }
     }
 

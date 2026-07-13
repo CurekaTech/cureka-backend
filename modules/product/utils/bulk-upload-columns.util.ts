@@ -234,15 +234,24 @@ export const isDeprecatedBulkUploadColumn = (normalizedHeader: string): boolean 
 export const buildCategoryFilterColumnHeader = (filterName: string): string =>
   `CF_${filterName.trim()}`;
 
+/**
+ * Category-filter columns are `CF_<name>` (canonical).
+ * Also accept `CF <name>` because some spreadsheet editors turn `_` into a space.
+ */
+export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
+  /^cf([_\s]|$)/i.test(normalizedHeader);
+
+/** Extract filter name from a raw or normalized CF header (`CF_Age Group` / `cf age group`). */
 export const parseCategoryFilterNameFromHeader = (header: string): string | null => {
   const trimmed = header.trim();
-  if (!/^CF_/i.test(trimmed)) return null;
-  const name = trimmed.slice(3).trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^CF[_\s]+(.+)$/i);
+  if (!match?.[1]) return null;
+
+  const name = match[1].trim();
   return name || null;
 };
-
-export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
-  normalizedHeader.startsWith('cf_');
 
 import {
   buildVariableTemplateExtraHeaders,
