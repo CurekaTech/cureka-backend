@@ -5,6 +5,7 @@ import { EntityManager, FindOptionsWhere, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
+import { OrderSource } from '../enums/order-source.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 
 export interface AdminOrderListOptions {
@@ -14,6 +15,7 @@ export interface AdminOrderListOptions {
   orderStatus?: OrderStatus;
   paymentStatus?: OrderPaymentStatus;
   paymentMethod?: OrderPaymentMethod;
+  orderSource?: OrderSource;
   userId?: string;
   fromDate?: string;
   toDate?: string;
@@ -146,6 +148,11 @@ export class OrdersRepository {
     if (options.paymentMethod) {
       qb.andWhere('order.paymentMethod = :paymentMethod', {
         paymentMethod: options.paymentMethod,
+      });
+    }
+    if (options.orderSource) {
+      qb.andWhere('order.orderSource = :orderSource', {
+        orderSource: options.orderSource,
       });
     }
     if (options.userId) {

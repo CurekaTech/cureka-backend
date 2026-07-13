@@ -1,6 +1,7 @@
 import { BaseEntity } from '@packages/database';
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { UserEntity } from '@modules/users/entities/user.entity';
+import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
 import { PaymentRequestItemEntity } from './payment-request-item.entity';
 
@@ -54,6 +55,15 @@ export class PaymentRequestEntity extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
+
+  @Column({
+    name: 'order_source',
+    type: 'enum',
+    enum: OrderSource,
+    enumName: 'orders_order_source_enum',
+    default: OrderSource.WEBSITE,
+  })
+  orderSource!: OrderSource;
 
   @Column({ name: 'payment_provider', type: 'varchar', length: 50, default: 'RAZORPAY' })
   paymentProvider!: string;
