@@ -9,6 +9,7 @@ import { BulkUploadValidatorService, IValidationError } from '../services/bulk-u
 import {
   isBulkUploadSizeChartResolvableWithoutGallery,
   isRemoteImageUrl,
+  compactBulkUploadImageSequence,
 } from '../utils/bulk-upload-image.util';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
@@ -330,6 +331,17 @@ export class BulkUploadProcessor extends WorkerHost {
                       processedImages.push(resolved);
                     }
                   }
+                  const normalizedVariantImages = compactBulkUploadImageSequence(
+                    processedImages.map((item) => ({
+                      url: item.url,
+                      isPrimary: item.isPrimary,
+                      sortOrder: item.sortOrder,
+                    })),
+                  ).map((item) => ({
+                    url: item.url!,
+                    isPrimary: item.isPrimary ?? false,
+                    sortOrder: item.sortOrder,
+                  }));
 
                   const processedAttributes = v.attributes
                     ? v.attributes
@@ -369,7 +381,7 @@ export class BulkUploadProcessor extends WorkerHost {
                     heightUnit: v.heightUnit,
                     status: v.status,
                     attributes: processedAttributes,
-                    images: processedImages,
+                    images: normalizedVariantImages,
                   };
                 })
               ) : undefined;
@@ -378,14 +390,21 @@ export class BulkUploadProcessor extends WorkerHost {
               for (const img of group.commonMedia ?? []) {
                 const resolved = await this.resolveBulkUploadImage(img, galleryMap);
                 if (resolved) {
-                  processedCommonMedia.push({
-                    type: ProductMediaType.COMMON,
-                    url: resolved.url,
-                    isPrimary: resolved.isPrimary ?? processedCommonMedia.length === 0,
-                    sortOrder: resolved.sortOrder ?? processedCommonMedia.length,
-                  });
+                  processedCommonMedia.push(resolved);
                 }
               }
+              const normalizedCommonMedia = compactBulkUploadImageSequence(
+                processedCommonMedia.map((item) => ({
+                  url: item.url,
+                  isPrimary: item.isPrimary,
+                  sortOrder: item.sortOrder,
+                })),
+              ).map((item) => ({
+                type: ProductMediaType.COMMON,
+                url: item.url!,
+                isPrimary: item.isPrimary ?? false,
+                sortOrder: item.sortOrder,
+              }));
 
               const attributeRefIds = new Set<string>();
               if (processedVariants) {
@@ -452,7 +471,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 expiresInMonths: group.expiresInMonths,
                 customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
                 productInformation: normalizedProductInformation,
-                media: processedCommonMedia.length ? processedCommonMedia : undefined,
+                media: normalizedCommonMedia.length ? normalizedCommonMedia : undefined,
                 variants: processedVariants,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {
