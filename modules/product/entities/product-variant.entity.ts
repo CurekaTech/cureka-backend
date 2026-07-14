@@ -68,6 +68,14 @@ export class ProductVariantEntity {
 
   @Index()
 
+  @Column({ name: 'external_product_id', type: 'varchar', length: 255, nullable: true })
+
+  externalProductId!: string | null;
+
+
+
+  @Index()
+
   @Column({ name: 'vendor_sku', type: 'varchar', length: 100, nullable: true })
 
   vendorSku!: string | null;

@@ -27,6 +27,8 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Vendor',
   'Vendor Name',
   'Vendor SKU',
+  'style_group_id',
+  'Style Group ID',
   'Product ID (String)',
   'Product Id',
   'Product SKU Code*',
@@ -277,7 +279,9 @@ export { buildVariableTemplateExtraHeaders, isVariableBulkUploadColumn };
 export { isCommonMediaBulkUploadColumn, buildCommonMediaTemplateHeaders } from './bulk-upload-image.util';
 
 export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
-  FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader) || isCommonMediaBulkUploadColumn(normalizedHeader);
+  FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader) ||
+  isCommonMediaBulkUploadColumn(normalizedHeader) ||
+  /^style[\s_-]*group[\s_-]*id$/i.test(normalizedHeader.trim());
 
 const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
   const seen = new Set<string>();
@@ -293,7 +297,8 @@ const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
 
 /**
  * One sheet for mixed simple + variable uploads.
- * Includes simple/bundle columns, explicit variant columns, inline variant slot columns, and CF_ columns.
+ * Includes simple/bundle columns, Attribute Details, and CF_ columns.
+ * Variable products use vertical rows bound by style_group_id (no horizontal att_* slots).
  */
 export const buildUnifiedBulkUploadHeaders = (
   categoryFilterHeaders: string[] = [],

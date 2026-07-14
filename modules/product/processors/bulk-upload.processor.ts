@@ -453,19 +453,22 @@ export class BulkUploadProcessor extends WorkerHost {
                     }
                   }
 
-                  // Sheet images win when present; Product ID lookup fills when empty.
-                  if (processedImages.length === 0 && lookupImageUrls?.length) {
-                    const shouldApplyLookup =
-                      group.productType !== 'variable' || variantIndex === 0;
-                    if (shouldApplyLookup) {
-                      for (const item of buildImagesFromLookupUrls(lookupImageUrls)) {
-                        const resolved = await this.resolveBulkUploadImage(
-                          { url: item.url, isPrimary: item.isPrimary, sortOrder: item.sortOrder },
-                          galleryMap,
-                        );
-                        if (resolved) {
-                          processedImages.push(resolved);
-                        }
+                  // Sheet images win when present; this row's Product ID lookup fills when empty.
+                  const variantLookupProductId =
+                    normalizeLookupProductId(v.externalProductId) ||
+                    (variantIndex === 0 ? lookupProductId : '');
+                  const variantLookupImageUrls = variantLookupProductId
+                    ? imageLookup.byProductId.get(variantLookupProductId)
+                    : undefined;
+
+                  if (processedImages.length === 0 && variantLookupImageUrls?.length) {
+                    for (const item of buildImagesFromLookupUrls(variantLookupImageUrls)) {
+                      const resolved = await this.resolveBulkUploadImage(
+                        { url: item.url, isPrimary: item.isPrimary, sortOrder: item.sortOrder },
+                        galleryMap,
+                      );
+                      if (resolved) {
+                        processedImages.push(resolved);
                       }
                     }
                   }
@@ -500,6 +503,7 @@ export class BulkUploadProcessor extends WorkerHost {
                   return {
                     sku: v.sku,
                     slug: v.productUrlSlug,
+                    externalProductId: v.externalProductId,
                     vendorSku: group.vendorSku,
                     barcode: v.barcode,
                     gtinNumber: v.gtinNumber,
@@ -816,7 +820,7 @@ export class BulkUploadProcessor extends WorkerHost {
           `Sheet rows: ${totalRowsScanned}. Rows succeeded: ${successfulSheetRows}, failed: ${failedSheetRows}. ` +
           `Products created: ${productsCreated}, updated: ${productsUpdated}. ` +
           `Variant slots processed: ${successfulVariantSlots} succeeded, ${failedVariantSlots} failed ` +
-          `(inline variable row with 4 slots = 1 sheet row, 4 variants).`,
+          `(style_group_id vertical rows = one product with N variants).`,
       };
 
       if (uploadSummary.productsUpdated > 0 || uploadSummary.productsCreated > 0) {
