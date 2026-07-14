@@ -17,7 +17,10 @@ import {
   loadManufacturerAddressByProductId,
   normalizeLookupProductId,
 } from '../utils/bulk-upload-reference-lookup.util';
-import { toStoredManufacturerName } from '../../master/utils/manufacturer-stored-name.util';
+import {
+  toManufacturerImportCode,
+  toStoredManufacturerName,
+} from '../../master/utils/manufacturer-stored-name.util';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
@@ -414,18 +417,16 @@ export class BulkUploadProcessor extends WorkerHost {
               // Sheet Manufacturer Name wins; otherwise Product ID lookup fills in.
               let autoManufacturerRefId = refs.manufacturerRefId;
               if (!autoManufacturerRefId && lookupManufacturerAddress && lookupProductId) {
-                const storedName = toStoredManufacturerName(
-                  lookupManufacturerAddress,
-                  lookupProductId,
-                );
+                const storedName = toStoredManufacturerName(lookupManufacturerAddress);
                 autoManufacturerRefId =
-                  this.validatorService.resolveManufacturerRefIdByName(storedName) ||
-                  this.validatorService.resolveManufacturerRefIdByName(
-                    lookupManufacturerAddress,
-                  );
+                  this.validatorService.resolveManufacturerRefIdByProductId(lookupProductId) ||
+                  this.validatorService.resolveManufacturerRefIdByCode(
+                    toManufacturerImportCode(lookupProductId),
+                  ) ||
+                  this.validatorService.resolveManufacturerRefIdByName(storedName);
                 if (!autoManufacturerRefId) {
                   this.logger.warn(
-                    `[BULK_UPLOAD] Product ID ${lookupProductId}: manufacturer address found but no manufacturers.name match for "${storedName}"`,
+                    `[BULK_UPLOAD] Product ID ${lookupProductId}: manufacturer address found but no manufacturer match (code ${toManufacturerImportCode(lookupProductId)} / name "${storedName}")`,
                   );
                 }
               } else if (!autoManufacturerRefId && lookupProductId && manufacturerLookup.loaded) {
@@ -564,7 +565,7 @@ export class BulkUploadProcessor extends WorkerHost {
                   sku: group.variants?.[0]?.sku || 'PARENT',
                   column: 'Product ID (String)',
                   invalidValue: lookupProductId,
-                  reason: `Product ID ${lookupProductId} has a Manufacture Address lookup, but no manufacturers.name match (expected "${toStoredManufacturerName(lookupManufacturerAddress, lookupProductId)}"). Run manufacturer-address:import first.`,
+                  reason: `Product ID ${lookupProductId} has a Manufacture Address lookup, but no manufacturer match (expected code ${toManufacturerImportCode(lookupProductId)} or name "${toStoredManufacturerName(lookupManufacturerAddress)}"). Run manufacturer-address:import first.`,
                   suggestedFix:
                     'Re-run manufacturer:reset + manufacturer-address:import, then upload again with Product ID (String) filled.',
                 });
