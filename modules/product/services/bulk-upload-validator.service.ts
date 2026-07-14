@@ -657,16 +657,32 @@ export class BulkUploadValidatorService {
         }
       }
 
-      if (group.externalProductId) {
-        const normalizedExternalId = group.externalProductId.toLowerCase().trim();
+      // Track Product IDs from parent (simple) and each vertical variant row.
+      const productIdsToCheck: Array<{ rowNumber: number; sku: string; id: string }> = [];
+      const seenCheckIds = new Set<string>();
+      const pushProductId = (rowNumber: number, sku: string, rawId: string | undefined) => {
+        const id = rawId?.trim();
+        if (!id) return;
+        const key = id.toLowerCase();
+        if (seenCheckIds.has(key)) return;
+        seenCheckIds.add(key);
+        productIdsToCheck.push({ rowNumber, sku, id });
+      };
+      pushProductId(group.rowNumber, 'PARENT', group.externalProductId);
+      for (const variant of group.variants ?? []) {
+        pushProductId(variant.rowNumber, variant.sku || 'PARENT', variant.externalProductId);
+      }
+
+      for (const item of productIdsToCheck) {
+        const normalizedExternalId = item.id.toLowerCase();
         if (sheetExternalProductIds.has(normalizedExternalId)) {
           groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            rowNumber: item.rowNumber,
+            sku: item.sku,
             column: 'Product ID (String)',
-            invalidValue: group.externalProductId,
-            reason: `Product ID "${group.externalProductId}" is duplicated within the spreadsheet.`,
-            suggestedFix: 'Assign a unique external product ID per product row.',
+            invalidValue: item.id,
+            reason: `Product ID "${item.id}" is duplicated within the spreadsheet.`,
+            suggestedFix: 'Assign a unique Product ID per product/variant row.',
           });
         } else {
           sheetExternalProductIds.add(normalizedExternalId);
@@ -680,12 +696,12 @@ export class BulkUploadValidatorService {
             resolvedExistingProductRefId !== existingExternalIdProductRefId
           ) {
             groupErrors.push({
-              rowNumber: group.rowNumber,
-              sku: 'PARENT',
+              rowNumber: item.rowNumber,
+              sku: item.sku,
               column: 'Product ID (String)',
-              invalidValue: group.externalProductId,
-              reason: `Product ID "${group.externalProductId}" belongs to a different existing product than the SKU/vendor match.`,
-              suggestedFix: 'Use a consistent external product ID and SKU/vendor for the same product.',
+              invalidValue: item.id,
+              reason: `Product ID "${item.id}" belongs to a different existing product than the SKU/vendor match.`,
+              suggestedFix: 'Use a consistent Product ID and SKU/vendor for the same product.',
             });
           } else {
             resolvedExistingProductRefId = existingExternalIdProductRefId;
@@ -811,19 +827,27 @@ export class BulkUploadValidatorService {
     sheetSkus: Set<string>,
     resolvedExistingProductRefId?: string,
   ): void {
-    if (group.variableUploadMode === 'inline') {
-      this.validateInlineVariableProduct(group, groupErrors);
-    }
-
-    if (group.variants.length === 0) {
+    if (!group.styleGroupId) {
       groupErrors.push({
         rowNumber: group.rowNumber,
         sku: 'PARENT',
-        column: 'Product SKU Code',
+        column: 'style_group_id',
         invalidValue: '',
-        reason: 'At least one variable product variant must be associated with the product.',
+        reason:
+          'Variable products must use vertical rows bound by style_group_id (horizontal att_mrp_N slots are no longer supported).',
         suggestedFix:
-          'Add explicit variant rows or fill att_mrp_1 columns for inline variant slots.',
+          'Put the same style_group_id on each variant row (e.g. 5005), with per-row Product ID, SKU, prices, attributes, and images.',
+      });
+    }
+
+    if (group.variants.length < 2) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: 'PARENT',
+        column: 'style_group_id',
+        invalidValue: group.styleGroupId ?? '',
+        reason: 'A variable style_group_id group must include at least 2 vertical variant rows.',
+        suggestedFix: 'Add another sheet row with the same style_group_id, or leave style_group_id blank for a simple product.',
       });
       return;
     }
@@ -832,47 +856,40 @@ export class BulkUploadValidatorService {
       groupErrors.push({
         rowNumber: group.rowNumber,
         sku: 'PARENT',
-        column: 'Attribute Values',
+        column: 'style_group_id',
         invalidValue: String(group.variants.length),
         reason: `Variable product would create ${group.variants.length} variants, which exceeds the limit of ${MAX_GENERATED_VARIANTS}.`,
-        suggestedFix: 'Reduce attribute value combinations before uploading.',
+        suggestedFix: 'Reduce the number of rows sharing this style_group_id.',
       });
       return;
     }
 
     this.assignMissingVariableSkus(group, sheetSkus, resolvedExistingProductRefId);
 
+    const productIdsInGroup = new Set<string>();
+    for (const variant of group.variants) {
+      const pid = variant.externalProductId?.trim().toLowerCase();
+      if (!pid) continue;
+      if (productIdsInGroup.has(pid)) {
+        groupErrors.push({
+          rowNumber: variant.rowNumber,
+          sku: variant.sku || 'PARENT',
+          column: 'Product ID (String)',
+          invalidValue: variant.externalProductId ?? '',
+          reason: `Product ID "${variant.externalProductId}" is duplicated within style_group_id "${group.styleGroupId}".`,
+          suggestedFix: 'Each variant row in a style group must have a unique Product ID.',
+        });
+      }
+      productIdsInGroup.add(pid);
+    }
+
     const resolvedVariantAttributes: Array<
       Array<{ attributeRefId: string; value: string; label: string }>
     > = [];
 
-    for (const [index, variant] of group.variants.entries()) {
-      const variantNumber = index + 1;
+    for (const variant of group.variants) {
       this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
       this.validateVariantPricing(variant, groupErrors);
-
-      if (group.variableUploadMode === 'inline') {
-        if (variant.mrp <= 0) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: variant.sku || `VARIANT-${variantNumber}`,
-            column: `att_mrp_${variantNumber}`,
-            invalidValue: String(variant.mrp),
-            reason: `att_mrp_${variantNumber} is required for inline variant slot ${variantNumber}.`,
-            suggestedFix: `Provide att_mrp_${variantNumber} on the parent row.`,
-          });
-        }
-        if (variant.sellingPrice <= 0) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: variant.sku || `VARIANT-${variantNumber}`,
-            column: `att_selling_price_${variantNumber}`,
-            invalidValue: String(variant.sellingPrice),
-            reason: `att_selling_price_${variantNumber} is required for inline variant slot ${variantNumber}.`,
-            suggestedFix: `Provide att_selling_price_${variantNumber} on the parent row.`,
-          });
-        }
-      }
 
       if (!variant.attributes?.length) {
         groupErrors.push({
@@ -882,7 +899,7 @@ export class BulkUploadValidatorService {
           invalidValue: '',
           reason: 'Each variable product variant must include attributes.',
           suggestedFix:
-            'Provide att_attribute_1_value_1 (and att_attribute_2_value_1, …) for every variant row or inline slot.',
+            'Provide Attribute Details 1 (+ values) and att_attribute_1_value_1 on each vertical variant row.',
         });
         continue;
       }
@@ -943,60 +960,6 @@ export class BulkUploadValidatorService {
         reason: `Duplicate variant attribute combinations detected (${combination}).`,
         suggestedFix: 'Ensure each variant row has a unique attribute combination.',
       });
-    }
-  }
-
-  private validateInlineVariableProduct(
-    group: IParsedProductGroup,
-    groupErrors: IValidationError[],
-  ): void {
-    const attributeNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
-    group.attributeDetailNames = attributeNames.length ? attributeNames : group.attributeDetailNames;
-
-    if (!attributeNames.length) {
-      groupErrors.push({
-        rowNumber: group.rowNumber,
-        sku: 'PARENT',
-        column: 'Attribute Details 1',
-        invalidValue: '',
-        reason: 'Inline variable products require at least one Attribute Details column.',
-        suggestedFix: 'Fill Attribute Details 1 (and Attribute Details 2, 3, … as needed).',
-      });
-      return;
-    }
-
-    for (const [index, attributeName] of attributeNames.entries()) {
-      const attributeRefId = this.resolveAttributeRefId(attributeName);
-      if (!attributeRefId) {
-        groupErrors.push({
-          rowNumber: group.rowNumber,
-          sku: 'PARENT',
-          column: `Attribute Details ${index + 1}`,
-          invalidValue: attributeName,
-          reason: masterRecordUnavailableReason('Attribute', attributeName),
-          suggestedFix:
-            'Use one attribute name per column (Attribute Details 1 = Color, Attribute Details 2 = Size), or pipe-separated in one cell (Color | Size). Names must match active master attributes.',
-        });
-      }
-    }
-
-    for (const [index, attributeName] of attributeNames.entries()) {
-      for (const [variantIndex, variant] of group.variants.entries()) {
-        const slotNumber = variantIndex + 1;
-        const hasValue = variant.attributes.some(
-          (attribute) => attribute.name?.toLowerCase() === attributeName.toLowerCase(),
-        );
-        if (!hasValue) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: variant.sku || `VARIANT-${slotNumber}`,
-            column: `att_attribute_${index + 1}_value_${slotNumber}`,
-            invalidValue: '',
-            reason: `Variant slot ${slotNumber} is missing a value for attribute "${attributeName}".`,
-            suggestedFix: `Provide att_attribute_${index + 1}_value_${slotNumber} or Attribute ${index + 1} Value.`,
-          });
-        }
-      }
     }
   }
 

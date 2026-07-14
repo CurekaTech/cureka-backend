@@ -259,6 +259,10 @@ export class BulkUploadService {
 
     const workbook = new ExcelJS.Workbook();
 
+    const attributeOne = activeAttributesResult.find((item) => item.name === 'Size')?.name
+      ?? activeAttributesResult[0]?.name
+      ?? 'Size';
+
     const importSheet = workbook.addWorksheet('Bulk Import Template');
     const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
@@ -270,8 +274,35 @@ export class BulkUploadService {
       },
     ];
 
-    importSheet.addRow(this.buildSimpleSampleRow(headers));
-    // One sample row only (simple / single SKU).
+    importSheet.addRow(
+      this.buildVerticalStyleGroupVariantRow(headers, {
+        attributeOne,
+        name: 'Shampoo 250 ml',
+        styleGroupId: '5005',
+        productId: '54141',
+        sku: 'SHA/SAM/250-A1',
+        sizeValue: '250ml',
+        mrp: 299,
+        sellingPrice: 249,
+        stock: 50,
+        slug: 'shampoo-250-ml',
+      }),
+    );
+    importSheet.addRow(
+      this.buildVerticalStyleGroupVariantRow(headers, {
+        attributeOne,
+        name: 'Shampoo 500 ml',
+        styleGroupId: '5005',
+        productId: '54142',
+        sku: 'SHA/SAM/500-A1',
+        sizeValue: '500ml',
+        mrp: 499,
+        sellingPrice: 399,
+        stock: 40,
+        slug: 'shampoo-500-ml',
+      }),
+    );
+    // Two vertical rows sharing style_group_id=5005 → one variable product, 2 variants.
 
     const categoryNameById = new Map(
       activeCategories.map((category) => [category.id, category.name]),
@@ -427,93 +458,39 @@ export class BulkUploadService {
     return headers.map((header) => values.get(header) ?? null);
   }
 
-  private applyInlineVariantSlotValues(
-    values: Map<string, string | number | null>,
-    slot: number,
-    options: {
-      colorValue: string;
-      sizeValue: string;
-      mrp?: number;
-      sellingPrice?: number;
-      stock?: number;
-      weight?: number;
-      length?: number;
-      width?: number;
-      height?: number;
-    },
-  ): void {
-    const {
-      colorValue,
-      sizeValue,
-      mrp = 999,
-      sellingPrice = 799,
-      stock = 25,
-      weight = 21,
-      length = 10,
-      width = 5,
-      height = 5,
-    } = options;
-    values.set(`att_mrp_${slot}`, mrp);
-    values.set(`att_selling_price_${slot}`, sellingPrice);
-    values.set(`att_stock_${slot}`, stock);
-    values.set(`att_weight_${slot}`, weight);
-    values.set(`att_weight_unit_${slot}`, 'g');
-    values.set(`att_length_${slot}`, length);
-    values.set(`att_length_unit_${slot}`, 'cm');
-    values.set(`att_width_${slot}`, width);
-    values.set(`att_width_unit_${slot}`, 'cm');
-    values.set(`att_height_${slot}`, height);
-    values.set(`att_height_unit_${slot}`, 'cm');
-    values.set(`att_discount_type_${slot}`, 'percentage');
-    values.set(`att_discount_percentage_${slot}`, 20);
-    values.set(`att_discount_value_${slot}`, 200);
-    values.set(
-      `att_product_url_slug_${slot}`,
-      `variable-demo-${String(colorValue).toLowerCase().replace(/\s+/g, '-')}-${String(sizeValue).toLowerCase().replace(/\s+/g, '-')}`,
-    );
-    values.set(`att_attribute_1_value_${slot}`, colorValue);
-    values.set(`att_attribute_2_value_${slot}`, sizeValue);
-  }
-
-  private buildVariableInlineSampleRow(
+  private buildVerticalStyleGroupVariantRow(
     headers: string[],
     options: {
       attributeOne: string;
-      attributeTwo: string;
-      variantCount?: number;
+      name: string;
+      styleGroupId: string;
+      productId: string;
+      sku: string;
+      sizeValue: string;
+      mrp: number;
+      sellingPrice: number;
+      stock: number;
+      slug: string;
     },
   ): Array<string | number | null> {
-    const variantCount = Math.min(Math.max(options.variantCount ?? 4, 1), 5);
     const values = new Map<string, string | number | null>([
-      ['Product Name*', 'Variable Demo Multivitamin Serum'],
+      ['Product Name*', options.name],
       ['Product Type *', 'variable'],
       ['Category *', 'Health & Wellness'],
       ['Brand*', 'Samsung'],
-      ['Vendor SKU', 'VAR-INLINE-DEMO-001'],
+      ['style_group_id', options.styleGroupId],
+      ['Product ID (String)', options.productId],
+      ['Product SKU Code*', options.sku],
       ['Attribute Details 1', options.attributeOne],
-      ['Attribute Details 2', options.attributeTwo],
-      ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
-      ['Product Status', 'active'],
-      ['Product ID (String)', '16808'],
-      ['Manufacturer Name', 'Hiran Agroceuticals Pvt. Ltd. No 91 Palamedu Road Madurai'],
-      ['Manufacturer Address', 'Hiran Agroceuticals Pvt. Ltd. No 91 Palamedu Road Madurai'],
-      ['Gallery Image 2 (Video) URL', 'https://example.com/videos/variable-demo.mp4'],
-      ['common_media_1_url', 'https://example.com/images/shared-hero.webp'],
-      ['common_media_2_url', 'https://example.com/images/shared-side.webp'],
-      ['common_media_3_url', 'https://example.com/videos/shared-demo.mp4'],
+      ['att_attribute_1_value_1', options.sizeValue],
+      ['MRP (Rs)*', options.mrp],
+      ['Selling Price (Rs)*', options.sellingPrice],
+      ['Quantity / Stock', options.stock],
+      ['Product URL Slug', options.slug],
+      ['Product Description', 'Vertical style_group_id sample — two rows bind into one variable product.'],
+      ['Product Status', 'published'],
+      ['Variant Status', 'active'],
     ]);
-
-    const variantDefs = [
-      { colorValue: 'Red', sizeValue: '100ml', mrp: 999, sellingPrice: 799, stock: 30, weight: 21, length: 10, width: 5, height: 5 },
-      { colorValue: 'Blue', sizeValue: '100ml', mrp: 999, sellingPrice: 799, stock: 25, weight: 25, length: 12, width: 6, height: 6 },
-      { colorValue: 'Green', sizeValue: '200ml', mrp: 1199, sellingPrice: 999, stock: 20, weight: 30, length: 14, width: 7, height: 7 },
-      { colorValue: 'Black', sizeValue: '200ml', mrp: 1199, sellingPrice: 999, stock: 15, weight: 35, length: 16, width: 8, height: 8 },
-      { colorValue: 'White', sizeValue: '100ml', mrp: 899, sellingPrice: 749, stock: 10, weight: 18, length: 9, width: 4, height: 4 },
-    ];
-
-    for (let slot = 1; slot <= variantCount; slot++) {
-      this.applyInlineVariantSlotValues(values, slot, variantDefs[slot - 1]);
-    }
 
     return headers.map((header) => values.get(header) ?? null);
   }

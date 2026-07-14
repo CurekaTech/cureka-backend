@@ -10,25 +10,16 @@ import {
   isVariableBulkUploadColumn,
   normalizeBulkUploadHeader,
   parseCategoryFilterNameFromHeader,
-  buildCategoryFilterColumnHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
 import {
-  IInlineVariantSlot,
-  MAX_GENERATED_VARIANTS,
   VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
-  createEmptyInlineVariantSlot,
-  flattenAttributeDetailNames,
-  isInlineVariantSlotUsed,
-  parseAttColumnHeader,
   parseAttributeDetailsFromRow,
 } from '../utils/bulk-upload-variable.util';
 import {
-  compactBulkUploadImageSequence,
   isCommonMediaBulkUploadColumn,
   parseCommonMediaColumns,
   parsePrimaryAndGalleryImages,
-  resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
 
@@ -48,8 +39,10 @@ export interface IParsedImage {
 export interface IParsedVariant {
   rowNumber: number;
   sku: string;
-  /** Optional variant slug from Product URL Slug / att_product_url_slug_N. */
+  /** Optional variant slug from Product URL Slug. */
   productUrlSlug?: string;
+  /** Per-row Product ID (String) for variant attach / persistence. */
+  externalProductId?: string;
   barcode?: string;
   gtinNumber?: string;
   hsnCode?: string;
@@ -123,9 +116,10 @@ export interface IParsedProductGroup {
   countryOfOrigin?: string;
   components?: string;
   expiresInMonths?: number;
-  variableUploadMode?: 'explicit' | 'inline';
+  /** Upload binder for vertical variable rows (not persisted). */
+  styleGroupId?: string;
+  variableUploadMode?: 'explicit';
   attributeDetailNames?: string[];
-  inlineVariantSlots?: Map<number, IInlineVariantSlot>;
   /** Shared media for variable products (type=common). */
   commonMedia: IParsedImage[];
   variants: IParsedVariant[];
@@ -405,7 +399,6 @@ export class BulkUploadParserService {
     const dynamicCategoryFilterColumns = this.extractDynamicCategoryFilterColumns(worksheet);
 
     const groupedProducts = new Map<string, IParsedProductGroup>();
-    let batchBuffer: IParsedProductGroup[] = [];
     let scannedRowsCount = 0;
 
     const rowCount = worksheet.rowCount;
@@ -438,64 +431,76 @@ export class BulkUploadParserService {
       );
 
       const name = getVal('product name');
-      const productType = (getVal('product type') || 'simple').toLowerCase();
+      const productTypeRaw = (getVal('product type') || 'simple').toLowerCase();
       const vendorSku = getVal('vendor sku');
       const bundleSku = getVal('bundle sku');
+      const styleGroupId = this.getFirstAvailable(getVal, [
+        'style_group_id',
+        'style group id',
+        'style group',
+      ]).trim();
 
       const productSkuCode = this.resolveProductSkuCode(getVal);
+      const rowExternalProductId =
+        this.getFirstAvailable(getVal, [
+          'product id (string)',
+          'product id',
+          'product id string',
+          'external product id',
+          'woocommerce product id',
+        ]) || undefined;
 
       // Skip row if it is completely empty
-      if (!name && !vendorSku && !bundleSku && !productSkuCode) {
+      if (!name && !vendorSku && !bundleSku && !productSkuCode && !styleGroupId) {
         continue;
       }
 
       scannedRowsCount++;
 
-      // Define grouping key to tie parent and child variants/bundles together
+      // Grouping: style_group_id binds vertical variants; otherwise one product per row (or bundle).
       let groupingKey = '';
-      if (productType === 'simple') {
-        groupingKey = `simple-${rowNumber}`;
-      } else if (productType === 'variable') {
-        groupingKey = `variable-${vendorSku || name}`;
-      } else if (productType === 'bundle') {
+      let effectiveProductType = productTypeRaw;
+      if (productTypeRaw === 'bundle') {
         groupingKey = `bundle-${bundleSku || name}`;
+      } else if (styleGroupId) {
+        groupingKey = `style-${styleGroupId.toLowerCase()}`;
+        // Will be coerced to simple vs variable after all rows for this key are collected.
+        effectiveProductType = 'variable';
+      } else {
+        groupingKey = `simple-${rowNumber}`;
+        effectiveProductType = productTypeRaw === 'variable' ? 'simple' : productTypeRaw;
       }
 
       let group = groupedProducts.get(groupingKey);
       const rowAttributeDetailNames = parseAttributeDetailsFromRow(getVal, headerMap);
-      const inlineVariantSlots = this.parseInlineVariantSlots(row, headerMap);
-      const isInlineVariable =
-        productType === 'variable' && this.hasInlineVariableInput(inlineVariantSlots);
+      const isNewGroup = !group;
 
       if (!group) {
-        // Create new parent group
         group = {
           rowNumber,
           name,
-          externalProductId:
-            this.getFirstAvailable(getVal, [
-              'product id (string)',
-              'product id',
-              'product id string',
-              'external product id',
-              'woocommerce product id',
-            ]) ||
-            undefined,
+          externalProductId: rowExternalProductId,
           singleProductUrl: getVal('single product url') || undefined,
           manufacturerAddress: getVal('manufacturer address') || undefined,
           packerAddress: getVal('packer address') || undefined,
           importerAddress: getVal('importer address') || undefined,
           packMetadata: this.parsePackMetadata(getVal),
           productNature: getVal('product nature'),
-          productType,
+          productType: effectiveProductType,
           category: getVal('category'),
           subCategory: getVal('sub category') || undefined,
           subSubCategory: getVal('sub sub category') || undefined,
           subSubSubCategory: getVal('sub sub sub category') || undefined,
           brand: getVal('brand') || undefined,
-          healthConcerns: getVal('health concerns') ? getVal('health concerns').split('|').map(s => s.trim()).filter(Boolean) : [],
-          wellnessGoals: getVal('wellness goals') ? getVal('wellness goals').split('|').map(s => s.trim()).filter(Boolean) : [],
-          productTags: getVal('product tags') ? getVal('product tags').split('|').map(s => s.trim()).filter(Boolean) : [],
+          healthConcerns: getVal('health concerns')
+            ? getVal('health concerns').split('|').map((s) => s.trim()).filter(Boolean)
+            : [],
+          wellnessGoals: getVal('wellness goals')
+            ? getVal('wellness goals').split('|').map((s) => s.trim()).filter(Boolean)
+            : [],
+          productTags: getVal('product tags')
+            ? getVal('product tags').split('|').map((s) => s.trim()).filter(Boolean)
+            : [],
           vendor: this.getFirstAvailable(getVal, ['vendor', 'vendor name']) || undefined,
           vendorSku: vendorSku || undefined,
           productInformation,
@@ -503,30 +508,41 @@ export class BulkUploadParserService {
           metaTitle: getVal('meta title') || undefined,
           metaDescription: getVal('meta description') || undefined,
           slugUrl: getVal('slug url') || undefined,
-          metaKeywords: getVal('meta keywords') ? getVal('meta keywords').split(',').map(s => s.trim()).filter(Boolean) : [],
+          metaKeywords: getVal('meta keywords')
+            ? getVal('meta keywords').split(',').map((s) => s.trim()).filter(Boolean)
+            : [],
           categoryFilters: this.parseCategoryFilters(getVal('category filters')),
           sizeChart: resolveBulkUploadSizeChart(
             getVal('size chart url'),
             this.getFirstAvailable(getVal, ['size chart filename/path', 'size chart']),
           ),
           subscriptionEnabled: getVal('subscription available').toLowerCase() === 'yes',
-          returnAllowed: getVal('return policy').toLowerCase().includes('return') || getVal('return window days') !== '',
+          returnAllowed:
+            getVal('return policy').toLowerCase().includes('return') ||
+            getVal('return window days') !== '',
           returnPolicy: getVal('return policy') || undefined,
-          returnWindowDays: getVal('return window days') ? parseInt(getVal('return window days'), 10) : undefined,
+          returnWindowDays: getVal('return window days')
+            ? parseInt(getVal('return window days'), 10)
+            : undefined,
           codAvailable: getVal('cod available').toLowerCase() === 'yes',
           emiAvailable: getVal('emi available').toLowerCase() === 'yes',
           replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
-          replaceWindowDays: getVal('replacement window days') ? parseInt(getVal('replacement window days'), 10) : undefined,
+          replaceWindowDays: getVal('replacement window days')
+            ? parseInt(getVal('replacement window days'), 10)
+            : undefined,
           status: getVal('product status') || undefined,
-          manufacturer: this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
+          manufacturer:
+            this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
           packer: this.getFirstAvailable(getVal, ['packer', 'packer name']) || undefined,
           importer: this.getFirstAvailable(getVal, ['importer', 'importer name']) || undefined,
           countryOfOrigin: getVal('country of origin') || undefined,
           components: getVal('components') || undefined,
-          expiresInMonths: getVal('shelf life in months') ? parseInt(getVal('shelf life in months'), 10) : undefined,
-          variableUploadMode: isInlineVariable ? 'inline' : productType === 'variable' ? 'explicit' : undefined,
+          expiresInMonths: getVal('shelf life in months')
+            ? parseInt(getVal('shelf life in months'), 10)
+            : undefined,
+          styleGroupId: styleGroupId || undefined,
+          variableUploadMode: styleGroupId ? 'explicit' : undefined,
           attributeDetailNames: rowAttributeDetailNames.length ? rowAttributeDetailNames : undefined,
-          inlineVariantSlots: isInlineVariable ? inlineVariantSlots : undefined,
           commonMedia: parseCommonMediaColumns(getVal, headerMap),
           variants: [],
           bundleItems: [],
@@ -539,7 +555,6 @@ export class BulkUploadParserService {
           group.categoryFilters = [...group.categoryFilters, ...dynamicCategoryFilters];
         }
 
-        // Parse up to 10 FAQs
         for (let i = 1; i <= 10; i++) {
           const question = getVal(`faq ${i} question`);
           const answer = getRichVal(`faq ${i} answer`);
@@ -549,12 +564,12 @@ export class BulkUploadParserService {
         }
 
         groupedProducts.set(groupingKey, group);
-        if (group.variableUploadMode === 'inline') {
-          this.expandInlineVariants(group);
-        }
-        batchBuffer.push(group);
       } else {
-        // Merge common media from later rows of the same variable/bundle group
+        if (name && name !== group.name) {
+          this.logger.warn(
+            `[BULK_UPLOAD] style_group_id=${styleGroupId}: row ${rowNumber} name "${name}" differs from first row "${group.name}" (first row wins)`,
+          );
+        }
         const rowCommonMedia = parseCommonMediaColumns(getVal, headerMap);
         if (rowCommonMedia.length) {
           const existingKeys = new Set(
@@ -572,7 +587,7 @@ export class BulkUploadParserService {
           }
         }
 
-        if (productType === 'variable' && rowAttributeDetailNames.length) {
+        if (rowAttributeDetailNames.length) {
           group.attributeDetailNames = rowAttributeDetailNames;
         } else if (productInformation.length) {
           group.productInformation = this.mergeProductInformation(
@@ -582,253 +597,92 @@ export class BulkUploadParserService {
         }
       }
 
-      // Add variant details if simple or variable
-      if ((productType === 'simple' || productType === 'variable') && !this.shouldSkipInlineParentVariant(group)) {
-        const mrp = parseFloat(getVal('mrp (rs)')) || 0;
-        const sellingPrice =
-          parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) || 0;
-        const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
-        const stock = parseInt(getVal('quantity / stock'), 10) || 0;
-        const weight = parseFloat(getVal('weight (kg)')) || undefined;
-        const length = parseFloat(getVal('length (cm)')) || undefined;
-        const width = parseFloat(getVal('width (cm)')) || undefined;
-        const height = parseFloat(getVal('height (cm)')) || undefined;
-
-        const attributeDetailNames =
-          group.attributeDetailNames?.length
-            ? group.attributeDetailNames
-            : parseAttributeDetailsFromRow(getVal, headerMap);
-        const attributes = this.parseVariantAttributes(getVal, headerMap, attributeDetailNames);
-        const images = this.parseVariantImages(getVal);
-
-        group.variants.push({
-          rowNumber,
-          sku: productSkuCode,
-          productUrlSlug:
-            this.getFirstAvailable(getVal, ['product url slug', 'product_url_slug']) || undefined,
-          barcode: getVal('barcode (ean/upc)') || undefined,
-          gtinNumber: getVal('gtin number') || undefined,
-          hsnCode: getVal('hsn code') || undefined,
-          batchNumber: getVal('batch number') || undefined,
-          expiryDate: this.parseExpiryDate(getVal('expiry date')),
-          mrp,
-          sellingPrice,
-          discountPercentage,
-          taxClass: getVal('tax class') || undefined,
-          stock,
-          weight,
-          weightUnit: getVal('weight unit') || undefined,
-          length,
-          lengthUnit: getVal('dimension unit') || undefined,
-          width,
-          widthUnit: getVal('dimension unit') || undefined,
-          height,
-          heightUnit: getVal('dimension unit') || undefined,
-          status: getVal('variant status') || undefined,
-          attributes,
-          images,
-        });
-      }
-
-      // Add bundle component details if bundle
-      if (productType === 'bundle') {
+      // Bundle rows
+      if (productTypeRaw === 'bundle') {
         group.bundleItems.push({
           rowNumber,
           childSku: getVal('child sku'),
           quantity: parseInt(getVal('child quantity'), 10) || 1,
         });
+        continue;
       }
 
-      // Trigger batch callback once buffer matches size
-      if (batchBuffer.length >= batchSize) {
-        await onBatch(batchBuffer, scannedRowsCount);
-        batchBuffer = [];
-      }
+      // Vertical variant / simple row → one variant entry
+      const mrp = parseFloat(getVal('mrp (rs)')) || 0;
+      const sellingPrice =
+        parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) ||
+        0;
+      const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
+      const stock = parseInt(getVal('quantity / stock'), 10) || 0;
+      const weight = parseFloat(getVal('weight (kg)')) || undefined;
+      const length = parseFloat(getVal('length (cm)')) || undefined;
+      const width = parseFloat(getVal('width (cm)')) || undefined;
+      const height = parseFloat(getVal('height (cm)')) || undefined;
+
+      const attributeDetailNames =
+        group.attributeDetailNames?.length
+          ? group.attributeDetailNames
+          : parseAttributeDetailsFromRow(getVal, headerMap);
+      const attributes = this.parseVariantAttributes(getVal, headerMap, attributeDetailNames);
+      const images = this.parseVariantImages(getVal);
+
+      group.variants.push({
+        rowNumber,
+        sku: productSkuCode,
+        productUrlSlug:
+          this.getFirstAvailable(getVal, ['product url slug', 'product_url_slug']) || undefined,
+        externalProductId: rowExternalProductId,
+        barcode: getVal('barcode (ean/upc)') || undefined,
+        gtinNumber: getVal('gtin number') || undefined,
+        hsnCode: getVal('hsn code') || undefined,
+        batchNumber: getVal('batch number') || undefined,
+        expiryDate: this.parseExpiryDate(getVal('expiry date')),
+        mrp,
+        sellingPrice,
+        discountPercentage,
+        taxClass: getVal('tax class') || undefined,
+        stock,
+        weight,
+        weightUnit: getVal('weight unit') || undefined,
+        length,
+        lengthUnit: getVal('dimension unit') || undefined,
+        width,
+        widthUnit: getVal('dimension unit') || undefined,
+        height,
+        heightUnit: getVal('dimension unit') || undefined,
+        status: getVal('variant status') || undefined,
+        attributes,
+        images,
+      });
+
+      void isNewGroup;
     }
 
-    // Flush any remaining items in buffer
-    if (batchBuffer.length > 0) {
-      await onBatch(batchBuffer, scannedRowsCount);
+    // Finalize style groups: single row stays simple; 2+ rows → variable.
+    const finalizedGroups: IParsedProductGroup[] = [];
+    for (const group of groupedProducts.values()) {
+      if (group.styleGroupId) {
+        if (group.variants.length >= 2) {
+          group.productType = 'variable';
+          group.variableUploadMode = 'explicit';
+        } else {
+          group.productType = 'simple';
+          group.variableUploadMode = undefined;
+        }
+      }
+      finalizedGroups.push(group);
+    }
+
+    for (let offset = 0; offset < finalizedGroups.length; offset += batchSize) {
+      const batch = finalizedGroups.slice(offset, offset + batchSize);
+      await onBatch(batch, scannedRowsCount);
     }
 
     return scannedRowsCount;
   }
 
-  private expandInlineVariants(group: IParsedProductGroup): void {
-    const attributeNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
-    group.attributeDetailNames = attributeNames.length ? attributeNames : group.attributeDetailNames;
-    const slots = group.inlineVariantSlots ?? new Map<number, IInlineVariantSlot>();
-
-    const usedSlots = [...slots.entries()]
-      .filter(([, slot]) => isInlineVariantSlotUsed(slot))
-      .sort(([a], [b]) => a - b);
-
-    if (!usedSlots.length) {
-      return;
-    }
-
-    if (usedSlots.length > MAX_GENERATED_VARIANTS) {
-      throw new BadRequestException(
-        `Variable product "${group.name}" defines ${usedSlots.length} inline variants, which exceeds the limit of ${MAX_GENERATED_VARIANTS}.`,
-      );
-    }
-
-    group.variants = usedSlots.map(([variantIndex, slot]) => {
-      const images = compactBulkUploadImageSequence(
-        slot.images.map((image) => ({
-          filename: image.filename,
-          url: image.url,
-          isPrimary: false,
-          sortOrder: image.sortOrder,
-        })),
-      );
-
-      const attributes: IParsedAttribute[] = [];
-      for (let attributeIndex = 1; attributeIndex <= 5; attributeIndex++) {
-        const value = slot.attributeValues.get(attributeIndex);
-        if (!value?.trim()) continue;
-        const name =
-          attributeNames[attributeIndex - 1] ??
-          `Attribute ${attributeIndex}`;
-        attributes.push({ name, value });
-      }
-
-      return {
-        rowNumber: group.rowNumber,
-        sku: '',
-        productUrlSlug: slot.productUrlSlug,
-        mrp: slot.mrp ?? 0,
-        sellingPrice: slot.sellingPrice ?? 0,
-        discountPercentage: slot.discountPercentage,
-        stock: slot.stock ?? 0,
-        weight: slot.weight,
-        weightUnit: slot.weightUnit,
-        length: slot.length,
-        lengthUnit: slot.lengthUnit,
-        width: slot.width,
-        widthUnit: slot.widthUnit,
-        height: slot.height,
-        heightUnit: slot.heightUnit,
-        attributes,
-        images,
-      };
-    });
-  }
-
-  private hasInlineVariableInput(slots: Map<number, IInlineVariantSlot>): boolean {
-    return [...slots.values()].some((slot) => isInlineVariantSlotUsed(slot));
-  }
-
-  private parseInlineVariantSlots(
-    row: exceljs.Row,
-    headerMap: Map<string, number>,
-  ): Map<number, IInlineVariantSlot> {
-    const slots = new Map<number, IInlineVariantSlot>();
-
-    const ensureSlot = (variantIndex: number): IInlineVariantSlot => {
-      const existing = slots.get(variantIndex);
-      if (existing) return existing;
-      const created = createEmptyInlineVariantSlot();
-      slots.set(variantIndex, created);
-      return created;
-    };
-
-    for (const [normalizedHeader, columnIndex] of headerMap.entries()) {
-      const meta = parseAttColumnHeader(normalizedHeader);
-      if (!meta) continue;
-
-      const raw = this.getCellText(row.getCell(columnIndex));
-      if (!raw.trim()) continue;
-
-      const slot = ensureSlot(meta.variantIndex);
-
-      switch (meta.field) {
-        case 'mrp':
-          slot.mrp = parseFloat(raw) || 0;
-          break;
-        case 'selling_price':
-          slot.sellingPrice = parseFloat(raw) || 0;
-          break;
-        case 'stock':
-          slot.stock = parseInt(raw, 10) || 0;
-          break;
-        case 'discount_type':
-          slot.discountType = raw;
-          break;
-        case 'discount_percentage':
-          slot.discountPercentage = this.normalizeDiscountPercentage(raw);
-          break;
-        case 'discount_value':
-          slot.discountValue = parseFloat(raw) || 0;
-          break;
-        case 'weight':
-          slot.weight = parseFloat(raw) || undefined;
-          break;
-        case 'weight_unit':
-          slot.weightUnit = raw;
-          break;
-        case 'length':
-          slot.length = parseFloat(raw) || undefined;
-          break;
-        case 'length_unit':
-          slot.lengthUnit = raw;
-          break;
-        case 'width':
-          slot.width = parseFloat(raw) || undefined;
-          break;
-        case 'width_unit':
-          slot.widthUnit = raw;
-          break;
-        case 'height':
-          slot.height = parseFloat(raw) || undefined;
-          break;
-        case 'height_unit':
-          slot.heightUnit = raw;
-          break;
-        case 'product_url_slug':
-          slot.productUrlSlug = raw.trim() || undefined;
-          break;
-        case 'attribute_value':
-          if (meta.attributeIndex) {
-            slot.attributeValues.set(meta.attributeIndex, raw);
-          }
-          break;
-        case 'image':
-          this.upsertInlineSlotImage(slot, meta.imageIndex ?? 1, { filename: raw });
-          break;
-        case 'image_url':
-          this.upsertInlineSlotImage(slot, meta.imageIndex ?? 1, { url: raw });
-          break;
-        default:
-          break;
-      }
-    }
-
-    for (const slot of slots.values()) {
-      slot.images.sort((a, b) => a.sortOrder - b.sortOrder);
-    }
-
-    return slots;
-  }
-
   private parseVariantImages(getVal: (columnName: string) => string): IParsedImage[] {
     return parsePrimaryAndGalleryImages(getVal, (names) => this.getFirstAvailable(getVal, names));
-  }
-
-  private upsertInlineSlotImage(
-    slot: IInlineVariantSlot,
-    imageIndex: number,
-    patch: { filename?: string; url?: string },
-  ): void {
-    const sortOrder = imageIndex - 1;
-    const existing = slot.images.find((image) => image.sortOrder === sortOrder);
-    if (existing) {
-      if (patch.url) existing.url = patch.url;
-      if (patch.filename) existing.filename = patch.filename;
-      return;
-    }
-
-    slot.images.push({ ...patch, sortOrder });
   }
 
   private parseVariantAttributes(
@@ -841,7 +695,10 @@ export class BulkUploadParserService {
 
     for (let index = 1; index <= maxIndex; index++) {
       const name = attributeDetailNames[index - 1];
-      const value = getVal(`att_attribute_${index}_value_1`);
+      const value =
+        getVal(`att_attribute_${index}_value_1`) ||
+        getVal(`attribute ${index} value`) ||
+        getVal(`att attribute ${index} value`);
       if (!value.trim() || !name?.trim()) continue;
 
       attributes.push({
@@ -861,10 +718,6 @@ export class BulkUploadParserService {
       maxIndex = Math.max(maxIndex, parseInt(match[1], 10));
     }
     return maxIndex;
-  }
-
-  private shouldSkipInlineParentVariant(group: IParsedProductGroup): boolean {
-    return group.variableUploadMode === 'inline';
   }
 
   /**
@@ -908,18 +761,9 @@ export class BulkUploadParserService {
     activeCategoryFilterNames: ReadonlySet<string>,
   ): void {
     // Unknown CF_* columns are ignored (older templates / deleted filters).
-    // Only Active master filters are parsed into category filter bindings.
-    for (const normalizedHeader of headerMap.keys()) {
-      if (!isBulkUploadCategoryFilterColumn(normalizedHeader)) {
-        continue;
-      }
-
-      const filterName = parseCategoryFilterNameFromHeader(normalizedHeader);
-      const normalizedFilterName = filterName?.toLowerCase().trim();
-      if (!normalizedFilterName || !activeCategoryFilterNames.has(normalizedFilterName)) {
-        unknownColumns.push(buildCategoryFilterColumnHeader(filterName || normalizedHeader));
-      }
-    }
+    // Active master filters are applied when cell values are present.
+    void headerMap;
+    void activeCategoryFilterNames;
   }
 
   private parseExpiryDate(raw: string): string | undefined {
@@ -946,6 +790,11 @@ export class BulkUploadParserService {
     const columnMap = new Map<number, { label: string; sortOrder: number }>();
 
     for (const [normalizedHeader, columnIndex] of headerMap.entries()) {
+      // style_group_id binds vertical variants — always treat as a fixed sheet column.
+      if (/^style[\s_-]*group[\s_-]*id$/i.test(normalizedHeader.trim())) {
+        continue;
+      }
+
       if (isFixedBulkUploadColumn(normalizedHeader)) {
         continue;
       }

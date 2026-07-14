@@ -75,6 +75,15 @@ export class CreateVariantDto {
   })
   slug?: string;
 
+  @ApiPropertyOptional({
+    example: '54141',
+    description: 'External / WooCommerce product ID for this variant (vertical style_group upload).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  externalProductId?: string;
+
   @ApiPropertyOptional({ example: 'VSKU-001' })
   @IsOptional()
   @IsString()

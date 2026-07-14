@@ -24,6 +24,7 @@ export interface IProductVariant {
   id: string;
   sku: string;
   slug: string;
+  externalProductId: string | null;
   vendorSku: string | null;
   barcode: string | null;
   gtinNumber: string | null;
