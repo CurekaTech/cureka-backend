@@ -70,6 +70,7 @@ export class BulkUploadValidatorService {
   private tagMap = new Map<string, string>(); // name (lowercase) -> refId/slug
   private attributeMap = new Map<string, string>(); // name (lowercase) -> refId
   private manufacturerMap = new Map<string, string>(); // name (lowercase) -> refId
+  private manufacturerByCodeMap = new Map<string, string>(); // code (lowercase) -> refId
   private packerMap = new Map<string, string>(); // name (lowercase) -> refId
   private importerMap = new Map<string, string>(); // name (lowercase) -> refId
   private countryMap = new Map<string, string>(); // name (lowercase) -> refId
@@ -141,7 +142,7 @@ export class BulkUploadValidatorService {
         where: ACTIVE_MASTER_WHERE,
       }),
       this.dataSource.getRepository(ManufacturerEntity).find({
-        select: ['name', 'refId'],
+        select: ['name', 'refId', 'code'],
         where: ACTIVE_MASTER_WHERE,
       }),
       this.dataSource.getRepository(PackerEntity).find({
@@ -220,6 +221,9 @@ export class BulkUploadValidatorService {
         m.name.toLowerCase().replace(/\s+/g, ' ').trim(),
         m.refId,
       ]),
+    );
+    this.manufacturerByCodeMap = new Map(
+      manufacturers.map((m: any) => [String(m.code).toLowerCase().trim(), m.refId]),
     );
     this.packerMap = new Map(packers.map((p: any) => [p.name.toLowerCase().trim(), p.refId]));
     this.importerMap = new Map(importers.map((i: any) => [i.name.toLowerCase().trim(), i.refId]));
@@ -423,6 +427,20 @@ export class BulkUploadValidatorService {
     const normalized = name.toLowerCase().replace(/\s+/g, ' ').trim();
     if (!normalized) return undefined;
     return this.manufacturerMap.get(normalized);
+  }
+
+  /** Resolve manufacturer by unique import code (EXT{Product ID}). */
+  resolveManufacturerRefIdByCode(code: string): string | undefined {
+    const normalized = code.toLowerCase().trim();
+    if (!normalized) return undefined;
+    return this.manufacturerByCodeMap.get(normalized);
+  }
+
+  /** Resolve manufacturer imported for a Product ID (code = EXT{id}). */
+  resolveManufacturerRefIdByProductId(productId: string): string | undefined {
+    const id = productId.trim();
+    if (!id) return undefined;
+    return this.resolveManufacturerRefIdByCode(`EXT${id}`);
   }
 
   /**
