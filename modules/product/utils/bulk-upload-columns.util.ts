@@ -1,6 +1,15 @@
 /** Normalizes spreadsheet header text for lookup (matches parser cleanHeader). */
-export const normalizeBulkUploadHeader = (header: string): string =>
-  header.toLowerCase().replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+export const normalizeBulkUploadHeader = (header: string): string => {
+  const lowered = header.toLowerCase().replace(/\*/g, '').trim();
+  const underscored = lowered.replace(/\s+/g, '_');
+
+  // Keep underscores for structured column families parsed by regex.
+  if (/^att_/.test(underscored) || /^common_media_\d+/.test(underscored)) {
+    return underscored;
+  }
+
+  return lowered.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+};
 
 /** Canonical bulk-upload column order (fixed columns only). */
 export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
@@ -123,6 +132,8 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Gallery Image 4 URL',
   'Gallery Image 5',
   'Gallery Image 5 URL',
+  'Gallery Image 6',
+  'Gallery Image 6 URL',
   'common_media_1',
   'common_media_1_url',
   'common_media_2',
@@ -133,6 +144,8 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'common_media_4_url',
   'common_media_5',
   'common_media_5_url',
+  'common_media_6',
+  'common_media_6_url',
   'Meta Title',
   'Meta Description',
   'Slug URL',

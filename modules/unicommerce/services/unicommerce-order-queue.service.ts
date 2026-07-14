@@ -20,17 +20,26 @@ export class UnicommerceOrderQueueService {
 
   async enqueuePushOrder(orderId: string) {
     if (!this.configService.get<boolean>('unicommerceOrder.enabled')) {
-      this.logger.log(`UniCommerce order push disabled; not enqueuing order ${orderId}`);
+      this.logger.warn(
+        `UniCommerce order push disabled (UNICOMMERCE_ORDER_PUSH_ENABLED=false); not enqueuing order ${orderId}`,
+      );
       return null;
     }
 
     const data: PushOrderToUnicommerceJobData = { orderId };
-    return this.queue.add(UNICOMMERCE_JOB_NAMES.PUSH_ORDER, data, {
+    const job = await this.queue.add(UNICOMMERCE_JOB_NAMES.PUSH_ORDER, data, {
       jobId: `unicommerce-push-${orderId}`,
       attempts: 5,
       backoff: { type: 'exponential', delay: 30000 },
       removeOnComplete: 1000,
       removeOnFail: 1000,
     });
+
+    this.logger.log(
+      { orderId, jobId: job.id, queueName: QUEUE_NAMES.UNICOMMERCE },
+      'Enqueued UniCommerce order push job',
+    );
+
+    return job;
   }
 }

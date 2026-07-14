@@ -1,7 +1,7 @@
 export const BULK_UPLOAD_VARIANT_IMAGE_COUNT = 5;
-export const BULK_UPLOAD_GALLERY_IMAGE_COUNT = 5;
+export const BULK_UPLOAD_GALLERY_IMAGE_COUNT = 6;
 /** Sample template shows this many common_media columns; upload accepts any N. */
-export const BULK_UPLOAD_COMMON_MEDIA_SAMPLE_COUNT = 5;
+export const BULK_UPLOAD_COMMON_MEDIA_SAMPLE_COUNT = 6;
 
 export const isRemoteImageUrl = (value: string): boolean =>
   /^https?:\/\//i.test(value.trim());
@@ -16,9 +16,11 @@ export const isBulkUploadImageUrlValue = (value: string): boolean =>
 export interface IBulkUploadImageInput {
   filename?: string;
   url?: string;
-  isPrimary?: boolean;
+  isPrimary: boolean;
   sortOrder: number;
 }
+
+export type BulkUploadImageGetVal = (columnName: string) => string;
 
 /**
  * Media fields require a URL (public http(s) or storage key).
@@ -41,7 +43,6 @@ export const resolveBulkUploadImageInput = (
     normalizedFilename = undefined;
   }
 
-  // URL is required for every media field
   if (!normalizedUrl) {
     return null;
   }
@@ -55,6 +56,75 @@ export const resolveBulkUploadImageInput = (
 export const isBulkUploadImagePresent = (
   image: Pick<IBulkUploadImageInput, 'filename' | 'url'>,
 ): boolean => Boolean(image.url?.trim());
+
+const pushResolvedImage = (
+  images: IBulkUploadImageInput[],
+  filename?: string,
+  url?: string,
+): void => {
+  const resolved = resolveBulkUploadImageInput(filename, url);
+  if (!resolved) return;
+
+  images.push({
+    ...resolved,
+    isPrimary: false,
+    sortOrder: images.length,
+  });
+};
+
+/**
+ * Removes empty image slots and assigns contiguous primary/sort-order values.
+ * The first resolvable image becomes primary regardless of its source column.
+ */
+export const compactBulkUploadImageSequence = <T extends IBulkUploadImageInput>(
+  images: T[],
+): T[] =>
+  images
+    .filter((image) => isBulkUploadImagePresent(image))
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((image, index) => ({
+      ...image,
+      isPrimary: index === 0,
+      sortOrder: index,
+    }));
+
+/**
+ * Reads Primary Image + Gallery Image 2..N columns in sheet order.
+ * First non-empty slot becomes primary (sortOrder 0); gaps are removed.
+ */
+export const parsePrimaryAndGalleryImages = (
+  getVal: BulkUploadImageGetVal,
+  getFirstAvailable: (names: string[]) => string,
+): IBulkUploadImageInput[] => {
+  const images: IBulkUploadImageInput[] = [];
+
+  pushResolvedImage(
+    images,
+    getFirstAvailable(['primary image filename', 'primary_image_filename', 'primary image', 'primary image path']),
+    getFirstAvailable(['primary image url', 'primary_image_url']),
+  );
+
+  for (let index = 2; index <= BULK_UPLOAD_GALLERY_IMAGE_COUNT; index += 1) {
+    const nameColumns =
+      index === 2
+        ? ['gallery image 2', 'gallery image 2 (video)', 'gallery_image_2', 'gallery_image_2_video']
+        : [`gallery image ${index}`, `gallery_image_${index}`];
+    const urlColumns =
+      index === 2
+        ? [
+            'gallery image 2 url',
+            'gallery image 2 (video) url',
+            'gallery_image_2_url',
+            'gallery_image_2_video_url',
+          ]
+        : [`gallery image ${index} url`, `gallery_image_${index}_url`];
+
+    pushResolvedImage(images, getFirstAvailable(nameColumns), getFirstAvailable(urlColumns));
+  }
+
+  void getVal;
+  return compactBulkUploadImageSequence(images);
+};
 
 export const resolveBulkUploadSizeChart = (
   url?: string,
@@ -72,10 +142,9 @@ export const resolveBulkUploadSizeChart = (
 export const isBulkUploadSizeChartResolvableWithoutGallery = (value: string): boolean =>
   isRemoteImageUrl(value) || /^images\//i.test(value.trim());
 
-/** Matches common_media_1 / common_media_1_url / "common media 1" / "common media 1 url". */
+/** Matches common_media_1 / common_media_1_url after header normalization. */
 export const isCommonMediaBulkUploadColumn = (normalizedHeader: string): boolean =>
-  /^common_media_\d+(_url)?$/.test(normalizedHeader) ||
-  /^common media \d+( url)?$/.test(normalizedHeader);
+  /^common_media_\d+(_url)?$/.test(normalizedHeader);
 
 export const buildCommonMediaTemplateHeaders = (
   count = BULK_UPLOAD_COMMON_MEDIA_SAMPLE_COUNT,
@@ -89,43 +158,32 @@ export const buildCommonMediaTemplateHeaders = (
 
 /**
  * Reads common_media_1..N (+ optional name, required URL) from a row.
- * Template ships with 5 sample columns; any higher index present in the sheet is accepted.
+ * Template ships with 6 sample columns; any higher index present in the sheet is accepted.
  * Entries without a URL are skipped (name-only is not enough).
  */
 export const parseCommonMediaColumns = (
   getVal: (columnName: string) => string,
   headerMap: Map<string, number>,
-): Array<{ filename?: string; url?: string; isPrimary: boolean; sortOrder: number }> => {
+): IBulkUploadImageInput[] => {
   const indexes = new Set<number>();
 
   for (const header of headerMap.keys()) {
     const snake = header.match(/^common_media_(\d+)(_url)?$/);
     if (snake) {
       indexes.add(parseInt(snake[1], 10));
-      continue;
-    }
-    const spaced = header.match(/^common media (\d+)( url)?$/);
-    if (spaced) {
-      indexes.add(parseInt(spaced[1], 10));
     }
   }
 
-  const sortedIndexes = [...indexes].sort((a, b) => a - b);
-  const images: Array<{ filename?: string; url?: string; isPrimary: boolean; sortOrder: number }> =
-    [];
+  const sortedIndexes = [...indexes].sort((left, right) => left - right);
+  const images: IBulkUploadImageInput[] = [];
 
   for (const index of sortedIndexes) {
-    const resolved = resolveBulkUploadImageInput(
-      getVal(`common_media_${index}`) || getVal(`common media ${index}`),
-      getVal(`common_media_${index}_url`) || getVal(`common media ${index} url`),
+    pushResolvedImage(
+      images,
+      getVal(`common_media_${index}`),
+      getVal(`common_media_${index}_url`),
     );
-    if (!resolved) continue;
-    images.push({
-      ...resolved,
-      isPrimary: images.length === 0,
-      sortOrder: images.length,
-    });
   }
 
-  return images;
+  return compactBulkUploadImageSequence(images);
 };

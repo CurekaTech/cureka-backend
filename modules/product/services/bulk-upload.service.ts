@@ -312,9 +312,9 @@ export class BulkUploadService {
     this.addReferenceWorksheet(workbook, 'Attribute Reference', [
       'Attribute Name',
       'Use In Sheet Column',
-    ], activeAttributesResult.map((attribute) => [
+    ], activeAttributesResult.map((attribute, index) => [
       attribute.name,
-      'Attribute Details',
+      index < 5 ? `Attribute Details ${index + 1}` : 'Attribute Details N',
     ]));
 
     this.addReferenceWorksheet(workbook, 'Category Filter Reference', [
@@ -495,7 +495,8 @@ export class BulkUploadService {
       ['Category *', 'Health & Wellness'],
       ['Brand*', 'Samsung'],
       ['Vendor SKU', 'VAR-INLINE-DEMO-001'],
-      ['Attribute Details', `${options.attributeOne} | ${options.attributeTwo}`],
+      ['Attribute Details 1', options.attributeOne],
+      ['Attribute Details 2', options.attributeTwo],
       ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
       ['Product Status', 'active'],
       ['common_media_1_url', 'https://example.com/images/shared-hero.webp'],

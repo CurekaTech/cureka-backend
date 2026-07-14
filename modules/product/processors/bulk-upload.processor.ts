@@ -9,6 +9,7 @@ import { BulkUploadValidatorService, IValidationError } from '../services/bulk-u
 import {
   isBulkUploadSizeChartResolvableWithoutGallery,
   isRemoteImageUrl,
+  compactBulkUploadImageSequence,
 } from '../utils/bulk-upload-image.util';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
@@ -385,6 +386,17 @@ export class BulkUploadProcessor extends WorkerHost {
                       processedImages.push(resolved);
                     }
                   }
+                  const normalizedVariantImages = compactBulkUploadImageSequence(
+                    processedImages.map((item) => ({
+                      url: item.url,
+                      isPrimary: item.isPrimary,
+                      sortOrder: item.sortOrder,
+                    })),
+                  ).map((item) => ({
+                    url: item.url!,
+                    isPrimary: item.isPrimary ?? false,
+                    sortOrder: item.sortOrder,
+                  }));
 
                   const processedAttributes = v.attributes
                     ? v.attributes
@@ -424,7 +436,7 @@ export class BulkUploadProcessor extends WorkerHost {
                     heightUnit: v.heightUnit,
                     status: v.status,
                     attributes: processedAttributes,
-                    images: processedImages,
+                    images: normalizedVariantImages,
                   };
                 })
               ) : undefined;
@@ -440,7 +452,6 @@ export class BulkUploadProcessor extends WorkerHost {
                   );
                   continue;
                 }
-                // Same as admin CRUD: media[] with type=common, variantSku omitted
                 processedCommonMedia.push(
                   this.toCommonMediaDto(resolved, processedCommonMedia.length),
                 );
