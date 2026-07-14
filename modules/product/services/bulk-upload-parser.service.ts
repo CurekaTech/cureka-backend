@@ -10,7 +10,6 @@ import {
   isVariableBulkUploadColumn,
   normalizeBulkUploadHeader,
   parseCategoryFilterNameFromHeader,
-  buildCategoryFilterColumnHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
 import {
@@ -31,6 +30,7 @@ import {
   resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
+import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
 
 export interface IParsedAttribute {
   name: string;
@@ -917,25 +917,14 @@ export class BulkUploadParserService {
       const filterName = parseCategoryFilterNameFromHeader(normalizedHeader);
       const normalizedFilterName = filterName?.toLowerCase().trim();
       if (!normalizedFilterName || !activeCategoryFilterNames.has(normalizedFilterName)) {
-        unknownColumns.push(buildCategoryFilterColumnHeader(filterName || normalizedHeader));
+        continue;
       }
     }
   }
 
   private parseExpiryDate(raw: string): string | undefined {
-    const value = raw.trim();
-    if (!value) return undefined;
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return value;
-    }
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return undefined;
-    }
-
-    return parsed.toISOString().slice(0, 10);
+    const normalized = normalizeExpiryDateInput(raw);
+    return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : undefined;
   }
 
   private resolveProductInformationColumns(

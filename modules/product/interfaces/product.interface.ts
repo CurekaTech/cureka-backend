@@ -29,6 +29,7 @@ export interface IProductVariant {
   gtinNumber: string | null;
   hsnCode: string | null;
   batchNumber: string | null;
+  /** Expiry date as `dd-mm-yyyy` in API responses. */
   expiryDate: string | null;
   mrp: number;
   sellingPrice: number;

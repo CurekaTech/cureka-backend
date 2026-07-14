@@ -217,7 +217,8 @@ export const collectProductMedia = (dto: CreateProductDto): CreateProductMediaDt
   return normalizePrimaryFlags([...fromMedia, ...fromVariants]);
 };
 
+/** True when the payload explicitly includes media fields (including empty arrays = clear/replace). */
 export const hasVariantMediaInPayload = (variants: CreateVariantDto[] | undefined): boolean =>
   (variants?.some(
-    (variant) => (variant.images?.length ?? 0) > 0 || (variant.imageUrls?.length ?? 0) > 0,
+    (variant) => variant.images !== undefined || variant.imageUrls !== undefined,
   ) ?? false);
