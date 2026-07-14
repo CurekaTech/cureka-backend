@@ -29,6 +29,7 @@ import {
   resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
+import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
 
 export interface IParsedAttribute {
   name: string;
@@ -939,19 +940,8 @@ export class BulkUploadParserService {
   }
 
   private parseExpiryDate(raw: string): string | undefined {
-    const value = raw.trim();
-    if (!value) return undefined;
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return value;
-    }
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return undefined;
-    }
-
-    return parsed.toISOString().slice(0, 10);
+    const normalized = normalizeExpiryDateInput(raw);
+    return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : undefined;
   }
 
   private resolveProductInformationColumns(

@@ -12,6 +12,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
   ValidateIf,
@@ -31,6 +32,7 @@ import {
   ADMIN_PRODUCT_LIST_SORT_FIELDS,
   AdminProductListSortField,
 } from '../constants/admin-product-list-sort.constants';
+import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
 
 export class ProductPackMetadataDto {
   @ApiProperty({ example: 1 })
@@ -253,6 +255,19 @@ export class CreateProductDto {
   @IsInt()
   @Min(1)
   expiresInMonths?: number;
+
+  @ApiPropertyOptional({
+    example: '31-12-2026',
+    description:
+      'Expiry date for simple products (dd-mm-yyyy). Applied to the single variant when variants[].expiryDate is omitted. For variable products, send expiryDate on each variants[] entry instead.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => normalizeExpiryDateInput(value))
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'expiryDate must be a valid date in dd-mm-yyyy format',
+  })
+  expiryDate?: string;
 
   @ApiPropertyOptional({ default: false })
   @IsOptional()

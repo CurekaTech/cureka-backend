@@ -44,7 +44,21 @@ export class SimpleProductStrategy implements IProductCreationStrategy {
       throw new BadRequestException('Simple products cannot have variant attributes');
     }
 
-    await this.variantsRepository.createVariants(manager, product.id, product.slug, variants, attributeIdByRefId);
+    const [variant] = variants;
+    const variantsWithExpiry = [
+      {
+        ...variant!,
+        expiryDate: variant!.expiryDate ?? dto.expiryDate,
+      },
+    ];
+
+    await this.variantsRepository.createVariants(
+      manager,
+      product.id,
+      product.slug,
+      variantsWithExpiry,
+      attributeIdByRefId,
+    );
   }
 }
 

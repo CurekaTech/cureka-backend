@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -11,6 +11,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -18,6 +19,7 @@ import {
 } from 'class-validator';
 import { APP_CONSTANTS, IsRefId } from '@packages/common';
 import { ProductMediaType } from '../enums/product-media-type.enum';
+import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
 
 export class VariantAttributeValueDto {
   @ApiProperty({ example: 'COL20261234', description: 'Attribute master refId' })
@@ -105,10 +107,16 @@ export class CreateVariantDto {
   @MaxLength(100)
   batchNumber?: string;
 
-  @ApiPropertyOptional({ example: '2026-12-31', description: 'ISO date (YYYY-MM-DD)' })
+  @ApiPropertyOptional({
+    example: '31-12-2026',
+    description: 'Expiry date in dd-mm-yyyy (also accepts yyyy-mm-dd). Stored on the variant.',
+  })
   @IsOptional()
+  @Transform(({ value }) => normalizeExpiryDateInput(value))
   @IsString()
-  @MaxLength(10)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'expiryDate must be a valid date in dd-mm-yyyy format',
+  })
   expiryDate?: string;
 
   @ApiProperty({ example: 1200 })

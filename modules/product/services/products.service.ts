@@ -548,12 +548,21 @@ export class ProductsService {
       }
 
       if (needsVariantSync && dto.variants) {
+        const variantsForSync =
+          effectiveProductType === ProductType.SIMPLE && dto.expiryDate
+            ? dto.variants.map((variant, index) =>
+                index === 0
+                  ? { ...variant, expiryDate: variant.expiryDate ?? dto.expiryDate }
+                  : variant,
+              )
+            : dto.variants;
+
         await this.variantsRepository.syncVariants(
           manager,
           existing.id,
           productSlug,
           effectiveProductType,  // use the new type, not the old one
-          dto.variants,
+          variantsForSync,
           attributeIdByRefId,
         );
       }

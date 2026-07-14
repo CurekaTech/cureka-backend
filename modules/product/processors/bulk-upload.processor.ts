@@ -481,6 +481,28 @@ export class BulkUploadProcessor extends WorkerHost {
                 (item) => item.label.toLowerCase().trim() === 'description',
               )?.description;
 
+              const sheetHadCommonMedia = (group.commonMedia?.length ?? 0) > 0;
+              const sheetHadVariantImages = (group.variants ?? []).some(
+                (variant) => (variant.images?.length ?? 0) > 0,
+              );
+              const shouldSyncMedia = sheetHadCommonMedia || sheetHadVariantImages;
+
+              const existingProductRefId =
+                this.validatorService.resolveExistingProductRefIdForGroup(group);
+
+              // On update: only include images/media when the sheet had image columns,
+              // so we REPLACE product_media instead of appending / leaving orphans.
+              // Empty resolved arrays still mean "clear and replace with what's on the sheet".
+              // When the sheet has no image columns, omit images so existing media is kept.
+              const variantsForDto = processedVariants?.map((variant) => {
+                if (existingProductRefId && !shouldSyncMedia) {
+                  const { images: _omitImages, ...rest } = variant;
+                  return rest;
+                }
+                // Create, or update with image columns on the sheet → explicit images[] (replace semantics)
+                return variant;
+              });
+
               const dto: CreateProductDto = {
                 name: group.name,
                 productType: group.productType as ProductType,
@@ -528,8 +550,15 @@ export class BulkUploadProcessor extends WorkerHost {
                 expiresInMonths: group.expiresInMonths,
                 customFaqs: group.faqs && group.faqs.length > 0 ? group.faqs : undefined,
                 productInformation: normalizedProductInformation,
-                media: processedCommonMedia.length ? processedCommonMedia : undefined,
-                variants: processedVariants,
+                media:
+                  existingProductRefId
+                    ? shouldSyncMedia
+                      ? processedCommonMedia
+                      : undefined
+                    : processedCommonMedia.length
+                      ? processedCommonMedia
+                      : undefined,
+                variants: variantsForDto,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {
                       const childRefId = this.validatorService.resolveProductRefIdBySku(item.childSku);
@@ -544,8 +573,14 @@ export class BulkUploadProcessor extends WorkerHost {
               const sheetRows = countSheetRowsForProductGroup(group);
               const variantSlots = countVariantSlotsForProductGroup(group);
 
-              const existingProductRefId = this.validatorService.resolveExistingProductRefIdForGroup(group);
               if (existingProductRefId) {
+                const resolvedVariantImageCount = (processedVariants ?? []).reduce(
+                  (n, v) => n + (('images' in v && Array.isArray(v.images) ? v.images.length : 0)),
+                  0,
+                );
+                this.logger.log(
+                  `[BULK_UPLOAD] updating product="${group.name}" refId=${existingProductRefId} shouldSyncMedia=${shouldSyncMedia} common=${processedCommonMedia.length} variantImages=${shouldSyncMedia ? resolvedVariantImageCount : 0}`,
+                );
                 await this.productsService.update(
                   existingProductRefId,
                   dto as UpdateProductDto,

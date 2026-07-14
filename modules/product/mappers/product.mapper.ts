@@ -18,6 +18,7 @@ import { mapCategoryEntityToDetailResponse } from '@modules/master/mappers/categ
 import { mapBrandEntityToResponse } from '@modules/master/mappers/brand.mapper';
 import { mapProductNatureEntityToResponse } from '@modules/master/mappers/product-nature.mapper';
 import { mapManufacturerEntityToResponse } from '@modules/master/mappers/manufacturer.mapper';
+import { formatExpiryDateOutput } from '../utils/expiry-date.util';
 import { mapPackerEntityToResponse } from '@modules/master/mappers/packer.mapper';
 import { mapImporterEntityToResponse } from '@modules/master/mappers/importer.mapper';
 import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapper';
@@ -207,7 +208,7 @@ const mapVariant = (
   gtinNumber: variant.gtinNumber,
   hsnCode: variant.hsnCode,
   batchNumber: variant.batchNumber,
-  expiryDate: variant.expiryDate,
+  expiryDate: formatExpiryDateOutput(variant.expiryDate),
   mrp: toNumber(variant.mrp) ?? 0,
   sellingPrice: toNumber(variant.sellingPrice) ?? 0,
   discountPercentage: toNumber(variant.discountPercentage),
