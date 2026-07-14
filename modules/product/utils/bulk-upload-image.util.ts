@@ -91,6 +91,7 @@ export const compactBulkUploadImageSequence = <T extends IBulkUploadImageInput>(
 /**
  * Reads Primary Image + Gallery Image 2..N columns in sheet order.
  * First non-empty slot becomes primary (sortOrder 0); gaps are removed.
+ * Video columns are included when present.
  */
 export const parsePrimaryAndGalleryImages = (
   getVal: BulkUploadImageGetVal,
@@ -121,6 +122,33 @@ export const parsePrimaryAndGalleryImages = (
 
     pushResolvedImage(images, getFirstAvailable(nameColumns), getFirstAvailable(urlColumns));
   }
+
+  void getVal;
+  return compactBulkUploadImageSequence(images);
+};
+
+/**
+ * Reads only explicit video columns from the bulk sheet.
+ */
+export const parseVideoImages = (
+  getVal: BulkUploadImageGetVal,
+  getFirstAvailable: (names: string[]) => string,
+): IBulkUploadImageInput[] => {
+  const images: IBulkUploadImageInput[] = [];
+
+  pushResolvedImage(
+    images,
+    getFirstAvailable([
+      'gallery image 2 (video)',
+      'gallery_image_2_video',
+      'gallery image 2 video',
+    ]),
+    getFirstAvailable([
+      'gallery image 2 (video) url',
+      'gallery_image_2_video_url',
+      'gallery image 2 video url',
+    ]),
+  );
 
   void getVal;
   return compactBulkUploadImageSequence(images);

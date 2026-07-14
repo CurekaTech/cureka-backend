@@ -11,12 +11,20 @@ import {
   isRemoteImageUrl,
   compactBulkUploadImageSequence,
 } from '../utils/bulk-upload-image.util';
+import {
+  buildImagesFromLookupUrls,
+  loadImageUrlsByProductId,
+  loadManufacturerAddressByProductId,
+  normalizeLookupProductId,
+} from '../utils/bulk-upload-reference-lookup.util';
+import { toStoredManufacturerName } from '../../master/utils/manufacturer-stored-name.util';
 import { ProductsService } from '../services/products.service';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductMediaDto } from '../dto/variant.dto';
@@ -278,13 +286,31 @@ export class BulkUploadProcessor extends WorkerHost {
     const tempFilePath = join(tempDir, `${uploadRefId}-${Date.now()}.bin`);
 
     try {
-      // 1. Prime validation cache and load Media Gallery mappings
+      // 1. Prime validation cache, load Media Gallery mappings, and Product ID lookups
       await this.validatorService.primeValidationCache();
       const galleryMap = await this.galleryService.getAllGalleryMap();
+      const manufacturerLookup = await loadManufacturerAddressByProductId();
+      const imageLookup = await loadImageUrlsByProductId();
       console.log('[BULK_UPLOAD_DEBUG][Processor.process] CACHE_AND_GALLERY_READY', {
         uploadRefId,
         galleryImageCount: galleryMap.size,
+        manufacturerLookupLoaded: manufacturerLookup.loaded,
+        manufacturerLookupCount: manufacturerLookup.byProductId.size,
+        manufacturerLookupPath: manufacturerLookup.path,
+        imageLookupLoaded: imageLookup.loaded,
+        imageLookupCount: imageLookup.byProductId.size,
+        imageLookupPath: imageLookup.path,
       });
+      if (!manufacturerLookup.loaded) {
+        this.logger.warn(
+          `Manufacturer lookup file not loaded (${manufacturerLookup.path}). Manufacturer auto-attach by Product ID is disabled for this job.`,
+        );
+      }
+      if (!imageLookup.loaded) {
+        this.logger.warn(
+          `Image lookup file not loaded (${imageLookup.path}). Image auto-attach by Product ID is disabled for this job.`,
+        );
+      }
 
       // Update status to processing in database
       await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
@@ -329,6 +355,7 @@ export class BulkUploadProcessor extends WorkerHost {
             groups: batch.map((group) => ({
               rowNumber: group.rowNumber,
               name: group.name,
+              externalProductId: group.externalProductId ?? null,
               category: group.category,
               subCategory: group.subCategory,
               subSubCategory: group.subSubCategory,
@@ -376,9 +403,47 @@ export class BulkUploadProcessor extends WorkerHost {
               }
 
               const refs = this.validatorService.resolveReferences(group);
-              
+              const lookupProductId = normalizeLookupProductId(group.externalProductId);
+              const lookupManufacturerAddress = lookupProductId
+                ? manufacturerLookup.byProductId.get(lookupProductId)
+                : undefined;
+              const lookupImageUrls = lookupProductId
+                ? imageLookup.byProductId.get(lookupProductId)
+                : undefined;
+
+              // Sheet Manufacturer Name wins; otherwise Product ID lookup fills in.
+              let autoManufacturerRefId = refs.manufacturerRefId;
+              if (!autoManufacturerRefId && lookupManufacturerAddress && lookupProductId) {
+                const storedName = toStoredManufacturerName(
+                  lookupManufacturerAddress,
+                  lookupProductId,
+                );
+                autoManufacturerRefId =
+                  this.validatorService.resolveManufacturerRefIdByName(storedName) ||
+                  this.validatorService.resolveManufacturerRefIdByName(
+                    lookupManufacturerAddress,
+                  );
+                if (!autoManufacturerRefId) {
+                  this.logger.warn(
+                    `[BULK_UPLOAD] Product ID ${lookupProductId}: manufacturer address found but no manufacturers.name match for "${storedName}"`,
+                  );
+                }
+              } else if (!autoManufacturerRefId && lookupProductId && manufacturerLookup.loaded) {
+                this.logger.warn(
+                  `[BULK_UPLOAD] Product ID ${lookupProductId}: no Manufacture Address lookup row`,
+                );
+              } else if (!lookupProductId) {
+                this.logger.warn(
+                  `[BULK_UPLOAD] row=${group.rowNumber} name="${group.name}": Product ID (String) is empty — manufacturer/images lookup skipped`,
+                );
+              }
+
+              // Sheet Manufacturer Address wins; otherwise use lookup address text.
+              const resolvedManufacturerAddress =
+                group.manufacturerAddress?.trim() || lookupManufacturerAddress || undefined;
+
               const processedVariants = group.variants ? await Promise.all(
-                group.variants.map(async (v) => {
+                group.variants.map(async (v, variantIndex) => {
                   const processedImages = [];
                   for (const img of v.images) {
                     const resolved = await this.resolveBulkUploadImage(img, galleryMap);
@@ -386,6 +451,24 @@ export class BulkUploadProcessor extends WorkerHost {
                       processedImages.push(resolved);
                     }
                   }
+
+                  // Sheet images win when present; Product ID lookup fills when empty.
+                  if (processedImages.length === 0 && lookupImageUrls?.length) {
+                    const shouldApplyLookup =
+                      group.productType !== 'variable' || variantIndex === 0;
+                    if (shouldApplyLookup) {
+                      for (const item of buildImagesFromLookupUrls(lookupImageUrls)) {
+                        const resolved = await this.resolveBulkUploadImage(
+                          { url: item.url, isPrimary: item.isPrimary, sortOrder: item.sortOrder },
+                          galleryMap,
+                        );
+                        if (resolved) {
+                          processedImages.push(resolved);
+                        }
+                      }
+                    }
+                  }
+
                   const normalizedVariantImages = compactBulkUploadImageSequence(
                     processedImages.map((item) => ({
                       url: item.url,
@@ -415,6 +498,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
                   return {
                     sku: v.sku,
+                    slug: v.productUrlSlug,
                     vendorSku: group.vendorSku,
                     barcode: v.barcode,
                     gtinNumber: v.gtinNumber,
@@ -443,12 +527,24 @@ export class BulkUploadProcessor extends WorkerHost {
 
               const processedCommonMedia: CreateProductMediaDto[] = [];
               const unresolvedCommonMedia: IParsedImage[] = [];
-              for (const img of group.commonMedia ?? []) {
+              const commonMediaSource =
+                group.commonMedia?.length
+                  ? group.commonMedia
+                  : lookupImageUrls?.length && group.productType === 'variable'
+                    ? buildImagesFromLookupUrls(lookupImageUrls).map((item) => ({
+                        url: item.url,
+                        isPrimary: item.isPrimary,
+                        sortOrder: item.sortOrder,
+                      }))
+                    : [];
+              for (const img of commonMediaSource) {
                 const resolved = await this.resolveBulkUploadImage(img, galleryMap);
                 if (!resolved?.url) {
-                  unresolvedCommonMedia.push(img);
+                  unresolvedCommonMedia.push(img as IParsedImage);
+                  const filename =
+                    'filename' in img && typeof img.filename === 'string' ? img.filename : '';
                   this.logger.warn(
-                    `[BULK_UPLOAD] common media unresolved product="${group.name}" filename=${img.filename ?? ''} url=${img.url ?? ''}`,
+                    `[BULK_UPLOAD] common media unresolved product="${group.name}" filename=${filename} url=${img.url ?? ''}`,
                   );
                   continue;
                 }
@@ -457,8 +553,42 @@ export class BulkUploadProcessor extends WorkerHost {
                 );
               }
               this.logger.log(
-                `[BULK_UPLOAD] product="${group.name}" commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length} types=${processedCommonMedia.map((m) => m.type).join(',')}`,
+                `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId || '(empty)'} manufacturerRef=${autoManufacturerRefId || '(none)'} manufacturerAddress=${resolvedManufacturerAddress ? 'yes' : 'no'} commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length} variantImages=${processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0}`,
               );
+
+              if (lookupProductId && lookupManufacturerAddress && !autoManufacturerRefId) {
+                failedSheetRows += countSheetRowsForProductGroup(group);
+                failedVariantSlots += countVariantSlotsForProductGroup(group);
+                allErrors.push({
+                  rowNumber: group.rowNumber,
+                  sku: group.variants?.[0]?.sku || 'PARENT',
+                  column: 'Product ID (String)',
+                  invalidValue: lookupProductId,
+                  reason: `Product ID ${lookupProductId} has a Manufacture Address lookup, but no manufacturers.name match (expected "${toStoredManufacturerName(lookupManufacturerAddress, lookupProductId)}"). Run manufacturer-address:import first.`,
+                  suggestedFix:
+                    'Re-run manufacturer:reset + manufacturer-address:import, then upload again with Product ID (String) filled.',
+                });
+                continue;
+              }
+
+              const resolvedImageCount =
+                (processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0) +
+                processedCommonMedia.length;
+              if (lookupProductId && lookupImageUrls?.length && resolvedImageCount === 0) {
+                failedSheetRows += countSheetRowsForProductGroup(group);
+                failedVariantSlots += countVariantSlotsForProductGroup(group);
+                allErrors.push({
+                  rowNumber: group.rowNumber,
+                  sku: group.variants?.[0]?.sku || 'PARENT',
+                  column: 'Product ID (String)',
+                  invalidValue: lookupProductId,
+                  reason: `Product ID ${lookupProductId} has ${lookupImageUrls.length} lookup image URL(s), but none could be downloaded/stored.`,
+                  suggestedFix:
+                    'Check that the WC image URLs are reachable, or put Primary Image URL / common_media URLs directly in the sheet.',
+                });
+                continue;
+              }
+
               if (unresolvedCommonMedia.length) {
                 for (const img of unresolvedCommonMedia) {
                   allErrors.push({
@@ -540,7 +670,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 externalProductId: group.externalProductId,
                 singleProductUrl: group.singleProductUrl,
                 packMetadata: group.packMetadata.length ? group.packMetadata : undefined,
-                manufacturerAddress: group.manufacturerAddress,
+                manufacturerAddress: resolvedManufacturerAddress,
                 packerAddress: group.packerAddress,
                 importerAddress: group.importerAddress,
                 metaTitle: group.metaTitle,
@@ -553,7 +683,7 @@ export class BulkUploadProcessor extends WorkerHost {
                         group.sizeChart,
                     )
                   : undefined,
-                manufacturerRefId: refs.manufacturerRefId,
+                ...(autoManufacturerRefId ? { manufacturerRefId: autoManufacturerRefId } : {}),
                 packerRefId: refs.packerRefId,
                 importerRefId: refs.importerRefId,
                 countryOfOriginRefId: refs.countryOfOriginRefId,
@@ -584,6 +714,13 @@ export class BulkUploadProcessor extends WorkerHost {
               const sheetRows = countSheetRowsForProductGroup(group);
               const variantSlots = countVariantSlotsForProductGroup(group);
 
+              const sheetStatus = (group.status ?? '').toLowerCase().trim();
+              const publishFromSheet =
+                sheetStatus === 'published' ||
+                sheetStatus === 'active' ||
+                sheetStatus === 'publish';
+
+              let savedProductRefId = existingProductRefId;
               if (existingProductRefId) {
                 const resolvedVariantImageCount = (processedVariants ?? []).reduce(
                   (n, v) => n + (('images' in v && Array.isArray(v.images) ? v.images.length : 0)),
@@ -599,8 +736,17 @@ export class BulkUploadProcessor extends WorkerHost {
                 );
                 productsUpdated += 1;
               } else {
-                await this.productsService.createDraft(dto, 'system-bulk-upload');
+                const created = await this.productsService.createDraft(dto, 'system-bulk-upload');
+                savedProductRefId = created.refId;
                 productsCreated += 1;
+              }
+
+              if (publishFromSheet && savedProductRefId) {
+                await this.productsService.updateStatus(
+                  savedProductRefId,
+                  { status: ProductStatus.PUBLISHED },
+                  'system-bulk-upload',
+                );
               }
               successfulSheetRows += sheetRows;
               successfulVariantSlots += variantSlots;

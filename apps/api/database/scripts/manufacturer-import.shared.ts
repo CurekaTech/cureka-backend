@@ -47,22 +47,24 @@ export const cellText = (cell: ExcelJS.Cell): string => {
 };
 
 /**
- * Builds a manufacturer code in the format: PREFIX + YEAR + 4-digit number.
+ * Builds a manufacturer code in the format: PREFIX + YEAR + 6-digit number.
  *
  * Format:
- *   [3-letter prefix from name][4-digit year][4-digit random]
+ *   [3-letter prefix from name][4-digit year][6-digit random]
+ *
+ * 6-digit random supports bulk imports (10k+ rows) that share a prefix.
  *
  * @example
- *   generateMasterCode('Pregnancy Glow') // → 'PRE20261356'
- *   generateMasterCode('3M India')       // → 'MIN20268042'
+ *   generateMasterCode('Pregnancy Glow') // → 'PRE20261356842'
+ *   generateMasterCode('3M India')       // → 'MIN20268042117'
  */
 export const generateMasterCode = (name: string): string => {
   const letters = name.replace(/[^a-zA-Z]/g, '').toUpperCase();
   const prefix = (letters.slice(0, 3) || 'MFG').padEnd(3, 'X');
   const year = new Date().getFullYear();
-  const bytes = randomBytes(2);
-  const number = ((bytes[0]! << 8) | bytes[1]!) % 10000;
-  const sequence = number.toString().padStart(4, '0');
+  const bytes = randomBytes(3);
+  const number = ((bytes[0]! << 16) | (bytes[1]! << 8) | bytes[2]!) % 1_000_000;
+  const sequence = number.toString().padStart(6, '0');
   return `${prefix}${year}${sequence}`;
 };
 
@@ -106,7 +108,7 @@ export const reserveUniqueManufacturerCode = (
   name: string,
   codes: Set<string>,
 ): string => {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     const code = generateMasterCode(name);
     if (!codes.has(code)) {
       codes.add(code);
@@ -120,7 +122,7 @@ export const reserveUniqueManufacturerRefId = (
   name: string,
   refIds: Set<string>,
 ): string => {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     const refId = generateRefId(name);
     if (!refIds.has(refId)) {
       refIds.add(refId);
