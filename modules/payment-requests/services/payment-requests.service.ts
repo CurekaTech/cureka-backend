@@ -16,6 +16,8 @@ import { UserAddressesService } from '@modules/users/services/user-addresses.ser
 import { CartService } from '@modules/orders/services/cart.service';
 import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
+import { OrderSource } from '@modules/orders/enums/order-source.enum';
+import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
 import {
@@ -38,7 +40,6 @@ import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util'
 import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
-import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 
 @Injectable()
 export class PaymentRequestsService {
@@ -64,14 +65,18 @@ export class PaymentRequestsService {
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) { }
 
-  async checkoutFromCart(userId: string, addressId: string) {
+  async checkoutFromCart(userId: string, addressId: string, orderSource?: OrderSource) {
     if ((await this.checkoutResolver.resolveProvider()) === 'shiprocket') {
-      return this.createShiprocketCheckoutSession(userId, addressId);
+      return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     if (activeGateway === 'cashfree') {
-      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(userId, addressId);
+      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
+        userId,
+        addressId,
+        orderSource,
+      );
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
@@ -121,7 +126,11 @@ export class PaymentRequestsService {
     } else if (activeGateway === 'payu') {
       throw new BadRequestException('PayU payment gateway is not fully implemented yet');
     } else {
-      const { paymentRequest } = await this.createCheckoutPaymentRequest(userId, addressId);
+      const { paymentRequest } = await this.createCheckoutPaymentRequest(
+        userId,
+        addressId,
+        orderSource,
+      );
 
       const withLink = await this.generateLink(paymentRequest.id, userId, undefined, {
         callbackUrl: this.getStorefrontPaymentCallbackUrl(),
@@ -144,14 +153,18 @@ export class PaymentRequestsService {
   }
 
   /** Storefront checkout modal — separate from payment-link flow. */
-  async checkoutModalFromCart(userId: string, addressId: string) {
+  async checkoutModalFromCart(userId: string, addressId: string, orderSource?: OrderSource) {
     if ((await this.checkoutResolver.resolveProvider()) === 'shiprocket') {
-      return this.createShiprocketCheckoutSession(userId, addressId);
+      return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     if (activeGateway === 'cashfree') {
-      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(userId, addressId);
+      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
+        userId,
+        addressId,
+        orderSource,
+      );
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
@@ -210,6 +223,7 @@ export class PaymentRequestsService {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
+        orderSource,
       );
 
       const amountPaise = Math.round(Number(totals.totalAmount) * 100);
@@ -377,7 +391,11 @@ export class PaymentRequestsService {
     return paymentRequest;
   }
 
-  private async createCheckoutPaymentRequest(userId: string, addressId: string) {
+  private async createCheckoutPaymentRequest(
+    userId: string,
+    addressId: string,
+    orderSource: OrderSource = OrderSource.WEBSITE,
+  ) {
     const summary = await this.checkoutService.validateCheckout(userId, { addressId });
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -437,6 +455,8 @@ export class PaymentRequestsService {
           totalAmount: totals.totalAmount,
           currency: 'INR',
           notes: 'Storefront checkout',
+          orderSource:
+            orderSource === OrderSource.APP ? OrderSource.APP : OrderSource.WEBSITE,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -466,8 +486,16 @@ export class PaymentRequestsService {
     return { paymentRequest, customer, totals };
   }
 
-  private async createShiprocketCheckoutSession(userId: string, addressId: string) {
-    const { paymentRequest, customer } = await this.createCheckoutPaymentRequest(userId, addressId);
+  private async createShiprocketCheckoutSession(
+    userId: string,
+    addressId: string,
+    orderSource?: OrderSource,
+  ) {
+    const { paymentRequest, customer } = await this.createCheckoutPaymentRequest(
+      userId,
+      addressId,
+      orderSource,
+    );
     const address = await this.userAddressesService.findOne(userId, addressId);
     const callbackUrl = this.getStorefrontPaymentCallbackUrl();
     const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
@@ -589,6 +617,7 @@ export class PaymentRequestsService {
           totalAmount: totals.totalAmount,
           currency: 'INR',
           notes: dto.notes ?? null,
+          orderSource: OrderSource.ADMIN,
           createdBy,
           updatedBy: createdBy,
         },
@@ -928,6 +957,7 @@ export class PaymentRequestsService {
         grandTotal: fresh.totalAmount,
         notes: fresh.notes ?? null,
         paymentMethod: fresh.paymentProvider as OrderPaymentMethod,
+        orderSource: fresh.orderSource ?? OrderSource.ADMIN,
         createdBy: updatedBy,
         ...couponDetails,
         platformFee: fresh.platformFee,

@@ -3,6 +3,7 @@ import { UserEntity } from '@modules/users/entities/user.entity';
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
+import { OrderSource } from '../enums/order-source.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderItemEntity } from './order-item.entity';
 
@@ -79,6 +80,16 @@ export class OrderEntity extends BaseEntity {
     default: OrderStatus.PENDING,
   })
   orderStatus!: OrderStatus;
+
+  @Index()
+  @Column({
+    name: 'order_source',
+    type: 'enum',
+    enum: OrderSource,
+    enumName: 'orders_order_source_enum',
+    default: OrderSource.WEBSITE,
+  })
+  orderSource!: OrderSource;
 
   @Column({ name: 'recipient_name', type: 'varchar', length: 150 })
   recipientName!: string;

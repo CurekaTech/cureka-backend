@@ -13,6 +13,7 @@ import {
 import { PaginationQueryDto } from '@packages/common';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
+import { OrderSource } from '../enums/order-source.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 
 export const ADMIN_ORDER_LIST_SORT_FIELDS = [
@@ -33,6 +34,11 @@ export class PlaceOrderDto {
 
   @IsEnum(OrderPaymentMethod)
   paymentMethod!: OrderPaymentMethod;
+
+  @IsOptional()
+  @IsEnum(OrderSource)
+  @IsIn([OrderSource.WEBSITE, OrderSource.APP])
+  orderSource?: OrderSource;
 
   @IsOptional()
   @IsString()
@@ -70,6 +76,10 @@ export class AdminOrderQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(OrderPaymentMethod)
   paymentMethod?: OrderPaymentMethod;
+
+  @IsOptional()
+  @IsEnum(OrderSource)
+  orderSource?: OrderSource;
 
   @IsOptional()
   @IsUUID()

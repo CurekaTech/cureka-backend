@@ -249,29 +249,21 @@ export const buildCategoryFilterColumnHeader = (filterName: string): string =>
   `CF_${filterName.trim()}`;
 
 /**
- * Category-filter headers are exported as CF_Name, but normalizeBulkUploadHeader
- * turns underscores into spaces, so the normalized form is "cf name" not "cf_name".
+ * Category-filter columns are `CF_<name>` (canonical).
+ * Also accept `CF <name>` because some spreadsheet editors turn `_` into a space.
  */
-export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean => {
-  const value = normalizedHeader.trim().toLowerCase();
-  return value.startsWith('cf ') || value.startsWith('cf_');
-};
+export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
+  /^cf([_\s]|$)/i.test(normalizedHeader);
 
+/** Extract filter name from a raw or normalized CF header (`CF_Age Group` / `cf age group`). */
 export const parseCategoryFilterNameFromHeader = (header: string): string | null => {
-  const original = header.trim();
-  if (!original) return null;
+  const trimmed = header.trim();
+  if (!trimmed) return null;
 
-  if (/^CF_/i.test(original)) {
-    const name = original.slice(3).trim();
-    return name || null;
-  }
+  const match = trimmed.match(/^CF[_\s]+(.+)$/i);
+  if (!match?.[1]) return null;
 
-  const normalized = normalizeBulkUploadHeader(original);
-  if (!isBulkUploadCategoryFilterColumn(normalized)) {
-    return null;
-  }
-
-  const name = normalized.replace(/^cf[\s_]+/i, '').trim();
+  const name = match[1].trim();
   return name || null;
 };
 

@@ -225,6 +225,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['brands.read'],
       },
       {
+        key: "country-of-origin",
+        name: "Country of Origin",
+        icon: "globe",
+        href: "/master/country",
+      },
+
+      {
         name: 'Health Concern',
         key: 'masters-health-concern',
         icon: 'HeartPulse',
@@ -378,7 +385,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
     icon: 'ShoppingBag',
     subItems: [
       {
-        name: 'Order Requests',
+        name: 'Admin Orders',
         key: 'orders-requests',
         icon: 'Receipt',
         href: '/order-requests',

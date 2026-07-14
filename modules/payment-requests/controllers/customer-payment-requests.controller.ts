@@ -24,7 +24,11 @@ export class CustomerPaymentRequestsController {
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutPaymentRequestDto,
   ) {
-    return this.paymentRequestsService.checkoutFromCart(user.sub, dto.addressId);
+    return this.paymentRequestsService.checkoutFromCart(
+      user.sub,
+      dto.addressId,
+      dto.orderSource,
+    );
   }
 
   @ApiOperation({ summary: 'Create Razorpay order for storefront checkout modal' })
@@ -34,7 +38,11 @@ export class CustomerPaymentRequestsController {
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutPaymentRequestDto,
   ) {
-    return this.paymentRequestsService.checkoutModalFromCart(user.sub, dto.addressId);
+    return this.paymentRequestsService.checkoutModalFromCart(
+      user.sub,
+      dto.addressId,
+      dto.orderSource,
+    );
   }
 
   @ApiOperation({ summary: 'Verify Razorpay checkout modal payment' })
