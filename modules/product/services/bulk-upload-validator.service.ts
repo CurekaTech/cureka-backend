@@ -215,7 +215,12 @@ export class BulkUploadValidatorService {
       this.attributeMap.set(normalizedName, refId);
       this.attributeMap.set(refId.toLowerCase().trim(), refId);
     }
-    this.manufacturerMap = new Map(manufacturers.map((m: any) => [m.name.toLowerCase().trim(), m.refId]));
+    this.manufacturerMap = new Map(
+      manufacturers.map((m: any) => [
+        m.name.toLowerCase().replace(/\s+/g, ' ').trim(),
+        m.refId,
+      ]),
+    );
     this.packerMap = new Map(packers.map((p: any) => [p.name.toLowerCase().trim(), p.refId]));
     this.importerMap = new Map(importers.map((i: any) => [i.name.toLowerCase().trim(), i.refId]));
     this.countryMap = new Map(countries.map((co: any) => [co.name.toLowerCase().trim(), co.refId]));
@@ -406,11 +411,18 @@ export class BulkUploadValidatorService {
       subSubSubCategoryRefId: group.subSubSubCategory ? this.subSubSubCategoryMap.get(group.subSubSubCategory.toLowerCase().trim()) : undefined,
       healthConcernRefIds: group.healthConcerns ? group.healthConcerns.map(hc => this.healthConcernMap.get(hc.toLowerCase().trim())!).filter(Boolean) : [],
       wellnessGoalRefIds: (group as any).wellnessGoals ? (group as any).wellnessGoals.map((wg: string) => this.wellnessGoalMap.get(wg.toLowerCase().trim())!).filter(Boolean) : [],
-      manufacturerRefId: group.manufacturer ? this.manufacturerMap.get(group.manufacturer.toLowerCase().trim()) : undefined,
+      manufacturerRefId: group.manufacturer ? this.manufacturerMap.get(group.manufacturer.toLowerCase().replace(/\s+/g, ' ').trim()) : undefined,
       packerRefId: group.packer ? this.packerMap.get(group.packer.toLowerCase().trim()) : undefined,
       importerRefId: group.importer ? this.importerMap.get(group.importer.toLowerCase().trim()) : undefined,
       countryOfOriginRefId: group.countryOfOrigin ? this.countryMap.get(group.countryOfOrigin.toLowerCase().trim()) : undefined,
     };
+  }
+
+  /** Resolve manufacturer master by exact/normalized name (addresses are stored as names). */
+  resolveManufacturerRefIdByName(name: string): string | undefined {
+    const normalized = name.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!normalized) return undefined;
+    return this.manufacturerMap.get(normalized);
   }
 
   /**
@@ -570,7 +582,9 @@ export class BulkUploadValidatorService {
       }
 
       if (group.manufacturer) {
-        const refId = this.manufacturerMap.get(group.manufacturer.toLowerCase().trim());
+        const refId = this.manufacturerMap.get(
+          group.manufacturer.toLowerCase().replace(/\s+/g, ' ').trim(),
+        );
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,

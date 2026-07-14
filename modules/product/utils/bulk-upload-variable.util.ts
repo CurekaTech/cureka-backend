@@ -35,6 +35,8 @@ export interface IInlineVariantSlot {
   widthUnit?: string;
   height?: number;
   heightUnit?: string;
+  /** Maps to product_variants.slug when provided. */
+  productUrlSlug?: string;
   attributeValues: Map<number, string>;
   images: Array<{ filename?: string; url?: string; sortOrder: number }>;
 }
@@ -236,6 +238,7 @@ export const buildAttVariantSlotHeaders = (
     'discount_type',
     'discount_percentage',
     'discount_value',
+    'product_url_slug',
   ] as const;
 
   const headers: string[] = [];
