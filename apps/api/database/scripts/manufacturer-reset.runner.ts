@@ -1,9 +1,9 @@
 /**
  * Prepares manufacturer master data before address import.
  *
- * 1. Ensures a single placeholder manufacturer exists: test_manufacture
+ * 1. Ensures placeholder manufacturer exists: test_manufacture
  * 2. Assigns every active product to test_manufacture
- * 3. Soft-deletes all other manufacturers
+ * 3. Hard-deletes all other manufacturers (including soft-deleted)
  *
  * Usage:
  *   npm run manufacturer:reset
@@ -19,12 +19,17 @@ import {
   findManufacturerByName,
   generateUniqueManufacturerCode,
   generateUniqueManufacturerRefId,
+  normalizeText,
 } from './manufacturer-import.shared';
 import { invalidateProductCache } from './product-cleanup.redis';
 
 const UPDATED_BY = 'manufacturer-reset';
 
 interface CliOptions {
+  apply: boolean;
+}
+
+interface ManufacturerResetOptions {
   apply: boolean;
 }
 
@@ -49,10 +54,6 @@ Options:
   return options;
 };
 
-interface ManufacturerResetOptions {
-  apply: boolean;
-}
-
 export const runManufacturerReset = async (options: ManufacturerResetOptions): Promise<void> => {
   console.log(
     `[manufacturer-reset] Mode: ${options.apply ? 'APPLY' : 'DRY RUN (no database changes)'}`,
@@ -70,14 +71,13 @@ export const runManufacturerReset = async (options: ManufacturerResetOptions): P
     let testManufacturer = await findManufacturerByName(manufacturerRepo, TEST_MANUFACTURER_NAME);
     const wouldCreateTestManufacturer = !testManufacturer;
 
-    const activeManufacturers = await manufacturerRepo
+    const allManufacturers = await manufacturerRepo
       .createQueryBuilder('manufacturer')
-      .where('manufacturer.deletedAt IS NULL')
+      .withDeleted()
       .getMany();
 
-    const otherManufacturers = activeManufacturers.filter(
-      (manufacturer) =>
-        normalizeName(manufacturer.name) !== normalizeName(TEST_MANUFACTURER_NAME),
+    const otherManufacturers = allManufacturers.filter(
+      (manufacturer) => normalizeText(manufacturer.name) !== normalizeText(TEST_MANUFACTURER_NAME),
     );
 
     const productCount = await productRepo
@@ -85,13 +85,13 @@ export const runManufacturerReset = async (options: ManufacturerResetOptions): P
       .where('product.deletedAt IS NULL')
       .getCount();
 
-    console.log(`[manufacturer-reset] Active products           : ${productCount}`);
-    console.log(`[manufacturer-reset] Active manufacturers      : ${activeManufacturers.length}`);
+    console.log(`[manufacturer-reset] Active products              : ${productCount}`);
+    console.log(`[manufacturer-reset] Manufacturers total          : ${allManufacturers.length}`);
     console.log(
-      `[manufacturer-reset] Placeholder manufacturer    : ${wouldCreateTestManufacturer ? 'will create' : testManufacturer!.refId}`,
+      `[manufacturer-reset] Placeholder manufacturer       : ${wouldCreateTestManufacturer ? 'will create' : testManufacturer!.refId}`,
     );
     console.log(
-      `[manufacturer-reset] Manufacturers to soft-delete: ${otherManufacturers.length}`,
+      `[manufacturer-reset] Manufacturers to hard-delete   : ${otherManufacturers.length}`,
     );
 
     if (!options.apply) {
@@ -131,19 +131,21 @@ export const runManufacturerReset = async (options: ManufacturerResetOptions): P
       .where('deleted_at IS NULL')
       .execute();
 
-    let deletedManufacturers = 0;
-    for (const manufacturer of otherManufacturers) {
-      await manufacturerRepo.softDelete({ id: manufacturer.id });
-      deletedManufacturers += 1;
-    }
+    // Hard-delete every manufacturer except test_manufacture (FK products already reassigned).
+    const deleteResult = await manufacturerRepo
+      .createQueryBuilder()
+      .delete()
+      .from(ManufacturerEntity)
+      .where('id != :testId', { testId: testManufacturer.id })
+      .execute();
 
     const cache = await invalidateProductCache([], false);
     console.log('\n[manufacturer-reset] Summary');
-    console.log(`  Products reassigned : ${assignResult.affected ?? 0}`);
-    console.log(`  Manufacturers removed: ${deletedManufacturers}`);
+    console.log(`  Products reassigned          : ${assignResult.affected ?? 0}`);
+    console.log(`  Manufacturers hard-deleted   : ${deleteResult.affected ?? otherManufacturers.length}`);
     console.log(
       cache.connected
-        ? `  Redis cache keys deleted: ${cache.keysDeleted}`
+        ? `  Redis cache keys deleted      : ${cache.keysDeleted}`
         : '  Redis unavailable; clear product cache before verification.',
     );
   } finally {
@@ -157,8 +159,6 @@ async function runCli(): Promise<void> {
   const options = parseCli(process.argv.slice(2));
   await runManufacturerReset(options);
 }
-
-const normalizeName = (value: string): string => value.toLowerCase().replace(/\s+/g, ' ').trim();
 
 if (require.main === module) {
   runCli().catch((error) => {

@@ -10,7 +10,6 @@ import {
   isVariableBulkUploadColumn,
   normalizeBulkUploadHeader,
   parseCategoryFilterNameFromHeader,
-  buildCategoryFilterColumnHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
 import {
@@ -31,6 +30,7 @@ import {
   resolveBulkUploadImageInput,
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
+import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
 
 export interface IParsedAttribute {
   name: string;
@@ -48,6 +48,8 @@ export interface IParsedImage {
 export interface IParsedVariant {
   rowNumber: number;
   sku: string;
+  /** Optional variant slug from Product URL Slug / att_product_url_slug_N. */
+  productUrlSlug?: string;
   barcode?: string;
   gtinNumber?: string;
   hsnCode?: string;
@@ -471,7 +473,13 @@ export class BulkUploadParserService {
           rowNumber,
           name,
           externalProductId:
-            this.getFirstAvailable(getVal, ['product id (string)', 'product id', 'product id string']) ||
+            this.getFirstAvailable(getVal, [
+              'product id (string)',
+              'product id',
+              'product id string',
+              'external product id',
+              'woocommerce product id',
+            ]) ||
             undefined,
           singleProductUrl: getVal('single product url') || undefined,
           manufacturerAddress: getVal('manufacturer address') || undefined,
@@ -596,6 +604,8 @@ export class BulkUploadParserService {
         group.variants.push({
           rowNumber,
           sku: productSkuCode,
+          productUrlSlug:
+            this.getFirstAvailable(getVal, ['product url slug', 'product_url_slug']) || undefined,
           barcode: getVal('barcode (ean/upc)') || undefined,
           gtinNumber: getVal('gtin number') || undefined,
           hsnCode: getVal('hsn code') || undefined,
@@ -686,6 +696,7 @@ export class BulkUploadParserService {
       return {
         rowNumber: group.rowNumber,
         sku: '',
+        productUrlSlug: slot.productUrlSlug,
         mrp: slot.mrp ?? 0,
         sellingPrice: slot.sellingPrice ?? 0,
         discountPercentage: slot.discountPercentage,
@@ -773,6 +784,9 @@ export class BulkUploadParserService {
           break;
         case 'height_unit':
           slot.heightUnit = raw;
+          break;
+        case 'product_url_slug':
+          slot.productUrlSlug = raw.trim() || undefined;
           break;
         case 'attribute_value':
           if (meta.attributeIndex) {
@@ -893,8 +907,8 @@ export class BulkUploadParserService {
     headerMap: Map<string, number>,
     activeCategoryFilterNames: ReadonlySet<string>,
   ): void {
-    const unknownColumns: string[] = [];
-
+    // Unknown CF_* columns are ignored (older templates / deleted filters).
+    // Only Active master filters are parsed into category filter bindings.
     for (const normalizedHeader of headerMap.keys()) {
       if (!isBulkUploadCategoryFilterColumn(normalizedHeader)) {
         continue;
@@ -903,31 +917,14 @@ export class BulkUploadParserService {
       const filterName = parseCategoryFilterNameFromHeader(normalizedHeader);
       const normalizedFilterName = filterName?.toLowerCase().trim();
       if (!normalizedFilterName || !activeCategoryFilterNames.has(normalizedFilterName)) {
-        unknownColumns.push(buildCategoryFilterColumnHeader(filterName || normalizedHeader));
+        continue;
       }
-    }
-
-    if (unknownColumns.length > 0) {
-      throw new BadRequestException(
-        `Invalid template. These category filter columns are not recognized or are inactive in master records: ${unknownColumns.join(', ')}`,
-      );
     }
   }
 
   private parseExpiryDate(raw: string): string | undefined {
-    const value = raw.trim();
-    if (!value) return undefined;
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return value;
-    }
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return undefined;
-    }
-
-    return parsed.toISOString().slice(0, 10);
+    const normalized = normalizeExpiryDateInput(raw);
+    return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : undefined;
   }
 
   private resolveProductInformationColumns(

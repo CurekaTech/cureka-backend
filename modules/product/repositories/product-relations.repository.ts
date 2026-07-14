@@ -242,7 +242,13 @@ export class ProductRelationsRepository {
     skuToVariantId: Map<string, string>,
   ): Promise<void> {
     const repo = manager.getRepository(ProductMediaEntity);
-    await repo.delete({ productId });
+    // Hard-replace: remove every product_media row for this product, then insert payload.
+    await repo
+      .createQueryBuilder()
+      .delete()
+      .from(ProductMediaEntity)
+      .where('product_id = :productId', { productId })
+      .execute();
     await this.createMedia(manager, productId, media, skuToVariantId);
   }
 

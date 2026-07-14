@@ -3,9 +3,9 @@
  *
  * Runs in order (apply mode):
  *   1. Ensure test_manufacture exists and all products point to it
- *   2. Soft-delete other active manufacturers
- *   3. Permanently purge soft-deleted manufacturers
- *   4. Import all rows from the manufacturer XLSX into manufacturers
+ *   2. Hard-delete every other manufacturer (including soft-deleted junk)
+ *   3. Import Manufacture Address values from XLSX as manufacturers.name
+ *      (manufacturers.address is left null)
  *
  * Skipped when:
  *   - MANUFACTURER_SETUP_SKIP=1
@@ -53,10 +53,10 @@ async function run(): Promise<void> {
   }
 
   try {
-    console.log('\n[manufacturer-setup] Step 1/2 — reset products to test_manufacture');
+    console.log('\n[manufacturer-setup] Step 1/2 — keep test_manufacture, hard-delete all others');
     await runManufacturerReset({ apply: true });
 
-    console.log('\n[manufacturer-setup] Step 2/2 — import manufacturers from sheet');
+    console.log('\n[manufacturer-setup] Step 2/2 — import sheet Address as manufacturers.name');
     await runManufacturerAddressImport({
       file,
       apply: true,

@@ -424,10 +424,20 @@ export class ProductsService {
       payload.subSubCategoryId = masters.subSubCategoryId;
       payload.subSubSubCategoryId = masters.subSubSubCategoryId;
       payload.brandId = masters.brandId;
-      payload.manufacturerId = masters.manufacturerId;
-      payload.packerId = masters.packerId;
-      payload.importerId = masters.importerId;
-      payload.countryOfOriginId = masters.countryOfOriginId;
+      // Only overwrite optional masters when the DTO explicitly sends them.
+      // Bulk re-upload often omits manufacturerRefId; clearing would wipe existing links.
+      if (dto.manufacturerRefId !== undefined) {
+        payload.manufacturerId = masters.manufacturerId;
+      }
+      if (dto.packerRefId !== undefined) {
+        payload.packerId = masters.packerId;
+      }
+      if (dto.importerRefId !== undefined) {
+        payload.importerId = masters.importerId;
+      }
+      if (dto.countryOfOriginRefId !== undefined) {
+        payload.countryOfOriginId = masters.countryOfOriginId;
+      }
     }
 
     const productSlug = payload.slug ?? existing.slug;
@@ -548,12 +558,21 @@ export class ProductsService {
       }
 
       if (needsVariantSync && dto.variants) {
+        const variantsForSync =
+          effectiveProductType === ProductType.SIMPLE && dto.expiryDate
+            ? dto.variants.map((variant, index) =>
+                index === 0
+                  ? { ...variant, expiryDate: variant.expiryDate ?? dto.expiryDate }
+                  : variant,
+              )
+            : dto.variants;
+
         await this.variantsRepository.syncVariants(
           manager,
           existing.id,
           productSlug,
           effectiveProductType,  // use the new type, not the old one
-          dto.variants,
+          variantsForSync,
           attributeIdByRefId,
         );
       }

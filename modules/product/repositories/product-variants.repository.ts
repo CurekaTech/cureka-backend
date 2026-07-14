@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
+import { ProductMediaEntity } from '../entities/product-media.entity';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { ProductType } from '../enums/product-type.enum';
@@ -211,6 +212,9 @@ export class ProductVariantsRepository {
     // do not block new/updated variants (partial unique index ignores soft-deleted rows).
     for (const variant of existing) {
       if (!payloadSkus.has(variant.sku)) {
+        // Soft-delete does not cascade to product_media — remove media explicitly
+        // so orphaned rows are not left attached to the product.
+        await manager.getRepository(ProductMediaEntity).delete({ variantId: variant.id });
         await variantRepo.softDelete(variant.id);
       }
     }

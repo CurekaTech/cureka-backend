@@ -1,13 +1,16 @@
 /**
- * Imports manufacturer name + address rows from an XLSX worksheet into manufacturers.
+ * Imports manufacturer master rows from an XLSX worksheet.
  *
  * Expected columns:
- *   Name | Manufacture Address
- *   (ID and SKU are read but not used for matching)
+ *   ID (Product ID) — unique key per manufacturer row
+ *   Manufacture Address → manufacturers.name (plain text, no [id] suffix)
  *
- * - Creates or updates manufacturers.name + manufacturers.address
- * - Permanently deletes all soft-deleted manufacturers before import (on --apply)
- * - Does NOT change product.manufacturer_id assignments
+ * Behaviour:
+ *   - One manufacturer per Product ID (duplicate addresses are kept)
+ *   - Unique code = EXT{Product ID} (name may repeat)
+ *   - manufacturers.address is always null
+ *   - Does NOT change product.manufacturer_id (products stay on test_manufacture)
+ *   - test_manufacture is never overwritten by the sheet
  *
  * Usage:
  *   npm run manufacturer-address:import -- --file="docs/Manufacture details (1).xlsx"
@@ -20,11 +23,15 @@ import { AppDataSource } from '../data-source';
 import { ManufacturerEntity } from '../../../../modules/master/entities/manufacturer.entity';
 import { MasterStatus } from '../../../../modules/master/enums/master-status.enum';
 import {
+  toManufacturerImportCode,
+  toStoredManufacturerName,
+} from '../../../../modules/master/utils/manufacturer-stored-name.util';
+import {
   ManufacturerSheetRow,
   TEST_MANUFACTURER_NAME,
   loadManufacturerCodeRefIdSets,
-  reserveUniqueManufacturerCode,
   reserveUniqueManufacturerRefId,
+  normalizeExternalId,
   normalizeText,
   readManufacturerSheetRows,
 } from './manufacturer-import.shared';
@@ -32,7 +39,6 @@ import {
 const DEFAULT_FILE = 'docs/Manufacture details (1).xlsx';
 const DEFAULT_BATCH_SIZE = 500;
 const UPDATED_BY = 'manufacturer-address-import';
-const MANUFACTURER_NAME_MAX = 255;
 
 interface CliOptions {
   file: string;
@@ -44,7 +50,6 @@ interface CliOptions {
 
 type RowStatus =
   | 'pending_create'
-  | 'pending_update'
   | 'unchanged'
   | 'invalid'
   | 'conflict'
@@ -55,15 +60,23 @@ interface ReportRow extends ManufacturerSheetRow {
   status: RowStatus;
   manufacturerRefId?: string;
   storedName?: string;
+  storedCode?: string;
   reason?: string;
 }
 
-interface ResolvedManufacturerUpsert {
-  dedupeKey: string;
+interface ResolvedManufacturerCreate {
+  uniqueKey: string;
   name: string;
-  address: string;
-  existing?: ManufacturerEntity;
+  code: string;
   sourceRows: number[];
+}
+
+interface ManufacturerAddressImportOptions {
+  file: string;
+  sheet?: string;
+  apply: boolean;
+  batchSize?: number;
+  report?: string;
 }
 
 const parseCli = (argv: string[]): CliOptions => {
@@ -79,19 +92,23 @@ const parseCli = (argv: string[]): CliOptions => {
 
     if (arg === '--help' || arg === '-h') {
       console.log(`
-Manufacturer sheet importer (name + address -> manufacturers table)
+Manufacturer sheet importer
+
+Sheet Manufacture Address → manufacturers.name (plain address)
+Product ID → unique manufacturers.code (EXT{id}) so duplicate addresses are kept
 
 Options:
   --file <path>          XLSX file (default: ${DEFAULT_FILE})
   --sheet <name>         Worksheet name (default: first worksheet)
-  --batch-size <number>  Writes per transaction (default: ${DEFAULT_BATCH_SIZE})
+  --batch-size <number>  Creates per transaction (default: ${DEFAULT_BATCH_SIZE})
   --report <path>        JSON report output path
   --apply                Write changes (without this flag, dry-run only)
 
 Notes:
-  - Soft-deleted manufacturers are permanently removed on --apply
+  - One manufacturer per Product ID (duplicate addresses OK)
+  - Name has no [Product ID] suffix
   - Product manufacturer assignments are NOT changed
-  - ${TEST_MANUFACTURER_NAME} is preserved for existing product links
+  - ${TEST_MANUFACTURER_NAME} is preserved for product links
 `);
       process.exit(0);
     }
@@ -128,7 +145,7 @@ Notes:
   return options;
 };
 
-const buildReportPath = (options: CliOptions): string => {
+const buildReportPath = (options: ManufacturerAddressImportOptions): string => {
   if (options.report) {
     return isAbsolute(options.report) ? options.report : resolve(process.cwd(), options.report);
   }
@@ -136,44 +153,22 @@ const buildReportPath = (options: CliOptions): string => {
   return resolve(process.cwd(), 'docs', `manufacturer-address-import-${timestamp}.json`);
 };
 
-const toStoredManufacturerName = (name: string, rowId: string): string => {
-  const trimmed = name.trim();
-  if (trimmed.length <= MANUFACTURER_NAME_MAX) {
-    return trimmed;
-  }
-
-  const suffix = rowId ? ` [${rowId}]` : '';
-  const maxBaseLength = MANUFACTURER_NAME_MAX - suffix.length;
-  return `${trimmed.slice(0, maxBaseLength)}${suffix}`;
-};
-
-const purgeSoftDeletedManufacturers = async (): Promise<number> => {
-  const result = await AppDataSource.getRepository(ManufacturerEntity)
-    .createQueryBuilder()
-    .delete()
-    .from(ManufacturerEntity)
-    .where('deleted_at IS NOT NULL')
-    .execute();
-
-  return result.affected ?? 0;
-};
-
-const loadActiveManufacturersByName = async (): Promise<Map<string, ManufacturerEntity>> => {
+const loadActiveManufacturersByCode = async (): Promise<Map<string, ManufacturerEntity>> => {
   const manufacturers = await AppDataSource.getRepository(ManufacturerEntity)
     .createQueryBuilder('manufacturer')
     .where('manufacturer.deletedAt IS NULL')
     .getMany();
 
-  const byName = new Map<string, ManufacturerEntity>();
+  const byCode = new Map<string, ManufacturerEntity>();
   for (const manufacturer of manufacturers) {
-    byName.set(normalizeText(manufacturer.name), manufacturer);
+    byCode.set(manufacturer.code.toLowerCase().trim(), manufacturer);
   }
-  return byName;
+  return byCode;
 };
 
 const writeReport = async (
   reportPath: string,
-  options: CliOptions,
+  options: ManufacturerAddressImportOptions,
   rows: ReportRow[],
   summary: Record<string, number>,
 ): Promise<void> => {
@@ -186,6 +181,8 @@ const writeReport = async (
         mode: options.apply ? 'apply' : 'dry-run',
         sourceFile: options.file,
         targetTable: 'manufacturers',
+        mapping:
+          'sheet.Manufacture Address → manufacturers.name; Product ID → manufacturers.code EXT{id}; address=null',
         productsUnchanged: true,
         summary: { totalRows: rows.length, ...summary },
         rows,
@@ -197,14 +194,11 @@ const writeReport = async (
   );
 };
 
-const applyUpserts = async (
-  creates: ResolvedManufacturerUpsert[],
-  updates: ResolvedManufacturerUpsert[],
+const applyCreates = async (
+  creates: ResolvedManufacturerCreate[],
   batchSize: number,
-): Promise<{ created: number; updated: number }> => {
+): Promise<number> => {
   let created = 0;
-  let updated = 0;
-
   const manufacturerRepo = AppDataSource.getRepository(ManufacturerEntity);
   const reserved = await loadManufacturerCodeRefIdSets(manufacturerRepo);
 
@@ -212,11 +206,15 @@ const applyUpserts = async (
     const batch = creates.slice(offset, offset + batchSize);
     await AppDataSource.transaction(async (manager) => {
       const repo = manager.getRepository(ManufacturerEntity);
-      const entities = batch.map((item) =>
-        repo.create({
+      const entities = batch.map((item) => {
+        if (reserved.codes.has(item.code)) {
+          throw new Error(`Manufacturer code "${item.code}" is already reserved.`);
+        }
+        reserved.codes.add(item.code);
+        return repo.create({
           name: item.name,
-          address: item.address,
-          code: reserveUniqueManufacturerCode(item.name, reserved.codes),
+          address: null,
+          code: item.code,
           refId: reserveUniqueManufacturerRefId(item.name, reserved.refIds),
           status: MasterStatus.ACTIVE,
           logo: null,
@@ -227,8 +225,8 @@ const applyUpserts = async (
           gstNumber: null,
           drugLicenseNumber: null,
           createdBy: UPDATED_BY,
-        }),
-      );
+        });
+      });
       await repo.save(entities);
       created += entities.length;
     });
@@ -237,37 +235,8 @@ const applyUpserts = async (
     );
   }
 
-  for (let offset = 0; offset < updates.length; offset += batchSize) {
-    const batch = updates.slice(offset, offset + batchSize);
-    await AppDataSource.transaction(async (manager) => {
-      for (const item of batch) {
-        await manager
-          .createQueryBuilder()
-          .update(ManufacturerEntity)
-          .set({
-            address: item.address,
-            updatedBy: UPDATED_BY,
-          })
-          .where('id = :id', { id: item.existing!.id })
-          .execute();
-        updated += 1;
-      }
-    });
-    console.log(
-      `[manufacturer-address-import] Updated ${Math.min(offset + batch.length, updates.length)}/${updates.length}`,
-    );
-  }
-
-  return { created, updated };
+  return created;
 };
-
-interface ManufacturerAddressImportOptions {
-  file: string;
-  sheet?: string;
-  apply: boolean;
-  batchSize?: number;
-  report?: string;
-}
 
 export const runManufacturerAddressImport = async (
   input: ManufacturerAddressImportOptions,
@@ -285,7 +254,12 @@ export const runManufacturerAddressImport = async (
   console.log(
     `[manufacturer-address-import] Mode: ${options.apply ? 'APPLY' : 'DRY RUN (no database changes)'}`,
   );
-  console.log('[manufacturer-address-import] Target: manufacturers (name + address)');
+  console.log(
+    '[manufacturer-address-import] Mapping: Address → name; Product ID → code EXT{id}',
+  );
+  console.log(
+    '[manufacturer-address-import] Duplicate addresses: kept (one manufacturer per Product ID)',
+  );
   console.log('[manufacturer-address-import] Products: assignments will NOT be changed');
 
   const sheetRows = await readManufacturerSheetRows(options.file, options.sheet);
@@ -297,41 +271,24 @@ export const runManufacturerAddressImport = async (
   }
 
   try {
-    const softDeletedCount = await AppDataSource.getRepository(ManufacturerEntity)
-      .createQueryBuilder('manufacturer')
-      .withDeleted()
-      .where('manufacturer.deletedAt IS NOT NULL')
-      .getCount();
-
-    console.log(
-      `[manufacturer-address-import] Soft-deleted manufacturers to purge permanently: ${softDeletedCount}`,
-    );
-
-    let purged = 0;
-    if (options.apply && softDeletedCount > 0) {
-      purged = await purgeSoftDeletedManufacturers();
-      console.log(`[manufacturer-address-import] Permanently deleted: ${purged}`);
-    }
-
-    const manufacturersByName = await loadActiveManufacturersByName();
+    const manufacturersByCode = await loadActiveManufacturersByCode();
     const reportRows: ReportRow[] = [];
-    const upsertsByKey = new Map<string, ResolvedManufacturerUpsert>();
-    const conflictingKeys = new Set<string>();
+    const createsByKey = new Map<string, ResolvedManufacturerCreate>();
 
     for (const row of sheetRows) {
-      const rawName = row.name.trim();
       const address = row.address.trim();
+      const productId = normalizeExternalId(row.id) || `R${row.rowNumber}`;
 
-      if (!rawName) {
-        reportRows.push({ ...row, status: 'invalid', reason: 'Name is empty.' });
-        continue;
-      }
       if (!address) {
-        reportRows.push({ ...row, status: 'invalid', reason: 'Manufacture Address is empty.' });
+        reportRows.push({
+          ...row,
+          status: 'invalid',
+          reason: 'Manufacture Address is empty.',
+        });
         continue;
       }
 
-      if (normalizeText(rawName) === normalizeText(TEST_MANUFACTURER_NAME)) {
+      if (normalizeText(address) === normalizeText(TEST_MANUFACTURER_NAME)) {
         reportRows.push({
           ...row,
           status: 'skipped_placeholder',
@@ -340,131 +297,74 @@ export const runManufacturerAddressImport = async (
         continue;
       }
 
-      const storedName = toStoredManufacturerName(rawName, row.id.trim());
-      const dedupeKey = normalizeText(rawName);
-      const existing = manufacturersByName.get(dedupeKey);
+      const storedName = toStoredManufacturerName(address);
+      const storedCode = toManufacturerImportCode(productId);
+      const uniqueKey = storedCode.toLowerCase();
+      const existing = manufacturersByCode.get(uniqueKey);
 
       if (existing) {
-        if (normalizeText(existing.address ?? '') === normalizeText(address)) {
-          reportRows.push({
-            ...row,
-            status: 'unchanged',
-            manufacturerRefId: existing.refId,
-            storedName,
-          });
-          continue;
-        }
-
-        const pending = upsertsByKey.get(dedupeKey);
-        if (pending) {
-          if (normalizeText(pending.address) !== normalizeText(address)) {
-            conflictingKeys.add(dedupeKey);
-            reportRows.push({
-              ...row,
-              status: 'conflict',
-              manufacturerRefId: existing.refId,
-              storedName,
-              reason: `Conflicting address for "${rawName}" (rows ${pending.sourceRows.join(', ')}).`,
-            });
-          } else {
-            pending.sourceRows.push(row.rowNumber);
-            reportRows.push({
-              ...row,
-              status: 'duplicate_row',
-              manufacturerRefId: existing.refId,
-              storedName,
-            });
-          }
-          continue;
-        }
-
-        upsertsByKey.set(dedupeKey, {
-          dedupeKey,
-          name: storedName,
-          address,
-          existing,
-          sourceRows: [row.rowNumber],
-        });
         reportRows.push({
           ...row,
-          status: 'pending_update',
+          status: 'unchanged',
           manufacturerRefId: existing.refId,
-          storedName,
+          storedName: existing.name,
+          storedCode: existing.code,
         });
         continue;
       }
 
-      const pending = upsertsByKey.get(dedupeKey);
+      const pending = createsByKey.get(uniqueKey);
       if (pending) {
-        if (normalizeText(pending.address) !== normalizeText(address)) {
-          conflictingKeys.add(dedupeKey);
-          reportRows.push({
-            ...row,
-            status: 'conflict',
-            storedName,
-            reason: `Conflicting address for "${rawName}" (rows ${pending.sourceRows.join(', ')}).`,
-          });
-        } else {
-          pending.sourceRows.push(row.rowNumber);
-          reportRows.push({ ...row, status: 'duplicate_row', storedName });
-        }
+        pending.sourceRows.push(row.rowNumber);
+        reportRows.push({
+          ...row,
+          status: 'duplicate_row',
+          storedName,
+          storedCode,
+          reason: 'Same Product ID already queued from an earlier sheet row.',
+        });
         continue;
       }
 
-      upsertsByKey.set(dedupeKey, {
-        dedupeKey,
+      createsByKey.set(uniqueKey, {
+        uniqueKey,
         name: storedName,
-        address,
+        code: storedCode,
         sourceRows: [row.rowNumber],
       });
-      reportRows.push({ ...row, status: 'pending_create', storedName });
+      reportRows.push({
+        ...row,
+        status: 'pending_create',
+        storedName,
+        storedCode,
+      });
     }
 
-    for (const key of conflictingKeys) {
-      upsertsByKey.delete(key);
-      for (const row of reportRows) {
-        if (
-          normalizeText(row.name) === key &&
-          (row.status === 'pending_create' || row.status === 'pending_update' || row.status === 'duplicate_row')
-        ) {
-          row.status = 'conflict';
-          row.reason ??= 'Conflicting addresses for the same name in the spreadsheet.';
-        }
-      }
-    }
-
-    const creates = [...upsertsByKey.values()].filter((item) => !item.existing);
-    const updates = [...upsertsByKey.values()].filter((item) => item.existing);
-
-    let created = 0;
-    let updated = 0;
-    if (options.apply) {
-      const result = await applyUpserts(creates, updates, options.batchSize);
-      created = result.created;
-      updated = result.updated;
-    }
+    const creates = [...createsByKey.values()];
+    const created = options.apply
+      ? await applyCreates(creates, options.batchSize ?? DEFAULT_BATCH_SIZE)
+      : 0;
 
     const summary = reportRows.reduce<Record<string, number>>(
       (acc, row) => {
         acc[row.status] = (acc[row.status] ?? 0) + 1;
         return acc;
       },
-      {
-        purged_soft_deleted: purged,
-        created,
-        updated,
-      },
+      { created },
     );
 
     await writeReport(reportPath, options, reportRows, summary);
 
     console.log('\n[manufacturer-address-import] Summary');
     console.log(`  Rows read                    : ${sheetRows.length}`);
-    console.log(`  Soft-deleted purged          : ${options.apply ? purged : softDeletedCount} (dry-run shows pending)`);
-    console.log(`  ${options.apply ? 'Created' : 'Would create'} manufacturers : ${options.apply ? created : creates.length}`);
-    console.log(`  ${options.apply ? 'Updated' : 'Would update'} manufacturers : ${options.apply ? updated : updates.length}`);
-    console.log(`  Unchanged                    : ${summary.unchanged ?? 0}`);
-    console.log(`  Conflicts / invalid / skipped: ${(summary.conflict ?? 0) + (summary.invalid ?? 0) + (summary.skipped_placeholder ?? 0)}`);
+    console.log(
+      `  ${options.apply ? 'Created' : 'Would create'} manufacturers : ${options.apply ? created : creates.length}`,
+    );
+    console.log(`  Unchanged (already present)  : ${summary.unchanged ?? 0}`);
+    console.log(`  Duplicate Product ID rows    : ${summary.duplicate_row ?? 0}`);
+    console.log(
+      `  Invalid / skipped             : ${(summary.invalid ?? 0) + (summary.skipped_placeholder ?? 0)}`,
+    );
     console.log(`  Products reassigned          : 0 (unchanged)`);
     console.log(`  Report                       : ${reportPath}`);
   } finally {
@@ -475,15 +375,13 @@ export const runManufacturerAddressImport = async (
 };
 
 async function runCli(): Promise<void> {
-  await runManufacturerAddressImport(parseCli(process.argv.slice(2)));
+  const options = parseCli(process.argv.slice(2));
+  await runManufacturerAddressImport(options);
 }
 
 if (require.main === module) {
-  runCli().catch((error) => {
-    console.error(
-      '[manufacturer-address-import] Failed:',
-      error instanceof Error ? error.message : error,
-    );
+  runCli().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   });
 }
