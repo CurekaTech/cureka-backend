@@ -203,6 +203,7 @@ const mapVariant = (
   id: variant.id,
   sku: variant.sku,
   slug: variant.slug,
+  externalProductId: variant.externalProductId ?? null,
   vendorSku: variant.vendorSku,
   barcode: variant.barcode,
   gtinNumber: variant.gtinNumber,
