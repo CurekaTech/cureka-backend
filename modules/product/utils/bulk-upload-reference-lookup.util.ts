@@ -65,7 +65,8 @@ const fileExists = async (filePath: string): Promise<boolean> => {
 
 /**
  * Manufacture details sheet: ID → Manufacture Address text.
- * Import stores names as `Address [Product ID]` (one manufacturer per sheet row).
+ * Import stores Manufacture Address as manufacturers.name (duplicates OK).
+ * Unique key is manufacturers.code = EXT{Product ID}.
  */
 export const loadManufacturerAddressByProductId = async (
   filePath = resolveLookupPath(
