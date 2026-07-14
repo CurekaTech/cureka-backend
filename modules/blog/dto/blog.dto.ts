@@ -76,7 +76,15 @@ export class CreateBlogCategoryDto {
   status?: BlogCategoryStatus;
 }
 
-export class UpdateBlogCategoryDto extends PartialType(CreateBlogCategoryDto) {}
+export class UpdateBlogCategoryDto extends PartialType(CreateBlogCategoryDto) {
+  @ApiPropertyOptional({
+    description: "Set true to remove the existing category icon",
+  })
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  removeIcon?: boolean;
+}
 
 export class UpdateBlogCategoryStatusDto {
   @ApiProperty({ enum: BlogCategoryStatus })

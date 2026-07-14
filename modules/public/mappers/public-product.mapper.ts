@@ -403,6 +403,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   healthConcerns: (entity.healthConcernMappings ?? []).map((mapping) => ({
     refId: mapping.healthConcern?.refId ?? '',
     name: mapping.healthConcern?.name ?? '',
+    slug: mapping.healthConcern?.slug ?? '',
   })),
   wellnessGoals: (entity.wellnessGoalMappings ?? []).map((mapping) => ({
     refId: mapping.wellnessGoal?.refId ?? '',
