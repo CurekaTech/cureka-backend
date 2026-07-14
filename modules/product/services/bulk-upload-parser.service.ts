@@ -9,6 +9,7 @@ import {
   isBulkUploadCategoryFilterColumn,
   isVariableBulkUploadColumn,
   normalizeBulkUploadHeader,
+  parseCategoryFilterNameFromHeader,
   resolveProductInformationLabelName,
 } from '../utils/bulk-upload-columns.util';
 import {
@@ -46,6 +47,8 @@ export interface IParsedImage {
 export interface IParsedVariant {
   rowNumber: number;
   sku: string;
+  /** Optional variant slug from Product URL Slug / att_product_url_slug_N. */
+  productUrlSlug?: string;
   barcode?: string;
   gtinNumber?: string;
   hsnCode?: string;
@@ -239,12 +242,9 @@ export class BulkUploadParserService {
     headerRow.eachCell((cell, colNumber) => {
       const original = this.getCellText(cell).trim();
       if (!original) return;
-      const normalized = normalizeBulkUploadHeader(original);
-      if (!normalized.startsWith('cf_')) return;
-
-      const name = original.slice(original.indexOf('_') + 1).trim();
-      if (!name) return;
-      dynamicColumns.set(colNumber, name);
+      const filterName = parseCategoryFilterNameFromHeader(original);
+      if (!filterName) return;
+      dynamicColumns.set(colNumber, filterName);
     });
     return dynamicColumns;
   }
@@ -470,7 +470,13 @@ export class BulkUploadParserService {
           rowNumber,
           name,
           externalProductId:
-            this.getFirstAvailable(getVal, ['product id (string)', 'product id', 'product id string']) ||
+            this.getFirstAvailable(getVal, [
+              'product id (string)',
+              'product id',
+              'product id string',
+              'external product id',
+              'woocommerce product id',
+            ]) ||
             undefined,
           singleProductUrl: getVal('single product url') || undefined,
           manufacturerAddress: getVal('manufacturer address') || undefined,
@@ -595,6 +601,8 @@ export class BulkUploadParserService {
         group.variants.push({
           rowNumber,
           sku: productSkuCode,
+          productUrlSlug:
+            this.getFirstAvailable(getVal, ['product url slug', 'product_url_slug']) || undefined,
           barcode: getVal('barcode (ean/upc)') || undefined,
           gtinNumber: getVal('gtin number') || undefined,
           hsnCode: getVal('hsn code') || undefined,
@@ -685,6 +693,7 @@ export class BulkUploadParserService {
       return {
         rowNumber: group.rowNumber,
         sku: '',
+        productUrlSlug: slot.productUrlSlug,
         mrp: slot.mrp ?? 0,
         sellingPrice: slot.sellingPrice ?? 0,
         discountPercentage: slot.discountPercentage,
@@ -772,6 +781,9 @@ export class BulkUploadParserService {
           break;
         case 'height_unit':
           slot.heightUnit = raw;
+          break;
+        case 'product_url_slug':
+          slot.productUrlSlug = raw.trim() || undefined;
           break;
         case 'attribute_value':
           if (meta.attributeIndex) {
@@ -892,23 +904,18 @@ export class BulkUploadParserService {
     headerMap: Map<string, number>,
     activeCategoryFilterNames: ReadonlySet<string>,
   ): void {
-    const unknownColumns: string[] = [];
-
+    // Unknown CF_* columns are ignored (older templates / deleted filters).
+    // Only Active master filters are parsed into category filter bindings.
     for (const normalizedHeader of headerMap.keys()) {
       if (!isBulkUploadCategoryFilterColumn(normalizedHeader)) {
         continue;
       }
 
-      const filterName = normalizedHeader.slice(3).trim();
-      if (!filterName || !activeCategoryFilterNames.has(filterName)) {
-        unknownColumns.push(`CF_${normalizedHeader.slice(3)}`);
+      const filterName = normalizedHeader.replace(/^cf[\s_]+/i, '').trim().toLowerCase();
+      if (filterName && !activeCategoryFilterNames.has(filterName)) {
+        // Intentionally not failing the import — empty/unknown CF columns must not block uploads.
+        continue;
       }
-    }
-
-    if (unknownColumns.length > 0) {
-      throw new BadRequestException(
-        `Invalid template. These category filter columns are not recognized or are inactive in master records: ${unknownColumns.join(', ')}`,
-      );
     }
   }
 

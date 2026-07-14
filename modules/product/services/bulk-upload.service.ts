@@ -259,13 +259,6 @@ export class BulkUploadService {
 
     const workbook = new ExcelJS.Workbook();
 
-    const attributeOne = activeAttributesResult.find((item) => item.name === 'Color')?.name
-      ?? activeAttributesResult[0]?.name
-      ?? 'Color';
-    const attributeTwo = activeAttributesResult.find((item) => item.name === 'Size')?.name
-      ?? activeAttributesResult[1]?.name
-      ?? 'Size';
-
     const importSheet = workbook.addWorksheet('Bulk Import Template');
     const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
@@ -278,13 +271,7 @@ export class BulkUploadService {
     ];
 
     importSheet.addRow(this.buildSimpleSampleRow(headers));
-    importSheet.addRow(
-      this.buildVariableInlineSampleRow(headers, {
-        attributeOne,
-        attributeTwo,
-        variantCount: 4,
-      }),
-    );
+    // One sample row only (simple / single SKU).
 
     const categoryNameById = new Map(
       activeCategories.map((category) => [category.id, category.name]),
@@ -409,16 +396,16 @@ export class BulkUploadService {
 
   private buildSimpleSampleRow(headers: string[]): Array<string | number | null> {
     const values = new Map<string, string | number | null>([
-      ['Product Name*', 'Simple Demo Vitamin C 500mg'],
+      ['Product Name*', 'Ethicare Hydromax Moisturizing Cream-200gm'],
       ['Product Type *', 'simple'],
       ['Category *', 'Health & Wellness'],
       ['Brand*', 'Samsung'],
-      ['Product SKU Code*', 'HEA/SAM/SMP-001'],
+      ['Product SKU Code*', 'ETH/HYD/54141-A1'],
       ['MRP (Rs)*', 499],
       ['Selling Price (Rs)*', 399],
       ['Discount Percentage', 20],
       ['Quantity / Stock', 100],
-      ['Weight (kg)', 0.15],
+      ['Weight (kg)', 0.2],
       ['Weight Unit', 'g'],
       ['Length (cm)', 10],
       ['Width (cm)', 5],
@@ -427,9 +414,13 @@ export class BulkUploadService {
       ['Barcode (EAN/UPC)', '8901234567890'],
       ['HSN Code', '21069099'],
       ['Tax Class', 'GST 12%'],
-      ['Product Description', 'Daily vitamin C supplement for immunity support.'],
-      ['Product Highlights', 'High potency | Easy to swallow'],
-      ['Product Status', 'active'],
+      ['Slug URL', 'ethicare-hydromax-moisturizing-cream-200gm'],
+      ['Product URL Slug', 'ethicare-hydromax-moisturizing-cream-200gm'],
+      // Product ID drives manufacturer + image auto-attach from lookup XLSX files.
+      ['Product ID (String)', '54141'],
+      ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID.'],
+      ['Product Highlights', 'Moisturizing | Suitable for daily use'],
+      ['Product Status', 'published'],
       ['Variant Status', 'active'],
     ]);
 
@@ -476,6 +467,10 @@ export class BulkUploadService {
     values.set(`att_discount_type_${slot}`, 'percentage');
     values.set(`att_discount_percentage_${slot}`, 20);
     values.set(`att_discount_value_${slot}`, 200);
+    values.set(
+      `att_product_url_slug_${slot}`,
+      `variable-demo-${String(colorValue).toLowerCase().replace(/\s+/g, '-')}-${String(sizeValue).toLowerCase().replace(/\s+/g, '-')}`,
+    );
     values.set(`att_attribute_1_value_${slot}`, colorValue);
     values.set(`att_attribute_2_value_${slot}`, sizeValue);
   }
@@ -499,6 +494,10 @@ export class BulkUploadService {
       ['Attribute Details 2', options.attributeTwo],
       ['Product Description', 'Variable product with inline variant slots — SKUs auto-generated.'],
       ['Product Status', 'active'],
+      ['Product ID (String)', '16808'],
+      ['Manufacturer Name', 'Hiran Agroceuticals Pvt. Ltd. No 91 Palamedu Road Madurai'],
+      ['Manufacturer Address', 'Hiran Agroceuticals Pvt. Ltd. No 91 Palamedu Road Madurai'],
+      ['Gallery Image 2 (Video) URL', 'https://example.com/videos/variable-demo.mp4'],
       ['common_media_1_url', 'https://example.com/images/shared-hero.webp'],
       ['common_media_2_url', 'https://example.com/images/shared-side.webp'],
       ['common_media_3_url', 'https://example.com/videos/shared-demo.mp4'],

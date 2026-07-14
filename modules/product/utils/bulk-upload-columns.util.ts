@@ -149,6 +149,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Meta Title',
   'Meta Description',
   'Slug URL',
+  'Product URL Slug',
   'Meta Keywords',
   'Category Filters',
   'Size Chart Filename/Path',
@@ -247,15 +248,32 @@ export const isDeprecatedBulkUploadColumn = (normalizedHeader: string): boolean 
 export const buildCategoryFilterColumnHeader = (filterName: string): string =>
   `CF_${filterName.trim()}`;
 
-export const parseCategoryFilterNameFromHeader = (header: string): string | null => {
-  const trimmed = header.trim();
-  if (!/^CF_/i.test(trimmed)) return null;
-  const name = trimmed.slice(3).trim();
-  return name || null;
+/**
+ * Category-filter headers are exported as CF_Name, but normalizeBulkUploadHeader
+ * turns underscores into spaces, so the normalized form is "cf name" not "cf_name".
+ */
+export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean => {
+  const value = normalizedHeader.trim().toLowerCase();
+  return value.startsWith('cf ') || value.startsWith('cf_');
 };
 
-export const isBulkUploadCategoryFilterColumn = (normalizedHeader: string): boolean =>
-  normalizedHeader.startsWith('cf_');
+export const parseCategoryFilterNameFromHeader = (header: string): string | null => {
+  const original = header.trim();
+  if (!original) return null;
+
+  if (/^CF_/i.test(original)) {
+    const name = original.slice(3).trim();
+    return name || null;
+  }
+
+  const normalized = normalizeBulkUploadHeader(original);
+  if (!isBulkUploadCategoryFilterColumn(normalized)) {
+    return null;
+  }
+
+  const name = normalized.replace(/^cf[\s_]+/i, '').trim();
+  return name || null;
+};
 
 import {
   buildVariableTemplateExtraHeaders,
@@ -307,7 +325,6 @@ const CLIENT_TEMPLATE_HEADER_EXCLUSIONS = new Set([
   'Vendor',
   'Vendor Name',
   'Vendor SKU',
-  'Product ID (String)',
   'Manufacturer',
   'Packer',
   'Importer',
