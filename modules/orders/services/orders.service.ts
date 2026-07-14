@@ -19,6 +19,7 @@ import { OrderQueryDto, PlaceOrderDto, AdminOrderQueryDto } from '../dto/order.d
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
+import { OrderSource } from '../enums/order-source.enum';
 import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
@@ -112,6 +113,7 @@ export class OrdersService {
           paymentMethod: dto.paymentMethod,
           paymentStatus: OrderPaymentStatus.PENDING,
           orderStatus: OrderStatus.PENDING,
+          orderSource: dto.orderSource ?? OrderSource.WEBSITE,
           recipientName: address.recipientName,
           phoneNumber: address.phoneNumber,
           pincode: address.pincode,
@@ -251,6 +253,7 @@ export class OrdersService {
       orderStatus: query.orderStatus,
       paymentStatus: query.paymentStatus,
       paymentMethod: query.paymentMethod,
+      orderSource: query.orderSource,
       userId: query.customerId,
       fromDate: query.fromDate,
       toDate: query.toDate,
@@ -304,6 +307,7 @@ export class OrdersService {
     grandTotal: string;
     notes: string | null;
     paymentMethod?: OrderPaymentMethod;
+    orderSource?: OrderSource;
     createdBy?: string;
     couponId?: string | null;
     couponCode?: string | null;
@@ -349,6 +353,7 @@ export class OrdersService {
           paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
+          orderSource: params.orderSource ?? OrderSource.WEBSITE,
           recipientName: address?.recipientName ?? 'Customer',
           phoneNumber: address?.phoneNumber ?? '0000000000',
           pincode: address?.pincode ?? '000000',
