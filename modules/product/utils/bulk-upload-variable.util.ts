@@ -14,6 +14,7 @@ export const VARIABLE_BULK_UPLOAD_COLUMN_PATTERNS: RegExp[] = [
   /^attribute details \d+$/,
   /^attribute \d+ name$/,
   /^attribute \d+ value$/,
+  /^style[\s_-]*group[\s_-]*id$/,
   /^att_[a-z0-9_]+_\d+$/,
   /^att_image_url_\d+_\d+$/,
   /^att_image_\d+_\d+$/,
@@ -256,10 +257,16 @@ export const buildAttVariantSlotHeaders = (
   return headers;
 };
 
-/** Variable-only columns appended into the unified bulk upload template. */
+/** Vertical rows use slot `_1` only (one value column per attribute name). */
+export const buildVerticalAttributeValueHeaders = (
+  count = VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
+): string[] =>
+  Array.from({ length: count }, (_, index) => `att_attribute_${index + 1}_value_1`);
+
+/** Variable-only columns: Attribute Details + per-row values (no horizontal att_mrp_N slots). */
 export const buildVariableTemplateExtraHeaders = (): string[] => [
   ...buildAttributeDetailsHeaders(),
-  ...buildAttVariantSlotHeaders(),
+  ...buildVerticalAttributeValueHeaders(),
 ];
 
 export const buildVariantCombinationKeyFromRefIds = (
