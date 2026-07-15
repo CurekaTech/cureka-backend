@@ -1,22 +1,21 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { FastifyRequest } from 'fastify';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import {
-  CreateHomeSectionDto,
-  ReorderHomeSectionsDto,
-  UpdateHomeSectionStatusDto,
-} from '../dto/home-section.dto';
+import { ReorderHomeSectionsDto, UpdateHomeSectionStatusDto } from '../dto/home-section.dto';
 import { HomeSectionsService } from '../services/home-sections.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -42,8 +41,15 @@ export class HomeSectionsController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateHomeSectionDto, @CurrentAdminUser() user: IAdminJwtPayload) {
-    return this.homeSectionsService.create(dto, user.email);
+  create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.homeSectionsService.createFromRequest(req, user.email);
+  }
+
+  @ResponseMessage('Home section retrieved successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.homeSectionsService.findOne(refId);
   }
 
   @ResponseMessage('Home section status updated successfully')
@@ -55,5 +61,24 @@ export class HomeSectionsController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.homeSectionsService.updateStatus(refId, dto, user.email);
+  }
+
+  @ResponseMessage('Home section updated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Patch(':refId')
+  update(
+    @Param('refId', RefIdPipe) refId: string,
+    @Req() req: FastifyRequest,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.homeSectionsService.updateFromRequest(refId, req, user.email);
+  }
+
+  @ResponseMessage('Home section deleted successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Delete(':refId')
+  @HttpCode(HttpStatus.OK)
+  remove(@Param('refId', RefIdPipe) refId: string) {
+    return this.homeSectionsService.remove(refId);
   }
 }

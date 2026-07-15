@@ -4,6 +4,7 @@ import * as ExcelJS from 'exceljs';
 
 const DEFAULT_MANUFACTURER_LOOKUP_FILE = 'docs/Manufacture details (1).xlsx';
 const DEFAULT_IMAGE_LOOKUP_FILE = 'docs/wc-product-export-6-7-2026-1783309274325.xlsx';
+const DEFAULT_SLUG_LOOKUP_FILE = 'docs/slug sheet.xlsx';
 
 export const normalizeLookupProductId = (value: string | number | null | undefined): string => {
   if (value === null || value === undefined) return '';
@@ -162,6 +163,52 @@ export const loadImageUrlsByProductId = async (
       .filter(Boolean);
     if (!urls.length) continue;
     byProductId.set(productId, urls);
+  }
+
+  return { path: filePath, loaded: true, byProductId };
+};
+
+/**
+ * Client slug sheet: Product ID → slug.
+ * The lookup value replaces the current product/variant slug during a
+ * successful bulk create or update.
+ */
+export const loadSlugsByProductId = async (
+  filePath = resolveLookupPath(
+    process.env['BULK_UPLOAD_SLUG_LOOKUP_FILE'],
+    DEFAULT_SLUG_LOOKUP_FILE,
+  ),
+): Promise<{ path: string; loaded: boolean; byProductId: Map<string, string> }> => {
+  const byProductId = new Map<string, string>();
+  if (!(await fileExists(filePath))) {
+    return { path: filePath, loaded: false, byProductId };
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) {
+    return { path: filePath, loaded: false, byProductId };
+  }
+
+  const headers = new Map<string, number>();
+  worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, columnNumber) => {
+    const header = normalizeHeader(cellText(cell));
+    if (header) headers.set(header, columnNumber);
+  });
+
+  const idColumn = getHeaderIndex(headers, ['ID', 'Product ID', 'External Product ID']);
+  const slugColumn = getHeaderIndex(headers, ['Slug', 'Slug URL', 'Product URL Slug']);
+  if (idColumn === undefined || slugColumn === undefined) {
+    return { path: filePath, loaded: false, byProductId };
+  }
+
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const productId = normalizeLookupProductId(cellText(row.getCell(idColumn)));
+    const slug = cellText(row.getCell(slugColumn)).trim();
+    if (!productId || !slug || byProductId.has(productId)) continue;
+    byProductId.set(productId, slug);
   }
 
   return { path: filePath, loaded: true, byProductId };

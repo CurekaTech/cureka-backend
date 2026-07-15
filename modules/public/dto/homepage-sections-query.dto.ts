@@ -64,6 +64,21 @@ export class HomepageSectionsQueryDto {
   @Transform(parseBoolean)
   @IsBoolean()
   featuredProducts?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  banner?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  productSlider?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  categorySlider?: boolean;
 }
 
 export const resolveHomepageSectionsFromFlags = (
@@ -81,6 +96,9 @@ export const resolveHomepageSectionsFromFlags = (
     [HomepageSectionKey.WATCH_AND_SHOP, query.watchAndShop],
     [HomepageSectionKey.HEALTH_READS, query.healthReads],
     [HomepageSectionKey.FEATURED_PRODUCTS, query.featuredProducts],
+    [HomepageSectionKey.BANNER, query.banner],
+    [HomepageSectionKey.PRODUCT_SLIDER, query.productSlider],
+    [HomepageSectionKey.CATEGORY_SLIDER, query.categorySlider],
   ];
 
   const enabled = flags.filter(([, isEnabled]) => isEnabled === true).map(([key]) => key);

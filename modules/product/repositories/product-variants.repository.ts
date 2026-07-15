@@ -188,12 +188,6 @@ export class ProductVariantsRepository {
           }),
         ),
       );
-
-      for (const variant of variants) {
-        if (!variant.attributes?.length) {
-          throw new BadRequestException('Each variable product variant must include attributes');
-        }
-      }
     }
 
     if (productType === ProductType.SIMPLE) {
