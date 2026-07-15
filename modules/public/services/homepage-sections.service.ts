@@ -29,6 +29,8 @@ const HOMEPAGE_SECTIONS_TTL_SECONDS = 60 * 60;
 /**
  * Fixed storefront sections — always included in `/sections` data even when
  * retired from home_sections indexing.
+ * High indexes keep footer-static blocks after indexed sections in the API array;
+ * storefront layout still uses hardcoded FIXED / FOOTER order (not this index).
  */
 const FIXED_HOMEPAGE_SECTIONS: Array<{
   type: HomeSectionType;
@@ -65,6 +67,25 @@ const FIXED_HOMEPAGE_SECTIONS: Array<{
     title: 'Expert Curated Bundles',
     slug: 'expert-curated-bundles',
     index: 4,
+  },
+  // Footer-static (above site footer) — not reorderable via indexing.
+  {
+    type: HomeSectionType.CURATED_WELLNESS_ESSENTIALS,
+    title: 'Podcasts & Customer Reviews',
+    slug: 'curated-wellness-essentials',
+    index: 900,
+  },
+  {
+    type: HomeSectionType.HEALTH_READS,
+    title: 'Health Reads',
+    slug: 'health-reads',
+    index: 901,
+  },
+  {
+    type: HomeSectionType.WATCH_AND_SHOP,
+    title: 'Watch And Shop',
+    slug: 'watch-and-shop',
+    index: 902,
   },
 ];
 
@@ -115,7 +136,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.sections(this.buildVariantKey(requested)),
+      // v3: FIXED inject includes footer-static curated/healthReads/watchAndShop.
+      key: CacheKeys.homepage.sections(`v3-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),

@@ -38,6 +38,7 @@ import {
 } from '../mappers/home-section.mapper';
 import { HomeSectionsRepository } from '../repositories/home-sections.repository';
 
+/** Indexed / reorderable system sections only (footer-static blocks are not seeded). */
 const DEFAULT_HOME_SECTIONS: Array<{
   title: string;
   slug: string;
@@ -45,22 +46,16 @@ const DEFAULT_HOME_SECTIONS: Array<{
   sectionIndex: number;
 }> = [
   {
-    title: 'Curated Wellness Essentials',
-    slug: 'curated-wellness-essentials',
-    type: HomeSectionType.CURATED_WELLNESS_ESSENTIALS,
-    sectionIndex: 0,
-  },
-  {
     title: 'Shop by Wellness Goals',
     slug: 'shop-by-wellness-goals',
     type: HomeSectionType.SHOP_BY_WELLNESS_GOALS,
-    sectionIndex: 1,
+    sectionIndex: 0,
   },
   {
     title: 'Brands We Trust',
     slug: 'brands-we-trust',
     type: HomeSectionType.BRANDS_WE_TRUST,
-    sectionIndex: 2,
+    sectionIndex: 1,
   },
 ];
 
@@ -68,6 +63,8 @@ const DEFAULT_HOME_SECTIONS: Array<{
  * Retired from homepage indexing — soft-deleted on cleanup.
  * Fixed storefront sections still render outside indexing; CMS modules remain.
  * Festival/Brand system rows replaced by custom `banner` sections (festive/brand).
+ * Podcasts + Customer Reviews, Health Reads, Watch & Shop stay on the storefront
+ * via FIXED_HOMEPAGE_SECTIONS (footer-static), not indexing.
  */
 const RETIRED_HOME_SECTION_TYPES: HomeSectionType[] = [
   HomeSectionType.HERO_BANNER,
@@ -75,6 +72,7 @@ const RETIRED_HOME_SECTION_TYPES: HomeSectionType[] = [
   HomeSectionType.SHOP_BY_CATEGORY,
   HomeSectionType.BEST_SELLERS,
   HomeSectionType.EXPERT_CURATED_BUNDLES,
+  HomeSectionType.CURATED_WELLNESS_ESSENTIALS,
   HomeSectionType.HEALTH_READS,
   HomeSectionType.WATCH_AND_SHOP,
   HomeSectionType.CONSULT_DOCTORS,
