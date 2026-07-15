@@ -379,8 +379,58 @@ export const MENU_HIERARCHY: MenuItem[] = [
       },
     ],
   },
+  // {
+  //   name: 'Order Management',
+  //   key: 'orders',
+  //   icon: 'ShoppingBag',
+  //   subItems: [
+  //     // {
+  //     //   name: 'Admin Orders',
+  //     //   key: 'orders-requests',
+  //     //   icon: 'Receipt',
+  //     //   href: '/order-requests',
+  //     //   requiredPermissions: ['orders.read'],
+  //     // },
+  //     {
+  //       name: 'All Orders',
+  //       key: 'orders-list-all',
+  //       icon: '',
+  //       href: '/order-requests',
+  //       requiredPermissions: ['orders.read'],
+  //     },
+  //     {
+  //       name: 'Active Orders',
+  //       key: 'active-orders',
+  //       icon: '',
+  //       href: '/order-requests?status=PENDING',
+  //       requiredPermissions: ['orders.read'],
+  //     },
+  //     {
+  //       name: 'In Transit',
+  //       key: 'in-transit-orders',
+  //       icon: '',
+  //       href: '/order-requests?status=OUT_FOR_DELIVERY',
+  //       requiredPermissions: ['orders.read'],
+  //     },
+  //     {
+  //       name: 'Completed',
+  //       key: 'delivered-orders',
+  //       icon: '',
+  //       href: '/order-requests?status=DELIVERED',
+  //       requiredPermissions: ['orders.read'],
+  //     },
+  //     {
+  //       name: 'Cancelled',
+  //       key: 'cancelled-orders',
+  //       icon: '',
+  //       href: '/order-requests?status=CANCELLED',
+  //       requiredPermissions: ['orders.read'],
+  //     },
+    
+  //   ],
+  // },
   {
-    name: 'Orders',
+    name: 'Order Management',
     key: 'orders',
     icon: 'ShoppingBag',
     subItems: [
@@ -390,7 +440,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
         icon: 'Receipt',
         href: '/order-requests',
         requiredPermissions: ['orders.read'],
-      },
+      }
     ],
   },
   {

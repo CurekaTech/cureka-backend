@@ -122,7 +122,7 @@ export interface IPublicProductVariant {
   widthUnit: string | null;
   height: number | null;
   heightUnit: string | null;
-  /** Expiry date as `dd-mm-yyyy`, or null when unset. */
+  /** Expiry date as `dd-mm-yyyy`. Stored value when set; otherwise derived from product `expiresInMonths` relative to today; null if neither. */
   expiryDate: string | null;
   status: VariantStatus;
   attributes: Array<{
