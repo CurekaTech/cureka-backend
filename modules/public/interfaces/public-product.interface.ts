@@ -200,7 +200,7 @@ export interface IPublicProductDetail {
   attributes: Array<{ refId: string; name: string }>;
   variants: IPublicProductVariant[];
   media: IPublicProductMedia[];
-  healthConcerns: Array<{ refId: string; name: string }>;
+  healthConcerns: Array<{ refId: string; name: string; slug: string }>;
   wellnessGoals: Array<{
     refId: string;
     name: string;

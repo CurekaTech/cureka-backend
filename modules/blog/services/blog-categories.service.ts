@@ -56,8 +56,10 @@ export class BlogCategoriesService {
       BLOG_CATEGORY_UPLOAD_FIELDS,
     );
 
+    const shouldClearIcon = dto.removeIcon === true && !uploadedUrls.icon;
+
     return this.update(refId, dto, actor, {
-      icon: uploadedUrls.icon,
+      icon: uploadedUrls.icon ?? (shouldClearIcon ? null : undefined),
     });
   }
 
@@ -141,13 +143,18 @@ export class BlogCategoriesService {
       }
     }
 
+    const { removeIcon, ...dtoPatch } = dto;
+    const shouldClearIcon = removeIcon === true && media.icon === undefined;
+
     const patch: Partial<BlogCategoryEntity> = {
-      ...dto,
+      ...dtoPatch,
       updatedBy: actor,
     };
 
     if (media.icon !== undefined) {
       patch.icon = this.storageUrlEnricher.persist(media.icon);
+    } else if (shouldClearIcon) {
+      patch.icon = null;
     }
 
     const updated = await this.categoriesRepo.updateByRefId(refId, patch);
