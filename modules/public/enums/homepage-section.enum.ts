@@ -10,4 +10,8 @@ export enum HomepageSectionKey {
   WATCH_AND_SHOP = 'watchAndShop',
   HEALTH_READS = 'healthReads',
   FEATURED_PRODUCTS = 'featuredProducts',
+  BANNER = 'banner',
+  PRODUCT_SLIDER = 'productSlider',
+  CATEGORY_SLIDER = 'categorySlider',
 }
+

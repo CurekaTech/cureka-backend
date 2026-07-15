@@ -1,4 +1,10 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { ResponseMessage } from '@packages/common';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
@@ -32,6 +38,15 @@ export class HomepageController {
   @Get('home-sections/active')
   getActiveHomeSections() {
     return this.homeSectionsService.findActive();
+  }
+
+  @ResponseMessage('Home section retrieved successfully')
+  @Get('home-sections/:slug')
+  getHomeSectionBySlug(@Param('slug') slug: string) {
+    if (!slug?.trim()) {
+      throw new NotFoundException('Home section slug is required');
+    }
+    return this.homepageSectionsService.getCustomSectionBySlug(slug.trim());
   }
 
   @ResponseMessage('Header categories retrieved successfully')

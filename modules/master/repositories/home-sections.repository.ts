@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { HomeSectionEntity } from '../entities/home-section.entity';
-import { HomeSectionType } from '../enums/home-section-type.enum';
+import {
+  CUSTOM_HOME_SECTION_TYPES,
+  HomeSectionType,
+} from '../enums/home-section-type.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
@@ -33,6 +36,12 @@ export class HomeSectionsRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findActiveBySlug(slug: string): Promise<HomeSectionEntity | null> {
+    return this.repo.findOne({
+      where: { slug, status: MasterStatus.ACTIVE },
+    });
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
@@ -41,6 +50,7 @@ export class HomeSectionsRepository {
     return (await this.repo.count({ where: { type } })) > 0;
   }
 
+  /** Soft-deletes duplicate rows for system types only (custom types may repeat). */
   async removeDuplicateTypes(): Promise<void> {
     const all = await this.repo
       .createQueryBuilder('section')
@@ -49,13 +59,17 @@ export class HomeSectionsRepository {
       .getMany();
 
     const keepIds = new Set<string>();
-    const seenTypes = new Set<string>();
+    const seenSystemTypes = new Set<string>();
 
     for (const entity of all) {
-      if (seenTypes.has(entity.type)) {
+      if (CUSTOM_HOME_SECTION_TYPES.has(entity.type)) {
+        keepIds.add(entity.id);
         continue;
       }
-      seenTypes.add(entity.type);
+      if (seenSystemTypes.has(entity.type)) {
+        continue;
+      }
+      seenSystemTypes.add(entity.type);
       keepIds.add(entity.id);
     }
 
@@ -63,6 +77,17 @@ export class HomeSectionsRepository {
     if (duplicateIds.length > 0) {
       await this.repo.softDelete(duplicateIds);
     }
+  }
+
+  async softDeleteByTypes(types: HomeSectionType[]): Promise<boolean> {
+    if (!types.length) return false;
+    const result = await this.repo.softDelete({ type: In(types) });
+    return (result.affected ?? 0) > 0;
+  }
+
+  async softDeleteByRefId(refId: string): Promise<boolean> {
+    const result = await this.repo.softDelete({ refId });
+    return (result.affected ?? 0) > 0;
   }
 
   async getMaxSectionIndex(): Promise<number> {
