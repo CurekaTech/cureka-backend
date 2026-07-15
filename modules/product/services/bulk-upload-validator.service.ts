@@ -891,22 +891,9 @@ export class BulkUploadValidatorService {
       this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
       this.validateVariantPricing(variant, groupErrors);
 
-      if (!variant.attributes?.length) {
-        groupErrors.push({
-          rowNumber: variant.rowNumber,
-          sku: variant.sku || 'PARENT',
-          column: 'att_attribute_1_value_1',
-          invalidValue: '',
-          reason: 'Each variable product variant must include attributes.',
-          suggestedFix:
-            'Provide Attribute Details 1 (+ values) and att_attribute_1_value_1 on each vertical variant row.',
-        });
-        continue;
-      }
-
       const resolvedAttributes: Array<{ attributeRefId: string; value: string; label: string }> = [];
       const attributeDetailNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
-      for (const attribute of variant.attributes) {
+      for (const attribute of variant.attributes ?? []) {
         const lookup = attribute.name;
         if (!lookup?.trim()) continue;
 

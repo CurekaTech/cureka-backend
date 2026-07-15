@@ -80,12 +80,6 @@ export class VariableProductStrategy implements IProductCreationStrategy {
       ),
     );
 
-    for (const variant of variants) {
-      if (!variant.attributes?.length) {
-        throw new BadRequestException('Each variable product variant must include attributes');
-      }
-    }
-
     await this.variantsRepository.createVariants(manager, product.id, product.slug, variants, attributeIdByRefId);
   }
 }
