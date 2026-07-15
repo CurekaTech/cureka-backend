@@ -66,6 +66,12 @@ const FIXED_HOMEPAGE_SECTIONS: Array<{
     slug: 'expert-curated-bundles',
     index: 4,
   },
+  {
+    type: HomeSectionType.WATCH_AND_SHOP,
+    title: 'Watch And Shop',
+    slug: 'watch-and-shop',
+    index: 5,
+  },
 ];
 
 type SectionMeta = {
@@ -115,7 +121,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.sections(this.buildVariantKey(requested)),
+      // v2: always inject FIXED sections incl. watchAndShop (retired from indexing).
+      key: CacheKeys.homepage.sections(`v2-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),

@@ -68,6 +68,7 @@ const DEFAULT_HOME_SECTIONS: Array<{
  * Retired from homepage indexing — soft-deleted on cleanup.
  * Fixed storefront sections still render outside indexing; CMS modules remain.
  * Festival/Brand system rows replaced by custom `banner` sections (festive/brand).
+ * Watch And Shop stays on the storefront via FIXED_HOMEPAGE_SECTIONS, not indexing.
  */
 const RETIRED_HOME_SECTION_TYPES: HomeSectionType[] = [
   HomeSectionType.HERO_BANNER,
