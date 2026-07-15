@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
@@ -153,6 +153,11 @@ export class CategoriesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async findByRefIds(refIds: string[]): Promise<CategoryEntity[]> {
+    if (!refIds.length) return [];
+    return this.repo.find({ where: { refId: In([...new Set(refIds)]) } });
   }
 
   async existsByNameAmongSiblings(

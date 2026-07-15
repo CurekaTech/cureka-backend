@@ -1,4 +1,5 @@
 import { HomeSectionType } from '@modules/master/enums/home-section-type.enum';
+import { HomeSectionBannerItem } from '@modules/master/entities/home-section.entity';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { IPublicBestSellersSection } from './public-best-sellers.interface';
@@ -14,6 +15,19 @@ import { IPublicWellnessGoalCard } from './public-wellness-goal.interface';
 import { IPublicWatchAndShopSection } from './public-watch-and-shop.interface';
 import { IPublicHealthReadsSection } from './public-health-reads.interface';
 import { IPublicCuratedWellnessEssentialsSection } from './public-expert-talk.interface';
+import { IPublicCategoryListItem } from './public-master.interface';
+
+export type IPublicCustomBannerSection = {
+  banners: HomeSectionBannerItem[];
+};
+
+export type IPublicProductSliderSection = {
+  products: IPublicProductCard[];
+};
+
+export type IPublicCategorySliderSection = {
+  categories: IPublicCategoryListItem[];
+};
 
 export type HomepageSectionDataMap = {
   [HomepageSectionKey.HERO_BANNER]: IPublicHeroBannerSection;
@@ -27,6 +41,9 @@ export type HomepageSectionDataMap = {
   [HomepageSectionKey.WATCH_AND_SHOP]: IPublicWatchAndShopSection;
   [HomepageSectionKey.HEALTH_READS]: IPublicHealthReadsSection;
   [HomepageSectionKey.FEATURED_PRODUCTS]: IPublicProductCard[];
+  [HomepageSectionKey.BANNER]: IPublicCustomBannerSection;
+  [HomepageSectionKey.PRODUCT_SLIDER]: IPublicProductSliderSection;
+  [HomepageSectionKey.CATEGORY_SLIDER]: IPublicCategorySliderSection;
 };
 
 export type HomepageSectionsResponse = Partial<HomepageSectionDataMap>;
@@ -38,6 +55,7 @@ export type HomepageSectionData =
 
 /** One ordered homepage section envelope: metadata + (optional) rendered data. */
 export interface IHomepageSection {
+  refId?: string;
   index: number;
   type: HomeSectionType;
   title: string;
