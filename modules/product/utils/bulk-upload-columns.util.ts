@@ -1,6 +1,18 @@
+/** Strips Excel/Word invisible / bidi marks that break exact master-name matching. */
+export const sanitizeBulkUploadCellText = (value: string): string =>
+  value
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** Lowercased lookup key for master name / SKU matching. */
+export const normalizeBulkUploadLookupKey = (value: string): string =>
+  sanitizeBulkUploadCellText(value).toLowerCase();
+
 /** Normalizes spreadsheet header text for lookup (matches parser cleanHeader). */
 export const normalizeBulkUploadHeader = (header: string): string => {
-  const lowered = header.toLowerCase().replace(/\*/g, '').trim();
+  const lowered = sanitizeBulkUploadCellText(header).toLowerCase().replace(/\*/g, '');
   const underscored = lowered.replace(/\s+/g, '_');
 
   // Keep underscores for structured column families parsed by regex.

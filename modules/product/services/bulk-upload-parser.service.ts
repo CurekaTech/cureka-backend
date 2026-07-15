@@ -11,6 +11,7 @@ import {
   normalizeBulkUploadHeader,
   parseCategoryFilterNameFromHeader,
   resolveProductInformationLabelName,
+  sanitizeBulkUploadCellText,
 } from '../utils/bulk-upload-columns.util';
 import {
   VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
@@ -177,21 +178,24 @@ export class BulkUploadParserService {
   private getCellText(cell: exceljs.Cell, options?: { preserveRichTextAsHtml?: boolean }): string {
     const val = cell.value;
     if (val === null || val === undefined) return '';
+    let text = '';
     if (typeof val === 'object') {
       if ('richText' in val && Array.isArray((val as any).richText)) {
         if (options?.preserveRichTextAsHtml) {
-          return this.richTextToHtml((val as any).richText);
+          return sanitizeBulkUploadCellText(this.richTextToHtml((val as any).richText));
         }
-        return (val as any).richText.map((t: any) => t.text || '').join('').trim();
+        text = (val as any).richText.map((t: any) => t.text || '').join('');
+      } else if ('text' in val) {
+        text = String((val as any).text);
+      } else if ('result' in val) {
+        text = String((val as any).result);
+      } else {
+        text = String(val);
       }
-      if ('text' in val) {
-        return String((val as any).text).trim();
-      }
-      if ('result' in val) {
-        return String((val as any).result).trim();
-      }
+    } else {
+      text = String(val);
     }
-    return String(val).trim();
+    return sanitizeBulkUploadCellText(text);
   }
 
   private parseCategoryFilters(raw: string): { categoryFilterRefId: string; values: string[] }[] {

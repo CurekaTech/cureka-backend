@@ -20,6 +20,7 @@ import { IParsedProductGroup } from './bulk-upload-parser.service';
 import {
   BulkUploadProductInformationLabel,
   buildCategoryFilterColumnHeader,
+  normalizeBulkUploadLookupKey,
 } from '../utils/bulk-upload-columns.util';
 import {
   MAX_GENERATED_VARIANTS,
@@ -227,7 +228,9 @@ export class BulkUploadValidatorService {
     );
     this.packerMap = new Map(packers.map((p: any) => [p.name.toLowerCase().trim(), p.refId]));
     this.importerMap = new Map(importers.map((i: any) => [i.name.toLowerCase().trim(), i.refId]));
-    this.countryMap = new Map(countries.map((co: any) => [co.name.toLowerCase().trim(), co.refId]));
+    this.countryMap = new Map(
+      countries.map((co: any) => [normalizeBulkUploadLookupKey(co.name), co.refId]),
+    );
 
     this.activeProductInformationLabels = new Map(
       productInformationLabels.map((label) => [
@@ -418,7 +421,9 @@ export class BulkUploadValidatorService {
       manufacturerRefId: group.manufacturer ? this.manufacturerMap.get(group.manufacturer.toLowerCase().replace(/\s+/g, ' ').trim()) : undefined,
       packerRefId: group.packer ? this.packerMap.get(group.packer.toLowerCase().trim()) : undefined,
       importerRefId: group.importer ? this.importerMap.get(group.importer.toLowerCase().trim()) : undefined,
-      countryOfOriginRefId: group.countryOfOrigin ? this.countryMap.get(group.countryOfOrigin.toLowerCase().trim()) : undefined,
+      countryOfOriginRefId: group.countryOfOrigin
+        ? this.countryMap.get(normalizeBulkUploadLookupKey(group.countryOfOrigin))
+        : undefined,
     };
   }
 
@@ -644,7 +649,7 @@ export class BulkUploadValidatorService {
       }
 
       if (group.countryOfOrigin) {
-        const refId = this.countryMap.get(group.countryOfOrigin.toLowerCase().trim());
+        const refId = this.countryMap.get(normalizeBulkUploadLookupKey(group.countryOfOrigin));
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
