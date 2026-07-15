@@ -15,6 +15,7 @@ import {
   buildImagesFromLookupUrls,
   loadImageUrlsByProductId,
   loadManufacturerAddressByProductId,
+  loadSlugsByProductId,
   normalizeLookupProductId,
 } from '../utils/bulk-upload-reference-lookup.util';
 import {
@@ -294,6 +295,7 @@ export class BulkUploadProcessor extends WorkerHost {
       const galleryMap = await this.galleryService.getAllGalleryMap();
       const manufacturerLookup = await loadManufacturerAddressByProductId();
       const imageLookup = await loadImageUrlsByProductId();
+      const slugLookup = await loadSlugsByProductId();
       console.log('[BULK_UPLOAD_DEBUG][Processor.process] CACHE_AND_GALLERY_READY', {
         uploadRefId,
         galleryImageCount: galleryMap.size,
@@ -303,6 +305,9 @@ export class BulkUploadProcessor extends WorkerHost {
         imageLookupLoaded: imageLookup.loaded,
         imageLookupCount: imageLookup.byProductId.size,
         imageLookupPath: imageLookup.path,
+        slugLookupLoaded: slugLookup.loaded,
+        slugLookupCount: slugLookup.byProductId.size,
+        slugLookupPath: slugLookup.path,
       });
       if (!manufacturerLookup.loaded) {
         this.logger.warn(
@@ -312,6 +317,11 @@ export class BulkUploadProcessor extends WorkerHost {
       if (!imageLookup.loaded) {
         this.logger.warn(
           `Image lookup file not loaded (${imageLookup.path}). Image auto-attach by Product ID is disabled for this job.`,
+        );
+      }
+      if (!slugLookup.loaded) {
+        this.logger.warn(
+          `Slug lookup file not loaded (${slugLookup.path}). Slug auto-attach by Product ID is disabled for this job.`,
         );
       }
 
@@ -413,6 +423,9 @@ export class BulkUploadProcessor extends WorkerHost {
               const lookupImageUrls = lookupProductId
                 ? imageLookup.byProductId.get(lookupProductId)
                 : undefined;
+              const lookupSlug = lookupProductId
+                ? slugLookup.byProductId.get(lookupProductId)
+                : undefined;
 
               // Sheet Manufacturer Name wins; otherwise Product ID lookup fills in.
               let autoManufacturerRefId = refs.manufacturerRefId;
@@ -460,6 +473,9 @@ export class BulkUploadProcessor extends WorkerHost {
                   const variantLookupImageUrls = variantLookupProductId
                     ? imageLookup.byProductId.get(variantLookupProductId)
                     : undefined;
+                  const variantLookupSlug = variantLookupProductId
+                    ? slugLookup.byProductId.get(variantLookupProductId)
+                    : undefined;
 
                   if (processedImages.length === 0 && variantLookupImageUrls?.length) {
                     for (const item of buildImagesFromLookupUrls(variantLookupImageUrls)) {
@@ -502,7 +518,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
                   return {
                     sku: v.sku,
-                    slug: v.productUrlSlug,
+                    slug: variantLookupSlug || v.productUrlSlug,
                     externalProductId: v.externalProductId,
                     vendorSku: group.vendorSku,
                     barcode: v.barcode,
@@ -649,7 +665,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 emiAvailable: group.emiAvailable,
                 replaceAllowed: group.replaceAllowed,
                 replaceWindowDays: group.replaceWindowDays,
-                slug: group.slugUrl || undefined,
+                slug: lookupSlug || group.slugUrl || undefined,
                 externalProductId: group.externalProductId,
                 singleProductUrl: group.singleProductUrl,
                 packMetadata: group.packMetadata.length ? group.packMetadata : undefined,
