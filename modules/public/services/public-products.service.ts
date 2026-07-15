@@ -21,6 +21,7 @@ import { enrichProductInformation } from '@modules/product/utils/product-informa
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { resolvePublicExpiryDate } from '@modules/product/utils/expiry-date.util';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
 import {
@@ -574,6 +575,11 @@ export class PublicProductsService {
       manufacturer,
       packer,
       importer,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        // Stored expiry wins; otherwise today + product.expiresInMonths (fresh each request, not frozen in cache).
+        expiryDate: resolvePublicExpiryDate(variant.expiryDate, product.expiresInMonths),
+      })),
     };
   }
 
