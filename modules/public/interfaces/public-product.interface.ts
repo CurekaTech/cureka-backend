@@ -122,6 +122,8 @@ export interface IPublicProductVariant {
   widthUnit: string | null;
   height: number | null;
   heightUnit: string | null;
+  /** Expiry date as `dd-mm-yyyy`, or null when unset. */
+  expiryDate: string | null;
   status: VariantStatus;
   attributes: Array<{
     attributeRefId: string;

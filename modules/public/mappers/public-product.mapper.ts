@@ -8,6 +8,7 @@ import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
+import { formatExpiryDateOutput } from '@modules/product/utils/expiry-date.util';
 import {
   IPublicCategorySummary,
   IPublicImporterSummary,
@@ -383,6 +384,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       widthUnit: variant.widthUnit,
       height: toNumber(variant.height),
       heightUnit: variant.heightUnit,
+      expiryDate: formatExpiryDateOutput(variant.expiryDate),
       status: variant.status,
       attributes: (variant.attributeValues ?? []).map((item) => ({
         attributeRefId: item.attribute?.refId ?? '',
