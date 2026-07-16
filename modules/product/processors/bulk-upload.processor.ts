@@ -404,7 +404,7 @@ export class BulkUploadProcessor extends WorkerHost {
                   failedVariantSlots += countVariantSlotsForProductGroup(group);
                   allErrors.push({
                     rowNumber: group.rowNumber,
-                    sku: 'PARENT',
+                    sku: group.variants?.[0]?.sku || 'PARENT',
                     column: 'Size Chart Filename/Path',
                     invalidValue: group.sizeChart,
                     reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
@@ -614,7 +614,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 for (const img of unresolvedCommonMedia) {
                   allErrors.push({
                     rowNumber: group.rowNumber,
-                    sku: 'PARENT',
+                    sku: group.variants?.[0]?.sku || 'PARENT',
                     column: 'common_media',
                     invalidValue: img.filename || img.url || '',
                     reason:
@@ -777,7 +777,7 @@ export class BulkUploadProcessor extends WorkerHost {
               failedVariantSlots += countVariantSlotsForProductGroup(group);
               allErrors.push({
                 rowNumber: group.rowNumber,
-                sku: 'PARENT',
+                sku: group.variants?.[0]?.sku || 'PARENT',
                 column: 'Database',
                 invalidValue: group.name,
                 reason: dbError instanceof Error ? dbError.message : String(dbError),
