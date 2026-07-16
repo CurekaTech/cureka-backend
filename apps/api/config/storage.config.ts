@@ -35,7 +35,7 @@ export const storageConfig = registerAs('storage', () => {
   return {
     driver: process.env['STORAGE_DRIVER'] ?? 'local',
     uploadDir: resolveUploadDir(),
-    maxImageFileSize: parseInt(process.env['UPLOAD_MAX_IMAGE_FILE_SIZE'] ?? '1048576', 10),
+    maxImageFileSize: parseInt(process.env['UPLOAD_MAX_IMAGE_FILE_SIZE'] ?? '5242880', 10),
     maxVideoFileSize: parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10),
     allowedMimeTypes,
     gcs: {

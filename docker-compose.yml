@@ -61,7 +61,7 @@ services:
       # File storage — set STORAGE_DRIVER=gcs in production (blog, banners, products, etc.)
       STORAGE_DRIVER: ${STORAGE_DRIVER:-gcs}
       UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
-      UPLOAD_MAX_IMAGE_FILE_SIZE: ${UPLOAD_MAX_IMAGE_FILE_SIZE:-1048576}
+      UPLOAD_MAX_IMAGE_FILE_SIZE: ${UPLOAD_MAX_IMAGE_FILE_SIZE:-5242880}
       UPLOAD_MAX_VIDEO_FILE_SIZE: ${UPLOAD_MAX_VIDEO_FILE_SIZE:-20971520}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GCS_CREDENTIALS_PATH: ${GCS_CREDENTIALS_PATH:-/app/secrets/gcs-service-account.json}

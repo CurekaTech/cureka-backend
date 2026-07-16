@@ -1,8 +1,8 @@
 import { Transform, type Readable } from 'stream';
 import { ALLOWED_VIDEO_MIME_TYPES } from './storage.constants';
 
-/** 1 MB — images and PDFs */
-export const DEFAULT_MAX_IMAGE_FILE_SIZE = 1 * 1024 * 1024;
+/** 5 MB — images and PDFs (product images from WC/CDN often exceed 1 MB) */
+export const DEFAULT_MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
 
 /** 20 MB — videos */
 export const DEFAULT_MAX_VIDEO_FILE_SIZE = 20 * 1024 * 1024;
