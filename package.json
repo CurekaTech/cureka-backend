@@ -29,6 +29,8 @@
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product-slug:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-slug-import.runner.ts",
     "product-slug:apply": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-slug-import.runner.ts --file=\"docs/slug sheet.xlsx\" --apply",
+    "brand:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/brand-import.runner.ts",
+    "brand:apply": "ts-node -r tsconfig-paths/register apps/api/database/scripts/brand-import.runner.ts --file=\"docs/Brands.xlsx\" --apply",
     "manufacturer:reset": "ts-node -r tsconfig-paths/register apps/api/database/scripts/manufacturer-reset.runner.ts",
     "manufacturer-address:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/manufacturer-address-import.runner.ts",
     "manufacturer:setup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/manufacturer-setup.runner.ts",
