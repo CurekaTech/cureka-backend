@@ -35,8 +35,15 @@ export const unicommerceOrderConfig = registerAs('unicommerceOrder', () => ({
   /** securitykey header — static key provided by UniCommerce. */
   securityKey: envTrim(process.env['UNICOMMERCE_ORDER_SECURITY_KEY']),
 
-  /** Default channel warehouse / facility code sent per order item. */
-  facilityCode: envTrim(process.env['UNICOMMERCE_DEFAULT_FACILITY_CODE']),
+  /**
+   * Default channel warehouse / facility code sent per order item.
+   * Empty / "{}" / "null" are treated as unset (Postman samples omit facilityCode).
+   */
+  facilityCode: (() => {
+    const raw = envTrim(process.env['UNICOMMERCE_DEFAULT_FACILITY_CODE']);
+    if (!raw || raw === '{}' || raw === 'null' || raw === 'undefined') return '';
+    return raw;
+  })(),
 
   /** ISO currency code sent with prices. */
   currency: envTrim(process.env['UNICOMMERCE_ORDER_CURRENCY']) || 'INR',
