@@ -242,7 +242,14 @@ export class ProductsRepository {
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
-    return (await this.repo.count({ where: { refId } })) > 0;
+    // Include soft-deleted rows — products.ref_id has a full unique constraint.
+    return (
+      (await this.repo
+        .createQueryBuilder('product')
+        .withDeleted()
+        .where('product.refId = :refId', { refId })
+        .getCount()) > 0
+    );
   }
 
   /**

@@ -11,7 +11,7 @@ export class SupportFaqEntity extends BaseEntity {
   answer!: string;
 
   @Index()
-  @Column({ name: 'category_ref_id', type: 'varchar', length: 11 })
+  @Column({ name: 'category_ref_id', type: 'varchar', length: 16 })
   categoryRefId!: string;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })

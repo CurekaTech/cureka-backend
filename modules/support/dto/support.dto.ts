@@ -212,7 +212,7 @@ export class CreateSupportTicketDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(11)
+  @MaxLength(16)
   reasonRefId?: string;
 
   @ApiProperty()
