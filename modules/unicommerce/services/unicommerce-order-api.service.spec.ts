@@ -1,5 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { ServiceUnavailableException } from '@nestjs/common';
+import * as https from 'https';
+import { EventEmitter } from 'events';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
 import { IUnicommercePostOrderPayload } from '../interfaces/unicommerce-order.interface';
 
@@ -46,31 +48,80 @@ describe('UnicommerceOrderApiService', () => {
 
   it('posts with UniCommerce auth headers and returns parsed body', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: () => Promise.resolve(JSON.stringify({ status: 'success' })),
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const req = new EventEmitter() as EventEmitter & {
+      setTimeout: jest.Mock;
+      write: jest.Mock;
+      end: jest.Mock;
+      destroy: jest.Mock;
+    };
+    req.setTimeout = jest.fn();
+    req.write = jest.fn();
+    req.end = jest.fn();
+    req.destroy = jest.fn();
+
+    const requestSpy = jest.spyOn(https, 'request').mockImplementation(((
+      _options: unknown,
+      callback?: (res: EventEmitter & { statusCode?: number }) => void,
+    ) => {
+      const res = new EventEmitter() as EventEmitter & { statusCode?: number };
+      res.statusCode = 200;
+      if (callback) {
+        callback(res);
+        queueMicrotask(() => {
+          res.emit('data', Buffer.from(JSON.stringify({ status: 'success' })));
+          res.emit('end');
+        });
+      }
+      return req as unknown as ReturnType<typeof https.request>;
+    }) as typeof https.request);
 
     const result = await service.postOrder(payload);
 
     expect(result).toEqual({ status: 'success' });
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://genericproxy.unicommerce.com/uc/v1/order');
-    expect(init.method).toBe('POST');
-    expect(init.headers.clientid).toBe('client-1');
-    expect(init.headers.merchantid).toBe('merchant-1');
-    expect(init.headers.securitykey).toBe('key-1');
+    expect(requestSpy).toHaveBeenCalled();
+    const options = requestSpy.mock.calls[0][0] as https.RequestOptions;
+    expect(options.method).toBe('POST');
+    expect(options.hostname).toBe('genericproxy.unicommerce.com');
+    expect(options.path).toBe('/uc/v1/order');
+    expect(options.headers).toMatchObject({
+      ClientId: 'client-1',
+      merchantId: 'merchant-1',
+      securitykey: 'key-1',
+    });
+    expect(req.write).toHaveBeenCalled();
+    expect(req.end).toHaveBeenCalled();
   });
 
   it('throws ServiceUnavailable on non-OK HTTP response', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      text: () => Promise.resolve(JSON.stringify({ message: 'bad order' })),
-    }) as unknown as typeof fetch;
+
+    const req = new EventEmitter() as EventEmitter & {
+      setTimeout: jest.Mock;
+      write: jest.Mock;
+      end: jest.Mock;
+      destroy: jest.Mock;
+    };
+    req.setTimeout = jest.fn();
+    req.write = jest.fn();
+    req.end = jest.fn();
+    req.destroy = jest.fn();
+
+    jest.spyOn(https, 'request').mockImplementation(((
+      _options: unknown,
+      callback?: (res: EventEmitter & { statusCode?: number }) => void,
+    ) => {
+      const res = new EventEmitter() as EventEmitter & { statusCode?: number };
+      res.statusCode = 400;
+      if (callback) {
+        callback(res);
+        queueMicrotask(() => {
+          res.emit('data', Buffer.from(JSON.stringify({ message: 'bad order' })));
+          res.emit('end');
+        });
+      }
+      return req as unknown as ReturnType<typeof https.request>;
+    }) as typeof https.request);
 
     await expect(service.postOrder(payload)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
