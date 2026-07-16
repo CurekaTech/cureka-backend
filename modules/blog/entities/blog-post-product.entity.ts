@@ -13,7 +13,7 @@ export class BlogPostProductEntity extends BaseEntity {
   blogPost!: BlogPostEntity;
 
   @Index()
-  @Column({ name: 'product_ref_id', type: 'varchar', length: 11 })
+  @Column({ name: 'product_ref_id', type: 'varchar', length: 16 })
   productRefId!: string;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })

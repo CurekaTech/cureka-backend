@@ -34,7 +34,7 @@ export class BannerEntity extends BaseEntity {
   })
   resourceType!: BannerResourceType;
 
-  @Column({ name: 'resource_ref_id', type: 'varchar', length: 11, nullable: true })
+  @Column({ name: 'resource_ref_id', type: 'varchar', length: 16, nullable: true })
   resourceRefId!: string | null;
 
   @Column({ name: 'external_url', type: 'varchar', length: 2000, nullable: true })
