@@ -36,6 +36,8 @@ export interface IParsedImage {
   url?: string;
   isPrimary: boolean;
   sortOrder: number;
+  /** Set when remote URL download/store fails; used for clearer bulk-upload errors. */
+  resolveError?: string;
 }
 
 export interface IParsedVariant {

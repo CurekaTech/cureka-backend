@@ -114,7 +114,15 @@ export class BulkUploadProcessor extends WorkerHost {
     // 1) Public image URL → download (primary path for bulk media)
     if (isRemoteImageUrl(mediaUrl)) {
       try {
-        const response = await fetch(mediaUrl);
+        const response = await fetch(mediaUrl, {
+          redirect: 'follow',
+          headers: {
+            // Some CDNs (Cloudflare/WordPress) reject bare Node fetch without a browser UA.
+            'User-Agent':
+              'Mozilla/5.0 (compatible; CurekaBulkUpload/1.0; +https://www.cureka.com)',
+            Accept: 'image/*,*/*;q=0.8',
+          },
+        });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -124,9 +132,14 @@ export class BulkUploadProcessor extends WorkerHost {
           filename ||
           mediaUrl.split('/').pop()?.split('?')[0] ||
           'image.jpg';
+        const rawContentType = response.headers.get('content-type') || '';
+        const mimetype =
+          rawContentType.split(';')[0]?.trim() ||
+          this.resolveUploadMimeType(originalFilename);
+
         const uploadRes = await this.storageService.uploadImage({
           stream: Readable.from(Buffer.from(arrayBuffer)),
-          mimetype: response.headers.get('content-type') || this.resolveUploadMimeType(originalFilename),
+          mimetype,
           originalFilename,
           folder: UploadFolder.IMAGES,
         });
@@ -137,9 +150,12 @@ export class BulkUploadProcessor extends WorkerHost {
           sortOrder: img.sortOrder,
         };
       } catch (imgError) {
+        const detail = this.getErrorMessage(imgError);
         this.logger.warn(
-          `Could not download public image URL '${mediaUrl}': ${imgError instanceof Error ? imgError.message : String(imgError)}. Falling back to optional filename if present.`,
+          `Could not download/store public image URL '${mediaUrl}': ${detail}. Falling back to optional filename if present.`,
         );
+        // Attach last failure so callers can surface a precise reason.
+        img.resolveError = detail;
       }
     } else {
       // 2) Storage key/path (admin CRUD style), e.g. images/abc.webp
@@ -617,10 +633,12 @@ export class BulkUploadProcessor extends WorkerHost {
                     sku: group.variants?.[0]?.sku || 'PARENT',
                     column: 'common_media',
                     invalidValue: img.filename || img.url || '',
-                    reason:
-                      'Common media URL could not be downloaded or resolved to a storage path.',
-                    suggestedFix:
-                      'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
+                    reason: img.resolveError
+                      ? `Common media URL could not be stored: ${img.resolveError}`
+                      : 'Common media URL could not be downloaded or resolved to a storage path.',
+                    suggestedFix: img.resolveError?.toLowerCase().includes('maximum allowed size')
+                      ? 'Reduce the image file size, or raise UPLOAD_MAX_IMAGE_FILE_SIZE (default 5 MB).'
+                      : 'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
                   });
                 }
               }
