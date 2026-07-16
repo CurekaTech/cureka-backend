@@ -45,7 +45,19 @@ export class UnicommerceOrderApiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    this.logger.log({ url, orderId: payload.id }, 'UniCommerce Post Orders request');
+    this.logger.log(
+      {
+        url,
+        orderId: payload.id,
+        clientId,
+        merchantId,
+        clientIdLen: clientId.length,
+        merchantIdLen: merchantId.length,
+        securityKeyLen: securityKey.length,
+        securityKeyPrefix: securityKey.slice(0, 8),
+      },
+      'UniCommerce Post Orders request',
+    );
 
     try {
       const response = await fetch(url, {
