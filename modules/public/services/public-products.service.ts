@@ -466,10 +466,16 @@ export class PublicProductsService {
       refId: rootCategory.refId,
       name: rootCategory.name,
       slug: rootCategory.slug,
-      image: rootCategory.image,
-      banner: rootCategory.banner,
-      aboveTheFold: rootCategory.aboveTheFold,
-      belowTheFold: rootCategory.belowTheFold,
+      image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
+      banner: isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
+      aboveTheFold:
+        isChildFilter && matchedCategory.aboveTheFold?.trim()
+          ? matchedCategory.aboveTheFold
+          : rootCategory.aboveTheFold,
+      belowTheFold:
+        isChildFilter && matchedCategory.belowTheFold?.trim()
+          ? matchedCategory.belowTheFold
+          : rootCategory.belowTheFold,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         const masterValues = (filter.values ?? [])
