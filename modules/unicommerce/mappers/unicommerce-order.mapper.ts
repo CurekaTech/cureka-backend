@@ -12,7 +12,10 @@ import {
 } from '../interfaces/unicommerce-order.interface';
 
 export interface UnicommerceOrderMapperOptions {
-  /** Default channel warehouse / facility code sent per order item. */
+  /**
+   * Optional facility code. Omitted from payload for now — UniCommerce asked to
+   * drop this field while validating order creation. Re-enable when facility is mapped.
+   */
   facilityCode?: string;
   /** ISO currency code (default INR). */
   currency?: string;
@@ -72,7 +75,8 @@ export function mapOrderToUnicommercePayload(
 ): IUnicommercePostOrderPayload {
   const currency = options.currency ?? 'INR';
   const slaHours = options.slaHours ?? 48;
-  const facilityCode = options.facilityCode || undefined;
+  // facilityCode intentionally not sent — UniCommerce: omit while testing order create.
+  void options.facilityCode;
 
   const orderDate = order.placedAt ?? order.createdAt ?? new Date();
   const sla = new Date(orderDate.getTime() + slaHours * 60 * 60 * 1000);
@@ -102,7 +106,6 @@ export function mapOrderToUnicommercePayload(
     quantity: item.quantity,
     onHold: false,
     packetNumber: 1,
-    facilityCode,
   }));
 
   const address = buildAddress(order);
