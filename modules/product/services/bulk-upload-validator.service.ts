@@ -461,6 +461,7 @@ export class BulkUploadValidatorService {
 
     for (const group of batch) {
       const groupErrors: IValidationError[] = [];
+      const productSku = group.variants[0]?.sku ?? 'PARENT';
       let resolvedExistingProductRefId = this.resolveExistingProductRefIdForGroup(group);
       const existingProductRefIds = new Set<string>();
       if (resolvedExistingProductRefId) {
@@ -479,7 +480,7 @@ export class BulkUploadValidatorService {
       if (existingProductRefIds.size > 1) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: group.variants[0]?.sku ?? 'PARENT',
+          sku: productSku,
           column: 'Product SKU Code',
           invalidValue: group.variants.map((variant) => variant.sku).join(', '),
           reason: 'Sheet row maps to multiple existing products by SKU. A single row can only update one product.',
@@ -491,7 +492,7 @@ export class BulkUploadValidatorService {
       if (!group.name) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: 'Product Name',
           invalidValue: '',
           reason: 'Product name is mandatory.',
@@ -504,7 +505,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Product Nature',
             invalidValue: group.productNature,
             reason: masterRecordUnavailableReason('Product nature', group.productNature),
@@ -516,7 +517,7 @@ export class BulkUploadValidatorService {
       if (!group.category) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: 'Category',
           invalidValue: '',
           reason: 'Category name is mandatory.',
@@ -538,7 +539,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Category',
             invalidValue: group.category,
             reason: masterRecordUnavailableReason('Category', group.category),
@@ -550,7 +551,7 @@ export class BulkUploadValidatorService {
       if (!group.brand) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: 'Brand',
           invalidValue: '',
           reason: 'Brand name is mandatory.',
@@ -561,7 +562,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Brand',
             invalidValue: group.brand,
             reason: masterRecordUnavailableReason('Brand', group.brand),
@@ -578,7 +579,7 @@ export class BulkUploadValidatorService {
           if (!refId) {
             groupErrors.push({
               rowNumber: group.rowNumber,
-              sku: 'PARENT',
+              sku: productSku,
               column: 'Wellness Goals',
               invalidValue: goal,
               reason: masterRecordUnavailableReason('Wellness goal', goal),
@@ -594,7 +595,7 @@ export class BulkUploadValidatorService {
           if (!refId) {
             groupErrors.push({
               rowNumber: group.rowNumber,
-              sku: 'PARENT',
+              sku: productSku,
               column: 'Health Concerns',
               invalidValue: concern,
               reason: masterRecordUnavailableReason('Health concern', concern),
@@ -611,7 +612,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Manufacturer',
             invalidValue: group.manufacturer,
             reason: masterRecordUnavailableReason('Manufacturer', group.manufacturer),
@@ -625,7 +626,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Packer',
             invalidValue: group.packer,
             reason: masterRecordUnavailableReason('Packer', group.packer),
@@ -639,7 +640,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Importer',
             invalidValue: group.importer,
             reason: masterRecordUnavailableReason('Importer', group.importer),
@@ -653,7 +654,7 @@ export class BulkUploadValidatorService {
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Country of Origin',
             invalidValue: group.countryOfOrigin,
             reason: masterRecordUnavailableReason('Country', group.countryOfOrigin),
@@ -673,9 +674,9 @@ export class BulkUploadValidatorService {
         seenCheckIds.add(key);
         productIdsToCheck.push({ rowNumber, sku, id });
       };
-      pushProductId(group.rowNumber, 'PARENT', group.externalProductId);
+      pushProductId(group.rowNumber, productSku, group.externalProductId);
       for (const variant of group.variants ?? []) {
-        pushProductId(variant.rowNumber, variant.sku || 'PARENT', variant.externalProductId);
+        pushProductId(variant.rowNumber, variant.sku || productSku, variant.externalProductId);
       }
 
       for (const item of productIdsToCheck) {
@@ -720,7 +721,7 @@ export class BulkUploadValidatorService {
           if (!slug) {
             groupErrors.push({
               rowNumber: group.rowNumber,
-              sku: 'PARENT',
+              sku: productSku,
               column: 'Product Tags',
               invalidValue: tag,
               reason: masterRecordUnavailableReason('Product tag', tag),
@@ -745,7 +746,7 @@ export class BulkUploadValidatorService {
         if (group.bundleItems.length === 0) {
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: 'PARENT',
+            sku: productSku,
             column: 'Child SKU',
             invalidValue: '',
             reason: 'Bundles must specify at least one child product row.',
@@ -808,10 +809,11 @@ export class BulkUploadValidatorService {
     sheetSkus: Set<string>,
     resolvedExistingProductRefId?: string,
   ): void {
+    const productSku = group.variants[0]?.sku ?? 'PARENT';
     if (group.variants.length === 0) {
       groupErrors.push({
         rowNumber: group.rowNumber,
-        sku: 'PARENT',
+        sku: productSku,
         column: 'Product SKU Code',
         invalidValue: '',
         reason: 'At least one variant or product SKU row must be associated with the product.',
@@ -822,7 +824,7 @@ export class BulkUploadValidatorService {
 
     for (const variant of group.variants) {
       this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, true);
-      this.validateVariantPricing(variant, groupErrors);
+      this.validateVariantPricing(variant, groupErrors, productSku);
     }
   }
 
@@ -832,10 +834,11 @@ export class BulkUploadValidatorService {
     sheetSkus: Set<string>,
     resolvedExistingProductRefId?: string,
   ): void {
+    const productSku = group.variants[0]?.sku ?? 'PARENT';
     if (!group.styleGroupId) {
       groupErrors.push({
         rowNumber: group.rowNumber,
-        sku: 'PARENT',
+        sku: productSku,
         column: 'style_group_id',
         invalidValue: '',
         reason:
@@ -848,7 +851,7 @@ export class BulkUploadValidatorService {
     if (group.variants.length < 2) {
       groupErrors.push({
         rowNumber: group.rowNumber,
-        sku: 'PARENT',
+        sku: productSku,
         column: 'style_group_id',
         invalidValue: group.styleGroupId ?? '',
         reason: 'A variable style_group_id group must include at least 2 vertical variant rows.',
@@ -860,7 +863,7 @@ export class BulkUploadValidatorService {
     if (group.variants.length > MAX_GENERATED_VARIANTS) {
       groupErrors.push({
         rowNumber: group.rowNumber,
-        sku: 'PARENT',
+        sku: productSku,
         column: 'style_group_id',
         invalidValue: String(group.variants.length),
         reason: `Variable product would create ${group.variants.length} variants, which exceeds the limit of ${MAX_GENERATED_VARIANTS}.`,
@@ -878,7 +881,7 @@ export class BulkUploadValidatorService {
       if (productIdsInGroup.has(pid)) {
         groupErrors.push({
           rowNumber: variant.rowNumber,
-          sku: variant.sku || 'PARENT',
+          sku: variant.sku || productSku,
           column: 'Product ID (String)',
           invalidValue: variant.externalProductId ?? '',
           reason: `Product ID "${variant.externalProductId}" is duplicated within style_group_id "${group.styleGroupId}".`,
@@ -894,7 +897,7 @@ export class BulkUploadValidatorService {
 
     for (const variant of group.variants) {
       this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
-      this.validateVariantPricing(variant, groupErrors);
+      this.validateVariantPricing(variant, groupErrors, productSku);
 
       const resolvedAttributes: Array<{ attributeRefId: string; value: string; label: string }> = [];
       const attributeDetailNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
@@ -917,7 +920,7 @@ export class BulkUploadValidatorService {
         if (!attributeRefId) {
           groupErrors.push({
             rowNumber: variant.rowNumber,
-            sku: variant.sku || 'PARENT',
+            sku: variant.sku || productSku,
             column: `Attribute: ${attribute.name}`,
             invalidValue: lookup,
             reason: masterRecordUnavailableReason('Attribute', lookup),
@@ -946,7 +949,7 @@ export class BulkUploadValidatorService {
     for (const combination of duplicateCombinations) {
       groupErrors.push({
         rowNumber: group.rowNumber,
-        sku: group.variants[0]?.sku ?? 'PARENT',
+        sku: productSku,
         column: 'Attribute Values',
         invalidValue: combination,
         reason: `Duplicate variant attribute combinations detected (${combination}).`,
@@ -1066,11 +1069,12 @@ export class BulkUploadValidatorService {
   private validateVariantPricing(
     variant: IParsedProductGroup['variants'][number],
     groupErrors: IValidationError[],
+    parentSku: string,
   ): void {
     if (variant.mrp <= 0) {
       groupErrors.push({
         rowNumber: variant.rowNumber,
-        sku: variant.sku || 'PARENT',
+        sku: variant.sku || parentSku,
         column: 'MRP',
         invalidValue: String(variant.mrp),
         reason: 'MRP must be greater than zero.',
@@ -1081,7 +1085,7 @@ export class BulkUploadValidatorService {
     if (variant.sellingPrice <= 0) {
       groupErrors.push({
         rowNumber: variant.rowNumber,
-        sku: variant.sku || 'PARENT',
+        sku: variant.sku || parentSku,
         column: 'Selling Price',
         invalidValue: String(variant.sellingPrice),
         reason: 'Selling price must be greater than zero.',
@@ -1092,7 +1096,7 @@ export class BulkUploadValidatorService {
     if (variant.sellingPrice > variant.mrp) {
       groupErrors.push({
         rowNumber: variant.rowNumber,
-        sku: variant.sku || 'PARENT',
+        sku: variant.sku || parentSku,
         column: 'Selling Price',
         invalidValue: `${variant.sellingPrice} vs MRP ${variant.mrp}`,
         reason: 'Selling price cannot exceed the product MRP.',
@@ -1102,6 +1106,7 @@ export class BulkUploadValidatorService {
   }
 
   private validateSubCategories(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
+    const productSku = group.variants[0]?.sku ?? 'PARENT';
     const checks: Array<{ value?: string; column: string; map: Map<string, string> }> = [
       { value: group.subCategory, column: 'Sub Category', map: this.subCategoryMap },
       { value: group.subSubCategory, column: 'Sub Sub Category', map: this.subSubCategoryMap },
@@ -1117,7 +1122,7 @@ export class BulkUploadValidatorService {
       if (!map.get(value.toLowerCase().trim())) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column,
           invalidValue: value,
           reason: masterRecordUnavailableReason(column, value),
@@ -1128,6 +1133,7 @@ export class BulkUploadValidatorService {
   }
 
   private validatePackMetadata(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
+    const productSku = group.variants[0]?.sku ?? 'PARENT';
     for (const pack of group.packMetadata ?? []) {
       const packLabel = `Pack ${pack.packNumber}`;
       const hasSku = Boolean(pack.skuCode?.trim());
@@ -1143,7 +1149,7 @@ export class BulkUploadValidatorService {
       if ((hasPrice || hasOtherFields) && !hasSku) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: `${packLabel} SKU Code`,
           invalidValue: '',
           reason: `${packLabel} is partially filled but missing Pack SKU Code.`,
@@ -1154,7 +1160,7 @@ export class BulkUploadValidatorService {
       if (pack.mrp !== undefined && pack.mrp <= 0) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: `${packLabel} MRP`,
           invalidValue: String(pack.mrp),
           reason: `${packLabel} MRP must be greater than zero.`,
@@ -1165,7 +1171,7 @@ export class BulkUploadValidatorService {
       if (pack.sellingPrice !== undefined && pack.sellingPrice <= 0) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: `${packLabel} Selling Price`,
           invalidValue: String(pack.sellingPrice),
           reason: `${packLabel} selling price must be greater than zero.`,
@@ -1180,7 +1186,7 @@ export class BulkUploadValidatorService {
       ) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: 'PARENT',
+          sku: productSku,
           column: `${packLabel} Selling Price`,
           invalidValue: `${pack.sellingPrice} vs MRP ${pack.mrp}`,
           reason: `${packLabel} selling price cannot exceed pack MRP.`,
@@ -1193,6 +1199,7 @@ export class BulkUploadValidatorService {
   private validateCategoryFilters(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
     if (!group.categoryFilters.length) return;
 
+    const productSku = group.variants[0]?.sku ?? 'PARENT';
     const categoryId = group.category
       ? this.categoryIdByName.get(group.category.toLowerCase().trim())
       : undefined;
@@ -1209,7 +1216,7 @@ export class BulkUploadValidatorService {
       if (!filter) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: group.variants[0]?.sku ?? 'PARENT',
+          sku: productSku,
           column: columnName,
           invalidValue: binding.categoryFilterRefId,
           reason: masterRecordUnavailableReason('Category filter', binding.categoryFilterRefId),
@@ -1221,7 +1228,7 @@ export class BulkUploadValidatorService {
       if (categoryId && !filter.categoryIds.has(categoryId)) {
         groupErrors.push({
           rowNumber: group.rowNumber,
-          sku: group.variants[0]?.sku ?? 'PARENT',
+          sku: productSku,
           column: columnName,
           invalidValue: binding.values.join('|'),
           reason: `Category filter "${filter.name}" is not assigned to category "${group.category}".`,
@@ -1235,7 +1242,7 @@ export class BulkUploadValidatorService {
           const allowed = [...filter.allowedValues].join(', ');
           groupErrors.push({
             rowNumber: group.rowNumber,
-            sku: group.variants[0]?.sku ?? 'PARENT',
+            sku: productSku,
             column: columnName,
             invalidValue: value,
             reason: `Value "${value}" is not allowed for category filter "${filter.name}".`,

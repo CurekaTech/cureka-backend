@@ -21,6 +21,7 @@ import { enrichProductInformation } from '@modules/product/utils/product-informa
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { resolvePublicExpiryDate } from '@modules/product/utils/expiry-date.util';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
 import {
@@ -465,10 +466,16 @@ export class PublicProductsService {
       refId: rootCategory.refId,
       name: rootCategory.name,
       slug: rootCategory.slug,
-      image: rootCategory.image,
-      banner: rootCategory.banner,
-      aboveTheFold: rootCategory.aboveTheFold,
-      belowTheFold: rootCategory.belowTheFold,
+      image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
+      banner: isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
+      aboveTheFold:
+        isChildFilter && matchedCategory.aboveTheFold?.trim()
+          ? matchedCategory.aboveTheFold
+          : rootCategory.aboveTheFold,
+      belowTheFold:
+        isChildFilter && matchedCategory.belowTheFold?.trim()
+          ? matchedCategory.belowTheFold
+          : rootCategory.belowTheFold,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         const masterValues = (filter.values ?? [])
@@ -574,6 +581,11 @@ export class PublicProductsService {
       manufacturer,
       packer,
       importer,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        // Stored expiry wins; otherwise today + product.expiresInMonths (fresh each request, not frozen in cache).
+        expiryDate: resolvePublicExpiryDate(variant.expiryDate, product.expiresInMonths),
+      })),
     };
   }
 

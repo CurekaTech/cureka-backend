@@ -10,7 +10,7 @@ export class SupportNotificationEntity {
   userId!: string;
 
   @Index()
-  @Column({ name: 'ticket_ref_id', type: 'varchar', length: 11 })
+  @Column({ name: 'ticket_ref_id', type: 'varchar', length: 16 })
   ticketRefId!: string;
 
   @Column({ type: 'varchar', length: 255 })

@@ -10,7 +10,7 @@ export abstract class BaseEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'ref_id', type: 'varchar', length: 11, unique: true })
+  @Column({ name: 'ref_id', type: 'varchar', length: 16, unique: true })
   refId!: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
