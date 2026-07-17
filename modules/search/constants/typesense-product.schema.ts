@@ -10,6 +10,7 @@ export const PRODUCT_COLLECTION_FIELDS = [
   { name: 'healthConcerns', type: 'string' as const, optional: true },
   { name: 'wellnessGoals', type: 'string' as const, optional: true },
   { name: 'tags', type: 'string' as const, optional: true },
+  { name: 'searchTags', type: 'string' as const, optional: true },
   { name: 'description', type: 'string' as const, optional: true },
   { name: 'inStock', type: 'bool' as const, optional: true },
   { name: 'minSellingPrice', type: 'float' as const, optional: true },
@@ -25,6 +26,7 @@ export const PRODUCT_SEARCH_QUERY_FIELDS = [
   'healthConcerns',
   'wellnessGoals',
   'tags',
+  'searchTags',
   'description',
 ] as const;
 
