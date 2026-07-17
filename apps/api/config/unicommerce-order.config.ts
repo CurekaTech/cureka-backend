@@ -1,5 +1,10 @@
 import { registerAs } from '@nestjs/config';
 
+/** Strip spaces / CR from .env values (Windows CRLF breaks UniCommerce auth headers). */
+function envTrim(value: string | undefined): string {
+  return (value ?? '').trim();
+}
+
 /**
  * Outbound UniCommerce "Post Orders" integration.
  *
@@ -9,36 +14,43 @@ import { registerAs } from '@nestjs/config';
  */
 export const unicommerceOrderConfig = registerAs('unicommerceOrder', () => ({
   /** Master switch. When false, orders are not pushed to UniCommerce. */
-  enabled: (process.env['UNICOMMERCE_ORDER_PUSH_ENABLED'] ?? 'false') === 'true',
+  enabled: envTrim(process.env['UNICOMMERCE_ORDER_PUSH_ENABLED']) === 'true',
 
   /** UniCommerce generic proxy base URL. */
   baseUrl:
-    process.env['UNICOMMERCE_ORDER_BASE_URL'] ?? 'https://genericproxy.unicommerce.com',
+    envTrim(process.env['UNICOMMERCE_ORDER_BASE_URL']) ||
+    'https://genericproxy.unicommerce.com',
 
   /** Post Orders endpoint path. */
-  endpoint: process.env['UNICOMMERCE_ORDER_ENDPOINT'] ?? '/uc/v1/order',
+  endpoint: envTrim(process.env['UNICOMMERCE_ORDER_ENDPOINT']) || '/uc/v1/order',
 
   /** clientid header — provided by UniCommerce. */
-  clientId: process.env['UNICOMMERCE_ORDER_CLIENT_ID'] ?? '',
+  clientId: envTrim(process.env['UNICOMMERCE_ORDER_CLIENT_ID']),
 
   /** merchantid header — the seller username (falls back to inbound UNICOMMERCE_USERNAME). */
   merchantId:
-    process.env['UNICOMMERCE_ORDER_MERCHANT_ID'] ??
-    process.env['UNICOMMERCE_USERNAME'] ??
-    '',
+    envTrim(process.env['UNICOMMERCE_ORDER_MERCHANT_ID']) ||
+    envTrim(process.env['UNICOMMERCE_USERNAME']),
 
   /** securitykey header — static key provided by UniCommerce. */
-  securityKey: process.env['UNICOMMERCE_ORDER_SECURITY_KEY'] ?? '',
+  securityKey: envTrim(process.env['UNICOMMERCE_ORDER_SECURITY_KEY']),
 
-  /** Default channel warehouse / facility code sent per order item. */
-  facilityCode: process.env['UNICOMMERCE_DEFAULT_FACILITY_CODE'] ?? '',
+  /**
+   * Default channel warehouse / facility code sent per order item.
+   * Empty / "{}" / "null" are treated as unset (Postman samples omit facilityCode).
+   */
+  facilityCode: (() => {
+    const raw = envTrim(process.env['UNICOMMERCE_DEFAULT_FACILITY_CODE']);
+    if (!raw || raw === '{}' || raw === 'null' || raw === 'undefined') return '';
+    return raw;
+  })(),
 
   /** ISO currency code sent with prices. */
-  currency: process.env['UNICOMMERCE_ORDER_CURRENCY'] ?? 'INR',
+  currency: envTrim(process.env['UNICOMMERCE_ORDER_CURRENCY']) || 'INR',
 
   /** SLA window (hours) added to order date for UniCommerce fulfilment alerts. */
-  slaHours: parseInt(process.env['UNICOMMERCE_ORDER_SLA_HOURS'] ?? '48', 10),
+  slaHours: parseInt(envTrim(process.env['UNICOMMERCE_ORDER_SLA_HOURS']) || '48', 10),
 
   /** HTTP request timeout in milliseconds. */
-  timeoutMs: parseInt(process.env['UNICOMMERCE_ORDER_TIMEOUT_MS'] ?? '15000', 10),
+  timeoutMs: parseInt(envTrim(process.env['UNICOMMERCE_ORDER_TIMEOUT_MS']) || '15000', 10),
 }));

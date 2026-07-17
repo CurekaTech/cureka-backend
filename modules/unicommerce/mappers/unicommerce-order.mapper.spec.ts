@@ -57,7 +57,6 @@ describe('unicommerce-order.mapper', () => {
 
   it('maps a prepaid order to UniCommerce payload', () => {
     const payload = mapOrderToUnicommercePayload(buildOrder(), {
-      facilityCode: 'WH-01',
       currency: 'INR',
       slaHours: 48,
     });
@@ -83,7 +82,7 @@ describe('unicommerce-order.mapper', () => {
     expect(item.quantity).toBe(2);
     expect(item.orderItemPrice.sellingPrice).toBe(499);
     expect(item.orderItemPrice.totalPrice).toBe(998);
-    expect(item.facilityCode).toBe('WH-01');
+    expect(item.facilityCode).toBeUndefined();
 
     expect(payload.shippingAddress).toEqual(payload.billingAddress);
     expect(payload.shippingAddress.email).toBe('jane@example.com');

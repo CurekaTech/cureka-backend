@@ -14,7 +14,7 @@ export class BlogCommentEntity extends BaseEntity {
   blogPost!: BlogPostEntity;
 
   @Index()
-  @Column({ name: 'blog_post_ref_id', type: 'varchar', length: 11 })
+  @Column({ name: 'blog_post_ref_id', type: 'varchar', length: 16 })
   blogPostRefId!: string;
 
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
