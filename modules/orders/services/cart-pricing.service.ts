@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { EntityManager } from 'typeorm';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import {
@@ -11,23 +10,18 @@ import { CartsRepository } from '../repositories/carts.repository';
 import { roundMoney } from '../utils/money.util';
 import {
   CartCheckoutAdminSettingsService,
-  ResolvedCartCheckoutAdminSettings,
+  ShippingSlab,
 } from './cart-checkout-admin-settings.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 
 @Injectable()
 export class CartPricingService {
-  private readonly flatShippingFee: number;
-
   constructor(
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartsRepository: CartsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
-    configService: ConfigService,
-  ) {
-    this.flatShippingFee = configService.get<number>('orders.shipping.flatFee', 50);
-  }
+  ) {}
 
   async calculateCartPricing(params: {
     userId: string;
@@ -54,7 +48,10 @@ export class CartPricingService {
       });
     }
 
-    const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const [checkoutAdminSettings, shippingSlabs] = await Promise.all([
+      this.cartCheckoutAdminSettingsService.resolveAmounts(),
+      this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
+    ]);
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -146,7 +143,7 @@ export class CartPricingService {
     const shippingAmount = this.resolveShippingAmount(
       payableBeforeShipping,
       coupon,
-      checkoutAdminSettings,
+      shippingSlabs,
     );
 
     return this.buildPricing({
@@ -202,22 +199,18 @@ export class CartPricingService {
   resolveShippingAmount(
     payableBeforeShipping: number,
     coupon: CouponEntity | null,
-    checkoutAdminSettings: ResolvedCartCheckoutAdminSettings,
+    shippingSlabs: ShippingSlab[],
   ): number {
     if (coupon?.couponType.trim().toLowerCase() === 'free_shipping') {
       return 0;
     }
 
-    const freeShippingThreshold =
-      this.cartCheckoutAdminSettingsService.getFreeShippingThreshold(checkoutAdminSettings);
-
-    if (payableBeforeShipping >= freeShippingThreshold) {
-      return 0;
-    }
-
-    const shippingCharge =
-      this.cartCheckoutAdminSettingsService.getShippingCharge(checkoutAdminSettings);
-    return roundMoney(shippingCharge);
+    const slab = shippingSlabs.find(
+      (candidate) =>
+        payableBeforeShipping >= candidate.min &&
+        (candidate.max === null || payableBeforeShipping <= candidate.max),
+    );
+    return roundMoney(slab?.charge ?? 0);
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {

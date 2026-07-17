@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 
 export class GokwikCheckOrderExistsDto {
   /** Same as merchantCheckoutId / cart_id (CartEntity.id). */
@@ -6,12 +6,12 @@ export class GokwikCheckOrderExistsDto {
   @IsString()
   session_key!: string;
 
-  @IsOptional()
   @IsEmail()
-  customer_email?: string;
+  customer_email!: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
+  @Matches(/^[6-9]\d{9}$/)
   @MaxLength(20)
-  customer_phone?: string;
+  customer_phone!: string;
 }

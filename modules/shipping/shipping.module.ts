@@ -5,6 +5,7 @@ import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
 import { ShipmentEntity } from './entities/shipment.entity';
 import { ShipmentEventEntity } from './entities/shipment-event.entity';
+import { ShipmentItemEntity } from './entities/shipment-item.entity';
 import { ShipmentsRepository } from './repositories/shipments.repository';
 import { ShipmentEventsRepository } from './repositories/shipment-events.repository';
 import { ShipmentsController } from './controllers/shipments.controller';
@@ -20,6 +21,7 @@ import { ShipwayWebhookController } from './controllers/shipway-webhook.controll
       OrderItemEntity,
       ShipmentEntity,
       ShipmentEventEntity,
+      ShipmentItemEntity,
     ]),
   ],
   controllers: [ShipwayWebhookController, ShipmentsController],

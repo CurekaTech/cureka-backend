@@ -66,7 +66,11 @@ export class PaymentRequestsService {
   ) { }
 
   async checkoutFromCart(userId: string, addressId: string, orderSource?: OrderSource) {
-    if ((await this.checkoutResolver.resolveProvider()) === 'shiprocket') {
+    const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    if (checkoutProvider === 'gokwik') {
+      return this.createGokwikCheckoutSession(userId, addressId);
+    }
+    if (checkoutProvider === 'shiprocket') {
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
@@ -154,7 +158,11 @@ export class PaymentRequestsService {
 
   /** Storefront checkout modal — separate from payment-link flow. */
   async checkoutModalFromCart(userId: string, addressId: string, orderSource?: OrderSource) {
-    if ((await this.checkoutResolver.resolveProvider()) === 'shiprocket') {
+    const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    if (checkoutProvider === 'gokwik') {
+      return this.createGokwikCheckoutSession(userId, addressId);
+    }
+    if (checkoutProvider === 'shiprocket') {
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
@@ -485,6 +493,28 @@ export class PaymentRequestsService {
     });
 
     return { paymentRequest, customer, totals };
+  }
+
+  private async createGokwikCheckoutSession(userId: string, addressId: string) {
+    const [cart, pricing] = await Promise.all([
+      this.cartService.getActiveCartEntity(userId),
+      this.checkoutService.validateCheckout(userId, { addressId }),
+    ]);
+    if (!cart) {
+      throw new BadRequestException('Cart not found');
+    }
+
+    return {
+      gateway: 'gokwik',
+      checkoutProvider: 'gokwik',
+      paymentData: {
+        merchantCheckoutId: cart.id,
+        appId: this.configService.get<string>('gokwik.appId') ?? '',
+        merchantId: this.configService.get<string>('gokwik.merchantId') ?? '',
+        amount: pricing.grandTotal,
+        currency: 'INR',
+      },
+    };
   }
 
   private async createShiprocketCheckoutSession(

@@ -7,7 +7,7 @@ export type GokwikCreateOrderResponse = {
 export type GokwikPlaceOrderResponse = {
   status: 'success' | 'failed';
   order_id: string;
-  thankyou_redirect_url?: string;
+  thankyou_redirect_url: string;
   reason?: string;
 };
 

@@ -20,6 +20,9 @@ import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderSource } from '../enums/order-source.enum';
+import { CouponUsageEntity } from '../entities/coupon-usage.entity';
+import { OrderEntity } from '../entities/order.entity';
+import { OrderItemEntity } from '../entities/order-item.entity';
 import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
@@ -244,12 +247,13 @@ export class OrdersService {
       paymentStatus: OrderPaymentStatus;
       notes?: string | null;
       orderSource?: OrderSource;
+      ignorePaymentMethodPricing?: boolean;
     },
   ) {
     const address = await this.userAddressesService.findOne(userId, params.addressId);
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId: params.addressId,
-      paymentMethod: params.paymentMethod,
+      paymentMethod: params.ignorePaymentMethodPricing ? undefined : params.paymentMethod,
     });
 
     if (!summary.items.length) {
@@ -310,7 +314,7 @@ export class OrdersService {
           city: address.city,
           state: address.state,
           notes: params.notes ?? null,
-          placedAt: new Date(),
+          placedAt: null,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -384,7 +388,7 @@ export class OrdersService {
     let shouldPushFulfillment = true;
 
     const order = await this.dataSource.transaction(async (manager) => {
-      const existing = await this.ordersRepository.findByOrderNumberAndUserId(
+      const existing = await this.ordersRepository.findByOrderNumberAndUserIdForUpdate(
         params.orderNumber,
         userId,
         manager,
@@ -424,12 +428,17 @@ export class OrdersService {
         if (!variant) {
           throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
         }
-        if (variant.stock < item.quantity) {
+        const decrement = await manager
+          .getRepository(ProductVariantEntity)
+          .createQueryBuilder()
+          .update(ProductVariantEntity)
+          .set({ stock: () => `"stock" - ${item.quantity}` })
+          .where('id = :id', { id: item.variantId })
+          .andWhere('stock >= :quantity', { quantity: item.quantity })
+          .execute();
+        if (decrement.affected !== 1) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
-        await manager
-          .getRepository(ProductVariantEntity)
-          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
       }
 
       if (existing.couponId) {
@@ -456,11 +465,11 @@ export class OrdersService {
             isAvailable: true,
             primaryImageUrl: null,
             productDetails: [],
-            categoryId: '',
-            subCategoryId: null,
-            subSubCategoryId: null,
-            subSubSubCategoryId: null,
-            brandId: null,
+            categoryId: item.product?.categoryId ?? '',
+            subCategoryId: item.product?.subCategoryId ?? null,
+            subSubCategoryId: item.product?.subSubCategoryId ?? null,
+            subSubSubCategoryId: item.product?.subSubSubCategoryId ?? null,
+            brandId: item.product?.brandId ?? null,
           })),
           manager,
         });
@@ -492,7 +501,7 @@ export class OrdersService {
           paymentStatus: params.paymentStatus,
           orderStatus: OrderStatus.CONFIRMED,
           notes: params.notes ?? existing.notes,
-          placedAt: existing.placedAt ?? new Date(),
+          placedAt: new Date(),
           updatedBy: userId,
         },
         manager,
@@ -521,13 +530,6 @@ export class OrdersService {
     }
 
     return order;
-  }
-
-  /**
-   * Failsafe lookup for GoKwik check-order-exists (session_key = cart id).
-   */
-  async findGokwikOrderByCartId(cartId: string) {
-    return this.ordersRepository.findLatestGokwikOrderByCartId(cartId);
   }
 
   async findMyOrders(userId: string, query: OrderQueryDto) {
@@ -584,16 +586,41 @@ export class OrdersService {
   }
 
   async cancel(userId: string, id: string) {
-    const order = await this.ordersRepository.findByIdAndUserId(id, userId);
-    if (!order) throw new NotFoundException(`Order ${id} not found`);
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await manager
+        .getRepository(OrderEntity)
+        .createQueryBuilder('order')
+        .setLock('pessimistic_write')
+        .where('order.id = :id', { id })
+        .andWhere('order.userId = :userId', { userId })
+        .getOne();
+      if (!locked) throw new NotFoundException(`Order ${id} not found`);
+      if (![OrderStatus.PENDING, OrderStatus.CONFIRMED].includes(locked.orderStatus)) {
+        throw new BadRequestException('Only pending/confirmed orders can be cancelled');
+      }
 
-    if (![OrderStatus.PENDING, OrderStatus.CONFIRMED].includes(order.orderStatus)) {
-      throw new BadRequestException('Only pending/confirmed orders can be cancelled');
-    }
+      if (locked.orderStatus === OrderStatus.CONFIRMED) {
+        const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId: id } });
+        for (const item of items) {
+          await manager
+            .getRepository(ProductVariantEntity)
+            .createQueryBuilder()
+            .update(ProductVariantEntity)
+            .set({ stock: () => `"stock" + ${item.quantity}` })
+            .where('id = :variantId', { variantId: item.variantId })
+            .execute();
+        }
+        await manager.getRepository(CouponUsageEntity).delete({ orderId: id });
+      }
 
-    await this.ordersRepository.updateById(id, {
-      orderStatus: OrderStatus.CANCELLED,
-      updatedBy: userId,
+      await this.ordersRepository.updateById(
+        id,
+        {
+          orderStatus: OrderStatus.CANCELLED,
+          updatedBy: userId,
+        },
+        manager,
+      );
     });
     return this.findOne(userId, id);
   }

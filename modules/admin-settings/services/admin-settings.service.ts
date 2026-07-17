@@ -8,6 +8,7 @@ import { AdminSettingEntity } from '../entities/admin-setting.entity';
 
 const SHIPROCKET_CHECKOUT_ENABLED_KEY = 'shiprocketCheckoutEnabled';
 const GOKWIK_CHECKOUT_ENABLED_KEY = 'gokwikCheckoutEnabled';
+const GOKWIK_SHIPPING_SLABS_KEY = 'gokwik_shipping_slabs';
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'pay_you', 'cash_free'];
 const PAYMENT_SETTING_KEYS = [
   ...PAYMENT_GATEWAY_KEYS,
@@ -46,6 +47,7 @@ export class AdminSettingsService {
         'cod_charge_threshold',
         'prepaid_charge',
         'prepaid_charge_threshold',
+        GOKWIK_SHIPPING_SLABS_KEY,
       ];
       return response.filter((setting) => chargeKeys.includes(setting.key));
     }
@@ -83,6 +85,7 @@ export class AdminSettingsService {
       'cod_charge_threshold',
       'prepaid_charge',
       'prepaid_charge_threshold',
+      GOKWIK_SHIPPING_SLABS_KEY,
     ];
 
     const allowedKeys =
@@ -198,6 +201,10 @@ export class AdminSettingsService {
   }
 
   private validateSettingValue(key: string, value?: string): void {
+    if (key === GOKWIK_SHIPPING_SLABS_KEY && value !== undefined) {
+      this.validateShippingSlabs(value);
+      return;
+    }
     if (value === undefined || !BOOLEAN_SETTING_KEYS.includes(key)) {
       return;
     }
@@ -205,6 +212,35 @@ export class AdminSettingsService {
     const normalized = value.toLowerCase().trim();
     if (!['true', 'false', '1', '0'].includes(normalized)) {
       throw new BadRequestException(`Setting "${key}" must be a boolean value`);
+    }
+  }
+
+  private validateShippingSlabs(value: string): void {
+    try {
+      const slabs = JSON.parse(value) as unknown;
+      if (!Array.isArray(slabs) || !slabs.length) {
+        throw new Error();
+      }
+      for (const item of slabs) {
+        if (!item || typeof item !== 'object') throw new Error();
+        const slab = item as Record<string, unknown>;
+        const min = Number(slab['min']);
+        const max = slab['max'] === null ? null : Number(slab['max']);
+        const charge = Number(slab['charge']);
+        if (
+          !Number.isFinite(min) ||
+          min < 0 ||
+          (max !== null && (!Number.isFinite(max) || max < min)) ||
+          !Number.isFinite(charge) ||
+          charge < 0
+        ) {
+          throw new Error();
+        }
+      }
+    } catch {
+      throw new BadRequestException(
+        `Setting "${GOKWIK_SHIPPING_SLABS_KEY}" must be a valid shipping-slab JSON array`,
+      );
     }
   }
 }
