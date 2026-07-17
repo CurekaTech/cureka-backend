@@ -660,7 +660,14 @@ export class BulkUploadParserService {
         heightUnit: getVal('dimension unit') || undefined,
         status: getVal('variant status') || undefined,
         searchTags: getVal('search tags')
-          ? getVal('search tags').split('|').map((s) => s.trim()).filter(Boolean)
+          ? [
+              ...new Set(
+                getVal('search tags')
+                  .split(/[,|]+/)
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              ),
+            ]
           : [],
         attributes,
         images,
