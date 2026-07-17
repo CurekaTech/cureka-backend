@@ -11,6 +11,7 @@ export const EVENTS = {
   // Placeholder — extend as modules are added
   ORDER_CREATED: 'order.created',
   ORDER_UPDATED: 'order.updated',
+  SHIPMENT_UPDATED: 'shipment.updated',
   PAYMENT_COMPLETED: 'payment.completed',
   NOTIFICATION_SEND: 'notification.send',
 

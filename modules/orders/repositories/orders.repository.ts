@@ -69,21 +69,28 @@ export class OrdersRepository {
     });
   }
 
-  /**
-   * Latest non-cancelled GoKwik order whose notes include the given cart_id (session_key).
-   */
-  findLatestGokwikOrderByCartId(cartId: string): Promise<OrderEntity | null> {
-    return this.repo
+  async findByOrderNumberAndUserIdForUpdate(
+    orderNumber: string,
+    userId: string,
+    manager: EntityManager,
+  ): Promise<OrderEntity | null> {
+    const repository = manager.getRepository(OrderEntity);
+    const locked = await repository
       .createQueryBuilder('order')
-      .where(`order.notes LIKE :cartPattern`, {
-        cartPattern: `%"cart_id":"${cartId}"%`,
-      })
-      .andWhere(`order.notes LIKE :sourcePattern`, {
-        sourcePattern: '%"source":"gokwik"%',
-      })
-      .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
-      .orderBy('order.createdAt', 'DESC')
+      .setLock('pessimistic_write')
+      .where('order.orderNumber = :orderNumber', { orderNumber })
+      .andWhere('order.userId = :userId', { userId })
       .getOne();
+
+    if (!locked) {
+      return null;
+    }
+
+    return repository.findOne({
+      where: { id: locked.id },
+      relations: { items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
   }
 
   findByIdWithItems(id: string, manager?: EntityManager): Promise<OrderEntity | null> {

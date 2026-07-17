@@ -4,6 +4,7 @@ export const QUEUE_NAMES = {
   ORDER_PROCESSING: 'order-processing',
   ANALYTICS: 'analytics',
   UNICOMMERCE: 'unicommerce',
+  GOKWIK: 'gokwik',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

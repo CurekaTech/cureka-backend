@@ -2,6 +2,7 @@ import { BaseEntity } from '@packages/database';
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
 import { ShipmentEventEntity } from './shipment-event.entity';
+import { ShipmentItemEntity } from './shipment-item.entity';
 
 @Entity('shipments')
 export class ShipmentEntity extends BaseEntity {
@@ -15,6 +16,9 @@ export class ShipmentEntity extends BaseEntity {
   @Index()
   @Column({ name: 'order_number', type: 'varchar', length: 30 })
   orderNumber!: string;
+
+  @Column({ name: 'group_key', type: 'varchar', length: 100, default: 'default' })
+  groupKey!: string;
 
   // ── What Shipway sent to us when we pushed the order ─────────────────────────
 
@@ -94,4 +98,7 @@ export class ShipmentEntity extends BaseEntity {
 
   @OneToMany(() => ShipmentEventEntity, (event) => event.shipment, { cascade: true })
   events!: ShipmentEventEntity[];
+
+  @OneToMany(() => ShipmentItemEntity, (item) => item.shipment, { cascade: true })
+  items!: ShipmentItemEntity[];
 }

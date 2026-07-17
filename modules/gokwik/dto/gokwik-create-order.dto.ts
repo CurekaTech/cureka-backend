@@ -1,13 +1,16 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsDefined,
   IsEmail,
   IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -19,6 +22,7 @@ export class GokwikPaymentDetailsDto {
 
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
   payment_amount!: number;
 
   @IsNotEmpty()
@@ -40,6 +44,7 @@ export class GokwikPaymentDetailsDto {
 export class GokwikAddressDto {
   @IsNotEmpty()
   @IsString()
+  @Matches(/^\d{6}$/, { message: 'pincode must be a valid 6-digit Indian pincode' })
   @MaxLength(20)
   pincode!: string;
 
@@ -75,6 +80,7 @@ export class GokwikAddressDto {
 
   @IsNotEmpty()
   @IsString()
+  @Matches(/^[6-9]\d{9}$/, { message: 'phone must be a valid 10-digit Indian mobile number' })
   @MaxLength(20)
   phone!: string;
 }
@@ -90,12 +96,14 @@ export class GokwikRewardsInfoDto {
 
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
   reward_amount!: number;
 }
 
 export class GokwikMetaDiscountDto {
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
   amount!: number;
 
   @IsOptional()
@@ -118,6 +126,7 @@ export class GokwikMetaDiscountDto {
 export class GokwikOtherChargeDto {
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
   amount!: number;
 
   @IsNotEmpty()
@@ -136,10 +145,12 @@ export class GokwikOtherChargeDto {
 export class GokwikPpcodDto {
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
   prepaid_amount!: number;
 
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
   payable_on_delivery!: number;
 }
 
@@ -184,14 +195,15 @@ export class GokwikCreateOrderDto {
   @IsString()
   cart_id!: string;
 
+  @IsDefined()
   @ValidateNested()
   @Type(() => GokwikPaymentDetailsDto)
   payment_details!: GokwikPaymentDetailsDto;
 
-  @IsOptional()
+  @IsDefined()
   @ValidateNested()
   @Type(() => GokwikAddressDto)
-  shipping_address?: GokwikAddressDto;
+  shipping_address!: GokwikAddressDto;
 
   @IsOptional()
   @ValidateNested()
@@ -200,6 +212,9 @@ export class GokwikCreateOrderDto {
 
   @IsNotEmpty()
   @IsString()
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'customer_phone must be a valid 10-digit Indian mobile number',
+  })
   @MaxLength(20)
   customer_phone!: string;
 

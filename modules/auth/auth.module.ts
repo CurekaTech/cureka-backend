@@ -22,6 +22,7 @@ import { OtpService } from './services/otp.service';
 import { OtpRateLimitService } from './services/otp-rate-limit.service';
 import { OtpRepository } from './repositories/otp.repository';
 import { VerifiedUserGuard } from './guards/verified-user.guard';
+import { KwikpassService } from './services/kwikpass.service';
 
 @Global()
 @Module({
@@ -47,6 +48,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     VerifiedUserGuard,
     SessionCookieGuard,
     OptionalSessionCookieGuard,
+    KwikpassService,
   ],
   exports: [
     CoreAuthModule,
@@ -57,6 +59,7 @@ import { VerifiedUserGuard } from './guards/verified-user.guard';
     VerifiedUserGuard,
     SessionCookieGuard,
     OptionalSessionCookieGuard,
+    KwikpassService,
   ],
 })
 export class AuthModule {}
