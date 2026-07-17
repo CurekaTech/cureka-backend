@@ -299,6 +299,7 @@ export class OrdersService {
 
   async createOrderFromPaymentRequest(params: {
     customerId: string;
+    addressId?: string | null;
     paymentRequestId: string;
     paymentRequestRefId: string;
     subtotal: string;
@@ -324,10 +325,22 @@ export class OrdersService {
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
-      const address = await manager.getRepository(UserAddressEntity).findOne({
-        where: { userId: params.customerId, isDefault: true },
-        order: { updatedAt: 'DESC' },
-      });
+      const addressRepository = manager.getRepository(UserAddressEntity);
+      const address = params.addressId
+        ? await addressRepository.findOne({
+            where: { id: params.addressId, userId: params.customerId },
+          })
+        : await addressRepository.findOne({
+            where: { userId: params.customerId, isDefault: true },
+            order: { updatedAt: 'DESC' },
+          });
+      if (!address) {
+        throw new BadRequestException(
+          params.addressId
+            ? 'Selected checkout address was not found'
+            : 'A default delivery address is required for this legacy payment request',
+        );
+      }
 
       const orderRefId = await generateUniqueRefId('order', (candidate) =>
         this.ordersRepository.existsByRefId(candidate),
@@ -354,14 +367,14 @@ export class OrdersService {
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
           orderSource: params.orderSource ?? OrderSource.WEBSITE,
-          recipientName: address?.recipientName ?? 'Customer',
-          phoneNumber: address?.phoneNumber ?? '0000000000',
-          pincode: address?.pincode ?? '000000',
-          addressLine1: address?.addressLine1 ?? 'Address not provided',
-          addressLine2: address?.addressLine2 ?? null,
-          landmark: address?.landmark ?? null,
-          city: address?.city ?? 'NA',
-          state: address?.state ?? 'NA',
+          recipientName: address.recipientName,
+          phoneNumber: address.phoneNumber,
+          pincode: address.pincode,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2 ?? null,
+          landmark: address.landmark ?? null,
+          city: address.city,
+          state: address.state,
           notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
           placedAt: new Date(),
           createdBy: params.createdBy ?? 'razorpay-webhook',

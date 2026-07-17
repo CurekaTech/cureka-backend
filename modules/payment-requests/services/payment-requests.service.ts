@@ -444,6 +444,7 @@ export class PaymentRequestsService {
         {
           refId,
           customerId: userId,
+          addressId,
           status: PaymentRequestStatus.PAYMENT_PENDING,
           subtotal: totals.subtotal,
           discount: totals.discount,
@@ -949,6 +950,7 @@ export class PaymentRequestsService {
 
       const createdOrder = await this.ordersService.createOrderFromPaymentRequest({
         customerId: fresh.customerId,
+        addressId: fresh.addressId,
         paymentRequestId: fresh.id,
         paymentRequestRefId: fresh.refId,
         subtotal: fresh.subtotal,
