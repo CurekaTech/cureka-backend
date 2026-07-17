@@ -66,6 +66,7 @@ export interface IParsedVariant {
   height?: number;
   heightUnit?: string;
   status?: string;
+  searchTags: string[];
   attributes: IParsedAttribute[];
   images: IParsedImage[];
 }
@@ -658,6 +659,9 @@ export class BulkUploadParserService {
         height,
         heightUnit: getVal('dimension unit') || undefined,
         status: getVal('variant status') || undefined,
+        searchTags: getVal('search tags')
+          ? getVal('search tags').split('|').map((s) => s.trim()).filter(Boolean)
+          : [],
         attributes,
         images,
       });

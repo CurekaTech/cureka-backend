@@ -556,6 +556,7 @@ export class BulkUploadProcessor extends WorkerHost {
                     height: v.height,
                     heightUnit: v.heightUnit,
                     status: v.status,
+                    searchTags: v.searchTags?.length ? v.searchTags : undefined,
                     attributes: processedAttributes,
                     images: normalizedVariantImages,
                   };

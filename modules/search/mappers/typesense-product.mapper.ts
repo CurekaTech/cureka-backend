@@ -46,6 +46,10 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
 
   const tags = joinNames((product.tagMappings ?? []).map((mapping) => mapping.tag?.name));
 
+  const searchTags = joinNames(
+    activeVariants.flatMap((variant) => variant.searchTags ?? []),
+  );
+
   return {
     id: buildProductDocumentId(product.refId),
     refId: product.refId,
@@ -58,6 +62,7 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
     healthConcerns,
     wellnessGoals,
     tags,
+    searchTags,
     description: product.description ?? undefined,
     inStock: activeVariants.some((variant) => variant.stock > 0),
     minSellingPrice: sellingPrices.length ? Math.min(...sellingPrices) : undefined,

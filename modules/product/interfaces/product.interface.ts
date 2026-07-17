@@ -45,6 +45,7 @@ export interface IProductVariant {
   height: number | null;
   heightUnit: string | null;
   expiresIn: number | null;
+  searchTags: string[] | null;
   status: VariantStatus;
   combinationKey: string | null;
   attributes: IVariantAttributeValue[];

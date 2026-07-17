@@ -10,6 +10,7 @@ export interface ITypesenseSearchDocument {
   healthConcerns?: string;
   wellnessGoals?: string;
   tags?: string;
+  searchTags?: string;
   description?: string;
   inStock?: boolean;
   minSellingPrice?: number;

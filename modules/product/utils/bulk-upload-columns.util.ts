@@ -102,6 +102,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Height (cm)',
   'Dimension Unit',
   'Variant Status',
+  'Search Tags',
   'Product Highlights',
   'Safety Information',
   'Feeding Table',
