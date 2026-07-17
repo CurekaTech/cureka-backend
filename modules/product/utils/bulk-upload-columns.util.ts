@@ -244,6 +244,15 @@ export const resolveProductInformationLabelName = (
 };
 
 /**
+ * Legacy fixed-column headers that still map to a current fixed field.
+ * Example: "Tags" was a product_information_labels column; after search-tags
+ * migration it is accepted as an alias of "Search Tags".
+ */
+export const LEGACY_FIXED_BULK_UPLOAD_COLUMN_ALIASES = new Set(
+  ['Tags'].map(normalizeBulkUploadHeader),
+);
+
+/**
  * Legacy columns removed from the current template.
  * Old spreadsheets may still include these headers — they are ignored (not imported).
  */
@@ -293,6 +302,7 @@ export { isCommonMediaBulkUploadColumn, buildCommonMediaTemplateHeaders } from '
 
 export const isFixedBulkUploadColumn = (normalizedHeader: string): boolean =>
   FIXED_BULK_UPLOAD_COLUMNS.has(normalizedHeader) ||
+  LEGACY_FIXED_BULK_UPLOAD_COLUMN_ALIASES.has(normalizedHeader) ||
   isCommonMediaBulkUploadColumn(normalizedHeader) ||
   /^style[\s_-]*group[\s_-]*id$/i.test(normalizedHeader.trim());
 
