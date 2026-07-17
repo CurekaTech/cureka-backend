@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { FastifyRequest } from 'fastify';
 import { StorageService } from '@packages/storage';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -26,6 +27,11 @@ import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-g
 import { ProductTagsRepository } from '../repositories/product-tags.repository';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
+import { randomUUID } from 'crypto';
+import {
+  BULK_UPLOAD_LOCK_KEY,
+  releaseBulkUploadLock,
+} from '../utils/bulk-upload-lock.util';
 
 @Injectable()
 export class BulkUploadService {
@@ -45,6 +51,7 @@ export class BulkUploadService {
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly productTagsRepository: ProductTagsRepository,
+    private readonly configService: ConfigService,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
 
@@ -56,12 +63,21 @@ export class BulkUploadService {
 
     // 1. Concurrency Check (Distributed Lock)
     const redis = await this.redisConnection.getConnectedClient();
+    const lockToken = randomUUID();
+    const lockTtlMs = this.configService.get<number>(
+      'PRODUCT_BULK_UPLOAD_LOCK_TTL_MS',
+      1800000,
+    );
     if (redis) {
-      const lockKey = 'locks:bulk-upload';
-      // Acquire distributed lock for 15 minutes (900,000 ms) using NX (set if not exists)
-      const acquired = await redis.set(lockKey, 'locked', 'PX', 900000, 'NX');
+      const acquired = await redis.set(
+        BULK_UPLOAD_LOCK_KEY,
+        lockToken,
+        'PX',
+        lockTtlMs,
+        'NX',
+      );
       console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] REDIS_LOCK_ATTEMPT', {
-        lockKey,
+        lockKey: BULK_UPLOAD_LOCK_KEY,
         acquired: Boolean(acquired),
       });
       if (!acquired) {
@@ -80,12 +96,16 @@ export class BulkUploadService {
 
     if (!req.isMultipart()) {
       if (redis) {
-        await redis.del('locks:bulk-upload');
+        await releaseBulkUploadLock(redis, lockToken);
       }
       throw new BadRequestException('Request must be multipart/form-data.');
     }
 
-    const parts = req.parts();
+    const maxSheetSize = this.configService.get<number>(
+      'PRODUCT_BULK_UPLOAD_MAX_SHEET_SIZE',
+      41943040,
+    );
+    const parts = req.parts({ limits: { fileSize: maxSheetSize } });
     let fileUrl: string | null = null;
     let imagesZipUrl: string | null = null;
 
@@ -147,14 +167,14 @@ export class BulkUploadService {
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
       });
       if (redis) {
-        await redis.del('locks:bulk-upload');
+        await releaseBulkUploadLock(redis, lockToken);
       }
       throw err;
     }
 
     if (!fileUrl) {
       if (redis) {
-        await redis.del('locks:bulk-upload');
+        await releaseBulkUploadLock(redis, lockToken);
       }
       throw new BadRequestException('No file uploaded. Send multipart/form-data with a "file" field.');
     }
@@ -189,6 +209,8 @@ export class BulkUploadService {
         uploadRefId: record.refId,
         fileUrl: record.fileUrl,
         imagesZipUrl: record.imagesZipUrl || undefined,
+        lockToken: redis ? lockToken : undefined,
+        lockTtlMs,
       });
       console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] QUEUE_JOB_ADDED', {
         refId: record.refId,
@@ -206,7 +228,7 @@ export class BulkUploadService {
         errorSummary: [{ rowNumber: 0, sku: 'SYSTEM', column: 'Queue', invalidValue: 'N/A', reason: 'Failed to queue background job', suggestedFix: 'Contact system administrator.' }],
       });
       if (redis) {
-        await redis.del('locks:bulk-upload');
+        await releaseBulkUploadLock(redis, lockToken);
       }
       throw new BadRequestException(`Failed to queue bulk upload task: ${queueError instanceof Error ? queueError.message : String(queueError)}`);
     }
