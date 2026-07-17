@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
@@ -915,45 +915,57 @@ export class PaymentRequestsService {
     existing: PaymentRequestEntity,
     providerPaymentId?: string,
     updatedBy = 'razorpay-webhook',
-    manager?: EntityManager,
   ): Promise<void> {
-    console.log('PaymentRequestsService.markRequestAsPaid start', {
-      paymentRequestRefId: existing.refId,
-      paymentRequestId: existing.id,
-      providerPaymentId,
-      updatedBy,
-      currentStatus: existing.status,
-    });
     if (existing.status === PaymentRequestStatus.PAID) {
-      console.log('PaymentRequestsService.markRequestAsPaid skipped because already PAID', {
-        paymentRequestRefId: existing.refId,
-      });
+      this.logger.log(
+        {
+          paymentRequestId: existing.id,
+          paymentRequestRefId: existing.refId,
+          providerPaymentId,
+        },
+        'Ignoring duplicate payment-success notification',
+      );
+      return;
+    }
+
+    // Persist the provider-authoritative payment state before attempting downstream
+    // order creation. An address, stock, or fulfillment error must never roll a
+    // successful payment back to LINK_GENERATED.
+    const markedPaid = await this.paymentRequestsRepository.markPaidIfUnpaid(
+      existing.id,
+      {
+        status: PaymentRequestStatus.PAID,
+        paymentReference: providerPaymentId ?? existing.paymentReference,
+        paidAt: new Date(),
+        updatedBy,
+      },
+    );
+
+    if (!markedPaid) {
+      this.logger.log(
+        {
+          paymentRequestId: existing.id,
+          paymentRequestRefId: existing.refId,
+          providerPaymentId,
+        },
+        'Payment request was already marked as paid by another notification',
+      );
       return;
     }
 
     this.logger.log(
-      `Marking payment request ${existing.refId} as PAID via ${updatedBy}. providerPaymentId=${providerPaymentId ?? 'N/A'}`,
+      {
+        paymentRequestId: existing.id,
+        paymentRequestRefId: existing.refId,
+        providerPaymentId,
+        previousStatus: existing.status,
+        updatedBy,
+      },
+      'Payment request persisted as PAID',
     );
 
-    const runInTransaction = async (txManager: EntityManager) => {
-      const fresh = await this.paymentRequestsRepository.findById(existing.id, txManager);
-      if (!fresh || fresh.status === PaymentRequestStatus.PAID) {
-        return;
-      }
-
-      await this.paymentRequestsRepository.updateById(
-        fresh.id,
-        {
-          status: PaymentRequestStatus.PAID,
-          paymentReference: providerPaymentId ?? fresh.paymentReference,
-          paidAt: new Date(),
-          updatedBy,
-        },
-        txManager,
-      );
-
-      const shippingVal = Number(fresh.shipping ?? '0') + Number(fresh.handling ?? '0');
-      
+    try {
+      const shippingVal = Number(existing.shipping ?? '0') + Number(existing.handling ?? '0');
       let couponDetails: {
         couponId: string | null;
         couponCode: string | null;
@@ -966,8 +978,8 @@ export class PaymentRequestsService {
         couponDiscountType: null,
       };
 
-      if (fresh.couponCode) {
-        const coupon = await this.couponCheckoutService.findByCode(fresh.couponCode);
+      if (existing.couponCode) {
+        const coupon = await this.couponCheckoutService.findByCode(existing.couponCode);
         if (coupon) {
           couponDetails = {
             couponId: coupon.id,
@@ -979,22 +991,22 @@ export class PaymentRequestsService {
       }
 
       const createdOrder = await this.ordersService.createOrderFromPaymentRequest({
-        customerId: fresh.customerId,
-        addressId: fresh.addressId,
-        paymentRequestId: fresh.id,
-        paymentRequestRefId: fresh.refId,
-        subtotal: fresh.subtotal,
-        discountAmount: fresh.discount,
+        customerId: existing.customerId,
+        addressId: existing.addressId,
+        paymentRequestId: existing.id,
+        paymentRequestRefId: existing.refId,
+        subtotal: existing.subtotal,
+        discountAmount: existing.discount,
         shippingAmount: shippingVal.toFixed(2),
-        grandTotal: fresh.totalAmount,
-        notes: fresh.notes ?? null,
-        paymentMethod: fresh.paymentProvider as OrderPaymentMethod,
-        orderSource: fresh.orderSource ?? OrderSource.ADMIN,
+        grandTotal: existing.totalAmount,
+        notes: existing.notes ?? null,
+        paymentMethod: existing.paymentProvider as OrderPaymentMethod,
+        orderSource: existing.orderSource ?? OrderSource.ADMIN,
         createdBy: updatedBy,
         ...couponDetails,
-        platformFee: fresh.platformFee,
-        codCharge: fresh.codCharge,
-        items: fresh.items.map((item) => ({
+        platformFee: existing.platformFee,
+        codCharge: existing.codCharge,
+        items: existing.items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
           quantity: item.quantity,
@@ -1002,26 +1014,28 @@ export class PaymentRequestsService {
           totalPrice: item.total,
         })),
       });
-      console.log('PaymentRequestsService.markRequestAsPaid created order', {
-        paymentRequestRefId: fresh.refId,
-        orderId: createdOrder.id,
-        orderNumber: createdOrder.orderNumber,
-      });
-    };
-
-    if (manager) {
-      await runInTransaction(manager);
-    } else {
-      await this.dataSource.transaction(async (txManager) => {
-        await runInTransaction(txManager);
-      });
+      this.logger.log(
+        {
+          paymentRequestId: existing.id,
+          paymentRequestRefId: existing.refId,
+          orderId: createdOrder.id,
+          orderNumber: createdOrder.orderNumber,
+        },
+        'Order created for paid payment request',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        {
+          paymentRequestId: existing.id,
+          paymentRequestRefId: existing.refId,
+          providerPaymentId,
+          addressId: existing.addressId,
+          error: message,
+        },
+        'Payment remains PAID, but order creation failed and requires follow-up',
+      );
     }
-
-    this.logger.log(`Order created and payment request ${existing.refId} marked as PAID`);
-    console.log('PaymentRequestsService.markRequestAsPaid completed', {
-      paymentRequestRefId: existing.refId,
-      paymentRequestId: existing.id,
-    });
   }
 
   private getStorefrontPaymentCallbackUrl(): string | undefined {
