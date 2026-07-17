@@ -99,14 +99,20 @@ export class GokwikApiService {
     return response;
   }
 
-  /** Reserved for POST /v3/orders/split */
-  async splitOrder(_payload?: Record<string, unknown>): Promise<void> {}
+  /** POST /v3/orders/split */
+  splitOrder<T = unknown>(payload: Record<string, unknown>): Promise<T> {
+    return this.request<T>('POST', '/v3/orders/split', payload);
+  }
 
-  /** Reserved for POST /v3/product/update-product-details */
-  async syncProducts(_payload?: Record<string, unknown>): Promise<void> {}
+  /** POST /v3/product/update-product-details */
+  syncProducts<T = unknown>(payload: Record<string, unknown>): Promise<T> {
+    return this.request<T>('POST', '/v3/product/update-product-details', payload);
+  }
 
-  /** Reserved for POST /v3/collection/update-collection */
-  async syncCollections(_payload?: Record<string, unknown>): Promise<void> {}
+  /** POST /v3/collection/update-collection */
+  syncCollections<T = unknown>(payload: Record<string, unknown>): Promise<T> {
+    return this.request<T>('POST', '/v3/collection/update-collection', payload);
+  }
 
   private assertConfigured(): void {
     if (!this.baseUrl) {

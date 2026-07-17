@@ -21,6 +21,7 @@ import {
   CompleteRegistrationDto,
   RefreshSessionDto,
 } from '../dto/auth.dto';
+import { KwikpassExchangeDto } from '../dto/kwikpass.dto';
 import {
   IUserAuthResponse,
   IGuestAuthResponse,
@@ -37,6 +38,7 @@ import {
   setUserSessionCookie,
 } from '../utils/auth-cookie.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { KwikpassService } from '../services/kwikpass.service';
 
 /**
  * Ecommerce user auth — pure cookie session (no JWT).
@@ -46,6 +48,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly kwikpassService: KwikpassService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
@@ -57,6 +60,35 @@ export class AuthController {
     @Req() req: FastifyRequest,
   ): Promise<{ message: string; otp?: string }> {
     return this.authService.login(dto.identifier, req);
+  }
+
+  @ResponseMessage('KwikPass session created')
+  @Post('kwikpass/exchange')
+  @HttpCode(HttpStatus.OK)
+  async exchangeKwikpass(
+    @Body() dto: KwikpassExchangeDto,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<IUserAuthResponse> {
+    const sessionToken = getSessionTokenFromRequest(req);
+    const guestUserId =
+      await this.authService.resolveGuestUserIdFromSessionToken(sessionToken);
+    const result = await this.kwikpassService.exchange(
+      dto.kpToken,
+      this.authService.resolveDeviceContext(req),
+      guestUserId,
+    );
+    setUserSessionCookie(
+      reply,
+      result.sessionToken,
+      this.authService.getRefreshExpiresInDays(),
+    );
+    return {
+      sessionId: result.sessionId,
+      isRegistered: result.isRegistered,
+      user: result.user,
+      token: null,
+    };
   }
 
   @ResponseMessage('OTP sent successfully')

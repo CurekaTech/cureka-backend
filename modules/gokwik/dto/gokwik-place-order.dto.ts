@@ -1,10 +1,12 @@
 import { Type } from 'class-transformer';
 import {
   IsEmail,
+  IsDefined,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
   ValidateNested,
@@ -78,15 +80,16 @@ export class GokwikUtmDetailsDto {
 }
 
 export class GokwikPlaceOrderDto {
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
   @MaxLength(50)
-  order_id?: string;
+  order_id!: string;
 
   @IsNotEmpty()
   @IsString()
   cart_id!: string;
 
+  @IsDefined()
   @ValidateNested()
   @Type(() => GokwikPaymentDetailsDto)
   payment_details!: GokwikPaymentDetailsDto;
@@ -103,6 +106,9 @@ export class GokwikPlaceOrderDto {
 
   @IsNotEmpty()
   @IsString()
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'customer_phone must be a valid 10-digit Indian mobile number',
+  })
   @MaxLength(20)
   customer_phone!: string;
 
