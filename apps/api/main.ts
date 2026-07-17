@@ -18,8 +18,8 @@ async function bootstrap(): Promise<void> {
   // mounts its routes. This is the only reliable way to apply CORS to all
   // routes in Fastify's plugin-scoped lifecycle.
   const nodeEnv = process.env['NODE_ENV'] ?? 'development';
-  // const corsOriginsEnv = process.env['CORS_ORIGINS'];
   const corsOriginsEnv =
+    process.env['CORS_ORIGINS']?.trim() ||
     'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://localhost:3001,http://localhost:3002';
   const uploadDir = resolveUploadDir(process.env['UPLOAD_DIR']);
   const uploadMaxFileSize = parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10);
