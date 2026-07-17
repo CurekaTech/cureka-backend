@@ -659,16 +659,20 @@ export class BulkUploadParserService {
         height,
         heightUnit: getVal('dimension unit') || undefined,
         status: getVal('variant status') || undefined,
-        searchTags: getVal('search tags')
-          ? [
-              ...new Set(
-                getVal('search tags')
-                  .split(/[,|]+/)
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              ),
-            ]
-          : [],
+        searchTags: (() => {
+          // "Tags" is the legacy product_information_labels column; prefer "Search Tags".
+          const raw = this.getFirstAvailable(getVal, ['search tags', 'tags']);
+          return raw
+            ? [
+                ...new Set(
+                  raw
+                    .split(/[,|]+/)
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                ),
+              ]
+            : [];
+        })(),
         attributes,
         images,
       });
