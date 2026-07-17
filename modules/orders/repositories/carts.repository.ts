@@ -10,23 +10,40 @@ export class CartsRepository {
     private readonly repo: Repository<CartEntity>,
   ) {}
 
+  private readonly activeCartRelations = {
+    coupon: true,
+    items: {
+      product: { media: true },
+      variant: {
+        attributeValues: {
+          attribute: true,
+        },
+      },
+    },
+  } as const;
+
   findActiveByUserId(userId: string, manager?: EntityManager): Promise<CartEntity | null> {
     const repository = manager ? manager.getRepository(CartEntity) : this.repo;
     return repository.findOne({
       where: { userId, isActive: true },
-      relations: {
-        coupon: true,
-        items: {
-          product: { media: true },
-          variant: {
-            attributeValues: {
-              attribute: true,
-            },
-          },
-        },
-      },
+      relations: this.activeCartRelations,
       order: { items: { createdAt: 'ASC' } },
     });
+  }
+
+  findActiveById(id: string, manager?: EntityManager): Promise<CartEntity | null> {
+    const repository = manager ? manager.getRepository(CartEntity) : this.repo;
+    return repository.findOne({
+      where: { id, isActive: true },
+      relations: this.activeCartRelations,
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  /** Lookup by id regardless of isActive (used by GoKwik session_key checks). */
+  findById(id: string, manager?: EntityManager): Promise<CartEntity | null> {
+    const repository = manager ? manager.getRepository(CartEntity) : this.repo;
+    return repository.findOne({ where: { id } });
   }
 
   create(data: Partial<CartEntity>, manager?: EntityManager): Promise<CartEntity> {
