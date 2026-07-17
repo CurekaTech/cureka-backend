@@ -4,6 +4,7 @@ import { ProductsRepository } from '@modules/product/repositories/products.repos
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import {
+  IUnicommerceCatalogProduct,
   IUnicommerceProductsCountResponse,
   IUnicommerceProductsResponse,
 } from '../interfaces/unicommerce-catalog.interface';
@@ -50,6 +51,20 @@ export class UnicommerceCatalogService {
       .filter((product): product is NonNullable<typeof product> => product !== null);
 
     return { products: mappedProducts };
+  }
+
+  async getPublishedProduct(refId: string): Promise<IUnicommerceCatalogProduct | null> {
+    const product = await this.productsRepository.findPublishedByRefId(refId);
+    if (!product?.publishedAt) {
+      return null;
+    }
+
+    const imageUrlByMediaId = await this.buildImageUrlMap(product.media ?? []);
+    const productBaseUrl = this.configService.get<string>('UNICOMMERCE_PRODUCT_BASE_URL') ?? undefined;
+    return mapProductToUnicommerceCatalog(product, {
+      imageUrlByMediaId,
+      productBaseUrl,
+    });
   }
 
   private async buildImageUrlMap(

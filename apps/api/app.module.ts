@@ -2,7 +2,7 @@ import { Module, Scope } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { PathAwareLoggingValidationPipe } from '@packages/common';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, ordersConfig, shiprocketConfig, shipwayConfig, storageConfig, typesenseConfig, unicommerceOrderConfig, gokwikConfig, envValidationSchema } from './config';
+import { appConfig, databaseConfig, jwtConfig, ordersConfig, shiprocketConfig, shipwayConfig, storageConfig, typesenseConfig, unicommerceOrderConfig, unicommerceProductConfig, gokwikConfig, envValidationSchema } from './config';
 
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
@@ -37,7 +37,7 @@ import { GokwikModule } from '@modules/gokwik/gokwik.module';
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig, shipwayConfig, shiprocketConfig, unicommerceOrderConfig, gokwikConfig],
+      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig, shipwayConfig, shiprocketConfig, unicommerceOrderConfig, unicommerceProductConfig, gokwikConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,

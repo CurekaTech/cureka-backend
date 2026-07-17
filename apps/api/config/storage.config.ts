@@ -37,6 +37,10 @@ export const storageConfig = registerAs('storage', () => {
     uploadDir: resolveUploadDir(),
     maxImageFileSize: parseInt(process.env['UPLOAD_MAX_IMAGE_FILE_SIZE'] ?? '5242880', 10),
     maxVideoFileSize: parseInt(process.env['UPLOAD_MAX_VIDEO_FILE_SIZE'] ?? '20971520', 10),
+    maxBulkFileSize: parseInt(
+      process.env['PRODUCT_BULK_UPLOAD_MAX_SHEET_SIZE'] ?? '41943040',
+      10,
+    ),
     allowedMimeTypes,
     gcs: {
       bucket: process.env['GCS_BUCKET_NAME'],
