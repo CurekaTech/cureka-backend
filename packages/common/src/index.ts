@@ -20,6 +20,7 @@ export { PaginationQueryDto } from './dto/pagination-query.dto';
 export { RefIdPipe } from './pipes/ref-id.pipe';
 export { IsRefId, IsRefIdConstraint } from './validators/is-ref-id.decorator';
 export { ResponseMessage, RESPONSE_MESSAGE_KEY } from './decorators/response-message.decorator';
+export { RawResponse, RAW_RESPONSE_KEY } from './decorators/raw-response.decorator';
 export {
   flattenValidationErrors,
   formatValidationErrorMessage,

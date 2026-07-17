@@ -56,6 +56,36 @@ export class OrdersRepository {
     });
   }
 
+  findByOrderNumberAndUserId(
+    orderNumber: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
+      where: { orderNumber, userId },
+      relations: { items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  /**
+   * Latest non-cancelled GoKwik order whose notes include the given cart_id (session_key).
+   */
+  findLatestGokwikOrderByCartId(cartId: string): Promise<OrderEntity | null> {
+    return this.repo
+      .createQueryBuilder('order')
+      .where(`order.notes LIKE :cartPattern`, {
+        cartPattern: `%"cart_id":"${cartId}"%`,
+      })
+      .andWhere(`order.notes LIKE :sourcePattern`, {
+        sourcePattern: '%"source":"gokwik"%',
+      })
+      .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .orderBy('order.createdAt', 'DESC')
+      .getOne();
+  }
+
   findByIdWithItems(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
     return repository.findOne({

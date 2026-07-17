@@ -120,6 +120,13 @@ export const envValidationSchema = Joi.object({
   CASHFREE_API_VERSION: Joi.string().default('2023-08-01'),
   CASHFREE_WEBHOOK_SECRET: Joi.string().optional(),
 
+  GOKWIK_CALLBACK_SECRET: Joi.string().allow('').optional(),
+  GOKWIK_BASE_URL: Joi.string().uri().allow('').optional(),
+  GOKWIK_APP_ID: Joi.string().allow('').optional(),
+  GOKWIK_APP_SECRET: Joi.string().allow('').optional(),
+  GOKWIK_MERCHANT_ID: Joi.string().allow('').optional(),
+  GOKWIK_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).optional(),
+
   TYPESENSE_HOST: Joi.string().optional(),
   TYPESENSE_API_KEY: Joi.string().optional(),
   TYPESENSE_SEARCH_API_KEY: Joi.string().optional(),

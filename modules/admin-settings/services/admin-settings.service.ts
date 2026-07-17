@@ -7,9 +7,14 @@ import { AdminSettingStatus } from '../enums/admin-setting-status.enum';
 import { AdminSettingEntity } from '../entities/admin-setting.entity';
 
 const SHIPROCKET_CHECKOUT_ENABLED_KEY = 'shiprocketCheckoutEnabled';
+const GOKWIK_CHECKOUT_ENABLED_KEY = 'gokwikCheckoutEnabled';
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'pay_you', 'cash_free'];
-const PAYMENT_SETTING_KEYS = [...PAYMENT_GATEWAY_KEYS, SHIPROCKET_CHECKOUT_ENABLED_KEY];
-const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY];
+const PAYMENT_SETTING_KEYS = [
+  ...PAYMENT_GATEWAY_KEYS,
+  SHIPROCKET_CHECKOUT_ENABLED_KEY,
+  GOKWIK_CHECKOUT_ENABLED_KEY,
+];
+const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY, GOKWIK_CHECKOUT_ENABLED_KEY];
 
 @Injectable()
 export class AdminSettingsService {

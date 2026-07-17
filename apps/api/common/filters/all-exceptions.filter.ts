@@ -32,6 +32,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const normalized = this.normalizeException(exception);
     this.logException(request, normalized.statusCode, exception, normalized.message);
 
+    if (this.isGokwikRequest(request.url)) {
+      const errorMessage = Array.isArray(normalized.message)
+        ? normalized.message.join(', ')
+        : normalized.message;
+      try {
+        void response.status(normalized.statusCode).send({ data: { error: errorMessage } });
+      } catch (sendError) {
+        this.logger.error(
+          `Failed to send GoKwik error response: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+          sendError instanceof Error ? sendError.stack : undefined,
+        );
+      }
+      return;
+    }
+
     const errorResponse: ApiErrorResponse = {
       success: false,
       statusCode: normalized.statusCode,
@@ -152,6 +167,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private isUnicommerceAuthTokenRequest(url: string): boolean {
     const path = url.split('?')[0] ?? url;
     return path.endsWith('/unicommerce/authToken');
+  }
+
+  private isGokwikRequest(url: string): boolean {
+    const path = url.split('?')[0] ?? url;
+    return path.includes('/gokwik/');
   }
 
   private logException(
