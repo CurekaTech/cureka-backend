@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
@@ -8,7 +9,6 @@ import { CheckoutDto } from '../dto/checkout.dto';
 import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
-import { STOCK_VALIDATION_ENABLED } from '../config/stock-validation.config';
 
 @Injectable()
 export class CheckoutService {
