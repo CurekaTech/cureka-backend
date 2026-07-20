@@ -1,18 +1,17 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
+import { AuditModule } from '@modules/audit/audit.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { AdminBlogCategoriesController } from './controllers/admin-blog-categories.controller';
 import { AdminBlogCommentsController } from './controllers/admin-blog-comments.controller';
 import { AdminBlogPostsController } from './controllers/admin-blog-posts.controller';
 import { PublicBlogController } from './controllers/public-blog.controller';
-import { BlogAuditLogEntity } from './entities/blog-audit-log.entity';
 import { BlogCategoryEntity } from './entities/blog-category.entity';
 import { BlogCommentEntity } from './entities/blog-comment.entity';
 import { BlogPostEntity } from './entities/blog-post.entity';
 import { BlogPostProductEntity } from './entities/blog-post-product.entity';
-import { BlogAuditLogsRepository } from './repositories/blog-audit-logs.repository';
 import { BlogCategoriesRepository } from './repositories/blog-categories.repository';
 import { BlogCommentsRepository } from './repositories/blog-comments.repository';
 import { BlogPostProductsRepository } from './repositories/blog-post-products.repository';
@@ -28,9 +27,9 @@ import { BlogPostsService } from './services/blog-posts.service';
       BlogPostEntity,
       BlogPostProductEntity,
       BlogCommentEntity,
-      BlogAuditLogEntity,
       AdminUserEntity,
     ]),
+    AuditModule,
     UploadsModule,
     ProductModule,
   ],
@@ -45,7 +44,6 @@ import { BlogPostsService } from './services/blog-posts.service';
     BlogPostsRepository,
     BlogPostProductsRepository,
     BlogCommentsRepository,
-    BlogAuditLogsRepository,
     BlogCategoriesService,
     BlogPostsService,
     BlogCommentsService,
