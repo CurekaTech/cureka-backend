@@ -183,6 +183,25 @@ export class CategoriesRepository {
     return (await qb.getCount()) > 0;
   }
 
+  /** Case-insensitive name uniqueness within a hierarchy level (root / sub / sub-sub / sub-sub-sub). */
+  async existsByNameAtHierarchyLevel(
+    name: string,
+    hierarchyLevel: CategoryHierarchyLevel,
+    excludeRefId?: string,
+  ): Promise<boolean> {
+    const qb = this.repo
+      .createQueryBuilder('category')
+      .where('LOWER(TRIM(category.name)) = LOWER(TRIM(:name))', { name })
+      .andWhere('category.hierarchyLevel = :hierarchyLevel', { hierarchyLevel })
+      .andWhere('category.deletedAt IS NULL');
+
+    if (excludeRefId) {
+      qb.andWhere('category.refId != :excludeRefId', { excludeRefId });
+    }
+
+    return (await qb.getCount()) > 0;
+  }
+
   /** Counts root categories that have the given homepage flag enabled (optionally excluding one). */
   async countRootCategoriesByFlag(
     flag: 'isInHeader' | 'isInShopBy',
