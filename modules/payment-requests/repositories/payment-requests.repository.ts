@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, Not, Repository } from 'typeorm';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
 
@@ -24,6 +24,17 @@ export class PaymentRequestsRepository {
   ): Promise<void> {
     const repository = manager ? manager.getRepository(PaymentRequestEntity) : this.repo;
     await repository.update({ id }, data);
+  }
+
+  async markPaidIfUnpaid(
+    id: string,
+    data: Partial<PaymentRequestEntity>,
+  ): Promise<boolean> {
+    const result = await this.repo.update(
+      { id, status: Not(PaymentRequestStatus.PAID) },
+      data,
+    );
+    return (result.affected ?? 0) > 0;
   }
 
   /**

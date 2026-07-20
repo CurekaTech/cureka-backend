@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
@@ -28,7 +29,6 @@ import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
-import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductMediaDto } from '../dto/variant.dto';
@@ -38,6 +38,18 @@ import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as exceljs from 'exceljs';
+import {
+  releaseBulkUploadLock,
+  renewBulkUploadLock,
+} from '../utils/bulk-upload-lock.util';
+
+interface BulkUploadJobData {
+  uploadRefId: string;
+  fileUrl: string;
+  imagesZipUrl?: string;
+  lockToken?: string;
+  lockTtlMs?: number;
+}
 
 @Processor('bulk-upload')
 export class BulkUploadProcessor extends WorkerHost {
@@ -114,7 +126,15 @@ export class BulkUploadProcessor extends WorkerHost {
     // 1) Public image URL → download (primary path for bulk media)
     if (isRemoteImageUrl(mediaUrl)) {
       try {
-        const response = await fetch(mediaUrl);
+        const response = await fetch(mediaUrl, {
+          redirect: 'follow',
+          headers: {
+            // Some CDNs (Cloudflare/WordPress) reject bare Node fetch without a browser UA.
+            'User-Agent':
+              'Mozilla/5.0 (compatible; CurekaBulkUpload/1.0; +https://www.cureka.com)',
+            Accept: 'image/*,*/*;q=0.8',
+          },
+        });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -124,9 +144,14 @@ export class BulkUploadProcessor extends WorkerHost {
           filename ||
           mediaUrl.split('/').pop()?.split('?')[0] ||
           'image.jpg';
+        const rawContentType = response.headers.get('content-type') || '';
+        const mimetype =
+          rawContentType.split(';')[0]?.trim() ||
+          this.resolveUploadMimeType(originalFilename);
+
         const uploadRes = await this.storageService.uploadImage({
           stream: Readable.from(Buffer.from(arrayBuffer)),
-          mimetype: response.headers.get('content-type') || this.resolveUploadMimeType(originalFilename),
+          mimetype,
           originalFilename,
           folder: UploadFolder.IMAGES,
         });
@@ -137,9 +162,12 @@ export class BulkUploadProcessor extends WorkerHost {
           sortOrder: img.sortOrder,
         };
       } catch (imgError) {
+        const detail = this.getErrorMessage(imgError);
         this.logger.warn(
-          `Could not download public image URL '${mediaUrl}': ${imgError instanceof Error ? imgError.message : String(imgError)}. Falling back to optional filename if present.`,
+          `Could not download/store public image URL '${mediaUrl}': ${detail}. Falling back to optional filename if present.`,
         );
+        // Attach last failure so callers can surface a precise reason.
+        img.resolveError = detail;
       }
     } else {
       // 2) Storage key/path (admin CRUD style), e.g. images/abc.webp
@@ -263,12 +291,38 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly validatorService: BulkUploadValidatorService,
     private readonly productsService: ProductsService,
     private readonly galleryService: GalleryService,
+    private readonly configService: ConfigService,
   ) {
     super();
   }
 
-  async process(job: Job<{ uploadRefId: string; fileUrl: string; imagesZipUrl?: string }, any, string>): Promise<any> {
-    const { uploadRefId, fileUrl, imagesZipUrl } = job.data;
+  async process(job: Job<BulkUploadJobData, any, string>): Promise<any> {
+    const { uploadRefId, fileUrl, imagesZipUrl, lockToken } = job.data;
+    const lockTtlMs =
+      job.data.lockTtlMs ??
+      this.configService.get<number>('PRODUCT_BULK_UPLOAD_LOCK_TTL_MS', 1800000);
+    const lockRedis = lockToken
+      ? await this.redisConnection.getConnectedClient()
+      : null;
+    let lockRenewalTimer: NodeJS.Timeout | undefined;
+    if (lockRedis && lockToken) {
+      lockRenewalTimer = setInterval(() => {
+        void renewBulkUploadLock(lockRedis, lockToken, lockTtlMs)
+          .then((renewed) => {
+            if (!renewed) {
+              this.logger.error(
+                `Lost bulk upload lock ownership for ${uploadRefId}; concurrent upload protection may be degraded.`,
+              );
+            }
+          })
+          .catch((error) => {
+            this.logger.error(
+              `Failed to renew bulk upload lock for ${uploadRefId}: ${this.getErrorMessage(error)}`,
+            );
+          });
+      }, Math.max(10000, Math.floor(lockTtlMs / 3)));
+      lockRenewalTimer.unref();
+    }
     console.log('[BULK_UPLOAD_DEBUG][Processor.process] JOB_RECEIVED', {
       uploadRefId,
       fileUrl,
@@ -288,6 +342,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
     const tempDir = join(process.cwd(), 'temp-uploads');
     const tempFilePath = join(tempDir, `${uploadRefId}-${Date.now()}.bin`);
+    let processingSucceeded = false;
 
     try {
       // 1. Prime validation cache, load Media Gallery mappings, and Product ID lookups
@@ -540,6 +595,7 @@ export class BulkUploadProcessor extends WorkerHost {
                     height: v.height,
                     heightUnit: v.heightUnit,
                     status: v.status,
+                    searchTags: v.searchTags?.length ? v.searchTags : undefined,
                     attributes: processedAttributes,
                     images: normalizedVariantImages,
                   };
@@ -617,10 +673,12 @@ export class BulkUploadProcessor extends WorkerHost {
                     sku: group.variants?.[0]?.sku || 'PARENT',
                     column: 'common_media',
                     invalidValue: img.filename || img.url || '',
-                    reason:
-                      'Common media URL could not be downloaded or resolved to a storage path.',
-                    suggestedFix:
-                      'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
+                    reason: img.resolveError
+                      ? `Common media URL could not be stored: ${img.resolveError}`
+                      : 'Common media URL could not be downloaded or resolved to a storage path.',
+                    suggestedFix: img.resolveError?.toLowerCase().includes('maximum allowed size')
+                      ? 'Reduce the image file size, or raise UPLOAD_MAX_IMAGE_FILE_SIZE (default 5 MB).'
+                      : 'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
                   });
                 }
               }
@@ -763,9 +821,8 @@ export class BulkUploadProcessor extends WorkerHost {
               }
 
               if (publishFromSheet && savedProductRefId) {
-                await this.productsService.updateStatus(
+                await this.productsService.publish(
                   savedProductRefId,
-                  { status: ProductStatus.PUBLISHED },
                   'system-bulk-upload',
                 );
               }
@@ -860,6 +917,7 @@ export class BulkUploadProcessor extends WorkerHost {
       this.logger.log(
         `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} sheet rows. Successful rows: ${successfulSheetRows}. Failed rows: ${failedSheetRows}.`
       );
+      processingSucceeded = true;
       return {
         success: true,
         totalRowsScanned,
@@ -928,11 +986,16 @@ export class BulkUploadProcessor extends WorkerHost {
         this.logger.error('Failed to trigger final bulk cache invalidation:', cacheErr);
       }
 
-      // Release distributed lock
-      const redis = await this.redisConnection.getConnectedClient();
-      if (redis) {
-        await redis.del('locks:bulk-upload');
-        this.logger.log(`Released lock 'locks:bulk-upload' for job ${uploadRefId}`);
+      if (lockRenewalTimer) {
+        clearInterval(lockRenewalTimer);
+      }
+      const configuredAttempts = job.opts.attempts ?? 1;
+      const isFinalAttempt = job.attemptsMade + 1 >= configuredAttempts;
+      if (lockRedis && lockToken && (processingSucceeded || isFinalAttempt)) {
+        const released = await releaseBulkUploadLock(lockRedis, lockToken);
+        this.logger.log(
+          `${released ? 'Released' : 'Did not release'} owned bulk upload lock for job ${uploadRefId}`,
+        );
       }
     }
   }

@@ -76,7 +76,16 @@ export class AuthService {
     await this.otpService.verifyOtp(normalized, otp, OtpPurpose.LOGIN);
 
     const guestSessionUserId = await this.resolveGuestUserId(guestUserId);
+    return this.loginWithVerifiedMobile(normalized, device, guestSessionUserId);
+  }
 
+  async loginWithVerifiedMobile(
+    mobileNumber: string,
+    device: IDeviceContext,
+    guestUserId?: string | null,
+  ): Promise<IUserAuthTokensResult> {
+    const normalized = parseIndianMobileNumber(mobileNumber);
+    const guestSessionUserId = await this.resolveGuestUserId(guestUserId);
     let user = await this.usersService.findByMobileNumber(normalized);
 
     if (!user) {

@@ -111,10 +111,37 @@ export class PaymentsWebhookController {
     @Body() payload: Record<string, unknown>,
     @Headers('x-razorpay-signature') signature?: string,
   ) {
-    const rawBody = JSON.stringify(payload);
-    this.razorpayService.verifyWebhookSignature(rawBody, signature);
-
     const event = String(payload['event'] ?? '');
+    const rawBodySource = (req as FastifyRequest & { rawBody?: Buffer | string }).rawBody;
+    const rawBody = Buffer.isBuffer(rawBodySource)
+      ? rawBodySource.toString('utf8')
+      : rawBodySource ?? JSON.stringify(payload);
+
+    this.logger.log(
+      {
+        event,
+        requestId: req.id,
+        signatureProvided: Boolean(signature),
+        rawBodyAvailable: rawBodySource !== undefined,
+      },
+      'Razorpay webhook received',
+    );
+
+    try {
+      this.razorpayService.verifyWebhookSignature(rawBody, signature);
+    } catch (error) {
+      this.logger.warn(
+        {
+          event,
+          requestId: req.id,
+          signatureProvided: Boolean(signature),
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Razorpay webhook signature verification failed',
+      );
+      throw error;
+    }
+
     const payloadData = payload['payload'] as Record<string, unknown> | undefined;
     const linkEntity = payloadData?.['payment_link'] as
       | { entity?: { id?: string } }
@@ -131,44 +158,25 @@ export class PaymentsWebhookController {
     const notes = paymentEntity?.entity?.notes;
     const paymentRequestId = notes?.paymentRequestId as string | undefined;
 
-    console.log('PaymentsWebhookController.webhook start', {
-      event,
-      linkId,
-      orderId,
-      paymentRequestId,
-      signature,
-    });
     this.logger.log(
-      { event, linkId, orderId, paymentRequestId, payload },
-      'Razorpay webhook received',
+      {
+        event,
+        linkId,
+        orderId,
+        paymentRequestId,
+        paymentId: paymentEntity?.entity?.id,
+        requestId: req.id,
+      },
+      'Razorpay webhook signature verified',
     );
 
     if (event === 'payment_link.paid' && linkId) {
-      console.log('PaymentsWebhookController.webhook branch payment_link.paid', { linkId });
       await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
     } else if (event === 'payment_link.cancelled' && linkId) {
-      console.log('PaymentsWebhookController.webhook branch payment_link.cancelled', { linkId });
       await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
     } else if (event === 'payment_link.expired' && linkId) {
-      console.log('PaymentsWebhookController.webhook branch payment_link.expired', { linkId });
       await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
     } else if (event === 'payment.authorized' || event === 'payment.captured' || event === 'order.paid') {
-      if (event === 'payment.authorized') {
-        console.log('PaymentsWebhookController.webhook branch payment.authorized received', {
-          paymentRequestId,
-          orderId,
-          linkId,
-          paymentId: paymentEntity?.entity?.id,
-        });
-      } else {
-        console.log('PaymentsWebhookController.webhook branch payment captured/order paid', {
-          event,
-          paymentRequestId,
-          orderId,
-          linkId,
-          paymentId: paymentEntity?.entity?.id,
-        });
-      }
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
       } else if (orderId) {
@@ -177,21 +185,18 @@ export class PaymentsWebhookController {
         await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
       }
     } else if (event === 'payment.failed') {
-      console.log('PaymentsWebhookController.webhook branch payment.failed', {
-        paymentRequestId,
-        orderId,
-        linkId,
-      });
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentFailed(paymentRequestId, paymentEntity?.entity?.error_description);
       }
     } else if (event === 'payment.pending') {
-      console.log('PaymentsWebhookController.webhook branch payment.pending', { paymentRequestId });
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
       }
     } else {
-      console.log('PaymentsWebhookController.webhook branch no matching event', { event });
+      this.logger.log(
+        { event, requestId: req.id },
+        'Razorpay webhook event did not require a payment-request update',
+      );
     }
 
     return { received: true, event, requestId: req.id };

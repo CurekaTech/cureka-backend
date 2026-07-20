@@ -242,6 +242,18 @@ export class CreateVariantDto {
   @IsString()
   status?: any;
 
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['paracetamol', 'fever relief', 'dolo'],
+    description:
+      'Free-form search tags for this variant (indexed in Typesense). In bulk upload, use comma or | separators.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  searchTags?: string[];
+
   @ApiPropertyOptional({ type: [VariantAttributeValueDto] })
   @IsOptional()
   @IsArray()

@@ -71,7 +71,7 @@ export class UserAddressesService {
       for (let index = 0; index < dtos.length; index += 1) {
         const dto = dtos[index];
         const isDefault =
-          dto.isDefault === true ||
+          (explicitDefaultIndex >= 0 && index === explicitDefaultIndex) ||
           (explicitDefaultIndex < 0 && existingCount === 0 && index === 0);
 
         created.push(
@@ -107,21 +107,38 @@ export class UserAddressesService {
         }
       }
 
-      if (addresses.some((address) => address.isDefault === true)) {
+      // Only one address may be default; last explicit default in the payload wins.
+      let defaultIndex = -1;
+      for (let i = 0; i < addresses.length; i += 1) {
+        if (addresses[i].isDefault === true) {
+          defaultIndex = i;
+        }
+      }
+
+      if (defaultIndex >= 0) {
         await this.addressesRepository.clearDefaultForUser(userId, undefined, manager);
       }
 
+      const remainingAfterDeletes = await this.addressesRepository.countByUserId(
+        userId,
+        manager,
+      );
       const synced: IUserAddress[] = [];
       let createdCount = 0;
 
-      for (const dto of addresses) {
+      for (let index = 0; index < addresses.length; index += 1) {
+        const dto = addresses[index];
+
         if (dto.refId) {
           const owned = existingByRefId.get(dto.refId);
           if (!owned) {
             throw new NotFoundException(`Address with refId "${dto.refId}" not found`);
           }
 
-          if (dto.isDefault === true) {
+          const isDefault =
+            defaultIndex >= 0 ? index === defaultIndex : owned.isDefault === true;
+
+          if (isDefault) {
             await this.addressesRepository.clearDefaultForUser(userId, owned.id, manager);
           }
 
@@ -137,7 +154,7 @@ export class UserAddressesService {
               city: dto.city,
               state: dto.state,
               addressType: dto.addressType,
-              ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
+              isDefault,
               updatedBy: userId,
             },
             manager,
@@ -151,9 +168,10 @@ export class UserAddressesService {
           continue;
         }
 
-        const remaining = await this.addressesRepository.countByUserId(userId, manager);
         const isDefault =
-          dto.isDefault === true || (remaining === 0 && createdCount === 0);
+          defaultIndex >= 0
+            ? index === defaultIndex
+            : remainingAfterDeletes === 0 && createdCount === 0;
 
         synced.push(
           await this.createAddressRecord(userId, dto, isDefault, manager),
@@ -171,6 +189,10 @@ export class UserAddressesService {
     isDefault: boolean,
     manager: EntityManager,
   ): Promise<IUserAddress> {
+    if (isDefault) {
+      await this.addressesRepository.clearDefaultForUser(userId, undefined, manager);
+    }
+
     const refId = await generateUniqueRefId(dto.recipientName, (candidate) =>
       this.addressesRepository.existsByRefId(candidate),
     );

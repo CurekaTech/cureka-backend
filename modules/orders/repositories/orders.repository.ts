@@ -56,6 +56,43 @@ export class OrdersRepository {
     });
   }
 
+  findByOrderNumberAndUserId(
+    orderNumber: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
+      where: { orderNumber, userId },
+      relations: { items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  async findByOrderNumberAndUserIdForUpdate(
+    orderNumber: string,
+    userId: string,
+    manager: EntityManager,
+  ): Promise<OrderEntity | null> {
+    const repository = manager.getRepository(OrderEntity);
+    const locked = await repository
+      .createQueryBuilder('order')
+      .setLock('pessimistic_write')
+      .where('order.orderNumber = :orderNumber', { orderNumber })
+      .andWhere('order.userId = :userId', { userId })
+      .getOne();
+
+    if (!locked) {
+      return null;
+    }
+
+    return repository.findOne({
+      where: { id: locked.id },
+      relations: { items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
   findByIdWithItems(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
     return repository.findOne({

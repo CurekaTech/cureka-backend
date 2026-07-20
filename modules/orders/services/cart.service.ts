@@ -85,6 +85,56 @@ export class CartService {
     return this.toCartResponse(cart, userId, manager, { clearInvalidCoupon: true });
   }
 
+  /**
+   * Load an active cart by primary key (used by GoKwik merchantCheckoutId / cart_id).
+   */
+  async getCartById(cartId: string, manager = this.dataSource.manager): Promise<CartResponse> {
+    const cart = await this.cartsRepository.findActiveById(cartId, manager);
+    if (!cart) {
+      throw new BadRequestException('Invalid cart id');
+    }
+
+    return this.toCartResponse(cart, cart.userId, manager, { clearInvalidCoupon: true });
+  }
+
+  /**
+   * Remove unavailable / zero-stock lines and clamp quantities to salable stock.
+   * Used by GoKwik remove-out-of-stock-items.
+   */
+  async removeOutOfStockItemsByCartId(cartId: string): Promise<CartResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const cart = await this.cartsRepository.findActiveById(cartId, manager);
+      if (!cart) {
+        throw new BadRequestException('Invalid cart id');
+      }
+
+      const lineItems = await this.buildLineItems(cart);
+
+      for (const item of lineItems) {
+        const outOfStock = !item.isAvailable || item.stock <= 0;
+        if (outOfStock) {
+          await this.cartItemsRepository.deleteById(item.id, manager);
+          continue;
+        }
+
+        if (item.quantity > item.stock) {
+          await this.cartItemsRepository.updateById(
+            item.id,
+            { quantity: item.stock, updatedBy: cart.userId },
+            manager,
+          );
+        }
+      }
+
+      const refreshed = await this.cartsRepository.findActiveById(cartId, manager);
+      if (!refreshed) {
+        throw new BadRequestException('Invalid cart id');
+      }
+
+      return this.toCartResponse(refreshed, cart.userId, manager, { clearInvalidCoupon: true });
+    });
+  }
+
   async applyCoupon(userId: string, dto: ApplyCouponDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
@@ -181,6 +231,18 @@ export class CartService {
 
   async getActiveCartEntity(userId: string, manager = this.dataSource.manager): Promise<CartEntity | null> {
     return this.cartsRepository.findActiveByUserId(userId, manager);
+  }
+
+  /**
+   * Resolve an active cart by id for merchant callbacks (e.g. GoKwik).
+   * Returns null when the cart is missing or inactive.
+   */
+  async findActiveCartById(cartId: string, manager = this.dataSource.manager): Promise<CartEntity | null> {
+    return this.cartsRepository.findActiveById(cartId, manager);
+  }
+
+  async findCartById(cartId: string, manager = this.dataSource.manager): Promise<CartEntity | null> {
+    return this.cartsRepository.findById(cartId, manager);
   }
 
   async mergeGuestCartIntoUser(fromUserId: string, toUserId: string): Promise<void> {
@@ -295,6 +357,8 @@ export class CartService {
         const variant = item.variant as ProductVariantEntity | undefined;
         const product = item.product as ProductEntity | undefined;
         const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
+        const mrpRaw = variant?.mrp != null ? parseFloat(String(variant.mrp)) : NaN;
+        const mrp = Number.isFinite(mrpRaw) ? mrpRaw : null;
         const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
         const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
 
@@ -311,10 +375,12 @@ export class CartService {
           variantLabel: this.formatVariantLabel(variant),
           quantity: item.quantity,
           unitPrice,
+          mrp,
           totalPrice: unitPrice * item.quantity,
           stock: variant?.stock ?? 0,
           isAvailable,
           primaryImageUrl,
+          productDetails: this.buildProductDetails(variant),
           categoryId: product?.categoryId ?? '',
           subCategoryId: product?.subCategoryId ?? null,
           subSubCategoryId: product?.subSubCategoryId ?? null,
@@ -351,6 +417,23 @@ export class CartService {
     if (requiredQty > stock) {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
+  }
+
+  private buildProductDetails(variant?: ProductVariantEntity): Array<{ label: string; value: string }> {
+    if (!variant) {
+      return [];
+    }
+
+    const details: Array<{ label: string; value: string }> = [];
+    for (const item of variant.attributeValues ?? []) {
+      const value = item.value?.trim();
+      if (!value) {
+        continue;
+      }
+      const label = item.attribute?.name?.trim() || 'Attribute';
+      details.push({ label, value });
+    }
+    return details;
   }
 
   private formatVariantLabel(variant?: ProductVariantEntity): string | null {

@@ -1,0 +1,225 @@
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsDefined,
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+export class GokwikPaymentDetailsDto {
+  @IsNotEmpty()
+  @IsString()
+  @IsIn(['cod', 'prepaid', 'pp-cod'])
+  payment_method!: 'cod' | 'prepaid' | 'pp-cod';
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  payment_amount!: number;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(200)
+  payment_id!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  payment_instrument!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(200)
+  pg_payment_trnx_id!: string;
+}
+
+export class GokwikAddressDto {
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'pincode must be a valid 6-digit Indian pincode' })
+  @MaxLength(20)
+  pincode!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  city!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  state!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  first_name!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  last_name!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(500)
+  address!: string;
+
+  @IsNotEmpty()
+  @IsEmail()
+  @MaxLength(255)
+  email!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^[6-9]\d{9}$/, { message: 'phone must be a valid 10-digit Indian mobile number' })
+  @MaxLength(20)
+  phone!: string;
+}
+
+export class GokwikRewardsInfoDto {
+  @IsNotEmpty()
+  @IsString()
+  reward_provider!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  transaction_id!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  reward_amount!: number;
+}
+
+export class GokwikMetaDiscountDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  tnc?: string;
+
+  @IsNotEmpty()
+  @IsString()
+  type!: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+}
+
+export class GokwikOtherChargeDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+
+  @IsNotEmpty()
+  @IsString()
+  charge_type!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  label?: string;
+}
+
+export class GokwikPpcodDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  prepaid_amount!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  payable_on_delivery!: number;
+}
+
+export class GokwikCreateOrderMetaDataDto {
+  @IsOptional()
+  @IsString()
+  gst_no?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GokwikRewardsInfoDto)
+  rewards_info?: GokwikRewardsInfoDto;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GokwikMetaDiscountDto)
+  discounts?: GokwikMetaDiscountDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GokwikOtherChargeDto)
+  other_charges?: GokwikOtherChargeDto[];
+
+  @IsOptional()
+  @IsString()
+  gokwik_order_id?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GokwikPpcodDto)
+  ppcod?: GokwikPpcodDto;
+
+  @IsOptional()
+  @IsString()
+  rto_risk_flag?: string;
+}
+
+export class GokwikCreateOrderDto {
+  @IsNotEmpty()
+  @IsString()
+  cart_id!: string;
+
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => GokwikPaymentDetailsDto)
+  payment_details!: GokwikPaymentDetailsDto;
+
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => GokwikAddressDto)
+  shipping_address!: GokwikAddressDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GokwikAddressDto)
+  billing_address?: GokwikAddressDto;
+
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'customer_phone must be a valid 10-digit Indian mobile number',
+  })
+  @MaxLength(20)
+  customer_phone!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GokwikCreateOrderMetaDataDto)
+  meta_data?: GokwikCreateOrderMetaDataDto;
+}

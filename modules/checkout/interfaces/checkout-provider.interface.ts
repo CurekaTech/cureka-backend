@@ -1,4 +1,4 @@
-export type CheckoutProviderName = 'legacy' | 'shiprocket';
+export type CheckoutProviderName = 'legacy' | 'shiprocket' | 'gokwik';
 
 export interface ICheckoutProvider {
   readonly name: CheckoutProviderName;
