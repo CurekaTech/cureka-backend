@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { generateUniqueRefId, STOCK_VALIDATION_ENABLED } from '@packages/common';
+import { generateUniqueRefId, isVariantInStock, STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
@@ -115,7 +115,7 @@ export class CartService {
       const lineItems = await this.buildLineItems(cart);
 
       for (const item of lineItems) {
-        const outOfStock = !item.isAvailable || item.stock <= 0;
+        const outOfStock = !item.isAvailable || !item.inStock;
         if (outOfStock) {
           await this.cartItemsRepository.deleteById(item.id, manager);
           continue;
@@ -369,6 +369,7 @@ export class CartService {
         const isAvailable =
           variant?.status === VariantStatus.ACTIVE &&
           product?.status === ProductStatus.PUBLISHED;
+        const stock = variant?.stock ?? 0;
 
         return {
           id: item.id,
@@ -381,7 +382,8 @@ export class CartService {
           unitPrice,
           mrp,
           totalPrice: unitPrice * item.quantity,
-          stock: variant?.stock ?? 0,
+          stock,
+          inStock: isAvailable && isVariantInStock(stock),
           isAvailable,
           primaryImageUrl,
           productDetails: this.buildProductDetails(variant),
