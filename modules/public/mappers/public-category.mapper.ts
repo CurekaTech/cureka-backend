@@ -28,6 +28,8 @@ export const mapHeaderCategoryEntity = (
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,
+  image: entity.image,
+  banner: entity.banner,
   position: entity.position,
   hierarchyLevel: entity.hierarchyLevel,
   isInHeader: entity.isInHeader,

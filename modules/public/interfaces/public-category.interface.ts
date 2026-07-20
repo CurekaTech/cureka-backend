@@ -46,6 +46,8 @@ export interface IPublicHeaderCategory {
   refId: string;
   name: string;
   slug: string;
+  image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   isInHeader: boolean;
