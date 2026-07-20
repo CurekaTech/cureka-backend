@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { generateUniqueRefId } from '@packages/common';
+import { generateUniqueRefId, STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
@@ -16,7 +16,6 @@ import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
 import { CartPricingService } from './cart-pricing.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
-import { STOCK_VALIDATION_ENABLED } from '../config/stock-validation.config';
 
 const EMPTY_CART: CartResponse = {
   cartId: '',

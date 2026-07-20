@@ -1,3 +1,4 @@
+import { isVariantInStock } from '@packages/common';
 import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface';
 import {
   GokwikCart,
@@ -17,7 +18,7 @@ export function mapCartToGokwikCart(
 ): GokwikCart {
   const items: GokwikCartItem[] = cart.items.map((item) => {
     const productDetails = item.productDetails ?? [];
-    const inStock = item.isAvailable && item.stock > 0;
+    const inStock = item.isAvailable && isVariantInStock(item.stock);
     const mrp = item.mrp != null && Number.isFinite(item.mrp) ? item.mrp : item.unitPrice;
 
     return {

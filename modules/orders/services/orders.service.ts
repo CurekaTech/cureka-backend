@@ -4,6 +4,7 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   generateUniqueRefId,
+  STOCK_VALIDATION_ENABLED,
 } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
@@ -30,7 +31,6 @@ import { CartService } from './cart.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { toMoneyString } from '../utils/money.util';
-import { STOCK_VALIDATION_ENABLED } from '../config/stock-validation.config';
 
 @Injectable()
 export class OrdersService {
