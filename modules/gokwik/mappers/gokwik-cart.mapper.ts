@@ -18,7 +18,7 @@ export function mapCartToGokwikCart(
 ): GokwikCart {
   const items: GokwikCartItem[] = cart.items.map((item) => {
     const productDetails = item.productDetails ?? [];
-    const inStock = item.isAvailable && isVariantInStock(item.stock);
+    const inStock = item.inStock ?? (item.isAvailable && isVariantInStock(item.stock));
     const mrp = item.mrp != null && Number.isFinite(item.mrp) ? item.mrp : item.unitPrice;
 
     return {
