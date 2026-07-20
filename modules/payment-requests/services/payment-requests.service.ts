@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
-import { buildPaginatedResult, generateUniqueRefId } from '@packages/common';
+import { buildPaginatedResult, generateUniqueRefId, isVariantInStock } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -1390,6 +1390,7 @@ export class PaymentRequestsService {
           mrp: null,
           totalPrice: unitPriceNum * item.quantity,
           stock: variant?.stock ?? 0,
+          inStock: isVariantInStock(variant?.stock ?? 0),
           isAvailable: true,
           primaryImageUrl: null,
           productDetails: [],
