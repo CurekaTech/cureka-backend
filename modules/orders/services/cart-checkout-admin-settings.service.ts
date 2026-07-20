@@ -18,6 +18,20 @@ export type ResolvedCartCheckoutFlatFees = Partial<
   Record<CartCheckoutAdminSettingPricingField, number>
 >;
 
+export type ShippingSlab = {
+  min: number;
+  max: number | null;
+  charge: number;
+};
+
+const DEFAULT_GOKWIK_SHIPPING_SLABS: ShippingSlab[] = [
+  { min: 0, max: 199.99, charge: 75 },
+  { min: 200, max: 399.99, charge: 55 },
+  { min: 400, max: 599.99, charge: 45 },
+  { min: 600, max: 899.99, charge: 25 },
+  { min: 900, max: null, charge: 0 },
+];
+
 @Injectable()
 export class CartCheckoutAdminSettingsService {
   constructor(
@@ -37,6 +51,24 @@ export class CartCheckoutAdminSettingsService {
     }
 
     return amounts;
+  }
+
+  async resolveShippingSlabs(): Promise<ShippingSlab[]> {
+    const entity = await this.adminSettingsRepository.findByKey('gokwik_shipping_slabs');
+    if (entity?.status !== AdminSettingStatus.ACTIVE) {
+      return DEFAULT_GOKWIK_SHIPPING_SLABS;
+    }
+
+    try {
+      const parsed = JSON.parse(entity.value) as unknown;
+      if (!Array.isArray(parsed) || !parsed.length) {
+        return DEFAULT_GOKWIK_SHIPPING_SLABS;
+      }
+      const slabs = parsed.map((value) => this.parseShippingSlab(value));
+      return slabs.sort((left, right) => left.min - right.min);
+    } catch {
+      return DEFAULT_GOKWIK_SHIPPING_SLABS;
+    }
   }
 
   getFreeShippingThreshold(amounts: ResolvedCartCheckoutAdminSettings): number {
@@ -136,5 +168,25 @@ export class CartCheckoutAdminSettingsService {
     }
 
     return roundMoney(definition.fallbackDefault);
+  }
+
+  private parseShippingSlab(value: unknown): ShippingSlab {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Invalid shipping slab');
+    }
+    const slab = value as Record<string, unknown>;
+    const min = Number(slab['min']);
+    const max = slab['max'] === null ? null : Number(slab['max']);
+    const charge = Number(slab['charge']);
+    if (
+      !Number.isFinite(min) ||
+      min < 0 ||
+      (max !== null && (!Number.isFinite(max) || max < min)) ||
+      !Number.isFinite(charge) ||
+      charge < 0
+    ) {
+      throw new Error('Invalid shipping slab');
+    }
+    return { min: roundMoney(min), max: max === null ? null : roundMoney(max), charge: roundMoney(charge) };
   }
 }

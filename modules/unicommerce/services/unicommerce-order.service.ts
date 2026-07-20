@@ -18,7 +18,6 @@ export class UnicommerceOrderService implements OnModuleInit {
   onModuleInit(): void {
     const enabled = this.isEnabled();
     const configured = this.apiService.isConfigured();
-    const facilityCode = this.configService.get<string>('unicommerceOrder.facilityCode') ?? '';
     const baseUrl = this.configService.get<string>('unicommerceOrder.baseUrl') ?? '';
     const clientId = this.configService.get<string>('unicommerceOrder.clientId') ?? '';
     const merchantId = this.configService.get<string>('unicommerceOrder.merchantId') ?? '';
@@ -31,7 +30,7 @@ export class UnicommerceOrderService implements OnModuleInit {
         baseUrl,
         clientId,
         merchantId,
-        facilityCode: facilityCode || '(not set)',
+        facilityCode: '(omitted — order-create check)',
         securityKeySet: Boolean(securityKey),
       },
       'UniCommerce order push startup configuration',
@@ -49,14 +48,6 @@ export class UnicommerceOrderService implements OnModuleInit {
       this.logger.warn(
         'UniCommerce order push is ENABLED but credentials are incomplete. ' +
           'Set UNICOMMERCE_ORDER_CLIENT_ID, UNICOMMERCE_ORDER_MERCHANT_ID, and UNICOMMERCE_ORDER_SECURITY_KEY.',
-      );
-      return;
-    }
-
-    if (!facilityCode) {
-      this.logger.warn(
-        'UniCommerce order push is enabled but UNICOMMERCE_DEFAULT_FACILITY_CODE is not set. ' +
-          'Order items will be sent without a facilityCode — UniCommerce may reject them.',
       );
     }
   }
@@ -87,7 +78,6 @@ export class UnicommerceOrderService implements OnModuleInit {
     }
 
     const payload = mapOrderToUnicommercePayload(order, {
-      facilityCode: this.configService.get<string>('unicommerceOrder.facilityCode'),
       currency: this.configService.get<string>('unicommerceOrder.currency'),
       slaHours: this.configService.get<number>('unicommerceOrder.slaHours'),
     });
@@ -100,7 +90,6 @@ export class UnicommerceOrderService implements OnModuleInit {
         paymentMethod: order.paymentMethod,
         itemCount: payload.orderItems.length,
         skus,
-        facilityCode: payload.orderItems[0]?.facilityCode ?? null,
         grandTotal: order.grandTotal,
       },
       'Pushing order to UniCommerce',

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EVENTS, ShipmentUpdatedEvent } from '@packages/events';
 import { generateUniqueRefId } from '@packages/common';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
@@ -26,6 +28,7 @@ export class ShippingService {
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly shipmentEventsRepository: ShipmentEventsRepository,
     private readonly shipwayService: ShipwayService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async pushOrderToShipway(orderId: string): Promise<ShipmentEntity | null> {
@@ -141,6 +144,10 @@ export class ShippingService {
       shipment.updatedBy = 'shipway-api';
 
       const saved = await this.shipmentsRepository.save(shipment, manager);
+      await this.eventEmitter.emitAsync(
+        EVENTS.SHIPMENT_UPDATED,
+        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+      );
       this.logger.log(
         {
           orderId: order.id,
@@ -201,6 +208,10 @@ export class ShippingService {
       shipment.updatedBy = 'shipway-sync';
 
       const saved = await this.shipmentsRepository.save(shipment, manager);
+      await this.eventEmitter.emitAsync(
+        EVENTS.SHIPMENT_UPDATED,
+        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+      );
       await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
       await this.syncOrderStatus(saved.orderId, shipmentStatus, manager);
       return saved;
@@ -234,6 +245,10 @@ export class ShippingService {
       shipment.updatedBy = 'shipway-webhook';
 
       const saved = await this.shipmentsRepository.save(shipment, manager);
+      await this.eventEmitter.emitAsync(
+        EVENTS.SHIPMENT_UPDATED,
+        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+      );
       await this.recordShipmentEvent(
         saved.id,
         {

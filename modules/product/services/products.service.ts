@@ -71,7 +71,7 @@ export class ProductsService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productMultipartService: ProductMultipartService,
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
-  ) {}
+  ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
     try {
@@ -403,18 +403,18 @@ export class ProductsService {
 
     const masters =
       dto.productNatureRefId ||
-      dto.categoryRefId ||
-      dto.brandRefId ||
-      dto.countryOfOriginRefId ||
-      dto.attributeRefIds
+        dto.categoryRefId ||
+        dto.brandRefId ||
+        dto.countryOfOriginRefId ||
+        dto.attributeRefIds
         ? await this.masterResolver.resolve({
-            ...dto,
-            productType: effectiveProductType,
-            productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
-            categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
-            brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
-            name: dto.name ?? existing.name,
-          } as CreateProductDto)
+          ...dto,
+          productType: effectiveProductType,
+          productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
+          categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
+          brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
+          name: dto.name ?? existing.name,
+        } as CreateProductDto)
         : null;
 
     if (masters) {
@@ -443,13 +443,13 @@ export class ProductsService {
     const productSlug = payload.slug ?? existing.slug;
     const needsRelationSync = Boolean(
       dto.healthConcernRefIds ||
-        dto.wellnessGoalRefIds ||
-        dto.tagNames ||
-        dto.faqRefIds ||
-        dto.customFaqs ||
-        dto.attributeRefIds ||
-        dto.categoryFilters !== undefined ||
-        masters?.attributeIds,
+      dto.wellnessGoalRefIds ||
+      dto.tagNames ||
+      dto.faqRefIds ||
+      dto.customFaqs ||
+      dto.attributeRefIds ||
+      dto.categoryFilters !== undefined ||
+      masters?.attributeIds,
     );
     const needsVariantSync = dto.variants !== undefined;
     const needsMediaSync =
@@ -458,8 +458,8 @@ export class ProductsService {
     if (needsVariantSync && effectiveProductType === ProductType.VARIABLE) {
       const allowed = new Set(
         dto.attributeRefIds ??
-          existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
-          [],
+        existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
+        [],
       );
       for (const variant of dto.variants ?? []) {
         validateVariantAttributeScope(variant.attributes ?? [], allowed);
@@ -469,17 +469,17 @@ export class ProductsService {
     const resolved =
       needsRelationSync || needsVariantSync
         ? masters ??
-          (await this.masterResolver.resolve({
-            productType: effectiveProductType,
-            productNatureRefId: existing.productNature?.refId,
-            categoryRefId: existing.category?.refId ?? '',
-            brandRefId: existing.brand?.refId ?? '',
-            name: existing.name,
-            healthConcernRefIds: dto.healthConcernRefIds,
-            wellnessGoalRefIds: dto.wellnessGoalRefIds,
-            faqRefIds: dto.faqRefIds,
-            attributeRefIds: dto.attributeRefIds,
-          } as CreateProductDto))
+        (await this.masterResolver.resolve({
+          productType: effectiveProductType,
+          productNatureRefId: existing.productNature?.refId,
+          categoryRefId: existing.category?.refId ?? '',
+          brandRefId: existing.brand?.refId ?? '',
+          name: existing.name,
+          healthConcernRefIds: dto.healthConcernRefIds,
+          wellnessGoalRefIds: dto.wellnessGoalRefIds,
+          faqRefIds: dto.faqRefIds,
+          attributeRefIds: dto.attributeRefIds,
+        } as CreateProductDto))
         : null;
 
     const attributeRefIdsForVariants = [
@@ -561,10 +561,10 @@ export class ProductsService {
         const variantsForSync =
           effectiveProductType === ProductType.SIMPLE && dto.expiryDate
             ? dto.variants.map((variant, index) =>
-                index === 0
-                  ? { ...variant, expiryDate: variant.expiryDate ?? dto.expiryDate }
-                  : variant,
-              )
+              index === 0
+                ? { ...variant, expiryDate: variant.expiryDate ?? dto.expiryDate }
+                : variant,
+            )
             : dto.variants;
 
         await this.variantsRepository.syncVariants(
@@ -633,9 +633,9 @@ export class ProductsService {
   async approve(refId: string, updatedBy: string): Promise<IProduct> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
-    if (existing.status !== ProductStatus.PENDING_REVIEW) {
-      throw new BadRequestException('Only products pending review can be approved');
-    }
+    // if (existing.status !== ProductStatus.PENDING_REVIEW) {
+    //   throw new BadRequestException('Only products pending review can be approved');
+    // }
 
     await this.productsRepository.updateByRefId(refId, {
       status: ProductStatus.PUBLISHED,
@@ -650,9 +650,9 @@ export class ProductsService {
   async reject(refId: string, dto: RejectProductDto, updatedBy: string): Promise<IProduct> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
-    if (existing.status !== ProductStatus.PENDING_REVIEW) {
-      throw new BadRequestException('Only products pending review can be rejected');
-    }
+    // if (existing.status !== ProductStatus.PENDING_REVIEW) {
+    //   throw new BadRequestException('Only products pending review can be rejected');
+    // }
 
     await this.productsRepository.updateByRefId(refId, {
       status: ProductStatus.REJECTED,

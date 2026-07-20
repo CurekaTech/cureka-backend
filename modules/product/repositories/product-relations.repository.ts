@@ -101,8 +101,14 @@ export class ProductRelationsRepository {
               name,
               slug,
               status: MasterStatus.ACTIVE,
-              refId: await generateUniqueRefId(name, async (refId) => {
-                return (await tagRepository.count({ where: { refId } })) > 0;
+              refId: await generateUniqueRefId(name, async (candidate) => {
+                return (
+                  (await tagRepository
+                    .createQueryBuilder('tag')
+                    .withDeleted()
+                    .where('tag.refId = :refId', { refId: candidate })
+                    .getCount()) > 0
+                );
               }),
               createdBy,
             }),
@@ -138,8 +144,14 @@ export class ProductRelationsRepository {
           question: faq.question.trim(),
           answer: faq.answer.trim(),
           status: ProductFaqStatus.ACTIVE,
-          refId: await generateUniqueRefId(faq.question.slice(0, 20), async (refId) => {
-            return (await repo.count({ where: { refId } })) > 0;
+          refId: await generateUniqueRefId(faq.question.slice(0, 20), async (candidate) => {
+            return (
+              (await repo
+                .createQueryBuilder('faq')
+                .withDeleted()
+                .where('faq.refId = :refId', { refId: candidate })
+                .getCount()) > 0
+            );
           }),
           createdBy,
         }),

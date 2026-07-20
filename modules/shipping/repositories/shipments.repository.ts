@@ -28,7 +28,19 @@ export class ShipmentsRepository {
 
   findByOrderId(orderId: string, manager?: EntityManager): Promise<ShipmentEntity | null> {
     const repository = manager ? manager.getRepository(ShipmentEntity) : this.repo;
-    return repository.findOne({ where: { orderId }, relations: { events: true } });
+    return repository.findOne({
+      where: { orderId, groupKey: 'default' },
+      relations: { events: true, items: { orderItem: true } },
+    });
+  }
+
+  findAllByOrderId(orderId: string, manager?: EntityManager): Promise<ShipmentEntity[]> {
+    const repository = manager ? manager.getRepository(ShipmentEntity) : this.repo;
+    return repository.find({
+      where: { orderId },
+      relations: { events: true, items: { orderItem: true } },
+      order: { createdAt: 'ASC' },
+    });
   }
 
   findByShipwayOrderId(shipwayOrderId: string, manager?: EntityManager): Promise<ShipmentEntity | null> {

@@ -2,7 +2,8 @@ import { Module, Scope } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { PathAwareLoggingValidationPipe } from '@packages/common';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, ordersConfig, shiprocketConfig, shipwayConfig, storageConfig, typesenseConfig, unicommerceOrderConfig, envValidationSchema } from './config';
+import { appConfig, databaseConfig, jwtConfig, ordersConfig, shiprocketConfig, shipwayConfig, storageConfig, typesenseConfig, unicommerceOrderConfig, unicommerceProductConfig, gokwikConfig, envValidationSchema } from './config';
+
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { EventsModule } from '@packages/events';
@@ -29,13 +30,15 @@ import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { SupportModule } from '@modules/support/support.module';
 import { BlogModule } from '@modules/blog/blog.module';
+import { AuditModule } from '@modules/audit/audit.module';
+import { GokwikModule } from '@modules/gokwik/gokwik.module';
 
 @Module({
   imports: [
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig, shipwayConfig, shiprocketConfig, unicommerceOrderConfig],
+      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig, shipwayConfig, shiprocketConfig, unicommerceOrderConfig, unicommerceProductConfig, gokwikConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,
@@ -78,8 +81,10 @@ import { BlogModule } from '@modules/blog/blog.module';
     WishlistModule,
     GalleryModule,
     ShippingModule,
+    AuditModule,
     SupportModule,
     BlogModule,
+    GokwikModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

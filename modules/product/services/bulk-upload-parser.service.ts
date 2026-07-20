@@ -36,6 +36,8 @@ export interface IParsedImage {
   url?: string;
   isPrimary: boolean;
   sortOrder: number;
+  /** Set when remote URL download/store fails; used for clearer bulk-upload errors. */
+  resolveError?: string;
 }
 
 export interface IParsedVariant {
@@ -64,6 +66,7 @@ export interface IParsedVariant {
   height?: number;
   heightUnit?: string;
   status?: string;
+  searchTags: string[];
   attributes: IParsedAttribute[];
   images: IParsedImage[];
 }
@@ -656,6 +659,20 @@ export class BulkUploadParserService {
         height,
         heightUnit: getVal('dimension unit') || undefined,
         status: getVal('variant status') || undefined,
+        searchTags: (() => {
+          // "Tags" is the legacy product_information_labels column; prefer "Search Tags".
+          const raw = this.getFirstAvailable(getVal, ['search tags', 'tags']);
+          return raw
+            ? [
+                ...new Set(
+                  raw
+                    .split(/[,|]+/)
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                ),
+              ]
+            : [];
+        })(),
         attributes,
         images,
       });

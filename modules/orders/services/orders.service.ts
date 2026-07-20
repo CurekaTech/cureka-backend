@@ -4,6 +4,7 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   generateUniqueRefId,
+  STOCK_VALIDATION_ENABLED,
 } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
@@ -20,6 +21,9 @@ import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderSource } from '../enums/order-source.enum';
+import { CouponUsageEntity } from '../entities/coupon-usage.entity';
+import { OrderEntity } from '../entities/order.entity';
+import { OrderItemEntity } from '../entities/order-item.entity';
 import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
@@ -136,7 +140,7 @@ export class OrdersService {
           where: { id: item.variantId },
         });
         if (!variant) throw new BadRequestException('Variant not found while placing order');
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
         await manager
@@ -177,10 +181,13 @@ export class OrdersService {
             variantLabel: item.variantName,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
+            mrp: null,
             totalPrice: item.totalPrice,
             stock: 0,
+            inStock: true,
             isAvailable: true,
             primaryImageUrl: null,
+            productDetails: [],
             categoryId: item.categoryId,
             subCategoryId: item.subCategoryId,
             subSubCategoryId: item.subSubCategoryId,
@@ -227,6 +234,309 @@ export class OrdersService {
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
     await this.enqueueUnicommercePush(order.id);
     return this.findOne(userId, order.id);
+  }
+
+  /**
+   * Create a PENDING draft order from the user's active cart without clearing the cart,
+   * decrementing stock, incrementing coupon usage, or pushing fulfillment.
+   */
+  async createDraftOrderFromCart(
+    userId: string,
+    params: {
+      cartId: string;
+      addressId: string;
+      paymentMethod: OrderPaymentMethod;
+      paymentStatus: OrderPaymentStatus;
+      notes?: string | null;
+      orderSource?: OrderSource;
+      ignorePaymentMethodPricing?: boolean;
+    },
+  ) {
+    const address = await this.userAddressesService.findOne(userId, params.addressId);
+    const summary = await this.checkoutService.validateCheckout(userId, {
+      addressId: params.addressId,
+      paymentMethod: params.ignorePaymentMethodPricing ? undefined : params.paymentMethod,
+    });
+
+    if (!summary.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+
+    const order = await this.dataSource.transaction(async (manager) => {
+      const cart = await this.cartService.getActiveCartEntity(userId, manager);
+      if (!cart) throw new BadRequestException('Cart not found');
+      if (cart.id !== params.cartId) {
+        throw new BadRequestException('Invalid cart id');
+      }
+
+      const appliedCoupon = cart.couponId
+        ? await this.couponCheckoutService.findById(cart.couponId)
+        : null;
+
+      if (cart.couponId && !appliedCoupon) {
+        throw new BadRequestException('Applied coupon is no longer available');
+      }
+
+      if (appliedCoupon && !summary.coupon) {
+        throw new BadRequestException('Applied coupon is no longer valid for this cart');
+      }
+
+      const orderRefId = await generateUniqueRefId('order', (candidate) =>
+        this.ordersRepository.existsByRefId(candidate),
+      );
+      const orderNumber = await this.generateOrderNumber();
+
+      const createdOrder = await this.ordersRepository.create(
+        {
+          refId: orderRefId,
+          orderNumber,
+          userId,
+          subtotal: toMoneyString(summary.subtotal),
+          discountAmount: toMoneyString(summary.discountAmount),
+          shippingAmount: toMoneyString(summary.shippingAmount),
+          handlingAmount: toMoneyString(summary.handlingAmount),
+          platformFee: toMoneyString(summary.platformFee),
+          codCharge: toMoneyString(summary.codCharge),
+          prepaidDiscount: toMoneyString(summary.prepaidDiscount),
+          grandTotal: toMoneyString(summary.grandTotal),
+          couponId: appliedCoupon?.id ?? null,
+          couponCode: appliedCoupon?.code ?? null,
+          couponTitle: appliedCoupon?.title ?? null,
+          couponDiscountType: appliedCoupon?.discountType ?? null,
+          paymentMethod: params.paymentMethod,
+          paymentStatus: params.paymentStatus,
+          orderStatus: OrderStatus.PENDING,
+          orderSource: params.orderSource ?? OrderSource.WEBSITE,
+          recipientName: address.recipientName,
+          phoneNumber: address.phoneNumber,
+          pincode: address.pincode,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2,
+          landmark: address.landmark,
+          city: address.city,
+          state: address.state,
+          notes: params.notes ?? null,
+          placedAt: null,
+          createdBy: userId,
+          updatedBy: userId,
+        },
+        manager,
+      );
+
+      const orderItemsPayload = [];
+      for (const item of summary.items) {
+        const variant = await manager.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+        });
+        if (!variant) throw new BadRequestException('Variant not found while creating draft order');
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
+          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+        }
+
+        const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
+          this.orderItemsRepository.existsByRefId(candidate),
+        );
+        orderItemsPayload.push({
+          refId: orderItemRefId,
+          orderId: createdOrder.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          sku: item.sku,
+          productName: item.productName,
+          variantName: item.variantName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice.toFixed(2),
+          totalPrice: item.totalPrice.toFixed(2),
+          createdBy: userId,
+          updatedBy: userId,
+        });
+      }
+
+      await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+
+      const draft = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
+      if (!draft) throw new NotFoundException('Order not found after creation');
+      this.logger.log(
+        {
+          orderId: draft.id,
+          orderNumber: draft.orderNumber,
+          userId,
+          paymentMethod: draft.paymentMethod,
+          paymentStatus: draft.paymentStatus,
+        },
+        'Draft order created successfully',
+      );
+      return draft;
+    });
+
+    return order;
+  }
+
+  /**
+   * Finalize a GoKwik (or other) draft order: decrement stock, apply coupon usage,
+   * clear cart, update payment fields, then push Shipway / UniCommerce.
+   * Idempotent when the order is already CONFIRMED.
+   */
+  async confirmDraftOrder(
+    userId: string,
+    params: {
+      orderNumber: string;
+      cartId: string;
+      paymentMethod: OrderPaymentMethod;
+      paymentStatus: OrderPaymentStatus;
+      notes?: string | null;
+    },
+  ) {
+    let shouldPushFulfillment = true;
+
+    const order = await this.dataSource.transaction(async (manager) => {
+      const existing = await this.ordersRepository.findByOrderNumberAndUserIdForUpdate(
+        params.orderNumber,
+        userId,
+        manager,
+      );
+      if (!existing) {
+        throw new BadRequestException('Invalid order id');
+      }
+
+      if (existing.orderStatus === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Order is cancelled');
+      }
+
+      if (existing.orderStatus === OrderStatus.CONFIRMED) {
+        shouldPushFulfillment = false;
+        return existing;
+      }
+
+      if (existing.orderStatus !== OrderStatus.PENDING) {
+        throw new BadRequestException('Order cannot be placed in its current state');
+      }
+
+      const cart = await this.cartService.getActiveCartEntity(userId, manager);
+      if (!cart) throw new BadRequestException('Cart not found');
+      if (cart.id !== params.cartId) {
+        throw new BadRequestException('Invalid cart id');
+      }
+
+      const items = existing.items ?? [];
+      if (!items.length) {
+        throw new BadRequestException('Order has no items');
+      }
+
+      for (const item of items) {
+        const variant = await manager.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+        });
+        if (!variant) {
+          throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
+        }
+        const decrementQb = manager
+          .getRepository(ProductVariantEntity)
+          .createQueryBuilder()
+          .update(ProductVariantEntity)
+          .set({ stock: () => `"stock" - ${item.quantity}` })
+          .where('id = :id', { id: item.variantId });
+
+        if (STOCK_VALIDATION_ENABLED) {
+          decrementQb.andWhere('stock >= :quantity', { quantity: item.quantity });
+        }
+
+        const decrement = await decrementQb.execute();
+        if (STOCK_VALIDATION_ENABLED && decrement.affected !== 1) {
+          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+        }
+      }
+
+      if (existing.couponId) {
+        const appliedCoupon = await this.couponCheckoutService.findById(existing.couponId);
+        if (!appliedCoupon) {
+          throw new BadRequestException('Applied coupon is no longer available');
+        }
+
+        await this.couponCheckoutService.validateCoupon(appliedCoupon, {
+          userId,
+          subtotal: parseFloat(existing.subtotal),
+          items: items.map((item) => ({
+            id: item.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: item.productName,
+            sku: item.sku,
+            variantLabel: item.variantName,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.unitPrice),
+            mrp: null,
+            totalPrice: parseFloat(item.totalPrice),
+            stock: 0,
+            inStock: true,
+            isAvailable: true,
+            primaryImageUrl: null,
+            productDetails: [],
+            categoryId: item.product?.categoryId ?? '',
+            subCategoryId: item.product?.subCategoryId ?? null,
+            subSubCategoryId: item.product?.subSubCategoryId ?? null,
+            subSubSubCategoryId: item.product?.subSubSubCategoryId ?? null,
+            brandId: item.product?.brandId ?? null,
+          })),
+          manager,
+        });
+
+        await this.couponCheckoutService.incrementUsage(
+          {
+            couponId: appliedCoupon.id,
+            userId,
+            orderId: existing.id,
+            discountAmount: parseFloat(existing.discountAmount),
+          },
+          manager,
+        );
+      }
+
+      await this.cartItemsRepository.clearByCartId(cart.id, manager);
+      if (cart.couponId) {
+        await this.cartsRepository.updateById(
+          cart.id,
+          { couponId: null, updatedBy: userId },
+          manager,
+        );
+      }
+
+      await this.ordersRepository.updateById(
+        existing.id,
+        {
+          paymentMethod: params.paymentMethod,
+          paymentStatus: params.paymentStatus,
+          orderStatus: OrderStatus.CONFIRMED,
+          notes: params.notes ?? existing.notes,
+          placedAt: new Date(),
+          updatedBy: userId,
+        },
+        manager,
+      );
+
+      const confirmed = await this.ordersRepository.findByIdAndUserId(existing.id, userId, manager);
+      if (!confirmed) throw new NotFoundException('Order not found after confirmation');
+
+      this.logger.log(
+        {
+          orderId: confirmed.id,
+          orderNumber: confirmed.orderNumber,
+          userId,
+          paymentMethod: confirmed.paymentMethod,
+          paymentStatus: confirmed.paymentStatus,
+          orderStatus: confirmed.orderStatus,
+        },
+        'Draft order confirmed successfully',
+      );
+      return confirmed;
+    });
+
+    if (shouldPushFulfillment) {
+      await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'gokwik-place-order');
+      await this.enqueueUnicommercePush(order.id);
+    }
+
+    return order;
   }
 
   async findMyOrders(userId: string, query: OrderQueryDto) {
@@ -283,22 +593,48 @@ export class OrdersService {
   }
 
   async cancel(userId: string, id: string) {
-    const order = await this.ordersRepository.findByIdAndUserId(id, userId);
-    if (!order) throw new NotFoundException(`Order ${id} not found`);
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await manager
+        .getRepository(OrderEntity)
+        .createQueryBuilder('order')
+        .setLock('pessimistic_write')
+        .where('order.id = :id', { id })
+        .andWhere('order.userId = :userId', { userId })
+        .getOne();
+      if (!locked) throw new NotFoundException(`Order ${id} not found`);
+      if (![OrderStatus.PENDING, OrderStatus.CONFIRMED].includes(locked.orderStatus)) {
+        throw new BadRequestException('Only pending/confirmed orders can be cancelled');
+      }
 
-    if (![OrderStatus.PENDING, OrderStatus.CONFIRMED].includes(order.orderStatus)) {
-      throw new BadRequestException('Only pending/confirmed orders can be cancelled');
-    }
+      if (locked.orderStatus === OrderStatus.CONFIRMED) {
+        const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId: id } });
+        for (const item of items) {
+          await manager
+            .getRepository(ProductVariantEntity)
+            .createQueryBuilder()
+            .update(ProductVariantEntity)
+            .set({ stock: () => `"stock" + ${item.quantity}` })
+            .where('id = :variantId', { variantId: item.variantId })
+            .execute();
+        }
+        await manager.getRepository(CouponUsageEntity).delete({ orderId: id });
+      }
 
-    await this.ordersRepository.updateById(id, {
-      orderStatus: OrderStatus.CANCELLED,
-      updatedBy: userId,
+      await this.ordersRepository.updateById(
+        id,
+        {
+          orderStatus: OrderStatus.CANCELLED,
+          updatedBy: userId,
+        },
+        manager,
+      );
     });
     return this.findOne(userId, id);
   }
 
   async createOrderFromPaymentRequest(params: {
     customerId: string;
+    addressId?: string | null;
     paymentRequestId: string;
     paymentRequestRefId: string;
     subtotal: string;
@@ -324,10 +660,22 @@ export class OrdersService {
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
-      const address = await manager.getRepository(UserAddressEntity).findOne({
-        where: { userId: params.customerId, isDefault: true },
-        order: { updatedAt: 'DESC' },
-      });
+      const addressRepository = manager.getRepository(UserAddressEntity);
+      const address = params.addressId
+        ? await addressRepository.findOne({
+            where: { id: params.addressId, userId: params.customerId },
+          })
+        : await addressRepository.findOne({
+            where: { userId: params.customerId, isDefault: true },
+            order: { updatedAt: 'DESC' },
+          });
+      if (!address) {
+        throw new BadRequestException(
+          params.addressId
+            ? 'Selected checkout address was not found'
+            : 'A default delivery address is required for this legacy payment request',
+        );
+      }
 
       const orderRefId = await generateUniqueRefId('order', (candidate) =>
         this.ordersRepository.existsByRefId(candidate),
@@ -354,14 +702,14 @@ export class OrdersService {
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
           orderSource: params.orderSource ?? OrderSource.WEBSITE,
-          recipientName: address?.recipientName ?? 'Customer',
-          phoneNumber: address?.phoneNumber ?? '0000000000',
-          pincode: address?.pincode ?? '000000',
-          addressLine1: address?.addressLine1 ?? 'Address not provided',
-          addressLine2: address?.addressLine2 ?? null,
-          landmark: address?.landmark ?? null,
-          city: address?.city ?? 'NA',
-          state: address?.state ?? 'NA',
+          recipientName: address.recipientName,
+          phoneNumber: address.phoneNumber,
+          pincode: address.pincode,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2 ?? null,
+          landmark: address.landmark ?? null,
+          city: address.city,
+          state: address.state,
           notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
           placedAt: new Date(),
           createdBy: params.createdBy ?? 'razorpay-webhook',
@@ -377,7 +725,7 @@ export class OrdersService {
           relations: { product: true, attributeValues: true },
         });
         if (!variant) throw new BadRequestException('Variant not found while creating order');
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
         await manager

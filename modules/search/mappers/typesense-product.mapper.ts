@@ -1,3 +1,4 @@
+import { isVariantInStock } from '@packages/common';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -46,6 +47,10 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
 
   const tags = joinNames((product.tagMappings ?? []).map((mapping) => mapping.tag?.name));
 
+  const searchTags = joinNames(
+    activeVariants.flatMap((variant) => variant.searchTags ?? []),
+  );
+
   return {
     id: buildProductDocumentId(product.refId),
     refId: product.refId,
@@ -58,8 +63,9 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
     healthConcerns,
     wellnessGoals,
     tags,
+    searchTags,
     description: product.description ?? undefined,
-    inStock: activeVariants.some((variant) => variant.stock > 0),
+    inStock: activeVariants.some((variant) => isVariantInStock(variant.stock)),
     minSellingPrice: sellingPrices.length ? Math.min(...sellingPrices) : undefined,
   };
 }

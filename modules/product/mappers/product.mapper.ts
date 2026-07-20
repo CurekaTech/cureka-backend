@@ -223,6 +223,7 @@ const mapVariant = (
   height: toNumber(variant.height),
   heightUnit: variant.heightUnit,
   expiresIn: variant.expiresIn,
+  searchTags: variant.searchTags ?? [],
   status: variant.status,
   combinationKey: variant.combinationKey,
   attributes: (variant.attributeValues ?? []).map((item) => ({

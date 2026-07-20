@@ -6,5 +6,7 @@ export { typesenseConfig } from './typesense.config';
 export { ordersConfig } from './orders.config';
 export { shipwayConfig } from './shipway.config';
 export { shiprocketConfig } from './shiprocket.config';
+export { gokwikConfig } from './gokwik.config';
 export { unicommerceOrderConfig } from './unicommerce-order.config';
+export { unicommerceProductConfig } from './unicommerce-product.config';
 export { envValidationSchema } from './env.validation';

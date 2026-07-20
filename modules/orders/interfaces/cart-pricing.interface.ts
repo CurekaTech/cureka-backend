@@ -1,5 +1,10 @@
 import { IStorageFileReferenceResponse } from '@packages/storage';
 
+export type CartLineItemProductDetail = {
+  label: string;
+  value: string;
+};
+
 export type CartLineItem = {
   id: string;
   productId: string;
@@ -9,10 +14,15 @@ export type CartLineItem = {
   variantLabel: string | null;
   quantity: number;
   unitPrice: number;
+  /** Variant MRP when available (used by GoKwik cart exchange). */
+  mrp: number | null;
   totalPrice: number;
   stock: number;
+  /** Salable for checkout — false when product/variant inactive or (when enabled) zero stock. */
+  inStock: boolean;
   isAvailable: boolean;
   primaryImageUrl: IStorageFileReferenceResponse | null;
+  productDetails: CartLineItemProductDetail[];
   categoryId: string;
   subCategoryId: string | null;
   subSubCategoryId: string | null;

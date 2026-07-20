@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -9,12 +9,25 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
 import { BlogCategoryStatus } from '../enums/blog-category-status.enum';
 import { BlogCommentStatus } from '../enums/blog-comment-status.enum';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
+
+export class BlogFaqDto {
+  @ApiProperty({ example: 'What is this blog about?' })
+  @IsNotEmpty()
+  @IsString()
+  question!: string;
+
+  @ApiProperty({ example: 'This article explains…' })
+  @IsNotEmpty()
+  @IsString()
+  answer!: string;
+}
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -37,6 +50,38 @@ const parseStringArray = ({ value }: { value: unknown }): string[] | undefined =
     }
   }
   return undefined;
+};
+
+/**
+ * Multipart mergeFormFields JSON.stringifies nested arrays.
+ * Parse them back and return BlogFaqDto class instances so ValidateNested works
+ * (@Transform conflicts with @Type for nested objects).
+ */
+const parseFaqArray = ({ value }: { value: unknown }): BlogFaqDto[] | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (!Array.isArray(parsed)) return undefined;
+
+  const items = parsed
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => ({
+      question: String(item.question ?? '').trim(),
+      answer: String(item.answer ?? '').trim(),
+    }))
+    .filter((item) => item.question && item.answer);
+
+  return plainToInstance(BlogFaqDto, items);
 };
 
 export class BlogCategoryQueryDto extends PaginationQueryDto {
@@ -169,6 +214,17 @@ export class CreateBlogPostDto {
   @IsString({ each: true })
   productRefIds?: string[];
 
+  @ApiPropertyOptional({
+    type: [BlogFaqDto],
+    description: 'FAQ Q&A pairs for FAQPage schema and blog detail accordion',
+  })
+  @IsOptional()
+  @Transform(parseFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BlogFaqDto)
+  faqs?: BlogFaqDto[];
+
   @ApiPropertyOptional({ enum: BlogPostStatus })
   @IsOptional()
   @IsEnum(BlogPostStatus)
@@ -220,7 +276,17 @@ export class CreateBlogPostDto {
   scheduledAt?: string;
 }
 
-export class UpdateBlogPostDto extends PartialType(CreateBlogPostDto) {}
+export class UpdateBlogPostDto extends PartialType(CreateBlogPostDto) {
+  // Re-declare so multipart JSON-stringified faqs keep Transform + nested class instances
+  // after PartialType (edit uses the same FormData path as create).
+  @ApiPropertyOptional({ type: [BlogFaqDto] })
+  @IsOptional()
+  @Transform(parseFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BlogFaqDto)
+  faqs?: BlogFaqDto[];
+}
 
 export class UpdateBlogPostStatusDto {
   @ApiProperty({ enum: BlogPostStatus })

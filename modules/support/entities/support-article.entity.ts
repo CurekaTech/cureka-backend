@@ -13,7 +13,7 @@ export class SupportArticleEntity extends BaseEntity {
   slug!: string;
 
   @Index()
-  @Column({ name: 'category_ref_id', type: 'varchar', length: 11 })
+  @Column({ name: 'category_ref_id', type: 'varchar', length: 16 })
   categoryRefId!: string;
 
   @Column({ type: 'text' })

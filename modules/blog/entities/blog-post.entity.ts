@@ -19,8 +19,11 @@ export class BlogPostEntity extends BaseEntity {
   @Column({ type: 'text' })
   content!: string;
 
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string }>;
+
   @Index()
-  @Column({ name: 'category_ref_id', type: 'varchar', length: 11 })
+  @Column({ name: 'category_ref_id', type: 'varchar', length: 16 })
   categoryRefId!: string;
 
   @Column({ type: 'varchar', length: 150, nullable: true })

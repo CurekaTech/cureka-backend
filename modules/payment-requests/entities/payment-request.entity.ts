@@ -12,6 +12,10 @@ export class PaymentRequestEntity extends BaseEntity {
   customerId!: string;
 
   @Index()
+  @Column({ name: 'address_id', type: 'uuid', nullable: true })
+  addressId!: string | null;
+
+  @Index()
   @Column({
     type: 'enum',
     enum: PaymentRequestStatus,

@@ -22,3 +22,20 @@ npm run category-master:import -- --apply
 Files (default folder: docs/Master-Data-Sheets):
 - Category - Subcategory.xlsx  → ROOT + Sub category
 - Sub-Sub-Sub-Category.xlsx    → Sub category + Sub Sub category
+
+---------------------------------
+++++++ Search Tags +++++++++++
+# Preview
+npm run product:migrate-search-tags
+
+# Apply
+npm run product:migrate-search-tags -- --apply
+
+# Limit to specific products
+npm run product:migrate-search-tags -- --ref-ids=SUN20261234,SUN20264567 --apply
+
+# Also remove the Tags label from product_information_labels
+npm run product:migrate-search-tags -- --apply --deactivate-label
+
+# After apply, reindex Typesense so search picks up the new tags:
+npm run typesense:reindex

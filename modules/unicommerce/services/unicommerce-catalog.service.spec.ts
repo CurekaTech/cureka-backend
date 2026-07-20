@@ -7,6 +7,7 @@ describe('UnicommerceCatalogService', () => {
   const productsRepository = {
     countPublishedActiveVariants: jest.fn(),
     findPublishedProductsForUnicommerce: jest.fn(),
+    findPublishedByRefId: jest.fn(),
   } as unknown as ProductsRepository;
 
   const storageUrlEnricher = {
@@ -80,5 +81,49 @@ describe('UnicommerceCatalogService', () => {
     expect(result.products).toHaveLength(1);
     expect(result.products[0]?.id).toBe('PRD-001');
     expect(result.products[0]?.variants[0]?.sku).toBe('VIT-C-30ML');
+  });
+
+  it('maps a published product by refId for immediate push', async () => {
+    (productsRepository.findPublishedByRefId as jest.Mock).mockResolvedValue({
+        refId: 'PRD-001',
+        name: 'Vitamin C Serum',
+        publishedAt: new Date('2026-01-02T08:12:53.000Z'),
+        createdAt: new Date('2026-01-01T08:12:53.000Z'),
+        brand: { name: 'Cureka Labs' },
+        media: [],
+        variants: [
+          {
+            id: 'variant-1',
+            sku: 'VIT-C-30ML',
+            slug: 'vitamin-c-serum-30ml',
+            sellingPrice: '499.00',
+            mrp: '699.00',
+            stock: 25,
+            length: '60',
+            width: '40',
+            height: '20',
+            lengthUnit: 'mm',
+            widthUnit: 'mm',
+            heightUnit: 'mm',
+            status: 'active',
+            deletedAt: undefined,
+            attributeValues: [],
+          },
+        ],
+    });
+
+    const result = await service.getPublishedProduct('PRD-001');
+
+    expect(result?.id).toBe('PRD-001');
+    expect(result?.variants[0]?.sku).toBe('VIT-C-30ML');
+  });
+
+  it('does not push a product without publishedAt', async () => {
+    (productsRepository.findPublishedByRefId as jest.Mock).mockResolvedValue({
+      refId: 'PRD-001',
+      publishedAt: null,
+    });
+
+    await expect(service.getPublishedProduct('PRD-001')).resolves.toBeNull();
   });
 });

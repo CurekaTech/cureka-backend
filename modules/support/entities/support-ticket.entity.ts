@@ -61,7 +61,7 @@ export class SupportTicketEntity extends BaseEntity {
   @Column({ name: 'assigned_to', type: 'varchar', length: 255, nullable: true })
   assignedTo!: string | null;
 
-  @Column({ name: 'reason_ref_id', type: 'varchar', length: 11, nullable: true })
+  @Column({ name: 'reason_ref_id', type: 'varchar', length: 16, nullable: true })
   reasonRefId!: string | null;
 
   @Column({ name: 'reason_title', type: 'varchar', length: 255, nullable: true })
