@@ -11,6 +11,8 @@ import {
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
+import { AuditEntityType } from '@modules/audit/constants/audit-entity-type.constant';
+import { AuditService } from '@modules/audit/services/audit.service';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { ReasonWorkflow } from '@modules/master/enums/reason-workflow.enum';
@@ -32,7 +34,6 @@ import { SupportTicketPriority } from '../enums/support-ticket-priority.enum';
 import { SupportTicketStatus } from '../enums/support-ticket-status.enum';
 import { SupportTicketCategory } from '../enums/support-ticket-category.enum';
 import { mapSupportTicket, mapSupportTicketSummary, mapTicketMessage } from '../mappers/support.mapper';
-import { SupportAuditLogsRepository } from '../repositories/support-audit-logs.repository';
 import { SupportNotificationsRepository } from '../repositories/support-notifications.repository';
 import { SupportTicketsRepository } from '../repositories/support-tickets.repository';
 import { TicketMessagesRepository } from '../repositories/ticket-messages.repository';
@@ -52,7 +53,7 @@ export class SupportTicketsService {
   constructor(
     private readonly ticketsRepo: SupportTicketsRepository,
     private readonly messagesRepo: TicketMessagesRepository,
-    private readonly auditLogsRepo: SupportAuditLogsRepository,
+    private readonly auditService: AuditService,
     private readonly notificationsRepo: SupportNotificationsRepository,
     private readonly ticketNumberService: SupportTicketNumberService,
     private readonly multipartFormService: MultipartFormService,
@@ -214,8 +215,10 @@ export class SupportTicketsService {
       updatedBy: user?.profile?.email ?? dto.guestEmail ?? 'guest',
     });
 
-    await this.auditLogsRepo.create({
-      ticketId: entity.id,
+    await this.auditService.log({
+      entityType: AuditEntityType.SUPPORT_TICKET,
+      entityId: entity.id,
+      entityRefId: entity.refId,
       action: SupportAuditAction.CREATED,
       performedBy: user?.profile?.email ?? dto.guestEmail ?? 'guest',
       details: { ticketNumber },
@@ -255,7 +258,11 @@ export class SupportTicketsService {
   async findOneAdmin(refId: string) {
     const ticket = await this.getTicketOrThrow(refId);
     const messages = await this.messagesRepo.findByTicketId(ticket.id, true);
-    const auditLogs = await this.auditLogsRepo.findByTicketId(ticket.id);
+    const auditLogs = await this.auditService.findByEntity(
+      AuditEntityType.SUPPORT_TICKET,
+      ticket.id,
+      'ASC',
+    );
 
     return this.storageUrlEnricher.enrichDeep({
       ticket: mapSupportTicket(ticket),
@@ -287,8 +294,10 @@ export class SupportTicketsService {
       updatedBy: actor,
     });
 
-    await this.auditLogsRepo.create({
-      ticketId: ticket.id,
+    await this.auditService.log({
+      entityType: AuditEntityType.SUPPORT_TICKET,
+      entityId: ticket.id,
+      entityRefId: ticket.refId,
       action: SupportAuditAction.STATUS_CHANGED,
       performedBy: actor,
       details: { from: previousStatus, to: dto.status },
@@ -318,8 +327,10 @@ export class SupportTicketsService {
       updatedBy: actor,
     });
 
-    await this.auditLogsRepo.create({
-      ticketId: ticket.id,
+    await this.auditService.log({
+      entityType: AuditEntityType.SUPPORT_TICKET,
+      entityId: ticket.id,
+      entityRefId: ticket.refId,
       action: SupportAuditAction.ASSIGNED,
       performedBy: actor,
       details: { assignedTo: dto.assignedTo },
@@ -336,8 +347,10 @@ export class SupportTicketsService {
       updatedBy: actor,
     });
 
-    await this.auditLogsRepo.create({
-      ticketId: ticket.id,
+    await this.auditService.log({
+      entityType: AuditEntityType.SUPPORT_TICKET,
+      entityId: ticket.id,
+      entityRefId: ticket.refId,
       action: SupportAuditAction.PRIORITY_CHANGED,
       performedBy: actor,
       details: { priority: dto.priority },
@@ -368,8 +381,10 @@ export class SupportTicketsService {
       message: dto.message,
     });
 
-    await this.auditLogsRepo.create({
-      ticketId: ticket.id,
+    await this.auditService.log({
+      entityType: AuditEntityType.SUPPORT_TICKET,
+      entityId: ticket.id,
+      entityRefId: ticket.refId,
       action: isInternal
         ? SupportAuditAction.INTERNAL_NOTE_ADDED
         : SupportAuditAction.MESSAGE_ADDED,
@@ -420,8 +435,10 @@ export class SupportTicketsService {
         : null,
     });
 
-    await this.auditLogsRepo.create({
-      ticketId: ticket.id,
+    await this.auditService.log({
+      entityType: AuditEntityType.SUPPORT_TICKET,
+      entityId: ticket.id,
+      entityRefId: ticket.refId,
       action: isInternal
         ? SupportAuditAction.INTERNAL_NOTE_ADDED
         : SupportAuditAction.MESSAGE_ADDED,

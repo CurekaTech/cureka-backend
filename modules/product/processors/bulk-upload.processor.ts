@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
@@ -28,7 +29,6 @@ import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
-import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductMediaDto } from '../dto/variant.dto';
@@ -38,6 +38,18 @@ import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as exceljs from 'exceljs';
+import {
+  releaseBulkUploadLock,
+  renewBulkUploadLock,
+} from '../utils/bulk-upload-lock.util';
+
+interface BulkUploadJobData {
+  uploadRefId: string;
+  fileUrl: string;
+  imagesZipUrl?: string;
+  lockToken?: string;
+  lockTtlMs?: number;
+}
 
 @Processor('bulk-upload')
 export class BulkUploadProcessor extends WorkerHost {
@@ -279,12 +291,38 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly validatorService: BulkUploadValidatorService,
     private readonly productsService: ProductsService,
     private readonly galleryService: GalleryService,
+    private readonly configService: ConfigService,
   ) {
     super();
   }
 
-  async process(job: Job<{ uploadRefId: string; fileUrl: string; imagesZipUrl?: string }, any, string>): Promise<any> {
-    const { uploadRefId, fileUrl, imagesZipUrl } = job.data;
+  async process(job: Job<BulkUploadJobData, any, string>): Promise<any> {
+    const { uploadRefId, fileUrl, imagesZipUrl, lockToken } = job.data;
+    const lockTtlMs =
+      job.data.lockTtlMs ??
+      this.configService.get<number>('PRODUCT_BULK_UPLOAD_LOCK_TTL_MS', 1800000);
+    const lockRedis = lockToken
+      ? await this.redisConnection.getConnectedClient()
+      : null;
+    let lockRenewalTimer: NodeJS.Timeout | undefined;
+    if (lockRedis && lockToken) {
+      lockRenewalTimer = setInterval(() => {
+        void renewBulkUploadLock(lockRedis, lockToken, lockTtlMs)
+          .then((renewed) => {
+            if (!renewed) {
+              this.logger.error(
+                `Lost bulk upload lock ownership for ${uploadRefId}; concurrent upload protection may be degraded.`,
+              );
+            }
+          })
+          .catch((error) => {
+            this.logger.error(
+              `Failed to renew bulk upload lock for ${uploadRefId}: ${this.getErrorMessage(error)}`,
+            );
+          });
+      }, Math.max(10000, Math.floor(lockTtlMs / 3)));
+      lockRenewalTimer.unref();
+    }
     console.log('[BULK_UPLOAD_DEBUG][Processor.process] JOB_RECEIVED', {
       uploadRefId,
       fileUrl,
@@ -304,6 +342,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
     const tempDir = join(process.cwd(), 'temp-uploads');
     const tempFilePath = join(tempDir, `${uploadRefId}-${Date.now()}.bin`);
+    let processingSucceeded = false;
 
     try {
       // 1. Prime validation cache, load Media Gallery mappings, and Product ID lookups
@@ -782,9 +821,8 @@ export class BulkUploadProcessor extends WorkerHost {
               }
 
               if (publishFromSheet && savedProductRefId) {
-                await this.productsService.updateStatus(
+                await this.productsService.publish(
                   savedProductRefId,
-                  { status: ProductStatus.PUBLISHED },
                   'system-bulk-upload',
                 );
               }
@@ -879,6 +917,7 @@ export class BulkUploadProcessor extends WorkerHost {
       this.logger.log(
         `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} sheet rows. Successful rows: ${successfulSheetRows}. Failed rows: ${failedSheetRows}.`
       );
+      processingSucceeded = true;
       return {
         success: true,
         totalRowsScanned,
@@ -947,11 +986,16 @@ export class BulkUploadProcessor extends WorkerHost {
         this.logger.error('Failed to trigger final bulk cache invalidation:', cacheErr);
       }
 
-      // Release distributed lock
-      const redis = await this.redisConnection.getConnectedClient();
-      if (redis) {
-        await redis.del('locks:bulk-upload');
-        this.logger.log(`Released lock 'locks:bulk-upload' for job ${uploadRefId}`);
+      if (lockRenewalTimer) {
+        clearInterval(lockRenewalTimer);
+      }
+      const configuredAttempts = job.opts.attempts ?? 1;
+      const isFinalAttempt = job.attemptsMade + 1 >= configuredAttempts;
+      if (lockRedis && lockToken && (processingSucceeded || isFinalAttempt)) {
+        const released = await releaseBulkUploadLock(lockRedis, lockToken);
+        this.logger.log(
+          `${released ? 'Released' : 'Did not release'} owned bulk upload lock for job ${uploadRefId}`,
+        );
       }
     }
   }

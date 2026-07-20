@@ -7,6 +7,9 @@ export const DEFAULT_MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
 /** 20 MB — videos */
 export const DEFAULT_MAX_VIDEO_FILE_SIZE = 20 * 1024 * 1024;
 
+/** 40 MB — product bulk-upload spreadsheets */
+export const DEFAULT_MAX_BULK_FILE_SIZE = 40 * 1024 * 1024;
+
 export class UploadSizeLimitExceededError extends Error {
   constructor(message: string) {
     super(message);
@@ -17,17 +20,25 @@ export class UploadSizeLimitExceededError extends Error {
 export const isLargePayloadMimeType = (mimetype: string): boolean =>
   mimetype.startsWith('video/') ||
   (ALLOWED_VIDEO_MIME_TYPES as readonly string[]).includes(mimetype) ||
+  mimetype === 'application/pdf';
+
+export const isBulkSheetMimeType = (mimetype: string): boolean =>
   [
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/csv',
-    'application/pdf',
   ].includes(mimetype);
 
 export const resolveMaxFileSizeForMime = (
   mimetype: string,
-  limits?: { maxImageFileSize?: number; maxVideoFileSize?: number },
+  limits?: {
+    maxImageFileSize?: number;
+    maxVideoFileSize?: number;
+    maxBulkFileSize?: number;
+  },
 ): number =>
-  isLargePayloadMimeType(mimetype)
+  isBulkSheetMimeType(mimetype)
+    ? (limits?.maxBulkFileSize ?? DEFAULT_MAX_BULK_FILE_SIZE)
+    : isLargePayloadMimeType(mimetype)
     ? (limits?.maxVideoFileSize ?? DEFAULT_MAX_VIDEO_FILE_SIZE)
     : (limits?.maxImageFileSize ?? DEFAULT_MAX_IMAGE_FILE_SIZE);
 

@@ -30,6 +30,7 @@ export class StorageService {
     const maxBytes = resolveMaxFileSizeForMime(input.mimetype, {
       maxImageFileSize: this.configService.get<number>('storage.maxImageFileSize'),
       maxVideoFileSize: this.configService.get<number>('storage.maxVideoFileSize'),
+      maxBulkFileSize: this.configService.get<number>('storage.maxBulkFileSize'),
     });
     const stream = limitUploadStreamSize(input.stream, maxBytes, input.mimetype);
 

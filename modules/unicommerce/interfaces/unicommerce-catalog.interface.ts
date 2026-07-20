@@ -42,6 +42,12 @@ export interface IUnicommerceProductsCountResponse {
   count: number;
 }
 
+export interface IUnicommerceProductPushResponse {
+  status?: string;
+  message?: string;
+  data?: unknown;
+}
+
 export interface IUnicommerceErrorResponse {
   message: string;
 }

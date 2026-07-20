@@ -12,6 +12,8 @@ import {
   PaginatedResult,
 } from '@packages/common';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
+import { AuditEntityType } from '@modules/audit/constants/audit-entity-type.constant';
+import { AuditService } from '@modules/audit/services/audit.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
@@ -30,11 +32,11 @@ import { BlogAuditAction } from '../enums/blog-audit-action.enum';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 import { mapBlogPost, mapBlogPostCard, mapStorefrontBlogPost } from '../mappers/blog.mapper';
-import { BlogAuditLogsRepository } from '../repositories/blog-audit-logs.repository';
 import { BlogPostProductsRepository } from '../repositories/blog-post-products.repository';
 import { BlogPostsRepository } from '../repositories/blog-posts.repository';
 import { BlogCategoriesService } from './blog-categories.service';
 import { IBlogHealthReadsSection } from '../interfaces/blog-homepage.interface';
+
 
 const BLOG_UPLOAD_FIELDS = {
   featuredImageFile: UploadFolder.BLOG_IMAGES,
@@ -48,7 +50,7 @@ export class BlogPostsService {
   constructor(
     private readonly postsRepo: BlogPostsRepository,
     private readonly postProductsRepo: BlogPostProductsRepository,
-    private readonly auditLogsRepo: BlogAuditLogsRepository,
+    private readonly auditService: AuditService,
     private readonly categoriesService: BlogCategoriesService,
     private readonly productsRepo: ProductsRepository,
     private readonly multipartFormService: MultipartFormService,
@@ -112,6 +114,7 @@ export class BlogPostsService {
       slug: dto.slug,
       excerpt: dto.excerpt ?? null,
       content: dto.content,
+      faqs: this.normalizeFaqs(dto.faqs),
       categoryRefId: dto.categoryRefId,
       author: dto.author ?? null,
       featuredImage: dto.featuredImage ?? null,
@@ -134,7 +137,9 @@ export class BlogPostsService {
       await this.postProductsRepo.replaceForBlogPost(entity.id, dto.productRefIds, actor);
     }
 
-    await this.logAudit(entity.id, BlogAuditAction.CREATED, actor, { refId: entity.refId });
+    await this.logAudit(entity.id, entity.refId, BlogAuditAction.CREATED, actor, {
+      refId: entity.refId,
+    });
 
     await this.invalidateHomepageHealthReadsCache();
 
@@ -282,7 +287,7 @@ export class BlogPostsService {
   async findAuditLogs(refId: string) {
     const entity = await this.postsRepo.findByRefId(refId);
     if (!entity) throw new NotFoundException('Blog post not found');
-    return this.auditLogsRepo.findByBlogPostId(entity.id);
+    return this.auditService.findByEntity(AuditEntityType.BLOG_POST, entity.id, 'DESC');
   }
 
   async updateFromJson(refId: string, dto: UpdateBlogPostDto, actor: string) {
@@ -349,10 +354,11 @@ export class BlogPostsService {
           )
         : existing.publishedAt;
 
-    const { productRefIds, ...postDto } = dto;
+    const { productRefIds, faqs, ...postDto } = dto;
 
     const updated = await this.postsRepo.updateByRefId(refId, {
       ...postDto,
+      ...(faqs !== undefined ? { faqs: this.normalizeFaqs(faqs) } : {}),
       publishedAt,
       scheduledAt:
         dto.scheduledAt !== undefined
@@ -367,13 +373,13 @@ export class BlogPostsService {
       await this.postProductsRepo.replaceForBlogPost(existing.id, productRefIds, actor);
     }
 
-    await this.logAudit(existing.id, BlogAuditAction.UPDATED, actor, {
+    await this.logAudit(existing.id, refId, BlogAuditAction.UPDATED, actor, {
       refId,
       changes: Object.keys(dto),
     });
 
     if (dto.status && dto.status !== existing.status) {
-      await this.logAudit(existing.id, BlogAuditAction.STATUS_CHANGED, actor, {
+      await this.logAudit(existing.id, refId, BlogAuditAction.STATUS_CHANGED, actor, {
         from: existing.status,
         to: dto.status,
       });
@@ -382,6 +388,7 @@ export class BlogPostsService {
     if (dto.isFeatured !== undefined && dto.isFeatured !== existing.isFeatured) {
       await this.logAudit(
         existing.id,
+        refId,
         dto.isFeatured ? BlogAuditAction.FEATURED : BlogAuditAction.UNFEATURED,
         actor,
       );
@@ -390,6 +397,7 @@ export class BlogPostsService {
     if (dto.isTrending !== undefined && dto.isTrending !== existing.isTrending) {
       await this.logAudit(
         existing.id,
+        refId,
         dto.isTrending ? BlogAuditAction.TRENDING : BlogAuditAction.UNTRENDING,
         actor,
       );
@@ -423,7 +431,7 @@ export class BlogPostsService {
           ? BlogAuditAction.UNPUBLISHED
           : BlogAuditAction.STATUS_CHANGED;
 
-    await this.logAudit(existing.id, action, actor, { status: dto.status });
+    await this.logAudit(existing.id, refId, action, actor, { status: dto.status });
 
     await this.invalidateHomepageHealthReadsCache();
 
@@ -434,7 +442,7 @@ export class BlogPostsService {
     const existing = await this.postsRepo.findByRefId(refId);
     if (!existing) throw new NotFoundException('Blog post not found');
 
-    await this.logAudit(existing.id, BlogAuditAction.DELETED, actor, { refId });
+    await this.logAudit(existing.id, refId, BlogAuditAction.DELETED, actor, { refId });
     await this.postsRepo.softDeleteByRefId(refId);
     await this.invalidateHomepageHealthReadsCache();
   }
@@ -453,6 +461,18 @@ export class BlogPostsService {
     }
 
     return publishedAt ? new Date(publishedAt) : null;
+  }
+
+  private normalizeFaqs(
+    faqs?: Array<{ question: string; answer: string }>,
+  ): Array<{ question: string; answer: string }> {
+    if (!faqs?.length) return [];
+    return faqs
+      .map((faq) => ({
+        question: faq.question?.trim() ?? '',
+        answer: faq.answer?.trim() ?? '',
+      }))
+      .filter((faq) => faq.question && faq.answer);
   }
 
   private async assertProductsExist(productRefIds: string[]) {
@@ -497,12 +517,15 @@ export class BlogPostsService {
 
   private async logAudit(
     blogPostId: string,
+    entityRefId: string,
     action: BlogAuditAction,
     performedBy: string,
     details?: Record<string, unknown>,
   ) {
-    await this.auditLogsRepo.create({
-      blogPostId,
+    await this.auditService.log({
+      entityType: AuditEntityType.BLOG_POST,
+      entityId: blogPostId,
+      entityRefId,
       action,
       performedBy,
       details: details ?? null,
