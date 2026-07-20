@@ -4,6 +4,7 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   generateUniqueRefId,
+  STOCK_VALIDATION_ENABLED,
 } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
@@ -139,7 +140,7 @@ export class OrdersService {
           where: { id: item.variantId },
         });
         if (!variant) throw new BadRequestException('Variant not found while placing order');
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
         await manager
@@ -183,6 +184,7 @@ export class OrdersService {
             mrp: null,
             totalPrice: item.totalPrice,
             stock: 0,
+            inStock: true,
             isAvailable: true,
             primaryImageUrl: null,
             productDetails: [],
@@ -327,7 +329,7 @@ export class OrdersService {
           where: { id: item.variantId },
         });
         if (!variant) throw new BadRequestException('Variant not found while creating draft order');
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
 
@@ -428,15 +430,19 @@ export class OrdersService {
         if (!variant) {
           throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
         }
-        const decrement = await manager
+        const decrementQb = manager
           .getRepository(ProductVariantEntity)
           .createQueryBuilder()
           .update(ProductVariantEntity)
           .set({ stock: () => `"stock" - ${item.quantity}` })
-          .where('id = :id', { id: item.variantId })
-          .andWhere('stock >= :quantity', { quantity: item.quantity })
-          .execute();
-        if (decrement.affected !== 1) {
+          .where('id = :id', { id: item.variantId });
+
+        if (STOCK_VALIDATION_ENABLED) {
+          decrementQb.andWhere('stock >= :quantity', { quantity: item.quantity });
+        }
+
+        const decrement = await decrementQb.execute();
+        if (STOCK_VALIDATION_ENABLED && decrement.affected !== 1) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
       }
@@ -462,6 +468,7 @@ export class OrdersService {
             mrp: null,
             totalPrice: parseFloat(item.totalPrice),
             stock: 0,
+            inStock: true,
             isAvailable: true,
             primaryImageUrl: null,
             productDetails: [],
@@ -718,7 +725,7 @@ export class OrdersService {
           relations: { product: true, attributeValues: true },
         });
         if (!variant) throw new BadRequestException('Variant not found while creating order');
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
         await manager

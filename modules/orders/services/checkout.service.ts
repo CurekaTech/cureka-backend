@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { STOCK_VALIDATION_ENABLED, getSalableStockQuantity } from '@packages/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
@@ -37,7 +38,8 @@ export class CheckoutService {
       unitPrice: item.unitPrice,
       mrp: null,
       totalPrice: item.totalPrice,
-      stock: 0,
+      stock: getSalableStockQuantity(0, item.quantity),
+      inStock: true,
       isAvailable: true,
       primaryImageUrl: null,
       productDetails: [],
@@ -89,7 +91,7 @@ export class CheckoutService {
         if (!variant) {
           throw new BadRequestException('Cart contains inactive product/variant');
         }
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
 

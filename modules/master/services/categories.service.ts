@@ -128,8 +128,15 @@ export class CategoriesService {
       this.assertCategoryFlagWithinLimit('isInShopBy', hierarchyLevel, dto.isInShopBy ?? false),
     ]);
 
-    if (await this.categoriesRepository.existsByNameAmongSiblings(dto.name, parentCategoryId)) {
-      throw new ConflictException(`A category with name "${dto.name}" already exists at this level`);
+    if (
+      await this.categoriesRepository.existsByNameAtHierarchyLevel(
+        dto.name,
+        hierarchyLevel,
+      )
+    ) {
+      throw new ConflictException(
+        `A ${this.hierarchyLevelLabel(hierarchyLevel)} with name "${dto.name}" already exists`,
+      );
     }
 
     const maxSiblingPosition =
@@ -310,14 +317,14 @@ export class CategoriesService {
       dto.parentCategoryRefId !== undefined
     ) {
       if (
-        await this.categoriesRepository.existsByNameAmongSiblings(
+        await this.categoriesRepository.existsByNameAtHierarchyLevel(
           nameToCheck,
-          parentCategoryId,
+          hierarchyLevel,
           refId,
         )
       ) {
         throw new ConflictException(
-          `A category with name "${nameToCheck}" already exists at this level`,
+          `A ${this.hierarchyLevelLabel(hierarchyLevel)} with name "${nameToCheck}" already exists`,
         );
       }
     }
@@ -576,6 +583,21 @@ export class CategoriesService {
       .trim()
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-');
+  }
+
+  private hierarchyLevelLabel(level: CategoryHierarchyLevel): string {
+    switch (level) {
+      case CategoryHierarchyLevel.ROOT:
+        return 'root category';
+      case CategoryHierarchyLevel.CHILD:
+        return 'sub category';
+      case CategoryHierarchyLevel.GRANDCHILD:
+        return 'sub-sub category';
+      case CategoryHierarchyLevel.GREAT_GRANDCHILD:
+        return 'sub-sub-sub category';
+      default:
+        return 'category';
+    }
   }
 
   private async resolveAttributes(attributeRefIds: string[]): Promise<AttributeEntity[]> {

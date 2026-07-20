@@ -64,6 +64,10 @@ export const invalidateProductCache = async (
     CacheKeys.publicProducts.listPattern(),
     CacheKeys.publicProducts.variantSearchPattern(),
     CacheKeys.publicProducts.detailPattern(),
+    // Homepage sections embed product cards (pricing.inStock, etc.).
+    CacheKeys.homepage.bestSellersPattern(),
+    CacheKeys.homepage.sectionsPattern(),
+    CacheKeys.homepage.homeSectionsPattern(),
   ];
 
   const explicitKeys = targets.flatMap(({ refId, slug }) => {

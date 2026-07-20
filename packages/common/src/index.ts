@@ -15,6 +15,11 @@ export { buildSuccessResponse } from './api-response.type';
 export type { ApiResponse, ApiErrorResponse } from './api-response.type';
 export { hashPassword, comparePasswords } from './hash.util';
 export { APP_CONSTANTS } from './app.constants';
+export {
+  STOCK_VALIDATION_ENABLED,
+  isVariantInStock,
+  getSalableStockQuantity,
+} from './stock-validation.config';
 export { generateRefId, generateUniqueRefId, isValidRefId, REF_ID_PATTERN, REF_ID_LENGTH, REF_ID_LENGTH_V2 } from './ref-id.util';
 export { PaginationQueryDto } from './dto/pagination-query.dto';
 export { RefIdPipe } from './pipes/ref-id.pipe';

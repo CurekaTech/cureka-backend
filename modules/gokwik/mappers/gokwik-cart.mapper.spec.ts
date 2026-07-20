@@ -28,6 +28,7 @@ describe('mapCartToGokwikCart', () => {
           mrp: 300,
           totalPrice: 500,
           stock: 3,
+          inStock: true,
           isAvailable: true,
           primaryImageUrl: null,
           productDetails: [{ label: 'Form', value: 'Tablet' }],

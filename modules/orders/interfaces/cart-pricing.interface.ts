@@ -18,6 +18,8 @@ export type CartLineItem = {
   mrp: number | null;
   totalPrice: number;
   stock: number;
+  /** Salable for checkout — false when product/variant inactive or (when enabled) zero stock. */
+  inStock: boolean;
   isAvailable: boolean;
   primaryImageUrl: IStorageFileReferenceResponse | null;
   productDetails: CartLineItemProductDetail[];
