@@ -1,7 +1,9 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Job, Queue } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
@@ -292,8 +294,43 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly productsService: ProductsService,
     private readonly galleryService: GalleryService,
     private readonly configService: ConfigService,
+    @InjectQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS)
+    private readonly unicommerceProductQueue: Queue,
   ) {
     super();
+  }
+
+  /**
+   * Enqueues a published product for Unicommerce sync.
+   * Returns true if enqueued, false if skipped (disabled) or failed.
+   */
+  private async enqueueUnicommerceSync(productRefId: string): Promise<boolean> {
+    if (!this.configService.get<boolean>('unicommerceProduct.enabled')) {
+      return false;
+    }
+    try {
+      const version = Date.now().toString();
+      await this.unicommerceProductQueue.add(
+        'push-product-to-unicommerce',
+        { productRefId },
+        {
+          jobId: `unicommerce-product-${productRefId}-${version}`,
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 30000 },
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
+        },
+      );
+      this.logger.log(
+        `[BULK_UPLOAD][UNICOMMERCE] Enqueued product sync for refId=${productRefId}`,
+      );
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `[BULK_UPLOAD][UNICOMMERCE] Failed to enqueue sync for refId=${productRefId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
   }
 
   async process(job: Job<BulkUploadJobData, any, string>): Promise<any> {
@@ -407,6 +444,8 @@ export class BulkUploadProcessor extends WorkerHost {
       let failedVariantSlots = 0;
       let productsCreated = 0;
       let productsUpdated = 0;
+      let unicommerceEnqueued = 0;
+      let unicommerceEnqueueFailed = 0;
 
       const labelSortOrders = this.validatorService.getProductInformationLabelSortOrders();
 
@@ -825,6 +864,16 @@ export class BulkUploadProcessor extends WorkerHost {
                   savedProductRefId,
                   'system-bulk-upload',
                 );
+                // Directly enqueue Unicommerce product sync for every newly published
+                // product. The event-based listener also fires for individual publishes;
+                // using the same BullMQ job format ensures resilience for bulk paths
+                // where the event chain may be bypassed or unreliable at scale.
+                const enqueued = await this.enqueueUnicommerceSync(savedProductRefId);
+                if (enqueued) {
+                  unicommerceEnqueued += 1;
+                } else {
+                  unicommerceEnqueueFailed += 1;
+                }
               }
               successfulSheetRows += sheetRows;
               successfulVariantSlots += variantSlots;
@@ -881,6 +930,7 @@ export class BulkUploadProcessor extends WorkerHost {
         finalStatus = successfulSheetRows > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
       }
 
+      const unicommerceEnabled = this.configService.get<boolean>('unicommerceProduct.enabled');
       const uploadSummary = {
         sheetRows: totalRowsScanned,
         productsCreated,
@@ -889,11 +939,17 @@ export class BulkUploadProcessor extends WorkerHost {
         failedSheetRows,
         variantSlotsSucceeded: successfulVariantSlots,
         variantSlotsFailed: failedVariantSlots,
+        unicommerceEnabled: !!unicommerceEnabled,
+        unicommerceEnqueued,
+        unicommerceEnqueueFailed,
         message:
           `Sheet rows: ${totalRowsScanned}. Rows succeeded: ${successfulSheetRows}, failed: ${failedSheetRows}. ` +
           `Products created: ${productsCreated}, updated: ${productsUpdated}. ` +
           `Variant slots processed: ${successfulVariantSlots} succeeded, ${failedVariantSlots} failed ` +
-          `(style_group_id vertical rows = one product with N variants).`,
+          `(style_group_id vertical rows = one product with N variants). ` +
+          (unicommerceEnabled
+            ? `Unicommerce sync enqueued: ${unicommerceEnqueued}, failed-to-enqueue: ${unicommerceEnqueueFailed}.`
+            : 'Unicommerce product push is disabled (UNICOMMERCE_PRODUCT_PUSH_ENABLED != true).'),
       };
 
       if (uploadSummary.productsUpdated > 0 || uploadSummary.productsCreated > 0) {

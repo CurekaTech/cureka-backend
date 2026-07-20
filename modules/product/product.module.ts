@@ -47,6 +47,7 @@ import { BulkUploadsRepository } from './repositories/bulk-uploads.repository';
 import { BulkUploadController } from './controllers/bulk-upload.controller';
 import { BulkUploadService } from './services/bulk-upload.service';
 import { QueueModule } from '@packages/queue';
+import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { BulkUploadProcessor } from './processors/bulk-upload.processor';
 import { BulkUploadParserService } from './services/bulk-upload-parser.service';
 import { BulkUploadValidatorService } from './services/bulk-upload-validator.service';
@@ -58,6 +59,7 @@ import { GalleryModule } from '../gallery/gallery.module';
     UploadsModule,
     GalleryModule,
     QueueModule.registerQueue('bulk-upload'),
+    QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,
