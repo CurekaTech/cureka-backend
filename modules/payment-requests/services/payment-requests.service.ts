@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
-import { buildPaginatedResult, generateUniqueRefId, isVariantInStock } from '@packages/common';
+import { buildPaginatedResult, generateUniqueRefId, getSalableStockQuantity, isVariantInStock } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -1241,7 +1241,7 @@ export class PaymentRequestsService {
         sku: v.sku,
         mrp: v.mrp,
         sellingPrice: v.sellingPrice,
-        stock: v.stock,
+        stock: getSalableStockQuantity(v.stock),
         attributeLabel: attrLabel,
       });
     }
@@ -1389,7 +1389,7 @@ export class PaymentRequestsService {
           unitPrice: unitPriceNum,
           mrp: null,
           totalPrice: unitPriceNum * item.quantity,
-          stock: variant?.stock ?? 0,
+          stock: getSalableStockQuantity(variant?.stock ?? 0, item.quantity),
           inStock: isVariantInStock(variant?.stock ?? 0),
           isAvailable: true,
           primaryImageUrl: null,
