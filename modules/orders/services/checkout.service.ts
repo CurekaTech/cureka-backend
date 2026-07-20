@@ -39,6 +39,7 @@ export class CheckoutService {
       mrp: null,
       totalPrice: item.totalPrice,
       stock: 0,
+      inStock: true,
       isAvailable: true,
       primaryImageUrl: null,
       productDetails: [],
