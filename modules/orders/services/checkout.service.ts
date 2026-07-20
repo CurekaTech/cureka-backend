@@ -8,6 +8,7 @@ import { CheckoutDto } from '../dto/checkout.dto';
 import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
+import { STOCK_VALIDATION_ENABLED } from '../config/stock-validation.config';
 
 @Injectable()
 export class CheckoutService {
@@ -89,7 +90,7 @@ export class CheckoutService {
         if (!variant) {
           throw new BadRequestException('Cart contains inactive product/variant');
         }
-        if (variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
 

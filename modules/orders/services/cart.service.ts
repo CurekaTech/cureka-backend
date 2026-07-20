@@ -16,6 +16,7 @@ import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
 import { CartPricingService } from './cart-pricing.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
+import { STOCK_VALIDATION_ENABLED } from '../config/stock-validation.config';
 
 const EMPTY_CART: CartResponse = {
   cartId: '',
@@ -106,6 +107,10 @@ export class CartService {
       const cart = await this.cartsRepository.findActiveById(cartId, manager);
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
+      }
+
+      if (!STOCK_VALIDATION_ENABLED) {
+        return this.toCartResponse(cart, cart.userId, manager, { clearInvalidCoupon: true });
       }
 
       const lineItems = await this.buildLineItems(cart);
@@ -414,6 +419,9 @@ export class CartService {
   }
 
   private assertStockAvailable(requiredQty: number, stock: number): void {
+    if (!STOCK_VALIDATION_ENABLED) {
+      return;
+    }
     if (requiredQty > stock) {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
