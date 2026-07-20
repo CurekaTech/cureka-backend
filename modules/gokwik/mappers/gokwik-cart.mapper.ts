@@ -1,4 +1,4 @@
-import { isVariantInStock } from '@packages/common';
+import { isVariantInStock, getSalableStockQuantity } from '@packages/common';
 import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface';
 import {
   GokwikCart,
@@ -37,7 +37,7 @@ export function mapCartToGokwikCart(
       quantity: item.quantity,
       title: item.productName,
       image_url: item.primaryImageUrl?.url ?? '',
-      salable_qty: item.stock,
+      salable_qty: getSalableStockQuantity(item.stock, item.quantity),
       stock_status: inStock ? 'IN_STOCK' : 'OUT_OF_STOCK',
       ...(options.shippingAddress ? { serviceable_status: inStock } : {}),
       metaData: productDetails,

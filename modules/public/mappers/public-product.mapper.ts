@@ -20,7 +20,7 @@ import {
   IPublicProductPriceSummary,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
-import { isVariantInStock } from '@packages/common';
+import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
 import { IStorageFileReference } from '@packages/storage';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
@@ -249,7 +249,8 @@ export const mapVariantEntityToPublicSearchItem = (
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
-    stock: variant.stock,
+    stock: getSalableStockQuantity(variant.stock),
+    inStock: isVariantInStock(variant.stock),
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
     length: toNumber(variant.length),
@@ -373,7 +374,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
-      stock: variant.stock,
+      stock: getSalableStockQuantity(variant.stock),
+      inStock: isVariantInStock(variant.stock),
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,
       length: toNumber(variant.length),
