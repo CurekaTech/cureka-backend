@@ -48,6 +48,8 @@ import {
   releaseBulkUploadLock,
   renewBulkUploadLock,
 } from '../utils/bulk-upload-lock.util';
+import { isBulkUploadCancelled } from '../utils/bulk-upload-cancel.util';
+import { BulkUploadCancelledError } from '../errors/bulk-upload-cancelled.error';
 import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-details.util';
 
 const BULK_MUTATION_OPTIONS = {
@@ -409,6 +411,7 @@ export class BulkUploadProcessor extends WorkerHost {
     const lockRedis = lockToken
       ? await this.redisConnection.getConnectedClient()
       : null;
+    let processingSucceeded = false;
     let lockRenewalTimer: NodeJS.Timeout | undefined;
     if (lockRedis && lockToken) {
       lockRenewalTimer = setInterval(() => {
@@ -437,21 +440,37 @@ export class BulkUploadProcessor extends WorkerHost {
     });
     this.logger.log(`Received bulk upload job for refId: ${uploadRefId}, file: ${fileUrl}, zip: ${imagesZipUrl}`);
 
-    // Enable cache/side-effect bypass during processing of the heavy bulk sheets
-    process.env['BYPASS_PRODUCT_CACHE_LISTENER'] = 'true';
-    process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'] = 'true';
-    process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'] = 'true';
-
-    // Update status to validating in database
-    await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
-      status: BulkUploadStatus.VALIDATING,
-    });
-
     const tempDir = join(process.cwd(), 'temp-uploads');
     const tempFilePath = join(tempDir, `${uploadRefId}-${Date.now()}.bin`);
-    let processingSucceeded = false;
 
     try {
+      const existingRecord = await this.bulkUploadsRepository.findByRefId(uploadRefId);
+      const terminalStatuses = new Set<BulkUploadStatus>([
+        BulkUploadStatus.COMPLETED,
+        BulkUploadStatus.FAILED,
+        BulkUploadStatus.PARTIAL_SUCCESS,
+      ]);
+      if (existingRecord && terminalStatuses.has(existingRecord.status)) {
+        this.logger.warn(
+          `Skipping bulk upload ${uploadRefId} — job already terminal (${existingRecord.status})`,
+        );
+        processingSucceeded = true;
+        return { skipped: true, status: existingRecord.status };
+      }
+      if (lockRedis && (await isBulkUploadCancelled(lockRedis, uploadRefId))) {
+        throw new BulkUploadCancelledError(uploadRefId);
+      }
+
+      // Enable cache/side-effect bypass during processing of the heavy bulk sheets
+      process.env['BYPASS_PRODUCT_CACHE_LISTENER'] = 'true';
+      process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'] = 'true';
+      process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'] = 'true';
+
+      // Update status to validating in database
+      await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
+        status: BulkUploadStatus.VALIDATING,
+      });
+
       // 1. Prime validation cache, load Media Gallery mappings, and Product ID lookups
       await this.validatorService.primeValidationCache();
       const galleryMap = await this.galleryService.getAllGalleryMap();
@@ -529,6 +548,10 @@ export class BulkUploadProcessor extends WorkerHost {
         fileUrl.endsWith('.csv') ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         100, // chunk size of 100 products
         async (batch, scannedRows) => {
+          if (lockRedis && (await isBulkUploadCancelled(lockRedis, uploadRefId))) {
+            throw new BulkUploadCancelledError(uploadRefId);
+          }
+
           totalProductsGrouped += batch.length;
           this.logger.log(
             `[BULK_UPLOAD] Parsed batch size=${batch.length} scannedRows=${scannedRows}`,
@@ -1148,6 +1171,12 @@ export class BulkUploadProcessor extends WorkerHost {
         errorFileUrl,
       };
     } catch (error) {
+      if (error instanceof BulkUploadCancelledError) {
+        this.logger.warn(`Bulk upload ${uploadRefId} stopped — cancellation requested`);
+        processingSucceeded = true;
+        return { success: false, cancelled: true, uploadRefId };
+      }
+
       const systemError = this.buildSystemError(error);
       if (error instanceof Error) {
         this.logger.error(
