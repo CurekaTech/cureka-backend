@@ -11,6 +11,10 @@ export class ProductTypesenseListener {
 
   @OnEvent(EVENTS.PRODUCT_UPDATED)
   async handleProductUpdated(event: ProductUpdatedEvent): Promise<void> {
+    if (process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'] === 'true') {
+      return;
+    }
+
     try {
       if (event.action === 'deleted') {
         await this.indexer.removeProduct(event.refId);

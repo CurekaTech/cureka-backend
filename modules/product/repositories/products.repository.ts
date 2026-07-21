@@ -93,6 +93,111 @@ export class ProductsRepository {
     return product;
   }
 
+  /**
+   * Lightweight load for create/update mutations (skips media/faqs/tags/etc.).
+   * Used by bulk upload to avoid full-detail hydration per row.
+   */
+  async findByRefIdForMutation(
+    refId: string,
+    manager?: EntityManager,
+  ): Promise<ProductEntity | null> {
+    const mgr = manager ?? this.repo.manager;
+    const product = await mgr.getRepository(ProductEntity).findOne({
+      where: { refId },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+    });
+    if (!product) return null;
+    await this.attachMutationRelations([product], mgr);
+    return product;
+  }
+
+  async findStatusByRefId(refId: string): Promise<ProductStatus | null> {
+    const row = await this.repo.findOne({
+      where: { refId },
+      select: { status: true, refId: true },
+    });
+    return row?.status ?? null;
+  }
+
+  private async attachMutationRelations(
+    products: ProductEntity[],
+    mgr: EntityManager,
+  ): Promise<void> {
+    if (!products.length) return;
+    const productIds = products.map((p) => p.id);
+
+    const [attributeMappings, variants] = await Promise.all([
+      mgr.getRepository(ProductAttributeMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { attribute: true },
+      }),
+      mgr.getRepository(ProductVariantEntity).find({
+        where: { productId: In(productIds) },
+        relations: {
+          manufacturer: true,
+          packer: true,
+          importer: true,
+          countryOfOrigin: true,
+        },
+      }),
+    ]);
+
+    const variantIds = variants.map((v) => v.id);
+    const attributeValues = variantIds.length
+      ? await mgr.getRepository(VariantAttributeValueEntity).find({
+          where: { variantId: In(variantIds) },
+          relations: { attribute: true },
+        })
+      : [];
+
+    const attrValuesByVariantId = new Map<string, VariantAttributeValueEntity[]>();
+    for (const av of attributeValues) {
+      const list = attrValuesByVariantId.get(av.variantId) ?? [];
+      list.push(av);
+      attrValuesByVariantId.set(av.variantId, list);
+    }
+    for (const variant of variants) {
+      variant.attributeValues = attrValuesByVariantId.get(variant.id) ?? [];
+    }
+
+    const attrMappingsByProduct = new Map<string, ProductAttributeMappingEntity[]>();
+    for (const mapping of attributeMappings) {
+      const list = attrMappingsByProduct.get(mapping.productId) ?? [];
+      list.push(mapping);
+      attrMappingsByProduct.set(mapping.productId, list);
+    }
+
+    const variantsByProduct = new Map<string, ProductVariantEntity[]>();
+    for (const variant of variants) {
+      const list = variantsByProduct.get(variant.productId) ?? [];
+      list.push(variant);
+      variantsByProduct.set(variant.productId, list);
+    }
+
+    for (const product of products) {
+      product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
+      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.media = [];
+      product.healthConcernMappings = [];
+      product.wellnessGoalMappings = [];
+      product.tagMappings = [];
+      product.faqMappings = [];
+      product.bundleItems = [];
+      product.categoryFilterMappings = [];
+    }
+  }
+
   async findAllForBulkExport(): Promise<ProductEntity[]> {
     const products = await this.repo.find({
       relations: {

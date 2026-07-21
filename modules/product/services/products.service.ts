@@ -52,6 +52,13 @@ import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query
 /** Max products in a single category that may share the same tag (e.g. "bestSeller"). */
 const MAX_PRODUCTS_PER_CATEGORY_TAG = 10;
 
+export interface ProductMutationOptions {
+  /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
+  skipDetailEnrichment?: boolean;
+  /** Use a lighter product load (no media/faqs/tags hydration). */
+  lightweightLoad?: boolean;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -111,7 +118,11 @@ export class ProductsService {
     return this.update(refId, dto, updatedBy);
   }
 
-  async createDraft(dto: CreateProductDto, createdBy: string): Promise<IProduct> {
+  async createDraft(
+    dto: CreateProductDto,
+    createdBy: string,
+    options?: ProductMutationOptions,
+  ): Promise<IProduct> {
     const [masters, slugExists] = await Promise.all([
       this.masterResolver.resolve(dto),
       (async () => {
@@ -224,6 +235,10 @@ export class ProductsService {
     loaded.rejectionReason = null;
 
     await this.emitProductUpdated(product.refId, 'created');
+
+    if (options?.skipDetailEnrichment) {
+      return mapProductEntityToResponse(loaded);
+    }
 
     return this.enrichProduct(mapProductEntityToResponse(loaded));
   }
@@ -351,8 +366,15 @@ export class ProductsService {
     return result;
   }
 
-  async update(refId: string, dto: UpdateProductDto, updatedBy: string): Promise<IProduct> {
-    const existing = await this.productsRepository.findByRefId(refId);
+  async update(
+    refId: string,
+    dto: UpdateProductDto,
+    updatedBy: string,
+    options?: ProductMutationOptions,
+  ): Promise<IProduct> {
+    const existing = options?.lightweightLoad
+      ? await this.productsRepository.findByRefIdForMutation(refId)
+      : await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
     this.assertEditable(existing);
 
@@ -613,11 +635,14 @@ export class ProductsService {
       }
     });
 
-    const updated = await this.productsRepository.findByRefId(refId);
+    const updated = await this.productsRepository.findByRefIdForMutation(refId);
     if (!updated) {
       throw new NotFoundException(`Product with refId ${refId} not found after update`);
     }
     await this.emitProductUpdated(refId, 'updated');
+    if (options?.skipDetailEnrichment) {
+      return mapProductEntityToResponse(updated);
+    }
     return this.findOne(refId);
   }
 
@@ -669,11 +694,24 @@ export class ProductsService {
     return this.findOne(refId);
   }
 
-  async publish(refId: string, updatedBy: string): Promise<IProduct> {
-    const existing = await this.productsRepository.findByRefId(refId);
+  async publish(
+    refId: string,
+    updatedBy: string,
+    options?: ProductMutationOptions,
+  ): Promise<IProduct> {
+    const existing = options?.lightweightLoad
+      ? await this.productsRepository.findByRefIdForMutation(refId)
+      : await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
     if (!existing.variants?.length && existing.productType !== ProductType.BUNDLE) {
       throw new BadRequestException('Product must have at least one variant before publishing');
+    }
+
+    if (existing.status === ProductStatus.PUBLISHED) {
+      if (options?.skipDetailEnrichment) {
+        return mapProductEntityToResponse(existing);
+      }
+      return this.findOne(refId);
     }
 
     await this.productsRepository.updateByRefId(refId, {
@@ -682,6 +720,10 @@ export class ProductsService {
       updatedBy,
     });
     await this.emitProductUpdated(refId, 'updated');
+    if (options?.skipDetailEnrichment) {
+      existing.status = ProductStatus.PUBLISHED;
+      return mapProductEntityToResponse(existing);
+    }
     return this.findOne(refId);
   }
 
