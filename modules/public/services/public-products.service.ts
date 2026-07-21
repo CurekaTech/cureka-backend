@@ -1,5 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { buildPaginatedResult, buildPaginationOptions, PaginatedResult } from '@packages/common';
+import {
+  buildPaginatedResult,
+  buildPaginationOptions,
+  getSalableStockQuantity,
+  isVariantInStock,
+  PaginatedResult,
+} from '@packages/common';
 import {
   buildQueryCacheHash,
   CacheKeys,
@@ -515,6 +521,8 @@ export class PublicProductsService {
   ): Promise<IPublicProductVariantSearchItem> {
     return {
       ...item,
+      stock: getSalableStockQuantity(item.stock),
+      inStock: isVariantInStock(item.stock),
       primaryImageUrl: await this.storageUrlEnricher.toReference(item.primaryImageUrl),
     };
   }
@@ -525,7 +533,15 @@ export class PublicProductsService {
     // Resolve all primary images in parallel and log each key's signing time
     const data = await Promise.all(
       result.data.map(async (card) => {
-        if (!card.primaryImageUrl) return card;
+        const pricing = {
+          ...card.pricing,
+          inStock: card.pricing.inStock || isVariantInStock(0),
+        };
+
+        if (!card.primaryImageUrl) {
+          return { ...card, pricing };
+        }
+
         const key =
           typeof card.primaryImageUrl === 'string'
             ? card.primaryImageUrl
@@ -533,7 +549,11 @@ export class PublicProductsService {
         const t = Date.now();
         const primaryImageUrl = await this.storageUrlEnricher.toReference(card.primaryImageUrl);
         this.logger.log(`  [IMG] key="${key}" signing=${Date.now() - t}ms`);
-        return { ...card, primaryImageUrl };
+        return {
+          ...card,
+          primaryImageUrl,
+          pricing,
+        };
       }),
     );
     return { ...result, data };
@@ -543,6 +563,10 @@ export class PublicProductsService {
     return {
       ...card,
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
+      pricing: {
+        ...card.pricing,
+        inStock: card.pricing.inStock || isVariantInStock(0),
+      },
     };
   }
 
@@ -602,6 +626,20 @@ export class PublicProductsService {
     });
 
     return merged;
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        stock: getSalableStockQuantity(variant.stock),
+        inStock: isVariantInStock(variant.stock),
+        // Stored expiry wins; otherwise today + product.expiresInMonths (fresh each request, not frozen in cache).
+        expiryDate: resolvePublicExpiryDate(variant.expiryDate, product.expiresInMonths),
+      })),
+      pricing: {
+        ...product.pricing,
+        inStock:
+          product.pricing.inStock ||
+          product.variants.some((variant) => isVariantInStock(variant.stock)),
+      },
+    };
   }
 
   private async enrichPartySummary<

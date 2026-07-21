@@ -55,6 +55,15 @@ describe('typesense-product.mapper', () => {
       wellnessGoalMappings: [{ wellnessGoal: { name: 'Weight Management' } }],
       tagMappings: [{ tag: { name: 'Vitamin' } }],
       subCategory: { name: 'Pain Relief' },
+      variants: [
+        {
+          deletedAt: null,
+          status: VariantStatus.ACTIVE,
+          stock: 10,
+          sellingPrice: '32.50',
+          searchTags: ['paracetamol', 'fever'],
+        },
+      ],
     } as unknown as ProductEntity;
 
     const document = mapProductToTypesenseDocument(product);
@@ -63,6 +72,7 @@ describe('typesense-product.mapper', () => {
       healthConcerns: 'Immunity',
       wellnessGoals: 'Weight Management',
       tags: 'Vitamin',
+      searchTags: 'paracetamol fever',
       subCategory: 'Pain Relief',
     });
   });

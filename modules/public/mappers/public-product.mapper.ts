@@ -21,6 +21,7 @@ import {
   IPublicProductPriceSummary,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
+import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
 import { IStorageFileReference } from '@packages/storage';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
@@ -30,9 +31,6 @@ const toNumber = (value: string | number | null | undefined): number | null => {
 
 const getActiveVariants = (entity: ProductEntity) =>
   (entity.variants ?? []).filter((variant) => variant.status === VariantStatus.ACTIVE);
-
-const isVariantInStock = (variant: ProductVariantEntity): boolean =>
-  (toNumber(variant.stock) ?? 0) > 0;
 
 const sortVariantsBySellingPrice = (
   variants: ProductVariantEntity[],
@@ -54,7 +52,7 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
   }
 
   const sorted = sortVariantsBySellingPrice(activeVariants);
-  const inStockVariants = sorted.filter(isVariantInStock);
+  const inStockVariants = sorted.filter((variant) => isVariantInStock(variant.stock));
   return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
 };
 
@@ -68,7 +66,7 @@ export const pickPreferredPublicVariant = <
   }
 
   const sorted = [...variants].sort((left, right) => left.sellingPrice - right.sellingPrice);
-  const inStockVariants = sorted.filter((variant) => variant.stock > 0);
+  const inStockVariants = sorted.filter((variant) => isVariantInStock(variant.stock));
   return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
 };
 
@@ -88,7 +86,7 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     maxSellingPrice: sellingPrices.length ? Math.max(...sellingPrices) : 0,
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
-    inStock: activeVariants.some(isVariantInStock),
+    inStock: activeVariants.some((variant) => isVariantInStock(variant.stock)),
   };
 };
 
@@ -252,7 +250,8 @@ export const mapVariantEntityToPublicSearchItem = (
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
-    stock: variant.stock,
+    stock: getSalableStockQuantity(variant.stock),
+    inStock: isVariantInStock(variant.stock),
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
     length: toNumber(variant.length),
@@ -377,7 +376,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
-      stock: variant.stock,
+      stock: getSalableStockQuantity(variant.stock),
+      inStock: isVariantInStock(variant.stock),
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,
       length: toNumber(variant.length),

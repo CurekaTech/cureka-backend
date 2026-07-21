@@ -14,6 +14,14 @@ export const mapBlogCategory = (entity: BlogCategoryEntity) => ({
   updatedAt: entity.updatedAt,
 });
 
+const mapBlogFaqs = (entity: BlogPostEntity) =>
+  (entity.faqs ?? [])
+    .filter((faq) => faq?.question?.trim() && faq?.answer?.trim())
+    .map((faq) => ({
+      question: faq.question.trim(),
+      answer: faq.answer.trim(),
+    }));
+
 export const mapBlogPost = (
   entity: BlogPostEntity,
   extras?: { productRefIds?: string[] },
@@ -29,6 +37,7 @@ export const mapBlogPost = (
   featuredVideo: entity.featuredVideo,
   tags: entity.tags ?? [],
   productRefIds: extras?.productRefIds ?? [],
+  faqs: mapBlogFaqs(entity),
   status: entity.status,
   visibility: entity.visibility,
   isFeatured: entity.isFeatured,
@@ -74,6 +83,7 @@ export const mapStorefrontBlogPost = (
   featuredVideo: entity.featuredVideo,
   tags: entity.tags ?? [],
   productRefIds: extras?.productRefIds ?? [],
+  faqs: mapBlogFaqs(entity),
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,

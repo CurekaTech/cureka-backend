@@ -65,6 +65,7 @@ export interface IPublicProductVariantSearchItem {
   sellingPrice: number;
   discountPercentage: number | null;
   stock: number;
+  inStock: boolean;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;
@@ -151,6 +152,7 @@ export interface IPublicProductVariant {
   sellingPrice: number;
   discountPercentage: number | null;
   stock: number;
+  inStock: boolean;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;

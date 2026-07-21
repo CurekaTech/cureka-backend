@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
+import { AuditModule } from '@modules/audit/audit.module';
 import { MasterModule } from '@modules/master/master.module';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
@@ -15,11 +16,9 @@ import { SupportArticleEntity } from './entities/support-article.entity';
 import { SupportCategoryEntity } from './entities/support-category.entity';
 import { SupportFaqEntity } from './entities/support-faq.entity';
 import { SupportNotificationEntity } from './entities/support-notification.entity';
-import { SupportTicketAuditLogEntity } from './entities/support-ticket-audit-log.entity';
 import { SupportTicketEntity } from './entities/support-ticket.entity';
 import { TicketMessageEntity } from './entities/ticket-message.entity';
 import { SupportArticlesRepository } from './repositories/support-articles.repository';
-import { SupportAuditLogsRepository } from './repositories/support-audit-logs.repository';
 import { SupportCategoriesRepository } from './repositories/support-categories.repository';
 import { SupportFaqsRepository } from './repositories/support-faqs.repository';
 import { SupportNotificationsRepository } from './repositories/support-notifications.repository';
@@ -40,12 +39,12 @@ import { OrderSupportReasonsService } from './services/order-support-reasons.ser
       SupportFaqEntity,
       SupportTicketEntity,
       TicketMessageEntity,
-      SupportTicketAuditLogEntity,
       SupportNotificationEntity,
       AdminUserEntity,
       OrderEntity,
       ProductEntity,
     ]),
+    AuditModule,
     MasterModule,
     UploadsModule,
   ],
@@ -63,7 +62,6 @@ import { OrderSupportReasonsService } from './services/order-support-reasons.ser
     SupportFaqsRepository,
     SupportTicketsRepository,
     TicketMessagesRepository,
-    SupportAuditLogsRepository,
     SupportNotificationsRepository,
     SupportCategoriesService,
     SupportArticlesService,

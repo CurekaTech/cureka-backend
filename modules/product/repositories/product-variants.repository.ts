@@ -37,6 +37,11 @@ const pickVariantUnit = (
   snake: 'weight_unit' | 'length_unit' | 'width_unit' | 'height_unit',
 ): string | null => dto[camel]?.trim() || dto[snake]?.trim() || null;
 
+const normalizeSearchTags = (tags?: string[] | null): string[] => {
+  if (!tags?.length) return [];
+  return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+};
+
 @Injectable()
 export class ProductVariantsRepository {
   constructor(
@@ -142,6 +147,7 @@ export class ProductVariantsRepository {
         heightUnit: pickVariantUnit(dto, 'heightUnit', 'height_unit'),
         expiresIn: dto.expiresIn ?? null,
         taxClass: dto.taxClass ?? null,
+        searchTags: normalizeSearchTags(dto.searchTags),
         status: VariantStatus.ACTIVE,
         combinationKey,
         ...(await this.mapVariantDetailColumns(manager, dto)),
@@ -352,6 +358,7 @@ export class ProductVariantsRepository {
           heightUnit: pickVariantUnit(dto, 'heightUnit', 'height_unit'),
           expiresIn: dto.expiresIn ?? null,
           taxClass: dto.taxClass ?? null,
+          searchTags: normalizeSearchTags(dto.searchTags),
           slug,
           combinationKey,
           ...(await this.mapVariantDetailColumns(manager, dto)),

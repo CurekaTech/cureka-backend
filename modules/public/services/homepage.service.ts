@@ -91,11 +91,14 @@ export class HomepageService {
   }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
-    return this.cacheStrategy.cacheAside({
+    const cached = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.categoryHeader(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHeaderCategoryTreeUncached(),
     });
+
+    // Sign storage references after cache read so signed URLs stay fresh.
+    return this.storageUrlEnricher.enrichDeep(cached);
   }
 
   /** Used by cache refresh after category mutations. */
