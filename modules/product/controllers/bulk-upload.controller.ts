@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
@@ -11,7 +12,10 @@ import { BulkUploadService } from '../services/bulk-upload.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('products/bulk-upload')
 export class BulkUploadController {
-  constructor(private readonly bulkUploadService: BulkUploadService) {}
+  constructor(
+    private readonly bulkUploadService: BulkUploadService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @ApiOperation({ summary: 'Upload Excel/CSV product sheet and queue job' })
   @ResponseMessage('Bulk upload enqueued successfully')
@@ -42,16 +46,21 @@ export class BulkUploadController {
       .send(fileBuffer);
   }
 
-  @ApiOperation({ summary: 'Export all products as editable bulk upload XLSX' })
+  @ApiOperation({ summary: 'Export all products as editable bulk upload CSV' })
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get('export')
   async exportProducts(@Res() reply: FastifyReply) {
+    const exportTimeoutMs = this.configService.get<number>(
+      'PRODUCT_BULK_EXPORT_TIMEOUT_MS',
+      15 * 60 * 1000,
+    );
+    reply.raw.setTimeout(exportTimeoutMs);
     const { fileName, fileBuffer } = await this.bulkUploadService.getExportFile();
     return reply
       .code(200)
       .header(
         'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv; charset=utf-8',
       )
       .header('Content-Disposition', `attachment; filename="${fileName}"`)
       .send(fileBuffer);

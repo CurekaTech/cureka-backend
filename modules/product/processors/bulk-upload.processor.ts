@@ -54,7 +54,7 @@ interface BulkUploadJobData {
   lockTtlMs?: number;
 }
 
-@Processor('bulk-upload')
+@Processor('bulk-upload', { concurrency: 1 })
 export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
 
