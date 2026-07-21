@@ -30,6 +30,7 @@ import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { SupportModule } from '@modules/support/support.module';
 import { BlogModule } from '@modules/blog/blog.module';
+import { ReviewsModule } from '@modules/reviews/reviews.module';
 import { AuditModule } from '@modules/audit/audit.module';
 import { GokwikModule } from '@modules/gokwik/gokwik.module';
 
@@ -84,6 +85,7 @@ import { GokwikModule } from '@modules/gokwik/gokwik.module';
     AuditModule,
     SupportModule,
     BlogModule,
+    ReviewsModule,
     GokwikModule,
   ],
   providers: [

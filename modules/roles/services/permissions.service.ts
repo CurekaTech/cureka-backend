@@ -210,6 +210,11 @@ export class PermissionsService {
             permissions: getPerms('gallery', ['create', 'read', 'delete']),
           },
           {
+            name: 'Product Reviews',
+            key: 'products-reviews',
+            permissions: getPerms('product_reviews', ['read', 'update', 'delete']),
+          },
+          {
             name: 'Bulk Upload',
             key: 'products-bulk-upload',
             permissions: getPerms('products', ['create']),
@@ -245,6 +250,11 @@ export class PermissionsService {
             name: 'Expert Talks & Podcasts',
             key: 'cms-expert-talks',
             permissions: getPerms('expert_talks'),
+          },
+          {
+            name: 'Testimonials',
+            key: 'cms-testimonials',
+            permissions: getPerms('testimonials'),
           },
           {
             name: 'Home Section Indexing',

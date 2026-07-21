@@ -13,6 +13,7 @@ import { ManufacturerEntity } from './entities/manufacturer.entity';
 import { BannerEntity } from './entities/banner.entity';
 import { WatchAndShopItemEntity } from './entities/watch-and-shop-item.entity';
 import { ExpertTalkItemEntity } from './entities/expert-talk-item.entity';
+import { TestimonialEntity } from './entities/testimonial.entity';
 import { ImporterEntity } from './entities/importer.entity';
 import { PackerEntity } from './entities/packer.entity';
 import { ProductNatureEntity } from './entities/product-nature.entity';
@@ -38,6 +39,7 @@ import { ManufacturersRepository } from './repositories/manufacturers.repository
 import { BannersRepository } from './repositories/banners.repository';
 import { WatchAndShopRepository } from './repositories/watch-and-shop.repository';
 import { ExpertTalkRepository } from './repositories/expert-talk.repository';
+import { TestimonialRepository } from './repositories/testimonial.repository';
 import { ImportersRepository } from './repositories/importers.repository';
 import { PackersRepository } from './repositories/packers.repository';
 import { ProductNaturesRepository } from './repositories/product-natures.repository';
@@ -64,6 +66,8 @@ import { WatchAndShopService } from './services/watch-and-shop.service';
 import { WatchAndShopCacheSyncService } from './services/watch-and-shop-cache-sync.service';
 import { ExpertTalkService } from './services/expert-talk.service';
 import { ExpertTalkCacheSyncService } from './services/expert-talk-cache-sync.service';
+import { TestimonialService } from './services/testimonial.service';
+import { TestimonialCacheSyncService } from './services/testimonial-cache-sync.service';
 import { ImportersService } from './services/importers.service';
 import { PackersService } from './services/packers.service';
 import { ProductNaturesService } from './services/product-natures.service';
@@ -86,6 +90,7 @@ import { ManufacturersController } from './controllers/manufacturers.controller'
 import { BannersController } from './controllers/banners.controller';
 import { WatchAndShopController } from './controllers/watch-and-shop.controller';
 import { ExpertTalkController } from './controllers/expert-talk.controller';
+import { TestimonialController } from './controllers/testimonial.controller';
 import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
 import { ProductNaturesController } from './controllers/product-natures.controller';
@@ -101,6 +106,7 @@ import { CategoryCacheListener } from './listeners/category-cache.listener';
 import { BannerCacheListener } from './listeners/banner-cache.listener';
 import { WatchAndShopCacheListener } from './listeners/watch-and-shop-cache.listener';
 import { ExpertTalkCacheListener } from './listeners/expert-talk-cache.listener';
+import { TestimonialCacheListener } from './listeners/testimonial-cache.listener';
 import { ImporterCacheListener } from './listeners/importer-cache.listener';
 import { PackerCacheListener } from './listeners/packer-cache.listener';
 import { SubscriptionFrequencyCacheListener } from './listeners/subscription-frequency-cache.listener';
@@ -129,6 +135,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
       BannerEntity,
       WatchAndShopItemEntity,
       ExpertTalkItemEntity,
+      TestimonialEntity,
       ImporterEntity,
       PackerEntity,
       ProductNatureEntity,
@@ -163,6 +170,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     BannersController,
     WatchAndShopController,
     ExpertTalkController,
+    TestimonialController,
     ImportersController,
     PackersController,
     ProductNaturesController,
@@ -202,6 +210,9 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     ExpertTalkService,
     ExpertTalkRepository,
     ExpertTalkCacheSyncService,
+    TestimonialService,
+    TestimonialRepository,
+    TestimonialCacheSyncService,
     ProductsRepository,
     ImportersService,
     ImportersRepository,
@@ -232,6 +243,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     BannerCacheListener,
     WatchAndShopCacheListener,
     ExpertTalkCacheListener,
+    TestimonialCacheListener,
     ImporterCacheListener,
     PackerCacheListener,
     SubscriptionFrequencyCacheListener,
@@ -250,6 +262,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     BannersService,
     WatchAndShopService,
     ExpertTalkService,
+    TestimonialService,
     ImportersService,
     PackersService,
     ProductNaturesService,
