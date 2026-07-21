@@ -17,6 +17,9 @@ export class GokwikCatalogListener {
 
   @OnEvent(EVENTS.PRODUCT_UPDATED)
   async onProductUpdated(event: ProductUpdatedEvent): Promise<void> {
+    if (process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'] === 'true') {
+      return;
+    }
     if (!this.configService.get<boolean>('gokwik.catalogSyncEnabled')) return;
     const product = await this.dataSource
       .getRepository(ProductEntity)
