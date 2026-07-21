@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as exceljs from 'exceljs';
 import { extname } from 'path';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
@@ -181,6 +182,8 @@ export const countVariantSlotsForProductGroup = (group: IParsedProductGroup): nu
 @Injectable()
 export class BulkUploadParserService {
   private readonly logger = new Logger(BulkUploadParserService.name);
+
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Cleans header strings to allow flexible asterisk, space, and underscore matching.
@@ -421,9 +424,10 @@ export class BulkUploadParserService {
     }
 
     const totalDataRows = worksheet.rowCount - 1;
-    if (totalDataRows > 1000) {
+    const maxRows = this.configService.get<number>('PRODUCT_BULK_UPLOAD_MAX_ROWS', 0);
+    if (maxRows > 0 && totalDataRows > maxRows) {
       throw new BadRequestException(
-        `The sheet contains ${totalDataRows} data rows, which exceeds the maximum limit of 1000 rows per upload.`,
+        `The sheet contains ${totalDataRows} data rows, which exceeds the maximum limit of ${maxRows} rows per upload.`,
       );
     }
 
