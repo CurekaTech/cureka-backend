@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { BulkUploadService } from '../services/bulk-upload.service';
 
 @ApiTags('Product Bulk Upload')
@@ -32,6 +32,7 @@ export class BulkUploadController {
   }
 
   @ApiOperation({ summary: 'Download bulk upload sample XLSX template' })
+  @RawResponse()
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get('template/download')
   async downloadTemplate(@Res() reply: FastifyReply) {
@@ -46,22 +47,33 @@ export class BulkUploadController {
       .send(fileBuffer);
   }
 
-  @ApiOperation({ summary: 'Export all products as editable bulk upload CSV' })
+  @ApiOperation({
+    summary: 'Export all products as editable bulk upload file (default XLSX, optional CSV)',
+  })
+  @RawResponse()
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get('export')
-  async exportProducts(@Res() reply: FastifyReply) {
+  async exportProducts(
+    @Res() reply: FastifyReply,
+    @Query('format') format?: string,
+  ) {
     const exportTimeoutMs = this.configService.get<number>(
       'PRODUCT_BULK_EXPORT_TIMEOUT_MS',
       15 * 60 * 1000,
     );
     reply.raw.setTimeout(exportTimeoutMs);
-    const { fileName, fileBuffer } = await this.bulkUploadService.getExportFile();
+
+    const normalizedFormat = format?.trim().toLowerCase();
+    const exportFormat: 'xlsx' | 'csv' =
+      normalizedFormat === 'csv' ? 'csv' : 'xlsx';
+
+    const { fileName, fileBuffer, contentType } =
+      await this.bulkUploadService.getExportFile(exportFormat);
+
     return reply
       .code(200)
-      .header(
-        'Content-Type',
-        'text/csv; charset=utf-8',
-      )
+      .header('Content-Type', contentType)
+      .header('Content-Length', String(fileBuffer.length))
       .header('Content-Disposition', `attachment; filename="${fileName}"`)
       .send(fileBuffer);
   }

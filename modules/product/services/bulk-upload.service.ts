@@ -39,7 +39,8 @@ import { mapProductsToBulkExportRows } from '../utils/bulk-upload-export.mapper'
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
   private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
-  private static readonly EXPORT_FILE_NAME = 'bulk-export-products.csv';
+  private static readonly EXPORT_XLSX_FILE_NAME = 'bulk-export-products.xlsx';
+  private static readonly EXPORT_CSV_FILE_NAME = 'bulk-export-products.csv';
   /** Header + sample rows kept visible while scrolling the wide import sheet. */
   private static readonly IMPORT_TEMPLATE_FROZEN_ROW_COUNT = 3;
 
@@ -259,7 +260,9 @@ export class BulkUploadService {
     return { fileName, fileBuffer };
   }
 
-  async getExportFile(): Promise<{ fileName: string; fileBuffer: Buffer }> {
+  async getExportFile(
+    format: 'xlsx' | 'csv' = 'xlsx',
+  ): Promise<{ fileName: string; fileBuffer: Buffer; contentType: string }> {
     const products = await this.productsRepository.findAllForBulkExport();
     const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
     const categoryFilterHeaders = activeFilters.map((filter) =>
@@ -267,11 +270,22 @@ export class BulkUploadService {
     );
     const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
     const dataRows = mapProductsToBulkExportRows(products, headers);
-    const fileBuffer = this.buildCsvBuffer(headers, dataRows);
+
+    if (format === 'csv') {
+      return {
+        fileName: BulkUploadService.EXPORT_CSV_FILE_NAME,
+        fileBuffer: this.buildCsvBuffer(headers, dataRows),
+        contentType: 'text/csv; charset=utf-8',
+      };
+    }
 
     return {
-      fileName: BulkUploadService.EXPORT_FILE_NAME,
-      fileBuffer,
+      fileName: BulkUploadService.EXPORT_XLSX_FILE_NAME,
+      fileBuffer: await this.buildTemplateBuffer({
+        dataRows,
+        includeSampleRows: false,
+      }),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     };
   }
 
