@@ -21,7 +21,9 @@ export function mapTypesenseDocumentToSearchResult(
 ): IPublicSearchResult | null {
   const refId = String(document.refId ?? document.id ?? '').trim();
   const name = String(document.name ?? '').trim();
-  const slug = String(document.slug ?? '').trim();
+  const variantSlug = String(document.variantSlug ?? '').trim();
+  const slug = variantSlug || String(document.slug ?? '').trim();
+  const variantId = String(document.variantId ?? '').trim() || undefined;
 
   if (!refId || !name || !slug) {
     return null;
@@ -32,6 +34,7 @@ export function mapTypesenseDocumentToSearchResult(
     title: name,
     slug,
     refId,
+    variantId,
   };
 }
 

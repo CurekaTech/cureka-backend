@@ -34,7 +34,7 @@ import { ProductVariantsRepository } from '../repositories/product-variants.repo
 import { ProductInformationLabelsRepository } from '../repositories/product-information-labels.repository';
 import { ProductMasterResolverService } from './product-master-resolver.service';
 import { ProductStrategyFactory } from '../strategies/product-strategies';
-import { mapProductEntitiesToResponse, mapProductEntityToDetailResponse, mapProductEntityToResponse } from '../mappers/product.mapper';
+import { mapProductEntityToDetailResponse, mapProductEntityToResponse, mapProductEntityToVariantListItem } from '../mappers/product.mapper';
 import { IProductDetail } from '../interfaces/product-detail.interface';
 import { generateProductSlug, assertProductUrlSlugLength, generateTagSlug } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
@@ -294,7 +294,7 @@ export class ProductsService {
       key: CacheKeys.products.list(paginationOptions.page, paginationOptions.limit, queryHash),
       module: CacheModuleName.PRODUCT,
       loader: async () => {
-        const { data, total } = await this.productsRepository.findAllPaginated({
+        const { data, total } = await this.productsRepository.findAllVariantsPaginated({
           page: paginationOptions.page,
           limit: paginationOptions.limit,
           search: paginationOptions.search,
@@ -310,7 +310,13 @@ export class ProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
-        return buildPaginatedResult(mapProductEntitiesToResponse(data), total, paginationOptions);
+        return buildPaginatedResult(
+          data.map((variant) =>
+            mapProductEntityToVariantListItem(variant.product, variant.id),
+          ),
+          total,
+          paginationOptions,
+        );
       },
     });
     const tEnrich = Date.now();

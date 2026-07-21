@@ -7,9 +7,10 @@ import {
   buildBrandDocumentId,
   buildCategoryDocumentId,
   buildHealthConcernDocumentId,
+  buildProductDocumentId,
 } from '../constants/typesense-document-id.constant';
 import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
-import { mapProductToTypesenseDocument } from '../mappers/typesense-product.mapper';
+import { mapProductToTypesenseDocuments, getProductTypesenseDocumentIds } from '../mappers/typesense-product.mapper';
 import {
   mapBrandToTypesenseDocument,
   mapCategoryToTypesenseDocument,
@@ -44,14 +45,28 @@ export class TypesenseIndexerService {
       return;
     }
 
-    const document = mapProductToTypesenseDocument(product);
-    if (!document) {
+    const documents = mapProductToTypesenseDocuments(product);
+    if (!documents.length) {
       await this.removeProduct(refId);
       return;
     }
 
-    await this.upsertDocument(document);
-    this.logger.log(`Typesense indexed product refId=${refId}`);
+    await this.syncProductDocuments(product, documents);
+    this.logger.log(`Typesense indexed product refId=${refId} (${documents.length} variant doc(s))`);
+  }
+
+  private async syncProductDocuments(
+    product: NonNullable<Awaited<ReturnType<ProductsRepository['findByRefId']>>>,
+    documents: ITypesenseSearchDocument[],
+  ): Promise<void> {
+    const desiredIds = new Set(documents.map((document) => document.id));
+    const staleIds = getProductTypesenseDocumentIds(product).filter((id) => !desiredIds.has(id));
+
+    for (const documentId of staleIds) {
+      await this.removeDocument(documentId, 'product variant');
+    }
+
+    await this.importDocuments(documents);
   }
 
   async syncCategory(refId: string): Promise<void> {
@@ -118,7 +133,14 @@ export class TypesenseIndexerService {
   }
 
   async removeProduct(refId: string): Promise<void> {
-    await this.removeDocument(refId, 'product');
+    const product = await this.productsRepository.findByRefId(refId);
+    const documentIds = product
+      ? getProductTypesenseDocumentIds(product)
+      : [buildProductDocumentId(refId)];
+
+    for (const documentId of documentIds) {
+      await this.removeDocument(documentId, 'product');
+    }
   }
 
   async removeCategory(refId: string): Promise<void> {
@@ -209,15 +231,15 @@ export class TypesenseIndexerService {
         break;
       }
 
-      const documents = products
-        .map((product) => mapProductToTypesenseDocument(product))
-        .filter((document): document is NonNullable<typeof document> => document !== null);
+      for (const product of products) {
+        const productDocuments = mapProductToTypesenseDocuments(product);
+        if (!productDocuments.length) {
+          skipped += 1;
+          continue;
+        }
 
-      skipped += products.length - documents.length;
-
-      if (documents.length) {
-        await this.importDocuments(documents);
-        indexed += documents.length;
+        await this.syncProductDocuments(product, productDocuments);
+        indexed += productDocuments.length;
       }
 
       if (products.length < REINDEX_PAGE_SIZE) {
