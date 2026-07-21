@@ -44,6 +44,7 @@ import {
   releaseBulkUploadLock,
   renewBulkUploadLock,
 } from '../utils/bulk-upload-lock.util';
+import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-details.util';
 
 interface BulkUploadJobData {
   uploadRefId: string;
@@ -610,6 +611,42 @@ export class BulkUploadProcessor extends WorkerHost {
                         .filter((item) => !!item.attributeRefId)
                     : [];
 
+                  const variantLookupManufacturerAddress = variantLookupProductId
+                    ? manufacturerLookup.byProductId.get(variantLookupProductId)
+                    : undefined;
+                  const variantRefs = this.validatorService.resolveReferences({
+                    ...group,
+                    manufacturer: v.manufacturer ?? group.manufacturer,
+                    packer: v.packer ?? group.packer,
+                    importer: v.importer ?? group.importer,
+                    countryOfOrigin: v.countryOfOrigin ?? group.countryOfOrigin,
+                    healthConcerns: v.healthConcerns.length ? v.healthConcerns : group.healthConcerns,
+                    wellnessGoals: v.wellnessGoals.length ? v.wellnessGoals : group.wellnessGoals,
+                  });
+                  let variantManufacturerRefId = variantRefs.manufacturerRefId;
+                  if (
+                    !variantManufacturerRefId &&
+                    variantLookupManufacturerAddress &&
+                    variantLookupProductId
+                  ) {
+                    const storedName = toStoredManufacturerName(variantLookupManufacturerAddress);
+                    variantManufacturerRefId =
+                      this.validatorService.resolveManufacturerRefIdByProductId(
+                        variantLookupProductId,
+                      ) ||
+                      this.validatorService.resolveManufacturerRefIdByCode(
+                        toManufacturerImportCode(variantLookupProductId),
+                      ) ||
+                      this.validatorService.resolveManufacturerRefIdByName(storedName);
+                  }
+                  const resolvedVariantManufacturerAddress =
+                    v.manufacturerAddress?.trim() ||
+                    variantLookupManufacturerAddress ||
+                    undefined;
+                  const variantSizeChart =
+                    v.sizeChart &&
+                    (await this.resolveBulkUploadSizeChart(v.sizeChart, galleryMap));
+
                   return {
                     sku: v.sku,
                     slug: variantLookupSlug || v.productUrlSlug,
@@ -637,6 +674,23 @@ export class BulkUploadProcessor extends WorkerHost {
                     searchTags: v.searchTags?.length ? v.searchTags : undefined,
                     attributes: processedAttributes,
                     images: normalizedVariantImages,
+                    ...mapParsedVariantToDetailDto(
+                      v,
+                      {
+                        manufacturerRefId: variantManufacturerRefId,
+                        packerRefId: variantRefs.packerRefId,
+                        importerRefId: variantRefs.importerRefId,
+                        countryOfOriginRefId: variantRefs.countryOfOriginRefId,
+                        healthConcernRefIds: variantRefs.healthConcernRefIds,
+                        wellnessGoalRefIds: variantRefs.wellnessGoalRefIds,
+                      },
+                      {
+                        sizeChart: variantSizeChart
+                          ? this.storageService.toFileReference(variantSizeChart)
+                          : undefined,
+                        resolvedManufacturerAddress: resolvedVariantManufacturerAddress,
+                      },
+                    ),
                   };
                 })
               ) : undefined;

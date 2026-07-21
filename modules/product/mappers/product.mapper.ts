@@ -23,6 +23,7 @@ import { mapPackerEntityToResponse } from '@modules/master/mappers/packer.mapper
 import { mapImporterEntityToResponse } from '@modules/master/mappers/importer.mapper';
 import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapper';
 import { mapHealthConcernEntityToResponse } from '@modules/master/mappers/health-concern.mapper';
+import { mapVariantEntityToDetailFields } from './variant-details.mapper';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -232,6 +233,7 @@ const mapVariant = (
     value: item.value,
   })),
   images,
+  ...mapVariantEntityToDetailFields(variant),
   createdAt: variant.createdAt,
   updatedAt: variant.updatedAt,
 });

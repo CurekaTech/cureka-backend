@@ -20,6 +20,10 @@ import {
 import { APP_CONSTANTS, IsRefId } from '@packages/common';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
+import { ProductInformationItemDto, CustomProductFaqDto } from './product-support.dto';
+import { IStorageFileReference } from '@packages/storage';
+import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
+import { IVariantCategoryFilterBinding } from '../interfaces/variant-details.interface';
 
 export class VariantAttributeValueDto {
   @ApiProperty({ example: 'COL20261234', description: 'Attribute master refId' })
@@ -237,6 +241,12 @@ export class CreateVariantDto {
   @Min(1)
   expiresIn?: number;
 
+  @ApiPropertyOptional({ example: 'GST 12%' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  taxClass?: string;
+
   @ApiPropertyOptional({ example: 'active', enum: ['active', 'inactive', 'archived'] })
   @IsOptional()
   @IsString()
@@ -286,6 +296,180 @@ export class CreateVariantDto {
   @IsArray()
   @IsString({ each: true })
   imageUrls?: string[];
+
+  @ApiPropertyOptional({
+    example: 'Paracetamol 500mg',
+    description: 'Per-variant display name (vertical bulk upload / variable PDP tab label).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  displayName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ type: [ProductInformationItemDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductInformationItemDto)
+  productInformation?: ProductInformationItemDto[];
+
+  @ApiPropertyOptional({ type: [CustomProductFaqDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CustomProductFaqDto)
+  customFaqs?: CustomProductFaqDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  metaTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  metaDescription?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  metaKeywords?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  components?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  subscriptionEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  codAvailable?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  emiAvailable?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  returnAllowed?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  returnWindowDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  replaceAllowed?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  replaceWindowDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsRefId()
+  manufacturerRefId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsRefId()
+  packerRefId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsRefId()
+  importerRefId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  manufacturerAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  packerAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  importerAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsRefId()
+  countryOfOriginRefId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expiresInMonths?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  sizeChart?: IStorageFileReference | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  singleProductUrl?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsRefId({ each: true })
+  healthConcernRefIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsRefId({ each: true })
+  wellnessGoalRefIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagNames?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsArray()
+  categoryFilters?: IVariantCategoryFilterBinding[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsArray()
+  packMetadata?: IProductPackMetadataItem[];
 }
 
 export class CreateProductMediaDto {
@@ -340,3 +524,5 @@ export class CreateBundleItemDto {
   @Min(1)
   quantity!: number;
 }
+
+export class UpdateVariantDto extends CreateVariantDto {}

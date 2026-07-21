@@ -9,6 +9,7 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { formatExpiryDateOutput } from '@modules/product/utils/expiry-date.util';
+import { mapVariantEntityToDetailFields } from '@modules/product/mappers/variant-details.mapper';
 import {
   IPublicCategorySummary,
   IPublicImporterSummary,
@@ -236,7 +237,7 @@ export const mapVariantEntityToPublicSearchItem = (
 
   return {
     refId: product.refId,
-    name: product.name,
+    name: variant.displayName?.trim() || product.name,
     productSlug: product.slug,
     variantSlug: variant.slug,
     primaryImageUrl: getVariantPrimaryImageUrl(product, variant.id),
@@ -371,6 +372,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       id: variant.id,
       sku: variant.sku,
       slug: variant.slug,
+      ...mapVariantEntityToDetailFields(variant),
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
@@ -430,3 +432,78 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     quantity: item.quantity,
   })),
   }) as unknown as IPublicProductDetail;
+
+export const applySelectedVariantDetailToPublicProduct = (
+  detail: IPublicProductDetail,
+): IPublicProductDetail => {
+  if (detail.productType !== ProductType.VARIABLE) {
+    return detail;
+  }
+
+  const selectedVariantId = detail.selectedVariantId;
+  if (!selectedVariantId) return detail;
+
+  const selectedVariant = detail.variants.find((variant) => variant.id === selectedVariantId);
+  if (!selectedVariant) return detail;
+
+  const hasVariantDetail =
+    Boolean(selectedVariant.displayName) ||
+    Boolean(selectedVariant.description) ||
+    (selectedVariant.productInformation?.length ?? 0) > 0 ||
+    (selectedVariant.faqs?.length ?? 0) > 0;
+
+  if (!hasVariantDetail) return detail;
+
+  return {
+    ...detail,
+    name: selectedVariant.displayName?.trim() || detail.name,
+    description: selectedVariant.description ?? detail.description,
+    components: selectedVariant.components ?? detail.components,
+    productInformation: selectedVariant.productInformation?.length
+      ? selectedVariant.productInformation
+      : detail.productInformation,
+    expiresInMonths: selectedVariant.expiresInMonths ?? detail.expiresInMonths,
+    subscriptionEnabled: selectedVariant.subscriptionEnabled ?? detail.subscriptionEnabled,
+    codAvailable: selectedVariant.codAvailable ?? detail.codAvailable,
+    emiAvailable: selectedVariant.emiAvailable ?? detail.emiAvailable,
+    replaceAllowed: selectedVariant.replaceAllowed ?? detail.replaceAllowed,
+    replaceWindowDays: selectedVariant.replaceWindowDays ?? detail.replaceWindowDays,
+    returnAllowed: selectedVariant.returnAllowed ?? detail.returnAllowed,
+    returnPolicy: selectedVariant.returnPolicy ?? detail.returnPolicy,
+    returnWindowDays: selectedVariant.returnWindowDays ?? detail.returnWindowDays,
+    metaTitle: selectedVariant.metaTitle ?? detail.metaTitle,
+    metaDescription: selectedVariant.metaDescription ?? detail.metaDescription,
+    metaKeywords: selectedVariant.metaKeywords ?? detail.metaKeywords,
+    sizeChart: selectedVariant.sizeChart ?? detail.sizeChart,
+    manufacturerRefId: selectedVariant.manufacturerRefId ?? detail.manufacturerRefId,
+    manufacturerName: selectedVariant.manufacturerName ?? detail.manufacturerName,
+    manufacturerAddress: selectedVariant.manufacturerAddress ?? detail.manufacturerAddress,
+    packerRefId: selectedVariant.packerRefId ?? detail.packerRefId,
+    packerName: selectedVariant.packerName ?? detail.packerName,
+    packerAddress: selectedVariant.packerAddress ?? detail.packerAddress,
+    importerRefId: selectedVariant.importerRefId ?? detail.importerRefId,
+    importerName: selectedVariant.importerName ?? detail.importerName,
+    importerAddress: selectedVariant.importerAddress ?? detail.importerAddress,
+    countryOfOriginRefId: selectedVariant.countryOfOriginRefId ?? detail.countryOfOriginRefId,
+    countryOfOriginName: selectedVariant.countryOfOriginName ?? detail.countryOfOriginName,
+    faqs:
+      selectedVariant.faqs?.length
+        ? selectedVariant.faqs.map((faq, index) => ({
+            refId: `variant-${selectedVariant.id}-faq-${index + 1}`,
+            question: faq.question,
+            answer: faq.answer,
+          }))
+        : detail.faqs,
+    categoryFilters: selectedVariant.categoryFilters?.length
+      ? selectedVariant.categoryFilters
+      : detail.categoryFilters,
+    tags:
+      selectedVariant.tagNames?.length
+        ? selectedVariant.tagNames.map((name, index) => ({
+            refId: `variant-${selectedVariant.id}-tag-${index + 1}`,
+            name,
+            slug: name.toLowerCase().replace(/\s+/g, '-'),
+          }))
+        : detail.tags,
+  };
+};
