@@ -471,6 +471,12 @@ export class ProductsRepository {
       }),
       mgr.getRepository(ProductVariantEntity).find({
         where: { productId: In(productIds) },
+        relations: {
+          manufacturer: true,
+          packer: true,
+          importer: true,
+          countryOfOrigin: true,
+        },
       }),
       mgr.getRepository(ProductMediaEntity).find({
         where: { productId: In(productIds) },

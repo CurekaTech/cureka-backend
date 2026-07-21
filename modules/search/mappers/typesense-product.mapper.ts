@@ -1,6 +1,7 @@
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { extractDescriptionFromProductInformation } from '@modules/product/utils/variant-details-payload.util';
 import { buildProductDocumentId } from '../constants/typesense-document-id.constant';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
@@ -46,6 +47,22 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
 
   const tags = joinNames((product.tagMappings ?? []).map((mapping) => mapping.tag?.name));
 
+  const variantSearchText = activeVariants
+    .map((variant) => {
+      const highlights = variant.productInformation?.find(
+        (item) => item.label?.toLowerCase().trim() === 'product highlights',
+      )?.description;
+      const description =
+        variant.description ||
+        extractDescriptionFromProductInformation(variant.productInformation ?? []) ||
+        undefined;
+      return [variant.displayName, description, highlights].filter(Boolean).join(' ');
+    })
+    .filter(Boolean)
+    .join(' ');
+
+  const description = [product.description, variantSearchText].filter(Boolean).join(' ').trim();
+
   return {
     id: buildProductDocumentId(product.refId),
     refId: product.refId,
@@ -58,7 +75,7 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
     healthConcerns,
     wellnessGoals,
     tags,
-    description: product.description ?? undefined,
+    description: description || undefined,
     inStock: activeVariants.some((variant) => variant.stock > 0),
     minSellingPrice: sellingPrices.length ? Math.min(...sellingPrices) : undefined,
   };

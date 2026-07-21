@@ -39,6 +39,7 @@ import {
   mapProductEntityToPublicDetail,
   mapVariantEntitiesToPublicSearchItems,
   pickPreferredPublicVariant,
+  applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 
 /** Tag slug that marks a product as a best seller (see homepage Best Sellers section). */
@@ -572,7 +573,23 @@ export class PublicProductsService {
     const packer = product.packer ? await this.enrichPartySummary(product.packer) : null;
     const importer = product.importer ? await this.enrichPartySummary(product.importer) : null;
 
-    return {
+    const variants = await Promise.all(
+      product.variants.map(async (variant) => {
+        const variantSizeChart = variant.sizeChart
+          ? await this.storageUrlEnricher.toReference(variant.sizeChart)
+          : null;
+        return {
+          ...variant,
+          sizeChart: variantSizeChart,
+          expiryDate: resolvePublicExpiryDate(
+            variant.expiryDate,
+            variant.expiresInMonths ?? product.expiresInMonths,
+          ),
+        };
+      }),
+    );
+
+    const merged = applySelectedVariantDetailToPublicProduct({
       ...product,
       media,
       wellnessGoals,
@@ -581,12 +598,10 @@ export class PublicProductsService {
       manufacturer,
       packer,
       importer,
-      variants: product.variants.map((variant) => ({
-        ...variant,
-        // Stored expiry wins; otherwise today + product.expiresInMonths (fresh each request, not frozen in cache).
-        expiryDate: resolvePublicExpiryDate(variant.expiryDate, product.expiresInMonths),
-      })),
-    };
+      variants,
+    });
+
+    return merged;
   }
 
   private async enrichPartySummary<

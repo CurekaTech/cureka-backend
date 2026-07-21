@@ -22,6 +22,14 @@ import {
 } from '../validators/variant.validator';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductsRepository } from './products.repository';
+import {
+  mapVariantDetailDtoToEntityColumns,
+  VariantDetailMasterIds,
+} from '../utils/variant-details-payload.util';
+import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
+import { PackerEntity } from '@modules/master/entities/packer.entity';
+import { ImporterEntity } from '@modules/master/entities/importer.entity';
+import { CountryEntity } from '@modules/master/entities/country.entity';
 
 const pickVariantUnit = (
   dto: CreateVariantDto,
@@ -133,8 +141,10 @@ export class ProductVariantsRepository {
         height: dto.height?.toFixed(2) ?? null,
         heightUnit: pickVariantUnit(dto, 'heightUnit', 'height_unit'),
         expiresIn: dto.expiresIn ?? null,
+        taxClass: dto.taxClass ?? null,
         status: VariantStatus.ACTIVE,
         combinationKey,
+        ...(await this.mapVariantDetailColumns(manager, dto)),
       });
 
       try {
@@ -341,8 +351,10 @@ export class ProductVariantsRepository {
           height: dto.height?.toFixed(2) ?? null,
           heightUnit: pickVariantUnit(dto, 'heightUnit', 'height_unit'),
           expiresIn: dto.expiresIn ?? null,
+          taxClass: dto.taxClass ?? null,
           slug,
           combinationKey,
+          ...(await this.mapVariantDetailColumns(manager, dto)),
         },
       );
     } catch (error) {
@@ -405,6 +417,65 @@ export class ProductVariantsRepository {
     if (dto.vendorSku && (await this.existsByVendorSku(dto.vendorSku, excludeId))) {
       throw new ConflictException(`Vendor SKU "${dto.vendorSku}" already exists`);
     }
+  }
+
+  private async mapVariantDetailColumns(
+    manager: EntityManager,
+    dto: CreateVariantDto,
+  ): Promise<Partial<ProductVariantEntity>> {
+    const masterIds = await this.resolveVariantMasterIds(manager, dto);
+    return mapVariantDetailDtoToEntityColumns(dto, masterIds);
+  }
+
+  private async resolveVariantMasterIds(
+    manager: EntityManager,
+    dto: CreateVariantDto,
+  ): Promise<VariantDetailMasterIds> {
+    const resolveManufacturerId = async (): Promise<string | null | undefined> => {
+      if (dto.manufacturerRefId === undefined) return undefined;
+      if (!dto.manufacturerRefId) return null;
+      const row = await manager.getRepository(ManufacturerEntity).findOne({
+        where: { refId: dto.manufacturerRefId },
+        select: ['id'],
+      });
+      return row?.id ?? null;
+    };
+    const resolvePackerId = async (): Promise<string | null | undefined> => {
+      if (dto.packerRefId === undefined) return undefined;
+      if (!dto.packerRefId) return null;
+      const row = await manager.getRepository(PackerEntity).findOne({
+        where: { refId: dto.packerRefId },
+        select: ['id'],
+      });
+      return row?.id ?? null;
+    };
+    const resolveImporterId = async (): Promise<string | null | undefined> => {
+      if (dto.importerRefId === undefined) return undefined;
+      if (!dto.importerRefId) return null;
+      const row = await manager.getRepository(ImporterEntity).findOne({
+        where: { refId: dto.importerRefId },
+        select: ['id'],
+      });
+      return row?.id ?? null;
+    };
+    const resolveCountryId = async (): Promise<string | null | undefined> => {
+      if (dto.countryOfOriginRefId === undefined) return undefined;
+      if (!dto.countryOfOriginRefId) return null;
+      const row = await manager.getRepository(CountryEntity).findOne({
+        where: { refId: dto.countryOfOriginRefId },
+        select: ['id'],
+      });
+      return row?.id ?? null;
+    };
+
+    const [manufacturerId, packerId, importerId, countryOfOriginId] = await Promise.all([
+      resolveManufacturerId(),
+      resolvePackerId(),
+      resolveImporterId(),
+      resolveCountryId(),
+    ]);
+
+    return { manufacturerId, packerId, importerId, countryOfOriginId };
   }
 
   private handleUniqueViolation(

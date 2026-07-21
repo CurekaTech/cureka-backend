@@ -14,7 +14,6 @@ import {
 } from 'class-validator';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { IsRefId } from '@packages/common';
-import { CreateVariantDto } from './variant.dto';
 
 export class ProductInformationItemDto {
   @ApiPropertyOptional({ format: 'uuid', description: 'Omitted on create — backend generates automatically' })
@@ -85,5 +84,3 @@ export class MapProductTagDto {
   @ApiProperty({ type: [String] })
   tagNames!: string[];
 }
-
-export class UpdateVariantDto extends CreateVariantDto {}
