@@ -6,6 +6,7 @@ export interface IPublicSearchResult {
   title: string;
   slug: string;
   refId: string;
+  variantId?: string;
   /** Full product card when entityType is Product. */
   product?: IPublicProductCard;
 }
