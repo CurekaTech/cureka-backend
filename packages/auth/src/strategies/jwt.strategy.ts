@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { FastifyRequest } from 'fastify';
+import '@fastify/cookie';
 import { IJwtPayload } from '../interfaces/jwt-payload.interface';
 
 @Injectable()
