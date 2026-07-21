@@ -39,7 +39,7 @@ import { mapProductsToBulkExportRows } from '../utils/bulk-upload-export.mapper'
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
   private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
-  private static readonly EXPORT_FILE_NAME = 'bulk-export-products.xlsx';
+  private static readonly EXPORT_FILE_NAME = 'bulk-export-products.csv';
   /** Header + sample rows kept visible while scrolling the wide import sheet. */
   private static readonly IMPORT_TEMPLATE_FROZEN_ROW_COUNT = 3;
 
@@ -267,15 +267,36 @@ export class BulkUploadService {
     );
     const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
     const dataRows = mapProductsToBulkExportRows(products, headers);
-    const fileBuffer = await this.buildTemplateBuffer({
-      dataRows,
-      includeSampleRows: false,
-    });
+    const fileBuffer = this.buildCsvBuffer(headers, dataRows);
 
     return {
       fileName: BulkUploadService.EXPORT_FILE_NAME,
       fileBuffer,
     };
+  }
+
+  private buildCsvBuffer(
+    headers: string[],
+    rows: Array<Array<string | number | null>>,
+  ): Buffer {
+    const escapeCsvCell = (value: string | number | null): string => {
+      if (value === null || value === undefined) return '';
+      const raw = String(value);
+      if (!/[",\r\n]/.test(raw)) {
+        return raw;
+      }
+      return `"${raw.replace(/"/g, '""')}"`;
+    };
+
+    const lines: string[] = [];
+    lines.push(headers.map((header) => escapeCsvCell(header)).join(','));
+    for (const row of rows) {
+      lines.push(row.map((cell) => escapeCsvCell(cell)).join(','));
+    }
+
+    // UTF-8 BOM keeps Excel imports clean for non-ASCII text.
+    const csv = `\uFEFF${lines.join('\r\n')}`;
+    return Buffer.from(csv, 'utf8');
   }
 
   private async buildTemplateBuffer(options?: {
