@@ -106,6 +106,17 @@ export class BulkUploadController {
     return this.bulkUploadService.getHistory(pageNum, limitNum);
   }
 
+  @ApiOperation({ summary: 'Cancel a running or queued bulk upload job' })
+  @ResponseMessage('Bulk upload cancelled successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post(':refId/cancel')
+  async cancel(
+    @Param('refId', RefIdPipe) refId: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.bulkUploadService.cancelBulkUploadJob(refId, user.email);
+  }
+
   @ApiOperation({ summary: 'Get bulk upload job status' })
   @ResponseMessage('Bulk upload status retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)

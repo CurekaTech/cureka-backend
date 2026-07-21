@@ -33,6 +33,10 @@ import {
   BULK_UPLOAD_LOCK_KEY,
   releaseBulkUploadLock,
 } from '../utils/bulk-upload-lock.util';
+import {
+  forceReleaseBulkUploadLock,
+  markBulkUploadCancelled,
+} from '../utils/bulk-upload-cancel.util';
 import { mapProductsToBulkExportRows } from '../utils/bulk-upload-export.mapper';
 
 @Injectable()
@@ -614,6 +618,85 @@ export class BulkUploadService {
       errorSummary,
       createdAt: record.createdAt,
       completedAt: record.completedAt,
+    };
+  }
+
+  async cancelBulkUploadJob(refId: string, cancelledBy: string) {
+    const record = await this.repository.findByRefId(refId);
+    if (!record) {
+      throw new NotFoundException(`Bulk upload job with refId "${refId}" not found`);
+    }
+
+    const terminalStatuses = new Set<BulkUploadStatus>([
+      BulkUploadStatus.COMPLETED,
+      BulkUploadStatus.FAILED,
+      BulkUploadStatus.PARTIAL_SUCCESS,
+    ]);
+    if (terminalStatuses.has(record.status)) {
+      return {
+        refId: record.refId,
+        status: record.status,
+        cancelled: false,
+        alreadyTerminal: true,
+        message: `Job is already ${record.status}.`,
+      };
+    }
+
+    const redis = await this.redisConnection.getConnectedClient();
+    if (redis) {
+      await markBulkUploadCancelled(redis, refId);
+      const lockReleased = await forceReleaseBulkUploadLock(redis);
+      this.logger.warn(
+        `[BULK_UPLOAD] Cancel requested for ${refId} by ${cancelledBy}. Lock force-released=${lockReleased}`,
+      );
+    }
+
+    let removedJobs = 0;
+    const jobStates = ['active', 'waiting', 'delayed', 'paused'] as const;
+    for (const state of jobStates) {
+      const jobs = await this.queue.getJobs([state]);
+      for (const job of jobs) {
+        if (job.data?.uploadRefId !== refId) {
+          continue;
+        }
+        try {
+          await job.remove();
+          removedJobs += 1;
+        } catch (error) {
+          this.logger.warn(
+            `[BULK_UPLOAD] Failed to remove ${state} queue job ${job.id} for ${refId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+    }
+
+    await this.repository.updateFieldsByRefId(refId, {
+      status: BulkUploadStatus.FAILED,
+      completedAt: new Date(),
+      errorSummary: [
+        {
+          rowNumber: 0,
+          sku: 'SYSTEM',
+          column: 'Cancel',
+          invalidValue: cancelledBy,
+          reason: 'Bulk upload cancelled by administrator',
+          suggestedFix: 'Upload a new file when ready.',
+        },
+      ],
+    });
+
+    return {
+      refId,
+      status: BulkUploadStatus.FAILED,
+      cancelled: true,
+      alreadyTerminal: false,
+      removedJobs,
+      message:
+        removedJobs > 0
+          ? 'Bulk upload cancelled. Queue job removed.'
+          : 'Bulk upload cancelled. If processing continues, restart the API worker once.',
     };
   }
 
