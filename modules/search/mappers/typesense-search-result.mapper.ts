@@ -55,3 +55,60 @@ export function mapTypesenseHitsToSearchResults(
 
   return mapTypesenseDocumentsToSearchResults(documents);
 }
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** Case-insensitive contains match (ILIKE '%query%'), ignoring spaces/punctuation. */
+export function titleMatchesSearchQuery(title: string, query: string): boolean {
+  const normalizedTitle = normalizeSearchText(title);
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return true;
+  }
+  if (normalizedTitle.includes(normalizedQuery)) {
+    return true;
+  }
+
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]+/g, ''))
+    .filter((token) => token.length > 1);
+
+  return tokens.length > 0 && tokens.every((token) => normalizedTitle.includes(token));
+}
+
+/**
+ * Keep variant-level Product hits, but:
+ * - only when the variant/product title matches the search query (ILIKE-style)
+ * - collapse identical titles for the same product (same refId + same title → once)
+ * - keep different variants when their titles differ
+ */
+export function filterDistinctMatchingProductVariants(
+  results: IPublicSearchResult[],
+  searchQuery?: string,
+): IPublicSearchResult[] {
+  const query = searchQuery?.trim() ?? '';
+  const seenKeys = new Set<string>();
+  const filtered: IPublicSearchResult[] = [];
+
+  for (const result of results) {
+    if (result.entityType === SEARCH_ENTITY_TYPES.PRODUCT) {
+      if (query && !titleMatchesSearchQuery(result.title, query)) {
+        continue;
+      }
+
+      const key = `${result.refId}\0${normalizeSearchText(result.title)}`;
+      if (seenKeys.has(key)) {
+        continue;
+      }
+      seenKeys.add(key);
+    }
+
+    filtered.push(result);
+  }
+
+  return filtered;
+}
