@@ -24,6 +24,7 @@ export const EVENTS = {
   BANNER_UPDATED: 'cache.banner.updated',
   WATCH_AND_SHOP_UPDATED: 'cache.watch-and-shop.updated',
   EXPERT_TALK_UPDATED: 'cache.expert-talk.updated',
+  TESTIMONIAL_UPDATED: 'cache.testimonial.updated',
   IMPORTER_UPDATED: 'cache.importer.updated',
   PACKER_UPDATED: 'cache.packer.updated',
   SUBSCRIPTION_FREQUENCY_UPDATED: 'cache.subscription-frequency.updated',
