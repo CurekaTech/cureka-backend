@@ -25,6 +25,7 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductTagsRepository } from '../repositories/product-tags.repository';
+import { ProductsRepository } from '../repositories/products.repository';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { randomUUID } from 'crypto';
@@ -32,11 +33,13 @@ import {
   BULK_UPLOAD_LOCK_KEY,
   releaseBulkUploadLock,
 } from '../utils/bulk-upload-lock.util';
+import { mapProductsToBulkExportRows } from '../utils/bulk-upload-export.mapper';
 
 @Injectable()
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
   private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
+  private static readonly EXPORT_FILE_NAME = 'bulk-export-products.xlsx';
   /** Header + sample rows kept visible while scrolling the wide import sheet. */
   private static readonly IMPORT_TEMPLATE_FROZEN_ROW_COUNT = 3;
 
@@ -51,6 +54,7 @@ export class BulkUploadService {
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly productTagsRepository: ProductTagsRepository,
+    private readonly productsRepository: ProductsRepository,
     private readonly configService: ConfigService,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
@@ -249,13 +253,35 @@ export class BulkUploadService {
 
   async getTemplateFile(): Promise<{ fileName: string; fileBuffer: Buffer }> {
     const fileName = BulkUploadService.TEMPLATE_FILE_NAME;
-    const fileBuffer = await this.buildTemplateBuffer();
+    const fileBuffer = await this.buildTemplateBuffer({ includeSampleRows: true });
     const templatePath = join(process.cwd(), 'docs', fileName);
     await writeFile(templatePath, fileBuffer);
     return { fileName, fileBuffer };
   }
 
-  private async buildTemplateBuffer(): Promise<Buffer> {
+  async getExportFile(): Promise<{ fileName: string; fileBuffer: Buffer }> {
+    const products = await this.productsRepository.findAllForBulkExport();
+    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
+    const categoryFilterHeaders = activeFilters.map((filter) =>
+      buildCategoryFilterColumnHeader(filter.name),
+    );
+    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
+    const dataRows = mapProductsToBulkExportRows(products, headers);
+    const fileBuffer = await this.buildTemplateBuffer({
+      dataRows,
+      includeSampleRows: false,
+    });
+
+    return {
+      fileName: BulkUploadService.EXPORT_FILE_NAME,
+      fileBuffer,
+    };
+  }
+
+  private async buildTemplateBuffer(options?: {
+    dataRows?: Array<Array<string | number | null>>;
+    includeSampleRows?: boolean;
+  }): Promise<Buffer> {
     const [
       activeFilters,
       activeCategories,
@@ -281,10 +307,6 @@ export class BulkUploadService {
 
     const workbook = new ExcelJS.Workbook();
 
-    const attributeOne = activeAttributesResult.find((item) => item.name === 'Size')?.name
-      ?? activeAttributesResult[0]?.name
-      ?? 'Size';
-
     const importSheet = workbook.addWorksheet('Bulk Import Template');
     const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
@@ -296,34 +318,44 @@ export class BulkUploadService {
       },
     ];
 
-    importSheet.addRow(
-      this.buildVerticalStyleGroupVariantRow(headers, {
-        attributeOne,
-        name: 'Shampoo 250 ml',
-        styleGroupId: '5005',
-        productId: '54141',
-        sku: 'SHA/SAM/250-A1',
-        sizeValue: '250ml',
-        mrp: 299,
-        sellingPrice: 249,
-        stock: 50,
-        slug: 'shampoo-250-ml',
-      }),
-    );
-    importSheet.addRow(
-      this.buildVerticalStyleGroupVariantRow(headers, {
-        attributeOne,
-        name: 'Shampoo 500 ml',
-        styleGroupId: '5005',
-        productId: '54142',
-        sku: 'SHA/SAM/500-A1',
-        sizeValue: '500ml',
-        mrp: 499,
-        sellingPrice: 399,
-        stock: 40,
-        slug: 'shampoo-500-ml',
-      }),
-    );
+    if (options?.dataRows?.length) {
+      for (const row of options.dataRows) {
+        importSheet.addRow(row);
+      }
+    } else if (options?.includeSampleRows !== false) {
+      const attributeOne = activeAttributesResult.find((item) => item.name === 'Size')?.name
+        ?? activeAttributesResult[0]?.name
+        ?? 'Size';
+
+      importSheet.addRow(
+        this.buildVerticalStyleGroupVariantRow(headers, {
+          attributeOne,
+          name: 'Shampoo 250 ml',
+          styleGroupId: '5005',
+          productId: '54141',
+          sku: 'SHA/SAM/250-A1',
+          sizeValue: '250ml',
+          mrp: 299,
+          sellingPrice: 249,
+          stock: 50,
+          slug: 'shampoo-250-ml',
+        }),
+      );
+      importSheet.addRow(
+        this.buildVerticalStyleGroupVariantRow(headers, {
+          attributeOne,
+          name: 'Shampoo 500 ml',
+          styleGroupId: '5005',
+          productId: '54142',
+          sku: 'SHA/SAM/500-A1',
+          sizeValue: '500ml',
+          mrp: 499,
+          sellingPrice: 399,
+          stock: 40,
+          slug: 'shampoo-500-ml',
+        }),
+      );
+    }
     // Two vertical rows sharing style_group_id=5005 → one variable product, 2 variants.
 
     const categoryNameById = new Map(
