@@ -80,10 +80,8 @@ export function mapProductToTypesenseDocument(product: ProductEntity): ITypesens
     wellnessGoals,
     tags,
     description: description || undefined,
-    inStock: activeVariants.some((variant) => variant.stock > 0),
-    searchTags,
-    description: product.description ?? undefined,
     inStock: activeVariants.some((variant) => isVariantInStock(variant.stock)),
+    searchTags,
     minSellingPrice: sellingPrices.length ? Math.min(...sellingPrices) : undefined,
   };
 }

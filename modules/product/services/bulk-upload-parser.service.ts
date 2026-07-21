@@ -697,20 +697,6 @@ export class BulkUploadParserService {
         height,
         heightUnit: getVal('dimension unit') || undefined,
         status: getVal('variant status') || undefined,
-        searchTags: (() => {
-          // "Tags" is the legacy product_information_labels column; prefer "Search Tags".
-          const raw = this.getFirstAvailable(getVal, ['search tags', 'tags']);
-          return raw
-            ? [
-                ...new Set(
-                  raw
-                    .split(/[,|]+/)
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                ),
-              ]
-            : [];
-        })(),
         attributes,
         images,
         ...rowVariantContent,
@@ -1055,6 +1041,19 @@ export class BulkUploadParserService {
       productTags: getVal('product tags')
         ? getVal('product tags').split('|').map((s) => s.trim()).filter(Boolean)
         : [],
+      searchTags: (() => {
+        const raw = this.getFirstAvailable(getVal, ['search tags', 'tags']);
+        return raw
+          ? [
+              ...new Set(
+                raw
+                  .split(/[,|]+/)
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              ),
+            ]
+          : [];
+      })(),
       packMetadata: this.parsePackMetadata(getVal),
     };
   }

@@ -626,20 +626,6 @@ export class PublicProductsService {
     });
 
     return merged;
-      variants: product.variants.map((variant) => ({
-        ...variant,
-        stock: getSalableStockQuantity(variant.stock),
-        inStock: isVariantInStock(variant.stock),
-        // Stored expiry wins; otherwise today + product.expiresInMonths (fresh each request, not frozen in cache).
-        expiryDate: resolvePublicExpiryDate(variant.expiryDate, product.expiresInMonths),
-      })),
-      pricing: {
-        ...product.pricing,
-        inStock:
-          product.pricing.inStock ||
-          product.variants.some((variant) => isVariantInStock(variant.stock)),
-      },
-    };
   }
 
   private async enrichPartySummary<
