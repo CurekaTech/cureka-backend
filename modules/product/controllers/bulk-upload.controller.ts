@@ -42,6 +42,21 @@ export class BulkUploadController {
       .send(fileBuffer);
   }
 
+  @ApiOperation({ summary: 'Export all products as editable bulk upload XLSX' })
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('export')
+  async exportProducts(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.bulkUploadService.getExportFile();
+    return reply
+      .code(200)
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
+
   @ApiOperation({ summary: 'Get bulk upload history list' })
   @ResponseMessage('Bulk upload history retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)

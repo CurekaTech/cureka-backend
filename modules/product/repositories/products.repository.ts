@@ -93,6 +93,38 @@ export class ProductsRepository {
     return product;
   }
 
+  async findAllForBulkExport(): Promise<ProductEntity[]> {
+    const products = await this.repo.find({
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    const batchSize = 50;
+    for (let offset = 0; offset < products.length; offset += batchSize) {
+      await this.attachDetailRelations(
+        products.slice(offset, offset + batchSize),
+        this.repo.manager,
+      );
+    }
+
+    return products;
+  }
+
   async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { refId, status: ProductStatus.PUBLISHED },
