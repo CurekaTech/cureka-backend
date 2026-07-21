@@ -57,6 +57,17 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  async findActiveByRefId(refId: string): Promise<CategoryEntity | null> {
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
+      .where('category.refId = :refId', { refId })
+      .andWhere('category.status = :status', { status: MasterStatus.ACTIVE })
+      .getOne();
+  }
+
   async findBySlug(slug: string): Promise<CategoryEntity | null> {
     return this.repo
       .createQueryBuilder('category')
@@ -71,6 +82,8 @@ export class CategoriesRepository {
     return this.repo
       .createQueryBuilder('category')
       .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.attributes', 'attribute')
+      .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.slug = :slug', { slug })
       .andWhere('category.status = :status', { status: MasterStatus.ACTIVE })
       .getOne();
@@ -259,7 +272,10 @@ export class CategoriesRepository {
       .take(take);
 
     if (options.search) {
-      qb.andWhere('category.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere(
+        '(category.name ILIKE :search OR parent.name ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
     }
     if (options.hierarchyLevel !== undefined) {
       // PostgreSQL ENUM stores numeric enum values as strings ('0','1','2','3');
@@ -316,7 +332,7 @@ export class CategoriesRepository {
 
     if (options.search) {
       qb.andWhere(
-        '(category.name ILIKE :search OR category.slug ILIKE :search OR category.refId ILIKE :search)',
+        '(category.name ILIKE :search OR category.slug ILIKE :search OR category.refId ILIKE :search OR parent.name ILIKE :search OR parent.slug ILIKE :search)',
         { search: `%${options.search}%` },
       );
     }
@@ -379,9 +395,10 @@ export class CategoriesRepository {
         },
         defaultSortBy: 'position',
         defaultSortOrder: 'ASC',
-        searchExpression: 'category.name ILIKE :search',
+        searchExpression: '(category.name ILIKE :search OR parent.name ILIKE :search)',
       },
       (qb) => {
+        qb.leftJoin('category.parent', 'parent');
         if (options.hierarchyLevel !== undefined) {
           qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {
             hierarchyLevel: String(options.hierarchyLevel),

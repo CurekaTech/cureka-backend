@@ -261,7 +261,6 @@ export class CreateVariantDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @MaxLength(100, { each: true })
   searchTags?: string[];
 
   @ApiPropertyOptional({ type: [VariantAttributeValueDto] })

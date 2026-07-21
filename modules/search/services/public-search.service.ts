@@ -11,7 +11,7 @@ import {
 } from '../constants/typesense-search-performance.constant';
 import { PRODUCT_POPULAR_SORT_FIELD } from '../constants/typesense-product.schema';
 import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
-import { mapTypesenseHitsToSearchResults } from '../mappers/typesense-search-result.mapper';
+import { mapTypesenseHitsToSearchResults, filterDistinctMatchingProductVariants } from '../mappers/typesense-search-result.mapper';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
 
@@ -70,7 +70,8 @@ export class PublicSearchService {
           collection: collectionName,
           q: trimmed,
           query_by: isProduct ? config.productQueryBy : config.entityQueryBy,
-          per_page: isProduct ? perPage : entityLimit,
+          // Fetch extra product hits — index is variant-level; we keep distinct matching titles.
+          per_page: isProduct ? Math.min(perPage * 3, 30) : entityLimit,
           ...TYPESENSE_FAST_SEARCH_PARAMS,
           ...(filterBy ? { filter_by: filterBy } : {}),
         },
@@ -86,7 +87,10 @@ export class PublicSearchService {
       grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
       grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
       grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [],
+      filterDistinctMatchingProductVariants(
+        grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [],
+        trimmed,
+      ),
       perPage,
     );
 
@@ -112,7 +116,7 @@ export class PublicSearchService {
       .search({
         q: '*',
         query_by: 'name',
-        per_page: perPage,
+        per_page: Math.min(perPage * 3, 30),
         exhaustive_search: false,
         ...(filterBy ? { filter_by: filterBy } : {}),
         ...(config.hasPopularSortField
@@ -120,9 +124,11 @@ export class PublicSearchService {
           : {}),
       });
 
-    return mapTypesenseHitsToSearchResults(
-      (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
-    );
+    return filterDistinctMatchingProductVariants(
+      mapTypesenseHitsToSearchResults(
+        (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+      ),
+    ).slice(0, perPage);
   }
 
   private groupMultiSearchResults(

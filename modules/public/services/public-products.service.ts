@@ -390,9 +390,9 @@ export class PublicProductsService {
     const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
         query.categoryRefId
-          ? this.categoriesRepository.findByRefId(query.categoryRefId)
+          ? this.categoriesRepository.findActiveByRefId(query.categoryRefId)
           : query.categorySlug
-            ? this.categoriesRepository.findBySlug(query.categorySlug)
+            ? this.categoriesRepository.findActiveBySlug(query.categorySlug)
             : Promise.resolve(null),
         this.resolveBrandFilters(query),
         query.productNatureRefId
@@ -443,7 +443,7 @@ export class PublicProductsService {
     category: CategoryEntity,
   ): Promise<IPublicCategoryProductListingContext> {
     const matchedCategory =
-      (await this.categoriesRepository.findByRefId(category.refId)) ?? category;
+      (await this.categoriesRepository.findActiveByRefId(category.refId)) ?? category;
     const rootCategory =
       (await this.categoriesRepository.findRootAncestor(matchedCategory.id)) ?? matchedCategory;
     const isChildFilter =
