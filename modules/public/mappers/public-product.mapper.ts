@@ -90,10 +90,53 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
   };
 };
 
+const storageMediaKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
+  if (!ref) return null;
+  if (typeof ref === 'string') {
+    const trimmed = ref.trim();
+    return trimmed || null;
+  }
+  return ref.key?.trim() || null;
+};
+
+/**
+ * Import/sync sometimes stores the same file twice (product-level + variant-level).
+ * Public gallery must show each file once.
+ */
+const dedupeMediaByStorageKey = <T extends { url?: IStorageFileReference | string | null; variantId?: string | null; sortOrder?: number }>(
+  items: T[],
+): T[] => {
+  const byKey = new Map<string, T>();
+
+  for (const item of items) {
+    const key = storageMediaKey(item.url ?? null);
+    if (!key) {
+      continue;
+    }
+
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+      continue;
+    }
+
+    // Prefer variant-scoped row over a product-level duplicate of the same file.
+    if (!existing.variantId && item.variantId) {
+      byKey.set(key, item);
+    }
+  }
+
+  return [...byKey.values()].sort(
+    (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0),
+  );
+};
+
 const getPrimaryImageUrl = (entity: ProductEntity): IStorageFileReference | null => {
-  const media = (entity.media ?? []).filter(
-    (item) =>
-      item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON,
+  const media = dedupeMediaByStorageKey(
+    (entity.media ?? []).filter(
+      (item) =>
+        item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON,
+    ),
   );
   const primary = media.find((item) => item.isPrimary) ?? media[0];
   return primary?.url ?? null;
@@ -201,20 +244,22 @@ const mapPublicMediaItem = (
   }) as IPublicProductMedia;
 
 const getCommonPublicMedia = (entity: ProductEntity): IPublicProductMedia[] =>
-  (entity.media ?? [])
-    .filter((item) => item.type === ProductMediaType.COMMON && !item.variantId)
-    .map(mapPublicMediaItem)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+  dedupeMediaByStorageKey(
+    (entity.media ?? [])
+      .filter((item) => item.type === ProductMediaType.COMMON && !item.variantId)
+      .map(mapPublicMediaItem),
+  );
 
 const getVariantPublicImages = (
   entity: ProductEntity,
   variantId: string,
   commonMedia: IPublicProductMedia[],
 ): IPublicProductMedia[] => {
-  const variantImages = (entity.media ?? [])
-    .filter((item) => item.variantId === variantId && item.type !== ProductMediaType.COMMON)
-    .map(mapPublicMediaItem)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const variantImages = dedupeMediaByStorageKey(
+    (entity.media ?? [])
+      .filter((item) => item.variantId === variantId && item.type !== ProductMediaType.COMMON)
+      .map(mapPublicMediaItem),
+  );
 
   if (!commonMedia.length) return variantImages;
   if (!variantImages.length) {
@@ -224,11 +269,14 @@ const getVariantPublicImages = (
     }));
   }
 
-  return [
+  return dedupeMediaByStorageKey([
     ...commonMedia.map((item) => ({ ...item, isPrimary: false })),
     ...variantImages,
-  ];
+  ]);
 };
+
+const getPublicProductMedia = (entity: ProductEntity): IPublicProductMedia[] =>
+  dedupeMediaByStorageKey((entity.media ?? []).map(mapPublicMediaItem));
 
 export const mapVariantEntityToPublicSearchItem = (
   variant: ProductVariantEntity,
@@ -396,14 +444,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       images: getVariantPublicImages(entity, variant.id, commonMedia),
     }));
   })(),
-  media: (entity.media ?? []).map((item) => ({
-    id: item.id,
-    type: item.type,
-    url: item.url,
-    sortOrder: item.sortOrder,
-    isPrimary: item.isPrimary,
-    variantId: item.variantId,
-  })),
+  media: getPublicProductMedia(entity),
   healthConcerns: (entity.healthConcernMappings ?? []).map((mapping) => ({
     refId: mapping.healthConcern?.refId ?? '',
     name: mapping.healthConcern?.name ?? '',

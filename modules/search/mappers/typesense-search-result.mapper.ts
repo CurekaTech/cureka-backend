@@ -83,7 +83,7 @@ export function titleMatchesSearchQuery(title: string, query: string): boolean {
 /**
  * Keep variant-level Product hits, but:
  * - only when the variant/product title matches the search query (ILIKE-style)
- * - collapse identical titles for the same product (same refId + same title → once)
+ * - collapse identical titles (same product twice, or duplicate catalog rows with different refIds)
  * - keep different variants when their titles differ
  */
 export function filterDistinctMatchingProductVariants(
@@ -91,7 +91,8 @@ export function filterDistinctMatchingProductVariants(
   searchQuery?: string,
 ): IPublicSearchResult[] {
   const query = searchQuery?.trim() ?? '';
-  const seenKeys = new Set<string>();
+  const seenTitles = new Set<string>();
+  const seenRefTitleKeys = new Set<string>();
   const filtered: IPublicSearchResult[] = [];
 
   for (const result of results) {
@@ -100,11 +101,21 @@ export function filterDistinctMatchingProductVariants(
         continue;
       }
 
-      const key = `${result.refId}\0${normalizeSearchText(result.title)}`;
-      if (seenKeys.has(key)) {
+      const normalizedTitle = normalizeSearchText(result.title);
+      const refTitleKey = `${result.refId}\0${normalizedTitle}`;
+
+      // Prefer first Typesense hit when duplicate products share the same title.
+      if (normalizedTitle && seenTitles.has(normalizedTitle)) {
         continue;
       }
-      seenKeys.add(key);
+      if (seenRefTitleKeys.has(refTitleKey)) {
+        continue;
+      }
+
+      if (normalizedTitle) {
+        seenTitles.add(normalizedTitle);
+      }
+      seenRefTitleKeys.add(refTitleKey);
     }
 
     filtered.push(result);
