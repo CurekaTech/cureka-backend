@@ -12,7 +12,6 @@ import { join } from 'path';
 import { mkdir, unlink, writeFile } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
-import { PassThrough, Readable } from 'stream';
 import * as ExcelJS from 'exceljs';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import {
@@ -275,26 +274,17 @@ export class BulkUploadService {
         : 15 * 60 * 1000;
     reply.raw.setTimeout(exportTimeoutMs);
 
-    const stream = new PassThrough();
-    const sendPromise = reply
+    const fileBuffer = await this.exportStreamService.buildExportCsvBuffer();
+
+    await reply
       .code(200)
       .header('Content-Type', 'text/csv; charset=utf-8')
       .header(
         'Content-Disposition',
         `attachment; filename="${BulkUploadService.EXPORT_CSV_FILE_NAME}"`,
       )
-      .send(stream);
-
-    try {
-      await this.exportStreamService.streamExportCsv(stream);
-    } catch (error) {
-      stream.destroy(error instanceof Error ? error : new Error(String(error)));
-      throw error;
-    } finally {
-      stream.end();
-    }
-
-    await sendPromise;
+      .header('Content-Length', String(fileBuffer.length))
+      .send(fileBuffer);
   }
 
   async createBulkExportJob(createdBy: string) {
