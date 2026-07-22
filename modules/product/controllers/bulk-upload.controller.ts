@@ -48,28 +48,30 @@ export class BulkUploadController {
   }
 
   @ApiOperation({
-    summary: 'Export all products as editable bulk upload file (default XLSX, optional CSV)',
+    summary: 'Export all products as editable bulk upload CSV (streams in batches)',
   })
   @RawResponse()
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get('export')
-  async exportProducts(
-    @Res() reply: FastifyReply,
-    @Query('format') format?: string,
-  ) {
-    const exportTimeoutMs = this.configService.get<number>(
-      'PRODUCT_BULK_EXPORT_TIMEOUT_MS',
-      15 * 60 * 1000,
-    );
-    reply.raw.setTimeout(exportTimeoutMs);
+  async exportProducts(@Res() reply: FastifyReply) {
+    await this.bulkUploadService.streamExportToReply(reply);
+  }
 
-    const normalizedFormat = format?.trim().toLowerCase();
-    const exportFormat: 'xlsx' | 'csv' =
-      normalizedFormat === 'csv' ? 'csv' : 'xlsx';
+  @ApiOperation({ summary: 'Queue background bulk export job (CSV)' })
+  @ResponseMessage('Bulk export enqueued successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('export')
+  async queueExport(@CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.bulkUploadService.createBulkExportJob(user.email);
+  }
 
+  @ApiOperation({ summary: 'Download completed bulk export CSV' })
+  @RawResponse()
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('export/:refId/download')
+  async downloadExport(@Param('refId', RefIdPipe) refId: string, @Res() reply: FastifyReply) {
     const { fileName, fileBuffer, contentType } =
-      await this.bulkUploadService.getExportFile(exportFormat);
-
+      await this.bulkUploadService.getExportDownload(refId);
     return reply
       .code(200)
       .header('Content-Type', contentType)

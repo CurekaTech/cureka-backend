@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { StorageService } from '@packages/storage';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -12,7 +12,7 @@ import { join } from 'path';
 import { mkdir, unlink, writeFile } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 import * as ExcelJS from 'exceljs';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import {
@@ -37,7 +37,7 @@ import {
   forceReleaseBulkUploadLock,
   markBulkUploadCancelled,
 } from '../utils/bulk-upload-cancel.util';
-import { mapProductsToBulkExportRows } from '../utils/bulk-upload-export.mapper';
+import { BulkUploadExportStreamService } from './bulk-upload-export-stream.service';
 
 @Injectable()
 export class BulkUploadService {
@@ -61,6 +61,7 @@ export class BulkUploadService {
     private readonly productTagsRepository: ProductTagsRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly configService: ConfigService,
+    private readonly exportStreamService: BulkUploadExportStreamService,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
 
@@ -264,32 +265,143 @@ export class BulkUploadService {
     return { fileName, fileBuffer };
   }
 
-  async getExportFile(
-    format: 'xlsx' | 'csv' = 'xlsx',
-  ): Promise<{ fileName: string; fileBuffer: Buffer; contentType: string }> {
-    const products = await this.productsRepository.findAllForBulkExport();
-    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
-    const categoryFilterHeaders = activeFilters.map((filter) =>
-      buildCategoryFilterColumnHeader(filter.name),
+  async streamExportToReply(reply: FastifyReply): Promise<void> {
+    const configuredTimeout = Number(
+      this.configService.get('PRODUCT_BULK_EXPORT_TIMEOUT_MS') ?? 15 * 60 * 1000,
     );
-    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
-    const dataRows = mapProductsToBulkExportRows(products, headers);
+    const exportTimeoutMs =
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0
+        ? configuredTimeout
+        : 15 * 60 * 1000;
+    reply.raw.setTimeout(exportTimeoutMs);
 
-    if (format === 'csv') {
-      return {
-        fileName: BulkUploadService.EXPORT_CSV_FILE_NAME,
-        fileBuffer: this.buildCsvBuffer(headers, dataRows),
-        contentType: 'text/csv; charset=utf-8',
-      };
+    const stream = new PassThrough();
+    const sendPromise = reply
+      .code(200)
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header(
+        'Content-Disposition',
+        `attachment; filename="${BulkUploadService.EXPORT_CSV_FILE_NAME}"`,
+      )
+      .send(stream);
+
+    try {
+      await this.exportStreamService.streamExportCsv(stream);
+    } catch (error) {
+      stream.destroy(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    } finally {
+      stream.end();
+    }
+
+    await sendPromise;
+  }
+
+  async createBulkExportJob(createdBy: string) {
+    const redis = await this.redisConnection.getConnectedClient();
+    const lockToken = randomUUID();
+    const lockTtlMs = this.configService.get<number>(
+      'PRODUCT_BULK_UPLOAD_LOCK_TTL_MS',
+      1800000,
+    );
+
+    if (redis) {
+      const acquired = await redis.set(
+        BULK_UPLOAD_LOCK_KEY,
+        lockToken,
+        'PX',
+        lockTtlMs,
+        'NX',
+      );
+      if (!acquired) {
+        throw new ConflictException(
+          'Another bulk upload/export is currently in progress. Please try again later.',
+        );
+      }
+    } else {
+      const activeCount = await this.repository.countActiveJobs();
+      if (activeCount > 0) {
+        throw new ConflictException(
+          'Another bulk upload/export is currently in progress. Please try again later.',
+        );
+      }
+    }
+
+    const refId = await generateUniqueRefId('BUP', (candidate) =>
+      this.repository.existsByRefId(candidate),
+    );
+
+    const record = await this.repository.create({
+      refId,
+      status: BulkUploadStatus.QUEUED,
+      fileUrl: 'export:pending',
+      imagesZipUrl: null,
+      totalRows: await this.productsRepository.countForBulkExport(),
+      processedRows: 0,
+      successfulRows: 0,
+      failedRows: 0,
+      errorSummary: [{ rowNumber: 0, sku: 'SYSTEM', column: 'operation', invalidValue: 'export', reason: 'Bulk export job', suggestedFix: '' }],
+      createdBy,
+    });
+
+    try {
+      await this.queue.add('export-products', {
+        exportRefId: record.refId,
+        lockToken: redis ? lockToken : undefined,
+        lockTtlMs,
+      });
+    } catch (queueError) {
+      await this.repository.updateFieldsByRefId(record.refId, {
+        status: BulkUploadStatus.FAILED,
+        errorSummary: [{
+          rowNumber: 0,
+          sku: 'SYSTEM',
+          column: 'Queue',
+          invalidValue: 'N/A',
+          reason: 'Failed to queue bulk export task',
+          suggestedFix: 'Contact system administrator.',
+        }],
+      });
+      if (redis) {
+        await releaseBulkUploadLock(redis, lockToken);
+      }
+      throw new BadRequestException(
+        `Failed to queue bulk export task: ${queueError instanceof Error ? queueError.message : String(queueError)}`,
+      );
     }
 
     return {
-      fileName: BulkUploadService.EXPORT_XLSX_FILE_NAME,
-      fileBuffer: await this.buildTemplateBuffer({
-        dataRows,
-        includeSampleRows: false,
-      }),
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      refId: record.refId,
+      status: record.status,
+      operation: 'export',
+      createdAt: record.createdAt,
+    };
+  }
+
+  async getExportDownload(refId: string): Promise<{ fileName: string; fileBuffer: Buffer; contentType: string }> {
+    const record = await this.repository.findByRefId(refId);
+    if (!record) {
+      throw new NotFoundException(`Bulk export job with refId "${refId}" not found`);
+    }
+    if (record.status !== BulkUploadStatus.COMPLETED && record.status !== BulkUploadStatus.PARTIAL_SUCCESS) {
+      throw new BadRequestException(`Bulk export job "${refId}" is not ready for download (status: ${record.status}).`);
+    }
+    if (!record.fileUrl || record.fileUrl === 'export:pending') {
+      throw new NotFoundException(`Export file for job "${refId}" is not available.`);
+    }
+
+    const readStream = await this.storageService.createReadStream(record.fileUrl);
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      readStream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      readStream.on('end', () => resolve());
+      readStream.on('error', reject);
+    });
+
+    return {
+      fileName: BulkUploadService.EXPORT_CSV_FILE_NAME,
+      fileBuffer: Buffer.concat(chunks),
+      contentType: 'text/csv; charset=utf-8',
     };
   }
 

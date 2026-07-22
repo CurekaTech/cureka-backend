@@ -51,6 +51,8 @@ import {
 import { isBulkUploadCancelled } from '../utils/bulk-upload-cancel.util';
 import { BulkUploadCancelledError } from '../errors/bulk-upload-cancelled.error';
 import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-details.util';
+import { BulkUploadExportStreamService } from '../services/bulk-upload-export-stream.service';
+import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
 
 const BULK_MUTATION_OPTIONS = {
   skipDetailEnrichment: true,
@@ -61,6 +63,12 @@ interface BulkUploadJobData {
   uploadRefId: string;
   fileUrl: string;
   imagesZipUrl?: string;
+  lockToken?: string;
+  lockTtlMs?: number;
+}
+
+interface BulkExportJobData {
+  exportRefId: string;
   lockToken?: string;
   lockTtlMs?: number;
 }
@@ -308,6 +316,7 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly galleryService: GalleryService,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly exportStreamService: BulkUploadExportStreamService,
     @InjectQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS)
     private readonly unicommerceProductQueue: Queue,
   ) {
@@ -403,7 +412,96 @@ export class BulkUploadProcessor extends WorkerHost {
     }
   }
 
-  async process(job: Job<BulkUploadJobData, any, string>): Promise<any> {
+  async process(job: Job<BulkUploadJobData | BulkExportJobData, any, string>): Promise<any> {
+    if (job.name === 'export-products') {
+      return this.processExportProducts(job as Job<BulkExportJobData, any, string>);
+    }
+    return this.processUploadSheet(job as Job<BulkUploadJobData, any, string>);
+  }
+
+  private async processExportProducts(job: Job<BulkExportJobData, any, string>): Promise<any> {
+    const { exportRefId, lockToken } = job.data;
+    const lockTtlMs =
+      job.data.lockTtlMs ??
+      this.configService.get<number>('PRODUCT_BULK_UPLOAD_LOCK_TTL_MS', 1800000);
+    const lockRedis = lockToken
+      ? await this.redisConnection.getConnectedClient()
+      : null;
+    let lockRenewalTimer: NodeJS.Timeout | undefined;
+    let processingSucceeded = false;
+
+    if (lockRedis && lockToken) {
+      lockRenewalTimer = setInterval(() => {
+        void renewBulkUploadLock(lockRedis, lockToken, lockTtlMs).catch((error) => {
+          this.logger.error(
+            `Failed to renew bulk export lock for ${exportRefId}: ${this.getErrorMessage(error)}`,
+          );
+        });
+      }, Math.max(10000, Math.floor(lockTtlMs / 3)));
+      lockRenewalTimer.unref();
+    }
+
+    const tempDir = join(process.cwd(), 'temp-uploads');
+    const tempFilePath = join(tempDir, `${exportRefId}-export-${Date.now()}.csv`);
+
+    try {
+      await this.bulkUploadsRepository.updateFieldsByRefId(exportRefId, {
+        status: BulkUploadStatus.PROCESSING,
+      });
+      await mkdir(tempDir, { recursive: true });
+
+      const result = await this.exportStreamService.writeExportCsvToFile(
+        tempFilePath,
+        async (processedProducts, totalProducts) => {
+          await this.bulkUploadsRepository.updateFieldsByRefId(exportRefId, {
+            processedRows: processedProducts,
+            totalRows: totalProducts,
+          });
+        },
+      );
+
+      const uploadResult = await this.storageService.uploadImage({
+        stream: createReadStream(tempFilePath),
+        mimetype: 'text/csv',
+        originalFilename: `bulk-export-${exportRefId}.csv`,
+        folder: 'bulk-uploads',
+      });
+
+      await this.bulkUploadsRepository.updateFieldsByRefId(exportRefId, {
+        status: BulkUploadStatus.COMPLETED,
+        fileUrl: uploadResult.path,
+        completedAt: new Date(),
+        processedRows: result.totalProducts,
+        successfulRows: result.totalRows,
+        failedRows: 0,
+      });
+      processingSucceeded = true;
+      return result;
+    } catch (error) {
+      await this.bulkUploadsRepository.updateFieldsByRefId(exportRefId, {
+        status: BulkUploadStatus.FAILED,
+        completedAt: new Date(),
+        errorSummary: [this.buildSystemError(error)],
+      });
+      throw error;
+    } finally {
+      try {
+        await unlink(tempFilePath);
+      } catch {
+        // ignore missing temp file
+      }
+      if (lockRenewalTimer) {
+        clearInterval(lockRenewalTimer);
+      }
+      const configuredAttempts = job.opts.attempts ?? 1;
+      const isFinalAttempt = job.attemptsMade + 1 >= configuredAttempts;
+      if (lockRedis && lockToken && (processingSucceeded || isFinalAttempt)) {
+        await releaseBulkUploadLock(lockRedis, lockToken);
+      }
+    }
+  }
+
+  private async processUploadSheet(job: Job<BulkUploadJobData, any, string>): Promise<any> {
     const { uploadRefId, fileUrl, imagesZipUrl, lockToken } = job.data;
     const lockTtlMs =
       job.data.lockTtlMs ??
@@ -542,11 +640,14 @@ export class BulkUploadProcessor extends WorkerHost {
       );
 
       const labelSortOrders = this.validatorService.getProductInformationLabelSortOrders();
+      const parseBatchSize = resolveProductBulkBatchSize(
+        this.configService.get<number>('PRODUCT_BULK_BATCH_SIZE'),
+      );
 
       const totalRowsScanned = await this.parserService.parseAndBatch(
         tempFilePath,
         fileUrl.endsWith('.csv') ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        100, // chunk size of 100 products
+        parseBatchSize,
         async (batch, scannedRows) => {
           if (lockRedis && (await isBulkUploadCancelled(lockRedis, uploadRefId))) {
             throw new BulkUploadCancelledError(uploadRefId);

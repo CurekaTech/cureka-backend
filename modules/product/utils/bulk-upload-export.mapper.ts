@@ -442,12 +442,20 @@ const mapVariableProductRows = (
   });
 };
 
+export interface IBulkExportLookupContext {
+  skuLookup: Map<string, ProductVariantEntity>;
+  productById: Map<string, ProductEntity>;
+  variantSkuPriceLookup?: Map<string, { mrp: number | null; sellingPrice: number | null }>;
+  firstVariantSkuByProductId?: Map<string, string>;
+}
+
 const mapBundleProductRows = (
   product: ProductEntity,
   headers: string[],
   headerSet: Set<string>,
   skuLookup: Map<string, ProductVariantEntity>,
   productById: Map<string, ProductEntity>,
+  exportContext?: IBulkExportLookupContext,
 ): ExportCellValue[][] => {
   const parentVariant = product.variants?.[0];
   if (!parentVariant) return [];
@@ -475,7 +483,9 @@ const mapBundleProductRows = (
   for (const bundleItem of product.bundleItems ?? []) {
     const childProduct =
       productById.get(bundleItem.childProductId) ?? bundleItem.childProduct ?? null;
-    const childSku = childProduct?.variants?.[0]?.sku;
+    const childSku =
+      childProduct?.variants?.[0]?.sku ??
+      exportContext?.firstVariantSkuByProductId?.get(bundleItem.childProductId);
     if (!childSku) continue;
 
     const childValues: ExportRowValues = new Map();
@@ -490,9 +500,17 @@ const mapBundleProductRows = (
     }
 
     const childVariant = skuLookup.get(childSku.toLowerCase());
-    if (childVariant) {
-      const childMrp = toNumber(childVariant.mrp);
-      const childSellingPrice = toNumber(childVariant.sellingPrice);
+    const childPrice =
+      childVariant ??
+      exportContext?.variantSkuPriceLookup?.get(childSku.toLowerCase());
+    if (childVariant || childPrice) {
+      const childMrp = toNumber(
+        childVariant?.mrp ?? (childPrice && 'mrp' in childPrice ? childPrice.mrp : null),
+      );
+      const childSellingPrice = toNumber(
+        childVariant?.sellingPrice ??
+          (childPrice && 'sellingPrice' in childPrice ? childPrice.sellingPrice : null),
+      );
       if (childMrp !== null) childValues.set('Child MRP (Rs)', childMrp);
       if (childSellingPrice !== null) {
         childValues.set('Child Selling Price (Rs)', childSellingPrice);
@@ -515,13 +533,28 @@ const buildSkuLookup = (products: ProductEntity[]): Map<string, ProductVariantEn
   return lookup;
 };
 
+export const createBulkExportLookupContext = (
+  products: ProductEntity[],
+  options?: {
+    variantSkuPriceLookup?: Map<string, { mrp: number | null; sellingPrice: number | null }>;
+    firstVariantSkuByProductId?: Map<string, string>;
+  },
+): IBulkExportLookupContext => ({
+  skuLookup: buildSkuLookup(products),
+  productById: new Map(products.map((product) => [product.id, product])),
+  variantSkuPriceLookup: options?.variantSkuPriceLookup,
+  firstVariantSkuByProductId: options?.firstVariantSkuByProductId,
+});
+
 export const mapProductsToBulkExportRows = (
   products: ProductEntity[],
   headers: string[],
+  lookupContext?: IBulkExportLookupContext,
 ): ExportCellValue[][] => {
+  const context =
+    lookupContext ??
+    createBulkExportLookupContext(products);
   const headerSet = new Set(headers);
-  const skuLookup = buildSkuLookup(products);
-  const productById = new Map(products.map((product) => [product.id, product]));
   const rows: ExportCellValue[][] = [];
 
   const sortedProducts = [...products].sort(
@@ -538,7 +571,16 @@ export const mapProductsToBulkExportRows = (
         rows.push(...mapVariableProductRows(product, headers, headerSet));
         break;
       case ProductType.BUNDLE:
-        rows.push(...mapBundleProductRows(product, headers, headerSet, skuLookup, productById));
+        rows.push(
+          ...mapBundleProductRows(
+            product,
+            headers,
+            headerSet,
+            context.skuLookup,
+            context.productById,
+            context,
+          ),
+        );
         break;
       default:
         rows.push(...mapSimpleProductRows(product, headers, headerSet));
