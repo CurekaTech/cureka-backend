@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AdminUsersService } from '@modules/admin-users/services/admin-users.service';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
@@ -12,6 +12,8 @@ import { mapRoleEntityToResponse } from '@modules/roles/mappers/role.mapper';
 
 @Injectable()
 export class AdminAuthService {
+  private readonly logger = new Logger(AdminAuthService.name);
+
   constructor(
     private readonly adminUsersService: AdminUsersService,
     private readonly jwtService: JwtService,
@@ -20,15 +22,18 @@ export class AdminAuthService {
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
     const entity = await this.adminUsersService.findByEmailWithPassword(dto.email);
     if (!entity) {
+      this.logger.warn({ email: dto.email }, 'Admin login failed: user not found');
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const passwordMatches = await comparePasswords(dto.password, entity.password);
     if (!passwordMatches) {
+      this.logger.warn({ email: dto.email }, 'Admin login failed: invalid password');
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (!entity.isActive) {
+      this.logger.warn({ email: dto.email }, 'Admin login failed: account inactive');
       throw new UnauthorizedException('Account is inactive');
     }
 
@@ -37,6 +42,7 @@ export class AdminAuthService {
       entity.roleRecord &&
       entity.roleRecord.status !== MasterStatus.ACTIVE
     ) {
+      this.logger.warn({ email: dto.email }, 'Admin login failed: assigned role inactive');
       throw new UnauthorizedException('Assigned role is inactive');
     }
 
@@ -50,6 +56,8 @@ export class AdminAuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
+
+    this.logger.log({ email: entity.email, role: entity.role }, 'Admin login success');
 
     return {
       accessToken,

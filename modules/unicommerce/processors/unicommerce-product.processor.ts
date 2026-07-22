@@ -1,6 +1,7 @@
-import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { PinoLogger } from 'nestjs-pino';
+import { createJobLogger } from '@packages/logger';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import {
   PushProductToUnicommerceJobData,
@@ -10,26 +11,40 @@ import { UnicommerceProductSyncService } from '../services/unicommerce-product-s
 
 @Processor(QUEUE_NAMES.UNICOMMERCE_PRODUCTS)
 export class UnicommerceProductProcessor extends WorkerHost {
-  private readonly logger = new Logger(UnicommerceProductProcessor.name);
-
-  constructor(private readonly syncService: UnicommerceProductSyncService) {
+  constructor(
+    private readonly pinoLogger: PinoLogger,
+    private readonly syncService: UnicommerceProductSyncService,
+  ) {
     super();
+    this.pinoLogger.setContext(UnicommerceProductProcessor.name);
   }
 
   async process(
     job: Job<PushProductToUnicommerceJobData, unknown, string>,
   ): Promise<unknown> {
+    const logger = createJobLogger(this.pinoLogger, {
+      jobId: job.id,
+      jobName: job.name,
+      queue: QUEUE_NAMES.UNICOMMERCE_PRODUCTS,
+      productRefId: job.data.productRefId,
+    });
+
     if (job.name !== UNICOMMERCE_PRODUCT_JOB_NAMES.PUSH_PRODUCT) {
       throw new Error(`Unsupported UniCommerce product job: ${job.name}`);
     }
 
+    logger.log(
+      { attempt: job.attemptsMade + 1 },
+      'Processing UniCommerce product push job',
+    );
+
     try {
-      return await this.syncService.pushProduct(job.data.productRefId);
+      const result = await this.syncService.pushProduct(job.data.productRefId);
+      logger.log('UniCommerce product push job completed');
+      return result;
     } catch (error) {
-      this.logger.error(
+      logger.error(
         {
-          productRefId: job.data.productRefId,
-          jobId: job.id,
           attempt: job.attemptsMade + 1,
           error: error instanceof Error ? error.message : String(error),
         },

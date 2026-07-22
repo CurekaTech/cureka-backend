@@ -67,10 +67,6 @@ export class BulkUploadService {
   ) {}
 
   async createBulkUploadJob(req: FastifyRequest, createdBy: string) {
-    console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] START', {
-      createdBy,
-      isMultipart: req.isMultipart(),
-    });
 
     // 1. Concurrency Check (Distributed Lock)
     const redis = await this.redisConnection.getConnectedClient();
@@ -87,19 +83,12 @@ export class BulkUploadService {
         lockTtlMs,
         'NX',
       );
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] REDIS_LOCK_ATTEMPT', {
-        lockKey: BULK_UPLOAD_LOCK_KEY,
-        acquired: Boolean(acquired),
-      });
       if (!acquired) {
         throw new ConflictException('Another bulk upload is currently in progress. Please try again later.');
       }
     } else {
       // Fallback check against database status if Redis is down
       const activeCount = await this.repository.countActiveJobs();
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] REDIS_UNAVAILABLE_DB_ACTIVE_CHECK', {
-        activeCount,
-      });
       if (activeCount > 0) {
         throw new ConflictException('Another bulk upload is currently in progress. Please try again later.');
       }
@@ -124,11 +113,6 @@ export class BulkUploadService {
       for await (const part of parts) {
         const filePart = part as any;
         if (filePart.file) {
-          console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] MULTIPART_FILE_PART', {
-            fieldname: filePart.fieldname,
-            filename: filePart.filename,
-            mimetype: filePart.mimetype,
-          });
           if (filePart.fieldname === 'file') {
             const allowedMimeTypes = [
               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -146,11 +130,6 @@ export class BulkUploadService {
               folder: 'bulk-uploads',
             });
             fileUrl = uploadResult.path;
-            console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] SHEET_UPLOADED', {
-              originalFilename: filePart.filename,
-              mimetype: filePart.mimetype,
-              fileUrl,
-            });
           } else if (filePart.fieldname === 'imagesZip' || filePart.fieldname === 'images' || filePart.fieldname === 'zip') {
             const zipUploadResult = await this.storageService.uploadImage({
               stream: filePart.file,
@@ -159,24 +138,12 @@ export class BulkUploadService {
               folder: 'bulk-uploads',
             });
             imagesZipUrl = zipUploadResult.path;
-            console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] IMAGES_ZIP_UPLOADED', {
-              originalFilename: filePart.filename,
-              mimetype: filePart.mimetype,
-              imagesZipUrl,
-            });
           } else {
-            console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] IGNORED_FILE_FIELD', {
-              fieldname: filePart.fieldname,
-              filename: filePart.filename,
-            });
             filePart.file.resume();
           }
         }
       }
     } catch (err) {
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] MULTIPART_ERROR', {
-        error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-      });
       if (redis) {
         await releaseBulkUploadLock(redis, lockToken);
       }
@@ -206,13 +173,6 @@ export class BulkUploadService {
       errorSummary: [],
       createdBy,
     });
-    console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] DB_RECORD_CREATED', {
-      refId: record.refId,
-      status: record.status,
-      fileUrl: record.fileUrl,
-      imagesZipUrl: record.imagesZipUrl,
-      createdBy,
-    });
 
     // 2. Queue background job
     try {
@@ -223,16 +183,14 @@ export class BulkUploadService {
         lockToken: redis ? lockToken : undefined,
         lockTtlMs,
       });
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] QUEUE_JOB_ADDED', {
-        refId: record.refId,
-        fileUrl: record.fileUrl,
-        imagesZipUrl: record.imagesZipUrl,
-      });
     } catch (queueError) {
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] QUEUE_JOB_FAILED', {
-        refId: record.refId,
-        error: queueError instanceof Error ? { name: queueError.name, message: queueError.message, stack: queueError.stack } : String(queueError),
-      });
+      this.logger.error(
+        {
+          refId: record.refId,
+          error: queueError instanceof Error ? queueError.message : String(queueError),
+        },
+        'Failed to queue bulk upload job',
+      );
       // If queueing fails, mark DB record as failed and release lock
       await this.repository.updateFieldsByRefId(record.refId, {
         status: BulkUploadStatus.FAILED,
@@ -244,11 +202,6 @@ export class BulkUploadService {
       throw new BadRequestException(`Failed to queue bulk upload task: ${queueError instanceof Error ? queueError.message : String(queueError)}`);
     }
 
-    console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] RETURN_RESPONSE', {
-      refId: record.refId,
-      status: record.status,
-      fileUrl: record.fileUrl,
-    });
     return {
       refId: record.refId,
       status: record.status,

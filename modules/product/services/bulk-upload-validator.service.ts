@@ -343,12 +343,6 @@ export class BulkUploadValidatorService {
     }
 
     this.logger.log(`Caches primed: Natures=${this.natureMap.size}, Brands=${this.brandMap.size}, Categories=${this.categoryMap.size}, CategoryFilters=${this.activeCategoryFilterNames.size}, DB SKUs=${this.dbSkus.size}`);
-    console.log('[BULK_UPLOAD_DEBUG][Validator.primeValidationCache] CATEGORY_CACHE_READY', {
-      categoryCount: this.categoryMap.size,
-      hasDieabities: this.categoryMap.has('dieabities'),
-      hasVelitExercitationem: this.categoryMap.has('velit exercitationem'),
-      sampleCategories: Array.from(this.categoryMap.keys()).slice(0, 20),
-    });
   }
 
   getActiveProductInformationLabels(): ReadonlyMap<string, BulkUploadProductInformationLabel> {
@@ -638,16 +632,6 @@ export class BulkUploadValidatorService {
       } else {
         const normalizedCategory = group.category.toLowerCase().trim();
         const refId = this.categoryMap.get(normalizedCategory);
-        console.log('[BULK_UPLOAD_DEBUG][Validator.validateBatch] CATEGORY_CHECK', {
-          rowNumber: group.rowNumber,
-          rawCategory: group.category,
-          normalizedCategory,
-          found: Boolean(refId),
-          refId: refId ?? null,
-          availableMatchHints: Array.from(this.categoryMap.keys()).filter((name) =>
-            name.includes(normalizedCategory) || normalizedCategory.includes(name),
-          ).slice(0, 10),
-        });
         if (!refId) {
           groupErrors.push({
             rowNumber: group.rowNumber,

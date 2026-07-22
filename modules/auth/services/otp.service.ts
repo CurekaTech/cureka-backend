@@ -17,6 +17,7 @@ import {
   isOtpExpired,
   OTP_CONFIG,
 } from '../utils/otp.util';
+import { maskMobile } from '@packages/logger';
 
 @Injectable()
 export class OtpService {
@@ -52,7 +53,7 @@ export class OtpService {
         expiresAt,
         attempts: 0,
       });
-      this.logger.log(`OTP refreshed for ${mobileNumber} [${purpose}]`);
+      this.logger.log(`OTP refreshed for ${maskMobile(mobileNumber)} [${purpose}]`);
     } else {
       await this.otpRepository.create({
         mobileNumber,
@@ -62,7 +63,7 @@ export class OtpService {
         attempts: 0,
         isVerified: false,
       });
-      this.logger.log(`OTP created for ${mobileNumber} [${purpose}]`);
+      this.logger.log(`OTP created for ${maskMobile(mobileNumber)} [${purpose}]`);
     }
 
     await this.cacheService.set(
@@ -143,6 +144,6 @@ export class OtpService {
       verifiedAt: new Date(),
     });
 
-    this.logger.log(`OTP verified for ${mobileNumber} [${purpose}]`);
+    this.logger.log(`OTP verified for ${maskMobile(mobileNumber)} [${purpose}]`);
   }
 }

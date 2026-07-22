@@ -24,6 +24,7 @@ import { IDeviceContext } from '../interfaces/session.interface';
 import { extractDeviceContext } from '../utils/device-context.util';
 import { parseIndianMobileNumber } from '../utils/mobile-number.util';
 import { OtpRateLimitService } from './otp-rate-limit.service';
+import { maskMobile } from '@packages/logger';
 
 @Injectable()
 export class AuthService {
@@ -62,7 +63,7 @@ export class AuthService {
     );
 
     const plainOtp = await this.otpService.sendOtp(normalized, OtpPurpose.LOGIN);
-    this.logger.log(`OTP dispatched: ${normalized}`);
+    this.logger.log(`OTP dispatched: ${maskMobile(normalized)}`);
     return this.buildOtpSendResponse(plainOtp);
   }
 

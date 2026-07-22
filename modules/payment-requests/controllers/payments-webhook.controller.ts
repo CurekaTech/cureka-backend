@@ -39,7 +39,10 @@ export class PaymentsWebhookController {
     const paymentId = payload['payment_id'] ?? payload['paymentId'] ?? payload['razorpay_payment_id'];
     const status = String(payload['payment_status'] ?? payload['status'] ?? '').toLowerCase();
 
-    this.logger.log({ eventType, sessionId, status, payload }, 'Shiprocket Checkout webhook received');
+    this.logger.log(
+      { eventType, sessionId, status, requestId: req.id },
+      'Shiprocket Checkout webhook received',
+    );
 
     if (sessionId && ['paid', 'success', 'successful', 'completed', 'captured'].includes(status)) {
       await this.paymentRequestsService.handleShiprocketCheckoutPaymentSuccess(
@@ -69,15 +72,8 @@ export class PaymentsWebhookController {
     const orderId = orderData?.['order_id'];
     const cfPaymentId = paymentData?.['cf_payment_id'];
 
-    console.log('PaymentsWebhookController.cashfreeWebhook start', {
-      eventType,
-      orderId,
-      cfPaymentId,
-      signature,
-      timestamp,
-    });
     this.logger.log(
-      { eventType, orderId, cfPaymentId, payload },
+      { eventType, orderId, cfPaymentId, requestId: req.id },
       'Cashfree webhook received',
     );
 
@@ -87,18 +83,25 @@ export class PaymentsWebhookController {
           orderId,
           cfPaymentId ? String(cfPaymentId) : undefined,
         );
-        console.log('PaymentsWebhookController.cashfreeWebhook handled payment success', {
-          orderId,
-          cfPaymentId,
-        });
+        this.logger.log(
+          { orderId, cfPaymentId, requestId: req.id },
+          'Cashfree webhook handled payment success',
+        );
       } else {
-        console.log('PaymentsWebhookController.cashfreeWebhook missing orderId', { payload });
+        this.logger.warn(
+          { eventType, requestId: req.id },
+          'Cashfree webhook missing orderId',
+        );
       }
     } else {
-      console.log('PaymentsWebhookController.cashfreeWebhook skipped event', {
-        eventType,
-        paymentStatus: paymentData?.['payment_status'],
-      });
+      this.logger.log(
+        {
+          eventType,
+          paymentStatus: paymentData?.['payment_status'],
+          requestId: req.id,
+        },
+        'Cashfree webhook skipped event',
+      );
     }
 
     return { received: true, event: eventType, requestId: req.id };

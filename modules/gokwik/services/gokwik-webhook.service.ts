@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { createHash } from 'crypto';
@@ -14,6 +14,8 @@ import { GokwikQueueService } from './gokwik-queue.service';
 
 @Injectable()
 export class GokwikWebhookService {
+  private readonly logger = new Logger(GokwikWebhookService.name);
+
   constructor(
     private readonly repository: GokwikRepository,
     private readonly queueService: GokwikQueueService,
@@ -45,8 +47,17 @@ export class GokwikWebhookService {
   async processEvent(eventId: string): Promise<void> {
     const event = await this.repository.findWebhookEventById(eventId);
     if (!event || event.status === 'processed' || event.status === 'ignored') {
+      this.logger.log(
+        { eventId, status: event?.status ?? 'missing' },
+        'GoKwik webhook process skipped',
+      );
       return;
     }
+
+    this.logger.log(
+      { eventId, entity: event.entity, event: event.event },
+      'GoKwik webhook process started',
+    );
 
     try {
       if (event.entity === 'transaction') {
@@ -55,15 +66,15 @@ export class GokwikWebhookService {
         await this.processRefund(event.payload as unknown as GokwikRefundWebhookDto);
       } else {
         await this.repository.markWebhookEvent(event.id, 'ignored');
+        this.logger.log({ eventId, entity: event.entity }, 'GoKwik webhook ignored');
         return;
       }
       await this.repository.markWebhookEvent(event.id, 'processed');
+      this.logger.log({ eventId, entity: event.entity }, 'GoKwik webhook processed');
     } catch (error) {
-      await this.repository.markWebhookEvent(
-        event.id,
-        'failed',
-        error instanceof Error ? error.message : 'Unknown GoKwik webhook error',
-      );
+      const message = error instanceof Error ? error.message : 'Unknown GoKwik webhook error';
+      await this.repository.markWebhookEvent(event.id, 'failed', message);
+      this.logger.error({ eventId, entity: event.entity, error: message }, 'GoKwik webhook failed');
       throw error;
     }
   }
@@ -116,6 +127,10 @@ export class GokwikWebhookService {
     const eventKey = createHash('sha256').update(this.stableJson(payload)).digest('hex');
     const existing = await this.repository.findWebhookEvent(eventKey);
     if (existing) {
+      this.logger.log(
+        { entity, event: eventName, providerReferenceId, duplicate: true },
+        'GoKwik webhook duplicate',
+      );
       return { received: true, duplicate: true };
     }
 
@@ -128,10 +143,18 @@ export class GokwikWebhookService {
         payload: payload as Record<string, unknown>,
       });
       await this.queueService.enqueueWebhook(event.id);
+      this.logger.log(
+        { entity, event: eventName, providerReferenceId, eventId: event.id, duplicate: false },
+        'GoKwik webhook enqueued',
+      );
       return { received: true, duplicate: false };
     } catch (error) {
       const concurrent = await this.repository.findWebhookEvent(eventKey);
       if (concurrent) {
+        this.logger.log(
+          { entity, event: eventName, providerReferenceId, duplicate: true },
+          'GoKwik webhook duplicate after race',
+        );
         return { received: true, duplicate: true };
       }
       throw error;
