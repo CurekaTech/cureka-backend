@@ -245,7 +245,7 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachDetailRelations(products, this.repo.manager);
+    await this.attachDetailRelations(products, this.repo.manager, { includeMedia: false });
     return products;
   }
 
@@ -684,9 +684,14 @@ export class ProductsRepository {
    * queries run concurrently via Promise.all, so total time = max(slowest query)
    * instead of sum(all queries).
    */
-  private async attachDetailRelations(products: ProductEntity[], mgr: EntityManager): Promise<void> {
+  private async attachDetailRelations(
+    products: ProductEntity[],
+    mgr: EntityManager,
+    options?: { includeMedia?: boolean },
+  ): Promise<void> {
     if (!products.length) return;
     const productIds = products.map((p) => p.id);
+    const includeMedia = options?.includeMedia !== false;
 
     const [
       attributeMappings,
@@ -712,10 +717,12 @@ export class ProductsRepository {
           countryOfOrigin: true,
         },
       }),
-      mgr.getRepository(ProductMediaEntity).find({
-        where: { productId: In(productIds) },
-        order: { sortOrder: 'ASC', createdAt: 'ASC' },
-      }),
+      includeMedia
+        ? mgr.getRepository(ProductMediaEntity).find({
+            where: { productId: In(productIds) },
+            order: { sortOrder: 'ASC', createdAt: 'ASC' },
+          })
+        : Promise.resolve([] as ProductMediaEntity[]),
       mgr.getRepository(ProductHealthConcernEntity).find({
         where: { productId: In(productIds) },
         relations: { healthConcern: true },
