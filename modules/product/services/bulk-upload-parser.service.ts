@@ -755,46 +755,18 @@ export class BulkUploadParserService {
         await processRow(rowNumber, row);
       }
     } else {
-      const workbookReader = new exceljs.stream.xlsx.WorkbookReader(filePath, {
-        sharedStrings: 'cache',
-        hyperlinks: 'ignore',
-        styles: 'ignore',
-        worksheets: 'emit',
+      await this.parseXlsxAndBatch({
+        filePath,
+        maxRows,
+        activeCategoryFilterNames,
+        activeProductInformationLabels,
+        onHeaders: (map, dynamicColumns, infoColumns) => {
+          headerMap = map;
+          dynamicCategoryFilterColumns = dynamicColumns;
+          productInformationColumnMap = infoColumns;
+        },
+        processRow,
       });
-      let rowNumber = 0;
-      let worksheetFound = false;
-      for await (const worksheetReader of workbookReader) {
-        worksheetFound = true;
-        for await (const row of worksheetReader) {
-          rowNumber += 1;
-          if (rowNumber === 1) {
-            headerMap = this.extractHeadersFromRow(row as exceljs.Row);
-            this.validateRequiredHeaders(headerMap);
-            this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
-            productInformationColumnMap = this.resolveProductInformationColumns(
-              headerMap,
-              activeProductInformationLabels,
-            );
-            dynamicCategoryFilterColumns = this.extractDynamicCategoryFilterColumnsFromRow(
-              row as exceljs.Row,
-            );
-            continue;
-          }
-
-          if (maxRows > 0 && rowNumber - 1 > maxRows) {
-            throw new BadRequestException(
-              `The sheet contains more than ${maxRows} data rows, which exceeds the configured upload limit.`,
-            );
-          }
-
-          await processRow(rowNumber, row as exceljs.Row);
-        }
-        break;
-      }
-
-      if (!worksheetFound) {
-        throw new BadRequestException('The uploaded file contains no worksheets.');
-      }
     }
 
     if (previousGroupingKey) {
@@ -814,6 +786,147 @@ export class BulkUploadParserService {
       value: values[colNumber - 1] ?? '',
     })) as exceljs.Row['getCell'];
     return row;
+  }
+
+  private static readonly IMPORT_SHEET_NAME = 'bulk import template';
+  private static readonly REFERENCE_SHEET_NAME_PATTERN =
+    /(reference|dropdown|validation|instructions|readme)/i;
+  private static readonly HEADER_SCAN_MAX_ROWS = 15;
+
+  private async parseXlsxAndBatch(options: {
+    filePath: string;
+    maxRows: number;
+    activeCategoryFilterNames: ReadonlySet<string>;
+    activeProductInformationLabels: ReadonlyMap<string, BulkUploadProductInformationLabel>;
+    onHeaders: (
+      headerMap: Map<string, number>,
+      dynamicColumns: Map<number, string>,
+      productInformationColumnMap: Map<number, { label: string; sortOrder: number }>,
+    ) => void;
+    processRow: (rowNumber: number, row: exceljs.Row) => Promise<void>;
+  }): Promise<void> {
+    const {
+      filePath,
+      maxRows,
+      activeCategoryFilterNames,
+      activeProductInformationLabels,
+      onHeaders,
+      processRow,
+    } = options;
+
+    // Prefer buffered load so we can pick the correct sheet (not always worksheets[0]).
+    // Streaming previously always consumed the first sheet, which fails when Excel puts a
+    // reference/instructions sheet first, or when headers are not on row 1.
+    const workbook = new exceljs.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    if (!workbook.worksheets.length) {
+      throw new BadRequestException('The uploaded file contains no worksheets.');
+    }
+
+    const worksheet = this.resolveImportWorksheet(workbook);
+    const headerRowNumber = this.findHeaderRowNumber(worksheet);
+    const headerRow = worksheet.getRow(headerRowNumber);
+    const headerMap = this.extractHeadersFromRow(headerRow);
+    this.validateRequiredHeaders(headerMap, worksheet.name);
+    this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
+    const productInformationColumnMap = this.resolveProductInformationColumns(
+      headerMap,
+      activeProductInformationLabels,
+    );
+    const dynamicCategoryFilterColumns =
+      this.extractDynamicCategoryFilterColumnsFromRow(headerRow);
+    onHeaders(headerMap, dynamicCategoryFilterColumns, productInformationColumnMap);
+
+    this.logger.log(
+      `[BULK_UPLOAD] Using sheet "${worksheet.name}" with headers on row ${headerRowNumber} (${headerMap.size} columns)`,
+    );
+
+    let dataRowCount = 0;
+    for (let excelRowNumber = headerRowNumber + 1; excelRowNumber <= worksheet.rowCount; excelRowNumber += 1) {
+      const row = worksheet.getRow(excelRowNumber);
+      if (this.isRowEmpty(row)) {
+        continue;
+      }
+
+      dataRowCount += 1;
+      if (maxRows > 0 && dataRowCount > maxRows) {
+        throw new BadRequestException(
+          `The sheet contains more than ${maxRows} data rows, which exceeds the configured upload limit.`,
+        );
+      }
+
+      // Keep spreadsheet row numbers for error reports (1-based Excel row index).
+      await processRow(excelRowNumber, row);
+    }
+  }
+
+  private resolveImportWorksheet(workbook: exceljs.Workbook): exceljs.Worksheet {
+    const sheets = workbook.worksheets.filter((sheet) => sheet?.name);
+    if (!sheets.length) {
+      throw new BadRequestException('The uploaded file contains no worksheets.');
+    }
+
+    const byExactName = sheets.find(
+      (sheet) => sheet.name.trim().toLowerCase() === BulkUploadParserService.IMPORT_SHEET_NAME,
+    );
+    if (byExactName && this.rowHasRequiredHeaders(byExactName.getRow(this.findHeaderRowNumber(byExactName)))) {
+      return byExactName;
+    }
+
+    const nonReference = sheets.filter(
+      (sheet) => !BulkUploadParserService.REFERENCE_SHEET_NAME_PATTERN.test(sheet.name),
+    );
+    for (const sheet of nonReference.length ? nonReference : sheets) {
+      try {
+        const headerRowNumber = this.findHeaderRowNumber(sheet);
+        if (this.rowHasRequiredHeaders(sheet.getRow(headerRowNumber))) {
+          return sheet;
+        }
+      } catch {
+        // try next sheet
+      }
+    }
+
+    // Last resort: first non-reference sheet (validateRequiredHeaders will throw a clear error).
+    return nonReference[0] ?? sheets[0];
+  }
+
+  private findHeaderRowNumber(worksheet: exceljs.Worksheet): number {
+    const maxScan = Math.min(worksheet.rowCount || 1, BulkUploadParserService.HEADER_SCAN_MAX_ROWS);
+    for (let rowNumber = 1; rowNumber <= maxScan; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber);
+      if (this.rowHasRequiredHeaders(row)) {
+        return rowNumber;
+      }
+    }
+    return 1;
+  }
+
+  private rowHasRequiredHeaders(row: exceljs.Row): boolean {
+    const headerMap = this.extractHeadersFromRow(row);
+    return (
+      headerMap.has('product name') &&
+      headerMap.has('product type') &&
+      headerMap.has('category')
+    );
+  }
+
+  private isRowEmpty(row: exceljs.Row): boolean {
+    let hasValue = false;
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (this.getCellText(cell).trim()) {
+        hasValue = true;
+      }
+    });
+    if (hasValue) return false;
+
+    // Streaming/buffered rows sometimes expose values[] without eachCell hits.
+    const values = Array.isArray(row.values) ? row.values : [];
+    return !values.some((value, index) => {
+      if (index === 0) return false;
+      if (value === null || value === undefined) return false;
+      return String(value).trim().length > 0;
+    });
   }
 
   private extractHeadersFromValues(values: string[]): Map<string, number> {
@@ -836,6 +949,25 @@ export class BulkUploadParserService {
         headerMap.set(cleaned, colNumber);
       }
     });
+
+    // Fallback: some Excel files expose headers only via row.values in edge cases.
+    if (headerMap.size === 0 && Array.isArray(headerRow.values)) {
+      const values = headerRow.values as Array<unknown>;
+      for (let index = 1; index < values.length; index += 1) {
+        const raw = values[index];
+        const text =
+          raw === null || raw === undefined
+            ? ''
+            : typeof raw === 'object'
+              ? this.getCellText({ value: raw } as exceljs.Cell)
+              : String(raw);
+        const cleaned = normalizeBulkUploadHeader(text);
+        if (cleaned) {
+          headerMap.set(cleaned, index);
+        }
+      }
+    }
+
     return headerMap;
   }
 
@@ -925,7 +1057,7 @@ export class BulkUploadParserService {
   /**
    * Assures sheet contains mandatory headers.
    */
-  private validateRequiredHeaders(headerMap: Map<string, number>): void {
+  private validateRequiredHeaders(headerMap: Map<string, number>, sheetName?: string): void {
     const required = ['product name', 'product type', 'category'];
     const missing: string[] = [];
 
@@ -936,8 +1068,12 @@ export class BulkUploadParserService {
     }
 
     if (missing.length > 0) {
+      const detected = [...headerMap.keys()].slice(0, 12).join(', ') || '(none)';
+      const sheetHint = sheetName ? ` on sheet "${sheetName}"` : '';
       throw new BadRequestException(
-        `Invalid template. Missing mandatory columns: ${missing.join(', ')}`,
+        `Invalid template. Missing mandatory columns${sheetHint}: ${missing.join(', ')}. ` +
+          `Detected columns: ${detected}. ` +
+          `Use the "Bulk Import Template" sheet with header columns Product Name*, Product Type *, Category *.`,
       );
     }
   }
