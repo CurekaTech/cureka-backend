@@ -91,6 +91,7 @@ function mapVariantToTypesenseDocument(
     entityType: SEARCH_ENTITY_TYPES.PRODUCT,
     name: buildVariantSearchTitle(product, variant),
     slug: variant.slug,
+    sku: variant.sku?.trim() || undefined,
     brand: shared.brand,
     category: shared.category,
     subCategory: shared.subCategory,

@@ -588,8 +588,12 @@ export class ProductsRepository {
         `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
-            AND pv.slug ILIKE :search
             AND pv.deleted_at IS NULL
+            AND (
+              pv.slug ILIKE :search
+              OR pv.sku ILIKE :search
+              OR pv.display_name ILIKE :search
+            )
         ))`,
         { search: `%${options.search}%` },
       );
@@ -1081,8 +1085,12 @@ export class ProductsRepository {
         `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
-            AND pv.slug ILIKE :search
             AND pv.deleted_at IS NULL
+            AND (
+              pv.slug ILIKE :search
+              OR pv.sku ILIKE :search
+              OR pv.display_name ILIKE :search
+            )
         ))`,
         { search: `%${options.search}%` },
       );

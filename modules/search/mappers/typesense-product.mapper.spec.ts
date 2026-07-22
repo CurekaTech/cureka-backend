@@ -21,6 +21,7 @@ describe('typesense-product.mapper', () => {
       {
         id: 'variant-1',
         slug: 'dolo-650mg',
+        sku: 'DOLO-650',
         deletedAt: null,
         status: VariantStatus.ACTIVE,
         stock: 10,
@@ -42,6 +43,7 @@ describe('typesense-product.mapper', () => {
       entityType: 'Product',
       name: 'Dolo 650mg',
       slug: 'dolo-650mg',
+      sku: 'DOLO-650',
       brand: 'Micro Labs',
       category: 'Pain Relief',
       description: 'Pain relief tablet',
