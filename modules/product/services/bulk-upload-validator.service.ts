@@ -16,7 +16,10 @@ import { ProductEntity } from '../entities/product.entity';
 import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
 import { CategoryFilterEntity } from '@modules/master/entities/category-filter.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
-import { IParsedProductGroup } from './bulk-upload-parser.service';
+import {
+  IParsedProductGroup,
+  listSheetRowsForProductGroup,
+} from './bulk-upload-parser.service';
 import {
   BulkUploadProductInformationLabel,
   buildCategoryFilterColumnHeader,
@@ -794,13 +797,45 @@ export class BulkUploadValidatorService {
       }
 
       if (groupErrors.length > 0) {
-        errors.push(...groupErrors);
+        errors.push(...this.ensureErrorsCoverAllGroupRows(group, groupErrors));
       } else {
         validatedProducts.push(group);
       }
     }
 
     return { errors, validatedProducts };
+  }
+
+  /**
+   * Failed product groups increment failedRows by every spreadsheet row in the group
+   * (style_group / bundle). Ensure the error summary has at least one entry per those rows
+   * so Failed count and Error Summary stay aligned.
+   */
+  private ensureErrorsCoverAllGroupRows(
+    group: IParsedProductGroup,
+    groupErrors: IValidationError[],
+  ): IValidationError[] {
+    if (!groupErrors.length) return groupErrors;
+
+    const coveredRows = new Set(groupErrors.map((error) => error.rowNumber));
+    const primary = groupErrors[0];
+    const coverageErrors: IValidationError[] = [];
+
+    for (const row of listSheetRowsForProductGroup(group)) {
+      if (coveredRows.has(row.rowNumber)) continue;
+      coverageErrors.push({
+        rowNumber: row.rowNumber,
+        sku: row.sku,
+        column: 'Product',
+        invalidValue: group.name || '',
+        reason:
+          `This spreadsheet row was not imported because its product group failed validation. ` +
+          `Related error (row ${primary.rowNumber}, ${primary.column}): ${primary.reason}`,
+        suggestedFix: primary.suggestedFix,
+      });
+    }
+
+    return coverageErrors.length ? [...groupErrors, ...coverageErrors] : groupErrors;
   }
 
   private validateSimpleProductVariants(
