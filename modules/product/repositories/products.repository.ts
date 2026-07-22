@@ -93,6 +93,143 @@ export class ProductsRepository {
     return product;
   }
 
+  /**
+   * Lightweight load for create/update mutations (skips media/faqs/tags/etc.).
+   * Used by bulk upload to avoid full-detail hydration per row.
+   */
+  async findByRefIdForMutation(
+    refId: string,
+    manager?: EntityManager,
+  ): Promise<ProductEntity | null> {
+    const mgr = manager ?? this.repo.manager;
+    const product = await mgr.getRepository(ProductEntity).findOne({
+      where: { refId },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+    });
+    if (!product) return null;
+    await this.attachMutationRelations([product], mgr);
+    return product;
+  }
+
+  async findStatusByRefId(refId: string): Promise<ProductStatus | null> {
+    const row = await this.repo.findOne({
+      where: { refId },
+      select: { status: true, refId: true },
+    });
+    return row?.status ?? null;
+  }
+
+  private async attachMutationRelations(
+    products: ProductEntity[],
+    mgr: EntityManager,
+  ): Promise<void> {
+    if (!products.length) return;
+    const productIds = products.map((p) => p.id);
+
+    const [attributeMappings, variants] = await Promise.all([
+      mgr.getRepository(ProductAttributeMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { attribute: true },
+      }),
+      mgr.getRepository(ProductVariantEntity).find({
+        where: { productId: In(productIds) },
+        relations: {
+          manufacturer: true,
+          packer: true,
+          importer: true,
+          countryOfOrigin: true,
+        },
+      }),
+    ]);
+
+    const variantIds = variants.map((v) => v.id);
+    const attributeValues = variantIds.length
+      ? await mgr.getRepository(VariantAttributeValueEntity).find({
+          where: { variantId: In(variantIds) },
+          relations: { attribute: true },
+        })
+      : [];
+
+    const attrValuesByVariantId = new Map<string, VariantAttributeValueEntity[]>();
+    for (const av of attributeValues) {
+      const list = attrValuesByVariantId.get(av.variantId) ?? [];
+      list.push(av);
+      attrValuesByVariantId.set(av.variantId, list);
+    }
+    for (const variant of variants) {
+      variant.attributeValues = attrValuesByVariantId.get(variant.id) ?? [];
+    }
+
+    const attrMappingsByProduct = new Map<string, ProductAttributeMappingEntity[]>();
+    for (const mapping of attributeMappings) {
+      const list = attrMappingsByProduct.get(mapping.productId) ?? [];
+      list.push(mapping);
+      attrMappingsByProduct.set(mapping.productId, list);
+    }
+
+    const variantsByProduct = new Map<string, ProductVariantEntity[]>();
+    for (const variant of variants) {
+      const list = variantsByProduct.get(variant.productId) ?? [];
+      list.push(variant);
+      variantsByProduct.set(variant.productId, list);
+    }
+
+    for (const product of products) {
+      product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
+      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.media = [];
+      product.healthConcernMappings = [];
+      product.wellnessGoalMappings = [];
+      product.tagMappings = [];
+      product.faqMappings = [];
+      product.bundleItems = [];
+      product.categoryFilterMappings = [];
+    }
+  }
+
+  async findAllForBulkExport(): Promise<ProductEntity[]> {
+    const products = await this.repo.find({
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    const batchSize = 50;
+    for (let offset = 0; offset < products.length; offset += batchSize) {
+      await this.attachDetailRelations(
+        products.slice(offset, offset + batchSize),
+        this.repo.manager,
+      );
+    }
+
+    return products;
+  }
+
   async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { refId, status: ProductStatus.PUBLISHED },
@@ -441,6 +578,45 @@ export class ProductsRepository {
     return { data, total };
   }
 
+  async findAllVariantsPaginated(
+    options: ProductListOptions,
+  ): Promise<{ data: ProductVariantEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const sortOrder = options.sortOrder ?? 'DESC';
+
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .leftJoinAndSelect('product.productNature', 'productNature')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .where('variant.deletedAt IS NULL')
+      .skip(skip)
+      .take(take);
+
+    this.applyAdminVariantListFilters(qb, options);
+    this.applyAdminVariantListSort(qb, options.sortBy, sortOrder);
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    if (data.length) {
+      const uniqueProducts = [...new Map(data.map((variant) => [variant.product.id, variant.product])).values()];
+      await this.attachListRelations(uniqueProducts);
+
+      const productsById = new Map(uniqueProducts.map((product) => [product.id, product]));
+      for (const variant of data) {
+        const product = productsById.get(variant.productId);
+        if (product) {
+          variant.product = product;
+        }
+      }
+    }
+
+    return { data, total };
+  }
+
   /**
    * Loads all one-to-many relations for the given products in parallel separate queries.
    * This replaces the previous single mega-JOIN which caused row multiplication and
@@ -471,6 +647,12 @@ export class ProductsRepository {
       }),
       mgr.getRepository(ProductVariantEntity).find({
         where: { productId: In(productIds) },
+        relations: {
+          manufacturer: true,
+          packer: true,
+          importer: true,
+          countryOfOrigin: true,
+        },
       }),
       mgr.getRepository(ProductMediaEntity).find({
         where: { productId: In(productIds) },
@@ -651,6 +833,79 @@ export class ProductsRepository {
       qb.andWhere('variant.sellingPrice <= :maxPrice', {
         maxPrice: options.maxPrice,
       });
+    }
+  }
+
+  private applyAdminVariantListFilters(
+    qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
+    options: ProductListOptions,
+  ): void {
+    if (options.search) {
+      qb.andWhere(
+        `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR variant.display_name ILIKE :search OR EXISTS (
+          SELECT 1 FROM variant_attribute_values vav
+          WHERE vav.variant_id = variant.id AND vav.value ILIKE :search
+        ))`,
+        { search: `%${options.search}%` },
+      );
+    }
+    if (options.productType) {
+      qb.andWhere('product.productType = :productType', { productType: options.productType });
+    }
+    if (options.status != null) {
+      qb.andWhere('product.status = :status', { status: options.status });
+    }
+    if (options.categoryId) {
+      qb.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
+    }
+    if (options.brandIds?.length) {
+      qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
+    } else if (options.brandId) {
+      qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
+    }
+    if (options.productNatureId) {
+      qb.andWhere('product.productNatureId = :productNatureId', {
+        productNatureId: options.productNatureId,
+      });
+    }
+    if (options.variantSlug) {
+      qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
+    }
+  }
+
+  private applyAdminVariantListSort(
+    qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
+    sortBy: string | undefined,
+    sortOrder: 'ASC' | 'DESC',
+  ): void {
+    switch (sortBy) {
+      case 'price':
+        qb.orderBy('variant.sellingPrice', sortOrder, 'NULLS LAST');
+        return;
+      case 'stock':
+        qb.orderBy('variant.stock', sortOrder, 'NULLS LAST');
+        return;
+      case 'sku':
+        qb.orderBy('variant.sku', sortOrder, 'NULLS LAST');
+        return;
+      default: {
+        const SORTABLE: Record<string, string> = {
+          refId: 'product.refId',
+          name: 'product.name',
+          slug: 'variant.slug',
+          productType: 'product.productType',
+          status: 'product.status',
+          publishedAt: 'product.publishedAt',
+          createdAt: 'product.createdAt',
+          updatedAt: 'product.updatedAt',
+          categoryName: 'category.name',
+          brandName: 'brand.name',
+          productNatureName: 'productNature.name',
+        };
+        const resolvedSortBy = sortBy ?? DEFAULT_ADMIN_PRODUCT_LIST_SORT;
+        const sortColumn = SORTABLE[resolvedSortBy] ?? SORTABLE[DEFAULT_ADMIN_PRODUCT_LIST_SORT];
+        qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as exceljs from 'exceljs';
 import { extname } from 'path';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
@@ -47,6 +48,7 @@ export interface IParsedVariant {
   productUrlSlug?: string;
   /** Per-row Product ID (String) for variant attach / persistence. */
   externalProductId?: string;
+  displayName?: string;
   barcode?: string;
   gtinNumber?: string;
   hsnCode?: string;
@@ -69,6 +71,35 @@ export interface IParsedVariant {
   searchTags: string[];
   attributes: IParsedAttribute[];
   images: IParsedImage[];
+  productInformation: Array<{ label: string; description: string; sortOrder?: number }>;
+  faqs: { question: string; answer: string }[];
+  metaTitle?: string;
+  metaDescription?: string;
+  metaKeywords: string[];
+  categoryFilters: { categoryFilterRefId: string; values: string[] }[];
+  sizeChart?: string;
+  subscriptionEnabled: boolean;
+  returnAllowed: boolean;
+  returnPolicy?: string;
+  returnWindowDays?: number;
+  codAvailable: boolean;
+  emiAvailable: boolean;
+  replaceAllowed: boolean;
+  replaceWindowDays?: number;
+  manufacturer?: string;
+  packer?: string;
+  importer?: string;
+  manufacturerAddress?: string;
+  packerAddress?: string;
+  importerAddress?: string;
+  countryOfOrigin?: string;
+  components?: string;
+  expiresInMonths?: number;
+  singleProductUrl?: string;
+  healthConcerns: string[];
+  wellnessGoals: string[];
+  productTags: string[];
+  packMetadata: IProductPackMetadataItem[];
 }
 
 export interface IParsedBundleItem {
@@ -151,6 +182,8 @@ export const countVariantSlotsForProductGroup = (group: IParsedProductGroup): nu
 @Injectable()
 export class BulkUploadParserService {
   private readonly logger = new Logger(BulkUploadParserService.name);
+
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Cleans header strings to allow flexible asterisk, space, and underscore matching.
@@ -391,9 +424,10 @@ export class BulkUploadParserService {
     }
 
     const totalDataRows = worksheet.rowCount - 1;
-    if (totalDataRows > 1000) {
+    const maxRows = this.configService.get<number>('PRODUCT_BULK_UPLOAD_MAX_ROWS', 0);
+    if (maxRows > 0 && totalDataRows > maxRows) {
       throw new BadRequestException(
-        `The sheet contains ${totalDataRows} data rows, which exceeds the maximum limit of 1000 rows per upload.`,
+        `The sheet contains ${totalDataRows} data rows, which exceeds the maximum limit of ${maxRows} rows per upload.`,
       );
     }
 
@@ -597,7 +631,7 @@ export class BulkUploadParserService {
 
         if (rowAttributeDetailNames.length) {
           group.attributeDetailNames = rowAttributeDetailNames;
-        } else if (productInformation.length) {
+        } else if (productInformation.length && !styleGroupId) {
           group.productInformation = this.mergeProductInformation(
             group.productInformation,
             productInformation,
@@ -633,6 +667,14 @@ export class BulkUploadParserService {
           : parseAttributeDetailsFromRow(getVal, headerMap);
       const attributes = this.parseVariantAttributes(getVal, headerMap, attributeDetailNames);
       const images = this.parseVariantImages(getVal);
+      const rowVariantContent = this.buildVariantContentFields({
+        name,
+        getVal,
+        getRichVal,
+        row,
+        productInformation,
+        dynamicCategoryFilterColumns,
+      });
 
       group.variants.push({
         rowNumber,
@@ -659,22 +701,9 @@ export class BulkUploadParserService {
         height,
         heightUnit: getVal('dimension unit') || undefined,
         status: getVal('variant status') || undefined,
-        searchTags: (() => {
-          // "Tags" is the legacy product_information_labels column; prefer "Search Tags".
-          const raw = this.getFirstAvailable(getVal, ['search tags', 'tags']);
-          return raw
-            ? [
-                ...new Set(
-                  raw
-                    .split(/[,|]+/)
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                ),
-              ]
-            : [];
-        })(),
         attributes,
         images,
+        ...rowVariantContent,
       });
 
       void isNewGroup;
@@ -903,6 +932,134 @@ export class BulkUploadParserService {
       items.push({ label: item.label, description, sortOrder: 1000 + index });
     });
     return items;
+  }
+
+  private parseRowFaqs(
+    getVal: (columnName: string) => string,
+    getRichVal: (columnName: string) => string,
+  ): Array<{ question: string; answer: string }> {
+    const faqs: Array<{ question: string; answer: string }> = [];
+    for (let i = 1; i <= 10; i++) {
+      const question = getVal(`faq ${i} question`);
+      const answer = getRichVal(`faq ${i} answer`);
+      if (question && answer) {
+        faqs.push({ question, answer });
+      }
+    }
+    return faqs;
+  }
+
+  private buildVariantContentFields(options: {
+    name: string;
+    getVal: (columnName: string) => string;
+    getRichVal: (columnName: string) => string;
+    row: exceljs.Row;
+    productInformation: Array<{ label: string; description: string; sortOrder?: number }>;
+    dynamicCategoryFilterColumns: Map<number, string>;
+  }): Omit<
+    IParsedVariant,
+    | 'rowNumber'
+    | 'sku'
+    | 'productUrlSlug'
+    | 'externalProductId'
+    | 'barcode'
+    | 'gtinNumber'
+    | 'hsnCode'
+    | 'batchNumber'
+    | 'expiryDate'
+    | 'mrp'
+    | 'sellingPrice'
+    | 'discountPercentage'
+    | 'taxClass'
+    | 'stock'
+    | 'weight'
+    | 'weightUnit'
+    | 'length'
+    | 'lengthUnit'
+    | 'width'
+    | 'widthUnit'
+    | 'height'
+    | 'heightUnit'
+    | 'status'
+    | 'attributes'
+    | 'images'
+  > {
+    const { name, getVal, getRichVal, row, productInformation, dynamicCategoryFilterColumns } =
+      options;
+    const dynamicCategoryFilters = this.parseDynamicCategoryFilters(
+      row,
+      dynamicCategoryFilterColumns,
+    );
+    const categoryFilters = [
+      ...this.parseCategoryFilters(getVal('category filters')),
+      ...dynamicCategoryFilters,
+    ];
+
+    return {
+      displayName: name || undefined,
+      productInformation,
+      faqs: this.parseRowFaqs(getVal, getRichVal),
+      metaTitle: getVal('meta title') || undefined,
+      metaDescription: getVal('meta description') || undefined,
+      metaKeywords: getVal('meta keywords')
+        ? getVal('meta keywords').split(',').map((s) => s.trim()).filter(Boolean)
+        : [],
+      categoryFilters,
+      sizeChart: resolveBulkUploadSizeChart(
+        getVal('size chart url'),
+        this.getFirstAvailable(getVal, ['size chart filename/path', 'size chart']),
+      ),
+      subscriptionEnabled: getVal('subscription available').toLowerCase() === 'yes',
+      returnAllowed:
+        getVal('return policy').toLowerCase().includes('return') ||
+        getVal('return window days') !== '',
+      returnPolicy: getVal('return policy') || undefined,
+      returnWindowDays: getVal('return window days')
+        ? parseInt(getVal('return window days'), 10)
+        : undefined,
+      codAvailable: getVal('cod available').toLowerCase() === 'yes',
+      emiAvailable: getVal('emi available').toLowerCase() === 'yes',
+      replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
+      replaceWindowDays: getVal('replacement window days')
+        ? parseInt(getVal('replacement window days'), 10)
+        : undefined,
+      manufacturer:
+        this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
+      packer: this.getFirstAvailable(getVal, ['packer', 'packer name']) || undefined,
+      importer: this.getFirstAvailable(getVal, ['importer', 'importer name']) || undefined,
+      manufacturerAddress: getVal('manufacturer address') || undefined,
+      packerAddress: getVal('packer address') || undefined,
+      importerAddress: getVal('importer address') || undefined,
+      countryOfOrigin: getVal('country of origin') || undefined,
+      components: getVal('components') || undefined,
+      expiresInMonths: getVal('shelf life in months')
+        ? parseInt(getVal('shelf life in months'), 10)
+        : undefined,
+      singleProductUrl: getVal('single product url') || undefined,
+      healthConcerns: getVal('health concerns')
+        ? getVal('health concerns').split('|').map((s) => s.trim()).filter(Boolean)
+        : [],
+      wellnessGoals: getVal('wellness goals')
+        ? getVal('wellness goals').split('|').map((s) => s.trim()).filter(Boolean)
+        : [],
+      productTags: getVal('product tags')
+        ? getVal('product tags').split('|').map((s) => s.trim()).filter(Boolean)
+        : [],
+      searchTags: (() => {
+        const raw = this.getFirstAvailable(getVal, ['search tags', 'tags']);
+        return raw
+          ? [
+              ...new Set(
+                raw
+                  .split(/[,|]+/)
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              ),
+            ]
+          : [];
+      })(),
+      packMetadata: this.parsePackMetadata(getVal),
+    };
   }
 
   private mergeProductInformation(

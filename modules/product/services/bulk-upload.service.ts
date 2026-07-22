@@ -25,6 +25,7 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductTagsRepository } from '../repositories/product-tags.repository';
+import { ProductsRepository } from '../repositories/products.repository';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { randomUUID } from 'crypto';
@@ -32,11 +33,18 @@ import {
   BULK_UPLOAD_LOCK_KEY,
   releaseBulkUploadLock,
 } from '../utils/bulk-upload-lock.util';
+import {
+  forceReleaseBulkUploadLock,
+  markBulkUploadCancelled,
+} from '../utils/bulk-upload-cancel.util';
+import { mapProductsToBulkExportRows } from '../utils/bulk-upload-export.mapper';
 
 @Injectable()
 export class BulkUploadService {
   private readonly logger = new Logger(BulkUploadService.name);
   private static readonly TEMPLATE_FILE_NAME = 'bulk-upload-one-success-latest.xlsx';
+  private static readonly EXPORT_XLSX_FILE_NAME = 'bulk-export-products.xlsx';
+  private static readonly EXPORT_CSV_FILE_NAME = 'bulk-export-products.csv';
   /** Header + sample rows kept visible while scrolling the wide import sheet. */
   private static readonly IMPORT_TEMPLATE_FROZEN_ROW_COUNT = 3;
 
@@ -51,6 +59,7 @@ export class BulkUploadService {
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly productTagsRepository: ProductTagsRepository,
+    private readonly productsRepository: ProductsRepository,
     private readonly configService: ConfigService,
     @InjectQueue('bulk-upload') private readonly queue: Queue,
   ) {}
@@ -249,13 +258,69 @@ export class BulkUploadService {
 
   async getTemplateFile(): Promise<{ fileName: string; fileBuffer: Buffer }> {
     const fileName = BulkUploadService.TEMPLATE_FILE_NAME;
-    const fileBuffer = await this.buildTemplateBuffer();
+    const fileBuffer = await this.buildTemplateBuffer({ includeSampleRows: true });
     const templatePath = join(process.cwd(), 'docs', fileName);
     await writeFile(templatePath, fileBuffer);
     return { fileName, fileBuffer };
   }
 
-  private async buildTemplateBuffer(): Promise<Buffer> {
+  async getExportFile(
+    format: 'xlsx' | 'csv' = 'xlsx',
+  ): Promise<{ fileName: string; fileBuffer: Buffer; contentType: string }> {
+    const products = await this.productsRepository.findAllForBulkExport();
+    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
+    const categoryFilterHeaders = activeFilters.map((filter) =>
+      buildCategoryFilterColumnHeader(filter.name),
+    );
+    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
+    const dataRows = mapProductsToBulkExportRows(products, headers);
+
+    if (format === 'csv') {
+      return {
+        fileName: BulkUploadService.EXPORT_CSV_FILE_NAME,
+        fileBuffer: this.buildCsvBuffer(headers, dataRows),
+        contentType: 'text/csv; charset=utf-8',
+      };
+    }
+
+    return {
+      fileName: BulkUploadService.EXPORT_XLSX_FILE_NAME,
+      fileBuffer: await this.buildTemplateBuffer({
+        dataRows,
+        includeSampleRows: false,
+      }),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+  }
+
+  private buildCsvBuffer(
+    headers: string[],
+    rows: Array<Array<string | number | null>>,
+  ): Buffer {
+    const escapeCsvCell = (value: string | number | null): string => {
+      if (value === null || value === undefined) return '';
+      const raw = String(value);
+      if (!/[",\r\n]/.test(raw)) {
+        return raw;
+      }
+      return `"${raw.replace(/"/g, '""')}"`;
+    };
+
+    const lines: string[] = [];
+    lines.push(headers.map((header) => escapeCsvCell(header)).join(','));
+    for (const row of rows) {
+      lines.push(row.map((cell) => escapeCsvCell(cell)).join(','));
+    }
+
+    // UTF-8 BOM keeps Excel imports clean for non-ASCII text.
+    const csv = `\uFEFF${lines.join('\r\n')}`;
+    return Buffer.from(csv, 'utf8');
+  }
+
+  private async buildTemplateBuffer(options?: {
+    dataRows?: Array<Array<string | number | null>>;
+    includeSampleRows?: boolean;
+  }): Promise<Buffer> {
     const [
       activeFilters,
       activeCategories,
@@ -281,10 +346,6 @@ export class BulkUploadService {
 
     const workbook = new ExcelJS.Workbook();
 
-    const attributeOne = activeAttributesResult.find((item) => item.name === 'Size')?.name
-      ?? activeAttributesResult[0]?.name
-      ?? 'Size';
-
     const importSheet = workbook.addWorksheet('Bulk Import Template');
     const headerRow = importSheet.addRow(headers);
     this.styleHeaderRow(headerRow);
@@ -296,34 +357,44 @@ export class BulkUploadService {
       },
     ];
 
-    importSheet.addRow(
-      this.buildVerticalStyleGroupVariantRow(headers, {
-        attributeOne,
-        name: 'Shampoo 250 ml',
-        styleGroupId: '5005',
-        productId: '54141',
-        sku: 'SHA/SAM/250-A1',
-        sizeValue: '250ml',
-        mrp: 299,
-        sellingPrice: 249,
-        stock: 50,
-        slug: 'shampoo-250-ml',
-      }),
-    );
-    importSheet.addRow(
-      this.buildVerticalStyleGroupVariantRow(headers, {
-        attributeOne,
-        name: 'Shampoo 500 ml',
-        styleGroupId: '5005',
-        productId: '54142',
-        sku: 'SHA/SAM/500-A1',
-        sizeValue: '500ml',
-        mrp: 499,
-        sellingPrice: 399,
-        stock: 40,
-        slug: 'shampoo-500-ml',
-      }),
-    );
+    if (options?.dataRows?.length) {
+      for (const row of options.dataRows) {
+        importSheet.addRow(row);
+      }
+    } else if (options?.includeSampleRows !== false) {
+      const attributeOne = activeAttributesResult.find((item) => item.name === 'Size')?.name
+        ?? activeAttributesResult[0]?.name
+        ?? 'Size';
+
+      importSheet.addRow(
+        this.buildVerticalStyleGroupVariantRow(headers, {
+          attributeOne,
+          name: 'Shampoo 250 ml',
+          styleGroupId: '5005',
+          productId: '54141',
+          sku: 'SHA/SAM/250-A1',
+          sizeValue: '250ml',
+          mrp: 299,
+          sellingPrice: 249,
+          stock: 50,
+          slug: 'shampoo-250-ml',
+        }),
+      );
+      importSheet.addRow(
+        this.buildVerticalStyleGroupVariantRow(headers, {
+          attributeOne,
+          name: 'Shampoo 500 ml',
+          styleGroupId: '5005',
+          productId: '54142',
+          sku: 'SHA/SAM/500-A1',
+          sizeValue: '500ml',
+          mrp: 499,
+          sellingPrice: 399,
+          stock: 40,
+          slug: 'shampoo-500-ml',
+        }),
+      );
+    }
     // Two vertical rows sharing style_group_id=5005 → one variable product, 2 variants.
 
     const categoryNameById = new Map(
@@ -547,6 +618,85 @@ export class BulkUploadService {
       errorSummary,
       createdAt: record.createdAt,
       completedAt: record.completedAt,
+    };
+  }
+
+  async cancelBulkUploadJob(refId: string, cancelledBy: string) {
+    const record = await this.repository.findByRefId(refId);
+    if (!record) {
+      throw new NotFoundException(`Bulk upload job with refId "${refId}" not found`);
+    }
+
+    const terminalStatuses = new Set<BulkUploadStatus>([
+      BulkUploadStatus.COMPLETED,
+      BulkUploadStatus.FAILED,
+      BulkUploadStatus.PARTIAL_SUCCESS,
+    ]);
+    if (terminalStatuses.has(record.status)) {
+      return {
+        refId: record.refId,
+        status: record.status,
+        cancelled: false,
+        alreadyTerminal: true,
+        message: `Job is already ${record.status}.`,
+      };
+    }
+
+    const redis = await this.redisConnection.getConnectedClient();
+    if (redis) {
+      await markBulkUploadCancelled(redis, refId);
+      const lockReleased = await forceReleaseBulkUploadLock(redis);
+      this.logger.warn(
+        `[BULK_UPLOAD] Cancel requested for ${refId} by ${cancelledBy}. Lock force-released=${lockReleased}`,
+      );
+    }
+
+    let removedJobs = 0;
+    const jobStates = ['active', 'waiting', 'delayed', 'paused'] as const;
+    for (const state of jobStates) {
+      const jobs = await this.queue.getJobs([state]);
+      for (const job of jobs) {
+        if (job.data?.uploadRefId !== refId) {
+          continue;
+        }
+        try {
+          await job.remove();
+          removedJobs += 1;
+        } catch (error) {
+          this.logger.warn(
+            `[BULK_UPLOAD] Failed to remove ${state} queue job ${job.id} for ${refId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+    }
+
+    await this.repository.updateFieldsByRefId(refId, {
+      status: BulkUploadStatus.FAILED,
+      completedAt: new Date(),
+      errorSummary: [
+        {
+          rowNumber: 0,
+          sku: 'SYSTEM',
+          column: 'Cancel',
+          invalidValue: cancelledBy,
+          reason: 'Bulk upload cancelled by administrator',
+          suggestedFix: 'Upload a new file when ready.',
+        },
+      ],
+    });
+
+    return {
+      refId,
+      status: BulkUploadStatus.FAILED,
+      cancelled: true,
+      alreadyTerminal: false,
+      removedJobs,
+      message:
+        removedJobs > 0
+          ? 'Bulk upload cancelled. Queue job removed.'
+          : 'Bulk upload cancelled. If processing continues, restart the API worker once.',
     };
   }
 

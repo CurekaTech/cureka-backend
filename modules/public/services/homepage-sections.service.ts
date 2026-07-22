@@ -136,8 +136,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v3: FIXED inject includes footer-static curated/healthReads/watchAndShop.
-      key: CacheKeys.homepage.sections(`v3-${this.buildVariantKey(requested)}`),
+      // v5: curatedWellnessEssentials includes CMS testimonials.
+      key: CacheKeys.homepage.sections(`v5-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),

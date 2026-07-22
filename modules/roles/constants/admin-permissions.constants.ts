@@ -99,6 +99,7 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('shop_by_indexing', 'Shop By Indexing'),
   ...buildCrudPermissions('watch_and_shop', 'Watch & Shop'),
   ...buildCrudPermissions('expert_talks', 'Expert Talks'),
+  ...buildCrudPermissions('testimonials', 'Testimonials'),
   ...buildCrudPermissions('audit_logs', 'Audit Logs'),
   ...buildCrudPermissions('support_categories', 'Support Categories'),
   ...buildCrudPermissions('support_articles', 'Support Articles'),
@@ -106,6 +107,24 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('blog_categories', 'Blog Categories'),
   ...buildCrudPermissions('blog_posts', 'Blog Posts'),
   ...buildCrudPermissions('blog_comments', 'Blog Comments'),
+  {
+    name: 'View Product Reviews',
+    code: 'product_reviews.read',
+    module: 'product_reviews',
+    action: PermissionAction.READ,
+  },
+  {
+    name: 'Update Product Reviews',
+    code: 'product_reviews.update',
+    module: 'product_reviews',
+    action: PermissionAction.UPDATE,
+  },
+  {
+    name: 'Delete Product Reviews',
+    code: 'product_reviews.delete',
+    module: 'product_reviews',
+    action: PermissionAction.DELETE,
+  },
   {
     name: 'View Support Tickets',
     code: 'support_tickets.read',

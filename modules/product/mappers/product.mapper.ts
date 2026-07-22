@@ -23,6 +23,7 @@ import { mapPackerEntityToResponse } from '@modules/master/mappers/packer.mapper
 import { mapImporterEntityToResponse } from '@modules/master/mappers/importer.mapper';
 import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapper';
 import { mapHealthConcernEntityToResponse } from '@modules/master/mappers/health-concern.mapper';
+import { mapVariantEntityToDetailFields } from './variant-details.mapper';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -98,6 +99,48 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
 
 export const mapProductEntitiesToResponse = (entities: ProductEntity[]): IProduct[] =>
   entities.map(mapProductEntityToResponse);
+
+const buildVariantListName = (entity: ProductEntity, variant: IProductVariant): string => {
+  const displayName = variant.displayName?.trim();
+  if (displayName && displayName.toLowerCase() !== entity.name.trim().toLowerCase()) {
+    return displayName;
+  }
+
+  const attributeLabel = variant.attributes
+    .map((item) => item.value?.trim())
+    .filter(Boolean)
+    .join(' / ');
+
+  if (attributeLabel) {
+    return `${entity.name} - ${attributeLabel}`;
+  }
+
+  return entity.name;
+};
+
+/** One admin list row per variant (variable products expand to multiple rows). */
+export const mapProductEntityToVariantListItem = (
+  entity: ProductEntity,
+  variantId: string,
+): IProduct => {
+  const mapped = mapProductEntityToResponse(entity);
+  const variant = mapped.variants.find((item) => item.id === variantId);
+  if (!variant) {
+    return mapped;
+  }
+
+  return {
+    ...mapped,
+    name: buildVariantListName(entity, variant),
+    slug: variant.slug,
+    variants: [variant],
+  };
+};
+
+export const mapVariantRowsToAdminListResponse = (
+  variants: Array<{ product: ProductEntity; id: string }>,
+): IProduct[] =>
+  variants.map((row) => mapProductEntityToVariantListItem(row.product, row.id));
 
 export const mapProductEntityToDetailResponse = (entity: ProductEntity): IProductDetail => ({
   ...mapProductEntityToResponse(entity),
@@ -232,6 +275,7 @@ const mapVariant = (
     value: item.value,
   })),
   images,
+  ...mapVariantEntityToDetailFields(variant),
   createdAt: variant.createdAt,
   updatedAt: variant.updatedAt,
 });

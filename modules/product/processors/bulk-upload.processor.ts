@@ -3,11 +3,13 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
+import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
-import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup, IParsedImage } from '../services/bulk-upload-parser.service';
+import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup, IParsedImage, IParsedProductGroup } from '../services/bulk-upload-parser.service';
 import { BulkUploadValidatorService, IValidationError } from '../services/bulk-upload-validator.service';
 import {
   isBulkUploadSizeChartResolvableWithoutGallery,
@@ -26,11 +28,13 @@ import {
   toStoredManufacturerName,
 } from '../../master/utils/manufacturer-stored-name.util';
 import { ProductsService } from '../services/products.service';
+import { ProductsRepository } from '../repositories/products.repository';
 import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductMediaDto } from '../dto/variant.dto';
@@ -44,6 +48,14 @@ import {
   releaseBulkUploadLock,
   renewBulkUploadLock,
 } from '../utils/bulk-upload-lock.util';
+import { isBulkUploadCancelled } from '../utils/bulk-upload-cancel.util';
+import { BulkUploadCancelledError } from '../errors/bulk-upload-cancelled.error';
+import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-details.util';
+
+const BULK_MUTATION_OPTIONS = {
+  skipDetailEnrichment: true,
+  lightweightLoad: true,
+} as const;
 
 interface BulkUploadJobData {
   uploadRefId: string;
@@ -53,7 +65,7 @@ interface BulkUploadJobData {
   lockTtlMs?: number;
 }
 
-@Processor('bulk-upload')
+@Processor('bulk-upload', { concurrency: 1 })
 export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
 
@@ -292,12 +304,70 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly parserService: BulkUploadParserService,
     private readonly validatorService: BulkUploadValidatorService,
     private readonly productsService: ProductsService,
+    private readonly productsRepository: ProductsRepository,
     private readonly galleryService: GalleryService,
     private readonly configService: ConfigService,
+    private readonly eventEmitter: EventEmitter2,
     @InjectQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS)
     private readonly unicommerceProductQueue: Queue,
   ) {
     super();
+  }
+
+  private async mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<R>,
+  ): Promise<R[]> {
+    if (!items.length) return [];
+    const limit = Math.max(1, concurrency);
+    const results = new Array<R>(items.length);
+    let nextIndex = 0;
+
+    const runWorker = async () => {
+      while (nextIndex < items.length) {
+        const current = nextIndex;
+        nextIndex += 1;
+        results[current] = await worker(items[current]);
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(limit, items.length) }, () => runWorker()),
+    );
+    return results;
+  }
+
+  private scheduleDeferredSearchReindex(refIds: string[]): void {
+    const uniqueRefIds = [...new Set(refIds.filter(Boolean))];
+    this.logger.log(
+      `[BULK_UPLOAD] Scheduling deferred Typesense reindex for ${uniqueRefIds.length} product(s)`,
+    );
+
+    setImmediate(() => {
+      void (async () => {
+        delete process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'];
+        // Keep side-effect listeners bypassed so deferred reindex does not flood Unicommerce/GoKwik.
+        process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'] = 'true';
+        try {
+          for (const refId of uniqueRefIds) {
+            try {
+              await this.eventEmitter.emitAsync(
+                EVENTS.PRODUCT_UPDATED,
+                new ProductUpdatedEvent(refId, 'updated'),
+              );
+            } catch (error) {
+              this.logger.warn(
+                `[BULK_UPLOAD] Deferred Typesense reindex failed for ${refId}: ${this.getErrorMessage(error)}`,
+              );
+            }
+          }
+        } finally {
+          delete process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'];
+          delete process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'];
+        }
+      })();
+    });
   }
 
   /**
@@ -341,6 +411,7 @@ export class BulkUploadProcessor extends WorkerHost {
     const lockRedis = lockToken
       ? await this.redisConnection.getConnectedClient()
       : null;
+    let processingSucceeded = false;
     let lockRenewalTimer: NodeJS.Timeout | undefined;
     if (lockRedis && lockToken) {
       lockRenewalTimer = setInterval(() => {
@@ -369,19 +440,37 @@ export class BulkUploadProcessor extends WorkerHost {
     });
     this.logger.log(`Received bulk upload job for refId: ${uploadRefId}, file: ${fileUrl}, zip: ${imagesZipUrl}`);
 
-    // Enable cache bypass during processing of the heavy bulk sheets
-    process.env['BYPASS_PRODUCT_CACHE_LISTENER'] = 'true';
-
-    // Update status to validating in database
-    await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
-      status: BulkUploadStatus.VALIDATING,
-    });
-
     const tempDir = join(process.cwd(), 'temp-uploads');
     const tempFilePath = join(tempDir, `${uploadRefId}-${Date.now()}.bin`);
-    let processingSucceeded = false;
 
     try {
+      const existingRecord = await this.bulkUploadsRepository.findByRefId(uploadRefId);
+      const terminalStatuses = new Set<BulkUploadStatus>([
+        BulkUploadStatus.COMPLETED,
+        BulkUploadStatus.FAILED,
+        BulkUploadStatus.PARTIAL_SUCCESS,
+      ]);
+      if (existingRecord && terminalStatuses.has(existingRecord.status)) {
+        this.logger.warn(
+          `Skipping bulk upload ${uploadRefId} — job already terminal (${existingRecord.status})`,
+        );
+        processingSucceeded = true;
+        return { skipped: true, status: existingRecord.status };
+      }
+      if (lockRedis && (await isBulkUploadCancelled(lockRedis, uploadRefId))) {
+        throw new BulkUploadCancelledError(uploadRefId);
+      }
+
+      // Enable cache/side-effect bypass during processing of the heavy bulk sheets
+      process.env['BYPASS_PRODUCT_CACHE_LISTENER'] = 'true';
+      process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'] = 'true';
+      process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'] = 'true';
+
+      // Update status to validating in database
+      await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
+        status: BulkUploadStatus.VALIDATING,
+      });
+
       // 1. Prime validation cache, load Media Gallery mappings, and Product ID lookups
       await this.validatorService.primeValidationCache();
       const galleryMap = await this.galleryService.getAllGalleryMap();
@@ -446,6 +535,11 @@ export class BulkUploadProcessor extends WorkerHost {
       let productsUpdated = 0;
       let unicommerceEnqueued = 0;
       let unicommerceEnqueueFailed = 0;
+      const touchedProductRefIds: string[] = [];
+      const writeConcurrency = this.configService.get<number>(
+        'PRODUCT_BULK_UPLOAD_CONCURRENCY',
+        4,
+      );
 
       const labelSortOrders = this.validatorService.getProductInformationLabelSortOrders();
 
@@ -454,22 +548,14 @@ export class BulkUploadProcessor extends WorkerHost {
         fileUrl.endsWith('.csv') ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         100, // chunk size of 100 products
         async (batch, scannedRows) => {
+          if (lockRedis && (await isBulkUploadCancelled(lockRedis, uploadRefId))) {
+            throw new BulkUploadCancelledError(uploadRefId);
+          }
+
           totalProductsGrouped += batch.length;
-          console.log('[BULK_UPLOAD_DEBUG][Processor.process] BATCH_PARSED', {
-            uploadRefId,
-            scannedRows,
-            batchSize: batch.length,
-            groups: batch.map((group) => ({
-              rowNumber: group.rowNumber,
-              name: group.name,
-              externalProductId: group.externalProductId ?? null,
-              category: group.category,
-              subCategory: group.subCategory,
-              subSubCategory: group.subSubCategory,
-              subSubSubCategory: group.subSubSubCategory,
-              sku: group.variants[0]?.sku ?? null,
-            })),
-          });
+          this.logger.log(
+            `[BULK_UPLOAD] Parsed batch size=${batch.length} scannedRows=${scannedRows}`,
+          );
           
           // Execute batch validation
           const { errors, validatedProducts } = this.validatorService.validateBatch(
@@ -477,15 +563,17 @@ export class BulkUploadProcessor extends WorkerHost {
             sheetSkus,
             sheetExternalProductIds,
           );
-          console.log('[BULK_UPLOAD_DEBUG][Processor.process] BATCH_VALIDATED', {
-            uploadRefId,
-            errorCount: errors.length,
-            validatedCount: validatedProducts.length,
-            errors,
-          });
+          if (errors.length) {
+            this.logger.warn(
+              `[BULK_UPLOAD] Batch validation errors=${errors.length} valid=${validatedProducts.length}`,
+            );
+          }
 
           // For successfully validated products, transform and save them to the DB using existing ProductsService
-          for (const group of validatedProducts) {
+          const batchResults = await this.mapWithConcurrency(
+            validatedProducts,
+            writeConcurrency,
+            async (group) => {
             try {
               if (
                 group.sizeChart &&
@@ -493,19 +581,20 @@ export class BulkUploadProcessor extends WorkerHost {
               ) {
                 const normalizedSizeChart = group.sizeChart.toLowerCase().trim();
                 if (!galleryMap.has(normalizedSizeChart)) {
-                  const sheetRows = countSheetRowsForProductGroup(group);
-                  failedSheetRows += sheetRows;
-                  failedVariantSlots += countVariantSlotsForProductGroup(group);
-                  allErrors.push({
-                    rowNumber: group.rowNumber,
-                    sku: group.variants?.[0]?.sku || 'PARENT',
-                    column: 'Size Chart Filename/Path',
-                    invalidValue: group.sizeChart,
-                    reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
-                    suggestedFix:
-                      'Upload the file to Media Gallery first, provide Size Chart URL, or use an images/ storage path.',
-                  });
-                  continue;
+                  return {
+                    ok: false as const,
+                    sheetRows: countSheetRowsForProductGroup(group),
+                    variantSlots: countVariantSlotsForProductGroup(group),
+                    error: {
+                      rowNumber: group.rowNumber,
+                      sku: group.variants?.[0]?.sku || 'PARENT',
+                      column: 'Size Chart Filename/Path',
+                      invalidValue: group.sizeChart,
+                      reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
+                      suggestedFix:
+                        'Upload the file to Media Gallery first, provide Size Chart URL, or use an images/ storage path.',
+                    } satisfies IValidationError,
+                  };
                 }
               }
 
@@ -539,10 +628,6 @@ export class BulkUploadProcessor extends WorkerHost {
               } else if (!autoManufacturerRefId && lookupProductId && manufacturerLookup.loaded) {
                 this.logger.warn(
                   `[BULK_UPLOAD] Product ID ${lookupProductId}: no Manufacture Address lookup row`,
-                );
-              } else if (!lookupProductId) {
-                this.logger.warn(
-                  `[BULK_UPLOAD] row=${group.rowNumber} name="${group.name}": Product ID (String) is empty — manufacturer/images lookup skipped`,
                 );
               }
 
@@ -610,6 +695,42 @@ export class BulkUploadProcessor extends WorkerHost {
                         .filter((item) => !!item.attributeRefId)
                     : [];
 
+                  const variantLookupManufacturerAddress = variantLookupProductId
+                    ? manufacturerLookup.byProductId.get(variantLookupProductId)
+                    : undefined;
+                  const variantRefs = this.validatorService.resolveReferences({
+                    ...group,
+                    manufacturer: v.manufacturer ?? group.manufacturer,
+                    packer: v.packer ?? group.packer,
+                    importer: v.importer ?? group.importer,
+                    countryOfOrigin: v.countryOfOrigin ?? group.countryOfOrigin,
+                    healthConcerns: v.healthConcerns.length ? v.healthConcerns : group.healthConcerns,
+                    wellnessGoals: v.wellnessGoals.length ? v.wellnessGoals : group.wellnessGoals,
+                  });
+                  let variantManufacturerRefId = variantRefs.manufacturerRefId;
+                  if (
+                    !variantManufacturerRefId &&
+                    variantLookupManufacturerAddress &&
+                    variantLookupProductId
+                  ) {
+                    const storedName = toStoredManufacturerName(variantLookupManufacturerAddress);
+                    variantManufacturerRefId =
+                      this.validatorService.resolveManufacturerRefIdByProductId(
+                        variantLookupProductId,
+                      ) ||
+                      this.validatorService.resolveManufacturerRefIdByCode(
+                        toManufacturerImportCode(variantLookupProductId),
+                      ) ||
+                      this.validatorService.resolveManufacturerRefIdByName(storedName);
+                  }
+                  const resolvedVariantManufacturerAddress =
+                    v.manufacturerAddress?.trim() ||
+                    variantLookupManufacturerAddress ||
+                    undefined;
+                  const variantSizeChart =
+                    v.sizeChart &&
+                    (await this.resolveBulkUploadSizeChart(v.sizeChart, galleryMap));
+
                   return {
                     sku: v.sku,
                     slug: variantLookupSlug || v.productUrlSlug,
@@ -637,6 +758,23 @@ export class BulkUploadProcessor extends WorkerHost {
                     searchTags: v.searchTags?.length ? v.searchTags : undefined,
                     attributes: processedAttributes,
                     images: normalizedVariantImages,
+                    ...mapParsedVariantToDetailDto(
+                      v,
+                      {
+                        manufacturerRefId: variantManufacturerRefId,
+                        packerRefId: variantRefs.packerRefId,
+                        importerRefId: variantRefs.importerRefId,
+                        countryOfOriginRefId: variantRefs.countryOfOriginRefId,
+                        healthConcernRefIds: variantRefs.healthConcernRefIds,
+                        wellnessGoalRefIds: variantRefs.wellnessGoalRefIds,
+                      },
+                      {
+                        sizeChart: variantSizeChart
+                          ? this.storageService.toFileReference(variantSizeChart)
+                          : undefined,
+                        resolvedManufacturerAddress: resolvedVariantManufacturerAddress,
+                      },
+                    ),
                   };
                 })
               ) : undefined;
@@ -668,58 +806,70 @@ export class BulkUploadProcessor extends WorkerHost {
                   this.toCommonMediaDto(resolved, processedCommonMedia.length),
                 );
               }
-              this.logger.log(
-                `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId || '(empty)'} manufacturerRef=${autoManufacturerRefId || '(none)'} manufacturerAddress=${resolvedManufacturerAddress ? 'yes' : 'no'} commonMediaParsed=${group.commonMedia?.length ?? 0} commonMediaResolved=${processedCommonMedia.length} variantImages=${processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0}`,
+              this.logger.debug?.(
+                `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId || '(empty)'} manufacturerRef=${autoManufacturerRefId || '(none)'} commonMedia=${processedCommonMedia.length}`,
               );
 
               if (lookupProductId && lookupManufacturerAddress && !autoManufacturerRefId) {
-                failedSheetRows += countSheetRowsForProductGroup(group);
-                failedVariantSlots += countVariantSlotsForProductGroup(group);
-                allErrors.push({
-                  rowNumber: group.rowNumber,
-                  sku: group.variants?.[0]?.sku || 'PARENT',
-                  column: 'Product ID (String)',
-                  invalidValue: lookupProductId,
-                  reason: `Product ID ${lookupProductId} has a Manufacture Address lookup, but no manufacturer match (expected code ${toManufacturerImportCode(lookupProductId)} or name "${toStoredManufacturerName(lookupManufacturerAddress)}"). Run manufacturer-address:import first.`,
-                  suggestedFix:
-                    'Re-run manufacturer:reset + manufacturer-address:import, then upload again with Product ID (String) filled.',
-                });
-                continue;
+                return {
+                  ok: false as const,
+                  sheetRows: countSheetRowsForProductGroup(group),
+                  variantSlots: countVariantSlotsForProductGroup(group),
+                  error: {
+                    rowNumber: group.rowNumber,
+                    sku: group.variants?.[0]?.sku || 'PARENT',
+                    column: 'Product ID (String)',
+                    invalidValue: lookupProductId,
+                    reason: `Product ID ${lookupProductId} has a Manufacture Address lookup, but no manufacturer match (expected code ${toManufacturerImportCode(lookupProductId)} or name "${toStoredManufacturerName(lookupManufacturerAddress)}"). Run manufacturer-address:import first.`,
+                    suggestedFix:
+                      'Re-run manufacturer:reset + manufacturer-address:import, then upload again with Product ID (String) filled.',
+                  } satisfies IValidationError,
+                };
               }
 
               const resolvedImageCount =
                 (processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0) +
                 processedCommonMedia.length;
               if (lookupProductId && lookupImageUrls?.length && resolvedImageCount === 0) {
-                failedSheetRows += countSheetRowsForProductGroup(group);
-                failedVariantSlots += countVariantSlotsForProductGroup(group);
-                allErrors.push({
-                  rowNumber: group.rowNumber,
-                  sku: group.variants?.[0]?.sku || 'PARENT',
-                  column: 'Product ID (String)',
-                  invalidValue: lookupProductId,
-                  reason: `Product ID ${lookupProductId} has ${lookupImageUrls.length} lookup image URL(s), but none could be downloaded/stored.`,
-                  suggestedFix:
-                    'Check that the WC image URLs are reachable, or put Primary Image URL / common_media URLs directly in the sheet.',
-                });
-                continue;
+                return {
+                  ok: false as const,
+                  sheetRows: countSheetRowsForProductGroup(group),
+                  variantSlots: countVariantSlotsForProductGroup(group),
+                  error: {
+                    rowNumber: group.rowNumber,
+                    sku: group.variants?.[0]?.sku || 'PARENT',
+                    column: 'Product ID (String)',
+                    invalidValue: lookupProductId,
+                    reason: `Product ID ${lookupProductId} has ${lookupImageUrls.length} lookup image URL(s), but none could be downloaded/stored.`,
+                    suggestedFix:
+                      'Check that the WC image URLs are reachable, or put Primary Image URL / common_media URLs directly in the sheet.',
+                  } satisfies IValidationError,
+                };
               }
 
               if (unresolvedCommonMedia.length) {
-                for (const img of unresolvedCommonMedia) {
-                  allErrors.push({
+                return {
+                  ok: false as const,
+                  sheetRows: countSheetRowsForProductGroup(group),
+                  variantSlots: countVariantSlotsForProductGroup(group),
+                  error: {
                     rowNumber: group.rowNumber,
                     sku: group.variants?.[0]?.sku || 'PARENT',
                     column: 'common_media',
-                    invalidValue: img.filename || img.url || '',
-                    reason: img.resolveError
-                      ? `Common media URL could not be stored: ${img.resolveError}`
+                    invalidValue:
+                      unresolvedCommonMedia[0]?.filename ||
+                      unresolvedCommonMedia[0]?.url ||
+                      '',
+                    reason: unresolvedCommonMedia[0]?.resolveError
+                      ? `Common media URL could not be stored: ${unresolvedCommonMedia[0].resolveError}`
                       : 'Common media URL could not be downloaded or resolved to a storage path.',
-                    suggestedFix: img.resolveError?.toLowerCase().includes('maximum allowed size')
+                    suggestedFix: unresolvedCommonMedia[0]?.resolveError
+                      ?.toLowerCase()
+                      .includes('maximum allowed size')
                       ? 'Reduce the image file size, or raise UPLOAD_MAX_IMAGE_FILE_SIZE (default 5 MB).'
                       : 'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
-                  });
-                }
+                  } satisfies IValidationError,
+                };
               }
 
               const attributeRefIds = new Set<string>();
@@ -839,56 +989,91 @@ export class BulkUploadProcessor extends WorkerHost {
                 sheetStatus === 'publish';
 
               let savedProductRefId = existingProductRefId;
+              let created = 0;
+              let updated = 0;
+              let publishedNow = false;
+
               if (existingProductRefId) {
-                const resolvedVariantImageCount = (processedVariants ?? []).reduce(
-                  (n, v) => n + (('images' in v && Array.isArray(v.images) ? v.images.length : 0)),
-                  0,
-                );
-                this.logger.log(
-                  `[BULK_UPLOAD] updating product="${group.name}" refId=${existingProductRefId} shouldSyncMedia=${shouldSyncMedia} common=${processedCommonMedia.length} variantImages=${shouldSyncMedia ? resolvedVariantImageCount : 0}`,
-                );
                 await this.productsService.update(
                   existingProductRefId,
                   dto as UpdateProductDto,
                   'system-bulk-upload',
+                  BULK_MUTATION_OPTIONS,
                 );
-                productsUpdated += 1;
+                updated = 1;
               } else {
-                const created = await this.productsService.createDraft(dto, 'system-bulk-upload');
-                savedProductRefId = created.refId;
-                productsCreated += 1;
+                const createdProduct = await this.productsService.createDraft(
+                  dto,
+                  'system-bulk-upload',
+                  BULK_MUTATION_OPTIONS,
+                );
+                savedProductRefId = createdProduct.refId;
+                created = 1;
               }
 
+              let unicommerceOk: boolean | null = null;
               if (publishFromSheet && savedProductRefId) {
-                await this.productsService.publish(
-                  savedProductRefId,
-                  'system-bulk-upload',
-                );
-                // Directly enqueue Unicommerce product sync for every newly published
-                // product. The event-based listener also fires for individual publishes;
-                // using the same BullMQ job format ensures resilience for bulk paths
-                // where the event chain may be bypassed or unreliable at scale.
-                const enqueued = await this.enqueueUnicommerceSync(savedProductRefId);
-                if (enqueued) {
-                  unicommerceEnqueued += 1;
-                } else {
-                  unicommerceEnqueueFailed += 1;
+                const currentStatus =
+                  await this.productsRepository.findStatusByRefId(savedProductRefId);
+                if (currentStatus !== ProductStatus.PUBLISHED) {
+                  await this.productsService.publish(
+                    savedProductRefId,
+                    'system-bulk-upload',
+                    BULK_MUTATION_OPTIONS,
+                  );
+                  publishedNow = true;
+                  // Directly enqueue Unicommerce product sync for newly published products.
+                  unicommerceOk = await this.enqueueUnicommerceSync(savedProductRefId);
                 }
               }
-              successfulSheetRows += sheetRows;
-              successfulVariantSlots += variantSlots;
+
+              return {
+                ok: true as const,
+                sheetRows,
+                variantSlots,
+                created,
+                updated,
+                savedProductRefId: savedProductRefId ?? null,
+                unicommerceOk,
+                publishedNow,
+              };
             } catch (dbError) {
               this.logger.error(`Failed to create product '${group.name}' inside database:`, dbError);
-              failedSheetRows += countSheetRowsForProductGroup(group);
-              failedVariantSlots += countVariantSlotsForProductGroup(group);
-              allErrors.push({
-                rowNumber: group.rowNumber,
-                sku: group.variants?.[0]?.sku || 'PARENT',
-                column: 'Database',
-                invalidValue: group.name,
-                reason: dbError instanceof Error ? dbError.message : String(dbError),
-                suggestedFix: 'Resolve conflicting unique constraints or missing master records.',
-              });
+              return {
+                ok: false as const,
+                sheetRows: countSheetRowsForProductGroup(group),
+                variantSlots: countVariantSlotsForProductGroup(group),
+                error: {
+                  rowNumber: group.rowNumber,
+                  sku: group.variants?.[0]?.sku || 'PARENT',
+                  column: 'Database',
+                  invalidValue: group.name,
+                  reason: dbError instanceof Error ? dbError.message : String(dbError),
+                  suggestedFix: 'Resolve conflicting unique constraints or missing master records.',
+                } satisfies IValidationError,
+              };
+            }
+          },
+          );
+
+          for (const result of batchResults) {
+            if (result.ok) {
+              successfulSheetRows += result.sheetRows;
+              successfulVariantSlots += result.variantSlots;
+              productsCreated += result.created;
+              productsUpdated += result.updated;
+              if (result.savedProductRefId) {
+                touchedProductRefIds.push(result.savedProductRefId);
+              }
+              if (result.unicommerceOk === true) {
+                unicommerceEnqueued += 1;
+              } else if (result.unicommerceOk === false) {
+                unicommerceEnqueueFailed += 1;
+              }
+            } else {
+              failedSheetRows += result.sheetRows;
+              failedVariantSlots += result.variantSlots;
+              allErrors.push(result.error);
             }
           }
 
@@ -973,6 +1158,7 @@ export class BulkUploadProcessor extends WorkerHost {
       this.logger.log(
         `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} sheet rows. Successful rows: ${successfulSheetRows}. Failed rows: ${failedSheetRows}.`
       );
+      this.scheduleDeferredSearchReindex(touchedProductRefIds);
       processingSucceeded = true;
       return {
         success: true,
@@ -985,6 +1171,12 @@ export class BulkUploadProcessor extends WorkerHost {
         errorFileUrl,
       };
     } catch (error) {
+      if (error instanceof BulkUploadCancelledError) {
+        this.logger.warn(`Bulk upload ${uploadRefId} stopped — cancellation requested`);
+        processingSucceeded = true;
+        return { success: false, cancelled: true, uploadRefId };
+      }
+
       const systemError = this.buildSystemError(error);
       if (error instanceof Error) {
         this.logger.error(
@@ -1027,6 +1219,11 @@ export class BulkUploadProcessor extends WorkerHost {
 
       // Restore cache invalidations and run exactly one single global purge
       delete process.env['BYPASS_PRODUCT_CACHE_LISTENER'];
+      // On success, Typesense/side-effect bypasses are released by deferred reindex.
+      if (!processingSucceeded) {
+        delete process.env['BYPASS_PRODUCT_TYPESENSE_LISTENER'];
+        delete process.env['BYPASS_PRODUCT_SIDE_EFFECT_LISTENERS'];
+      }
       try {
         await this.cacheStrategy.invalidateOnly({
           patterns: [

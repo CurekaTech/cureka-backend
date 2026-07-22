@@ -45,6 +45,7 @@ import {
   mapProductEntityToPublicDetail,
   mapVariantEntitiesToPublicSearchItems,
   pickPreferredPublicVariant,
+  applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 
 /** Tag slug that marks a product as a best seller (see homepage Best Sellers section). */
@@ -389,9 +390,9 @@ export class PublicProductsService {
     const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
         query.categoryRefId
-          ? this.categoriesRepository.findByRefId(query.categoryRefId)
+          ? this.categoriesRepository.findActiveByRefId(query.categoryRefId)
           : query.categorySlug
-            ? this.categoriesRepository.findBySlug(query.categorySlug)
+            ? this.categoriesRepository.findActiveBySlug(query.categorySlug)
             : Promise.resolve(null),
         this.resolveBrandFilters(query),
         query.productNatureRefId
@@ -442,7 +443,7 @@ export class PublicProductsService {
     category: CategoryEntity,
   ): Promise<IPublicCategoryProductListingContext> {
     const matchedCategory =
-      (await this.categoriesRepository.findByRefId(category.refId)) ?? category;
+      (await this.categoriesRepository.findActiveByRefId(category.refId)) ?? category;
     const rootCategory =
       (await this.categoriesRepository.findRootAncestor(matchedCategory.id)) ?? matchedCategory;
     const isChildFilter =
@@ -596,7 +597,23 @@ export class PublicProductsService {
     const packer = product.packer ? await this.enrichPartySummary(product.packer) : null;
     const importer = product.importer ? await this.enrichPartySummary(product.importer) : null;
 
-    return {
+    const variants = await Promise.all(
+      product.variants.map(async (variant) => {
+        const variantSizeChart = variant.sizeChart
+          ? await this.storageUrlEnricher.toReference(variant.sizeChart)
+          : null;
+        return {
+          ...variant,
+          sizeChart: variantSizeChart,
+          expiryDate: resolvePublicExpiryDate(
+            variant.expiryDate,
+            variant.expiresInMonths ?? product.expiresInMonths,
+          ),
+        };
+      }),
+    );
+
+    const merged = applySelectedVariantDetailToPublicProduct({
       ...product,
       media,
       wellnessGoals,
@@ -605,20 +622,10 @@ export class PublicProductsService {
       manufacturer,
       packer,
       importer,
-      variants: product.variants.map((variant) => ({
-        ...variant,
-        stock: getSalableStockQuantity(variant.stock),
-        inStock: isVariantInStock(variant.stock),
-        // Stored expiry wins; otherwise today + product.expiresInMonths (fresh each request, not frozen in cache).
-        expiryDate: resolvePublicExpiryDate(variant.expiryDate, product.expiresInMonths),
-      })),
-      pricing: {
-        ...product.pricing,
-        inStock:
-          product.pricing.inStock ||
-          product.variants.some((variant) => isVariantInStock(variant.stock)),
-      },
-    };
+      variants,
+    });
+
+    return merged;
   }
 
   private async enrichPartySummary<

@@ -10,6 +10,7 @@ export { HealthConcernUpdatedEvent } from './domain/health-concern-updated.event
 export { BannerUpdatedEvent } from './domain/banner-updated.event';
 export { WatchAndShopUpdatedEvent } from './domain/watch-and-shop-updated.event';
 export { ExpertTalkUpdatedEvent } from './domain/expert-talk-updated.event';
+export { TestimonialUpdatedEvent } from './domain/testimonial-updated.event';
 export { ImporterUpdatedEvent } from './domain/importer-updated.event';
 export { PackerUpdatedEvent } from './domain/packer-updated.event';
 export { SubscriptionFrequencyUpdatedEvent } from './domain/subscription-frequency-updated.event';

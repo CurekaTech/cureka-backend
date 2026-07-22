@@ -19,3 +19,7 @@ export function buildHealthConcernDocumentId(refId: string): string {
 export function buildProductDocumentId(refId: string): string {
   return refId;
 }
+
+export function buildVariantDocumentId(variantId: string): string {
+  return `variant:${variantId}`;
+}

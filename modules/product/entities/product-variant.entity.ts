@@ -14,6 +14,14 @@ import { ProductEntity } from './product.entity';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { VariantAttributeValueEntity } from './variant-attribute-value.entity';
 import { ProductMediaEntity } from './product-media.entity';
+import { IProductInformationItem } from '../interfaces/product-information.interface';
+import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
+import { IVariantInlineFaq, IVariantCategoryFilterBinding } from '../interfaces/variant-details.interface';
+import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
+import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
+import { PackerEntity } from '@modules/master/entities/packer.entity';
+import { ImporterEntity } from '@modules/master/entities/importer.entity';
+import { CountryEntity } from '@modules/master/entities/country.entity';
 
 @Entity('product_variants')
 export class ProductVariantEntity {
@@ -114,6 +122,103 @@ export class ProductVariantEntity {
   @Column({ name: 'combination_key', type: 'varchar', length: 500, nullable: true })
   combinationKey!: string | null;
 
+  @Column({ name: 'display_name', type: 'varchar', length: 500, nullable: true })
+  displayName!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
+  @Column({ name: 'product_information', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  productInformation!: IProductInformationItem[];
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: IVariantInlineFaq[];
+
+  @Column({ name: 'meta_title', type: 'varchar', length: 255, nullable: true })
+  metaTitle!: string | null;
+
+  @Column({ name: 'meta_description', type: 'text', nullable: true })
+  metaDescription!: string | null;
+
+  @Column({ name: 'meta_keywords', type: 'jsonb', nullable: true })
+  metaKeywords!: string[] | null;
+
+  @Column({ type: 'text', nullable: true })
+  components!: string | null;
+
+  @Column({ name: 'subscription_enabled', type: 'boolean', default: false })
+  subscriptionEnabled!: boolean;
+
+  @Column({ name: 'cod_available', type: 'boolean', default: false })
+  codAvailable!: boolean;
+
+  @Column({ name: 'emi_available', type: 'boolean', default: false })
+  emiAvailable!: boolean;
+
+  @Column({ name: 'return_allowed', type: 'boolean', default: false })
+  returnAllowed!: boolean;
+
+  @Column({ name: 'return_policy', type: 'text', nullable: true })
+  returnPolicy!: string | null;
+
+  @Column({ name: 'return_window_days', type: 'int', nullable: true })
+  returnWindowDays!: number | null;
+
+  @Column({ name: 'replace_allowed', type: 'boolean', default: false })
+  replaceAllowed!: boolean;
+
+  @Column({ name: 'replace_window_days', type: 'int', nullable: true })
+  replaceWindowDays!: number | null;
+
+  @Index()
+  @Column({ name: 'manufacturer_id', type: 'uuid', nullable: true })
+  manufacturerId!: string | null;
+
+  @Index()
+  @Column({ name: 'packer_id', type: 'uuid', nullable: true })
+  packerId!: string | null;
+
+  @Index()
+  @Column({ name: 'importer_id', type: 'uuid', nullable: true })
+  importerId!: string | null;
+
+  @Column({ name: 'manufacturer_address', type: 'text', nullable: true })
+  manufacturerAddress!: string | null;
+
+  @Column({ name: 'packer_address', type: 'text', nullable: true })
+  packerAddress!: string | null;
+
+  @Column({ name: 'importer_address', type: 'text', nullable: true })
+  importerAddress!: string | null;
+
+  @Index()
+  @Column({ name: 'country_of_origin_id', type: 'uuid', nullable: true })
+  countryOfOriginId!: string | null;
+
+  @Column({ name: 'expires_in_months', type: 'int', nullable: true })
+  expiresInMonths!: number | null;
+
+  @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
+  sizeChart!: IStorageFileReference | null;
+
+  @Column({ name: 'single_product_url', type: 'varchar', length: 1000, nullable: true })
+  singleProductUrl!: string | null;
+
+  @Column({ name: 'health_concern_ref_ids', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  healthConcernRefIds!: string[];
+
+  @Column({ name: 'wellness_goal_ref_ids', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  wellnessGoalRefIds!: string[];
+
+  @Column({ name: 'tag_names', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  tagNames!: string[];
+
+  @Column({ name: 'category_filters', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  categoryFilters!: IVariantCategoryFilterBinding[];
+
+  @Column({ name: 'pack_metadata', type: 'jsonb', nullable: false, default: () => "'[]'" })
+  packMetadata!: IProductPackMetadataItem[];
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
@@ -126,6 +231,22 @@ export class ProductVariantEntity {
   @ManyToOne(() => ProductEntity, (product) => product.variants, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id' })
   product!: ProductEntity;
+
+  @ManyToOne(() => ManufacturerEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'manufacturer_id' })
+  manufacturer?: ManufacturerEntity | null;
+
+  @ManyToOne(() => PackerEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'packer_id' })
+  packer?: PackerEntity | null;
+
+  @ManyToOne(() => ImporterEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'importer_id' })
+  importer?: ImporterEntity | null;
+
+  @ManyToOne(() => CountryEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'country_of_origin_id' })
+  countryOfOrigin?: CountryEntity | null;
 
   @OneToMany(() => VariantAttributeValueEntity, (value) => value.variant)
   attributeValues!: VariantAttributeValueEntity[];
