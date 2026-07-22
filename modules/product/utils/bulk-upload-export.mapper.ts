@@ -1,13 +1,10 @@
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
-import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
-import { ProductMediaType } from '../enums/product-media-type.enum';
 import { buildCategoryFilterColumnHeader } from './bulk-upload-columns.util';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
-import { IStorageFileReference } from '@packages/storage';
 
 type ExportCellValue = string | number | null;
 type ExportRowValues = Map<string, ExportCellValue>;
@@ -66,15 +63,6 @@ const PACK_COLUMN_PREFIXES: Record<
   },
 };
 
-const GALLERY_IMAGE_COLUMNS: Array<{ name: string; url: string; isVideo?: boolean }> = [
-  { name: 'Gallery Image 2', url: 'Gallery Image 2 URL' },
-  { name: 'Gallery Image 2 (Video)', url: 'Gallery Image 2 (Video) URL', isVideo: true },
-  { name: 'Gallery Image 3', url: 'Gallery Image 3 URL' },
-  { name: 'Gallery Image 4', url: 'Gallery Image 4 URL' },
-  { name: 'Gallery Image 5', url: 'Gallery Image 5 URL' },
-  { name: 'Gallery Image 6', url: 'Gallery Image 6 URL' },
-];
-
 const yesNo = (value: boolean | undefined | null): string => (value ? 'Yes' : 'No');
 
 const joinPipe = (items: Array<string | undefined | null>): string =>
@@ -84,12 +72,6 @@ const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined || value === '') return null;
   const parsed = typeof value === 'number' ? value : parseFloat(String(value));
   return Number.isNaN(parsed) ? null : parsed;
-};
-
-const storageKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
-  if (!ref) return null;
-  if (typeof ref === 'string') return ref.trim() || null;
-  return ref.key?.trim() || null;
 };
 
 const buildRowFromValues = (headers: string[], values: ExportRowValues): ExportCellValue[] =>
@@ -155,64 +137,10 @@ const applyCategoryFilters = (
   }
 };
 
-const applySimpleGalleryImages = (
-  values: ExportRowValues,
-  media: ProductMediaEntity[],
-): void => {
-  const images = media
-    .filter((item) => item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.VIDEO)
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.getTime() - right.createdAt.getTime());
-
-  if (!images.length) return;
-
-  const primary = images.find((item) => item.isPrimary) ?? images[0];
-  const primaryKey = storageKey(primary.url);
-  if (primaryKey) {
-    values.set('Primary Image URL', primaryKey);
-  }
-
-  const gallery = images.filter((item) => item.id !== primary.id);
-  let galleryColumnIndex = 0;
-
-  for (const item of gallery) {
-    const key = storageKey(item.url);
-    if (!key) continue;
-
-    while (galleryColumnIndex < GALLERY_IMAGE_COLUMNS.length) {
-      const column = GALLERY_IMAGE_COLUMNS[galleryColumnIndex];
-      galleryColumnIndex += 1;
-
-      const isVideo = item.type === ProductMediaType.VIDEO;
-      if (isVideo && !column.isVideo) continue;
-      if (!isVideo && column.isVideo) continue;
-
-      values.set(column.url, key);
-      break;
-    }
-  }
-};
-
-const applyCommonMedia = (values: ExportRowValues, media: ProductMediaEntity[]): void => {
-  const commonMedia = media
-    .filter((item) => !item.variantId)
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.getTime() - right.createdAt.getTime());
-
-  commonMedia.slice(0, 6).forEach((item, index) => {
-    const key = storageKey(item.url);
-    if (!key) return;
-    const slot = index + 1;
-    values.set(`common_media_${slot}_url`, key);
-  });
-};
-
 const applyVariantFields = (
   values: ExportRowValues,
   variant: ProductVariantEntity,
-  options: {
-    includeVariantImages: boolean;
-    attributeNames: string[];
-    variantMedia?: ProductMediaEntity[];
-  },
+  attributeNames: string[],
 ): void => {
   values.set('Product SKU Code*', variant.sku);
   if (variant.externalProductId) {
@@ -245,7 +173,7 @@ const applyVariantFields = (
   if (variant.slug) values.set('Product URL Slug', variant.slug);
   if (variant.searchTags?.length) values.set('Search Tags', joinPipe(variant.searchTags));
 
-  options.attributeNames.forEach((attributeName, index) => {
+  attributeNames.forEach((attributeName, index) => {
     const attributeValue = variant.attributeValues?.find(
       (entry) => entry.attribute?.name?.toLowerCase() === attributeName.toLowerCase(),
     );
@@ -253,10 +181,6 @@ const applyVariantFields = (
     values.set(`Attribute Details ${index + 1}`, attributeName);
     values.set(`att_attribute_${index + 1}_value_1`, attributeValue.value);
   });
-
-  if (options.includeVariantImages && options.variantMedia?.length) {
-    applySimpleGalleryImages(values, options.variantMedia);
-  }
 };
 
 const buildSharedProductValues = (
@@ -306,12 +230,6 @@ const buildSharedProductValues = (
   }
   if (product.metaKeywords?.length) {
     values.set('Meta Keywords', product.metaKeywords.join(', '));
-  }
-
-  const sizeChartKey = storageKey(product.sizeChart);
-  if (sizeChartKey) {
-    values.set('Size Chart URL', sizeChartKey);
-    values.set('Size Chart', sizeChartKey);
   }
 
   values.set('Subscription Available', yesNo(product.subscriptionEnabled));
@@ -388,18 +306,7 @@ const mapSimpleProductRows = (
   if (!variant) return [];
 
   const values = buildSharedProductValues(product, headerSet);
-  const variantMedia =
-    product.media?.filter((item) => item.variantId === variant.id) ?? [];
-  applyVariantFields(values, variant, {
-    includeVariantImages: true,
-    attributeNames: getAttributeNames(product),
-    variantMedia,
-  });
-
-  const productMedia = product.media?.filter((item) => !item.variantId) ?? [];
-  if (productMedia.length) {
-    applySimpleGalleryImages(values, productMedia);
-  }
+  applyVariantFields(values, variant, getAttributeNames(product));
 
   return [buildRowFromValues(headers, values)];
 };
@@ -417,9 +324,8 @@ const mapVariableProductRows = (
   const attributeNames = getAttributeNames(product);
   const styleGroupId = product.refId;
   const sharedValues = buildSharedProductValues(product, headerSet);
-  const commonMedia = product.media?.filter((item) => !item.variantId) ?? [];
 
-  return variants.map((variant, index) => {
+  return variants.map((variant) => {
     const values = new Map(sharedValues);
     values.set('Product Type *', ProductType.VARIABLE);
     values.set('style_group_id', styleGroupId);
@@ -428,19 +334,18 @@ const mapVariableProductRows = (
       values.set('Product Name*', variant.displayName);
     }
 
-    applyVariantFields(values, variant, {
-      includeVariantImages: false,
-      attributeNames,
-      variantMedia: product.media?.filter((item) => item.variantId === variant.id) ?? [],
-    });
-
-    if (index === 0 && commonMedia.length) {
-      applyCommonMedia(values, commonMedia);
-    }
+    applyVariantFields(values, variant, attributeNames);
 
     return buildRowFromValues(headers, values);
   });
 };
+
+export interface IBulkExportLookupContext {
+  skuLookup: Map<string, ProductVariantEntity>;
+  productById: Map<string, ProductEntity>;
+  variantSkuPriceLookup?: Map<string, { mrp: number | null; sellingPrice: number | null }>;
+  firstVariantSkuByProductId?: Map<string, string>;
+}
 
 const mapBundleProductRows = (
   product: ProductEntity,
@@ -448,6 +353,7 @@ const mapBundleProductRows = (
   headerSet: Set<string>,
   skuLookup: Map<string, ProductVariantEntity>,
   productById: Map<string, ProductEntity>,
+  exportContext?: IBulkExportLookupContext,
 ): ExportCellValue[][] => {
   const parentVariant = product.variants?.[0];
   if (!parentVariant) return [];
@@ -464,18 +370,16 @@ const mapBundleProductRows = (
     parentValues.set('Bundle Selling Price (Rs)', parentSellingPrice);
   }
 
-  applyVariantFields(parentValues, parentVariant, {
-    includeVariantImages: true,
-    attributeNames: [],
-    variantMedia: product.media?.filter((item) => item.variantId === parentVariant.id) ?? [],
-  });
+  applyVariantFields(parentValues, parentVariant, []);
 
   const rows: ExportCellValue[][] = [buildRowFromValues(headers, parentValues)];
 
   for (const bundleItem of product.bundleItems ?? []) {
     const childProduct =
       productById.get(bundleItem.childProductId) ?? bundleItem.childProduct ?? null;
-    const childSku = childProduct?.variants?.[0]?.sku;
+    const childSku =
+      childProduct?.variants?.[0]?.sku ??
+      exportContext?.firstVariantSkuByProductId?.get(bundleItem.childProductId);
     if (!childSku) continue;
 
     const childValues: ExportRowValues = new Map();
@@ -490,9 +394,17 @@ const mapBundleProductRows = (
     }
 
     const childVariant = skuLookup.get(childSku.toLowerCase());
-    if (childVariant) {
-      const childMrp = toNumber(childVariant.mrp);
-      const childSellingPrice = toNumber(childVariant.sellingPrice);
+    const childPrice =
+      childVariant ??
+      exportContext?.variantSkuPriceLookup?.get(childSku.toLowerCase());
+    if (childVariant || childPrice) {
+      const childMrp = toNumber(
+        childVariant?.mrp ?? (childPrice && 'mrp' in childPrice ? childPrice.mrp : null),
+      );
+      const childSellingPrice = toNumber(
+        childVariant?.sellingPrice ??
+          (childPrice && 'sellingPrice' in childPrice ? childPrice.sellingPrice : null),
+      );
       if (childMrp !== null) childValues.set('Child MRP (Rs)', childMrp);
       if (childSellingPrice !== null) {
         childValues.set('Child Selling Price (Rs)', childSellingPrice);
@@ -515,13 +427,28 @@ const buildSkuLookup = (products: ProductEntity[]): Map<string, ProductVariantEn
   return lookup;
 };
 
+export const createBulkExportLookupContext = (
+  products: ProductEntity[],
+  options?: {
+    variantSkuPriceLookup?: Map<string, { mrp: number | null; sellingPrice: number | null }>;
+    firstVariantSkuByProductId?: Map<string, string>;
+  },
+): IBulkExportLookupContext => ({
+  skuLookup: buildSkuLookup(products),
+  productById: new Map(products.map((product) => [product.id, product])),
+  variantSkuPriceLookup: options?.variantSkuPriceLookup,
+  firstVariantSkuByProductId: options?.firstVariantSkuByProductId,
+});
+
 export const mapProductsToBulkExportRows = (
   products: ProductEntity[],
   headers: string[],
+  lookupContext?: IBulkExportLookupContext,
 ): ExportCellValue[][] => {
+  const context =
+    lookupContext ??
+    createBulkExportLookupContext(products);
   const headerSet = new Set(headers);
-  const skuLookup = buildSkuLookup(products);
-  const productById = new Map(products.map((product) => [product.id, product]));
   const rows: ExportCellValue[][] = [];
 
   const sortedProducts = [...products].sort(
@@ -538,7 +465,16 @@ export const mapProductsToBulkExportRows = (
         rows.push(...mapVariableProductRows(product, headers, headerSet));
         break;
       case ProductType.BUNDLE:
-        rows.push(...mapBundleProductRows(product, headers, headerSet, skuLookup, productById));
+        rows.push(
+          ...mapBundleProductRows(
+            product,
+            headers,
+            headerSet,
+            context.skuLookup,
+            context.productById,
+            context,
+          ),
+        );
         break;
       default:
         rows.push(...mapSimpleProductRows(product, headers, headerSet));
