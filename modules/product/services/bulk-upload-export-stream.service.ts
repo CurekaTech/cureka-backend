@@ -102,6 +102,18 @@ export class BulkUploadExportStreamService {
     return { totalProducts: processedProducts, totalRows };
   }
 
+  async buildExportCsvBuffer(): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    const collector = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        callback();
+      },
+    });
+    await this.streamExportCsv(collector);
+    return Buffer.concat(chunks);
+  }
+
   private writeChunk(output: Writable, chunk: string): Promise<void> {
     if (!chunk) {
       return Promise.resolve();

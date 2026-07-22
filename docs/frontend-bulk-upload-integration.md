@@ -32,7 +32,7 @@ The bulk product workflow supports three spreadsheet actions:
 
 **Edit & re-upload flow (export):**
 
-1. Admin clicks **Export Products** → downloads `bulk-export-products.xlsx`.
+1. Admin clicks **Export Products** → downloads `bulk-export-products.csv`.
 2. Admin edits cells in Excel (pricing, stock, descriptions, etc.).
 3. Admin uploads the **same file** via bulk upload — no format changes required.
 4. Backend matches existing products by **Product ID (String)**, **SKU**, **Vendor SKU**, or **Product Name + Brand**, then **updates** instead of creating duplicates.
@@ -90,45 +90,48 @@ curl -X GET "http://localhost:3005/api/v1/products/bulk-upload/template/download
 
 ### B. Export all products (editable re-upload template)
 
-Downloads all non-archived, non-inactive products populated into the **same Excel structure** as the sample template.
+Downloads all non-archived, non-inactive products populated into the **same column structure** as the sample template.
 
 | Property | Value |
 |----------|-------|
 | **Method** | `GET` |
 | **Path** | `/api/v1/products/bulk-upload/export` |
-| **Response** | Binary `.xlsx` file (not JSON) |
+| **Response** | Binary `.csv` file (not JSON) |
 
 **Response headers:**
 
 ```http
-Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-Content-Disposition: attachment; filename="bulk-export-products.xlsx"
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="bulk-export-products.csv"
+Content-Length: <file-size-in-bytes>
 ```
+
+> **Important:** This endpoint returns **raw CSV bytes**, not the JSON success envelope. The admin UI must use `responseType: 'blob'` (Axios) or `fetch` + `blob()`.
 
 **cURL:**
 
 ```bash
 curl -X GET "http://localhost:3005/api/v1/products/bulk-upload/export" \
   -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  --output bulk-export-products.xlsx
+  --output bulk-export-products.csv
 ```
 
 **What is included in the export:**
 
-- Same sheet name: `Bulk Import Template`
-- Same column order and headers as the sample template
-- Same hidden reference sheets (Category, Brand, Attribute, Category Filter, Health Concern, Wellness Goal, Product Tag)
+- Same column order and headers as the sample template (CSV format)
 - All products except `archived` and `inactive` status
 - Human-readable master names (category, brand, health concerns, etc.) — not internal IDs
 - `Product ID (String)` populated from `externalProductId` (primary key for update matching)
 - Variable products: one row per variant, grouped by `style_group_id`
 - Bundle products: parent row + child rows with `Child SKU` / `Child Quantity`
 
-**Frontend handling:**
+**Frontend handling (required):**
 
-- Same blob download pattern as template download (§3.A).
-- Show a loading spinner — export can take several seconds on large catalogs.
-- Disable the button while the request is in flight to prevent duplicate downloads.
+1. Use **`responseType: 'blob'`** — never default JSON parsing on this endpoint.
+2. Set a **long timeout** (e.g. 5–15 minutes) — large catalogs can take 10–60+ seconds server-side.
+3. Save as **`bulk-export-products.csv`** (not `.xlsx`).
+4. Show a loading spinner and disable the button while the request is in flight.
+5. Do **not** route this through a global JSON response interceptor without a blob bypass.
 
 **Example (Axios):**
 
@@ -137,18 +140,38 @@ async function downloadBulkExport(token: string) {
   const response = await axios.get('/api/v1/products/bulk-upload/export', {
     headers: { Authorization: `Bearer ${token}` },
     responseType: 'blob',
+    timeout: 15 * 60 * 1000, // 15 min — match PRODUCT_BULK_EXPORT_TIMEOUT_MS
   });
 
-  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', 'bulk-export-products.xlsx');
+  link.setAttribute('download', 'bulk-export-products.csv');
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
 }
 ```
+
+**If direct download still fails (proxy / large catalog):** use the **background export** flow instead:
+
+1. `POST /api/v1/products/bulk-upload/export` → returns `{ refId, status: "queued" }`
+2. Poll `GET /api/v1/products/bulk-upload/:refId` until `status` is `completed`
+3. Download `GET /api/v1/products/bulk-upload/export/:refId/download` (also blob / `responseType: 'blob'`)
+
+---
+
+### B2. Queue background export (optional, for very large catalogs)
+
+| Property | Value |
+|----------|-------|
+| **Method** | `POST` |
+| **Path** | `/api/v1/products/bulk-upload/export` |
+| **Response** | JSON `{ refId, status, operation: "export", ... }` |
+
+Poll job status, then download via `GET /api/v1/products/bulk-upload/export/:refId/download`.
 
 ---
 
@@ -432,7 +455,7 @@ Exported image values are **storage keys** (e.g. `images/products/abc.jpg`). The
 | Upload in progress | `409` | "Another bulk upload is running. Please wait." |
 | Invalid file type | `400` | "Only .xlsx and .csv files are allowed" |
 | File too large | `400` / client reject | "File exceeds maximum size" |
-| Export timeout | Network error | "Export failed. Please try again." |
+| Export timeout / `net::ERR_FAILED` | Network / client error | Use `responseType: 'blob'`, increase Axios timeout; or use background export (§3.B2) |
 | Job not found | `404` | "Upload job not found" |
 
 ---
