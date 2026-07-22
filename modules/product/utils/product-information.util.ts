@@ -13,18 +13,45 @@ export const sortProductInformation = (
     (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label),
   );
 
+const getLabelSortOrder = (
+  label: string,
+  labelSortOrders?: ProductInformationLabelSortOrders,
+): number | undefined => {
+  if (!labelSortOrders?.size) {
+    return undefined;
+  }
+
+  const direct = labelSortOrders.get(label);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  const normalized = label.trim().toLowerCase();
+  for (const [name, order] of labelSortOrders) {
+    if (name.trim().toLowerCase() === normalized) {
+      return order;
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Prefer live master-label sort order from DB when the label exists.
+ * Fall back to the value stored on the product/variant, then array index.
+ */
 const resolveSortOrder = (
   item: IProductInformationItemInput,
   index: number,
   labelSortOrders?: ProductInformationLabelSortOrders,
 ): number => {
-  if (item.sortOrder !== undefined) {
-    return item.sortOrder;
-  }
-
-  const labelSortOrder = labelSortOrders?.get(item.label);
+  const labelSortOrder = getLabelSortOrder(item.label, labelSortOrders);
   if (labelSortOrder !== undefined) {
     return labelSortOrder;
+  }
+
+  if (item.sortOrder !== undefined) {
+    return item.sortOrder;
   }
 
   return index;
@@ -63,10 +90,7 @@ export const enrichProductInformation = (
 
   const enriched = items.map((item, index) => ({
     ...item,
-    sortOrder:
-      item.sortOrder ??
-      labelSortOrders?.get(item.label) ??
-      index,
+    sortOrder: resolveSortOrder(item, index, labelSortOrders),
   }));
 
   return sortProductInformation(enriched);
