@@ -11,6 +11,7 @@ export interface ITypesenseSearchDocument {
   wellnessGoals?: string;
   tags?: string;
   searchTags?: string;
+  sku?: string;
   variantId?: string;
   variantSlug?: string;
   description?: string;

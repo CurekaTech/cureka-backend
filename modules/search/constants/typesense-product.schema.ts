@@ -4,6 +4,7 @@ export const PRODUCT_COLLECTION_FIELDS = [
   { name: 'entityType', type: 'string' as const, facet: true, optional: true },
   { name: 'name', type: 'string' as const },
   { name: 'slug', type: 'string' as const },
+  { name: 'sku', type: 'string' as const, optional: true },
   { name: 'brand', type: 'string' as const, optional: true },
   { name: 'category', type: 'string' as const, optional: true },
   { name: 'subCategory', type: 'string' as const, optional: true },
@@ -22,6 +23,7 @@ export const ENTITY_SEARCH_QUERY_FIELDS = ['name', 'slug'] as const;
 
 export const PRODUCT_SEARCH_QUERY_FIELDS = [
   'name',
+  'sku',
   'brand',
   'category',
   'subCategory',
