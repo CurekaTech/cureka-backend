@@ -70,6 +70,7 @@ export class ProductInformationLabelsRepository {
       .createQueryBuilder('label')
       .select(['label.name', 'label.sortOrder'])
       .where('label.deletedAt IS NULL')
+      .andWhere('label.status = :status', { status: MasterStatus.ACTIVE })
       .orderBy('label.sortOrder', 'ASC')
       .addOrderBy('label.createdAt', 'ASC')
       .getMany();
