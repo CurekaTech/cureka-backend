@@ -46,6 +46,7 @@ import { BulkUploadEntity } from './entities/bulk-upload.entity';
 import { BulkUploadsRepository } from './repositories/bulk-uploads.repository';
 import { BulkUploadController } from './controllers/bulk-upload.controller';
 import { BulkUploadService } from './services/bulk-upload.service';
+import { BulkUploadExportStreamService } from './services/bulk-upload-export-stream.service';
 import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { BulkUploadProcessor } from './processors/bulk-upload.processor';
@@ -110,6 +111,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     ProductCacheListener,
     BulkUploadsRepository,
     BulkUploadService,
+    BulkUploadExportStreamService,
     ...(BULK_UPLOAD_PROCESSOR_ENABLED ? [BulkUploadProcessor] : []),
     BulkUploadParserService,
     BulkUploadValidatorService,

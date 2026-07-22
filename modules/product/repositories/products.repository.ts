@@ -199,6 +199,30 @@ export class ProductsRepository {
   }
 
   async findAllForBulkExport(): Promise<ProductEntity[]> {
+    const batchSize = 500;
+    const all: ProductEntity[] = [];
+    let offset = 0;
+
+    while (true) {
+      const batch = await this.findForBulkExportBatch(offset, batchSize);
+      if (!batch.length) {
+        break;
+      }
+      all.push(...batch);
+      offset += batch.length;
+      if (batch.length < batchSize) {
+        break;
+      }
+    }
+
+    return all;
+  }
+
+  async countForBulkExport(): Promise<number> {
+    return this.repo.count();
+  }
+
+  async findForBulkExportBatch(offset: number, limit: number): Promise<ProductEntity[]> {
     const products = await this.repo.find({
       relations: {
         productNature: true,
@@ -213,21 +237,55 @@ export class ProductsRepository {
         countryOfOrigin: true,
       },
       order: { createdAt: 'ASC' },
+      skip: offset,
+      take: limit,
     });
 
     if (!products.length) {
       return [];
     }
 
-    const batchSize = 50;
-    for (let offset = 0; offset < products.length; offset += batchSize) {
-      await this.attachDetailRelations(
-        products.slice(offset, offset + batchSize),
-        this.repo.manager,
-      );
-    }
-
+    await this.attachDetailRelations(products, this.repo.manager);
     return products;
+  }
+
+  async findVariantSkuExportLookup(): Promise<
+    Map<string, { mrp: number | null; sellingPrice: number | null }>
+  > {
+    const rows = await this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .select(['variant.sku', 'variant.mrp', 'variant.sellingPrice'])
+      .where('variant.deletedAt IS NULL')
+      .getMany();
+
+    const lookup = new Map<string, { mrp: number | null; sellingPrice: number | null }>();
+    for (const row of rows) {
+      const sku = row.sku?.trim();
+      if (!sku) continue;
+      lookup.set(sku.toLowerCase(), {
+        mrp: row.mrp != null ? Number(row.mrp) : null,
+        sellingPrice: row.sellingPrice != null ? Number(row.sellingPrice) : null,
+      });
+    }
+    return lookup;
+  }
+
+  async findFirstVariantSkuByProductId(): Promise<Map<string, string>> {
+    const rows = await this.repo.manager.query<Array<{ product_id: string; sku: string }>>(
+      `
+      SELECT DISTINCT ON (product_id) product_id, sku
+      FROM product_variants
+      WHERE deleted_at IS NULL
+      ORDER BY product_id, created_at ASC
+      `,
+    );
+
+    return new Map(
+      rows
+        .filter((row) => row.product_id && row.sku)
+        .map((row) => [row.product_id, row.sku] as const),
+    );
   }
 
   async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
