@@ -587,7 +587,12 @@ export class PublicProductsService {
       }),
     );
 
-    const productInformation = await this.enrichProductInformation(product.productInformation);
+    const labelSortOrders =
+      await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const productInformation = enrichProductInformation(
+      product.productInformation,
+      labelSortOrders,
+    );
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
@@ -604,6 +609,10 @@ export class PublicProductsService {
           : null;
         return {
           ...variant,
+          productInformation: enrichProductInformation(
+            variant.productInformation,
+            labelSortOrders,
+          ),
           sizeChart: variantSizeChart,
           expiryDate: resolvePublicExpiryDate(
             variant.expiryDate,
@@ -625,20 +634,19 @@ export class PublicProductsService {
       variants,
     });
 
-    return merged;
+    // Re-apply live master order after variant merge (variant payload may replace product info).
+    return {
+      ...merged,
+      productInformation: enrichProductInformation(
+        merged.productInformation,
+        labelSortOrders,
+      ),
+    };
   }
 
   private async enrichPartySummary<
     T extends IPublicManufacturerSummary | IPublicPackerSummary | IPublicImporterSummary,
   >(party: T): Promise<T> {
     return this.storageUrlEnricher.enrichFields(party, ['logo']);
-  }
-
-  private async enrichProductInformation(
-    items: IPublicProductDetail['productInformation'],
-  ): Promise<IPublicProductDetail['productInformation']> {
-    const labelSortOrders =
-      await this.productInformationLabelsRepository.findActiveSortOrdersByName();
-    return enrichProductInformation(items, labelSortOrders);
   }
 }
