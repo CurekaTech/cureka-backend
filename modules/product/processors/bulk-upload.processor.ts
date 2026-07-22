@@ -9,7 +9,14 @@ import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packag
 import { StorageService } from '@packages/storage';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
-import { BulkUploadParserService, countSheetRowsForProductGroup, countVariantSlotsForProductGroup, IParsedImage, IParsedProductGroup } from '../services/bulk-upload-parser.service';
+import {
+  BulkUploadParserService,
+  countSheetRowsForProductGroup,
+  countVariantSlotsForProductGroup,
+  listSheetRowsForProductGroup,
+  IParsedImage,
+  IParsedProductGroup,
+} from '../services/bulk-upload-parser.service';
 import { BulkUploadValidatorService, IValidationError } from '../services/bulk-upload-validator.service';
 import {
   isBulkUploadSizeChartResolvableWithoutGallery,
@@ -114,6 +121,34 @@ export class BulkUploadProcessor extends WorkerHost {
       reason: this.getErrorMessage(error),
       suggestedFix: 'Check file format, required headers, recognized columns, and master-data values.',
     };
+  }
+
+  private buildGroupFailureErrors(
+    group: IParsedProductGroup,
+    primary: Omit<IValidationError, 'rowNumber' | 'sku'> &
+      Partial<Pick<IValidationError, 'rowNumber' | 'sku'>>,
+  ): IValidationError[] {
+    const rows = listSheetRowsForProductGroup(group);
+    const primaryRowNumber = primary.rowNumber ?? group.rowNumber;
+    const primarySku =
+      primary.sku ??
+      rows.find((row) => row.rowNumber === primaryRowNumber)?.sku ??
+      group.variants?.[0]?.sku ??
+      'PARENT';
+
+    return rows.map((row) => {
+      const isPrimary = row.rowNumber === primaryRowNumber;
+      return {
+        rowNumber: row.rowNumber,
+        sku: isPrimary ? primarySku : row.sku,
+        column: primary.column,
+        invalidValue: primary.invalidValue,
+        reason: isPrimary
+          ? primary.reason
+          : `This spreadsheet row was not imported because its product group failed. Related error (row ${primaryRowNumber}, ${primary.column}): ${primary.reason}`,
+        suggestedFix: primary.suggestedFix,
+      };
+    });
   }
 
   private resolveUploadMimeType(filename: string): string {
@@ -686,15 +721,13 @@ export class BulkUploadProcessor extends WorkerHost {
                     ok: false as const,
                     sheetRows: countSheetRowsForProductGroup(group),
                     variantSlots: countVariantSlotsForProductGroup(group),
-                    error: {
-                      rowNumber: group.rowNumber,
-                      sku: group.variants?.[0]?.sku || 'PARENT',
+                    errors: this.buildGroupFailureErrors(group, {
                       column: 'Size Chart Filename/Path',
                       invalidValue: group.sizeChart,
                       reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
                       suggestedFix:
                         'Upload the file to Media Gallery first, provide Size Chart URL, or use an images/ storage path.',
-                    } satisfies IValidationError,
+                    }),
                   };
                 }
               }
@@ -916,15 +949,13 @@ export class BulkUploadProcessor extends WorkerHost {
                   ok: false as const,
                   sheetRows: countSheetRowsForProductGroup(group),
                   variantSlots: countVariantSlotsForProductGroup(group),
-                  error: {
-                    rowNumber: group.rowNumber,
-                    sku: group.variants?.[0]?.sku || 'PARENT',
+                  errors: this.buildGroupFailureErrors(group, {
                     column: 'Product ID (String)',
                     invalidValue: lookupProductId,
                     reason: `Product ID ${lookupProductId} has a Manufacture Address lookup, but no manufacturer match (expected code ${toManufacturerImportCode(lookupProductId)} or name "${toStoredManufacturerName(lookupManufacturerAddress)}"). Run manufacturer-address:import first.`,
                     suggestedFix:
                       'Re-run manufacturer:reset + manufacturer-address:import, then upload again with Product ID (String) filled.',
-                  } satisfies IValidationError,
+                  }),
                 };
               }
 
@@ -936,15 +967,13 @@ export class BulkUploadProcessor extends WorkerHost {
                   ok: false as const,
                   sheetRows: countSheetRowsForProductGroup(group),
                   variantSlots: countVariantSlotsForProductGroup(group),
-                  error: {
-                    rowNumber: group.rowNumber,
-                    sku: group.variants?.[0]?.sku || 'PARENT',
+                  errors: this.buildGroupFailureErrors(group, {
                     column: 'Product ID (String)',
                     invalidValue: lookupProductId,
                     reason: `Product ID ${lookupProductId} has ${lookupImageUrls.length} lookup image URL(s), but none could be downloaded/stored.`,
                     suggestedFix:
                       'Check that the WC image URLs are reachable, or put Primary Image URL / common_media URLs directly in the sheet.',
-                  } satisfies IValidationError,
+                  }),
                 };
               }
 
@@ -953,9 +982,7 @@ export class BulkUploadProcessor extends WorkerHost {
                   ok: false as const,
                   sheetRows: countSheetRowsForProductGroup(group),
                   variantSlots: countVariantSlotsForProductGroup(group),
-                  error: {
-                    rowNumber: group.rowNumber,
-                    sku: group.variants?.[0]?.sku || 'PARENT',
+                  errors: this.buildGroupFailureErrors(group, {
                     column: 'common_media',
                     invalidValue:
                       unresolvedCommonMedia[0]?.filename ||
@@ -969,7 +996,7 @@ export class BulkUploadProcessor extends WorkerHost {
                       .includes('maximum allowed size')
                       ? 'Reduce the image file size, or raise UPLOAD_MAX_IMAGE_FILE_SIZE (default 5 MB).'
                       : 'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
-                  } satisfies IValidationError,
+                  }),
                 };
               }
 
@@ -1144,14 +1171,12 @@ export class BulkUploadProcessor extends WorkerHost {
                 ok: false as const,
                 sheetRows: countSheetRowsForProductGroup(group),
                 variantSlots: countVariantSlotsForProductGroup(group),
-                error: {
-                  rowNumber: group.rowNumber,
-                  sku: group.variants?.[0]?.sku || 'PARENT',
+                errors: this.buildGroupFailureErrors(group, {
                   column: 'Database',
                   invalidValue: group.name,
                   reason: dbError instanceof Error ? dbError.message : String(dbError),
                   suggestedFix: 'Resolve conflicting unique constraints or missing master records.',
-                } satisfies IValidationError,
+                }),
               };
             }
           },
@@ -1174,7 +1199,7 @@ export class BulkUploadProcessor extends WorkerHost {
             } else {
               failedSheetRows += result.sheetRows;
               failedVariantSlots += result.variantSlots;
-              allErrors.push(result.error);
+              allErrors.push(...result.errors);
             }
           }
 

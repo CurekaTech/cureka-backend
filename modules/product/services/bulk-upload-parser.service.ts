@@ -166,16 +166,49 @@ export interface IParsedProductGroup {
   bundleItems: IParsedBundleItem[];
 }
 
-/** How many spreadsheet rows one parsed product group represents (not variant count). */
-export const countSheetRowsForProductGroup = (group: IParsedProductGroup): number => {
+/** Spreadsheet rows counted as failed/succeeded for one parsed product group. */
+export const listSheetRowsForProductGroup = (
+  group: IParsedProductGroup,
+): Array<{ rowNumber: number; sku: string }> => {
+  const fallbackSku = group.variants[0]?.sku?.trim() || 'PARENT';
+  const rows = new Map<number, string>();
+
+  const setRow = (rowNumber: number, sku?: string) => {
+    if (!Number.isFinite(rowNumber) || rowNumber <= 0) return;
+    const existing = rows.get(rowNumber);
+    const next = sku?.trim();
+    if (!existing) {
+      rows.set(rowNumber, next || fallbackSku);
+      return;
+    }
+    if (next && existing === fallbackSku) {
+      rows.set(rowNumber, next);
+    }
+  };
+
   if (group.productType === 'variable' && group.variableUploadMode === 'explicit') {
-    return new Set([group.rowNumber, ...group.variants.map((variant) => variant.rowNumber)]).size;
+    setRow(group.rowNumber, fallbackSku);
+    for (const variant of group.variants ?? []) {
+      setRow(variant.rowNumber, variant.sku);
+    }
+  } else if (group.productType === 'bundle') {
+    setRow(group.rowNumber, fallbackSku);
+    for (const item of group.bundleItems ?? []) {
+      setRow(item.rowNumber, item.childSku);
+    }
+  } else {
+    // Simple (and non-explicit variable): one sheet-row unit, even if variants[] has extras.
+    setRow(group.rowNumber, fallbackSku);
   }
-  if (group.productType === 'bundle') {
-    return new Set([group.rowNumber, ...group.bundleItems.map((item) => item.rowNumber)]).size;
-  }
-  return 1;
+
+  return [...rows.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([rowNumber, sku]) => ({ rowNumber, sku }));
 };
+
+/** How many spreadsheet rows one parsed product group represents (not variant count). */
+export const countSheetRowsForProductGroup = (group: IParsedProductGroup): number =>
+  listSheetRowsForProductGroup(group).length;
 
 export const countVariantSlotsForProductGroup = (group: IParsedProductGroup): number =>
   Math.max(
