@@ -124,6 +124,7 @@ curl -X GET "http://localhost:3005/api/v1/products/bulk-upload/export" \
 - `Product ID (String)` populated from `externalProductId` (primary key for update matching)
 - Variable products: one row per variant, grouped by `style_group_id`
 - Bundle products: parent row + child rows with `Child SKU` / `Child Quantity`
+- **Image columns are left blank** in export (primary, gallery, `common_media_*`, size chart). Re-uploading without filling image columns preserves existing product media.
 
 **Frontend handling (required):**
 

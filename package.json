@@ -27,6 +27,7 @@
     "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create",
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
+    "bulk-upload:diagnose": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bulk-upload-diagnose.runner.ts",
     "product-slug:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-slug-import.runner.ts",
     "product-slug:apply": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-slug-import.runner.ts --file=\"docs/slug sheet.xlsx\" --apply",
     "product:migrate-search-tags": "ts-node -r tsconfig-paths/register apps/api/database/scripts/migrate-product-info-tags-to-search-tags.runner.ts",
