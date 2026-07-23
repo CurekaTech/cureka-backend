@@ -647,6 +647,7 @@ export class BulkUploadService {
       ['Tax Class', 'GST 12%'],
       ['Slug URL', 'ethicare-hydromax-moisturizing-cream-200gm'],
       ['Product URL Slug', 'ethicare-hydromax-moisturizing-cream-200gm'],
+      
       // Product ID drives manufacturer + image auto-attach from lookup XLSX files.
       ['Product ID (String)', '54141'],
       ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID.'],
