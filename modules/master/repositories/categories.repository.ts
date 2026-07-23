@@ -151,6 +151,29 @@ export class CategoriesRepository {
     return this.findById(rootId);
   }
 
+  /** Ordered category slugs from root → leaf for a category id. */
+  async findSlugPathById(categoryId: string): Promise<string[]> {
+    const rows = await this.repo.manager.query<Array<{ slug: string; depth: number }>>(
+      `
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_category_id, slug, 0 AS depth
+        FROM categories
+        WHERE id = $1 AND deleted_at IS NULL
+        UNION ALL
+        SELECT c.id, c.parent_category_id, c.slug, a.depth + 1
+        FROM categories c
+        INNER JOIN ancestors a ON c.id = a.parent_category_id
+        WHERE c.deleted_at IS NULL
+      )
+      SELECT slug, depth FROM ancestors
+      ORDER BY depth DESC
+      `,
+      [categoryId],
+    );
+
+    return rows.map((row) => row.slug).filter(Boolean);
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }

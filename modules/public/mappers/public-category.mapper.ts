@@ -4,14 +4,23 @@ import {
   IPublicHeaderCategory,
 } from '../interfaces/public-category.interface';
 import { IPublicCategoryListItem } from '../interfaces/public-master.interface';
+import {
+  buildCategoryPermalink,
+  buildCategorySlugPath,
+} from '../utils/category-permalink.util';
+
 export const mapCategoryEntityToPublicTree = (
   entity: CategoryEntity,
   children: IPublicCategoryTree[] = [],
-): IPublicCategoryTree =>
-  ({
+  parentSlugPath: string[] = [],
+): IPublicCategoryTree => {
+  const slugPath = buildCategorySlugPath(...parentSlugPath, entity.slug);
+  return {
     refId: entity.refId,
     name: entity.name,
     slug: entity.slug,
+    slugPath,
+    permalink: buildCategoryPermalink(slugPath),
     image: entity.image,
     banner: entity.banner,
     position: entity.position,
@@ -19,40 +28,53 @@ export const mapCategoryEntityToPublicTree = (
     isInHeader: entity.isInHeader,
     isInShopBy: entity.isInShopBy,
     children,
-  }) as IPublicCategoryTree;
+  } as IPublicCategoryTree;
+};
 
 export const mapHeaderCategoryEntity = (
   entity: CategoryEntity,
   children: IPublicHeaderCategory[] = [],
-): IPublicHeaderCategory => ({
-  refId: entity.refId,
-  name: entity.name,
-  slug: entity.slug,
-  image: entity.image,
-  banner: entity.banner,
-  position: entity.position,
-  hierarchyLevel: entity.hierarchyLevel,
-  isInHeader: entity.isInHeader,
-  isInShopBy: entity.isInShopBy,
-  children,
-});
+  parentSlugPath: string[] = [],
+): IPublicHeaderCategory => {
+  const slugPath = buildCategorySlugPath(...parentSlugPath, entity.slug);
+  return {
+    refId: entity.refId,
+    name: entity.name,
+    slug: entity.slug,
+    slugPath,
+    permalink: buildCategoryPermalink(slugPath),
+    image: entity.image,
+    banner: entity.banner,
+    position: entity.position,
+    hierarchyLevel: entity.hierarchyLevel,
+    isInHeader: entity.isInHeader,
+    isInShopBy: entity.isInShopBy,
+    children,
+  };
+};
 
 export const mapCategoryEntityToPublicListItem = (
   entity: CategoryEntity,
-): IPublicCategoryListItem => ({
-  refId: entity.refId,
-  name: entity.name,
-  slug: entity.slug,
-  position: entity.position,
-  hierarchyLevel: entity.hierarchyLevel,
-  parentCategoryRefId: entity.parent?.refId ?? null,
-  image: entity.image,
-  banner: entity.banner,
-});
+  parentSlugPath: string[] = [],
+): IPublicCategoryListItem => {
+  const slugPath = buildCategorySlugPath(...parentSlugPath, entity.slug);
+  return {
+    refId: entity.refId,
+    name: entity.name,
+    slug: entity.slug,
+    slugPath,
+    permalink: buildCategoryPermalink(slugPath),
+    position: entity.position,
+    hierarchyLevel: entity.hierarchyLevel,
+    parentCategoryRefId: entity.parent?.refId ?? null,
+    image: entity.image,
+    banner: entity.banner,
+  };
+};
 
 export const mapCategoryEntitiesToPublicListItems = (
   entities: CategoryEntity[],
-): IPublicCategoryListItem[] => entities.map(mapCategoryEntityToPublicListItem);
+): IPublicCategoryListItem[] => entities.map((entity) => mapCategoryEntityToPublicListItem(entity));
 
 export const buildPublicCategoryListTree = (
   root: CategoryEntity,
@@ -70,10 +92,16 @@ export const buildPublicCategoryListTree = (
   const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
     [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
 
-  const buildNode = (entity: CategoryEntity): IPublicCategoryListItem => {
-    const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map(buildNode);
+  const buildNode = (
+    entity: CategoryEntity,
+    parentSlugPath: string[] = [],
+  ): IPublicCategoryListItem => {
+    const mapped = mapCategoryEntityToPublicListItem(entity, parentSlugPath);
+    const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
+      buildNode(child, mapped.slugPath),
+    );
     return {
-      ...mapCategoryEntityToPublicListItem(entity),
+      ...mapped,
       ...(children.length > 0 ? { children } : {}),
     };
   };

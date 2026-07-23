@@ -23,6 +23,10 @@ import {
 } from '../interfaces/public-product.interface';
 import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
 import { IStorageFileReference } from '@packages/storage';
+import {
+  buildProductCategorySlugPathFromRelations,
+  buildProductPermalink,
+} from '../utils/category-permalink.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -276,8 +280,9 @@ export const mapVariantEntitiesToPublicSearchItems = (
 const getDefaultVariantId = (entity: ProductEntity): string | null =>
   pickPreferredListVariant(entity)?.id ?? null;
 
-export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard =>
-  ({
+export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard => {
+  const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
+  return {
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -288,6 +293,8 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   categoryName: entity.category?.name ?? '',
   subCategoryRefId: entity.subCategory?.refId ?? null,
   subCategoryName: entity.subCategory?.name ?? null,
+  categorySlugPath,
+  permalink: buildProductPermalink(categorySlugPath, entity.slug),
   brandRefId: entity.brand?.refId ?? null,
   brandName: entity.brand?.name ?? null,
   brandSlug: entity.brand?.slug ?? null,
@@ -304,13 +311,15 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     name: mapping.tag?.name ?? '',
     slug: mapping.tag?.slug ?? '',
   })),
-  }) as IPublicProductCard;
+  } as IPublicProductCard;
+};
 
 export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPublicProductCard[] =>
   entities.map(mapProductEntityToPublicCard);
 
-export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail =>
-  ({
+export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail => {
+  const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
+  return {
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
@@ -328,6 +337,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   subSubCategoryName: entity.subSubCategory?.name ?? null,
   subSubSubCategoryRefId: entity.subSubSubCategory?.refId ?? null,
   subSubSubCategoryName: entity.subSubSubCategory?.name ?? null,
+  categorySlugPath,
+  permalink: buildProductPermalink(categorySlugPath, entity.slug),
   brandRefId: entity.brand?.refId ?? null,
   brandName: entity.brand?.name ?? null,
   brandSlug: entity.brand?.slug ?? null,
@@ -431,7 +442,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     childProductSlug: item.childProduct?.slug ?? '',
     quantity: item.quantity,
   })),
-  }) as unknown as IPublicProductDetail;
+  } as unknown as IPublicProductDetail;
+};
 
 export const applySelectedVariantDetailToPublicProduct = (
   detail: IPublicProductDetail,

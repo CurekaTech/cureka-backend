@@ -190,6 +190,8 @@ export class ProductsRepository {
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
       .skip(skip)
