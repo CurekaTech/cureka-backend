@@ -82,6 +82,8 @@ export class BulkUploadValidatorService {
   private vendorSkuToProductRefIdMap = new Map<string, string>(); // vendor SKU (lowercase) -> parent product refId
   private productRefIdToVariantSkusMap = new Map<string, string[]>(); // product refId -> variant SKUs (stable order)
   private productNameBrandToRefIdMap = new Map<string, string>(); // name|brand -> product refId (unique only)
+  private productRefIdToNameMap = new Map<string, string>(); // product refId -> product name
+  private productRefIdToExternalIdMap = new Map<string, string>(); // product refId -> externalProductId
   private dbSkus = new Set<string>();
   private dbExternalProductIds = new Set<string>();
   private externalProductIdToProductRefIdMap = new Map<string, string>(); // externalProductId (lowercase) -> product refId
@@ -279,10 +281,13 @@ export class BulkUploadValidatorService {
         .map((product) => product.externalProductId?.toLowerCase().trim())
         .filter((value): value is string => Boolean(value)),
     );
+    this.productRefIdToNameMap = new Map();
+    this.productRefIdToExternalIdMap = new Map();
     for (const product of externalProductIds) {
       const normalizedExternalId = product.externalProductId?.toLowerCase().trim();
       if (!normalizedExternalId) continue;
       this.externalProductIdToProductRefIdMap.set(normalizedExternalId, product.refId);
+      this.productRefIdToExternalIdMap.set(product.refId, product.externalProductId!);
     }
     for (const v of skusWithProducts) {
       if (v.sku) {
@@ -307,6 +312,8 @@ export class BulkUploadValidatorService {
       if (!product.name?.trim() || !brandName) continue;
       const key = `${product.name.toLowerCase().trim()}|${brandName}`;
       nameBrandCounts.set(key, (nameBrandCounts.get(key) ?? 0) + 1);
+      // build name map while iterating (last writer wins for duplicates — fine for display)
+      this.productRefIdToNameMap.set(product.refId, product.name.trim());
     }
     for (const product of productsWithBrand) {
       const brandName = product.brand?.name?.toLowerCase().trim();
@@ -341,6 +348,17 @@ export class BulkUploadValidatorService {
   /**
    * Resolves attribute refId by normalized name or refId lookup key.
    */
+  /**
+   * Returns a human-readable label for a product refId: "Product Name (ID: extId)" or just refId.
+   */
+  private productLabel(refId: string): string {
+    const name = this.productRefIdToNameMap.get(refId);
+    const extId = this.productRefIdToExternalIdMap.get(refId);
+    if (name && extId) return `"${name}" (Product ID: ${extId})`;
+    if (name) return `"${name}"`;
+    return refId;
+  }
+
   resolveAttributeRefId(nameOrRefId: string): string | undefined {
     return this.attributeMap.get(nameOrRefId.toLowerCase().trim());
   }
@@ -481,13 +499,29 @@ export class BulkUploadValidatorService {
       }
 
       if (existingProductRefIds.size > 1) {
+        // Build a readable breakdown: group the SKUs by the product they resolve to.
+        const skusByProduct = new Map<string, string[]>();
+        for (const variant of group.variants) {
+          const skuRefId = variant.sku?.trim()
+            ? this.resolveProductRefIdBySku(variant.sku)
+            : undefined;
+          const bucket = skuRefId ?? '__new__';
+          const list = skusByProduct.get(bucket) ?? [];
+          list.push(variant.sku);
+          skusByProduct.set(bucket, list);
+        }
+        const breakdown = [...skusByProduct.entries()]
+          .filter(([bucket]) => bucket !== '__new__')
+          .map(([refId, skus]) => `${skus.join(', ')} → ${this.productLabel(refId)}`)
+          .join(' | ');
+
         groupErrors.push({
           rowNumber: group.rowNumber,
           sku: productSku,
           column: 'Product SKU Code',
           invalidValue: group.variants.map((variant) => variant.sku).join(', '),
-          reason: 'Sheet row maps to multiple existing products by SKU. A single row can only update one product.',
-          suggestedFix: 'Keep all SKUs of a row under the same product or split into separate rows.',
+          reason: `The SKUs in this group belong to ${existingProductRefIds.size} different products in the database. A single import row (or style_group_id group) can only create or update one product. Breakdown: ${breakdown}`,
+          suggestedFix: 'Split these SKUs into separate rows — one row (or style_group_id group) per product. Each row must contain only SKUs that belong to the same product.',
         });
       }
 
@@ -704,13 +738,18 @@ export class BulkUploadValidatorService {
             resolvedExistingProductRefId &&
             resolvedExistingProductRefId !== existingExternalIdProductRefId
           ) {
+            const pidProduct  = this.productLabel(existingExternalIdProductRefId);
+            const skuProduct  = this.productLabel(resolvedExistingProductRefId);
+            const correctExtId = this.productRefIdToExternalIdMap.get(resolvedExistingProductRefId);
             groupErrors.push({
               rowNumber: item.rowNumber,
               sku: item.sku,
               column: 'Product ID (String)',
               invalidValue: item.id,
-              reason: `Product ID "${item.id}" belongs to a different existing product than the SKU/vendor match.`,
-              suggestedFix: 'Use a consistent Product ID and SKU/vendor for the same product.',
+              reason: `Product ID "${item.id}" is already linked to ${pidProduct} in the database, but the SKU on this row belongs to a different product: ${skuProduct}. These two products cannot be merged into one row.`,
+              suggestedFix: correctExtId
+                ? `To update the product this SKU belongs to, change "Product ID (String)" to "${correctExtId}". To update the product this Product ID belongs to, use its own SKU(s) instead.`
+                : 'Clear the "Product ID (String)" column on this row so the system matches by SKU only, or use the correct Product ID for the product this SKU belongs to.',
             });
           } else {
             resolvedExistingProductRefId = existingExternalIdProductRefId;
@@ -1089,14 +1128,21 @@ export class BulkUploadValidatorService {
         return;
       }
 
+      const ownerLabel = existingSkuProductRefId
+        ? this.productLabel(existingSkuProductRefId)
+        : 'another product';
+      const ownerExtId = existingSkuProductRefId
+        ? this.productRefIdToExternalIdMap.get(existingSkuProductRefId)
+        : undefined;
       groupErrors.push({
         rowNumber: variant.rowNumber,
         sku: variant.sku,
         column: 'Product SKU Code',
         invalidValue: variant.sku,
-        reason: `Product SKU Code "${variant.sku}" already exists in the database.`,
-        suggestedFix:
-          'Leave Product SKU Code empty to update by Vendor SKU / product name, or use the same SKU to update that product.',
+        reason: `SKU "${variant.sku}" already belongs to ${ownerLabel} in the database. It cannot be assigned to a different product.`,
+        suggestedFix: ownerExtId
+          ? `To update ${ownerLabel}, set "Product ID (String)" to "${ownerExtId}" and keep this SKU. To create a new product, use a different SKU.`
+          : `To update the product that owns this SKU, include its Product ID in the "Product ID (String)" column. To create a new product, use a different SKU.`,
       });
     }
   }
