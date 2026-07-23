@@ -151,6 +151,11 @@ export class BulkUploadProcessor extends WorkerHost {
     });
   }
 
+  /** Max image size for externally downloaded bulk-upload images (default 20 MB). */
+  private get bulkImageMaxSize(): number {
+    return this.configService.get<number>('storage.maxBulkImageSize') ?? 20 * 1024 * 1024;
+  }
+
   private resolveUploadMimeType(filename: string): string {
     const lower = filename.toLowerCase();
     if (lower.endsWith('.png')) return 'image/png';
@@ -211,6 +216,7 @@ export class BulkUploadProcessor extends WorkerHost {
           mimetype,
           originalFilename,
           folder: UploadFolder.IMAGES,
+          maxSizeOverride: this.bulkImageMaxSize,
         });
 
         return {
@@ -295,6 +301,7 @@ export class BulkUploadProcessor extends WorkerHost {
         mimetype: this.resolveUploadMimeType(filename),
         originalFilename: filename,
         folder: UploadFolder.IMAGES,
+        maxSizeOverride: this.bulkImageMaxSize,
       });
 
       return {
