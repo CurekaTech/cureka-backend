@@ -150,9 +150,7 @@ export class PublicProductsService {
    * "bestsellers" tag, newest-first by default. Supports the same filters as the product
    * listing (e.g. categoryRefId/slug). The tag filter is forced and cannot be overridden.
    */
-  async findBestSellers(
-    query: PublicProductQueryDto,
-  ): Promise<IPublicProductListResponse> {
+  async findBestSellers(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
     return this.findAll({
       ...query,
       sortBy: query.sortBy ?? 'publishedAt',
@@ -377,9 +375,7 @@ export class PublicProductsService {
     const foundSlugs = new Set(brands.map((brand) => brand.slug));
     const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
     if (missingSlugs.length > 0) {
-      throw new NotFoundException(
-        `Brand with slug "${missingSlugs.join('", "')}" not found`,
-      );
+      throw new NotFoundException(`Brand with slug "${missingSlugs.join('", "')}" not found`);
     }
 
     return { brandIds: brands.map((brand) => brand.id) };
@@ -446,8 +442,7 @@ export class PublicProductsService {
       (await this.categoriesRepository.findByRefId(category.refId)) ?? category;
     const rootCategory =
       (await this.categoriesRepository.findRootAncestor(matchedCategory.id)) ?? matchedCategory;
-    const isChildFilter =
-      Number(matchedCategory.hierarchyLevel) !== CategoryHierarchyLevel.ROOT;
+    const isChildFilter = Number(matchedCategory.hierarchyLevel) !== CategoryHierarchyLevel.ROOT;
 
     const activeFilters = (rootCategory.categoryFilters ?? []).filter(
       (filter) => filter.status === MasterStatus.ACTIVE,
@@ -474,7 +469,8 @@ export class PublicProductsService {
       name: rootCategory.name,
       slug: rootCategory.slug,
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
-      banner: isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
+      banner:
+        isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
       aboveTheFold:
         isChildFilter && matchedCategory.aboveTheFold?.trim()
           ? matchedCategory.aboveTheFold
