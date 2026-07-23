@@ -94,6 +94,10 @@ export interface IPublicProductCard {
   categoryName: string;
   subCategoryRefId: string | null;
   subCategoryName: string | null;
+  /** Ordered category slugs from root → leaf for this product. */
+  categorySlugPath: string[];
+  /** Legacy-compatible path, e.g. /shop/skin-care/skin-serum/anti-wrinkle-serum/{slug} */
+  permalink: string;
   brandRefId: string | null;
   brandName: string | null;
   brandSlug: string | null;
@@ -199,6 +203,10 @@ export interface IPublicProductDetail {
   subSubCategoryName: string | null;
   subSubSubCategoryRefId: string | null;
   subSubSubCategoryName: string | null;
+  /** Ordered category slugs from root → leaf for this product. */
+  categorySlugPath: string[];
+  /** Legacy-compatible path, e.g. /shop/skin-care/skin-serum/anti-wrinkle-serum/{slug} */
+  permalink: string;
   brandRefId: string | null;
   brandName: string | null;
   brandSlug: string | null;

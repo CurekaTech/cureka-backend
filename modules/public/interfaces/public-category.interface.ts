@@ -16,6 +16,10 @@ export interface IPublicCategoryProductListingContext {
   refId: string;
   name: string;
   slug: string;
+  /** Ordered category slugs from root → current listing category (usually root). */
+  slugPath: string[];
+  /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda */
+  permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   aboveTheFold: string | null;
@@ -26,6 +30,8 @@ export interface IPublicCategoryProductListingContext {
     refId: string;
     name: string;
     slug: string;
+    slugPath: string[];
+    permalink: string;
   } | null;
 }
 
@@ -33,6 +39,10 @@ export interface IPublicCategoryTree {
   refId: string;
   name: string;
   slug: string;
+  /** Ordered category slugs from root → this node. */
+  slugPath: string[];
+  /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda/herbal-oil/castor-oil */
+  permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   position: number;
@@ -46,6 +56,10 @@ export interface IPublicHeaderCategory {
   refId: string;
   name: string;
   slug: string;
+  /** Ordered category slugs from root → this node. */
+  slugPath: string[];
+  /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda/herbal-oil/castor-oil */
+  permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   position: number;

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ResponseMessage } from '@packages/common';
+import { OptionalSessionCookieGuard } from '@modules/auth/guards/optional-session-cookie.guard';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
@@ -25,6 +26,19 @@ export class PublicProductReviewsController {
   @Get(':slug/reviews')
   getApprovedReviews(@Param('slug') slug: string) {
     return this.productReviewsService.findApprovedByProductSlug(slug);
+  }
+
+  @ApiOperation({
+    summary: 'Whether the current user can review this product (must have ordered it)',
+  })
+  @ResponseMessage('Review eligibility retrieved successfully')
+  @UseGuards(OptionalSessionCookieGuard)
+  @Get(':slug/can-review')
+  canReview(
+    @Param('slug') slug: string,
+    @CurrentSessionUser() user: IUserSessionContext | undefined,
+  ) {
+    return this.productReviewsService.canReviewForProductSlug(slug, user);
   }
 
   @ApiOperation({ summary: 'Submit a product review (pending until admin approval)' })

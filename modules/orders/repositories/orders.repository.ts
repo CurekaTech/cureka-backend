@@ -43,6 +43,19 @@ export class OrdersRepository {
     return this.repo.exists({ where: { orderNumber } });
   }
 
+  /** True when the user has a non-cancelled order that includes the product. */
+  async userHasOrderedProduct(userId: string, productId: string): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('order')
+      .innerJoin('order.items', 'item')
+      .where('order.userId = :userId', { userId })
+      .andWhere('item.productId = :productId', { productId })
+      .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .getCount();
+
+    return count > 0;
+  }
+
   findByIdAndUserId(
     id: string,
     userId: string,

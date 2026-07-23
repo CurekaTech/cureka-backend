@@ -11,6 +11,7 @@ import {
   PaginatedResult,
 } from '@packages/common';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
+import { OrdersService } from '@modules/orders/services/orders.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -40,6 +41,7 @@ export class ProductReviewsService {
     private readonly productsRepository: ProductsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly ordersService: OrdersService,
   ) {}
 
   async findAll(query: ProductReviewQueryDto): Promise<PaginatedResult<IProductReview>> {
@@ -74,6 +76,19 @@ export class ProductReviewsService {
     };
   }
 
+  async canReviewForProductSlug(
+    slug: string,
+    user?: IUserSessionContext,
+  ): Promise<{ canReview: boolean }> {
+    if (!user?.isRegistered || !user.sub) {
+      return { canReview: false };
+    }
+
+    const product = await this.resolvePublishedProduct(slug);
+    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
+    return { canReview: hasOrdered };
+  }
+
   async createForProductSlug(
     slug: string,
     dto: CreateProductReviewDto,
@@ -84,6 +99,12 @@ export class ProductReviewsService {
     }
 
     const product = await this.resolvePublishedProduct(slug);
+
+    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
+    if (!hasOrdered) {
+      throw new ForbiddenException('Only customers who ordered this product can submit a review');
+    }
+
     const rating = Number(dto.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
       throw new BadRequestException('Rating must be an integer between 1 and 5');

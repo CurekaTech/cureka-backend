@@ -14,6 +14,10 @@ export interface IPublicCategoryListItem {
   refId: string;
   name: string;
   slug: string;
+  /** Ordered category slugs from root → this node. */
+  slugPath: string[];
+  /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda/herbal-oil */
+  permalink: string;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   parentCategoryRefId: string | null;

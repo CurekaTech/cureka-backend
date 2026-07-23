@@ -28,6 +28,10 @@ import { ProductInformationLabelsRepository } from '@modules/product/repositorie
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { resolvePublicExpiryDate } from '@modules/product/utils/expiry-date.util';
+import {
+  buildCategoryPermalink,
+  buildProductPermalink,
+} from '../utils/category-permalink.util';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
 import {
@@ -150,9 +154,7 @@ export class PublicProductsService {
    * "bestsellers" tag, newest-first by default. Supports the same filters as the product
    * listing (e.g. categoryRefId/slug). The tag filter is forced and cannot be overridden.
    */
-  async findBestSellers(
-    query: PublicProductQueryDto,
-  ): Promise<IPublicProductListResponse> {
+  async findBestSellers(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
     return this.findAll({
       ...query,
       sortBy: query.sortBy ?? 'publishedAt',
@@ -248,13 +250,15 @@ export class PublicProductsService {
             detail.variants.find((variant) => variant.slug === slug) ??
             pickPreferredPublicVariant(detail.variants);
           this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
-          return matchedVariant
-            ? {
-                ...detail,
-                selectedVariantId: matchedVariant.id,
-                selectedVariantSlug: matchedVariant.slug,
-              }
-            : detail;
+          if (!matchedVariant) {
+            return detail;
+          }
+          return {
+            ...detail,
+            selectedVariantId: matchedVariant.id,
+            selectedVariantSlug: matchedVariant.slug,
+            permalink: buildProductPermalink(detail.categorySlugPath, matchedVariant.slug),
+          };
         }
 
         const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(slug);
@@ -265,10 +269,12 @@ export class PublicProductsService {
         const detail = mapProductEntityToPublicDetail(byVariantSlug);
         const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
         this.logger.log(`[PERF] findBySlug (via variant) | DB query: ${Date.now() - tDb}ms`);
+        const selectedVariantSlug = matchedVariant?.slug ?? slug;
         return {
           ...detail,
           selectedVariantId: matchedVariant?.id ?? null,
-          selectedVariantSlug: matchedVariant?.slug ?? slug,
+          selectedVariantSlug,
+          permalink: buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
         };
       },
     });
@@ -377,9 +383,7 @@ export class PublicProductsService {
     const foundSlugs = new Set(brands.map((brand) => brand.slug));
     const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
     if (missingSlugs.length > 0) {
-      throw new NotFoundException(
-        `Brand with slug "${missingSlugs.join('", "')}" not found`,
-      );
+      throw new NotFoundException(`Brand with slug "${missingSlugs.join('", "')}" not found`);
     }
 
     return { brandIds: brands.map((brand) => brand.id) };
@@ -446,8 +450,7 @@ export class PublicProductsService {
       (await this.categoriesRepository.findActiveByRefId(category.refId)) ?? category;
     const rootCategory =
       (await this.categoriesRepository.findRootAncestor(matchedCategory.id)) ?? matchedCategory;
-    const isChildFilter =
-      Number(matchedCategory.hierarchyLevel) !== CategoryHierarchyLevel.ROOT;
+    const isChildFilter = Number(matchedCategory.hierarchyLevel) !== CategoryHierarchyLevel.ROOT;
 
     const activeFilters = (rootCategory.categoryFilters ?? []).filter(
       (filter) => filter.status === MasterStatus.ACTIVE,
@@ -469,12 +472,22 @@ export class PublicProductsService {
       valuesByFilterId.set(filterId, existing);
     }
 
+    const [rootSlugPath, selectedSlugPath] = await Promise.all([
+      this.categoriesRepository.findSlugPathById(rootCategory.id),
+      isChildFilter
+        ? this.categoriesRepository.findSlugPathById(matchedCategory.id)
+        : Promise.resolve([] as string[]),
+    ]);
+
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
       name: rootCategory.name,
       slug: rootCategory.slug,
+      slugPath: rootSlugPath,
+      permalink: buildCategoryPermalink(rootSlugPath),
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
-      banner: isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
+      banner:
+        isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
       aboveTheFold:
         isChildFilter && matchedCategory.aboveTheFold?.trim()
           ? matchedCategory.aboveTheFold
@@ -500,6 +513,8 @@ export class PublicProductsService {
             refId: matchedCategory.refId,
             name: matchedCategory.name,
             slug: matchedCategory.slug,
+            slugPath: selectedSlugPath,
+            permalink: buildCategoryPermalink(selectedSlugPath),
           }
         : null,
     };
