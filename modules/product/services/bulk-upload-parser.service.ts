@@ -166,6 +166,18 @@ export interface IParsedProductGroup {
   bundleItems: IParsedBundleItem[];
 }
 
+/**
+ * Safely parses a spreadsheet cell string to an integer.
+ * Returns undefined if the value is empty, non-numeric, or would produce NaN/Infinity.
+ * Guards against cases like parseInt(" ", 10) === NaN or parseInt("N/A", 10) === NaN.
+ */
+const safeParseInt = (raw: string): number | undefined => {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const parsed = parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 /** Spreadsheet rows counted as failed/succeeded for one parsed product group. */
 export const listSheetRowsForProductGroup = (
   group: IParsedProductGroup,
@@ -612,15 +624,11 @@ export class BulkUploadParserService {
             getVal('return policy').toLowerCase().includes('return') ||
             getVal('return window days') !== '',
           returnPolicy: getVal('return policy') || undefined,
-          returnWindowDays: getVal('return window days')
-            ? parseInt(getVal('return window days'), 10)
-            : undefined,
+          returnWindowDays: safeParseInt(getVal('return window days')),
           codAvailable: getVal('cod available').toLowerCase() === 'yes',
           emiAvailable: getVal('emi available').toLowerCase() === 'yes',
           replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
-          replaceWindowDays: getVal('replacement window days')
-            ? parseInt(getVal('replacement window days'), 10)
-            : undefined,
+          replaceWindowDays: safeParseInt(getVal('replacement window days')),
           status: getVal('product status') || undefined,
           manufacturer:
             this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
@@ -628,9 +636,7 @@ export class BulkUploadParserService {
           importer: this.getFirstAvailable(getVal, ['importer', 'importer name']) || undefined,
           countryOfOrigin: getVal('country of origin') || undefined,
           components: getVal('components') || undefined,
-          expiresInMonths: getVal('shelf life in months')
-            ? parseInt(getVal('shelf life in months'), 10)
-            : undefined,
+          expiresInMonths: safeParseInt(getVal('shelf life in months')),
           styleGroupId: styleGroupId || undefined,
           variableUploadMode: styleGroupId ? 'explicit' : undefined,
           attributeDetailNames: rowAttributeDetailNames.length ? rowAttributeDetailNames : undefined,
@@ -1318,15 +1324,11 @@ export class BulkUploadParserService {
         getVal('return policy').toLowerCase().includes('return') ||
         getVal('return window days') !== '',
       returnPolicy: getVal('return policy') || undefined,
-      returnWindowDays: getVal('return window days')
-        ? parseInt(getVal('return window days'), 10)
-        : undefined,
+      returnWindowDays: safeParseInt(getVal('return window days')),
       codAvailable: getVal('cod available').toLowerCase() === 'yes',
       emiAvailable: getVal('emi available').toLowerCase() === 'yes',
       replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
-      replaceWindowDays: getVal('replacement window days')
-        ? parseInt(getVal('replacement window days'), 10)
-        : undefined,
+      replaceWindowDays: safeParseInt(getVal('replacement window days')),
       manufacturer:
         this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,
       packer: this.getFirstAvailable(getVal, ['packer', 'packer name']) || undefined,
@@ -1336,9 +1338,7 @@ export class BulkUploadParserService {
       importerAddress: getVal('importer address') || undefined,
       countryOfOrigin: getVal('country of origin') || undefined,
       components: getVal('components') || undefined,
-      expiresInMonths: getVal('shelf life in months')
-        ? parseInt(getVal('shelf life in months'), 10)
-        : undefined,
+      expiresInMonths: safeParseInt(getVal('shelf life in months')),
       singleProductUrl: getVal('single product url') || undefined,
       healthConcerns: getVal('health concerns')
         ? getVal('health concerns').split('|').map((s) => s.trim()).filter(Boolean)
