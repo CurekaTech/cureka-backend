@@ -61,7 +61,7 @@ async function bootstrap(): Promise<void> {
       'Cookie',
       'ngrok-skip-browser-warning',
     ],
-    exposedHeaders: ['Set-Cookie'],
+    exposedHeaders: ['Set-Cookie', 'Content-Disposition', 'Content-Length'],
   });
 
   // Register cookie plugin — cast needed due to @fastify/cookie v11 type mismatch with @nestjs/platform-fastify

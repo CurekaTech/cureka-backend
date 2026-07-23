@@ -93,6 +93,201 @@ export class ProductsRepository {
     return product;
   }
 
+  /**
+   * Lightweight load for create/update mutations (skips media/faqs/tags/etc.).
+   * Used by bulk upload to avoid full-detail hydration per row.
+   */
+  async findByRefIdForMutation(
+    refId: string,
+    manager?: EntityManager,
+  ): Promise<ProductEntity | null> {
+    const mgr = manager ?? this.repo.manager;
+    const product = await mgr.getRepository(ProductEntity).findOne({
+      where: { refId },
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+    });
+    if (!product) return null;
+    await this.attachMutationRelations([product], mgr);
+    return product;
+  }
+
+  async findStatusByRefId(refId: string): Promise<ProductStatus | null> {
+    const row = await this.repo.findOne({
+      where: { refId },
+      select: { status: true, refId: true },
+    });
+    return row?.status ?? null;
+  }
+
+  private async attachMutationRelations(
+    products: ProductEntity[],
+    mgr: EntityManager,
+  ): Promise<void> {
+    if (!products.length) return;
+    const productIds = products.map((p) => p.id);
+
+    const [attributeMappings, variants] = await Promise.all([
+      mgr.getRepository(ProductAttributeMappingEntity).find({
+        where: { productId: In(productIds) },
+        relations: { attribute: true },
+      }),
+      mgr.getRepository(ProductVariantEntity).find({
+        where: { productId: In(productIds) },
+        relations: {
+          manufacturer: true,
+          packer: true,
+          importer: true,
+          countryOfOrigin: true,
+        },
+      }),
+    ]);
+
+    const variantIds = variants.map((v) => v.id);
+    const attributeValues = variantIds.length
+      ? await mgr.getRepository(VariantAttributeValueEntity).find({
+          where: { variantId: In(variantIds) },
+          relations: { attribute: true },
+        })
+      : [];
+
+    const attrValuesByVariantId = new Map<string, VariantAttributeValueEntity[]>();
+    for (const av of attributeValues) {
+      const list = attrValuesByVariantId.get(av.variantId) ?? [];
+      list.push(av);
+      attrValuesByVariantId.set(av.variantId, list);
+    }
+    for (const variant of variants) {
+      variant.attributeValues = attrValuesByVariantId.get(variant.id) ?? [];
+    }
+
+    const attrMappingsByProduct = new Map<string, ProductAttributeMappingEntity[]>();
+    for (const mapping of attributeMappings) {
+      const list = attrMappingsByProduct.get(mapping.productId) ?? [];
+      list.push(mapping);
+      attrMappingsByProduct.set(mapping.productId, list);
+    }
+
+    const variantsByProduct = new Map<string, ProductVariantEntity[]>();
+    for (const variant of variants) {
+      const list = variantsByProduct.get(variant.productId) ?? [];
+      list.push(variant);
+      variantsByProduct.set(variant.productId, list);
+    }
+
+    for (const product of products) {
+      product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
+      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.media = [];
+      product.healthConcernMappings = [];
+      product.wellnessGoalMappings = [];
+      product.tagMappings = [];
+      product.faqMappings = [];
+      product.bundleItems = [];
+      product.categoryFilterMappings = [];
+    }
+  }
+
+  async findAllForBulkExport(): Promise<ProductEntity[]> {
+    const batchSize = 500;
+    const all: ProductEntity[] = [];
+    let offset = 0;
+
+    while (true) {
+      const batch = await this.findForBulkExportBatch(offset, batchSize);
+      if (!batch.length) {
+        break;
+      }
+      all.push(...batch);
+      offset += batch.length;
+      if (batch.length < batchSize) {
+        break;
+      }
+    }
+
+    return all;
+  }
+
+  async countForBulkExport(): Promise<number> {
+    return this.repo.count();
+  }
+
+  async findForBulkExportBatch(offset: number, limit: number): Promise<ProductEntity[]> {
+    const products = await this.repo.find({
+      relations: {
+        productNature: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+        brand: true,
+        manufacturer: true,
+        packer: true,
+        importer: true,
+        countryOfOrigin: true,
+      },
+      order: { createdAt: 'ASC' },
+      skip: offset,
+      take: limit,
+    });
+
+    if (!products.length) {
+      return [];
+    }
+
+    await this.attachDetailRelations(products, this.repo.manager, { includeMedia: false });
+    return products;
+  }
+
+  async findVariantSkuExportLookup(): Promise<
+    Map<string, { mrp: number | null; sellingPrice: number | null }>
+  > {
+    const rows = await this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .select(['variant.sku', 'variant.mrp', 'variant.sellingPrice'])
+      .where('variant.deletedAt IS NULL')
+      .getMany();
+
+    const lookup = new Map<string, { mrp: number | null; sellingPrice: number | null }>();
+    for (const row of rows) {
+      const sku = row.sku?.trim();
+      if (!sku) continue;
+      lookup.set(sku.toLowerCase(), {
+        mrp: row.mrp != null ? Number(row.mrp) : null,
+        sellingPrice: row.sellingPrice != null ? Number(row.sellingPrice) : null,
+      });
+    }
+    return lookup;
+  }
+
+  async findFirstVariantSkuByProductId(): Promise<Map<string, string>> {
+    const rows = await this.repo.manager.query<Array<{ product_id: string; sku: string }>>(
+      `
+      SELECT DISTINCT ON (product_id) product_id, sku
+      FROM product_variants
+      WHERE deleted_at IS NULL
+      ORDER BY product_id, created_at ASC
+      `,
+    );
+
+    return new Map(
+      rows
+        .filter((row) => row.product_id && row.sku)
+        .map((row) => [row.product_id, row.sku] as const),
+    );
+  }
+
   async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { refId, status: ProductStatus.PUBLISHED },
@@ -395,8 +590,12 @@ export class ProductsRepository {
         `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
-            AND pv.slug ILIKE :search
             AND pv.deleted_at IS NULL
+            AND (
+              pv.slug ILIKE :search
+              OR pv.sku ILIKE :search
+              OR pv.display_name ILIKE :search
+            )
         ))`,
         { search: `%${options.search}%` },
       );
@@ -491,9 +690,14 @@ export class ProductsRepository {
    * queries run concurrently via Promise.all, so total time = max(slowest query)
    * instead of sum(all queries).
    */
-  private async attachDetailRelations(products: ProductEntity[], mgr: EntityManager): Promise<void> {
+  private async attachDetailRelations(
+    products: ProductEntity[],
+    mgr: EntityManager,
+    options?: { includeMedia?: boolean },
+  ): Promise<void> {
     if (!products.length) return;
     const productIds = products.map((p) => p.id);
+    const includeMedia = options?.includeMedia !== false;
 
     const [
       attributeMappings,
@@ -519,10 +723,12 @@ export class ProductsRepository {
           countryOfOrigin: true,
         },
       }),
-      mgr.getRepository(ProductMediaEntity).find({
-        where: { productId: In(productIds) },
-        order: { sortOrder: 'ASC', createdAt: 'ASC' },
-      }),
+      includeMedia
+        ? mgr.getRepository(ProductMediaEntity).find({
+            where: { productId: In(productIds) },
+            order: { sortOrder: 'ASC', createdAt: 'ASC' },
+          })
+        : Promise.resolve([] as ProductMediaEntity[]),
       mgr.getRepository(ProductHealthConcernEntity).find({
         where: { productId: In(productIds) },
         relations: { healthConcern: true },
@@ -881,8 +1087,12 @@ export class ProductsRepository {
         `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
-            AND pv.slug ILIKE :search
             AND pv.deleted_at IS NULL
+            AND (
+              pv.slug ILIKE :search
+              OR pv.sku ILIKE :search
+              OR pv.display_name ILIKE :search
+            )
         ))`,
         { search: `%${options.search}%` },
       );

@@ -1,6 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as exceljs from 'exceljs';
+import { createReadStream } from 'fs';
+import { createInterface } from 'readline';
 import { extname } from 'path';
+import { parseCsvLine } from '../utils/bulk-upload-csv.util';
+import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 import {
   BulkUploadProductInformationLabel,
@@ -161,16 +166,49 @@ export interface IParsedProductGroup {
   bundleItems: IParsedBundleItem[];
 }
 
-/** How many spreadsheet rows one parsed product group represents (not variant count). */
-export const countSheetRowsForProductGroup = (group: IParsedProductGroup): number => {
+/** Spreadsheet rows counted as failed/succeeded for one parsed product group. */
+export const listSheetRowsForProductGroup = (
+  group: IParsedProductGroup,
+): Array<{ rowNumber: number; sku: string }> => {
+  const fallbackSku = group.variants[0]?.sku?.trim() || 'PARENT';
+  const rows = new Map<number, string>();
+
+  const setRow = (rowNumber: number, sku?: string) => {
+    if (!Number.isFinite(rowNumber) || rowNumber <= 0) return;
+    const existing = rows.get(rowNumber);
+    const next = sku?.trim();
+    if (!existing) {
+      rows.set(rowNumber, next || fallbackSku);
+      return;
+    }
+    if (next && existing === fallbackSku) {
+      rows.set(rowNumber, next);
+    }
+  };
+
   if (group.productType === 'variable' && group.variableUploadMode === 'explicit') {
-    return new Set([group.rowNumber, ...group.variants.map((variant) => variant.rowNumber)]).size;
+    setRow(group.rowNumber, fallbackSku);
+    for (const variant of group.variants ?? []) {
+      setRow(variant.rowNumber, variant.sku);
+    }
+  } else if (group.productType === 'bundle') {
+    setRow(group.rowNumber, fallbackSku);
+    for (const item of group.bundleItems ?? []) {
+      setRow(item.rowNumber, item.childSku);
+    }
+  } else {
+    // Simple (and non-explicit variable): one sheet-row unit, even if variants[] has extras.
+    setRow(group.rowNumber, fallbackSku);
   }
-  if (group.productType === 'bundle') {
-    return new Set([group.rowNumber, ...group.bundleItems.map((item) => item.rowNumber)]).size;
-  }
-  return 1;
+
+  return [...rows.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([rowNumber, sku]) => ({ rowNumber, sku }));
 };
+
+/** How many spreadsheet rows one parsed product group represents (not variant count). */
+export const countSheetRowsForProductGroup = (group: IParsedProductGroup): number =>
+  listSheetRowsForProductGroup(group).length;
 
 export const countVariantSlotsForProductGroup = (group: IParsedProductGroup): number =>
   Math.max(
@@ -181,6 +219,8 @@ export const countVariantSlotsForProductGroup = (group: IParsedProductGroup): nu
 @Injectable()
 export class BulkUploadParserService {
   private readonly logger = new Logger(BulkUploadParserService.name);
+
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Cleans header strings to allow flexible asterisk, space, and underscore matching.
@@ -407,43 +447,51 @@ export class BulkUploadParserService {
     activeCategoryFilterNames: ReadonlySet<string> = new Set(),
   ): Promise<number> {
     const isCsv = mimetype === 'text/csv' || extname(filePath).toLowerCase() === '.csv';
-    const workbook = new exceljs.Workbook();
-    
-    if (isCsv) {
-      await workbook.csv.readFile(filePath);
-    } else {
-      await workbook.xlsx.readFile(filePath);
-    }
-
-    const worksheet = workbook.worksheets[0];
-    if (!worksheet) {
-      throw new BadRequestException('The uploaded file contains no worksheets.');
-    }
-
-    const totalDataRows = worksheet.rowCount - 1;
-    if (totalDataRows > 1000) {
-      throw new BadRequestException(
-        `The sheet contains ${totalDataRows} data rows, which exceeds the maximum limit of 1000 rows per upload.`,
-      );
-    }
-
-    const headerMap = this.extractHeaders(worksheet);
-    this.validateRequiredHeaders(headerMap);
-    this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
-    const productInformationColumnMap = this.resolveProductInformationColumns(
-      headerMap,
-      activeProductInformationLabels,
+    const effectiveBatchSize = resolveProductBulkBatchSize(
+      batchSize || this.configService.get<number>('PRODUCT_BULK_BATCH_SIZE'),
     );
-    const dynamicCategoryFilterColumns = this.extractDynamicCategoryFilterColumns(worksheet);
+    const maxRows = this.configService.get<number>('PRODUCT_BULK_UPLOAD_MAX_ROWS', 0);
 
     const groupedProducts = new Map<string, IParsedProductGroup>();
+    const readyQueue: IParsedProductGroup[] = [];
     let scannedRowsCount = 0;
+    let previousGroupingKey: string | null = null;
+    let headerMap!: Map<string, number>;
+    let productInformationColumnMap!: Map<number, { label: string; sortOrder: number }>;
+    let dynamicCategoryFilterColumns!: Map<number, string>;
 
-    const rowCount = worksheet.rowCount;
-    for (let rowNumber = 2; rowNumber <= rowCount; rowNumber++) {
-      const row = worksheet.getRow(rowNumber);
-      if (!row) continue;
+    const finalizeGroup = (group: IParsedProductGroup): IParsedProductGroup => {
+      if (group.styleGroupId) {
+        if (group.variants.length >= 2) {
+          group.productType = 'variable';
+          group.variableUploadMode = 'explicit';
+        } else {
+          group.productType = 'simple';
+          group.variableUploadMode = undefined;
+        }
+      }
+      return group;
+    };
 
+    const flushReadyQueue = async (force = false) => {
+      while (readyQueue.length >= effectiveBatchSize || (force && readyQueue.length > 0)) {
+        const batch = readyQueue.splice(0, effectiveBatchSize);
+        await onBatch(batch, scannedRowsCount);
+        if (!force && readyQueue.length < effectiveBatchSize) {
+          break;
+        }
+      }
+    };
+
+    const flushCompletedGroup = async (groupingKey: string) => {
+      const group = groupedProducts.get(groupingKey);
+      if (!group) return;
+      readyQueue.push(finalizeGroup(group));
+      groupedProducts.delete(groupingKey);
+      await flushReadyQueue();
+    };
+
+    const processRow = async (rowNumber: number, row: exceljs.Row) => {
       const getVal = (colName: string): string => {
         const cleanedCol = this.cleanHeader(colName);
         const idx = headerMap.get(cleanedCol);
@@ -490,7 +538,7 @@ export class BulkUploadParserService {
 
       // Skip row if it is completely empty
       if (!name && !vendorSku && !bundleSku && !productSkuCode && !styleGroupId) {
-        continue;
+        return;
       }
 
       scannedRowsCount++;
@@ -508,6 +556,11 @@ export class BulkUploadParserService {
         groupingKey = `simple-${rowNumber}`;
         effectiveProductType = productTypeRaw === 'variable' ? 'simple' : productTypeRaw;
       }
+
+      if (previousGroupingKey && previousGroupingKey !== groupingKey) {
+        await flushCompletedGroup(previousGroupingKey);
+      }
+      previousGroupingKey = groupingKey;
 
       let group = groupedProducts.get(groupingKey);
       const rowAttributeDetailNames = parseAttributeDetailsFromRow(getVal, headerMap);
@@ -642,7 +695,7 @@ export class BulkUploadParserService {
           childSku: getVal('child sku'),
           quantity: parseInt(getVal('child quantity'), 10) || 1,
         });
-        continue;
+        return;
       }
 
       // Vertical variant / simple row → one variant entry
@@ -703,29 +756,280 @@ export class BulkUploadParserService {
       });
 
       void isNewGroup;
-    }
+    };
 
-    // Finalize style groups: single row stays simple; 2+ rows → variable.
-    const finalizedGroups: IParsedProductGroup[] = [];
-    for (const group of groupedProducts.values()) {
-      if (group.styleGroupId) {
-        if (group.variants.length >= 2) {
-          group.productType = 'variable';
-          group.variableUploadMode = 'explicit';
-        } else {
-          group.productType = 'simple';
-          group.variableUploadMode = undefined;
+    if (isCsv) {
+      const stream = createReadStream(filePath, { encoding: 'utf8' });
+      const lineReader = createInterface({ input: stream, crlfDelay: Infinity });
+      let rowNumber = 0;
+      for await (const line of lineReader) {
+        if (!line.trim()) continue;
+        rowNumber += 1;
+        if (rowNumber === 1) {
+          const headerCells = parseCsvLine(line);
+          headerMap = this.extractHeadersFromValues(headerCells);
+          this.validateRequiredHeaders(headerMap);
+          this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
+          productInformationColumnMap = this.resolveProductInformationColumns(
+            headerMap,
+            activeProductInformationLabels,
+          );
+          dynamicCategoryFilterColumns = this.extractDynamicCategoryFilterColumnsFromValues(headerCells);
+          continue;
         }
+
+        if (maxRows > 0 && rowNumber - 1 > maxRows) {
+          throw new BadRequestException(
+            `The sheet contains more than ${maxRows} data rows, which exceeds the configured upload limit.`,
+          );
+        }
+
+        const row = this.buildRowFromValues(parseCsvLine(line));
+        await processRow(rowNumber, row);
       }
-      finalizedGroups.push(group);
+    } else {
+      await this.parseXlsxAndBatch({
+        filePath,
+        maxRows,
+        activeCategoryFilterNames,
+        activeProductInformationLabels,
+        onHeaders: (map, dynamicColumns, infoColumns) => {
+          headerMap = map;
+          dynamicCategoryFilterColumns = dynamicColumns;
+          productInformationColumnMap = infoColumns;
+        },
+        processRow,
+      });
     }
 
-    for (let offset = 0; offset < finalizedGroups.length; offset += batchSize) {
-      const batch = finalizedGroups.slice(offset, offset + batchSize);
-      await onBatch(batch, scannedRowsCount);
+    if (previousGroupingKey) {
+      await flushCompletedGroup(previousGroupingKey);
     }
+    for (const groupingKey of [...groupedProducts.keys()]) {
+      await flushCompletedGroup(groupingKey);
+    }
+    await flushReadyQueue(true);
 
     return scannedRowsCount;
+  }
+
+  private buildRowFromValues(values: string[]): exceljs.Row {
+    const row = { values: ['', ...values] } as exceljs.Row;
+    row.getCell = ((colNumber: number) => ({
+      value: values[colNumber - 1] ?? '',
+    })) as exceljs.Row['getCell'];
+    return row;
+  }
+
+  private static readonly IMPORT_SHEET_NAME = 'bulk import template';
+  private static readonly REFERENCE_SHEET_NAME_PATTERN =
+    /(reference|dropdown|validation|instructions|readme)/i;
+  private static readonly HEADER_SCAN_MAX_ROWS = 15;
+
+  private async parseXlsxAndBatch(options: {
+    filePath: string;
+    maxRows: number;
+    activeCategoryFilterNames: ReadonlySet<string>;
+    activeProductInformationLabels: ReadonlyMap<string, BulkUploadProductInformationLabel>;
+    onHeaders: (
+      headerMap: Map<string, number>,
+      dynamicColumns: Map<number, string>,
+      productInformationColumnMap: Map<number, { label: string; sortOrder: number }>,
+    ) => void;
+    processRow: (rowNumber: number, row: exceljs.Row) => Promise<void>;
+  }): Promise<void> {
+    const {
+      filePath,
+      maxRows,
+      activeCategoryFilterNames,
+      activeProductInformationLabels,
+      onHeaders,
+      processRow,
+    } = options;
+
+    // Prefer buffered load so we can pick the correct sheet (not always worksheets[0]).
+    // Streaming previously always consumed the first sheet, which fails when Excel puts a
+    // reference/instructions sheet first, or when headers are not on row 1.
+    const workbook = new exceljs.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    if (!workbook.worksheets.length) {
+      throw new BadRequestException('The uploaded file contains no worksheets.');
+    }
+
+    const worksheet = this.resolveImportWorksheet(workbook);
+    const headerRowNumber = this.findHeaderRowNumber(worksheet);
+    const headerRow = worksheet.getRow(headerRowNumber);
+    const headerMap = this.extractHeadersFromRow(headerRow);
+    this.validateRequiredHeaders(headerMap, worksheet.name);
+    this.validateCategoryFilterHeaders(headerMap, activeCategoryFilterNames);
+    const productInformationColumnMap = this.resolveProductInformationColumns(
+      headerMap,
+      activeProductInformationLabels,
+    );
+    const dynamicCategoryFilterColumns =
+      this.extractDynamicCategoryFilterColumnsFromRow(headerRow);
+    onHeaders(headerMap, dynamicCategoryFilterColumns, productInformationColumnMap);
+
+    this.logger.log(
+      `[BULK_UPLOAD] Using sheet "${worksheet.name}" with headers on row ${headerRowNumber} (${headerMap.size} columns)`,
+    );
+
+    let dataRowCount = 0;
+    for (let excelRowNumber = headerRowNumber + 1; excelRowNumber <= worksheet.rowCount; excelRowNumber += 1) {
+      const row = worksheet.getRow(excelRowNumber);
+      if (this.isRowEmpty(row)) {
+        continue;
+      }
+
+      dataRowCount += 1;
+      if (maxRows > 0 && dataRowCount > maxRows) {
+        throw new BadRequestException(
+          `The sheet contains more than ${maxRows} data rows, which exceeds the configured upload limit.`,
+        );
+      }
+
+      // Keep spreadsheet row numbers for error reports (1-based Excel row index).
+      await processRow(excelRowNumber, row);
+    }
+  }
+
+  private resolveImportWorksheet(workbook: exceljs.Workbook): exceljs.Worksheet {
+    const sheets = workbook.worksheets.filter((sheet) => sheet?.name);
+    if (!sheets.length) {
+      throw new BadRequestException('The uploaded file contains no worksheets.');
+    }
+
+    const byExactName = sheets.find(
+      (sheet) => sheet.name.trim().toLowerCase() === BulkUploadParserService.IMPORT_SHEET_NAME,
+    );
+    if (byExactName && this.rowHasRequiredHeaders(byExactName.getRow(this.findHeaderRowNumber(byExactName)))) {
+      return byExactName;
+    }
+
+    const nonReference = sheets.filter(
+      (sheet) => !BulkUploadParserService.REFERENCE_SHEET_NAME_PATTERN.test(sheet.name),
+    );
+    for (const sheet of nonReference.length ? nonReference : sheets) {
+      try {
+        const headerRowNumber = this.findHeaderRowNumber(sheet);
+        if (this.rowHasRequiredHeaders(sheet.getRow(headerRowNumber))) {
+          return sheet;
+        }
+      } catch {
+        // try next sheet
+      }
+    }
+
+    // Last resort: first non-reference sheet (validateRequiredHeaders will throw a clear error).
+    return nonReference[0] ?? sheets[0];
+  }
+
+  private findHeaderRowNumber(worksheet: exceljs.Worksheet): number {
+    const maxScan = Math.min(worksheet.rowCount || 1, BulkUploadParserService.HEADER_SCAN_MAX_ROWS);
+    for (let rowNumber = 1; rowNumber <= maxScan; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber);
+      if (this.rowHasRequiredHeaders(row)) {
+        return rowNumber;
+      }
+    }
+    return 1;
+  }
+
+  private rowHasRequiredHeaders(row: exceljs.Row): boolean {
+    const headerMap = this.extractHeadersFromRow(row);
+    return (
+      headerMap.has('product name') &&
+      headerMap.has('product type') &&
+      headerMap.has('category')
+    );
+  }
+
+  private isRowEmpty(row: exceljs.Row): boolean {
+    let hasValue = false;
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (this.getCellText(cell).trim()) {
+        hasValue = true;
+      }
+    });
+    if (hasValue) return false;
+
+    // Streaming/buffered rows sometimes expose values[] without eachCell hits.
+    const values = Array.isArray(row.values) ? row.values : [];
+    return !values.some((value, index) => {
+      if (index === 0) return false;
+      if (value === null || value === undefined) return false;
+      return String(value).trim().length > 0;
+    });
+  }
+
+  private extractHeadersFromValues(values: string[]): Map<string, number> {
+    const headerMap = new Map<string, number>();
+    values.forEach((value, index) => {
+      const cleaned = normalizeBulkUploadHeader(value);
+      if (cleaned) {
+        headerMap.set(cleaned, index + 1);
+      }
+    });
+    return headerMap;
+  }
+
+  private extractHeadersFromRow(headerRow: exceljs.Row): Map<string, number> {
+    const headerMap = new Map<string, number>();
+    headerRow.eachCell((cell, colNumber) => {
+      const val = this.getCellText(cell);
+      const cleaned = normalizeBulkUploadHeader(val);
+      if (cleaned) {
+        headerMap.set(cleaned, colNumber);
+      }
+    });
+
+    // Fallback: some Excel files expose headers only via row.values in edge cases.
+    if (headerMap.size === 0 && Array.isArray(headerRow.values)) {
+      const values = headerRow.values as Array<unknown>;
+      for (let index = 1; index < values.length; index += 1) {
+        const raw = values[index];
+        const text =
+          raw === null || raw === undefined
+            ? ''
+            : typeof raw === 'object'
+              ? this.getCellText({ value: raw } as exceljs.Cell)
+              : String(raw);
+        const cleaned = normalizeBulkUploadHeader(text);
+        if (cleaned) {
+          headerMap.set(cleaned, index);
+        }
+      }
+    }
+
+    return headerMap;
+  }
+
+  private extractDynamicCategoryFilterColumnsFromValues(
+    values: string[],
+  ): Map<number, string> {
+    const dynamicColumns = new Map<number, string>();
+    values.forEach((value, index) => {
+      const original = value.trim();
+      if (!original) return;
+      const filterName = parseCategoryFilterNameFromHeader(original);
+      if (!filterName) return;
+      dynamicColumns.set(index + 1, filterName);
+    });
+    return dynamicColumns;
+  }
+
+  private extractDynamicCategoryFilterColumnsFromRow(
+    headerRow: exceljs.Row,
+  ): Map<number, string> {
+    const dynamicColumns = new Map<number, string>();
+    headerRow.eachCell((cell, colNumber) => {
+      const original = this.getCellText(cell).trim();
+      if (!original) return;
+      const filterName = parseCategoryFilterNameFromHeader(original);
+      if (!filterName) return;
+      dynamicColumns.set(colNumber, filterName);
+    });
+    return dynamicColumns;
   }
 
   private parseVariantImages(getVal: (columnName: string) => string): IParsedImage[] {
@@ -786,7 +1090,7 @@ export class BulkUploadParserService {
   /**
    * Assures sheet contains mandatory headers.
    */
-  private validateRequiredHeaders(headerMap: Map<string, number>): void {
+  private validateRequiredHeaders(headerMap: Map<string, number>, sheetName?: string): void {
     const required = ['product name', 'product type', 'category'];
     const missing: string[] = [];
 
@@ -797,8 +1101,12 @@ export class BulkUploadParserService {
     }
 
     if (missing.length > 0) {
+      const detected = [...headerMap.keys()].slice(0, 12).join(', ') || '(none)';
+      const sheetHint = sheetName ? ` on sheet "${sheetName}"` : '';
       throw new BadRequestException(
-        `Invalid template. Missing mandatory columns: ${missing.join(', ')}`,
+        `Invalid template. Missing mandatory columns${sheetHint}: ${missing.join(', ')}. ` +
+          `Detected columns: ${detected}. ` +
+          `Use the "Bulk Import Template" sheet with header columns Product Name*, Product Type *, Category *.`,
       );
     }
   }

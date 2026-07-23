@@ -394,9 +394,9 @@ export class PublicProductsService {
     const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
         query.categoryRefId
-          ? this.categoriesRepository.findByRefId(query.categoryRefId)
+          ? this.categoriesRepository.findActiveByRefId(query.categoryRefId)
           : query.categorySlug
-            ? this.categoriesRepository.findBySlug(query.categorySlug)
+            ? this.categoriesRepository.findActiveBySlug(query.categorySlug)
             : Promise.resolve(null),
         this.resolveBrandFilters(query),
         query.productNatureRefId
@@ -447,7 +447,7 @@ export class PublicProductsService {
     category: CategoryEntity,
   ): Promise<IPublicCategoryProductListingContext> {
     const matchedCategory =
-      (await this.categoriesRepository.findByRefId(category.refId)) ?? category;
+      (await this.categoriesRepository.findActiveByRefId(category.refId)) ?? category;
     const rootCategory =
       (await this.categoriesRepository.findRootAncestor(matchedCategory.id)) ?? matchedCategory;
     const isChildFilter = Number(matchedCategory.hierarchyLevel) !== CategoryHierarchyLevel.ROOT;
@@ -602,7 +602,12 @@ export class PublicProductsService {
       }),
     );
 
-    const productInformation = await this.enrichProductInformation(product.productInformation);
+    const labelSortOrders =
+      await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const productInformation = enrichProductInformation(
+      product.productInformation,
+      labelSortOrders,
+    );
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
@@ -619,6 +624,10 @@ export class PublicProductsService {
           : null;
         return {
           ...variant,
+          productInformation: enrichProductInformation(
+            variant.productInformation,
+            labelSortOrders,
+          ),
           sizeChart: variantSizeChart,
           expiryDate: resolvePublicExpiryDate(
             variant.expiryDate,
@@ -640,20 +649,19 @@ export class PublicProductsService {
       variants,
     });
 
-    return merged;
+    // Re-apply live master order after variant merge (variant payload may replace product info).
+    return {
+      ...merged,
+      productInformation: enrichProductInformation(
+        merged.productInformation,
+        labelSortOrders,
+      ),
+    };
   }
 
   private async enrichPartySummary<
     T extends IPublicManufacturerSummary | IPublicPackerSummary | IPublicImporterSummary,
   >(party: T): Promise<T> {
     return this.storageUrlEnricher.enrichFields(party, ['logo']);
-  }
-
-  private async enrichProductInformation(
-    items: IPublicProductDetail['productInformation'],
-  ): Promise<IPublicProductDetail['productInformation']> {
-    const labelSortOrders =
-      await this.productInformationLabelsRepository.findActiveSortOrdersByName();
-    return enrichProductInformation(items, labelSortOrders);
   }
 }

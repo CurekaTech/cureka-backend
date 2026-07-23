@@ -1,9 +1,10 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { BulkUploadService } from '../services/bulk-upload.service';
 
 @ApiTags('Product Bulk Upload')
@@ -11,7 +12,10 @@ import { BulkUploadService } from '../services/bulk-upload.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('products/bulk-upload')
 export class BulkUploadController {
-  constructor(private readonly bulkUploadService: BulkUploadService) {}
+  constructor(
+    private readonly bulkUploadService: BulkUploadService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @ApiOperation({ summary: 'Upload Excel/CSV product sheet and queue job' })
   @ResponseMessage('Bulk upload enqueued successfully')
@@ -28,6 +32,7 @@ export class BulkUploadController {
   }
 
   @ApiOperation({ summary: 'Download bulk upload sample XLSX template' })
+  @RawResponse()
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get('template/download')
   async downloadTemplate(@Res() reply: FastifyReply) {
@@ -38,6 +43,39 @@ export class BulkUploadController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
+
+  @ApiOperation({
+    summary: 'Export all products as editable bulk upload CSV (streams in batches)',
+  })
+  @RawResponse()
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('export')
+  async exportProducts(@Res() reply: FastifyReply) {
+    await this.bulkUploadService.streamExportToReply(reply);
+  }
+
+  @ApiOperation({ summary: 'Queue background bulk export job (CSV)' })
+  @ResponseMessage('Bulk export enqueued successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('export')
+  async queueExport(@CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.bulkUploadService.createBulkExportJob(user.email);
+  }
+
+  @ApiOperation({ summary: 'Download completed bulk export CSV' })
+  @RawResponse()
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('export/:refId/download')
+  async downloadExport(@Param('refId', RefIdPipe) refId: string, @Res() reply: FastifyReply) {
+    const { fileName, fileBuffer, contentType } =
+      await this.bulkUploadService.getExportDownload(refId);
+    return reply
+      .code(200)
+      .header('Content-Type', contentType)
+      .header('Content-Length', String(fileBuffer.length))
       .header('Content-Disposition', `attachment; filename="${fileName}"`)
       .send(fileBuffer);
   }
@@ -68,6 +106,17 @@ export class BulkUploadController {
     const limitNum = limit ? parseInt(limit, 10) : 20;
     console.log('[BULK_UPLOAD_DEBUG][Controller.getHistory] API_CALLED', { page: pageNum, limit: limitNum });
     return this.bulkUploadService.getHistory(pageNum, limitNum);
+  }
+
+  @ApiOperation({ summary: 'Cancel a running or queued bulk upload job' })
+  @ResponseMessage('Bulk upload cancelled successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post(':refId/cancel')
+  async cancel(
+    @Param('refId', RefIdPipe) refId: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.bulkUploadService.cancelBulkUploadJob(refId, user.email);
   }
 
   @ApiOperation({ summary: 'Get bulk upload job status' })

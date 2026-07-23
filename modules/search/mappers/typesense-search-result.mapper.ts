@@ -55,3 +55,71 @@ export function mapTypesenseHitsToSearchResults(
 
   return mapTypesenseDocumentsToSearchResults(documents);
 }
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** Case-insensitive contains match (ILIKE '%query%'), ignoring spaces/punctuation. */
+export function titleMatchesSearchQuery(title: string, query: string): boolean {
+  const normalizedTitle = normalizeSearchText(title);
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return true;
+  }
+  if (normalizedTitle.includes(normalizedQuery)) {
+    return true;
+  }
+
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]+/g, ''))
+    .filter((token) => token.length > 1);
+
+  return tokens.length > 0 && tokens.every((token) => normalizedTitle.includes(token));
+}
+
+/**
+ * Keep variant-level Product hits, but:
+ * - only when the variant/product title matches the search query (ILIKE-style)
+ * - collapse identical titles (same product twice, or duplicate catalog rows with different refIds)
+ * - keep different variants when their titles differ
+ */
+export function filterDistinctMatchingProductVariants(
+  results: IPublicSearchResult[],
+  searchQuery?: string,
+): IPublicSearchResult[] {
+  const query = searchQuery?.trim() ?? '';
+  const seenTitles = new Set<string>();
+  const seenRefTitleKeys = new Set<string>();
+  const filtered: IPublicSearchResult[] = [];
+
+  for (const result of results) {
+    if (result.entityType === SEARCH_ENTITY_TYPES.PRODUCT) {
+      if (query && !titleMatchesSearchQuery(result.title, query)) {
+        continue;
+      }
+
+      const normalizedTitle = normalizeSearchText(result.title);
+      const refTitleKey = `${result.refId}\0${normalizedTitle}`;
+
+      // Prefer first Typesense hit when duplicate products share the same title.
+      if (normalizedTitle && seenTitles.has(normalizedTitle)) {
+        continue;
+      }
+      if (seenRefTitleKeys.has(refTitleKey)) {
+        continue;
+      }
+
+      if (normalizedTitle) {
+        seenTitles.add(normalizedTitle);
+      }
+      seenRefTitleKeys.add(refTitleKey);
+    }
+
+    filtered.push(result);
+  }
+
+  return filtered;
+}

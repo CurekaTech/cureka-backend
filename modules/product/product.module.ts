@@ -46,12 +46,16 @@ import { BulkUploadEntity } from './entities/bulk-upload.entity';
 import { BulkUploadsRepository } from './repositories/bulk-uploads.repository';
 import { BulkUploadController } from './controllers/bulk-upload.controller';
 import { BulkUploadService } from './services/bulk-upload.service';
+import { BulkUploadExportStreamService } from './services/bulk-upload-export-stream.service';
 import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { BulkUploadProcessor } from './processors/bulk-upload.processor';
 import { BulkUploadParserService } from './services/bulk-upload-parser.service';
 import { BulkUploadValidatorService } from './services/bulk-upload-validator.service';
 import { GalleryModule } from '../gallery/gallery.module';
+
+const BULK_UPLOAD_PROCESSOR_ENABLED =
+  (process.env.BULK_UPLOAD_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
 
 @Module({
   imports: [
@@ -107,7 +111,8 @@ import { GalleryModule } from '../gallery/gallery.module';
     ProductCacheListener,
     BulkUploadsRepository,
     BulkUploadService,
-    BulkUploadProcessor,
+    BulkUploadExportStreamService,
+    ...(BULK_UPLOAD_PROCESSOR_ENABLED ? [BulkUploadProcessor] : []),
     BulkUploadParserService,
     BulkUploadValidatorService,
   ],
@@ -119,7 +124,7 @@ import { GalleryModule } from '../gallery/gallery.module';
     ProductInformationLabelsRepository,
     BulkUploadsRepository,
     BulkUploadService,
-    BulkUploadProcessor,
+    ...(BULK_UPLOAD_PROCESSOR_ENABLED ? [BulkUploadProcessor] : []),
     BulkUploadParserService,
     BulkUploadValidatorService,
   ],
