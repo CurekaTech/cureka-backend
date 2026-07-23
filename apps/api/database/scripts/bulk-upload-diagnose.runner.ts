@@ -276,12 +276,57 @@ function cellText(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
+/**
+ * Mirrors the exact normalisation logic from bulk-upload-columns.util.ts:
+ *   sanitizeBulkUploadCellText  — strips invisible Unicode chars, normalises spaces
+ *   normalizeBulkUploadHeader   — lowercases, strips '*', collapses spaces
+ *
+ * The template headers look like "Product Name*", "Product Type *", "Category *".
+ * Without stripping '*' the required-header check can never match.
+ */
+function normalizeHeader(raw: string): string {
+  return raw
+    // strip invisible / bidi Unicode marks
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
+    // non-breaking space → regular space
+    .replace(/\u00A0/g, ' ')
+    // collapse multiple spaces
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    // strip mandatory-field asterisks ("Product Name*" → "product name")
+    .replace(/\*/g, '')
+    // replace underscores with spaces (except att_* and common_media_N families)
+    .replace(/^(att_|common_media_\d+)/, '__KEEP__$1')
+    .replace(/_/g, ' ')
+    .replace(/__KEEP__/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function buildHeaderMap(row: ExcelJS.Row): Map<string, number> {
   const map = new Map<string, number>();
+
+  // Primary: eachCell
   row.eachCell((cell, col) => {
-    const k = cellText(cell.value).toLowerCase();
+    const k = normalizeHeader(cellText(cell.value));
     if (k) map.set(k, col);
   });
+
+  // Fallback: row.values — some Excel files only expose headers this way
+  if (map.size === 0 && Array.isArray(row.values)) {
+    const vals = row.values as Array<unknown>;
+    for (let i = 1; i < vals.length; i++) {
+      const raw = vals[i];
+      if (raw == null) continue;
+      const text = typeof raw === 'object'
+        ? cellText(raw as ExcelJS.CellValue)
+        : String(raw);
+      const k = normalizeHeader(text);
+      if (k) map.set(k, i);
+    }
+  }
+
   return map;
 }
 

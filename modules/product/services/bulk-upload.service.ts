@@ -24,6 +24,7 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductTagsRepository } from '../repositories/product-tags.repository';
+import { ProductInformationLabelsRepository } from '../repositories/product-information-labels.repository';
 import { ProductsRepository } from '../repositories/products.repository';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
@@ -58,6 +59,7 @@ export class BulkUploadService {
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly wellnessGoalsRepository: WellnessGoalsRepository,
     private readonly productTagsRepository: ProductTagsRepository,
+    private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly configService: ConfigService,
     private readonly exportStreamService: BulkUploadExportStreamService,
@@ -431,6 +433,7 @@ export class BulkUploadService {
       activeHealthConcerns,
       activeWellnessGoals,
       activeProductTags,
+      activeProductInformationLabels,
     ] = await Promise.all([
       this.categoryFiltersRepository.findAllActiveOrderedByName(),
       this.categoriesRepository.findActiveCategories(),
@@ -439,12 +442,14 @@ export class BulkUploadService {
       this.healthConcernsRepository.findAllActive(),
       this.wellnessGoalsRepository.findAllByStatus(MasterStatus.ACTIVE),
       this.productTagsRepository.findAllByStatus(MasterStatus.ACTIVE),
+      this.productInformationLabelsRepository.findAllByStatus(MasterStatus.ACTIVE),
     ]);
 
     const categoryFilterHeaders = activeFilters.map((filter) =>
       buildCategoryFilterColumnHeader(filter.name),
     );
-    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
+    const informationLabelNames = activeProductInformationLabels.map((label) => label.name);
+    const headers = buildUnifiedBulkUploadHeaders(categoryFilterHeaders, informationLabelNames);
 
     const workbook = new ExcelJS.Workbook();
 
@@ -642,6 +647,7 @@ export class BulkUploadService {
       ['Tax Class', 'GST 12%'],
       ['Slug URL', 'ethicare-hydromax-moisturizing-cream-200gm'],
       ['Product URL Slug', 'ethicare-hydromax-moisturizing-cream-200gm'],
+      
       // Product ID drives manufacturer + image auto-attach from lookup XLSX files.
       ['Product ID (String)', '54141'],
       ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID.'],
