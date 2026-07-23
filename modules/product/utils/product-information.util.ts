@@ -9,9 +9,7 @@ export type ProductInformationLabelSortOrders = ReadonlyMap<string, number>;
 export const sortProductInformation = (
   items: IProductInformationItem[],
 ): IProductInformationItem[] =>
-  [...items].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label),
-  );
+  [...items].sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
 
 const getLabelSortOrder = (
   label: string,
@@ -76,12 +74,15 @@ export const normalizeProductInformation = (
 };
 
 export const enrichProductInformation = (
-  items: Array<{
-    id: string;
-    label: string;
-    description: string;
-    sortOrder?: number;
-  }> | null | undefined,
+  items:
+    | Array<{
+        id: string;
+        label: string;
+        description: string;
+        sortOrder?: number;
+      }>
+    | null
+    | undefined,
   labelSortOrders?: ProductInformationLabelSortOrders,
 ): IProductInformationItem[] => {
   if (!items?.length) {

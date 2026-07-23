@@ -349,9 +349,11 @@ export class HomepageService {
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
 
-    const buildNode = (entity: CategoryEntity): IPublicHeaderCategory => {
-      const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map(buildNode);
-      return mapHeaderCategoryEntity(entity, children);
+    const buildNode = (entity: CategoryEntity, parentSlugPath: string[] = []): IPublicHeaderCategory => {
+      const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
+        buildNode(child, [...parentSlugPath, entity.slug]),
+      );
+      return mapHeaderCategoryEntity(entity, children, parentSlugPath);
     };
 
     return sortCategories(
@@ -359,7 +361,7 @@ export class HomepageService {
         (category) =>
           category.isInHeader && category.hierarchyLevel === CategoryHierarchyLevel.ROOT,
       ),
-    ).map(buildNode);
+    ).map((entity) => buildNode(entity));
   }
 
   private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicCategoryTree[] {
@@ -375,9 +377,11 @@ export class HomepageService {
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
 
-    const buildNode = (entity: CategoryEntity): IPublicCategoryTree => {
-      const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map(buildNode);
-      return mapCategoryEntityToPublicTree(entity, children);
+    const buildNode = (entity: CategoryEntity, parentSlugPath: string[] = []): IPublicCategoryTree => {
+      const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
+        buildNode(child, [...parentSlugPath, entity.slug]),
+      );
+      return mapCategoryEntityToPublicTree(entity, children, parentSlugPath);
     };
 
     return sortCategories(
@@ -385,6 +389,6 @@ export class HomepageService {
         (category) =>
           category.isInShopBy && category.hierarchyLevel === CategoryHierarchyLevel.ROOT,
       ),
-    ).map(buildNode);
+    ).map((entity) => buildNode(entity));
   }
 }
