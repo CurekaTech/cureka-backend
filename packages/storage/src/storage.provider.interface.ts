@@ -5,6 +5,8 @@ export interface IUploadFileInput {
   mimetype: string;
   originalFilename: string;
   folder: string;
+  /** Override the configured max file size for this specific upload (bytes). */
+  maxSizeOverride?: number;
 }
 
 export interface IUploadFileResult {

@@ -27,11 +27,12 @@ export class StorageService {
 
   async uploadImage(input: IUploadFileInput): Promise<IUploadFileResult> {
     this.assertAllowedMimeType(input.mimetype);
-    const maxBytes = resolveMaxFileSizeForMime(input.mimetype, {
+    const configuredMax = resolveMaxFileSizeForMime(input.mimetype, {
       maxImageFileSize: this.configService.get<number>('storage.maxImageFileSize'),
       maxVideoFileSize: this.configService.get<number>('storage.maxVideoFileSize'),
       maxBulkFileSize: this.configService.get<number>('storage.maxBulkFileSize'),
     });
+    const maxBytes = input.maxSizeOverride ?? configuredMax;
     const stream = limitUploadStreamSize(input.stream, maxBytes, input.mimetype);
 
     try {
