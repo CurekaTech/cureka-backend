@@ -554,6 +554,11 @@ export class OrdersService {
     return buildPaginatedResult(mapped, total, { page, limit, sortOrder: 'DESC' });
   }
 
+  /** Whether the user has purchased the given product (non-cancelled order). */
+  userHasOrderedProduct(userId: string, productId: string): Promise<boolean> {
+    return this.ordersRepository.userHasOrderedProduct(userId, productId);
+  }
+
   async findAllForAdmin(query: AdminOrderQueryDto) {
     const paginationOptions = buildPaginationOptions(query);
     const { data, total } = await this.ordersRepository.findAllPaginated({

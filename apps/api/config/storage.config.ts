@@ -41,6 +41,12 @@ export const storageConfig = registerAs('storage', () => {
       process.env['PRODUCT_BULK_UPLOAD_MAX_SHEET_SIZE'] ?? '41943040',
       10,
     ),
+    // Separate higher limit for images downloaded from external URLs during bulk upload.
+    // Product catalog images (WooCommerce CDN etc.) can exceed the standard upload limit.
+    maxBulkImageSize: parseInt(
+      process.env['PRODUCT_BULK_UPLOAD_MAX_IMAGE_SIZE'] ?? String(5 * 1024 * 1024),
+      10,
+    ),
     allowedMimeTypes,
     gcs: {
       bucket: process.env['GCS_BUCKET_NAME'],

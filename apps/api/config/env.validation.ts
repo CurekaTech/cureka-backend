@@ -54,6 +54,7 @@ export const envValidationSchema = Joi.object({
   UPLOAD_DIR: Joi.string().optional(),
   UPLOAD_MAX_IMAGE_FILE_SIZE: Joi.number().default(5242880),
   UPLOAD_MAX_VIDEO_FILE_SIZE: Joi.number().default(20971520),
+  PRODUCT_BULK_UPLOAD_MAX_IMAGE_SIZE: Joi.number().integer().min(1048576).default(5242880),
   PRODUCT_BULK_UPLOAD_MAX_SHEET_SIZE: Joi.number().integer().min(1048576).default(41943040),
   PRODUCT_BULK_UPLOAD_LOCK_TTL_MS: Joi.number().integer().min(1200000).default(1800000),
   UPLOAD_MAX_MULTIPART_FILES: Joi.number().integer().min(1).max(200).default(50),

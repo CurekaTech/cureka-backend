@@ -325,8 +325,9 @@ const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
  */
 export const buildUnifiedBulkUploadHeaders = (
   categoryFilterHeaders: string[] = [],
+  extraProductInformationLabels: string[] = [],
 ): string[] => {
-  const baseHeaders = buildBulkUploadTemplateHeaders();
+  const baseHeaders = buildBulkUploadTemplateHeaders(extraProductInformationLabels);
   const bundleSkuIndex = baseHeaders.findIndex(
     (header) => normalizeBulkUploadHeader(header) === normalizeBulkUploadHeader('Bundle SKU'),
   );

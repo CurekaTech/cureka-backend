@@ -118,6 +118,7 @@ export class BulkUploadExportStreamService {
     if (!chunk) {
       return Promise.resolve();
     }
+    
 
     return new Promise((resolve, reject) => {
       const canContinue = output.write(chunk, (error) => {
