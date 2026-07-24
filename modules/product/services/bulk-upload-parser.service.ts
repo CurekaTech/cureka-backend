@@ -161,6 +161,13 @@ export interface IParsedProductGroup {
   expiresInMonths?: number;
   /** Upload binder for vertical variable rows (not persisted). */
   styleGroupId?: string;
+  /**
+   * When a style_group consolidates SKUs that currently belong to multiple DB products
+   * into one variable product, lists every source product refId (including the canonical).
+   */
+  mergeSourceProductRefIds?: string[];
+  /** Canonical product refId chosen during validation for updates / consolidations. */
+  canonicalProductRefId?: string;
   variableUploadMode?: 'explicit';
   attributeDetailNames?: string[];
   /** Shared media for variable products (type=common). */
