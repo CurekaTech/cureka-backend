@@ -134,7 +134,7 @@ export class ProductVariantEntity {
   @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
   faqs!: IVariantInlineFaq[];
 
-  @Column({ name: 'meta_title', type: 'varchar', length: 255, nullable: true })
+  @Column({ name: 'meta_title', type: 'varchar', length: 500, nullable: true })
   metaTitle!: string | null;
 
   @Column({ name: 'meta_description', type: 'text', nullable: true })

@@ -139,7 +139,7 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'rejection_reason', type: 'text', nullable: true })
   rejectionReason!: string | null;
 
-  @Column({ name: 'meta_title', type: 'varchar', length: 255, nullable: true })
+  @Column({ name: 'meta_title', type: 'varchar', length: 500, nullable: true })
   metaTitle!: string | null;
 
   @Column({ name: 'meta_description', type: 'text', nullable: true })

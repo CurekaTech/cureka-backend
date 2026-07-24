@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
@@ -60,6 +60,7 @@ import { BulkUploadCancelledError } from '../errors/bulk-upload-cancelled.error'
 import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-details.util';
 import { BulkUploadExportStreamService } from '../services/bulk-upload-export-stream.service';
 import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
+import { mapBulkUploadDbError } from '../utils/bulk-upload-db-error.util';
 
 const BULK_MUTATION_OPTIONS = {
   skipDetailEnrichment: true,
@@ -85,6 +86,21 @@ export class BulkUploadProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkUploadProcessor.name);
 
   private getErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string' && response.trim()) {
+        return response;
+      }
+      if (response && typeof response === 'object') {
+        const message = (response as { message?: string | string[] }).message;
+        if (Array.isArray(message) && message.length) {
+          return message.join('; ');
+        }
+        if (typeof message === 'string' && message.trim()) {
+          return message;
+        }
+      }
+    }
     if (error instanceof Error && error.message.trim()) {
       return error.message;
     }
@@ -1008,7 +1024,7 @@ export class BulkUploadProcessor extends WorkerHost {
               }
 
               const attributeRefIds = new Set<string>();
-              if (processedVariants) {
+              if (processedVariants && group.productType !== 'simple') {
                 for (const pv of processedVariants) {
                   for (const attr of pv.attributes) {
                     if (attr.attributeRefId) {
@@ -1017,6 +1033,13 @@ export class BulkUploadProcessor extends WorkerHost {
                   }
                 }
               }
+
+              // Simple products (including variable→simple conversion) cannot carry variant attributes.
+              // Sheets exported from variable products often still have attribute columns filled.
+              const normalizedVariants =
+                group.productType === 'simple' && processedVariants
+                  ? processedVariants.map((variant) => ({ ...variant, attributes: [] }))
+                  : processedVariants;
 
               const normalizedProductInformation = group.productInformation.length
                 ? normalizeProductInformation(group.productInformation, labelSortOrders)
@@ -1038,7 +1061,7 @@ export class BulkUploadProcessor extends WorkerHost {
               // so we REPLACE product_media instead of appending / leaving orphans.
               // Empty resolved arrays still mean "clear and replace with what's on the sheet".
               // When the sheet has no image columns, omit images so existing media is kept.
-              const variantsForDto = processedVariants?.map((variant) => {
+              const variantsForDto = normalizedVariants?.map((variant) => {
                 if (existingProductRefId && !shouldSyncMedia) {
                   const { images: _omitImages, ...rest } = variant;
                   return rest;
@@ -1060,7 +1083,12 @@ export class BulkUploadProcessor extends WorkerHost {
                 tagNames: group.productTags,
                 healthConcernRefIds: refs.healthConcernRefIds,
                 wellnessGoalRefIds: refs.wellnessGoalRefIds,
-                attributeRefIds: attributeRefIds.size > 0 ? Array.from(attributeRefIds) : undefined,
+                attributeRefIds:
+                  group.productType === 'simple'
+                    ? []
+                    : attributeRefIds.size > 0
+                      ? Array.from(attributeRefIds)
+                      : undefined,
                 subscriptionEnabled: group.subscriptionEnabled,
                 returnAllowed: group.returnAllowed,
                 returnPolicy: group.returnPolicy,
@@ -1174,15 +1202,18 @@ export class BulkUploadProcessor extends WorkerHost {
               };
             } catch (dbError) {
               this.logger.error(`Failed to create product '${group.name}' inside database:`, dbError);
+              const mapped = mapBulkUploadDbError(group, this.getErrorMessage(dbError));
               return {
                 ok: false as const,
                 sheetRows: countSheetRowsForProductGroup(group),
                 variantSlots: countVariantSlotsForProductGroup(group),
                 errors: this.buildGroupFailureErrors(group, {
-                  column: 'Database',
-                  invalidValue: group.name,
-                  reason: dbError instanceof Error ? dbError.message : String(dbError),
-                  suggestedFix: 'Resolve conflicting unique constraints or missing master records.',
+                  column: mapped.column,
+                  invalidValue: mapped.invalidValue,
+                  reason: mapped.reason,
+                  suggestedFix: mapped.suggestedFix,
+                  rowNumber: mapped.rowNumber,
+                  sku: mapped.sku,
                 }),
               };
             }
