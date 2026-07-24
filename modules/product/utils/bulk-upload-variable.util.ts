@@ -132,7 +132,6 @@ export type BulkUploadExpandableVariant = {
   externalProductId?: string;
   productUrlSlug?: string;
   attributes: Array<{ name: string; value: string }>;
-  [key: string]: unknown;
 };
 
 /**
@@ -165,7 +164,7 @@ export const expandVariantsByDelimitedAttributeValues = <T extends BulkUploadExp
           name: attr.name,
           value: valueLists[index][0] ?? attr.value,
         })),
-      });
+      } as T);
       continue;
     }
 
@@ -180,7 +179,7 @@ export const expandVariantsByDelimitedAttributeValues = <T extends BulkUploadExp
           name: attr.name,
           value: combo[attrIndex] ?? '',
         })),
-      });
+      } as T);
     });
   }
 
