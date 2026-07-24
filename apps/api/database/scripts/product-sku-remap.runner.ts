@@ -337,7 +337,10 @@ const run = async (options: CliOptions): Promise<void> => {
       }
 
       try {
-        const redisResult = await invalidateProductCache();
+        const cacheTargets = pending
+          .filter((row) => row.productRefId)
+          .map((row) => ({ refId: row.productRefId! }));
+        const redisResult = await invalidateProductCache(cacheTargets, false);
         console.log(
           `[product-sku-remap] Cache invalidation: connected=${redisResult.connected}, keysDeleted=${redisResult.keysDeleted}`,
         );
