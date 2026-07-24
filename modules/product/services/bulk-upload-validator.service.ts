@@ -86,6 +86,7 @@ export class BulkUploadValidatorService {
   private skuToProductRefIdMap = new Map<string, string>(); // SKU (lowercase) -> parent product refId
   private vendorSkuToProductRefIdMap = new Map<string, string>(); // vendor SKU (lowercase) -> parent product refId
   private productRefIdToVariantSkusMap = new Map<string, string[]>(); // product refId -> variant SKUs (stable order)
+  private externalVariantIdToSkuMap = new Map<string, string>(); // variant externalProductId -> sku
   private productNameBrandToRefIdMap = new Map<string, string>(); // name|brand -> product refId (unique only)
   private productRefIdToNameMap = new Map<string, string>(); // product refId -> product name
   private productRefIdToExternalIdMap = new Map<string, string>(); // product refId -> externalProductId
@@ -174,6 +175,7 @@ export class BulkUploadValidatorService {
         select: {
           sku: true,
           vendorSku: true,
+          externalProductId: true,
           product: {
             refId: true,
           },
@@ -280,6 +282,7 @@ export class BulkUploadValidatorService {
     this.skuToProductRefIdMap = new Map();
     this.vendorSkuToProductRefIdMap = new Map();
     this.productRefIdToVariantSkusMap = new Map();
+    this.externalVariantIdToSkuMap = new Map();
     this.productNameBrandToRefIdMap = new Map();
     this.externalProductIdToProductRefIdMap = new Map();
     this.dbExternalProductIds = new Set(
@@ -305,6 +308,10 @@ export class BulkUploadValidatorService {
           variantSkus.push(v.sku);
           this.productRefIdToVariantSkusMap.set(v.product.refId, variantSkus);
         }
+      }
+      const normVariantExternalId = v.externalProductId?.toLowerCase().trim();
+      if (normVariantExternalId && v.sku?.trim()) {
+        this.externalVariantIdToSkuMap.set(normVariantExternalId, v.sku);
       }
       const normVendorSku = v.vendorSku?.toLowerCase().trim();
       if (normVendorSku && v.product?.refId) {
@@ -935,8 +942,11 @@ export class BulkUploadValidatorService {
       });
     }
 
+    this.resolveVariantSkus(group, groupErrors, sheetSkus, resolvedExistingProductRefId);
+
     for (const variant of group.variants) {
-      this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, true);
+      // Blank SKUs are already reported by resolveVariantSkus when they cannot be filled.
+      this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
       this.validateVariantPricing(variant, groupErrors, productSku);
     }
   }
@@ -1063,7 +1073,7 @@ export class BulkUploadValidatorService {
       return;
     }
 
-    this.assignMissingVariableSkus(group, sheetSkus, resolvedExistingProductRefId);
+    this.resolveVariantSkus(group, groupErrors, sheetSkus, resolvedExistingProductRefId);
 
     const productIdsInGroup = new Set<string>();
     for (const variant of group.variants) {
@@ -1149,27 +1159,22 @@ export class BulkUploadValidatorService {
     }
   }
 
-  private assignMissingVariableSkus(
+  /**
+   * SKU resolution priority:
+   * 1. Product ID / variant Product ID → reuse related existing SKU when available
+   * 2. Sheet SKU when filled (kept as-is; uniqueness validated later)
+   * 3. Blank SKU + new product → auto-generate from category/brand
+   * 4. Blank SKU + existing product with no remaining related SKUs → validation error
+   */
+  private resolveVariantSkus(
     group: IParsedProductGroup,
+    groupErrors: IValidationError[],
     sheetSkus: Set<string>,
     existingProductRefId?: string,
   ): void {
-    if (!group.category?.trim() || !group.brand?.trim()) {
-      return;
-    }
-
-    const hasMissingSku = group.variants.some((variant) => !variant.sku?.trim());
-    if (!hasMissingSku) {
-      return;
-    }
-
-    const prefix = buildSkuPrefix(group.category, group.brand);
-    const existingSkus = [...this.dbSkus, ...sheetSkus];
-    let sequence = findMaxSkuSequenceForPrefix(prefix, existingSkus);
+    const isNewProduct = !existingProductRefId;
     const reservedInGroup = new Set<string>();
 
-    // Reserve every SKU already present on the sheet/group first so expansion
-    // (e.g. "Left, Right" → 2 variants) never reuses a colliding SKU by index.
     for (const variant of group.variants) {
       const existing = variant.sku?.toLowerCase().trim();
       if (existing) {
@@ -1177,49 +1182,95 @@ export class BulkUploadValidatorService {
       }
     }
 
-    const reusableQueue = (existingProductRefId
-      ? [...(this.productRefIdToVariantSkusMap.get(existingProductRefId) ?? [])]
-      : []
+    const relatedSkuQueue = (
+      existingProductRefId
+        ? [...(this.productRefIdToVariantSkusMap.get(existingProductRefId) ?? [])]
+        : []
     ).filter((sku) => {
       const normalized = sku?.toLowerCase().trim();
-      return Boolean(normalized) && !reservedInGroup.has(normalized);
+      return Boolean(normalized) && !reservedInGroup.has(normalized!);
     });
-    let reusableIndex = 0;
+    let relatedSkuIndex = 0;
+
+    const canGenerate =
+      isNewProduct && Boolean(group.category?.trim() && group.brand?.trim());
+    const prefix = canGenerate ? buildSkuPrefix(group.category!, group.brand!) : '';
+    const existingSkus = [...this.dbSkus, ...sheetSkus, ...reservedInGroup];
+    let sequence = canGenerate ? findMaxSkuSequenceForPrefix(prefix, existingSkus) : 0;
 
     for (const variant of group.variants) {
+      // Sheet SKU filled → keep as-is (uniqueness checked in validateVariantSku).
       if (variant.sku?.trim()) {
         continue;
       }
 
-      let assigned = false;
-      while (reusableIndex < reusableQueue.length) {
-        const reusedSku = reusableQueue[reusableIndex++]?.trim();
-        if (!reusedSku) continue;
-        const normalizedReuse = reusedSku.toLowerCase();
-        if (reservedInGroup.has(normalizedReuse) || sheetSkus.has(normalizedReuse)) {
+      // 1) Exact variant Product ID → known SKU mapping.
+      const variantProductId =
+        variant.externalProductId?.toLowerCase().trim() ||
+        group.externalProductId?.toLowerCase().trim();
+      if (variantProductId) {
+        const mappedSku = this.externalVariantIdToSkuMap.get(variantProductId)?.trim();
+        if (
+          mappedSku &&
+          !reservedInGroup.has(mappedSku.toLowerCase()) &&
+          !sheetSkus.has(mappedSku.toLowerCase())
+        ) {
+          const ownerRefId = this.resolveProductRefIdBySku(mappedSku);
+          if (!existingProductRefId || !ownerRefId || ownerRefId === existingProductRefId) {
+            variant.sku = mappedSku;
+            reservedInGroup.add(mappedSku.toLowerCase());
+            continue;
+          }
+        }
+      }
+
+      // 2) Existing product (matched by Product ID / SKU / name+brand) → next unused related SKU.
+      let assignedFromRelated = false;
+      while (relatedSkuIndex < relatedSkuQueue.length) {
+        const relatedSku = relatedSkuQueue[relatedSkuIndex++]?.trim();
+        if (!relatedSku) continue;
+        const normalized = relatedSku.toLowerCase();
+        if (reservedInGroup.has(normalized) || sheetSkus.has(normalized)) {
           continue;
         }
-        variant.sku = reusedSku;
-        reservedInGroup.add(normalizedReuse);
-        assigned = true;
+        variant.sku = relatedSku;
+        reservedInGroup.add(normalized);
+        assignedFromRelated = true;
         break;
       }
-      if (assigned) {
+      if (assignedFromRelated) {
         continue;
       }
 
-      let sku = '';
-      do {
-        sequence += 1;
-        sku = formatGeneratedSku(prefix, sequence);
-      } while (
-        this.dbSkus.has(sku.toLowerCase()) ||
-        sheetSkus.has(sku.toLowerCase()) ||
-        reservedInGroup.has(sku.toLowerCase())
-      );
+      // 3) New product only → generate SKU from category/brand.
+      if (canGenerate) {
+        let sku = '';
+        do {
+          sequence += 1;
+          sku = formatGeneratedSku(prefix, sequence);
+        } while (
+          this.dbSkus.has(sku.toLowerCase()) ||
+          sheetSkus.has(sku.toLowerCase()) ||
+          reservedInGroup.has(sku.toLowerCase())
+        );
+        variant.sku = sku;
+        reservedInGroup.add(sku.toLowerCase());
+        continue;
+      }
 
-      variant.sku = sku;
-      reservedInGroup.add(sku.toLowerCase());
+      // Existing product, blank sheet SKU, no related SKU left.
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: 'EMPTY',
+        column: 'Product SKU Code',
+        invalidValue: '',
+        reason: existingProductRefId
+          ? `No Product SKU Code on the sheet, and no unused related SKU remains for ${this.productLabel(existingProductRefId)}.`
+          : 'Product SKU Code is missing and cannot be auto-generated (category and brand are required for new products).',
+        suggestedFix: existingProductRefId
+          ? 'Fill Product SKU Code on the sheet, or leave only as many blank SKU rows as unused related SKUs on this Product ID.'
+          : 'Provide Product SKU Code, or ensure Category and Brand are filled so a SKU can be generated for a new product.',
+      });
     }
   }
 
