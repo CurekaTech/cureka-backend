@@ -726,6 +726,11 @@ export class BulkUploadProcessor extends WorkerHost {
             this.logger.warn(
               `[BULK_UPLOAD] Batch validation errors=${errors.length} valid=${validatedProducts.length}`,
             );
+            for (const error of errors.slice(0, 20)) {
+              this.logger.warn(
+                `[BULK_UPLOAD] Validation error row=${error.rowNumber} sku=${error.sku} column=${error.column}: ${error.reason}`,
+              );
+            }
           }
 
           // For successfully validated products, transform and save them to the DB using existing ProductsService

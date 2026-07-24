@@ -741,23 +741,18 @@ export class ProductsService {
   }
 
   /**
-   * Move sheet SKUs from peer products onto the canonical product, then soft-delete
-   * any peer that no longer has variants. Used by bulk upload style_group consolidation.
+   * Move all variants from peer products onto the canonical product, then soft-delete
+   * emptied peers. Used by bulk upload style_group consolidation (SKU and/or Product ID matches).
    */
   async consolidateVariantsOntoProduct(
     targetRefId: string,
     sourceRefIds: string[],
-    skus: string[],
+    _skus: string[],
   ): Promise<void> {
     const target = await this.productsRepository.findByRefId(targetRefId);
     if (!target) {
       throw new NotFoundException(`Product with refId ${targetRefId} not found`);
     }
-
-    const normalizedSkus = new Set(
-      skus.map((sku) => sku.toLowerCase().trim()).filter(Boolean),
-    );
-    if (!normalizedSkus.size) return;
 
     const peers = [...new Set(sourceRefIds)].filter((refId) => refId && refId !== targetRefId);
     if (!peers.length) return;
@@ -771,24 +766,17 @@ export class ProductsService {
         if (!source) continue;
 
         const variants = await variantRepo.find({ where: { productId: source.id } });
-        const toMove = variants.filter((variant) =>
-          normalizedSkus.has(variant.sku.toLowerCase().trim()),
-        );
-
-        for (const variant of toMove) {
+        for (const variant of variants) {
           await variantRepo.update(
             { id: variant.id },
             { productId: target.id, combinationKey: null },
           );
         }
 
-        const remaining = await variantRepo.count({ where: { productId: source.id } });
-        if (remaining === 0) {
-          await productRepo.softDelete({ id: source.id });
-          this.logger.log(
-            `Soft-deleted emptied product ${sourceRefId} after consolidating variants onto ${targetRefId}`,
-          );
-        }
+        await productRepo.softDelete({ id: source.id });
+        this.logger.log(
+          `Soft-deleted consolidated peer product ${sourceRefId} after moving ${variants.length} variant(s) onto ${targetRefId}`,
+        );
       }
     });
 
