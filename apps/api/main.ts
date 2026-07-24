@@ -39,6 +39,9 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter({
       logger: false,
       maxParamLength: APP_CONSTANTS.FASTIFY_MAX_PARAM_LENGTH,
+      // Honor X-Forwarded-For / X-Real-IP from nginx so OTP IP rate limits
+      // are per client, not per load-balancer hop.
+      trustProxy: true,
     }),
     // Suppress verbose NestJS bootstrap noise (InstanceLoader, RoutesResolver, etc.).
     // Pino takes over at info level after app.useLogger() is called below.

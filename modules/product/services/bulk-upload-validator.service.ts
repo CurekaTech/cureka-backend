@@ -33,6 +33,11 @@ import {
   flattenAttributeDetailNames,
   formatGeneratedSku,
 } from '../utils/bulk-upload-variable.util';
+import {
+  collectBulkUploadLengthOverflows,
+  formatLengthOverflowReason,
+  formatLengthOverflowSuggestedFix,
+} from '../utils/bulk-upload-db-error.util';
 
 type CachedCategoryFilter = {
   refId: string;
@@ -84,6 +89,7 @@ export class BulkUploadValidatorService {
   private productNameBrandToRefIdMap = new Map<string, string>(); // name|brand -> product refId (unique only)
   private productRefIdToNameMap = new Map<string, string>(); // product refId -> product name
   private productRefIdToExternalIdMap = new Map<string, string>(); // product refId -> externalProductId
+  private productRefIdToProductTypeMap = new Map<string, string>(); // product refId -> productType
   private dbSkus = new Set<string>();
   private dbExternalProductIds = new Set<string>();
   private externalProductIdToProductRefIdMap = new Map<string, string>(); // externalProductId (lowercase) -> product refId
@@ -179,7 +185,7 @@ export class BulkUploadValidatorService {
         where: {},
       }),
       this.dataSource.getRepository(ProductEntity).find({
-        select: ['refId', 'name'],
+        select: ['refId', 'name', 'productType'],
         relations: { brand: true },
         where: {},
       }),
@@ -307,6 +313,8 @@ export class BulkUploadValidatorService {
     }
 
     const nameBrandCounts = new Map<string, number>();
+    this.productRefIdToNameMap.clear();
+    this.productRefIdToProductTypeMap.clear();
     for (const product of productsWithBrand) {
       const brandName = product.brand?.name?.toLowerCase().trim();
       if (!product.name?.trim() || !brandName) continue;
@@ -314,6 +322,9 @@ export class BulkUploadValidatorService {
       nameBrandCounts.set(key, (nameBrandCounts.get(key) ?? 0) + 1);
       // build name map while iterating (last writer wins for duplicates — fine for display)
       this.productRefIdToNameMap.set(product.refId, product.name.trim());
+      if (product.productType) {
+        this.productRefIdToProductTypeMap.set(product.refId, product.productType);
+      }
     }
     for (const product of productsWithBrand) {
       const brandName = product.brand?.name?.toLowerCase().trim();
@@ -534,6 +545,17 @@ export class BulkUploadValidatorService {
           invalidValue: '',
           reason: 'Product name is mandatory.',
           suggestedFix: 'Enter a valid product name.',
+        });
+      }
+
+      for (const overflow of collectBulkUploadLengthOverflows(group)) {
+        groupErrors.push({
+          rowNumber: overflow.rowNumber ?? group.rowNumber,
+          sku: overflow.sku || productSku,
+          column: overflow.column,
+          invalidValue: overflow.value,
+          reason: formatLengthOverflowReason(overflow),
+          suggestedFix: formatLengthOverflowSuggestedFix(overflow),
         });
       }
 
@@ -775,6 +797,7 @@ export class BulkUploadValidatorService {
 
       this.validatePackMetadata(group, groupErrors);
       this.validateCategoryFilters(group, groupErrors);
+      this.validateProductTypeConversion(group, groupErrors, resolvedExistingProductRefId);
 
       // B. Simple and Variable Product Validations
       if (group.productType === 'simple') {
@@ -896,9 +919,103 @@ export class BulkUploadValidatorService {
       return;
     }
 
+    if (group.variants.length > 1) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: productSku,
+        column: 'Product Type',
+        invalidValue: group.sheetProductType || group.productType,
+        reason:
+          `Simple products must have exactly 1 row, but this group has ${group.variants.length} rows` +
+          (group.styleGroupId ? ` under style_group_id "${group.styleGroupId}"` : '') +
+          '.',
+        suggestedFix:
+          'To keep/convert to simple: leave only one row, clear style_group_id, set Product Type=simple. ' +
+          'To convert to variable: set Product Type=variable, keep the same style_group_id on every variant row (at least 2), and fill distinct attribute values.',
+      });
+    }
+
     for (const variant of group.variants) {
       this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, true);
       this.validateVariantPricing(variant, groupErrors, productSku);
+    }
+  }
+
+  /**
+   * Validate simple ↔ variable type conversion against the matched existing product.
+   * Bundle conversions remain blocked (same as ProductsService.update).
+   */
+  private validateProductTypeConversion(
+    group: IParsedProductGroup,
+    groupErrors: IValidationError[],
+    resolvedExistingProductRefId?: string,
+  ): void {
+    const productSku = group.variants[0]?.sku ?? 'PARENT';
+    const sheetType = (group.productType || 'simple').toLowerCase();
+    const existingType = resolvedExistingProductRefId
+      ? this.productRefIdToProductTypeMap.get(resolvedExistingProductRefId)?.toLowerCase()
+      : undefined;
+
+    if (!existingType || existingType === sheetType) {
+      return;
+    }
+
+    const isSimpleToVariable = existingType === 'simple' && sheetType === 'variable';
+    const isVariableToSimple = existingType === 'variable' && sheetType === 'simple';
+
+    if (!isSimpleToVariable && !isVariableToSimple) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: productSku,
+        column: 'Product Type',
+        invalidValue: sheetType,
+        reason: `Product type cannot be changed from "${existingType}" to "${sheetType}" for ${this.productLabel(resolvedExistingProductRefId!)}.`,
+        suggestedFix:
+          'Only simple ↔ variable conversion is supported. Bundle products cannot change type via bulk upload.',
+      });
+      return;
+    }
+
+    if (isSimpleToVariable) {
+      if (!group.styleGroupId) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: productSku,
+          column: 'style_group_id',
+          invalidValue: '',
+          reason:
+            `Converting ${this.productLabel(resolvedExistingProductRefId!)} from simple to variable requires style_group_id on every variant row.`,
+          suggestedFix:
+            'Add the same style_group_id to at least 2 rows, set Product Type=variable, and provide distinct attribute values per row.',
+        });
+      }
+      if (group.variants.length < 2) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: productSku,
+          column: 'Product Type',
+          invalidValue: 'variable',
+          reason:
+            `Converting ${this.productLabel(resolvedExistingProductRefId!)} from simple to variable requires at least 2 variant rows.`,
+          suggestedFix:
+            'Duplicate the row, set a shared style_group_id, and give each row distinct attribute values (e.g. Size/Color).',
+        });
+      }
+      return;
+    }
+
+    // variable → simple
+    if (group.variants.length !== 1) {
+      groupErrors.push({
+        rowNumber: group.rowNumber,
+        sku: productSku,
+        column: 'Product Type',
+        invalidValue: 'simple',
+        reason:
+          `Converting ${this.productLabel(resolvedExistingProductRefId!)} from variable to simple requires exactly 1 row (the variant to keep). Found ${group.variants.length}.`,
+        suggestedFix:
+          'Delete extra variant rows, clear style_group_id, set Product Type=simple, and keep the SKU you want to retain. Other variants will be removed.',
+      });
     }
   }
 
