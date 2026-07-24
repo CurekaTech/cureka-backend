@@ -1144,7 +1144,7 @@ export class BulkUploadValidatorService {
         column: 'Attribute Values',
         invalidValue: combination,
         reason: `Duplicate variant attribute combinations detected (${combination}).`,
-        suggestedFix: 'Ensure each variant row has a unique attribute combination.',
+          suggestedFix: 'Ensure each variant has a unique attribute combination. Use separate rows, or put multiple values in one cell with "," or "|" (e.g. Left, Right).',
       });
     }
   }
