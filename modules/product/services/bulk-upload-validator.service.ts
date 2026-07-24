@@ -502,32 +502,42 @@ export class BulkUploadValidatorService {
       const groupErrors: IValidationError[] = [];
       const productSku = group.variants[0]?.sku ?? 'PARENT';
       let resolvedExistingProductRefId = this.resolveExistingProductRefIdForGroup(group);
-      const skuOwnedProductRefIds = new Set<string>();
+      const relatedProductRefIds = new Set<string>();
+
+      const addRelatedByExternalId = (raw?: string) => {
+        const normalized = raw?.toLowerCase().trim();
+        if (!normalized) return;
+        const refId = this.externalProductIdToProductRefIdMap.get(normalized);
+        if (refId) relatedProductRefIds.add(refId);
+      };
+
+      addRelatedByExternalId(group.externalProductId);
       for (const variant of group.variants) {
         const refId = variant.sku?.trim()
           ? this.resolveProductRefIdBySku(variant.sku)
           : undefined;
-        if (refId) skuOwnedProductRefIds.add(refId);
+        if (refId) relatedProductRefIds.add(refId);
+        addRelatedByExternalId(variant.externalProductId);
       }
 
-      const existingProductRefIds = new Set<string>(skuOwnedProductRefIds);
+      const existingProductRefIds = new Set<string>(relatedProductRefIds);
       if (resolvedExistingProductRefId) {
         existingProductRefIds.add(resolvedExistingProductRefId);
       }
-      if (!resolvedExistingProductRefId && skuOwnedProductRefIds.size === 1) {
-        resolvedExistingProductRefId = Array.from(skuOwnedProductRefIds)[0];
+      if (!resolvedExistingProductRefId && relatedProductRefIds.size === 1) {
+        resolvedExistingProductRefId = Array.from(relatedProductRefIds)[0];
       }
 
       // style_group_id variable upload may consolidate several existing simple products
-      // (e.g. one Woo size = one product) into a single variable product.
+      // (matched by SKU and/or Product ID) into a single variable product.
       const canConsolidateStyleGroup =
         group.productType === 'variable' &&
         Boolean(group.styleGroupId?.trim()) &&
-        skuOwnedProductRefIds.size > 1;
+        relatedProductRefIds.size > 1;
 
       if (canConsolidateStyleGroup) {
         let canonical = resolvedExistingProductRefId;
-        if (!canonical || !skuOwnedProductRefIds.has(canonical)) {
+        if (!canonical || !relatedProductRefIds.has(canonical)) {
           for (const variant of group.variants) {
             if (!variant.sku?.trim()) continue;
             const refId = this.resolveProductRefIdBySku(variant.sku);
@@ -537,8 +547,11 @@ export class BulkUploadValidatorService {
             }
           }
         }
+        if (!canonical) {
+          canonical = Array.from(relatedProductRefIds)[0];
+        }
         resolvedExistingProductRefId = canonical;
-        group.mergeSourceProductRefIds = Array.from(skuOwnedProductRefIds);
+        group.mergeSourceProductRefIds = Array.from(relatedProductRefIds);
         group.canonicalProductRefId = canonical;
         console.log('[BULK_UPLOAD_DEBUG][Validator.validateBatch] STYLE_GROUP_CONSOLIDATE', {
           styleGroupId: group.styleGroupId,
