@@ -21,6 +21,7 @@ import {
 import {
   VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
   parseAttributeDetailsFromRow,
+  expandVariantsByDelimitedAttributeValues,
 } from '../utils/bulk-upload-variable.util';
 import {
   isCommonMediaBulkUploadColumn,
@@ -489,6 +490,9 @@ export class BulkUploadParserService {
     let dynamicCategoryFilterColumns!: Map<number, string>;
 
     const finalizeGroup = (group: IParsedProductGroup): IParsedProductGroup => {
+      // "Left, Right" / "Left | Right" in attribute value cells → separate variants.
+      group.variants = expandVariantsByDelimitedAttributeValues(group.variants);
+
       const requested = (group.sheetProductType || group.productType || 'simple').toLowerCase();
 
       if (group.styleGroupId) {
