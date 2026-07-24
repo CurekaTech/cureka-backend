@@ -502,21 +502,50 @@ export class BulkUploadValidatorService {
       const groupErrors: IValidationError[] = [];
       const productSku = group.variants[0]?.sku ?? 'PARENT';
       let resolvedExistingProductRefId = this.resolveExistingProductRefIdForGroup(group);
-      const existingProductRefIds = new Set<string>();
-      if (resolvedExistingProductRefId) {
-        existingProductRefIds.add(resolvedExistingProductRefId);
-      }
+      const skuOwnedProductRefIds = new Set<string>();
       for (const variant of group.variants) {
         const refId = variant.sku?.trim()
           ? this.resolveProductRefIdBySku(variant.sku)
           : undefined;
-        if (refId) existingProductRefIds.add(refId);
-      }
-      if (!resolvedExistingProductRefId && existingProductRefIds.size === 1) {
-        resolvedExistingProductRefId = Array.from(existingProductRefIds)[0];
+        if (refId) skuOwnedProductRefIds.add(refId);
       }
 
-      if (existingProductRefIds.size > 1) {
+      const existingProductRefIds = new Set<string>(skuOwnedProductRefIds);
+      if (resolvedExistingProductRefId) {
+        existingProductRefIds.add(resolvedExistingProductRefId);
+      }
+      if (!resolvedExistingProductRefId && skuOwnedProductRefIds.size === 1) {
+        resolvedExistingProductRefId = Array.from(skuOwnedProductRefIds)[0];
+      }
+
+      // style_group_id variable upload may consolidate several existing simple products
+      // (e.g. one Woo size = one product) into a single variable product.
+      const canConsolidateStyleGroup =
+        group.productType === 'variable' &&
+        Boolean(group.styleGroupId?.trim()) &&
+        skuOwnedProductRefIds.size > 1;
+
+      if (canConsolidateStyleGroup) {
+        let canonical = resolvedExistingProductRefId;
+        if (!canonical || !skuOwnedProductRefIds.has(canonical)) {
+          for (const variant of group.variants) {
+            if (!variant.sku?.trim()) continue;
+            const refId = this.resolveProductRefIdBySku(variant.sku);
+            if (refId) {
+              canonical = refId;
+              break;
+            }
+          }
+        }
+        resolvedExistingProductRefId = canonical;
+        group.mergeSourceProductRefIds = Array.from(skuOwnedProductRefIds);
+        group.canonicalProductRefId = canonical;
+        console.log('[BULK_UPLOAD_DEBUG][Validator.validateBatch] STYLE_GROUP_CONSOLIDATE', {
+          styleGroupId: group.styleGroupId,
+          canonicalProductRefId: canonical,
+          mergeSourceProductRefIds: group.mergeSourceProductRefIds,
+        });
+      } else if (existingProductRefIds.size > 1) {
         // Build a readable breakdown: group the SKUs by the product they resolve to.
         const skusByProduct = new Map<string, string[]>();
         for (const variant of group.variants) {
@@ -539,8 +568,12 @@ export class BulkUploadValidatorService {
           column: 'Product SKU Code',
           invalidValue: group.variants.map((variant) => variant.sku).join(', '),
           reason: `The SKUs in this group belong to ${existingProductRefIds.size} different products in the database. A single import row (or style_group_id group) can only create or update one product. Breakdown: ${breakdown}`,
-          suggestedFix: 'Split these SKUs into separate rows — one row (or style_group_id group) per product. Each row must contain only SKUs that belong to the same product.',
+          suggestedFix:
+            'Split these SKUs into separate rows — one row (or style_group_id group) per product. Each row must contain only SKUs that belong to the same product. To merge into one variable product, set Product Type=variable and use the same style_group_id on every variant row.',
         });
+      } else {
+        group.mergeSourceProductRefIds = undefined;
+        group.canonicalProductRefId = resolvedExistingProductRefId;
       }
 
       // A. Mandatory Parent Field Validations
@@ -763,9 +796,17 @@ export class BulkUploadValidatorService {
         const existingExternalIdProductRefId =
           this.externalProductIdToProductRefIdMap.get(normalizedExternalId);
         if (existingExternalIdProductRefId) {
+          const mergeAllowList = new Set(group.mergeSourceProductRefIds ?? []);
+          const isStyleGroupMergePeer =
+            mergeAllowList.size > 1 &&
+            Boolean(resolvedExistingProductRefId) &&
+            mergeAllowList.has(existingExternalIdProductRefId) &&
+            mergeAllowList.has(resolvedExistingProductRefId!);
+
           if (
             resolvedExistingProductRefId &&
-            resolvedExistingProductRefId !== existingExternalIdProductRefId
+            resolvedExistingProductRefId !== existingExternalIdProductRefId &&
+            !isStyleGroupMergePeer
           ) {
             const pidProduct  = this.productLabel(existingExternalIdProductRefId);
             const skuProduct  = this.productLabel(resolvedExistingProductRefId);
@@ -780,7 +821,7 @@ export class BulkUploadValidatorService {
                 ? `To update the product this SKU belongs to, change "Product ID (String)" to "${correctExtId}". To update the product this Product ID belongs to, use its own SKU(s) instead.`
                 : 'Clear the "Product ID (String)" column on this row so the system matches by SKU only, or use the correct Product ID for the product this SKU belongs to.',
             });
-          } else {
+          } else if (!resolvedExistingProductRefId) {
             resolvedExistingProductRefId = existingExternalIdProductRefId;
           }
         }
@@ -804,6 +845,9 @@ export class BulkUploadValidatorService {
 
       this.validatePackMetadata(group, groupErrors);
       this.validateCategoryFilters(group, groupErrors);
+      if (resolvedExistingProductRefId) {
+        group.canonicalProductRefId = resolvedExistingProductRefId;
+      }
       this.validateProductTypeConversion(group, groupErrors, resolvedExistingProductRefId);
 
       // B. Simple and Variable Product Validations
@@ -946,7 +990,14 @@ export class BulkUploadValidatorService {
 
     for (const variant of group.variants) {
       // Blank SKUs are already reported by resolveVariantSkus when they cannot be filled.
-      this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
+      this.validateVariantSku(
+        variant,
+        groupErrors,
+        sheetSkus,
+        resolvedExistingProductRefId,
+        false,
+        group.mergeSourceProductRefIds ?? [],
+      );
       this.validateVariantPricing(variant, groupErrors, productSku);
     }
   }
@@ -1097,7 +1148,14 @@ export class BulkUploadValidatorService {
     > = [];
 
     for (const variant of group.variants) {
-      this.validateVariantSku(variant, groupErrors, sheetSkus, resolvedExistingProductRefId, false);
+      this.validateVariantSku(
+        variant,
+        groupErrors,
+        sheetSkus,
+        resolvedExistingProductRefId,
+        false,
+        group.mergeSourceProductRefIds ?? [],
+      );
       this.validateVariantPricing(variant, groupErrors, productSku);
 
       const resolvedAttributes: Array<{ attributeRefId: string; value: string; label: string }> = [];
@@ -1163,8 +1221,8 @@ export class BulkUploadValidatorService {
    * SKU resolution priority:
    * 1. Product ID / variant Product ID → reuse related existing SKU when available
    * 2. Sheet SKU when filled (kept as-is; uniqueness validated later)
-   * 3. Blank SKU + new product → auto-generate from category/brand
-   * 4. Blank SKU + existing product with no remaining related SKUs → validation error
+   * 3. Blank SKU → reuse unused SKUs from the matched product (and style_group merge peers)
+   * 4. Still blank → auto-generate from category/brand (needed for Left/Right expansion extras)
    */
   private resolveVariantSkus(
     group: IParsedProductGroup,
@@ -1172,7 +1230,6 @@ export class BulkUploadValidatorService {
     sheetSkus: Set<string>,
     existingProductRefId?: string,
   ): void {
-    const isNewProduct = !existingProductRefId;
     const reservedInGroup = new Set<string>();
 
     for (const variant of group.variants) {
@@ -1182,18 +1239,22 @@ export class BulkUploadValidatorService {
       }
     }
 
-    const relatedSkuQueue = (
-      existingProductRefId
-        ? [...(this.productRefIdToVariantSkusMap.get(existingProductRefId) ?? [])]
-        : []
-    ).filter((sku) => {
-      const normalized = sku?.toLowerCase().trim();
-      return Boolean(normalized) && !reservedInGroup.has(normalized!);
-    });
+    const relatedProductRefIds = [
+      ...new Set([
+        ...(group.mergeSourceProductRefIds ?? []),
+        ...(existingProductRefId ? [existingProductRefId] : []),
+      ]),
+    ];
+
+    const relatedSkuQueue = relatedProductRefIds
+      .flatMap((refId) => [...(this.productRefIdToVariantSkusMap.get(refId) ?? [])])
+      .filter((sku) => {
+        const normalized = sku?.toLowerCase().trim();
+        return Boolean(normalized) && !reservedInGroup.has(normalized!);
+      });
     let relatedSkuIndex = 0;
 
-    const canGenerate =
-      isNewProduct && Boolean(group.category?.trim() && group.brand?.trim());
+    const canGenerate = Boolean(group.category?.trim() && group.brand?.trim());
     const prefix = canGenerate ? buildSkuPrefix(group.category!, group.brand!) : '';
     const existingSkus = [...this.dbSkus, ...sheetSkus, ...reservedInGroup];
     let sequence = canGenerate ? findMaxSkuSequenceForPrefix(prefix, existingSkus) : 0;
@@ -1216,7 +1277,13 @@ export class BulkUploadValidatorService {
           !sheetSkus.has(mappedSku.toLowerCase())
         ) {
           const ownerRefId = this.resolveProductRefIdBySku(mappedSku);
-          if (!existingProductRefId || !ownerRefId || ownerRefId === existingProductRefId) {
+          const mergeAllow = new Set(relatedProductRefIds);
+          if (
+            !ownerRefId ||
+            !existingProductRefId ||
+            ownerRefId === existingProductRefId ||
+            mergeAllow.has(ownerRefId)
+          ) {
             variant.sku = mappedSku;
             reservedInGroup.add(mappedSku.toLowerCase());
             continue;
@@ -1224,7 +1291,7 @@ export class BulkUploadValidatorService {
         }
       }
 
-      // 2) Existing product (matched by Product ID / SKU / name+brand) → next unused related SKU.
+      // 2) Existing / merge-source products → next unused related SKU.
       let assignedFromRelated = false;
       while (relatedSkuIndex < relatedSkuQueue.length) {
         const relatedSku = relatedSkuQueue[relatedSkuIndex++]?.trim();
@@ -1242,7 +1309,7 @@ export class BulkUploadValidatorService {
         continue;
       }
 
-      // 3) New product only → generate SKU from category/brand.
+      // 3) Auto-generate (new products and expansion extras like "Left, Right").
       if (canGenerate) {
         let sku = '';
         do {
@@ -1258,7 +1325,6 @@ export class BulkUploadValidatorService {
         continue;
       }
 
-      // Existing product, blank sheet SKU, no related SKU left.
       groupErrors.push({
         rowNumber: variant.rowNumber,
         sku: 'EMPTY',
@@ -1266,10 +1332,10 @@ export class BulkUploadValidatorService {
         invalidValue: '',
         reason: existingProductRefId
           ? `No Product SKU Code on the sheet, and no unused related SKU remains for ${this.productLabel(existingProductRefId)}.`
-          : 'Product SKU Code is missing and cannot be auto-generated (category and brand are required for new products).',
+          : 'Product SKU Code is missing and cannot be auto-generated (category and brand are required).',
         suggestedFix: existingProductRefId
-          ? 'Fill Product SKU Code on the sheet, or leave only as many blank SKU rows as unused related SKUs on this Product ID.'
-          : 'Provide Product SKU Code, or ensure Category and Brand are filled so a SKU can be generated for a new product.',
+          ? 'Fill Product SKU Code on the sheet, or ensure Category and Brand are present so extras can be auto-generated.'
+          : 'Provide Product SKU Code, or ensure Category and Brand are filled so a SKU can be generated.',
       });
     }
   }
@@ -1280,6 +1346,7 @@ export class BulkUploadValidatorService {
     sheetSkus: Set<string>,
     resolvedExistingProductRefId: string | undefined,
     skuMandatory: boolean,
+    mergeSourceProductRefIds: string[] = [],
   ): void {
     if (!variant.sku?.trim()) {
       if (skuMandatory) {
@@ -1317,6 +1384,14 @@ export class BulkUploadValidatorService {
         existingSkuProductRefId &&
         existingSkuProductRefId === resolvedExistingProductRefId
       ) {
+        return;
+      }
+
+      if (
+        existingSkuProductRefId &&
+        mergeSourceProductRefIds.includes(existingSkuProductRefId)
+      ) {
+        // style_group consolidation will reassign this SKU onto the canonical product.
         return;
       }
 
