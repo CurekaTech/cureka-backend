@@ -191,6 +191,25 @@ export class CategoriesRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
+  async existsBySlug(slug: string): Promise<boolean> {
+    return (
+      (await this.repo
+        .createQueryBuilder('category')
+        .where('category.slug = :slug', { slug })
+        .getCount()) > 0
+    );
+  }
+
+  async existsBySlugExcluding(slug: string, excludeRefId: string): Promise<boolean> {
+    return (
+      (await this.repo
+        .createQueryBuilder('category')
+        .where('category.slug = :slug', { slug })
+        .andWhere('category.refId != :excludeRefId', { excludeRefId })
+        .getCount()) > 0
+    );
+  }
+
   async findByRefIds(refIds: string[]): Promise<CategoryEntity[]> {
     if (!refIds.length) return [];
     return this.repo.find({ where: { refId: In([...new Set(refIds)]) } });
