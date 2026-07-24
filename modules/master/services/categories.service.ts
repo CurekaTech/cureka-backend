@@ -116,7 +116,10 @@ export class CategoriesService {
     }
 
     const hierarchyId = await this.categoriesRepository.getNextHierarchyId();
-    const slug = this.generateSlugFromName(dto.name);
+    const slug = this.resolveCategorySlug(dto.slug, dto.name);
+    if (await this.categoriesRepository.existsBySlug(slug)) {
+      throw new ConflictException(`A category with slug "${slug}" already exists`);
+    }
     const attributes = await this.resolveAttributes(dto.attributeRefIds ?? []);
     this.assertCategoryFiltersAllowed(hierarchyLevel, dto.categoryFilterRefIds);
     const categoryFilters =
@@ -277,10 +280,17 @@ export class CategoriesService {
       }
     }
 
-    // Regenerate slug only when name changes
+    // Prefer explicit slug from the form; otherwise regenerate only when name changes.
     let slug = existing.slug;
-    if (dto.name && dto.name !== existing.name) {
+    if (dto.slug !== undefined) {
+      slug = this.resolveCategorySlug(dto.slug, dto.name ?? existing.name);
+    } else if (dto.name && dto.name !== existing.name) {
       slug = this.generateSlugFromName(dto.name);
+    }
+    if (slug !== existing.slug) {
+      if (await this.categoriesRepository.existsBySlugExcluding(slug, refId)) {
+        throw new ConflictException(`A category with slug "${slug}" already exists`);
+      }
     }
 
     // Resolve attribute relations when attributeIds explicitly provided
@@ -574,6 +584,11 @@ export class CategoriesService {
         'Circular hierarchy detected. A category cannot be moved under one of its own descendants.',
       );
     }
+  }
+
+  private resolveCategorySlug(slugInput: string | undefined, name: string): string {
+    const trimmed = slugInput?.trim();
+    return trimmed ? trimmed : this.generateSlugFromName(name);
   }
 
   private generateSlugFromName(name: string): string {

@@ -137,7 +137,8 @@ export type BulkUploadExpandableVariant = {
 /**
  * Expand a variant row when any attribute value cell contains `,` or `|`
  * (e.g. Size=Small + "Left, Right" → Small/Left and Small/Right).
- * First combination keeps sheet SKU / Product ID; extras get blank SKU for auto-assign.
+ * First combination keeps sheet SKU / Product ID; extras get blank SKU so
+ * resolveVariantSkus can fill from Product ID–related SKUs or generate for new products.
  */
 export const expandVariantsByDelimitedAttributeValues = <T extends BulkUploadExpandableVariant>(
   variants: T[],

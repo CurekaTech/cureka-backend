@@ -39,6 +39,11 @@ export class CreateCategoryDto {
   name!: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  slug?: string;
+
+  @IsOptional()
   @IsRefId()
   parentCategoryRefId?: string;
 
