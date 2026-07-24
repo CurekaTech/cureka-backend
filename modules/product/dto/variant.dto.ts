@@ -327,7 +327,7 @@ export class CreateVariantDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(500)
   metaTitle?: string;
 
   @ApiPropertyOptional()

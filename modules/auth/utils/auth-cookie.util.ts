@@ -82,7 +82,24 @@ export const clearUserSessionCookie = (reply: FastifyReply): void => {
   reply.clearCookie(AUTH_COOKIE_NAMES.USER_SESSION, { path: '/' });
 };
 
+/**
+ * Resolve storefront session token from:
+ * 1. HttpOnly cookie `user_session` (browser)
+ * 2. `Authorization: Bearer <token>` (mobile / GoKwik / non-cookie clients)
+ */
 export const getSessionTokenFromRequest = (req: FastifyRequest): string | undefined => {
-  const token = req.cookies?.[AUTH_COOKIE_NAMES.USER_SESSION];
-  return typeof token === 'string' && token.length > 0 ? token : undefined;
+  const cookieToken = req.cookies?.[AUTH_COOKIE_NAMES.USER_SESSION];
+  if (typeof cookieToken === 'string' && cookieToken.length > 0) {
+    return cookieToken;
+  }
+
+  const authorization = req.headers.authorization;
+  if (typeof authorization === 'string') {
+    const [scheme, token] = authorization.split(/\s+/);
+    if (scheme?.toLowerCase() === 'bearer' && token) {
+      return token;
+    }
+  }
+
+  return undefined;
 };

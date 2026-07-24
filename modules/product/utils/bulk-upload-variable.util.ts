@@ -48,16 +48,20 @@ export const isVariableBulkUploadColumn = (normalizedHeader: string): boolean =>
 export const parsePipeSeparatedValues = (raw: string): string[] => [
   ...new Set(
     raw
-      .split('|')
+      .split(/[|,]+/)
       .map((value) => value.trim())
       .filter(Boolean),
   ),
 ];
 
+/** Split attribute value cells on `,` or `|` into distinct values (e.g. "Left, Right"). */
+export const parseDelimitedAttributeValues = (raw: string): string[] =>
+  parsePipeSeparatedValues(raw);
+
 export const parseAttributeDetailNames = (raw?: string): string[] =>
   raw?.trim() ? parsePipeSeparatedValues(raw) : [];
 
-/** Flattens one or more cells that may each contain pipe-separated attribute names. */
+/** Flattens one or more cells that may each contain pipe/comma-separated attribute names. */
 export const flattenAttributeDetailNames = (rawValues: string[]): string[] => {
   const result: string[] = [];
   const seen = new Set<string>();
@@ -74,7 +78,11 @@ export const flattenAttributeDetailNames = (rawValues: string[]): string[] => {
   return result;
 };
 
-/** Reads `Attribute Details 1..N` columns (dynamic N); falls back to legacy pipe-separated `Attribute Details`. */
+/**
+ * Indexed `Attribute Details N` columns are one attribute name per column
+ * (e.g. "Left / Right" must stay a single master name — do not split on `/`).
+ * Legacy single `Attribute Details` cell still supports `,` / `|` separators.
+ */
 export const parseAttributeDetailsFromRow = (
   getVal: (columnName: string) => string,
   headerMap: Map<string, number>,
@@ -87,22 +95,95 @@ export const parseAttributeDetailsFromRow = (
     }
   }
 
-  const rawValues: string[] = [];
-
   if (indexedColumns.length > 0) {
     indexedColumns.sort((left, right) => left - right);
+    const names: string[] = [];
     for (const index of indexedColumns) {
       const value = getVal(`attribute details ${index}`).trim();
-      if (value) rawValues.push(value);
+      if (value) names.push(value);
     }
+    return names;
   }
 
   const legacyValue = getVal('attribute details').trim();
-  if (legacyValue) {
-    rawValues.push(legacyValue);
+  return legacyValue ? flattenAttributeDetailNames([legacyValue]) : [];
+};
+
+/** Cartesian product of value lists (at least one empty list → empty result). */
+export const cartesianProduct = <T>(lists: T[][]): T[][] => {
+  if (!lists.length) return [[]];
+  return lists.reduce<T[][]>(
+    (acc, list) => {
+      if (!list.length) return [];
+      const next: T[][] = [];
+      for (const prefix of acc) {
+        for (const item of list) {
+          next.push([...prefix, item]);
+        }
+      }
+      return next;
+    },
+    [[]],
+  );
+};
+
+export type BulkUploadExpandableVariant = {
+  sku?: string;
+  externalProductId?: string;
+  productUrlSlug?: string;
+  attributes: Array<{ name: string; value: string }>;
+};
+
+/**
+ * Expand a variant row when any attribute value cell contains `,` or `|`
+ * (e.g. Size=Small + "Left, Right" → Small/Left and Small/Right).
+ * First combination keeps sheet SKU / Product ID; extras get blank SKU for auto-assign.
+ */
+export const expandVariantsByDelimitedAttributeValues = <T extends BulkUploadExpandableVariant>(
+  variants: T[],
+): T[] => {
+  const expanded: T[] = [];
+
+  for (const variant of variants) {
+    const attrs = variant.attributes ?? [];
+    if (!attrs.length) {
+      expanded.push(variant);
+      continue;
+    }
+
+    const valueLists = attrs.map((attr) => {
+      const values = parseDelimitedAttributeValues(attr.value ?? '');
+      return values.length ? values : [attr.value?.trim() || ''];
+    });
+
+    const needsExpansion = valueLists.some((values) => values.length > 1);
+    if (!needsExpansion) {
+      expanded.push({
+        ...variant,
+        attributes: attrs.map((attr, index) => ({
+          name: attr.name,
+          value: valueLists[index][0] ?? attr.value,
+        })),
+      } as T);
+      continue;
+    }
+
+    const combinations = cartesianProduct(valueLists);
+    combinations.forEach((combo, index) => {
+      expanded.push({
+        ...variant,
+        sku: index === 0 ? variant.sku : '',
+        externalProductId: index === 0 ? variant.externalProductId : undefined,
+        productUrlSlug: index === 0 ? variant.productUrlSlug : undefined,
+        attributes: attrs.map((attr, attrIndex) => ({
+          name: attr.name,
+          value: combo[attrIndex] ?? '',
+        })),
+      } as T);
+    });
   }
 
-  return flattenAttributeDetailNames(rawValues);
+  return expanded;
 };
 
 export const getMaxAttributeDetailsColumnIndex = (headerMap: Map<string, number>): number => {

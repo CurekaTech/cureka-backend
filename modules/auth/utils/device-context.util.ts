@@ -24,15 +24,36 @@ const parseUserAgent = (userAgent?: string): { browser?: string; os?: string } =
   return { browser, os };
 };
 
+/** Prefer real client IP when the API sits behind nginx / a load balancer. */
+export const resolveClientIp = (req: FastifyRequest): string | undefined => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  if (Array.isArray(forwarded) && forwarded[0]) {
+    const first = forwarded[0].split(',')[0]?.trim();
+    if (first) return first;
+  }
+
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.trim();
+  }
+
+  return req.ip;
+};
+
 export const extractDeviceContext = (req: FastifyRequest): IDeviceContext => {
   const userAgent = req.headers['user-agent'];
   const { browser, os } = parseUserAgent(userAgent);
+  const ipAddress = resolveClientIp(req);
 
   const headerDeviceId = req.headers[DEVICE_ID_HEADER];
   const deviceId =
     (typeof headerDeviceId === 'string' && headerDeviceId.trim()) ||
     createHash('sha256')
-      .update(`${userAgent ?? 'unknown'}|${req.ip ?? 'unknown'}`)
+      .update(`${userAgent ?? 'unknown'}|${ipAddress ?? 'unknown'}`)
       .digest('hex')
       .slice(0, 32);
 
@@ -47,6 +68,6 @@ export const extractDeviceContext = (req: FastifyRequest): IDeviceContext => {
     deviceName,
     browser,
     os,
-    ipAddress: req.ip,
+    ipAddress,
   };
 };

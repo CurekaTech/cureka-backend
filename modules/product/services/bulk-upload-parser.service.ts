@@ -21,6 +21,7 @@ import {
 import {
   VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
   parseAttributeDetailsFromRow,
+  expandVariantsByDelimitedAttributeValues,
 } from '../utils/bulk-upload-variable.util';
 import {
   isCommonMediaBulkUploadColumn,
@@ -123,6 +124,8 @@ export interface IParsedProductGroup {
   packMetadata: IProductPackMetadataItem[];
   productNature?: string;
   productType: string;
+  /** Raw Product Type from the first sheet row (before structure-based finalize). */
+  sheetProductType?: string;
   category: string;
   subCategory?: string;
   subSubCategory?: string;
@@ -432,6 +435,20 @@ export class BulkUploadParserService {
     return packs;
   }
 
+  /**
+   * Normalize sheet Product Type values (including common aliases / typos).
+   */
+  private normalizeSheetProductType(raw: string): string {
+    const normalized = raw.toLowerCase().trim();
+    if (normalized === 'variant' || normalized === 'variants' || normalized === 'varient') {
+      return 'variable';
+    }
+    if (normalized === 'single' || normalized === 'simple product') {
+      return 'simple';
+    }
+    return normalized || 'simple';
+  }
+
   private normalizeDiscountPercentage(raw: string): number | undefined {
     const value = raw.trim();
     if (!value) return undefined;
@@ -473,14 +490,33 @@ export class BulkUploadParserService {
     let dynamicCategoryFilterColumns!: Map<number, string>;
 
     const finalizeGroup = (group: IParsedProductGroup): IParsedProductGroup => {
+      // "Left, Right" / "Left | Right" in attribute value cells → separate variants.
+      group.variants = expandVariantsByDelimitedAttributeValues(group.variants);
+
+      const requested = (group.sheetProductType || group.productType || 'simple').toLowerCase();
+
       if (group.styleGroupId) {
         if (group.variants.length >= 2) {
+          // Multi-row style groups are variable unless the sheet explicitly asked for simple
+          // (validator will reject that conflict with a clear conversion message).
+          if (requested === 'simple') {
+            group.productType = 'simple';
+            group.variableUploadMode = undefined;
+          } else {
+            group.productType = 'variable';
+            group.variableUploadMode = 'explicit';
+          }
+        } else if (requested === 'variable') {
+          // Keep variable so validator can require ≥2 rows instead of silently becoming simple.
           group.productType = 'variable';
           group.variableUploadMode = 'explicit';
         } else {
           group.productType = 'simple';
           group.variableUploadMode = undefined;
         }
+      } else {
+        group.productType = requested;
+        group.variableUploadMode = undefined;
       }
       return group;
     };
@@ -529,7 +565,7 @@ export class BulkUploadParserService {
       );
 
       const name = getVal('product name');
-      const productTypeRaw = (getVal('product type') || 'simple').toLowerCase();
+      const productTypeRaw = this.normalizeSheetProductType(getVal('product type') || 'simple');
       const vendorSku = getVal('vendor sku');
       const bundleSku = getVal('bundle sku');
       const styleGroupId = this.getFirstAvailable(getVal, [
@@ -556,17 +592,15 @@ export class BulkUploadParserService {
       scannedRowsCount++;
 
       // Grouping: style_group_id binds vertical variants; otherwise one product per row (or bundle).
+      // Do not silently rewrite Product Type here — finalizeGroup + validator own conversion rules.
       let groupingKey = '';
-      let effectiveProductType = productTypeRaw;
+      const effectiveProductType = productTypeRaw;
       if (productTypeRaw === 'bundle') {
         groupingKey = `bundle-${bundleSku || name}`;
       } else if (styleGroupId) {
         groupingKey = `style-${styleGroupId.toLowerCase()}`;
-        // Will be coerced to simple vs variable after all rows for this key are collected.
-        effectiveProductType = 'variable';
       } else {
         groupingKey = `simple-${rowNumber}`;
-        effectiveProductType = productTypeRaw === 'variable' ? 'simple' : productTypeRaw;
       }
 
       if (previousGroupingKey && previousGroupingKey !== groupingKey) {
@@ -590,6 +624,7 @@ export class BulkUploadParserService {
           packMetadata: this.parsePackMetadata(getVal),
           productNature: getVal('product nature'),
           productType: effectiveProductType,
+          sheetProductType: productTypeRaw,
           category: getVal('category'),
           subCategory: getVal('sub category') || undefined,
           subSubCategory: getVal('sub sub category') || undefined,
