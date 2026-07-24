@@ -41,8 +41,9 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { KwikpassService } from '../services/kwikpass.service';
 
 /**
- * Ecommerce user auth — pure cookie session (no JWT).
- * Cookie: user_session (opaque token) → validated against user_sessions table.
+ * Ecommerce user auth — opaque session token (not JWT).
+ * Delivered as HttpOnly `user_session` cookie and as `token` in auth JSON responses.
+ * Clients without cookies (e.g. GoKwik / mobile) send `Authorization: Bearer <token>`.
  */
 @Controller('auth')
 export class AuthController {
@@ -82,12 +83,13 @@ export class AuthController {
       reply,
       result.sessionToken,
       this.authService.getRefreshExpiresInDays(),
+      req,
     );
     return {
       sessionId: result.sessionId,
       isRegistered: result.isRegistered,
       user: result.user,
-      token: null,
+      token: result.sessionToken,
     };
   }
 
@@ -124,13 +126,15 @@ export class AuthController {
       reply,
       result.sessionToken,
       this.authService.getRefreshExpiresInDays(),
+      req,
     );
 
     return {
       sessionId: result.sessionId,
       isRegistered: result.isRegistered,
       user: result.user,
-      token: result.isRegistered ? result.sessionToken : null
+      // Token only for registered users; unregistered clients complete registration first.
+      token: result.isRegistered ? result.sessionToken : null,
     };
   }
 
@@ -142,19 +146,19 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<IGuestAuthResponse> {
     const device = this.authService.resolveDeviceContext(req);
-    console.log("🚀 ~ AuthController ~ guestLogin ~ device:", device)
     const result = await this.authService.guestLogin(device);
-    console.log("🚀 ~ AuthController ~ guestLogin ~ result:", result)
 
     setUserSessionCookie(
       reply,
       result.sessionToken,
       this.authService.getRefreshExpiresInDays(),
+      req,
     );
 
     return {
       sessionId: result.sessionId,
       user: result.user,
+      token: result.sessionToken,
     };
   }
 
@@ -162,11 +166,25 @@ export class AuthController {
   @UseGuards(SessionCookieGuard)
   @Post('complete-registration')
   @HttpCode(HttpStatus.OK)
-  completeRegistration(
+  async completeRegistration(
     @CurrentSessionUser() user: IUserSessionContext,
+    @Req() req: FastifyRequest,
     @Body() dto: CompleteRegistrationDto,
-  ): Promise<IUser> {
-    return this.authService.completeRegistration(user.sub, dto);
+  ): Promise<IUserAuthResponse> {
+    const updatedUser = await this.authService.completeRegistration(user.sub, dto);
+    const sessionToken = getSessionTokenFromRequest(req);
+    if (!sessionToken) {
+      throw new UnauthorizedException(
+        'Session missing — provide user_session cookie or Authorization: Bearer <token>',
+      );
+    }
+
+    return {
+      sessionId: user.sessionId,
+      isRegistered: updatedUser.isRegistered,
+      user: updatedUser,
+      token: sessionToken,
+    };
   }
 
   @ResponseMessage('Profile retrieved successfully')
@@ -186,7 +204,9 @@ export class AuthController {
   ): Promise<IRefreshAuthResponse> {
     const sessionToken = getSessionTokenFromRequest(req) ?? dto.refreshToken;
     if (!sessionToken) {
-      throw new UnauthorizedException('Session cookie missing');
+      throw new UnauthorizedException(
+        'Session missing — provide user_session cookie, Authorization: Bearer <token>, or refreshToken body',
+      );
     }
 
     const result = await this.authService.refreshSession(sessionToken);
@@ -195,9 +215,10 @@ export class AuthController {
       reply,
       result.sessionToken,
       this.authService.getRefreshExpiresInDays(),
+      req,
     );
 
-    return { sessionId: result.sessionId };
+    return { sessionId: result.sessionId, token: result.sessionToken };
   }
 
   @ResponseMessage('Logged out successfully')

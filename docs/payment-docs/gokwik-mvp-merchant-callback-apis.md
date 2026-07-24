@@ -8,12 +8,16 @@ Shareable reference for GoKwik sandbox / certification.
 https://<API_HOST>/api/v1/gokwik
 ```
 
-**Auth header (all endpoints below):**
+**Auth headers (cart + order endpoints below):**
 
 | Header | Value |
 |--------|--------|
 | `Content-Type` | `application/json` |
 | `x-gokwik-callback-secret` | Shared secret configured as `GOKWIK_CALLBACK_SECRET` |
+| `Authorization` | `Bearer <Cureka user session token>` from `verify-otp` / `complete-registration` |
+
+The Bearer token must belong to the same Cureka user who owns `cart_id` / `session_key`.  
+Webhooks under `/gokwik/webhooks/*` use provider/callback secret only (no user Bearer).
 
 Responses use GoKwik’s raw shapes (`@RawResponse`). They are **not** wrapped in Cureka’s usual `{ success, message, data }` envelope.
 
@@ -52,6 +56,7 @@ Fetches cart line items, pricing, discounts, shipping, and payable total.
 curl --request POST 'https://<API_HOST>/api/v1/gokwik/get-cart' \
   --header 'Content-Type: application/json' \
   --header 'x-gokwik-callback-secret: <GOKWIK_CALLBACK_SECRET>' \
+  --header 'Authorization: Bearer <CUREKA_USER_SESSION_TOKEN>' \
   --data '{
     "cart_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
   }'
@@ -459,5 +464,6 @@ Provide GoKwik:
 | Remove OOS URL | `https://<API_HOST>/api/v1/gokwik/remove-out-of-stock-items` |
 | Auth header name | `x-gokwik-callback-secret` |
 | Auth header value | Shared secret (same as `GOKWIK_CALLBACK_SECRET`) |
+| User auth header | `Authorization: Bearer <Cureka session token>` |
 | `merchantCheckoutId` | Cureka cart UUID |
 | Thank-you pattern | `{STOREFRONT_URL}/thankyou?order_id={order_number}` |

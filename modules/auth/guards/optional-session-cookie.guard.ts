@@ -9,7 +9,7 @@ import { IUserSessionContext } from '../interfaces/session.interface';
 import { getSessionTokenFromRequest } from '../utils/auth-cookie.util';
 
 /**
- * Resolves session when present; does not throw when cookie is missing.
+ * Resolves session when present (cookie or Bearer); does not throw when missing.
  * Use for endpoints that support both guest and authenticated users.
  */
 @Injectable()

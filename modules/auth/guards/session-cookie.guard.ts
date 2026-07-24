@@ -10,8 +10,8 @@ import { IUserSessionContext } from '../interfaces/session.interface';
 import { getSessionTokenFromRequest } from '../utils/auth-cookie.util';
 
 /**
- * Pure cookie session auth for ecommerce users — no JWT.
- * Reads user_session cookie, validates against user_sessions table, sets request.user.
+ * Storefront session auth for ecommerce users — opaque session token (not JWT).
+ * Accepts `user_session` cookie or `Authorization: Bearer <token>`.
  */
 @Injectable()
 export class SessionCookieGuard implements CanActivate {
@@ -24,7 +24,9 @@ export class SessionCookieGuard implements CanActivate {
 
     const sessionToken = getSessionTokenFromRequest(request);
     if (!sessionToken) {
-      throw new UnauthorizedException('Session cookie missing');
+      throw new UnauthorizedException(
+        'Session missing — provide user_session cookie or Authorization: Bearer <token>',
+      );
     }
 
     request.user = await this.sessionService.resolveSessionFromToken(sessionToken);
