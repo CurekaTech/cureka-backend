@@ -1167,20 +1167,44 @@ export class BulkUploadValidatorService {
     const existingSkus = [...this.dbSkus, ...sheetSkus];
     let sequence = findMaxSkuSequenceForPrefix(prefix, existingSkus);
     const reservedInGroup = new Set<string>();
-    const reusableSkus = existingProductRefId
-      ? [...(this.productRefIdToVariantSkusMap.get(existingProductRefId) ?? [])]
-      : [];
 
-    for (const [index, variant] of group.variants.entries()) {
+    // Reserve every SKU already present on the sheet/group first so expansion
+    // (e.g. "Left, Right" → 2 variants) never reuses a colliding SKU by index.
+    for (const variant of group.variants) {
+      const existing = variant.sku?.toLowerCase().trim();
+      if (existing) {
+        reservedInGroup.add(existing);
+      }
+    }
+
+    const reusableQueue = (existingProductRefId
+      ? [...(this.productRefIdToVariantSkusMap.get(existingProductRefId) ?? [])]
+      : []
+    ).filter((sku) => {
+      const normalized = sku?.toLowerCase().trim();
+      return Boolean(normalized) && !reservedInGroup.has(normalized);
+    });
+    let reusableIndex = 0;
+
+    for (const variant of group.variants) {
       if (variant.sku?.trim()) {
-        reservedInGroup.add(variant.sku.toLowerCase().trim());
         continue;
       }
 
-      const reusedSku = reusableSkus[index]?.trim();
-      if (reusedSku) {
+      let assigned = false;
+      while (reusableIndex < reusableQueue.length) {
+        const reusedSku = reusableQueue[reusableIndex++]?.trim();
+        if (!reusedSku) continue;
+        const normalizedReuse = reusedSku.toLowerCase();
+        if (reservedInGroup.has(normalizedReuse) || sheetSkus.has(normalizedReuse)) {
+          continue;
+        }
         variant.sku = reusedSku;
-        reservedInGroup.add(reusedSku.toLowerCase());
+        reservedInGroup.add(normalizedReuse);
+        assigned = true;
+        break;
+      }
+      if (assigned) {
         continue;
       }
 
