@@ -1,9 +1,12 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
+import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { RawResponse } from '@packages/common';
 import { GokwikCheckOrderExistsDto } from '../dto/gokwik-check-order-exists.dto';
 import { GokwikCreateOrderDto } from '../dto/gokwik-create-order.dto';
 import { GokwikPlaceOrderDto } from '../dto/gokwik-place-order.dto';
 import { GokwikCallbackGuard } from '../guards/gokwik-callback.guard';
+import { GokwikCartOwnerGuard } from '../guards/gokwik-cart-owner.guard';
 import {
   GokwikCheckOrderExistsResponse,
   GokwikCreateOrderResponse,
@@ -11,8 +14,20 @@ import {
 } from '../interfaces/gokwik-order.interface';
 import { GokwikOrderService } from '../services/gokwik-order.service';
 
+/**
+ * Merchant order callbacks.
+ * Auth:
+ * 1. `x-gokwik-callback-secret` — GoKwik → Cureka shared secret
+ * 2. `Authorization: Bearer <token>` (or `user_session` cookie) — Cureka user session
+ * 3. Cart must belong to that authenticated user
+ */
 @Controller('gokwik')
-@UseGuards(GokwikCallbackGuard)
+@UseGuards(
+  GokwikCallbackGuard,
+  SessionCookieGuard,
+  VerifiedUserGuard,
+  GokwikCartOwnerGuard,
+)
 export class GokwikOrderController {
   constructor(private readonly gokwikOrderService: GokwikOrderService) {}
 

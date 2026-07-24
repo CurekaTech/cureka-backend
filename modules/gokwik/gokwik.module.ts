@@ -18,6 +18,7 @@ import { GokwikRefundEntity } from './entities/gokwik-refund.entity';
 import { GokwikSyncStateEntity } from './entities/gokwik-sync-state.entity';
 import { GokwikWebhookEventEntity } from './entities/gokwik-webhook-event.entity';
 import { GokwikCallbackGuard } from './guards/gokwik-callback.guard';
+import { GokwikCartOwnerGuard } from './guards/gokwik-cart-owner.guard';
 import { GokwikWebhookGuard } from './guards/gokwik-webhook.guard';
 import { GokwikCatalogListener } from './listeners/gokwik-catalog.listener';
 import { GokwikFulfillmentListener } from './listeners/gokwik-fulfillment.listener';
@@ -65,6 +66,7 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
     GokwikOrderService,
     GokwikApiService,
     GokwikCallbackGuard,
+    GokwikCartOwnerGuard,
     GokwikWebhookGuard,
     GokwikRepository,
     GokwikQueueService,

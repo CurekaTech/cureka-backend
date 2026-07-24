@@ -20,16 +20,23 @@ export interface IUserAuthResponse {
   sessionId: string;
   isRegistered: boolean;
   user: IUser;
-  token?: string | null;
+  /**
+   * Opaque session token — also set as `user_session` cookie.
+   * On verify-otp: present only when `isRegistered` is true; otherwise null until complete-registration.
+   * Use as `Authorization: Bearer <token>` for non-cookie clients.
+   */
+  token: string | null;
 }
 
 export interface IGuestAuthResponse {
   sessionId: string;
   user: IUser;
+  token: string;
 }
 
 export interface IRefreshAuthResponse {
   sessionId: string;
+  token: string;
 }
 
 export interface IUserAuthTokensResult {
