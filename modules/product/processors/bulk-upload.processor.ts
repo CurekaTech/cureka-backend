@@ -1055,7 +1055,19 @@ export class BulkUploadProcessor extends WorkerHost {
               const shouldSyncMedia = sheetHadCommonMedia || sheetHadVariantImages;
 
               const existingProductRefId =
+                group.canonicalProductRefId ||
                 this.validatorService.resolveExistingProductRefIdForGroup(group);
+
+              if (
+                existingProductRefId &&
+                (group.mergeSourceProductRefIds?.length ?? 0) > 1
+              ) {
+                await this.productsService.consolidateVariantsOntoProduct(
+                  existingProductRefId,
+                  group.mergeSourceProductRefIds ?? [],
+                  (group.variants ?? []).map((variant) => variant.sku).filter(Boolean),
+                );
+              }
 
               // On update: only include images/media when the sheet had image columns,
               // so we REPLACE product_media instead of appending / leaving orphans.

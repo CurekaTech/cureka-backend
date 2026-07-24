@@ -740,6 +740,64 @@ export class ProductsService {
     await this.emitProductUpdated(refId, 'deleted');
   }
 
+  /**
+   * Move sheet SKUs from peer products onto the canonical product, then soft-delete
+   * any peer that no longer has variants. Used by bulk upload style_group consolidation.
+   */
+  async consolidateVariantsOntoProduct(
+    targetRefId: string,
+    sourceRefIds: string[],
+    skus: string[],
+  ): Promise<void> {
+    const target = await this.productsRepository.findByRefId(targetRefId);
+    if (!target) {
+      throw new NotFoundException(`Product with refId ${targetRefId} not found`);
+    }
+
+    const normalizedSkus = new Set(
+      skus.map((sku) => sku.toLowerCase().trim()).filter(Boolean),
+    );
+    if (!normalizedSkus.size) return;
+
+    const peers = [...new Set(sourceRefIds)].filter((refId) => refId && refId !== targetRefId);
+    if (!peers.length) return;
+
+    await this.dataSource.transaction(async (manager) => {
+      const variantRepo = manager.getRepository(ProductVariantEntity);
+      const productRepo = manager.getRepository(ProductEntity);
+
+      for (const sourceRefId of peers) {
+        const source = await this.productsRepository.findByRefId(sourceRefId, manager);
+        if (!source) continue;
+
+        const variants = await variantRepo.find({ where: { productId: source.id } });
+        const toMove = variants.filter((variant) =>
+          normalizedSkus.has(variant.sku.toLowerCase().trim()),
+        );
+
+        for (const variant of toMove) {
+          await variantRepo.update(
+            { id: variant.id },
+            { productId: target.id, combinationKey: null },
+          );
+        }
+
+        const remaining = await variantRepo.count({ where: { productId: source.id } });
+        if (remaining === 0) {
+          await productRepo.softDelete({ id: source.id });
+          this.logger.log(
+            `Soft-deleted emptied product ${sourceRefId} after consolidating variants onto ${targetRefId}`,
+          );
+        }
+      }
+    });
+
+    for (const sourceRefId of peers) {
+      await this.emitProductUpdated(sourceRefId, 'updated');
+    }
+    await this.emitProductUpdated(targetRefId, 'updated');
+  }
+
   private assertEditable(entity: ProductEntity): void {
     // if (entity.status === ProductStatus.PUBLISHED) {
     //   throw new BadRequestException('Published products cannot be edited via create/update flow');
