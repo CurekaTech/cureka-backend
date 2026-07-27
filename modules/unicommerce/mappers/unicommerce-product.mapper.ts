@@ -3,10 +3,8 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import {
-  IUnicommerceCatalogProduct,
-  IUnicommerceProductVariant,
   IUnicommerceItemType,
-  IUnicommerceChannelItemTypeData,
+  IUnicommerceChannelItemType,
 } from '../interfaces/unicommerce-catalog.interface';
 
 function toNumber(value: string | null | undefined): number {
@@ -79,55 +77,6 @@ function resolveVariantImage(
       if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1;
       return left.sortOrder - right.sortOrder;
     })[0];
-}
-
-export function mapProductToUnicommerceCatalog(
-  product: ProductEntity,
-  options: {
-    imageUrlByMediaId: Map<string, string | undefined>;
-    productBaseUrl?: string;
-  },
-): IUnicommerceCatalogProduct | null {
-  const activeVariants = (product.variants ?? []).filter(
-    (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
-  );
-
-  if (!activeVariants.length) {
-    return null;
-  }
-
-  const variants: IUnicommerceProductVariant[] = activeVariants.map((variant) => {
-    const imageMedia = resolveVariantImage(product.media ?? [], variant.id);
-    const imageUrl = imageMedia ? options.imageUrlByMediaId.get(imageMedia.id) : undefined;
-    const productUrl = options.productBaseUrl
-      ? `${options.productBaseUrl.replace(/\/+$/, '')}/${variant.slug}`
-      : undefined;
-
-    return {
-      imageUrl,
-      productUrl,
-      variantId: variant.sku,
-      title: resolveVariantTitle(product, variant),
-      sku: variant.sku,
-      size: formatUnicommerceSize(variant),
-      color: resolveVariantColor(variant),
-      live: variant.status === VariantStatus.ACTIVE,
-      itemPrice: {
-        currency: 'INR',
-        listingPrice: toNumber(variant.sellingPrice),
-        mrp: toNumber(variant.mrp),
-      },
-      inventory: variant.stock,
-    };
-  });
-
-  return {
-    id: product.refId,
-    parentTitle: product.name,
-    brand: product.brand?.name?.trim() || 'Cureka',
-    variants,
-    created: (product.publishedAt ?? product.createdAt).toISOString(),
-  };
 }
 
 // ─── Official Unicommerce tenant API mappers ──────────────────────────────────
@@ -206,23 +155,24 @@ export function mapProductToItemTypes(
 }
 
 /**
- * Builds channel mapping payloads for each active variant.
+ * Builds channel item payloads for each active variant.
+ * Used by POST /services/rest/v1/channel/createChannelItem
  * Call after `itemTypes/createOrEdit` succeeds.
  */
 export function mapVariantsToChannelItemTypes(
   product: ProductEntity,
   channelCode: string,
-): IUnicommerceChannelItemTypeData[] {
+): IUnicommerceChannelItemType[] {
   const activeVariants = (product.variants ?? []).filter(
     (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
   );
 
   return activeVariants.map((variant) => ({
     channelCode,
+    channelProductId: variant.sku,
+    sellerSkuCode: variant.sku,
     skuCode: variant.sku,
-    channelSkuCode: variant.sku,
-    listingStatus: 'ACTIVE',
-    price: toNumber(variant.sellingPrice) || undefined,
-    mrp: toNumber(variant.mrp) || undefined,
+    live: true,
+    verified: true,
   }));
 }

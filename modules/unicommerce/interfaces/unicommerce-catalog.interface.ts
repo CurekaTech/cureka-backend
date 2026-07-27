@@ -1,59 +1,3 @@
-// ─── Inbound catalog-pull types (used by Unicommerce → Cureka pull endpoints) ──
-
-export interface IUnicommerceItemPrice {
-  currency: string;
-  listingPrice: number;
-  mrp: number;
-  msp?: number;
-  netSellerPayable?: number;
-}
-
-export interface IUnicommerceProductVariant {
-  imageUrl?: string;
-  productUrl?: string;
-  variantId: string;
-  title: string;
-  sku: string;
-  size: string;
-  color?: string;
-  live: boolean;
-  productDescription?: string;
-  itemPrice: IUnicommerceItemPrice;
-  inventory: number;
-  blockedInventory?: number;
-  pendency?: number;
-}
-
-export interface IUnicommerceCatalogProduct {
-  id: string;
-  parentTitle: string;
-  brand: string;
-  variants: IUnicommerceProductVariant[];
-  commissionPercentage?: number;
-  paymentGatewayCharge?: number;
-  logisticsCost?: number;
-  additionalInfo?: string;
-  created?: string;
-}
-
-export interface IUnicommerceProductsResponse {
-  products: IUnicommerceCatalogProduct[];
-}
-
-export interface IUnicommerceProductsCountResponse {
-  count: number;
-}
-
-export interface IUnicommerceProductPushResponse {
-  status?: string;
-  message?: string;
-  data?: unknown;
-}
-
-export interface IUnicommerceErrorResponse {
-  message: string;
-}
-
 // ─── Official Unicommerce tenant API — itemTypes/createOrEdit ─────────────────
 
 export interface IUnicommerceItemType {
@@ -112,28 +56,28 @@ export interface IUnicommerceCreateItemTypesResponse {
   itemType?: { skuCode?: string; id?: number };
 }
 
-// ─── Official Unicommerce tenant API — channel/itemType/createOrEdit ──────────
+// ─── Official Unicommerce tenant API — /services/rest/v1/channel/createChannelItem ───
 
-export interface IUnicommerceChannelItemTypeData {
+export interface IUnicommerceChannelItemType {
   /** Channel code (e.g. CUSTOM) */
   channelCode: string;
-  /** Internal catalog SKU */
+  /** SKU on the channel — typically same as sellerSkuCode */
+  channelProductId: string;
+  /** Seller's own SKU code */
+  sellerSkuCode: string;
+  /** Unicommerce catalog SKU (itemType skuCode) */
   skuCode: string;
-  /** SKU as listed on this channel (usually same as skuCode) */
-  channelSkuCode?: string;
-  /** ACTIVE | INACTIVE */
-  listingStatus?: string;
-  /** Selling / listing price on the channel */
-  price?: number;
-  /** MRP on the channel */
-  mrp?: number;
+  /** Whether the listing is live on the channel */
+  live?: boolean;
+  /** Whether the item is verified */
+  verified?: boolean;
 }
 
-export interface IUnicommerceChannelItemTypePayload {
-  channelProductData: IUnicommerceChannelItemTypeData;
+export interface IUnicommerceCreateChannelItemPayload {
+  channelItemType: IUnicommerceChannelItemType;
 }
 
-export interface IUnicommerceChannelItemTypeResponse {
+export interface IUnicommerceCreateChannelItemResponse {
   successful: boolean;
   message?: string;
   errors?: Array<{
@@ -144,3 +88,11 @@ export interface IUnicommerceChannelItemTypeResponse {
   }>;
   warnings?: Array<{ code?: number; message?: string; description?: string }>;
 }
+
+// Keep old aliases so existing code compiles during migration
+/** @deprecated Use IUnicommerceChannelItemType */
+export type IUnicommerceChannelItemTypeData = IUnicommerceChannelItemType;
+/** @deprecated Use IUnicommerceCreateChannelItemPayload */
+export type IUnicommerceChannelItemTypePayload = IUnicommerceCreateChannelItemPayload;
+/** @deprecated Use IUnicommerceCreateChannelItemResponse */
+export type IUnicommerceChannelItemTypeResponse = IUnicommerceCreateChannelItemResponse;

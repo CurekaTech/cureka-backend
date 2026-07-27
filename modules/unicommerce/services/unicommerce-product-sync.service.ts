@@ -6,14 +6,14 @@ import { ProductMediaEntity } from '@modules/product/entities/product-media.enti
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import {
   IUnicommerceCreateItemTypesResponse,
-  IUnicommerceChannelItemTypeResponse,
+  IUnicommerceCreateChannelItemResponse,
 } from '../interfaces/unicommerce-catalog.interface';
 import { mapProductToItemTypes, mapVariantsToChannelItemTypes } from '../mappers/unicommerce-product.mapper';
 import { UnicommerceProductApiService } from './unicommerce-product-api.service';
 
 export interface UnicommerceProductPushResult {
   catalogResponse: IUnicommerceCreateItemTypesResponse;
-  channelResponses: Array<{ sku: string; response: IUnicommerceChannelItemTypeResponse }>;
+  channelResponses: Array<{ sku: string; response: IUnicommerceCreateChannelItemResponse }>;
 }
 
 @Injectable()
@@ -88,37 +88,36 @@ export class UnicommerceProductSyncService {
       );
     }
 
-    // Step 2: Channel mapping — one call per variant
-    const channelDataList = mapVariantsToChannelItemTypes(product, channel);
+    // Step 2: Channel item creation — one call per variant
+    // Endpoint: POST /services/rest/v1/channel/createChannelItem
+    const channelItemList = mapVariantsToChannelItemTypes(product, channel);
     const channelResponses: UnicommerceProductPushResult['channelResponses'] = [];
 
-    for (const channelData of channelDataList) {
+    for (const channelItemType of channelItemList) {
       try {
-        const response = await this.apiService.createOrUpdateChannelItemType({
-          channelProductData: channelData,
-        });
+        const response = await this.apiService.createChannelItem({ channelItemType });
 
-        channelResponses.push({ sku: channelData.skuCode, response });
+        channelResponses.push({ sku: channelItemType.skuCode, response });
 
         if (response.successful) {
           this.logger.log(
-            { sku: channelData.skuCode, channel },
-            'Unicommerce channel mapping accepted',
+            { sku: channelItemType.skuCode, channel },
+            'Unicommerce channel item created',
           );
         } else {
           this.logger.warn(
-            { sku: channelData.skuCode, channel, message: response.message, errors: response.errors },
-            'Unicommerce channel mapping rejected',
+            { sku: channelItemType.skuCode, channel, message: response.message, errors: response.errors },
+            'Unicommerce channel item creation rejected',
           );
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.error(
-          { sku: channelData.skuCode, channel, error: message },
-          'Unicommerce channel mapping call failed',
+          { sku: channelItemType.skuCode, channel, error: message },
+          'Unicommerce channel item creation failed',
         );
         channelResponses.push({
-          sku: channelData.skuCode,
+          sku: channelItemType.skuCode,
           response: { successful: false, message },
         });
       }
