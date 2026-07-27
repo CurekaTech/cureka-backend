@@ -1321,6 +1321,28 @@ export class ProductsRepository {
       .getCount();
   }
 
+  /** All refIds of published products with at least one active variant — used for bulk UC push. */
+  async findAllPublishedRefIds(): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .select('product.refId', 'refId')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.publishedAt IS NOT NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .orderBy('product.publishedAt', 'DESC')
+      .getRawMany<{ refId: string }>();
+
+    return rows.map((row) => row.refId);
+  }
+
   /** Only live marketplace catalog: published products with active variants (not draft/inactive/archived). */
   async findPublishedProductsForUnicommerce(options: {
     page: number;
