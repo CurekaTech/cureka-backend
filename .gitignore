@@ -38,3 +38,6 @@ yarn-error.log*
 # GCS service account credentials (never commit)
 /secrets/**
 !/secrets/.gitkeep
+
+# GoKwik test session tokens (minted by gokwik:test-credentials)
+docs/gokwik-test-credentials.json
