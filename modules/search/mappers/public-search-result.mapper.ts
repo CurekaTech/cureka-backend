@@ -8,6 +8,8 @@ export function mapProductCardToSearchResult(card: IPublicProductCard): IPublicS
     title: card.name,
     slug: card.slug,
     refId: card.refId,
+    variantId: card.variantId ?? card.defaultVariantId ?? undefined,
+    productPageUrl: card.productPageUrl ?? null,
     product: card,
   };
 }

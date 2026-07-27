@@ -24,6 +24,8 @@ export function mapTypesenseDocumentToSearchResult(
   const variantSlug = String(document.variantSlug ?? '').trim();
   const slug = variantSlug || String(document.slug ?? '').trim();
   const variantId = String(document.variantId ?? '').trim() || undefined;
+  const productPageUrlRaw = String(document.productPageUrl ?? '').trim();
+  const productPageUrl = productPageUrlRaw || null;
 
   if (!refId || !name || !slug) {
     return null;
@@ -35,6 +37,7 @@ export function mapTypesenseDocumentToSearchResult(
     slug,
     refId,
     variantId,
+    productPageUrl,
   };
 }
 

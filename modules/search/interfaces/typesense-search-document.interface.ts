@@ -14,6 +14,8 @@ export interface ITypesenseSearchDocument {
   sku?: string;
   variantId?: string;
   variantSlug?: string;
+  /** Legacy storefront path (`/shop/.../`) when available. */
+  productPageUrl?: string;
   description?: string;
   inStock?: boolean;
   minSellingPrice?: number;

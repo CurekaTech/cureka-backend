@@ -197,6 +197,58 @@ async function loadProductDetail(pathname: string, slugParam?: string) {
 
 ---
 
+## 4b. Typesense / public search (`GET /public/search`)
+
+Search hits for products now include the same field:
+
+```json
+{
+  "entityType": "Product",
+  "title": "HealthEmate MT-101 AccuSure Thermometer",
+  "slug": "healthemate-mt-101-accusure-thermometer",
+  "refId": "SUN…",
+  "variantId": "…",
+  "productPageUrl": "/shop/healthcare-devices/medical-equipments/thermometer/healthemate-mt-101-accusure-thermometer/"
+}
+```
+
+Apply the **same routing rule** as list cards:
+
+| Search hit | Browser URL | Detail API |
+|------------|-------------|------------|
+| `productPageUrl` set | use `productPageUrl` exactly | `GET /public/products` + `productPageUrl` |
+| `productPageUrl` null / missing | use `slug` (structured UI path if you build one) | `GET /public/products/{slug}` |
+
+```ts
+function onSearchResultClick(hit: {
+  entityType: string;
+  slug: string;
+  productPageUrl?: string | null;
+}) {
+  if (hit.entityType !== 'Product') {
+    // brands / categories / health concerns — existing behavior
+    return;
+  }
+
+  if (hit.productPageUrl?.trim()) {
+    router.push(hit.productPageUrl);
+    return;
+  }
+
+  router.push(`/shop/${hit.slug}`); // or your structured fallback
+}
+```
+
+**Note for deploy:** after backend ships this field, run Typesense reindex so existing documents get `productPageUrl`:
+
+```bash
+npm run typesense:reindex
+```
+
+Until reindex, older indexed products may return `productPageUrl: null` even if DB already has the value.
+
+---
+
 ## 5. Detail response notes
 
 `GET` detail (by slug **or** by `/shop/...` path) returns the full product payload.
@@ -208,12 +260,14 @@ Variants include `productPageUrl` when set. List selection / deep-links should k
 ## 6. Quick checklist for UI
 
 - [ ] List cards read `productPageUrl`
+- [ ] Search hits read `productPageUrl` (same rule as list)
 - [ ] If not null → browser URL = `productPageUrl` (exact DB value)
 - [ ] If not null → detail API = `/api/v1/public/products` + `productPageUrl`
 - [ ] If null → browser URL = `permalink` or `/shop/{categorySlugPath}/{slug}`
 - [ ] If null → detail API = `/api/v1/public/products/{slug}`
 - [ ] Do not strip `/shop` or rebuild category path when `productPageUrl` is present
 - [ ] Keep trailing slash consistent with the API/DB value when calling the shop detail route
+- [ ] After backend deploy, confirm Typesense reindex so search returns `productPageUrl`
 
 ---
 
