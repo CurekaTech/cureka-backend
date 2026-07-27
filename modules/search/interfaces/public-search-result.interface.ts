@@ -7,6 +7,8 @@ export interface IPublicSearchResult {
   slug: string;
   refId: string;
   variantId?: string;
+  /** Legacy storefront path (`/shop/.../`) when indexed on the variant. */
+  productPageUrl?: string | null;
   /** Full product card when entityType is Product. */
   product?: IPublicProductCard;
 }

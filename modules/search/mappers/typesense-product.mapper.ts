@@ -88,6 +88,7 @@ function mapVariantToTypesenseDocument(
     refId: product.refId,
     variantId: variant.id,
     variantSlug: variant.slug,
+    productPageUrl: variant.productPageUrl?.trim() || undefined,
     entityType: SEARCH_ENTITY_TYPES.PRODUCT,
     name: buildVariantSearchTitle(product, variant),
     slug: variant.slug,
