@@ -1,82 +1,87 @@
-/** UniCommerce "Post Orders" order status (allowable set from the spec). */
-export type UnicommerceOrderStatus = 'PENDING_VERIFICATION' | 'CREATED' | 'CANCELLED';
-
-/** UniCommerce "Post Orders" order-item status (allowable set from the spec). */
-export type UnicommerceOrderItemStatus =
-  | 'CANCELLED'
-  | 'CREATED'
-  | 'DISPATCHED'
-  | 'DELIVERED';
-
-export type UnicommercePaymentType = 'COD' | 'PREPAID';
-
-export interface IUnicommerceOrderPrice {
-  currency: string;
-  totalCashOnDeliveryCharges: number;
-  totalDiscount: number;
-  totalGiftCharges: number;
-  totalStoreCredit: number;
-  totalPrepaidAmount: number;
-  totalShippingCharges: number;
+/** OAuth 2.0 token response from Unicommerce. */
+export interface IUnicommerceOAuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  refresh_token: string;
+  expires_in: number;
+  scope?: string;
 }
 
-export interface IUnicommerceOrderItemPrice {
-  cashOnDeliveryCharges: number;
-  sellingPrice: number;
-  shippingCharges: number;
-  discount: number;
-  totalPrice: number;
-  transferPrice: number;
-  currency: string;
-}
-
-export interface IUnicommerceOrderItem {
-  orderItemId: string;
-  status: UnicommerceOrderItemStatus;
-  productId: string;
-  variantId: string;
-  sku: string;
-  title: string;
-  shippingMethodCode: string;
-  orderItemPrice: IUnicommerceOrderItemPrice;
-  quantity: number;
-  onHold: boolean;
-  packetNumber: number;
-  facilityCode?: string;
-}
-
-export interface IUnicommerceAddress {
+export interface IUnicommerceSaleOrderAddress {
+  id: string;
+  name: string;
   addressLine1: string;
   addressLine2?: string;
   city: string;
-  country: string;
-  email?: string;
-  name: string;
-  phone: string;
-  pincode: string;
   state: string;
+  country?: string;
+  pincode?: string;
+  phone: string;
+  email?: string;
 }
 
-export interface IUnicommercePostOrderPayload {
-  id: string;
-  displayOrderNumber: string;
-  orderDate: string;
-  orderStatus: UnicommerceOrderStatus;
-  sla: string;
-  priority: number;
-  paymentType: UnicommercePaymentType;
-  orderPrice: IUnicommerceOrderPrice;
-  orderItems: IUnicommerceOrderItem[];
-  taxExempted: boolean;
-  cFormProvided: boolean;
-  thirdPartyShipping: boolean;
-  shippingAddress: IUnicommerceAddress;
-  billingAddress: IUnicommerceAddress;
-  additionalInfo?: string;
+export interface IUnicommerceSaleOrderItem {
+  /** Unique item code within the order, e.g. "ORD-001-1". */
+  code: string;
+  itemSku: string;
+  shippingMethodCode: string;
+  packetNumber?: number;
+  giftWrap: boolean;
+  giftMessage?: string;
+  facilityCode?: string;
+  totalPrice: string;
+  sellingPrice: string;
+  prepaidAmount: string;
+  discount: string;
+  shippingCharges: string;
+  giftWrapCharges?: string;
+  storeCredit?: string;
 }
 
-export interface IUnicommercePostOrderResponse {
-  status?: string;
+export interface IUnicommerceSaleOrderPayload {
+  saleOrder: {
+    code: string;
+    displayOrderCode: string;
+    displayOrderDateTime: string;
+    channel: string;
+    notificationEmail?: string;
+    notificationMobile?: string;
+    cashOnDelivery: boolean;
+    paymentInstrument?: string;
+    addresses: IUnicommerceSaleOrderAddress[];
+    billingAddress: { referenceId: string };
+    shippingAddress: { referenceId: string };
+    saleOrderItems: IUnicommerceSaleOrderItem[];
+    currencyCode?: string;
+    totalDiscount?: number;
+    totalShippingCharges?: number;
+    totalCashOnDeliveryCharges?: number;
+    totalPrepaidAmount?: number;
+    totalGiftWrapCharges?: number;
+    totalStoreCredit?: number;
+    fulfillmentTat?: string;
+  };
+}
+
+export interface IUnicommerceCreateSaleOrderResponse {
+  successful: boolean;
   message?: string;
-  data?: unknown;
+  errors?: Array<{
+    code?: number;
+    fieldName?: string;
+    description?: string;
+    message?: string;
+  }>;
+  warnings?: Array<{
+    code?: number;
+    message?: string;
+    description?: string;
+  }>;
+  saleOrderDetailDTO?: {
+    code?: string;
+    displayOrderCode?: string;
+    status?: string;
+    created?: string;
+    updated?: string;
+  };
 }

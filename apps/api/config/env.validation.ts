@@ -24,7 +24,9 @@
 import * as Joi from 'joi';
 
 export const envValidationSchema = Joi.object({
-  NODE_ENV: Joi.string().valid('development', 'production', 'test', 'staging').default('development'),
+  NODE_ENV: Joi.string()
+    .valid('development', 'production', 'test', 'staging')
+    .default('development'),
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().uri().required(),
   REDIS_HOST: Joi.string().default('localhost'),
@@ -72,18 +74,14 @@ export const envValidationSchema = Joi.object({
   // Unicommerce integration credentials — issued by Cureka to Unicommerce per seller
   UNICOMMERCE_USERNAME: Joi.string().optional(),
   UNICOMMERCE_PASSWORD: Joi.string().optional(),
+  UNICOMMERCE_TENANT: Joi.string().optional(),
+  UNICOMMERCE_CHANNEL: Joi.string().optional(),
   UNICOMMERCE_DEFAULT_FACILITY_CODE: Joi.string().optional(),
   UNICOMMERCE_DEFAULT_HSN_CODE: Joi.string().optional(),
   UNICOMMERCE_PRODUCT_BASE_URL: Joi.string().uri().optional(),
-  // Outbound UniCommerce "Post Orders" push
+  // Outbound order push — Unicommerce official tenant API (OAuth 2.0)
   UNICOMMERCE_ORDER_PUSH_ENABLED: Joi.string().valid('true', 'false').optional(),
-  UNICOMMERCE_ORDER_BASE_URL: Joi.string().uri().optional(),
-  UNICOMMERCE_ORDER_ENDPOINT: Joi.string().allow('').optional(),
-  UNICOMMERCE_ORDER_CLIENT_ID: Joi.string().allow('').optional(),
-  UNICOMMERCE_ORDER_MERCHANT_ID: Joi.string().allow('').optional(),
-  UNICOMMERCE_ORDER_SECURITY_KEY: Joi.string().allow('').optional(),
   UNICOMMERCE_ORDER_CURRENCY: Joi.string().allow('').optional(),
-  UNICOMMERCE_ORDER_SLA_HOURS: Joi.number().integer().min(1).optional(),
   UNICOMMERCE_ORDER_TIMEOUT_MS: Joi.number().integer().min(1000).optional(),
   UNICOMMERCE_PRODUCT_PUSH_ENABLED: Joi.string().valid('true', 'false').optional(),
   UNICOMMERCE_PRODUCT_PUSH_BASE_URL: Joi.string().uri().optional(),
@@ -131,7 +129,9 @@ export const envValidationSchema = Joi.object({
 
   CASHFREE_APP_ID: Joi.string().optional(),
   CASHFREE_SECRET_KEY: Joi.string().optional(),
-  CASHFREE_ENV: Joi.string().valid('sandbox', 'production', 'SANDBOX', 'PRODUCTION').default('sandbox'),
+  CASHFREE_ENV: Joi.string()
+    .valid('sandbox', 'production', 'SANDBOX', 'PRODUCTION')
+    .default('sandbox'),
   CASHFREE_API_VERSION: Joi.string().default('2023-08-01'),
   CASHFREE_WEBHOOK_SECRET: Joi.string().optional(),
 
@@ -146,7 +146,10 @@ export const envValidationSchema = Joi.object({
   GOKWIK_CATALOG_SYNC_ENABLED: Joi.string().valid('true', 'false').default('false'),
   GOKWIK_ORIGIN_CITY: Joi.string().allow('').optional(),
   GOKWIK_ORIGIN_STATE: Joi.string().allow('').optional(),
-  GOKWIK_ORIGIN_PINCODE: Joi.string().pattern(/^\d{6}$/).allow('').optional(),
+  GOKWIK_ORIGIN_PINCODE: Joi.string()
+    .pattern(/^\d{6}$/)
+    .allow('')
+    .optional(),
   GOKWIK_ORIGIN_COUNTRY: Joi.string().default('India'),
   GOKWIK_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).optional(),
   KWIKPASS_ENVIRONMENT: Joi.string().valid('sandbox', 'production').default('sandbox'),

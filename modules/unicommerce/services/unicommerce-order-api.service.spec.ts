@@ -3,9 +3,30 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import * as https from 'https';
 import { EventEmitter } from 'events';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
-import { IUnicommercePostOrderPayload } from '../interfaces/unicommerce-order.interface';
+import { IUnicommerceSaleOrderPayload } from '../interfaces/unicommerce-order.interface';
 
-const payload = { id: 'ORD1', orderItems: [] } as unknown as IUnicommercePostOrderPayload;
+const saleOrderPayload: IUnicommerceSaleOrderPayload = {
+  saleOrder: {
+    code: 'ORD-001',
+    displayOrderCode: 'ORD-001',
+    displayOrderDateTime: new Date().toISOString(),
+    channel: 'CUSTOM',
+    cashOnDelivery: false,
+    addresses: [
+      {
+        id: 'shipping',
+        name: 'Test User',
+        addressLine1: '123 Street',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        phone: '9999999999',
+      },
+    ],
+    billingAddress: { referenceId: 'shipping' },
+    shippingAddress: { referenceId: 'shipping' },
+    saleOrderItems: [],
+  },
+};
 
 function buildConfig(values: Record<string, unknown>): ConfigService {
   return {
@@ -13,116 +34,138 @@ function buildConfig(values: Record<string, unknown>): ConfigService {
   } as unknown as ConfigService;
 }
 
-describe('UnicommerceOrderApiService', () => {
-  const baseValues: Record<string, unknown> = {
-    'unicommerceOrder.baseUrl': 'https://genericproxy.unicommerce.com',
-    'unicommerceOrder.endpoint': '/uc/v1/order',
-    'unicommerceOrder.clientId': 'client-1',
-    'unicommerceOrder.merchantId': 'merchant-1',
-    'unicommerceOrder.securityKey': 'key-1',
-    'unicommerceOrder.timeoutMs': 15000,
-  };
+const baseValues: Record<string, unknown> = {
+  'unicommerceOrder.tenant': 'stgcureka',
+  'unicommerceOrder.username': 'testuser@example.com',
+  'unicommerceOrder.password': 'testpassword',
+  'unicommerceOrder.facilityCode': 'stgcureka',
+  'unicommerceOrder.timeoutMs': 15000,
+};
 
+/** Helper to mock https.request for a single response. */
+function mockHttpsRequest(statusCode: number, body: unknown) {
+  const req = new EventEmitter() as EventEmitter & {
+    setTimeout: jest.Mock;
+    write: jest.Mock;
+    end: jest.Mock;
+    destroy: jest.Mock;
+  };
+  req.setTimeout = jest.fn();
+  req.write = jest.fn();
+  req.end = jest.fn();
+  req.destroy = jest.fn();
+
+  jest.spyOn(https, 'request').mockImplementation(((
+    _options: unknown,
+    callback?: (res: EventEmitter & { statusCode?: number }) => void,
+  ) => {
+    const res = new EventEmitter() as EventEmitter & { statusCode?: number };
+    res.statusCode = statusCode;
+    if (callback) {
+      callback(res);
+      queueMicrotask(() => {
+        res.emit('data', Buffer.from(JSON.stringify(body)));
+        res.emit('end');
+      });
+    }
+    return req as unknown as ReturnType<typeof https.request>;
+  }) as typeof https.request);
+
+  return req;
+}
+
+describe('UnicommerceOrderApiService', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('reports configured when all headers present', () => {
+  it('reports configured when tenant, username, and password are set', () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
     expect(service.isConfigured()).toBe(true);
   });
 
-  it('reports not configured when a header is missing', () => {
+  it('reports not configured when tenant is missing', () => {
     const service = new UnicommerceOrderApiService(
-      buildConfig({ ...baseValues, 'unicommerceOrder.securityKey': '' }),
+      buildConfig({ ...baseValues, 'unicommerceOrder.tenant': '' }),
     );
     expect(service.isConfigured()).toBe(false);
   });
 
-  it('throws when credentials are missing', async () => {
-    const service = new UnicommerceOrderApiService(
-      buildConfig({ ...baseValues, 'unicommerceOrder.clientId': '' }),
+  it('fetches OAuth token then posts createSaleOrder and returns parsed body', async () => {
+    const service = new UnicommerceOrderApiService(buildConfig(baseValues));
+
+    const tokenResponse = { access_token: 'test-token-abc', token_type: 'bearer', refresh_token: 'ref', expires_in: 3600 };
+    const orderResponse = { successful: true, message: 'Sale Order Created' };
+
+    const requestSpy = jest
+      .spyOn(https, 'request')
+      .mockImplementationOnce(((
+        _options: unknown,
+        callback?: (res: EventEmitter & { statusCode?: number }) => void,
+      ) => {
+        const req = Object.assign(new EventEmitter(), {
+          setTimeout: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          destroy: jest.fn(),
+        });
+        const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+        if (callback) {
+          callback(res as EventEmitter & { statusCode?: number });
+          queueMicrotask(() => {
+            res.emit('data', Buffer.from(JSON.stringify(tokenResponse)));
+            res.emit('end');
+          });
+        }
+        return req as unknown as ReturnType<typeof https.request>;
+      }) as typeof https.request)
+      .mockImplementationOnce(((
+        _options: unknown,
+        callback?: (res: EventEmitter & { statusCode?: number }) => void,
+      ) => {
+        const req = Object.assign(new EventEmitter(), {
+          setTimeout: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          destroy: jest.fn(),
+        });
+        const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+        if (callback) {
+          callback(res as EventEmitter & { statusCode?: number });
+          queueMicrotask(() => {
+            res.emit('data', Buffer.from(JSON.stringify(orderResponse)));
+            res.emit('end');
+          });
+        }
+        return req as unknown as ReturnType<typeof https.request>;
+      }) as typeof https.request);
+
+    const result = await service.createSaleOrder(saleOrderPayload);
+
+    expect(result).toEqual(orderResponse);
+    // First call = OAuth token; second call = createSaleOrder
+    expect(requestSpy).toHaveBeenCalledTimes(2);
+
+    const tokenOptions = requestSpy.mock.calls[0][0] as https.RequestOptions;
+    expect(tokenOptions.hostname).toBe('stgcureka.unicommerce.com');
+    expect(tokenOptions.path).toContain('/oauth/token');
+    expect(tokenOptions.method).toBe('GET');
+
+    const orderOptions = requestSpy.mock.calls[1][0] as https.RequestOptions;
+    expect(orderOptions.hostname).toBe('stgcureka.unicommerce.com');
+    expect(orderOptions.path).toBe('/services/rest/v1/oms/saleOrder/create');
+    expect(orderOptions.method).toBe('POST');
+    expect((orderOptions.headers as Record<string, string>)['Authorization']).toBe(
+      'bearer test-token-abc',
     );
-    await expect(service.postOrder(payload)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('posts with UniCommerce auth headers and returns parsed body', async () => {
+  it('throws ServiceUnavailable when OAuth token request fails', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
+    mockHttpsRequest(401, { error: 'unauthorized' });
 
-    const req = new EventEmitter() as EventEmitter & {
-      setTimeout: jest.Mock;
-      write: jest.Mock;
-      end: jest.Mock;
-      destroy: jest.Mock;
-    };
-    req.setTimeout = jest.fn();
-    req.write = jest.fn();
-    req.end = jest.fn();
-    req.destroy = jest.fn();
-
-    const requestSpy = jest.spyOn(https, 'request').mockImplementation(((
-      _options: unknown,
-      callback?: (res: EventEmitter & { statusCode?: number }) => void,
-    ) => {
-      const res = new EventEmitter() as EventEmitter & { statusCode?: number };
-      res.statusCode = 200;
-      if (callback) {
-        callback(res);
-        queueMicrotask(() => {
-          res.emit('data', Buffer.from(JSON.stringify({ status: 'success' })));
-          res.emit('end');
-        });
-      }
-      return req as unknown as ReturnType<typeof https.request>;
-    }) as typeof https.request);
-
-    const result = await service.postOrder(payload);
-
-    expect(result).toEqual({ status: 'success' });
-    expect(requestSpy).toHaveBeenCalled();
-    const options = requestSpy.mock.calls[0][0] as https.RequestOptions;
-    expect(options.method).toBe('POST');
-    expect(options.hostname).toBe('genericproxy.unicommerce.com');
-    expect(options.path).toBe('/uc/v1/order');
-    expect(options.headers).toMatchObject({
-      ClientId: 'client-1',
-      merchantId: 'merchant-1',
-      securitykey: 'key-1',
-    });
-    expect(req.write).toHaveBeenCalled();
-    expect(req.end).toHaveBeenCalled();
-  });
-
-  it('throws ServiceUnavailable on non-OK HTTP response', async () => {
-    const service = new UnicommerceOrderApiService(buildConfig(baseValues));
-
-    const req = new EventEmitter() as EventEmitter & {
-      setTimeout: jest.Mock;
-      write: jest.Mock;
-      end: jest.Mock;
-      destroy: jest.Mock;
-    };
-    req.setTimeout = jest.fn();
-    req.write = jest.fn();
-    req.end = jest.fn();
-    req.destroy = jest.fn();
-
-    jest.spyOn(https, 'request').mockImplementation(((
-      _options: unknown,
-      callback?: (res: EventEmitter & { statusCode?: number }) => void,
-    ) => {
-      const res = new EventEmitter() as EventEmitter & { statusCode?: number };
-      res.statusCode = 400;
-      if (callback) {
-        callback(res);
-        queueMicrotask(() => {
-          res.emit('data', Buffer.from(JSON.stringify({ message: 'bad order' })));
-          res.emit('end');
-        });
-      }
-      return req as unknown as ReturnType<typeof https.request>;
-    }) as typeof https.request);
-
-    await expect(service.postOrder(payload)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(service.createSaleOrder(saleOrderPayload)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });

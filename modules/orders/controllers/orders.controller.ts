@@ -6,7 +6,7 @@ import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
 import { CheckoutDto } from '../dto/checkout.dto';
-import { OrderQueryDto, PlaceOrderDto } from '../dto/order.dto';
+import { CancelOrderDto, OrderQueryDto, PlaceOrderDto } from '../dto/order.dto';
 import { OrdersService } from '../services/orders.service';
 
 @ApiTags('Orders')
@@ -44,10 +44,21 @@ export class OrdersController {
     return this.ordersService.findOne(user.sub, id);
   }
 
+  @ApiOperation({ summary: 'Reorder items from a past order into the active cart' })
+  @ResponseMessage('Items added to cart successfully')
+  @Post(':id/reorder')
+  reorder(@CurrentSessionUser() user: IUserSessionContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.ordersService.reorder(user.sub, id);
+  }
+
   @ApiOperation({ summary: 'Cancel my order' })
   @ResponseMessage('Order cancelled successfully')
   @Patch(':id/cancel')
-  cancel(@CurrentSessionUser() user: IUserSessionContext, @Param('id', ParseUUIDPipe) id: string) {
-    return this.ordersService.cancel(user.sub, id);
+  cancel(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelOrderDto,
+  ) {
+    return this.ordersService.cancel(user.sub, id, dto);
   }
 }

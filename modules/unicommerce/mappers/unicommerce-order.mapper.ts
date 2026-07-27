@@ -1,31 +1,17 @@
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
-import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import {
-  IUnicommerceAddress,
-  IUnicommerceOrderItem,
-  IUnicommercePostOrderPayload,
-  UnicommerceOrderItemStatus,
-  UnicommerceOrderStatus,
-  UnicommercePaymentType,
+  IUnicommerceSaleOrderAddress,
+  IUnicommerceSaleOrderItem,
+  IUnicommerceSaleOrderPayload,
 } from '../interfaces/unicommerce-order.interface';
 
 export interface UnicommerceOrderMapperOptions {
-  /**
-   * Optional facility code. Omitted from payload for now — UniCommerce asked to
-   * drop this field while validating order creation. Re-enable when facility is mapped.
-   */
-  facilityCode?: string;
   /** ISO currency code (default INR). */
   currency?: string;
-  /** SLA window in hours added to order date (default 48). */
-  slaHours?: number;
-}
-
-/** UniCommerce expects `yyyy-MM-dd HH:mm:ss` (UTC used for determinism). */
-export function formatUnicommerceOrderDate(date: Date): string {
-  return date.toISOString().slice(0, 19).replace('T', ' ');
+  /** Channel code registered in Unicommerce (default CUSTOM). */
+  channel?: string;
 }
 
 function toNumber(value: string | number | null | undefined): number {
@@ -34,105 +20,87 @@ function toNumber(value: string | number | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function mapOrderStatus(status: OrderStatus): UnicommerceOrderStatus {
-  if (status === OrderStatus.CANCELLED) return 'CANCELLED';
-  return 'CREATED';
-}
-
-function mapItemStatus(orderStatus: UnicommerceOrderStatus): UnicommerceOrderItemStatus {
-  return orderStatus === 'CANCELLED' ? 'CANCELLED' : 'CREATED';
-}
-
-function resolveItemTitle(item: OrderItemEntity): string {
-  return item.variantName ? `${item.productName} (${item.variantName})` : item.productName;
-}
-
-/**
- * UniCommerce identifiers follow the same convention as the inbound catalog:
- *   productId = product.refId, variantId = variant SKU.
- */
-function resolveProductId(item: OrderItemEntity): string {
-  return item.product?.refId ?? item.productId;
-}
-
-function buildAddress(order: OrderEntity): IUnicommerceAddress {
+function buildAddress(order: OrderEntity): IUnicommerceSaleOrderAddress {
   return {
+    id: 'shipping',
+    name: order.recipientName,
     addressLine1: order.addressLine1,
     addressLine2: order.addressLine2 ?? undefined,
     city: order.city,
-    country: 'India',
-    email: order.user?.email ?? undefined,
-    name: order.recipientName,
-    phone: order.phoneNumber,
-    pincode: order.pincode,
     state: order.state,
+    country: 'India',
+    pincode: order.pincode,
+    phone: order.phoneNumber,
+    email: order.user?.email ?? undefined,
+  };
+}
+
+function buildSaleOrderItem(
+  item: OrderItemEntity,
+  index: number,
+  orderNumber: string,
+  isCod: boolean,
+): IUnicommerceSaleOrderItem {
+  const itemCode = `${orderNumber}-${index + 1}`;
+  const sellingPrice = toNumber(item.unitPrice);
+  const totalPrice = toNumber(item.totalPrice);
+  const prepaidAmount = isCod ? 0 : totalPrice;
+
+  return {
+    code: itemCode,
+    itemSku: item.sku,
+    shippingMethodCode: 'STD',
+    packetNumber: 1,
+    giftWrap: false,
+    totalPrice: String(totalPrice),
+    sellingPrice: String(sellingPrice),
+    prepaidAmount: String(prepaidAmount),
+    discount: '0',
+    shippingCharges: '0',
   };
 }
 
 export function mapOrderToUnicommercePayload(
   order: OrderEntity,
   options: UnicommerceOrderMapperOptions = {},
-): IUnicommercePostOrderPayload {
+): IUnicommerceSaleOrderPayload {
   const currency = options.currency ?? 'INR';
-  const slaHours = options.slaHours ?? 48;
-  // facilityCode intentionally not sent — UniCommerce: omit while testing order create.
-  void options.facilityCode;
+  const channel = options.channel ?? 'CUSTOM';
 
-  const orderDate = order.placedAt ?? order.createdAt ?? new Date();
-  const sla = new Date(orderDate.getTime() + slaHours * 60 * 60 * 1000);
-
-  const orderStatus = mapOrderStatus(order.orderStatus);
-  const itemStatus = mapItemStatus(orderStatus);
   const isCod = order.paymentMethod === OrderPaymentMethod.COD;
-  const paymentType: UnicommercePaymentType = isCod ? 'COD' : 'PREPAID';
-
-  const orderItems: IUnicommerceOrderItem[] = (order.items ?? []).map((item) => ({
-    orderItemId: item.refId,
-    status: itemStatus,
-    productId: resolveProductId(item),
-    variantId: item.sku,
-    sku: item.sku,
-    title: resolveItemTitle(item),
-    shippingMethodCode: 'STD',
-    orderItemPrice: {
-      cashOnDeliveryCharges: 0,
-      sellingPrice: toNumber(item.unitPrice),
-      shippingCharges: 0,
-      discount: 0,
-      totalPrice: toNumber(item.totalPrice),
-      transferPrice: 0,
-      currency,
-    },
-    quantity: item.quantity,
-    onHold: false,
-    packetNumber: 1,
-  }));
+  const orderDate = order.placedAt ?? order.createdAt ?? new Date();
 
   const address = buildAddress(order);
 
+  const saleOrderItems: IUnicommerceSaleOrderItem[] = (order.items ?? []).map((item, idx) =>
+    buildSaleOrderItem(item, idx, order.orderNumber, isCod),
+  );
+
+  const grandTotal = toNumber(order.grandTotal);
+  const totalDiscount = toNumber(order.discountAmount);
+  const totalShippingCharges = toNumber(order.shippingAmount);
+  const totalCashOnDeliveryCharges = isCod ? toNumber(order.codCharge) : 0;
+  const totalPrepaidAmount = isCod ? 0 : grandTotal;
+
   return {
-    id: order.orderNumber,
-    displayOrderNumber: order.orderNumber,
-    orderDate: formatUnicommerceOrderDate(orderDate),
-    orderStatus,
-    sla: formatUnicommerceOrderDate(sla),
-    priority: 0,
-    paymentType,
-    orderPrice: {
-      currency,
-      totalCashOnDeliveryCharges: isCod ? toNumber(order.codCharge) : 0,
-      totalDiscount: toNumber(order.discountAmount),
-      totalGiftCharges: 0,
-      totalStoreCredit: 0,
-      totalPrepaidAmount: isCod ? 0 : toNumber(order.grandTotal),
-      totalShippingCharges: toNumber(order.shippingAmount),
+    saleOrder: {
+      code: order.orderNumber,
+      displayOrderCode: order.orderNumber,
+      displayOrderDateTime: orderDate.toISOString(),
+      channel,
+      notificationEmail: order.user?.email ?? undefined,
+      notificationMobile: order.phoneNumber ?? undefined,
+      cashOnDelivery: isCod,
+      paymentInstrument: isCod ? 'CASH' : 'NET_BANKING',
+      addresses: [address],
+      billingAddress: { referenceId: 'shipping' },
+      shippingAddress: { referenceId: 'shipping' },
+      saleOrderItems,
+      currencyCode: currency,
+      totalDiscount,
+      totalShippingCharges,
+      totalCashOnDeliveryCharges,
+      totalPrepaidAmount,
     },
-    orderItems,
-    taxExempted: false,
-    cFormProvided: false,
-    thirdPartyShipping: false,
-    shippingAddress: address,
-    billingAddress: address,
-    additionalInfo: order.notes ?? undefined,
   };
 }
