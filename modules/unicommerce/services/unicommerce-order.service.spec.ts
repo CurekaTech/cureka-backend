@@ -10,9 +10,9 @@ import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
 describe('UnicommerceOrderService', () => {
   const configValues: Record<string, unknown> = {
     'unicommerceOrder.enabled': true,
-    'unicommerceOrder.facilityCode': 'WH-01',
+    'unicommerceOrder.channel': 'CUSTOM',
+    'unicommerceOrder.facilityCode': 'stgcureka',
     'unicommerceOrder.currency': 'INR',
-    'unicommerceOrder.slaHours': 48,
   };
 
   const configService = {
@@ -24,7 +24,7 @@ describe('UnicommerceOrderService', () => {
   } as unknown as OrdersRepository;
 
   const apiService = {
-    postOrder: jest.fn(),
+    createSaleOrder: jest.fn(),
     isConfigured: jest.fn().mockReturnValue(true),
   } as unknown as UnicommerceOrderApiService;
 
@@ -65,7 +65,7 @@ describe('UnicommerceOrderService', () => {
 
   it('skips push when credentials are missing', async () => {
     const missingCredsApi = {
-      postOrder: jest.fn(),
+      createSaleOrder: jest.fn(),
       isConfigured: jest.fn().mockReturnValue(false),
     } as unknown as UnicommerceOrderApiService;
     const serviceWithMissingCreds = new UnicommerceOrderService(
@@ -83,15 +83,16 @@ describe('UnicommerceOrderService', () => {
     await expect(service.pushOrder('missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('builds the payload and posts to UniCommerce', async () => {
+  it('builds the saleOrder payload and posts to Unicommerce', async () => {
     (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue(order);
-    (apiService.postOrder as jest.Mock).mockResolvedValue({ status: 'success' });
+    (apiService.createSaleOrder as jest.Mock).mockResolvedValue({ successful: true });
 
     const result = await service.pushOrder('order-uuid-1');
 
-    expect(apiService.postOrder).toHaveBeenCalledTimes(1);
-    const sentPayload = (apiService.postOrder as jest.Mock).mock.calls[0][0];
-    expect(sentPayload.id).toBe('ORD123456780001');
-    expect(result).toEqual({ status: 'success' });
+    expect(apiService.createSaleOrder).toHaveBeenCalledTimes(1);
+    const sentPayload = (apiService.createSaleOrder as jest.Mock).mock.calls[0][0];
+    expect(sentPayload.saleOrder.code).toBe('ORD123456780001');
+    expect(sentPayload.saleOrder.channel).toBe('CUSTOM');
+    expect(result).toEqual({ successful: true });
   });
 });

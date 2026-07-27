@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/com
 import { ConfigService } from '@nestjs/config';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
 import { mapOrderToUnicommercePayload } from '../mappers/unicommerce-order.mapper';
-import { IUnicommercePostOrderResponse } from '../interfaces/unicommerce-order.interface';
+import { IUnicommerceCreateSaleOrderResponse } from '../interfaces/unicommerce-order.interface';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
 
 @Injectable()
@@ -18,36 +18,36 @@ export class UnicommerceOrderService implements OnModuleInit {
   onModuleInit(): void {
     const enabled = this.isEnabled();
     const configured = this.apiService.isConfigured();
-    const baseUrl = this.configService.get<string>('unicommerceOrder.baseUrl') ?? '';
-    const clientId = this.configService.get<string>('unicommerceOrder.clientId') ?? '';
-    const merchantId = this.configService.get<string>('unicommerceOrder.merchantId') ?? '';
-    const securityKey = this.configService.get<string>('unicommerceOrder.securityKey') ?? '';
+    const tenant = this.configService.get<string>('unicommerceOrder.tenant') ?? '';
+    const channel = this.configService.get<string>('unicommerceOrder.channel') ?? '';
+    const facilityCode = this.configService.get<string>('unicommerceOrder.facilityCode') ?? '';
+    const username = this.configService.get<string>('unicommerceOrder.username') ?? '';
 
     this.logger.log(
       {
         enabled,
         configured,
-        baseUrl,
-        clientId,
-        merchantId,
-        facilityCode: '(omitted — order-create check)',
-        securityKeySet: Boolean(securityKey),
+        tenant,
+        baseUrl: `https://${tenant}.unicommerce.com`,
+        channel,
+        facilityCode,
+        username,
       },
-      'UniCommerce order push startup configuration',
+      'Unicommerce order push startup configuration',
     );
 
     if (!enabled) {
       this.logger.warn(
-        'UniCommerce order push is DISABLED (UNICOMMERCE_ORDER_PUSH_ENABLED=false). ' +
-          'Orders will not be enqueued or sent to UniCommerce until this is set to true.',
+        'Unicommerce order push is DISABLED (UNICOMMERCE_ORDER_PUSH_ENABLED=false). ' +
+          'Orders will not be sent to Unicommerce until this is set to true.',
       );
       return;
     }
 
     if (!configured) {
       this.logger.warn(
-        'UniCommerce order push is ENABLED but credentials are incomplete. ' +
-          'Set UNICOMMERCE_ORDER_CLIENT_ID, UNICOMMERCE_ORDER_MERCHANT_ID, and UNICOMMERCE_ORDER_SECURITY_KEY.',
+        'Unicommerce order push is ENABLED but credentials are incomplete. ' +
+          'Set UNICOMMERCE_TENANT, UNICOMMERCE_USERNAME, and UNICOMMERCE_PASSWORD.',
       );
     }
   }
@@ -56,18 +56,18 @@ export class UnicommerceOrderService implements OnModuleInit {
     return Boolean(this.configService.get<boolean>('unicommerceOrder.enabled'));
   }
 
-  async pushOrder(orderId: string): Promise<IUnicommercePostOrderResponse | null> {
+  async pushOrder(orderId: string): Promise<IUnicommerceCreateSaleOrderResponse | null> {
     if (!this.isEnabled()) {
       this.logger.warn(
-        `UniCommerce order push disabled (UNICOMMERCE_ORDER_PUSH_ENABLED=false); skipping order ${orderId}`,
+        `Unicommerce order push disabled; skipping order ${orderId}`,
       );
       return null;
     }
 
     if (!this.apiService.isConfigured()) {
       this.logger.error(
-        `UniCommerce credentials missing; cannot push order ${orderId}. ` +
-          'Check UNICOMMERCE_ORDER_CLIENT_ID, UNICOMMERCE_ORDER_MERCHANT_ID, UNICOMMERCE_ORDER_SECURITY_KEY.',
+        `Unicommerce credentials missing; cannot push order ${orderId}. ` +
+          'Check UNICOMMERCE_TENANT, UNICOMMERCE_USERNAME, UNICOMMERCE_PASSWORD.',
       );
       return null;
     }
@@ -79,29 +79,35 @@ export class UnicommerceOrderService implements OnModuleInit {
 
     const payload = mapOrderToUnicommercePayload(order, {
       currency: this.configService.get<string>('unicommerceOrder.currency'),
-      slaHours: this.configService.get<number>('unicommerceOrder.slaHours'),
+      channel: this.configService.get<string>('unicommerceOrder.channel'),
     });
 
-    const skus = payload.orderItems.map((item) => item.sku);
+    const skus = payload.saleOrder.saleOrderItems.map((item) => item.itemSku);
     this.logger.log(
       {
         orderId: order.id,
         orderNumber: order.orderNumber,
         paymentMethod: order.paymentMethod,
-        itemCount: payload.orderItems.length,
+        itemCount: payload.saleOrder.saleOrderItems.length,
         skus,
-        grandTotal: order.grandTotal,
+        channel: payload.saleOrder.channel,
+        cashOnDelivery: payload.saleOrder.cashOnDelivery,
       },
-      'Pushing order to UniCommerce',
+      'Pushing order to Unicommerce',
     );
 
-    const response = await this.apiService.postOrder(payload);
+    const response = await this.apiService.createSaleOrder(payload);
 
-    const succeeded = (response.status ?? '').toLowerCase() === 'success';
-    if (succeeded) {
+    if (response.successful) {
       this.logger.log(
-        { orderId: order.id, orderNumber: order.orderNumber, skus, responseStatus: response.status },
-        'UniCommerce accepted order',
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          skus,
+          ucOrderCode: response.saleOrderDetailDTO?.code,
+          ucStatus: response.saleOrderDetailDTO?.status,
+        },
+        'Unicommerce accepted order',
       );
     } else {
       this.logger.warn(
@@ -109,11 +115,11 @@ export class UnicommerceOrderService implements OnModuleInit {
           orderId: order.id,
           orderNumber: order.orderNumber,
           skus,
-          responseStatus: response.status,
-          responseMessage: response.message ?? 'no message',
-          responseData: response.data,
+          successful: response.successful,
+          message: response.message ?? 'no message',
+          errors: response.errors,
         },
-        'UniCommerce rejected order',
+        'Unicommerce rejected order',
       );
     }
 

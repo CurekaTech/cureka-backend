@@ -1,43 +1,39 @@
 import { registerAs } from '@nestjs/config';
 
-/** Strip spaces / CR from .env values (Windows CRLF breaks UniCommerce auth headers). */
+/** Strip spaces / CR from .env values (Windows CRLF safety). */
 function envTrim(value: string | undefined): string {
   return (value ?? '').trim();
 }
 
 /**
- * Outbound UniCommerce "Post Orders" integration.
+ * Outbound Unicommerce order integration using the official tenant API.
  *
- * Cureka pushes newly created orders to UniCommerce's generic proxy:
- *   POST {baseUrl}/uc/v1/order
- * Auth is via static headers issued by UniCommerce (clientid / merchantid / securitykey).
+ * Auth: OAuth 2.0 password grant → GET https://{tenant}.unicommerce.com/oauth/token
+ * Create order: POST https://{tenant}.unicommerce.com/services/rest/v1/oms/saleOrder/create
+ *   Headers: Authorization: bearer {token}, Facility: {facilityCode}
  */
 export const unicommerceOrderConfig = registerAs('unicommerceOrder', () => ({
-  /** Master switch. When false, orders are not pushed to UniCommerce. */
+  /** Master switch. When false, orders are not pushed to Unicommerce. */
   enabled: envTrim(process.env['UNICOMMERCE_ORDER_PUSH_ENABLED']) === 'true',
 
-  /** UniCommerce generic proxy base URL. */
-  baseUrl:
-    envTrim(process.env['UNICOMMERCE_ORDER_BASE_URL']) ||
-    'https://genericproxy.unicommerce.com',
+  /**
+   * Unicommerce tenant subdomain.
+   * Base URL becomes: https://{tenant}.unicommerce.com
+   */
+  tenant: envTrim(process.env['UNICOMMERCE_TENANT']) || 'stgcureka',
 
-  /** Post Orders endpoint path. */
-  endpoint: envTrim(process.env['UNICOMMERCE_ORDER_ENDPOINT']) || '/uc/v1/order',
+  /** OAuth username — same credential used for inbound catalog sync. */
+  username: envTrim(process.env['UNICOMMERCE_USERNAME']),
 
-  /** clientid header — provided by UniCommerce. */
-  clientId: envTrim(process.env['UNICOMMERCE_ORDER_CLIENT_ID']),
+  /** OAuth password. */
+  password: envTrim(process.env['UNICOMMERCE_PASSWORD']),
 
-  /** merchantid header — the seller username (falls back to inbound UNICOMMERCE_USERNAME). */
-  merchantId:
-    envTrim(process.env['UNICOMMERCE_ORDER_MERCHANT_ID']) ||
-    envTrim(process.env['UNICOMMERCE_USERNAME']),
-
-  /** securitykey header — static key provided by UniCommerce. */
-  securityKey: envTrim(process.env['UNICOMMERCE_ORDER_SECURITY_KEY']),
+  /** Channel code registered in Unicommerce for Cureka's storefront. */
+  channel: envTrim(process.env['UNICOMMERCE_CHANNEL']) || 'CUSTOM',
 
   /**
-   * Default channel warehouse / facility code sent per order item.
-   * Empty / "{}" / "null" are treated as unset (Postman samples omit facilityCode).
+   * Facility code sent as the Facility request header.
+   * Typically the same as the tenant name (e.g. stgcureka).
    */
   facilityCode: (() => {
     const raw = envTrim(process.env['UNICOMMERCE_DEFAULT_FACILITY_CODE']);
@@ -47,9 +43,6 @@ export const unicommerceOrderConfig = registerAs('unicommerceOrder', () => ({
 
   /** ISO currency code sent with prices. */
   currency: envTrim(process.env['UNICOMMERCE_ORDER_CURRENCY']) || 'INR',
-
-  /** SLA window (hours) added to order date for UniCommerce fulfilment alerts. */
-  slaHours: parseInt(envTrim(process.env['UNICOMMERCE_ORDER_SLA_HOURS']) || '48', 10),
 
   /** HTTP request timeout in milliseconds. */
   timeoutMs: parseInt(envTrim(process.env['UNICOMMERCE_ORDER_TIMEOUT_MS']) || '15000', 10),
