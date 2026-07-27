@@ -13,11 +13,10 @@ https://<API_HOST>/api/v1/gokwik
 | Header | Value |
 |--------|--------|
 | `Content-Type` | `application/json` |
-| `x-gokwik-callback-secret` | Shared secret configured as `GOKWIK_CALLBACK_SECRET` |
 | `Authorization` | `Bearer <Cureka user session token>` from `verify-otp` / `complete-registration` |
 
 The Bearer token must belong to the same Cureka user who owns `cart_id` / `session_key`.  
-Webhooks under `/gokwik/webhooks/*` use provider/callback secret only (no user Bearer).
+Webhooks under `/gokwik/webhooks/*` still use `x-gokwik-callback-secret` (provider/callback secret only; no user Bearer).
 
 Responses use GoKwik’s raw shapes (`@RawResponse`). They are **not** wrapped in Cureka’s usual `{ success, message, data }` envelope.
 
@@ -55,7 +54,6 @@ Fetches cart line items, pricing, discounts, shipping, and payable total.
 ```bash
 curl --request POST 'https://<API_HOST>/api/v1/gokwik/get-cart' \
   --header 'Content-Type: application/json' \
-  --header 'x-gokwik-callback-secret: <GOKWIK_CALLBACK_SECRET>' \
   --header 'Authorization: Bearer <CUREKA_USER_SESSION_TOKEN>' \
   --data '{
     "cart_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
@@ -159,7 +157,7 @@ Creates a **draft** order (`PENDING`) before / around payment. Idempotent for th
 ```bash
 curl --request POST 'https://<API_HOST>/api/v1/gokwik/create-order' \
   --header 'Content-Type: application/json' \
-  --header 'x-gokwik-callback-secret: <GOKWIK_CALLBACK_SECRET>' \
+  --header 'Authorization: Bearer <CUREKA_USER_SESSION_TOKEN>' \
   --data '{
     "cart_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "customer_phone": "9876543210",
@@ -262,7 +260,7 @@ Requires `STOREFRONT_URL` so `thankyou_redirect_url` can be built.
 ```bash
 curl --request POST 'https://<API_HOST>/api/v1/gokwik/place-order' \
   --header 'Content-Type: application/json' \
-  --header 'x-gokwik-callback-secret: <GOKWIK_CALLBACK_SECRET>' \
+  --header 'Authorization: Bearer <CUREKA_USER_SESSION_TOKEN>' \
   --data '{
     "order_id": "ORD202607210001",
     "cart_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -352,7 +350,7 @@ Failsafe for GoKwik order-retry / auto-refund. Returns whether a **CONFIRMED** o
 ```bash
 curl --request POST 'https://<API_HOST>/api/v1/gokwik/check-order-exists' \
   --header 'Content-Type: application/json' \
-  --header 'x-gokwik-callback-secret: <GOKWIK_CALLBACK_SECRET>' \
+  --header 'Authorization: Bearer <CUREKA_USER_SESSION_TOKEN>' \
   --data '{
     "session_key": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "customer_email": "rahul@example.com",
@@ -406,7 +404,7 @@ Removes OOS line items from the cart and returns the **updated cart** in the sam
 ```bash
 curl --request POST 'https://<API_HOST>/api/v1/gokwik/remove-out-of-stock-items' \
   --header 'Content-Type: application/json' \
-  --header 'x-gokwik-callback-secret: <GOKWIK_CALLBACK_SECRET>' \
+  --header 'Authorization: Bearer <CUREKA_USER_SESSION_TOKEN>' \
   --data '{
     "cart_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
   }'
@@ -462,8 +460,6 @@ Provide GoKwik:
 | Place Order URL | `https://<API_HOST>/api/v1/gokwik/place-order` |
 | Check Order Exists URL | `https://<API_HOST>/api/v1/gokwik/check-order-exists` |
 | Remove OOS URL | `https://<API_HOST>/api/v1/gokwik/remove-out-of-stock-items` |
-| Auth header name | `x-gokwik-callback-secret` |
-| Auth header value | Shared secret (same as `GOKWIK_CALLBACK_SECRET`) |
 | User auth header | `Authorization: Bearer <Cureka session token>` |
 | `merchantCheckoutId` | Cureka cart UUID |
 | Thank-you pattern | `{STOREFRONT_URL}/thankyou?order_id={order_number}` |

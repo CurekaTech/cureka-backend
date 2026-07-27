@@ -12,8 +12,8 @@ import {
   PaginatedResult,
 } from '@packages/common';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
-import { AuditEntityType } from '@modules/audit/constants/audit-entity-type.constant';
-import { AuditService } from '@modules/audit/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
+import { AuditService } from '@modules/master/services/audit.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';

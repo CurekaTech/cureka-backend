@@ -25,13 +25,8 @@ import { RolesModule } from '@modules/roles/roles.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { SearchModule } from '@modules/search/search.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
-import { WishlistModule } from '@modules/wishlist/wishlist.module';
 import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
-import { SupportModule } from '@modules/support/support.module';
-import { BlogModule } from '@modules/blog/blog.module';
-import { ReviewsModule } from '@modules/reviews/reviews.module';
-import { AuditModule } from '@modules/audit/audit.module';
 import { GokwikModule } from '@modules/gokwik/gokwik.module';
 
 @Module({
@@ -79,13 +74,8 @@ import { GokwikModule } from '@modules/gokwik/gokwik.module';
     PaymentRequestsModule,
     SearchModule,
     AdminSettingsModule,
-    WishlistModule,
     GalleryModule,
     ShippingModule,
-    AuditModule,
-    SupportModule,
-    BlogModule,
-    ReviewsModule,
     GokwikModule,
   ],
   providers: [
