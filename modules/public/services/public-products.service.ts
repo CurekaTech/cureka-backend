@@ -32,6 +32,7 @@ import {
   buildCategoryPermalink,
   buildProductPermalink,
 } from '../utils/category-permalink.util';
+import { buildProductPageUrlLookupCandidates } from '../utils/product-page-url-lookup.util';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
 import {
@@ -237,17 +238,19 @@ export class PublicProductsService {
     return result;
   }
 
-  async findBySlug(slug: string): Promise<IPublicProductDetail> {
+  async findBySlug(slugOrPath: string): Promise<IPublicProductDetail> {
     const tDb = Date.now();
+    const key = decodeURIComponent(String(slugOrPath ?? '').trim());
+    const cacheKey = CacheKeys.publicProducts.detail(key);
     const raw = await this.cacheStrategy.cacheAside({
-      key: CacheKeys.publicProducts.detail(slug),
+      key: cacheKey,
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const byProductSlug = await this.productsRepository.findPublishedBySlug(slug);
+        const byProductSlug = await this.productsRepository.findPublishedBySlug(key);
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
           const matchedVariant =
-            detail.variants.find((variant) => variant.slug === slug) ??
+            detail.variants.find((variant) => variant.slug === key) ??
             pickPreferredPublicVariant(detail.variants);
           this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
           if (!matchedVariant) {
@@ -257,25 +260,59 @@ export class PublicProductsService {
             ...detail,
             selectedVariantId: matchedVariant.id,
             selectedVariantSlug: matchedVariant.slug,
-            permalink: buildProductPermalink(detail.categorySlugPath, matchedVariant.slug),
+            permalink:
+              matchedVariant.productPageUrl ||
+              buildProductPermalink(detail.categorySlugPath, matchedVariant.slug),
           };
         }
 
-        const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(slug);
-        if (!byVariantSlug) {
-          throw new NotFoundException(`Product with slug "${slug}" not found`);
+        const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(key);
+        if (byVariantSlug) {
+          const detail = mapProductEntityToPublicDetail(byVariantSlug);
+          const matchedVariant = detail.variants.find((variant) => variant.slug === key);
+          this.logger.log(`[PERF] findBySlug (via variant) | DB query: ${Date.now() - tDb}ms`);
+          const selectedVariantSlug = matchedVariant?.slug ?? key;
+          return {
+            ...detail,
+            selectedVariantId: matchedVariant?.id ?? null,
+            selectedVariantSlug,
+            permalink:
+              matchedVariant?.productPageUrl ||
+              buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
+          };
         }
 
-        const detail = mapProductEntityToPublicDetail(byVariantSlug);
-        const matchedVariant = detail.variants.find((variant) => variant.slug === slug);
-        this.logger.log(`[PERF] findBySlug (via variant) | DB query: ${Date.now() - tDb}ms`);
-        const selectedVariantSlug = matchedVariant?.slug ?? slug;
-        return {
-          ...detail,
-          selectedVariantId: matchedVariant?.id ?? null,
-          selectedVariantSlug,
-          permalink: buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
-        };
+        for (const candidate of buildProductPageUrlLookupCandidates(key)) {
+          const byPageUrl =
+            await this.productsRepository.findPublishedByProductPageUrl(candidate);
+          if (!byPageUrl) {
+            continue;
+          }
+
+          const detail = mapProductEntityToPublicDetail(byPageUrl.product);
+          const matchedVariant =
+            detail.variants.find((variant) => variant.id === byPageUrl.matchedVariantId) ??
+            detail.variants.find((variant) =>
+              buildProductPageUrlLookupCandidates(variant.productPageUrl ?? '').includes(
+                candidate,
+              ),
+            ) ??
+            pickPreferredPublicVariant(detail.variants);
+          this.logger.log(
+            `[PERF] findBySlug (via product_page_url) | DB query: ${Date.now() - tDb}ms`,
+          );
+          const selectedVariantSlug = matchedVariant?.slug ?? key;
+          return {
+            ...detail,
+            selectedVariantId: matchedVariant?.id ?? null,
+            selectedVariantSlug,
+            permalink:
+              matchedVariant?.productPageUrl ||
+              buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
+          };
+        }
+
+        throw new NotFoundException(`Product with slug "${key}" not found`);
       },
     });
     const tEnrich = Date.now();
@@ -283,9 +320,9 @@ export class PublicProductsService {
     const imageCount =
       result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
     this.logger.log(
-      `[PERF] findBySlug slug="${slug}" | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
+      `[PERF] findBySlug slug="${key}" | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    this.logFindBySlugUrls(slug, raw, result);
+    this.logFindBySlugUrls(key, raw, result);
     return result;
   }
 

@@ -54,6 +54,7 @@ export interface IPublicProductVariantSearchItem {
   name: string;
   productSlug: string;
   variantSlug: string;
+  productPageUrl: string | null;
   primaryImageUrl: IStorageFileReferenceResponse | null;
   category: IPublicCategorySummary | null;
   subCategory: IPublicCategorySummary | null;
@@ -98,6 +99,8 @@ export interface IPublicProductCard {
   categorySlugPath: string[];
   /** Legacy-compatible path, e.g. /shop/skin-care/skin-serum/anti-wrinkle-serum/{slug} */
   permalink: string;
+  /** Legacy storefront path from the list variant's product_page_url when available. */
+  productPageUrl: string | null;
   brandRefId: string | null;
   brandName: string | null;
   brandSlug: string | null;
@@ -147,6 +150,7 @@ export interface IPublicProductVariant {
   expiresInMonths?: number | null;
   sizeChart?: IStorageFileReferenceResponse | null;
   singleProductUrl?: string | null;
+  productPageUrl?: string | null;
   healthConcernRefIds?: string[];
   wellnessGoalRefIds?: string[];
   tagNames?: string[];

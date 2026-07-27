@@ -204,6 +204,9 @@ export class ProductVariantEntity {
   @Column({ name: 'single_product_url', type: 'varchar', length: 1000, nullable: true })
   singleProductUrl!: string | null;
 
+  @Column({ name: 'product_page_url', type: 'varchar', length: 1000, nullable: true })
+  productPageUrl!: string | null;
+
   @Column({ name: 'health_concern_ref_ids', type: 'jsonb', nullable: false, default: () => "'[]'" })
   healthConcernRefIds!: string[];
 
