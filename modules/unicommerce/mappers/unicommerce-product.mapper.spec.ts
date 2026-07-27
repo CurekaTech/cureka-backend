@@ -189,9 +189,9 @@ describe('mapVariantsToChannelItemTypes', () => {
     expect(result).toHaveLength(1);
     expect(result[0].channelCode).toBe('CUSTOM');
     expect(result[0].skuCode).toBe('SKU-001');
-    expect(result[0].channelSkuCode).toBe('SKU-001');
-    expect(result[0].listingStatus).toBe('ACTIVE');
-    expect(result[0].price).toBe(499);
-    expect(result[0].mrp).toBe(699);
+    expect(result[0].channelProductId).toBe('SKU-001');
+    expect(result[0].sellerSkuCode).toBe('SKU-001');
+    expect(result[0].live).toBe(true);
+    expect(result[0].verified).toBe(true);
   });
 });

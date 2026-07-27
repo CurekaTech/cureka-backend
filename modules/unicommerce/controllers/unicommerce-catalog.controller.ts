@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Query, Res, UseFilters, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Headers,
+  Post,
+  Query,
+  Res,
+  UseFilters,
+  UseGuards,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { FastifyReply } from 'fastify';
 import { UnicommerceCatalogService } from '../services/unicommerce-catalog.service';
 import {
@@ -17,6 +28,7 @@ export class UnicommerceCatalogController {
     private readonly catalogService: UnicommerceCatalogService,
     private readonly queueService: UnicommerceProductQueueService,
     private readonly productsRepository: ProductsRepository,
+    private readonly configService: ConfigService,
   ) {}
 
   @Get('productsCount')
@@ -42,11 +54,18 @@ export class UnicommerceCatalogController {
   /**
    * Bulk-enqueues all published products for Unicommerce push.
    * POST /unicommerce/admin/bulk-sync
-   * Auth: same unicommerce JWT (get via POST /unicommerce/authenticate)
+   * Auth: Header  x-admin-secret: <UNICOMMERCE_PASSWORD from .env>
    */
   @Post('admin/bulk-sync')
-  @UseGuards(UnicommerceApiKeyGuard)
-  async bulkSyncProducts(@Res() res: FastifyReply): Promise<void> {
+  async bulkSyncProducts(
+    @Headers('x-admin-secret') secret: string,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const expected = this.configService.get<string>('UNICOMMERCE_PASSWORD');
+    if (!secret || secret !== expected) {
+      throw new ForbiddenException('Invalid admin secret');
+    }
+
     const refIds = await this.productsRepository.findAllPublishedRefIds();
     const version = Date.now().toString();
 
