@@ -2,7 +2,7 @@ import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface'
 import { mapCartToGokwikCart } from './gokwik-cart.mapper';
 
 describe('mapCartToGokwikCart', () => {
-  it('maps collection IDs, stock and backend totals without duplicate metadata fields', () => {
+  it('maps collection IDs, stock and backend totals with simplified metadata', () => {
     const cart: CartResponse = {
       cartId: 'cart-1',
       totalItems: 2,
@@ -41,7 +41,12 @@ describe('mapCartToGokwikCart', () => {
       ],
     };
 
-    const result = mapCartToGokwikCart(cart);
+    const result = mapCartToGokwikCart(cart, {
+      availablePaymentMethods: [
+        { id: 'razor_pay', title: 'Razorpay' },
+        { id: 'cod', title: 'Cash on Delivery' },
+      ],
+    });
 
     expect(result.total).toBe(495);
     expect(result.items[0]).toMatchObject({
@@ -51,11 +56,31 @@ describe('mapCartToGokwikCart', () => {
       metaData: [{ label: 'Form', value: 'Tablet' }],
       metadata: {
         product_details: [{ label: 'Form', value: 'Tablet' }],
-        pre_checkout_location: expect.objectContaining({ country: 'India' }),
       },
+    });
+    expect(result.items[0].metadata).toEqual({
+      product_details: [{ label: 'Form', value: 'Tablet' }],
     });
     expect(result.discounts).toEqual([
       expect.objectContaining({ code: 'SAVE50', amount: 50 }),
+    ]);
+    expect(result.available_payment_methods).toEqual([
+      { id: 'razor_pay', title: 'Razorpay' },
+      { id: 'cod', title: 'Cash on Delivery' },
+    ]);
+    expect(result.available_shipping_methods).toEqual([
+      {
+        id: 'express_shipping',
+        price: 100,
+        title: 'Express Delivery',
+        currency: 'INR',
+      },
+      {
+        id: 'free_shipping',
+        price: 0,
+        title: 'Free Shipping',
+        currency: 'INR',
+      },
     ]);
   });
 });

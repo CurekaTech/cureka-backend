@@ -10,7 +10,6 @@ import { OrdersService } from '@modules/orders/services/orders.service';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
-import { UsersService } from '@modules/users/services/users.service';
 import { DataSource } from 'typeorm';
 import { GokwikCheckOrderExistsDto } from '../dto/gokwik-check-order-exists.dto';
 import {
@@ -33,7 +32,6 @@ export class GokwikOrderService {
     private readonly cartService: CartService,
     private readonly ordersService: OrdersService,
     private readonly userAddressesService: UserAddressesService,
-    private readonly usersService: UsersService,
     private readonly gokwikRepository: GokwikRepository,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
@@ -56,7 +54,7 @@ export class GokwikOrderService {
         throw new BadRequestException('Invalid cart id');
       }
 
-      const customerPhone = await this.assertCartCustomer(cart.userId, dto.customer_phone);
+      const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
       await this.assertProviderIdentifiersAvailable(
         cartId,
@@ -67,9 +65,6 @@ export class GokwikOrderService {
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
       const shippingAddress = this.mapShippingAddress(dto.shipping_address);
-      if (shippingAddress.phoneNumber !== customerPhone) {
-        throw new BadRequestException('Shipping phone does not match the cart customer');
-      }
       const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
 
@@ -129,7 +124,8 @@ export class GokwikOrderService {
       const cart = await this.cartService.findActiveCartById(cartId);
       if (!cart) {
         const completed = await this.gokwikRepository.findOrderByCartId(cartId);
-        if (completed?.order?.orderNumber === dto.order_id.trim()) {
+        const completedOrderId = String(dto.order_id ?? '').trim();
+        if (completed?.order && (!completedOrderId || completed.order.orderNumber === completedOrderId)) {
           return {
             status: 'success',
             order_id: completed.order.orderNumber,
@@ -139,9 +135,13 @@ export class GokwikOrderService {
         throw new BadRequestException('Invalid cart id');
       }
 
-      const customerPhone = await this.assertCartCustomer(cart.userId, dto.customer_phone);
+      const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       const link = await this.gokwikRepository.findOrderByCartId(cartId);
-      if (!link?.order || link.order.orderNumber !== dto.order_id.trim()) {
+      const requestOrderId = String(dto.order_id ?? '').trim();
+      if (
+        !link?.order ||
+        (requestOrderId && link.order.orderNumber !== requestOrderId)
+      ) {
         throw new BadRequestException('Invalid order id for this checkout session');
       }
 
@@ -186,7 +186,7 @@ export class GokwikOrderService {
    * already exists for this merchant checkout session (cart id).
    */
   async checkOrderExists(dto: GokwikCheckOrderExistsDto): Promise<GokwikCheckOrderExistsResponse> {
-    const sessionKey = dto.session_key?.trim();
+    const sessionKey = String(dto.session_key ?? '').trim();
     if (!sessionKey) {
       return { message: 'No order found.' };
     }
@@ -194,15 +194,6 @@ export class GokwikOrderService {
     const link = await this.gokwikRepository.findOrderByCartId(sessionKey);
     const order = link?.order;
     if (!order || order.orderStatus !== OrderStatus.CONFIRMED) {
-      return { message: 'No order found.' };
-    }
-
-    const phone = parseIndianMobileNumber(dto.customer_phone);
-    if (order.phoneNumber !== phone || link.customerPhone !== phone) {
-      return { message: 'No order found.' };
-    }
-    const user = await this.usersService.findById(order.userId);
-    if (user.email && user.email.toLowerCase() !== dto.customer_email.trim().toLowerCase()) {
       return { message: 'No order found.' };
     }
 
@@ -248,15 +239,6 @@ export class GokwikOrderService {
       paymentMethod: OrderPaymentMethod.GOKWIK_PREPAID,
       paymentStatus: OrderPaymentStatus.PAID,
     };
-  }
-
-  private async assertCartCustomer(userId: string, providedPhone: string): Promise<string> {
-    const phone = parseIndianMobileNumber(providedPhone);
-    const user = await this.usersService.findById(userId);
-    if (!user.mobileNumber || parseIndianMobileNumber(user.mobileNumber) !== phone) {
-      throw new BadRequestException('Customer phone does not match the cart owner');
-    }
-    return phone;
   }
 
   private async findOrCreateAddress(

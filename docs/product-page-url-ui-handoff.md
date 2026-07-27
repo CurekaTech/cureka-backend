@@ -1,5 +1,7 @@
 # Product page URL — UI / frontend handoff
 
+Related: [typesense-search-product-page-url-ui.md](./typesense-search-product-page-url-ui.md) (Typesense / autocomplete search).
+
 How the storefront should build product links and call the public product detail API when `productPageUrl` is present vs when it is null.
 
 **Base API:** `https://<API_HOST>/api/v1/public/products`
