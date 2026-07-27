@@ -17,7 +17,7 @@ import { IPublicBestSellersSection } from '../interfaces/public-best-sellers.int
 import { IPublicWatchAndShopItem, IPublicWatchAndShopSection } from '../interfaces/public-watch-and-shop.interface';
 import { IPublicHealthReadsSection } from '../interfaces/public-health-reads.interface';
 import { IPublicCuratedWellnessEssentialsSection } from '../interfaces/public-expert-talk.interface';
-import { BlogPostsService } from '@modules/blog/services/blog-posts.service';
+import { BlogPostsService } from '@modules/master/services/blog-posts.service';
 import {
   IPublicBrandBannersSection,
   IPublicHeroBannerSection,

@@ -11,8 +11,8 @@ import {
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { AuditEntityType } from '@modules/audit/constants/audit-entity-type.constant';
-import { AuditService } from '@modules/audit/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
+import { AuditService } from '@modules/master/services/audit.service';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { ReasonWorkflow } from '@modules/master/enums/reason-workflow.enum';

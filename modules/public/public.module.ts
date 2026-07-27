@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { MasterModule } from '@modules/master/master.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
-import { BlogModule } from '@modules/blog/blog.module';
 import { HomepageController } from './controllers/homepage.controller';
 import { PublicCommonController } from './controllers/public-common.controller';
 import { PublicExpertTalkController } from './controllers/public-expert-talk.controller';
@@ -15,7 +14,7 @@ import { PublicWatchAndShopService } from './services/public-watch-and-shop.serv
 import { PublicProductsService } from './services/public-products.service';
 
 @Module({
-  imports: [MasterModule, ProductModule, UploadsModule, BlogModule],
+  imports: [MasterModule, ProductModule, UploadsModule],
   controllers: [HomepageController, PublicCommonController, PublicExpertTalkController, PublicWatchAndShopController, PublicProductsController],
   providers: [HomepageService, HomepageSectionsService, PublicCommonService, PublicWatchAndShopService, PublicProductsService],
 })
