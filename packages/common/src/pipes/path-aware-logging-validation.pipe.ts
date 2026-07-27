@@ -5,16 +5,18 @@ import { APP_CONSTANTS } from '../app.constants';
 import { LoggingValidationPipe } from './logging-validation.pipe';
 
 const UNICOMMERCE_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/unicommerce/`;
+const GOKWIK_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/gokwik/`;
 
 @Injectable({ scope: Scope.REQUEST })
 export class PathAwareLoggingValidationPipe extends LoggingValidationPipe {
   constructor(@Inject(REQUEST) request: FastifyRequest) {
     const path = request.url.split('?')[0] ?? request.url;
-    const isUnicommerceRoute = path.startsWith(UNICOMMERCE_PREFIX);
+    const allowExtraFields =
+      path.startsWith(UNICOMMERCE_PREFIX) || path.startsWith(GOKWIK_PREFIX);
 
     const options: ValidationPipeOptions = {
       whitelist: true,
-      forbidNonWhitelisted: !isUnicommerceRoute,
+      forbidNonWhitelisted: !allowExtraFields,
       transform: true,
       transformOptions: {
         enableImplicitConversion: false,

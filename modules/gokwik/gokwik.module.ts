@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
+import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UsersModule } from '@modules/users/users.module';
 import { MasterModule } from '@modules/master/master.module';
@@ -34,6 +35,7 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
 
 @Module({
   imports: [
+    AdminSettingsModule,
     OrdersModule,
     UsersModule,
     MasterModule,

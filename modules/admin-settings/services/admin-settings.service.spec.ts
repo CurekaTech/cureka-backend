@@ -128,6 +128,7 @@ describe('AdminSettingsService', () => {
           { key: 'razor_pay', status: AdminSettingStatus.ACTIVE },
           { key: 'cash_free', status: AdminSettingStatus.INACTIVE },
           { key: 'pay_you', status: AdminSettingStatus.INACTIVE },
+          { key: 'shipway', status: AdminSettingStatus.INACTIVE },
         ] as AdminSettingEntity[]); // returning all for type
 
       const result = await service.bulkUpdate(
@@ -146,6 +147,11 @@ describe('AdminSettingsService', () => {
       );
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'pay_you',
+        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        expect.any(Object),
+      );
+      expect(repository.updateByKey).toHaveBeenCalledWith(
+        'shipway',
         { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
         expect.any(Object),
       );
@@ -230,7 +236,7 @@ describe('AdminSettingsService', () => {
         'user@test.com',
       );
 
-      expect(repository.updateByKey).toHaveBeenCalledTimes(3);
+      expect(repository.updateByKey).toHaveBeenCalledTimes(4);
       // Verify other gateways are set to inactive
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'razor_pay',
@@ -239,6 +245,11 @@ describe('AdminSettingsService', () => {
       );
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'pay_you',
+        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        expect.any(Object),
+      );
+      expect(repository.updateByKey).toHaveBeenCalledWith(
+        'shipway',
         { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
         expect.any(Object),
       );

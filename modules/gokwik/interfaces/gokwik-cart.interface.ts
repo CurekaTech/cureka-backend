@@ -1,6 +1,6 @@
 export type GokwikCartMetaField = {
   label: string;
-  value: string;
+  value: string | number;
 };
 
 export type GokwikCartItem = {
@@ -18,25 +18,8 @@ export type GokwikCartItem = {
   stock_status: 'IN_STOCK' | 'OUT_OF_STOCK';
   serviceable_status?: boolean;
   metaData: GokwikCartMetaField[];
-  metadata?: {
-    product_details?: GokwikCartMetaField[];
-    pre_checkout_location: {
-      city: string;
-      state: string;
-      pincode: string;
-      country: string;
-    };
-    edd?: {
-      shipment_group: number;
-      default: { min_date: string; max_date: string };
-      by_shipping_method: Array<{
-        shipping_id: string;
-        min_date: string;
-        max_date: string;
-      }>;
-    };
-    try_and_buy?: { enabled: boolean; instructions: string };
-    non_serviceable_message?: string;
+  metadata: {
+    product_details: GokwikCartMetaField[];
   };
 };
 
@@ -53,6 +36,18 @@ export type GokwikOrderSummaryExtraField = {
   value: number;
 };
 
+export type GokwikAvailablePaymentMethod = {
+  id: string;
+  title: string;
+};
+
+export type GokwikAvailableShippingMethod = {
+  id: string;
+  price: number;
+  title: string;
+  currency: string;
+};
+
 export type GokwikCart = {
   subtotal: number;
   discount_total: number;
@@ -65,9 +60,9 @@ export type GokwikCart = {
   membership_discount: number;
   cashback_amount: number;
   total_tax: number;
-  available_payment_methods: unknown[];
+  available_payment_methods: GokwikAvailablePaymentMethod[];
   available_coupons: unknown[];
-  available_shipping_methods: unknown[];
+  available_shipping_methods: GokwikAvailableShippingMethod[];
   order_summary_extra_fields: GokwikOrderSummaryExtraField[];
 };
 
