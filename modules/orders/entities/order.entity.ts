@@ -118,6 +118,9 @@ export class OrderEntity extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
+  @Column({ name: 'cancel_reason', type: 'text', nullable: true })
+  cancelReason!: string | null;
+
   @Index()
   @Column({ name: 'placed_at', type: 'timestamptz', nullable: true })
   placedAt!: Date | null;

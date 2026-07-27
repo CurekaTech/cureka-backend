@@ -5,6 +5,10 @@ import * as ExcelJS from 'exceljs';
 const DEFAULT_MANUFACTURER_LOOKUP_FILE = 'docs/Manufacture details (1).xlsx';
 const DEFAULT_IMAGE_LOOKUP_FILE = 'docs/wc-product-export-6-7-2026-1783309274325.xlsx';
 const DEFAULT_SLUG_LOOKUP_FILE = 'docs/slug sheet.xlsx';
+const DEFAULT_PRODUCT_PAGE_URL_LOOKUP_FILE = 'docs/Master-Data-Sheets/ProductUrls.xlsx';
+
+/** Origins stripped so only the storefront path is stored (e.g. `/shop/.../`). */
+const PRODUCT_PAGE_URL_ORIGIN_RE = /^https?:\/\/(?:www\.)?cureka\.com/i;
 
 export const normalizeLookupProductId = (value: string | number | null | undefined): string => {
   if (value === null || value === undefined) return '';
@@ -15,6 +19,29 @@ export const normalizeLookupProductId = (value: string | number | null | undefin
     return String(Math.trunc(asNumber));
   }
   return trimmed.toLowerCase();
+};
+
+/**
+ * Convert a full Cureka product URL (or path) into the path stored on variants.
+ * `https://www.cureka.com/shop/.../` → `/shop/.../`
+ */
+export const toProductPagePath = (raw: string | null | undefined): string => {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return '';
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      return path.startsWith('/') ? path : `/${path}`;
+    } catch {
+      // fall through to prefix strip
+    }
+  }
+
+  const stripped = trimmed.replace(PRODUCT_PAGE_URL_ORIGIN_RE, '');
+  if (!stripped) return '';
+  return stripped.startsWith('/') ? stripped : `/${stripped}`;
 };
 
 export const normalizeLookupText = (value: string): string =>
@@ -209,6 +236,66 @@ export const loadSlugsByProductId = async (
     const slug = cellText(row.getCell(slugColumn)).trim();
     if (!productId || !slug || byProductId.has(productId)) continue;
     byProductId.set(productId, slug);
+  }
+
+  return { path: filePath, loaded: true, byProductId };
+};
+
+/**
+ * Client ProductUrls sheet: ID → storefront path (`/shop/.../`).
+ * Full `https://www.cureka.com/...` values are normalized to path-only.
+ * Prefers a worksheet that has both `ID` and `product_page_url` columns.
+ */
+export const loadProductPageUrlsByProductId = async (
+  filePath = resolveLookupPath(
+    process.env['BULK_UPLOAD_PRODUCT_PAGE_URL_LOOKUP_FILE'],
+    DEFAULT_PRODUCT_PAGE_URL_LOOKUP_FILE,
+  ),
+): Promise<{ path: string; loaded: boolean; byProductId: Map<string, string> }> => {
+  const byProductId = new Map<string, string>();
+  if (!(await fileExists(filePath))) {
+    return { path: filePath, loaded: false, byProductId };
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+
+  let worksheet: ExcelJS.Worksheet | undefined;
+  let idColumn: number | undefined;
+  let urlColumn: number | undefined;
+
+  for (const candidate of workbook.worksheets) {
+    const headers = new Map<string, number>();
+    candidate.getRow(1).eachCell({ includeEmpty: false }, (cell, columnNumber) => {
+      const header = normalizeHeader(cellText(cell));
+      if (header) headers.set(header, columnNumber);
+    });
+    const nextIdColumn = getHeaderIndex(headers, ['ID', 'Product ID', 'External Product ID']);
+    const nextUrlColumn = getHeaderIndex(headers, [
+      'product_page_url',
+      'Product Page URL',
+      'Product Page Url',
+      'Page URL',
+      'URL',
+    ]);
+    if (nextIdColumn !== undefined && nextUrlColumn !== undefined) {
+      worksheet = candidate;
+      idColumn = nextIdColumn;
+      urlColumn = nextUrlColumn;
+      break;
+    }
+  }
+
+  if (!worksheet || idColumn === undefined || urlColumn === undefined) {
+    return { path: filePath, loaded: false, byProductId };
+  }
+
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const productId = normalizeLookupProductId(cellText(row.getCell(idColumn)));
+    const pagePath = toProductPagePath(cellText(row.getCell(urlColumn)));
+    if (!productId || !pagePath || byProductId.has(productId)) continue;
+    byProductId.set(productId, pagePath);
   }
 
   return { path: filePath, loaded: true, byProductId };

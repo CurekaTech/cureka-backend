@@ -27,6 +27,7 @@ import {
   buildImagesFromLookupUrls,
   loadImageUrlsByProductId,
   loadManufacturerAddressByProductId,
+  loadProductPageUrlsByProductId,
   loadSlugsByProductId,
   normalizeLookupProductId,
 } from '../utils/bulk-upload-reference-lookup.util';
@@ -633,6 +634,7 @@ export class BulkUploadProcessor extends WorkerHost {
       const manufacturerLookup = await loadManufacturerAddressByProductId();
       const imageLookup = await loadImageUrlsByProductId();
       const slugLookup = await loadSlugsByProductId();
+      const productPageUrlLookup = await loadProductPageUrlsByProductId();
       console.log('[BULK_UPLOAD_DEBUG][Processor.process] CACHE_AND_GALLERY_READY', {
         uploadRefId,
         galleryImageCount: galleryMap.size,
@@ -645,6 +647,9 @@ export class BulkUploadProcessor extends WorkerHost {
         slugLookupLoaded: slugLookup.loaded,
         slugLookupCount: slugLookup.byProductId.size,
         slugLookupPath: slugLookup.path,
+        productPageUrlLookupLoaded: productPageUrlLookup.loaded,
+        productPageUrlLookupCount: productPageUrlLookup.byProductId.size,
+        productPageUrlLookupPath: productPageUrlLookup.path,
       });
       if (!manufacturerLookup.loaded) {
         this.logger.warn(
@@ -659,6 +664,11 @@ export class BulkUploadProcessor extends WorkerHost {
       if (!slugLookup.loaded) {
         this.logger.warn(
           `Slug lookup file not loaded (${slugLookup.path}). Slug auto-attach by Product ID is disabled for this job.`,
+        );
+      }
+      if (!productPageUrlLookup.loaded) {
+        this.logger.warn(
+          `Product page URL lookup file not loaded (${productPageUrlLookup.path}). product_page_url auto-attach by Product ID is disabled for this job.`,
         );
       }
 
@@ -817,6 +827,9 @@ export class BulkUploadProcessor extends WorkerHost {
                   const variantLookupSlug = variantLookupProductId
                     ? slugLookup.byProductId.get(variantLookupProductId)
                     : undefined;
+                  const variantLookupProductPageUrl = variantLookupProductId
+                    ? productPageUrlLookup.byProductId.get(variantLookupProductId)
+                    : undefined;
 
                   if (processedImages.length === 0 && variantLookupImageUrls?.length) {
                     for (const item of buildImagesFromLookupUrls(variantLookupImageUrls)) {
@@ -937,6 +950,9 @@ export class BulkUploadProcessor extends WorkerHost {
                         resolvedManufacturerAddress: resolvedVariantManufacturerAddress,
                       },
                     ),
+                    ...(variantLookupProductPageUrl
+                      ? { productPageUrl: variantLookupProductPageUrl }
+                      : {}),
                   };
                 })
               ) : undefined;

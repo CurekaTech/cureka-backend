@@ -349,6 +349,48 @@ export class ProductsRepository {
     return this.findPublishedByRefId(match.refId);
   }
 
+  /**
+   * Resolve a published product by variant product_page_url
+   * (legacy Cureka path such as `/shop/.../product-name/`).
+   */
+  async findPublishedByProductPageUrl(
+    pageUrl: string,
+  ): Promise<{ product: ProductEntity; matchedVariantId: string | null } | null> {
+    const candidates = Array.from(
+      new Set(
+        [pageUrl, pageUrl.replace(/\/+$/, ''), pageUrl.endsWith('/') ? pageUrl : `${pageUrl}/`]
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (!candidates.length) {
+      return null;
+    }
+
+    const match = await this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoin('variant.product', 'product')
+      .where('variant.product_page_url IN (:...candidates)', { candidates })
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .select('product.refId', 'refId')
+      .addSelect('variant.id', 'variantId')
+      .getRawOne<{ refId: string; variantId: string }>();
+
+    if (!match?.refId) {
+      return null;
+    }
+
+    const product = await this.findPublishedByRefId(match.refId);
+    if (!product) {
+      return null;
+    }
+
+    return { product, matchedVariantId: match.variantId ?? null };
+  }
+
   async isSlugTakenGlobally(
     slug: string,
     exclude?: { productRefId?: string; variantId?: string },
@@ -1277,6 +1319,28 @@ export class ProductsRepository {
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere('product.publishedAt IS NOT NULL')
       .getCount();
+  }
+
+  /** All refIds of published products with at least one active variant — used for bulk UC push. */
+  async findAllPublishedRefIds(): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .select('product.refId', 'refId')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.publishedAt IS NOT NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .orderBy('product.publishedAt', 'DESC')
+      .getRawMany<{ refId: string }>();
+
+    return rows.map((row) => row.refId);
   }
 
   /** Only live marketplace catalog: published products with active variants (not draft/inactive/archived). */

@@ -46,33 +46,64 @@ export class CartService {
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.getOrCreateActiveCart(userId, manager);
-      const variant = await this.getValidVariant(dto.productId, dto.variantId, manager);
+      await this.addOrIncrementItem(userId, cart.id, dto, manager);
+      return this.getCart(userId, manager);
+    });
+  }
 
-      const existing = await this.cartItemsRepository.findByCartAndVariant(cart.id, dto.variantId, manager);
-      if (existing) {
-        const nextQty = existing.quantity + dto.quantity;
-        this.assertStockAvailable(nextQty, variant.stock);
-        await this.cartItemsRepository.updateById(existing.id, { quantity: nextQty }, manager);
-      } else {
-        this.assertStockAvailable(dto.quantity, variant.stock);
-        const refId = await generateUniqueRefId('cart-item', (candidate) =>
-          this.cartItemsRepository.existsByRefId(candidate),
-        );
-        await this.cartItemsRepository.create(
-          {
-            refId,
-            cartId: cart.id,
-            productId: dto.productId,
-            variantId: dto.variantId,
-            quantity: dto.quantity,
-            createdBy: userId,
-            updatedBy: userId,
-          },
-          manager,
+  /**
+   * Add multiple lines to the active cart in one transaction (used by reorder).
+   * Unavailable / out-of-stock items are skipped rather than failing the whole request.
+   */
+  async addItems(
+    userId: string,
+    items: Array<{ productId: string; variantId: string; quantity: number; productName?: string }>,
+  ): Promise<{
+    cart: CartResponse;
+    addedItems: number;
+    skippedItems: Array<{
+      productId: string;
+      variantId: string;
+      productName: string;
+      reason: string;
+    }>;
+  }> {
+    return this.dataSource.transaction(async (manager) => {
+      const cart = await this.getOrCreateActiveCart(userId, manager);
+      const skippedItems: Array<{
+        productId: string;
+        variantId: string;
+        productName: string;
+        reason: string;
+      }> = [];
+      let addedItems = 0;
+
+      for (const item of items) {
+        try {
+          await this.addOrIncrementItem(userId, cart.id, item, manager);
+          addedItems += 1;
+        } catch (error) {
+          if (error instanceof BadRequestException) {
+            skippedItems.push({
+              productId: item.productId,
+              variantId: item.variantId,
+              productName: item.productName ?? '',
+              reason: error.message,
+            });
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      if (addedItems === 0) {
+        throw new BadRequestException(
+          'None of the items from this order are available to reorder',
         );
       }
 
-      return this.getCart(userId, manager);
+      const cartResponse = await this.getCart(userId, manager);
+      return { cart: cartResponse, addedItems, skippedItems };
     });
   }
 
@@ -395,6 +426,44 @@ export class CartService {
           brandId: product?.brandId ?? null,
         };
       }),
+    );
+  }
+
+  private async addOrIncrementItem(
+    userId: string,
+    cartId: string,
+    dto: { productId: string; variantId: string; quantity: number },
+    manager = this.dataSource.manager,
+  ): Promise<void> {
+    const variant = await this.getValidVariant(dto.productId, dto.variantId, manager);
+    const existing = await this.cartItemsRepository.findByCartAndVariant(cartId, dto.variantId, manager);
+
+    if (existing) {
+      const nextQty = existing.quantity + dto.quantity;
+      this.assertStockAvailable(nextQty, variant.stock);
+      await this.cartItemsRepository.updateById(
+        existing.id,
+        { quantity: nextQty, updatedBy: userId },
+        manager,
+      );
+      return;
+    }
+
+    this.assertStockAvailable(dto.quantity, variant.stock);
+    const refId = await generateUniqueRefId('cart-item', (candidate) =>
+      this.cartItemsRepository.existsByRefId(candidate),
+    );
+    await this.cartItemsRepository.create(
+      {
+        refId,
+        cartId,
+        productId: dto.productId,
+        variantId: dto.variantId,
+        quantity: dto.quantity,
+        createdBy: userId,
+        updatedBy: userId,
+      },
+      manager,
     );
   }
 

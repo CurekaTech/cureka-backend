@@ -52,6 +52,25 @@ describe('typesense-product.mapper', () => {
     });
   });
 
+  it('indexes productPageUrl when present on the variant', () => {
+    const product = {
+      ...baseProduct,
+      variants: [
+        {
+          ...baseProduct.variants![0],
+          productPageUrl:
+            '/shop/healthcare-devices/medical-equipments/thermometer/healthemate-mt-101-accusure-thermometer/',
+        },
+      ],
+    } as unknown as ProductEntity;
+
+    const document = mapProductToTypesenseDocuments(product)[0];
+
+    expect(document?.productPageUrl).toBe(
+      '/shop/healthcare-devices/medical-equipments/thermometer/healthemate-mt-101-accusure-thermometer/',
+    );
+  });
+
   it('maps each active variant to its own searchable document', () => {
     const product = {
       ...baseProduct,

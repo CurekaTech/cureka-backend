@@ -3,8 +3,8 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import {
-  IUnicommerceCatalogProduct,
-  IUnicommerceProductVariant,
+  IUnicommerceItemType,
+  IUnicommerceChannelItemType,
 } from '../interfaces/unicommerce-catalog.interface';
 
 function toNumber(value: string | null | undefined): number {
@@ -79,51 +79,100 @@ function resolveVariantImage(
     })[0];
 }
 
-export function mapProductToUnicommerceCatalog(
+// ─── Official Unicommerce tenant API mappers ──────────────────────────────────
+
+export interface ItemTypeMapperOptions {
+  /** Category code registered in Unicommerce. Defaults to 'null' (required placeholder). */
+  categoryCode?: string;
+  /** Default HSN code when variant has none. */
+  defaultHsnCode?: string;
+  /** Base URL for product page links. */
+  productBaseUrl?: string;
+}
+
+/**
+ * Maps all active variants of a product to the official Unicommerce
+ * `itemTypes/createOrEdit` format.  Each variant becomes one itemType entry.
+ */
+export function mapProductToItemTypes(
   product: ProductEntity,
   options: {
     imageUrlByMediaId: Map<string, string | undefined>;
+    categoryCode?: string;
+    defaultHsnCode?: string;
     productBaseUrl?: string;
   },
-): IUnicommerceCatalogProduct | null {
+): IUnicommerceItemType[] {
   const activeVariants = (product.variants ?? []).filter(
     (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
   );
 
-  if (!activeVariants.length) {
-    return null;
-  }
+  const brand = product.brand?.name?.trim() || 'Cureka';
+  const categoryCode = options.categoryCode || 'null';
 
-  const variants: IUnicommerceProductVariant[] = activeVariants.map((variant) => {
+  return activeVariants.map((variant) => {
     const imageMedia = resolveVariantImage(product.media ?? [], variant.id);
     const imageUrl = imageMedia ? options.imageUrlByMediaId.get(imageMedia.id) : undefined;
-    const productUrl = options.productBaseUrl
+    const productPageUrl = options.productBaseUrl
       ? `${options.productBaseUrl.replace(/\/+$/, '')}/${variant.slug}`
       : undefined;
 
+    const hsnCode = (variant.hsnCode ?? options.defaultHsnCode ?? '').trim() || undefined;
+    const mrp = toNumber(variant.mrp) || undefined;
+    const basePrice = toNumber(variant.sellingPrice) || undefined;
+    const weightGrams = variant.weight
+      ? (() => {
+          const w = Number(variant.weight);
+          if (!Number.isFinite(w)) return undefined;
+          const unit = (variant.weightUnit ?? 'gm').trim().toLowerCase();
+          if (unit === 'kg') return w * 1000;
+          return w;
+        })()
+      : undefined;
+
+    const size = formatUnicommerceSize(variant);
+    const color = resolveVariantColor(variant);
+    const title = resolveVariantTitle(product, variant);
+
     return {
-      imageUrl,
-      productUrl,
-      variantId: variant.sku,
-      title: resolveVariantTitle(product, variant),
-      sku: variant.sku,
-      size: formatUnicommerceSize(variant),
-      color: resolveVariantColor(variant),
-      live: variant.status === VariantStatus.ACTIVE,
-      itemPrice: {
-        currency: 'INR',
-        listingPrice: toNumber(variant.sellingPrice),
-        mrp: toNumber(variant.mrp),
-      },
-      inventory: variant.stock,
+      skuCode: variant.sku,
+      name: title,
+      categoryCode,
+      type: 'SIMPLE' as const,
+      brand,
+      hsnCode,
+      maxRetailPrice: mrp,
+      basePrice,
+      imageUrl: imageUrl?.slice(0, 255),
+      productPageUrl: productPageUrl?.slice(0, 255),
+      weight: weightGrams ? Math.round(weightGrams) : undefined,
+      size,
+      color,
+      enabled: true,
+      tags: (variant.searchTags ?? []).slice(0, 10),
     };
   });
+}
 
-  return {
-    id: product.refId,
-    parentTitle: product.name,
-    brand: product.brand?.name?.trim() || 'Cureka',
-    variants,
-    created: (product.publishedAt ?? product.createdAt).toISOString(),
-  };
+/**
+ * Builds channel item payloads for each active variant.
+ * Used by POST /services/rest/v1/channel/createChannelItem
+ * Call after `itemTypes/createOrEdit` succeeds.
+ */
+export function mapVariantsToChannelItemTypes(
+  product: ProductEntity,
+  channelCode: string,
+): IUnicommerceChannelItemType[] {
+  const activeVariants = (product.variants ?? []).filter(
+    (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+  );
+
+  return activeVariants.map((variant) => ({
+    channelCode,
+    channelProductId: variant.sku,
+    sellerSkuCode: variant.sku,
+    skuCode: variant.sku,
+    live: true,
+    verified: true,
+  }));
 }

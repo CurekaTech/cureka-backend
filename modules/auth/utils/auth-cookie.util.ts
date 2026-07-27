@@ -84,21 +84,24 @@ export const clearUserSessionCookie = (reply: FastifyReply): void => {
 
 /**
  * Resolve storefront session token from:
- * 1. HttpOnly cookie `user_session` (browser)
- * 2. `Authorization: Bearer <token>` (mobile / GoKwik / non-cookie clients)
+ * 1. `Authorization: Bearer <token>` (mobile / GoKwik / Postman — wins when present)
+ * 2. HttpOnly cookie `user_session` (browser)
+ *
+ * Bearer is preferred so API clients are not overridden by a stale login cookie
+ * (common in Postman when switching users while testing GoKwik callbacks).
  */
 export const getSessionTokenFromRequest = (req: FastifyRequest): string | undefined => {
-  const cookieToken = req.cookies?.[AUTH_COOKIE_NAMES.USER_SESSION];
-  if (typeof cookieToken === 'string' && cookieToken.length > 0) {
-    return cookieToken;
-  }
-
   const authorization = req.headers.authorization;
   if (typeof authorization === 'string') {
     const [scheme, token] = authorization.split(/\s+/);
     if (scheme?.toLowerCase() === 'bearer' && token) {
       return token;
     }
+  }
+
+  const cookieToken = req.cookies?.[AUTH_COOKIE_NAMES.USER_SESSION];
+  if (typeof cookieToken === 'string' && cookieToken.length > 0) {
+    return cookieToken;
   }
 
   return undefined;

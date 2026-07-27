@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UploadsModule } from '@modules/uploads/uploads.module';
+
+// ── Master entities ──────────────────────────────────────────────────────────
 import { AttributeEntity } from './entities/attribute.entity';
 import { BrandEntity } from './entities/brand.entity';
 import { CategoryEntity } from './entities/category.entity';
@@ -27,6 +29,37 @@ import { CouponCategoryMappingEntity } from './entities/coupon-category-mapping.
 import { CouponProductMappingEntity } from './entities/coupon-product-mapping.entity';
 import { HomeSectionEntity } from './entities/home-section.entity';
 import { UnitEntity } from './entities/unit.entity';
+
+// ── Audit entities ───────────────────────────────────────────────────────────
+import { AuditLogEntity } from './entities/audit-log.entity';
+
+// ── Blog entities ────────────────────────────────────────────────────────────
+import { BlogCategoryEntity } from './entities/blog-category.entity';
+import { BlogPostEntity } from './entities/blog-post.entity';
+import { BlogPostProductEntity } from './entities/blog-post-product.entity';
+import { BlogCommentEntity } from './entities/blog-comment.entity';
+
+// ── Support entities ─────────────────────────────────────────────────────────
+import { SupportCategoryEntity } from './entities/support-category.entity';
+import { SupportArticleEntity } from './entities/support-article.entity';
+import { SupportFaqEntity } from './entities/support-faq.entity';
+import { SupportTicketEntity } from './entities/support-ticket.entity';
+import { TicketMessageEntity } from './entities/ticket-message.entity';
+import { SupportNotificationEntity } from './entities/support-notification.entity';
+
+// ── Product entities needed for master/blog relations ────────────────────────
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { ProductHealthConcernEntity } from '@modules/product/entities/product-health-concern.entity';
+import { ProductWellnessGoalEntity } from '@modules/product/entities/product-wellness-goal.entity';
+import { ProductAttributeMappingEntity } from '@modules/product/entities/product-attribute-mapping.entity';
+import { VariantAttributeValueEntity } from '@modules/product/entities/variant-attribute-value.entity';
+
+// ── External entities required by support ────────────────────────────────────
+import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
+import { OrderEntity } from '@modules/orders/entities/order.entity';
+
+// ── Master repositories ──────────────────────────────────────────────────────
 import { AttributesRepository } from './repositories/attributes.repository';
 import { BrandsRepository } from './repositories/brands.repository';
 import { CategoriesRepository } from './repositories/categories.repository';
@@ -51,6 +84,26 @@ import { CouponsRepository } from './repositories/coupons.repository';
 import { CouponApplicabilityRepository } from './repositories/coupon-applicability.repository';
 import { HomeSectionsRepository } from './repositories/home-sections.repository';
 import { UnitsRepository } from './repositories/units.repository';
+import { MasterUsageRepository } from './repositories/master-usage.repository';
+
+// ── Audit repositories ───────────────────────────────────────────────────────
+import { AuditLogsRepository } from './repositories/audit-logs.repository';
+
+// ── Blog repositories ────────────────────────────────────────────────────────
+import { BlogCategoriesRepository } from './repositories/blog-categories.repository';
+import { BlogPostsRepository } from './repositories/blog-posts.repository';
+import { BlogPostProductsRepository } from './repositories/blog-post-products.repository';
+import { BlogCommentsRepository } from './repositories/blog-comments.repository';
+
+// ── Support repositories ─────────────────────────────────────────────────────
+import { SupportCategoriesRepository } from './repositories/support-categories.repository';
+import { SupportArticlesRepository } from './repositories/support-articles.repository';
+import { SupportFaqsRepository } from './repositories/support-faqs.repository';
+import { SupportTicketsRepository } from './repositories/support-tickets.repository';
+import { TicketMessagesRepository } from './repositories/ticket-messages.repository';
+import { SupportNotificationsRepository } from './repositories/support-notifications.repository';
+
+// ── Master services ──────────────────────────────────────────────────────────
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
 import { CategoriesService } from './services/categories.service';
@@ -78,6 +131,26 @@ import { CategoryFiltersService } from './services/category-filters.service';
 import { CouponsService } from './services/coupons.service';
 import { HomeSectionsService } from './services/home-sections.service';
 import { UnitsService } from './services/units.service';
+import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
+import { MasterDeletionGuardService } from './services/master-deletion-guard.service';
+
+// ── Audit service ────────────────────────────────────────────────────────────
+import { AuditService } from './services/audit.service';
+
+// ── Blog services ────────────────────────────────────────────────────────────
+import { BlogCategoriesService } from './services/blog-categories.service';
+import { BlogPostsService } from './services/blog-posts.service';
+import { BlogCommentsService } from './services/blog-comments.service';
+
+// ── Support services ─────────────────────────────────────────────────────────
+import { SupportCategoriesService } from './services/support-categories.service';
+import { SupportArticlesService } from './services/support-articles.service';
+import { SupportFaqsService } from './services/support-faqs.service';
+import { SupportTicketsService } from './services/support-tickets.service';
+import { SupportTicketNumberService } from './services/support-ticket-number.service';
+import { OrderSupportReasonsService } from './services/order-support-reasons.service';
+
+// ── Master controllers ───────────────────────────────────────────────────────
 import { AttributesController } from './controllers/attributes.controller';
 import { BrandsController } from './controllers/brands.controller';
 import { CategoriesController } from './controllers/categories.controller';
@@ -101,6 +174,22 @@ import { CategoryFiltersController } from './controllers/category-filters.contro
 import { CouponsController } from './controllers/coupons.controller';
 import { HomeSectionsController } from './controllers/home-sections.controller';
 import { UnitsController } from './controllers/units.controller';
+
+// ── Blog controllers (routes: blog/*, public/blog) ──────────────────────────
+import { AdminBlogCategoriesController } from './controllers/admin-blog-categories.controller';
+import { AdminBlogPostsController } from './controllers/admin-blog-posts.controller';
+import { AdminBlogCommentsController } from './controllers/admin-blog-comments.controller';
+import { PublicBlogController } from './controllers/public-blog.controller';
+
+// ── Support controllers (routes: support/*, admin/support/*, public/support) ─
+import { AdminSupportCategoriesController } from './controllers/admin-support-categories.controller';
+import { AdminSupportArticlesController } from './controllers/admin-support-articles.controller';
+import { AdminSupportFaqsController } from './controllers/admin-support-faqs.controller';
+import { AdminSupportTicketsController } from './controllers/admin-support-tickets.controller';
+import { PublicSupportController } from './controllers/public-support.controller';
+import { UserSupportTicketsController } from './controllers/user-support-tickets.controller';
+
+// ── Listeners ────────────────────────────────────────────────────────────────
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
 import { CategoryCacheListener } from './listeners/category-cache.listener';
 import { BannerCacheListener } from './listeners/banner-cache.listener';
@@ -110,19 +199,11 @@ import { TestimonialCacheListener } from './listeners/testimonial-cache.listener
 import { ImporterCacheListener } from './listeners/importer-cache.listener';
 import { PackerCacheListener } from './listeners/packer-cache.listener';
 import { SubscriptionFrequencyCacheListener } from './listeners/subscription-frequency-cache.listener';
-import { CategoriesCacheSyncService } from './services/categories-cache-sync.service';
-import { MasterUsageRepository } from './repositories/master-usage.repository';
-import { MasterDeletionGuardService } from './services/master-deletion-guard.service';
-import { ProductEntity } from '@modules/product/entities/product.entity';
-import { ProductsRepository } from '@modules/product/repositories/products.repository';
-import { ProductHealthConcernEntity } from '@modules/product/entities/product-health-concern.entity';
-import { ProductWellnessGoalEntity } from '@modules/product/entities/product-wellness-goal.entity';
-import { ProductAttributeMappingEntity } from '@modules/product/entities/product-attribute-mapping.entity';
-import { VariantAttributeValueEntity } from '@modules/product/entities/variant-attribute-value.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      // ── Master ──────────────────────────────────────────────────────────
       AttributeEntity,
       BrandEntity,
       CategoryEntity,
@@ -149,15 +230,34 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
       CouponBrandMappingEntity,
       HomeSectionEntity,
       UnitEntity,
+      // ── Product (needed for master deletion-guard and home-sections) ────
       ProductEntity,
       ProductHealthConcernEntity,
       ProductWellnessGoalEntity,
       ProductAttributeMappingEntity,
       VariantAttributeValueEntity,
+      // ── Audit ────────────────────────────────────────────────────────────
+      AuditLogEntity,
+      // ── Blog ─────────────────────────────────────────────────────────────
+      BlogCategoryEntity,
+      BlogPostEntity,
+      BlogPostProductEntity,
+      BlogCommentEntity,
+      // ── Support ──────────────────────────────────────────────────────────
+      SupportCategoryEntity,
+      SupportArticleEntity,
+      SupportFaqEntity,
+      SupportTicketEntity,
+      TicketMessageEntity,
+      SupportNotificationEntity,
+      // ── External entities needed for join resolution ──────────────────────
+      AdminUserEntity,
+      OrderEntity,
     ]),
     UploadsModule,
   ],
   controllers: [
+    // ── Master ──────────────────────────────────────────────────────────────
     AttributesController,
     BrandsController,
     CategoriesController,
@@ -181,8 +281,21 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     CouponsController,
     HomeSectionsController,
     UnitsController,
+    // ── Blog (routes unchanged: blog/*, public/blog) ─────────────────────
+    AdminBlogCategoriesController,
+    AdminBlogPostsController,
+    AdminBlogCommentsController,
+    PublicBlogController,
+    // ── Support (routes unchanged: support/*, admin/support/*, public/support)
+    AdminSupportCategoriesController,
+    AdminSupportArticlesController,
+    AdminSupportFaqsController,
+    AdminSupportTicketsController,
+    PublicSupportController,
+    UserSupportTicketsController,
   ],
   providers: [
+    // ── Master ──────────────────────────────────────────────────────────────
     AttributesService,
     AttributesRepository,
     BrandsService,
@@ -238,6 +351,7 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     CategoriesCacheSyncService,
     MasterUsageRepository,
     MasterDeletionGuardService,
+    // ── Listeners ───────────────────────────────────────────────────────────
     AttributeCacheListener,
     CategoryCacheListener,
     BannerCacheListener,
@@ -247,8 +361,33 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     ImporterCacheListener,
     PackerCacheListener,
     SubscriptionFrequencyCacheListener,
+    // ── Audit ────────────────────────────────────────────────────────────────
+    AuditLogsRepository,
+    AuditService,
+    // ── Blog ─────────────────────────────────────────────────────────────────
+    BlogCategoriesRepository,
+    BlogPostsRepository,
+    BlogPostProductsRepository,
+    BlogCommentsRepository,
+    BlogCategoriesService,
+    BlogPostsService,
+    BlogCommentsService,
+    // ── Support ──────────────────────────────────────────────────────────────
+    SupportCategoriesRepository,
+    SupportArticlesRepository,
+    SupportFaqsRepository,
+    SupportTicketsRepository,
+    TicketMessagesRepository,
+    SupportNotificationsRepository,
+    SupportCategoriesService,
+    SupportArticlesService,
+    SupportFaqsService,
+    SupportTicketsService,
+    SupportTicketNumberService,
+    OrderSupportReasonsService,
   ],
   exports: [
+    // ── Master ──────────────────────────────────────────────────────────────
     AttributesService,
     BrandsService,
     CategoriesService,
@@ -287,6 +426,17 @@ import { VariantAttributeValueEntity } from '@modules/product/entities/variant-a
     ManufacturersRepository,
     PackersRepository,
     ImportersRepository,
+    // ── Audit ────────────────────────────────────────────────────────────────
+    AuditService,
+    // ── Blog ─────────────────────────────────────────────────────────────────
+    BlogCategoriesService,
+    BlogPostsService,
+    BlogCommentsService,
+    // ── Support ──────────────────────────────────────────────────────────────
+    SupportCategoriesService,
+    SupportArticlesService,
+    SupportFaqsService,
+    SupportTicketsService,
   ],
 })
 export class MasterModule {}

@@ -9,6 +9,7 @@ import {
   IsIn,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
@@ -96,4 +97,11 @@ export class AdminOrderQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn([...ADMIN_ORDER_LIST_SORT_FIELDS])
   sortBy?: AdminOrderListSortField;
+}
+
+export class CancelOrderDto {
+  @IsString()
+  @Min(3)
+  @MaxLength(500)
+  reason!: string;
 }

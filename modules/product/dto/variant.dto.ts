@@ -442,6 +442,12 @@ export class CreateVariantDto {
   @MaxLength(1000)
   singleProductUrl?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  productPageUrl?: string;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()

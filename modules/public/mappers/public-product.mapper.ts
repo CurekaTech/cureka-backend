@@ -292,6 +292,7 @@ export const mapVariantEntityToPublicSearchItem = (
     name: variant.displayName?.trim() || product.name,
     productSlug: product.slug,
     variantSlug: variant.slug,
+    productPageUrl: variant.productPageUrl ?? null,
     primaryImageUrl: getVariantPrimaryImageUrl(product, variant.id),
     category: mapCategorySummary(product.category),
     subCategory: mapCategorySummary(product.subCategory),
@@ -325,24 +326,24 @@ export const mapVariantEntitiesToPublicSearchItems = (
   variants: ProductVariantEntity[],
 ): IPublicProductVariantSearchItem[] => variants.map(mapVariantEntityToPublicSearchItem);
 
-const getDefaultVariantId = (entity: ProductEntity): string | null =>
-  pickPreferredListVariant(entity)?.id ?? null;
-
 export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
+  const listVariant = resolveListVariant(entity);
+  const productPageUrl = listVariant?.productPageUrl ?? null;
   return {
   id: entity.id,
   refId: entity.refId,
   name: entity.name,
   slug: entity.slug,
   productType: entity.productType,
-  defaultVariantId: getDefaultVariantId(entity),
+  defaultVariantId: listVariant?.id ?? null,
   categoryRefId: entity.category?.refId ?? '',
   categoryName: entity.category?.name ?? '',
   subCategoryRefId: entity.subCategory?.refId ?? null,
   subCategoryName: entity.subCategory?.name ?? null,
   categorySlugPath,
-  permalink: buildProductPermalink(categorySlugPath, entity.slug),
+  permalink: productPageUrl || buildProductPermalink(categorySlugPath, entity.slug),
+  productPageUrl,
   brandRefId: entity.brand?.refId ?? null,
   brandName: entity.brand?.name ?? null,
   brandSlug: entity.brand?.slug ?? null,
@@ -350,7 +351,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   productNatureName: entity.productNature?.name ?? null,
   primaryImageUrl: getPrimaryImageUrl(entity),
   pricing: buildPriceSummary(entity),
-  variantId: resolveListVariant(entity)?.id ?? null,
+  variantId: listVariant?.id ?? null,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
   publishedAt: entity.publishedAt,
