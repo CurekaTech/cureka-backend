@@ -35,6 +35,7 @@ export const mapVariantEntityToDetailFields = (
   expiresInMonths: variant.expiresInMonths,
   sizeChart: variant.sizeChart,
   singleProductUrl: variant.singleProductUrl,
+  productPageUrl: variant.productPageUrl,
   healthConcernRefIds: variant.healthConcernRefIds ?? [],
   wellnessGoalRefIds: variant.wellnessGoalRefIds ?? [],
   tagNames: variant.tagNames ?? [],
@@ -62,6 +63,7 @@ export const variantHasStoredDetail = (variant: ProductVariantEntity): boolean =
       variant.expiresInMonths ||
       variant.sizeChart ||
       variant.singleProductUrl ||
+      variant.productPageUrl ||
       (variant.healthConcernRefIds?.length ?? 0) > 0 ||
       (variant.wellnessGoalRefIds?.length ?? 0) > 0 ||
       (variant.tagNames?.length ?? 0) > 0 ||

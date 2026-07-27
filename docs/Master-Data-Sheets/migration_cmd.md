@@ -39,3 +39,8 @@ npm run product:migrate-search-tags -- --apply --deactivate-label
 
 # After apply, reindex Typesense so search picks up the new tags:
 npm run typesense:reindex
+
+# dry-run
+npm run product-page-url:import
+# apply
+npm run product-page-url:import:apply

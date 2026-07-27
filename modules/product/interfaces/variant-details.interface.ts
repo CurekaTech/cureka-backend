@@ -44,6 +44,7 @@ export interface IVariantDetailFields {
   expiresInMonths?: number | null;
   sizeChart?: IStorageFileReference | null;
   singleProductUrl?: string | null;
+  productPageUrl?: string | null;
   healthConcernRefIds?: string[];
   wellnessGoalRefIds?: string[];
   tagNames?: string[];

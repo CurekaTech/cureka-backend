@@ -70,6 +70,7 @@ export const mapVariantDetailDtoToEntityColumns = (
     ...(dto.expiresInMonths !== undefined && { expiresInMonths: dto.expiresInMonths ?? null }),
     ...(dto.sizeChart !== undefined && { sizeChart: dto.sizeChart ?? null }),
     ...(dto.singleProductUrl !== undefined && { singleProductUrl: dto.singleProductUrl ?? null }),
+    ...(dto.productPageUrl !== undefined && { productPageUrl: dto.productPageUrl ?? null }),
     ...(dto.healthConcernRefIds !== undefined && {
       healthConcernRefIds: dto.healthConcernRefIds ?? [],
     }),
@@ -117,6 +118,7 @@ export const hasVariantDetailPayload = (dto: CreateVariantDto): boolean =>
   dto.expiresInMonths !== undefined ||
   dto.sizeChart !== undefined ||
   dto.singleProductUrl !== undefined ||
+  dto.productPageUrl !== undefined ||
   dto.healthConcernRefIds !== undefined ||
   dto.wellnessGoalRefIds !== undefined ||
   dto.tagNames !== undefined ||
