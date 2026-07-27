@@ -112,28 +112,28 @@ export interface IUnicommerceCreateItemTypesResponse {
   itemType?: { skuCode?: string; id?: number };
 }
 
-// ─── Official Unicommerce tenant API — channel/itemType/createOrEdit ──────────
+// ─── Official Unicommerce tenant API — /services/rest/v1/channel/createChannelItem ───
 
-export interface IUnicommerceChannelItemTypeData {
+export interface IUnicommerceChannelItemType {
   /** Channel code (e.g. CUSTOM) */
   channelCode: string;
-  /** Internal catalog SKU */
+  /** SKU on the channel — typically same as sellerSkuCode */
+  channelProductId: string;
+  /** Seller's own SKU code */
+  sellerSkuCode: string;
+  /** Unicommerce catalog SKU (itemType skuCode) */
   skuCode: string;
-  /** SKU as listed on this channel (usually same as skuCode) */
-  channelSkuCode?: string;
-  /** ACTIVE | INACTIVE */
-  listingStatus?: string;
-  /** Selling / listing price on the channel */
-  price?: number;
-  /** MRP on the channel */
-  mrp?: number;
+  /** Whether the listing is live on the channel */
+  live?: boolean;
+  /** Whether the item is verified */
+  verified?: boolean;
 }
 
-export interface IUnicommerceChannelItemTypePayload {
-  channelProductData: IUnicommerceChannelItemTypeData;
+export interface IUnicommerceCreateChannelItemPayload {
+  channelItemType: IUnicommerceChannelItemType;
 }
 
-export interface IUnicommerceChannelItemTypeResponse {
+export interface IUnicommerceCreateChannelItemResponse {
   successful: boolean;
   message?: string;
   errors?: Array<{
@@ -144,3 +144,11 @@ export interface IUnicommerceChannelItemTypeResponse {
   }>;
   warnings?: Array<{ code?: number; message?: string; description?: string }>;
 }
+
+// Keep old aliases so existing code compiles during migration
+/** @deprecated Use IUnicommerceChannelItemType */
+export type IUnicommerceChannelItemTypeData = IUnicommerceChannelItemType;
+/** @deprecated Use IUnicommerceCreateChannelItemPayload */
+export type IUnicommerceChannelItemTypePayload = IUnicommerceCreateChannelItemPayload;
+/** @deprecated Use IUnicommerceCreateChannelItemResponse */
+export type IUnicommerceChannelItemTypeResponse = IUnicommerceCreateChannelItemResponse;

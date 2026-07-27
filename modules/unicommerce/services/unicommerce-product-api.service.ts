@@ -6,8 +6,8 @@ import { URL } from 'url';
 import {
   IUnicommerceCreateItemTypesPayload,
   IUnicommerceCreateItemTypesResponse,
-  IUnicommerceChannelItemTypePayload,
-  IUnicommerceChannelItemTypeResponse,
+  IUnicommerceCreateChannelItemPayload,
+  IUnicommerceCreateChannelItemResponse,
 } from '../interfaces/unicommerce-catalog.interface';
 import { IUnicommerceOAuthTokenResponse } from '../interfaces/unicommerce-order.interface';
 
@@ -134,20 +134,20 @@ export class UnicommerceProductApiService {
   }
 
   /**
-   * Creates or updates a single channel item type mapping.
-   * POST /services/rest/v1/catalog/channel/itemType/createOrEdit
+   * Maps a catalog SKU to a channel (CUSTOM).
+   * POST /services/rest/v1/channel/createChannelItem
    */
-  async createOrUpdateChannelItemType(
-    payload: IUnicommerceChannelItemTypePayload,
-  ): Promise<IUnicommerceChannelItemTypeResponse> {
+  async createChannelItem(
+    payload: IUnicommerceCreateChannelItemPayload,
+  ): Promise<IUnicommerceCreateChannelItemResponse> {
     const accessToken = await this.getAccessToken();
-    const url = `${this.getBaseUrl()}/services/rest/v1/catalog/channel/itemType/createOrEdit`;
+    const url = `${this.getBaseUrl()}/services/rest/v1/channel/createChannelItem`;
     const timeoutMs = this.configService.get<number>('unicommerceProduct.timeoutMs') ?? 15_000;
 
-    const { skuCode, channelCode } = payload.channelProductData;
+    const { skuCode, channelCode } = payload.channelItemType;
     this.logger.log(
       { url, skuCode, channelCode },
-      'Unicommerce createOrUpdateChannelItemType request',
+      'Unicommerce createChannelItem request',
     );
 
     const { statusCode, text } = await this.httpRequest(
@@ -159,14 +159,14 @@ export class UnicommerceProductApiService {
 
     if (statusCode === 401) {
       this.cachedToken = null;
-      throw new ServiceUnavailableException('Unicommerce auth failed (401) during channel mapping; token cleared');
+      throw new ServiceUnavailableException('Unicommerce auth failed (401) during channel item creation; token cleared');
     }
 
-    return this.parseJsonResponse<IUnicommerceChannelItemTypeResponse>(
+    return this.parseJsonResponse<IUnicommerceCreateChannelItemResponse>(
       text,
       statusCode,
       url,
-      'createOrUpdateChannelItemType',
+      'createChannelItem',
     );
   }
 

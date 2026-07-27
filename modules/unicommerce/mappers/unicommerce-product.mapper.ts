@@ -6,7 +6,7 @@ import {
   IUnicommerceCatalogProduct,
   IUnicommerceProductVariant,
   IUnicommerceItemType,
-  IUnicommerceChannelItemTypeData,
+  IUnicommerceChannelItemType,
 } from '../interfaces/unicommerce-catalog.interface';
 
 function toNumber(value: string | null | undefined): number {
@@ -206,23 +206,24 @@ export function mapProductToItemTypes(
 }
 
 /**
- * Builds channel mapping payloads for each active variant.
+ * Builds channel item payloads for each active variant.
+ * Used by POST /services/rest/v1/channel/createChannelItem
  * Call after `itemTypes/createOrEdit` succeeds.
  */
 export function mapVariantsToChannelItemTypes(
   product: ProductEntity,
   channelCode: string,
-): IUnicommerceChannelItemTypeData[] {
+): IUnicommerceChannelItemType[] {
   const activeVariants = (product.variants ?? []).filter(
     (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
   );
 
   return activeVariants.map((variant) => ({
     channelCode,
+    channelProductId: variant.sku,
+    sellerSkuCode: variant.sku,
     skuCode: variant.sku,
-    channelSkuCode: variant.sku,
-    listingStatus: 'ACTIVE',
-    price: toNumber(variant.sellingPrice) || undefined,
-    mrp: toNumber(variant.mrp) || undefined,
+    live: true,
+    verified: true,
   }));
 }
