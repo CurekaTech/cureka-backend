@@ -7,7 +7,7 @@ export class AddShipwayAdminSetting1780915500000 implements MigrationInterface {
     await queryRunner.query(`
       INSERT INTO "admin_setting" ("ref_id", "key", "value", "status", "description", "created_by")
       VALUES (
-        'SET20261015',
+        'SET20261016',
         'shipway',
         '0',
         'inactive',
