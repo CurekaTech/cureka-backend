@@ -1,55 +1,16 @@
-import {
-  Controller,
-  ForbiddenException,
-  Get,
-  Headers,
-  Post,
-  Query,
-  Res,
-  UseFilters,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, ForbiddenException, Headers, Post, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FastifyReply } from 'fastify';
-import { UnicommerceCatalogService } from '../services/unicommerce-catalog.service';
-import {
-  UnicommerceProductsCountQueryDto,
-  UnicommerceProductsQueryDto,
-} from '../dto/unicommerce-products-query.dto';
-import { UnicommerceApiKeyGuard } from '../guards/unicommerce-api-key.guard';
-import { UnicommerceUnauthorizedFilter } from '../filters/unicommerce-exception.filter';
 import { UnicommerceProductQueueService } from '../services/unicommerce-product-queue.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 
 @Controller('unicommerce')
-@UseFilters(UnicommerceUnauthorizedFilter)
 export class UnicommerceCatalogController {
   constructor(
-    private readonly catalogService: UnicommerceCatalogService,
     private readonly queueService: UnicommerceProductQueueService,
     private readonly productsRepository: ProductsRepository,
     private readonly configService: ConfigService,
   ) {}
-
-  @Get('productsCount')
-  @UseGuards(UnicommerceApiKeyGuard)
-  async getProductsCount(
-    @Query() _query: UnicommerceProductsCountQueryDto,
-    @Res() res: FastifyReply,
-  ): Promise<void> {
-    const result = await this.catalogService.getProductsCount();
-    void res.send(result);
-  }
-
-  @Get('products')
-  @UseGuards(UnicommerceApiKeyGuard)
-  async getProducts(
-    @Query() query: UnicommerceProductsQueryDto,
-    @Res() res: FastifyReply,
-  ): Promise<void> {
-    const result = await this.catalogService.getProducts(query);
-    void res.send(result);
-  }
 
   /**
    * Bulk-enqueues all published products for Unicommerce push.
