@@ -16,7 +16,7 @@ import { CartsRepository } from '../repositories/carts.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
 import { OrdersRepository } from '../repositories/orders.repository';
 import { CheckoutDto } from '../dto/checkout.dto';
-import { OrderQueryDto, PlaceOrderDto, AdminOrderQueryDto } from '../dto/order.dto';
+import { CancelOrderDto, OrderQueryDto, PlaceOrderDto, AdminOrderQueryDto } from '../dto/order.dto';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
@@ -31,6 +31,7 @@ import { CartService } from './cart.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { toMoneyString } from '../utils/money.util';
+import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 
 @Injectable()
 export class OrdersService {
@@ -597,7 +598,35 @@ export class OrdersService {
     return mapOrderToResponse({ ...order, shipment }, this.storageUrlEnricher);
   }
 
-  async cancel(userId: string, id: string) {
+  /**
+   * Re-add items from a past order into the user's active cart (current prices/stock).
+   */
+  async reorder(userId: string, orderId: string) {
+    const order = await this.ordersRepository.findByIdAndUserId(orderId, userId);
+    if (!order) {
+      throw new NotFoundException(`Order ${orderId} not found`);
+    }
+    if (!order.items?.length) {
+      throw new BadRequestException('Order has no items to reorder');
+    }
+
+    return this.cartService.addItems(
+      userId,
+      order.items.map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        productName: item.productName,
+      })),
+    );
+  }
+
+  async cancel(userId: string, id: string, dto: CancelOrderDto) {
+    const reason = dto.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('Cancellation reason is required');
+    }
+
     await this.dataSource.transaction(async (manager) => {
       const locked = await manager
         .getRepository(OrderEntity)
@@ -607,11 +636,11 @@ export class OrdersService {
         .andWhere('order.userId = :userId', { userId })
         .getOne();
       if (!locked) throw new NotFoundException(`Order ${id} not found`);
-      if (![OrderStatus.PENDING, OrderStatus.CONFIRMED].includes(locked.orderStatus)) {
-        throw new BadRequestException('Only pending/confirmed orders can be cancelled');
+      if (!isOrderCancellable(locked.orderStatus)) {
+        throw new BadRequestException('Orders can only be cancelled before shipping');
       }
 
-      if (locked.orderStatus === OrderStatus.CONFIRMED) {
+      if (locked.orderStatus === OrderStatus.CONFIRMED || locked.orderStatus === OrderStatus.PROCESSING) {
         const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId: id } });
         for (const item of items) {
           await manager
@@ -629,6 +658,7 @@ export class OrdersService {
         id,
         {
           orderStatus: OrderStatus.CANCELLED,
+          cancelReason: reason,
           updatedBy: userId,
         },
         manager,

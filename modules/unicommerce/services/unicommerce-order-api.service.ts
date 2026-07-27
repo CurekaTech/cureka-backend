@@ -4,134 +4,183 @@ import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
 import {
-  IUnicommercePostOrderPayload,
-  IUnicommercePostOrderResponse,
+  IUnicommerceOAuthTokenResponse,
+  IUnicommerceSaleOrderPayload,
+  IUnicommerceCreateSaleOrderResponse,
 } from '../interfaces/unicommerce-order.interface';
 
 /**
- * Thin HTTP client for UniCommerce's outbound "Post Orders" API.
- *   POST {baseUrl}{endpoint}
- * Auth via static headers (ClientId / merchantId / securitykey) — casing matches UniCommerce Postman docs.
- * Uses Node http(s) instead of fetch so header names are not forced to lowercase.
+ * HTTP client for Unicommerce's official tenant API.
+ *
+ * Authentication: OAuth 2.0 password grant (GET /oauth/token).
+ * Order creation: POST /services/rest/v1/oms/saleOrder/create
+ *   - Header Authorization: bearer {access_token}
+ *   - Header Facility: {facilityCode}
+ *
+ * Tenant URL: https://{tenant}.unicommerce.com
  */
 @Injectable()
 export class UnicommerceOrderApiService {
   private readonly logger = new Logger(UnicommerceOrderApiService.name);
 
+  /** In-memory token cache. Cleared on 401 so the next call re-authenticates. */
+  private cachedToken: { token: string; expiresAt: number } | null = null;
+
   constructor(private readonly configService: ConfigService) {}
 
   isConfigured(): boolean {
     return Boolean(
-      this.configService.get<string>('unicommerceOrder.clientId') &&
-      this.configService.get<string>('unicommerceOrder.merchantId') &&
-      this.configService.get<string>('unicommerceOrder.securityKey'),
+      this.configService.get<string>('unicommerceOrder.tenant') &&
+        this.configService.get<string>('unicommerceOrder.username') &&
+        this.configService.get<string>('unicommerceOrder.password'),
     );
   }
 
-  async postOrder(payload: IUnicommercePostOrderPayload): Promise<IUnicommercePostOrderResponse> {
-    const baseUrl = (
-      this.configService.get<string>('unicommerceOrder.baseUrl') ??
-      'https://genericproxy.unicommerce.com'
-    ).replace(/\/+$/, '');
-    const endpoint = this.configService.get<string>('unicommerceOrder.endpoint') ?? '/uc/v1/order';
-    const clientId = this.configService.get<string>('unicommerceOrder.clientId') ?? '';
-    const merchantId = this.configService.get<string>('unicommerceOrder.merchantId') ?? '';
-    const securityKey = this.configService.get<string>('unicommerceOrder.securityKey') ?? '';
-    const timeoutMs = this.configService.get<number>('unicommerceOrder.timeoutMs') ?? 15000;
+  private getBaseUrl(): string {
+    const tenant = this.configService.get<string>('unicommerceOrder.tenant') ?? 'stgcureka';
+    return `https://${tenant}.unicommerce.com`;
+  }
 
-    if (!clientId || !merchantId || !securityKey) {
+  /** Fetches or returns a cached OAuth access token. */
+  private async getAccessToken(): Promise<string> {
+    const now = Date.now();
+
+    // Return cached token with a 60-second safety buffer before expiry.
+    if (this.cachedToken && this.cachedToken.expiresAt > now + 60_000) {
+      return this.cachedToken.token;
+    }
+
+    const baseUrl = this.getBaseUrl();
+    const username = this.configService.get<string>('unicommerceOrder.username') ?? '';
+    const password = this.configService.get<string>('unicommerceOrder.password') ?? '';
+    const timeoutMs = this.configService.get<number>('unicommerceOrder.timeoutMs') ?? 15_000;
+
+    const tokenUrl =
+      `${baseUrl}/oauth/token` +
+      `?grant_type=password` +
+      `&client_id=my-trusted-client` +
+      `&username=${encodeURIComponent(username)}` +
+      `&password=${encodeURIComponent(password)}`;
+
+    this.logger.log({ baseUrl, username }, 'Fetching Unicommerce OAuth token');
+
+    const { statusCode, text } = await this.httpRequest(tokenUrl, null, {}, timeoutMs);
+
+    if (statusCode < 200 || statusCode >= 300) {
+      this.logger.error(
+        { statusCode, rawBody: text.slice(0, 300) },
+        'Unicommerce OAuth token request failed',
+      );
       throw new ServiceUnavailableException(
-        'UniCommerce Post Orders credentials are not configured',
+        `Unicommerce OAuth token request failed with HTTP ${statusCode}`,
       );
     }
 
-    const url = `${baseUrl}${endpoint}`;
+    let tokenData: IUnicommerceOAuthTokenResponse;
+    try {
+      tokenData = JSON.parse(text) as IUnicommerceOAuthTokenResponse;
+    } catch {
+      throw new ServiceUnavailableException('Unicommerce OAuth returned invalid JSON');
+    }
+
+    if (!tokenData.access_token) {
+      throw new ServiceUnavailableException('Unicommerce OAuth response missing access_token');
+    }
+
+    const expiresIn = tokenData.expires_in ?? 3600;
+    this.cachedToken = {
+      token: tokenData.access_token,
+      expiresAt: now + expiresIn * 1000,
+    };
+
+    this.logger.log(
+      { expiresIn, tokenPrefix: tokenData.access_token.slice(0, 8) },
+      'Unicommerce OAuth token acquired',
+    );
+
+    return tokenData.access_token;
+  }
+
+  async createSaleOrder(
+    payload: IUnicommerceSaleOrderPayload,
+  ): Promise<IUnicommerceCreateSaleOrderResponse> {
+    const baseUrl = this.getBaseUrl();
+    const facilityCode = this.configService.get<string>('unicommerceOrder.facilityCode') ?? '';
+    const timeoutMs = this.configService.get<number>('unicommerceOrder.timeoutMs') ?? 15_000;
+
+    const accessToken = await this.getAccessToken();
+
+    const url = `${baseUrl}/services/rest/v1/oms/saleOrder/create`;
     const body = JSON.stringify(payload);
+    const orderCode = payload.saleOrder.code;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `bearer ${accessToken}`,
+    };
+    if (facilityCode) {
+      headers['Facility'] = facilityCode;
+    }
+
+    this.logger.log(
+      { url, orderCode, facilityCode, channel: payload.saleOrder.channel },
+      'Unicommerce createSaleOrder request',
+    );
+
+    const { statusCode, text } = await this.httpRequest(url, body, headers, timeoutMs);
+
+    // A 401 means the cached token is stale — clear it so the next attempt re-authenticates.
+    if (statusCode === 401) {
+      this.cachedToken = null;
+      throw new ServiceUnavailableException(
+        'Unicommerce authentication failed (401); token cleared for retry',
+      );
+    }
+
+    let data: IUnicommerceCreateSaleOrderResponse = { successful: false };
+    if (text) {
+      try {
+        data = JSON.parse(text) as IUnicommerceCreateSaleOrderResponse;
+      } catch {
+        this.logger.error(
+          { url, orderCode, httpStatus: statusCode, rawBody: text.slice(0, 500) },
+          'Unicommerce createSaleOrder returned non-JSON response',
+        );
+        throw new ServiceUnavailableException(
+          `Unicommerce createSaleOrder returned invalid JSON (HTTP ${statusCode})`,
+        );
+      }
+    }
 
     this.logger.log(
       {
         url,
-        orderId: payload.id,
-        clientId,
-        merchantId,
-        clientIdLen: clientId.length,
-        merchantIdLen: merchantId.length,
-        securityKeyLen: securityKey.length,
-        securityKeyPrefix: securityKey.slice(0, 8),
+        orderCode,
+        httpStatus: statusCode,
+        successful: data.successful,
+        message: data.message,
+        errors: data.errors,
       },
-      'UniCommerce Post Orders request',
+      'Unicommerce createSaleOrder response',
     );
 
-    try {
-      const { statusCode, text } = await this.requestJson(url, body, {
-        clientId,
-        merchantId,
-        securityKey,
-        timeoutMs,
-      });
-
-      let data: IUnicommercePostOrderResponse = {};
-      if (text) {
-        try {
-          data = JSON.parse(text) as IUnicommercePostOrderResponse;
-        } catch {
-          this.logger.error(
-            { url, orderId: payload.id, httpStatus: statusCode, rawBody: text.slice(0, 500) },
-            'UniCommerce Post Orders returned non-JSON response',
-          );
-          throw new ServiceUnavailableException(
-            `UniCommerce Post Orders returned invalid JSON (HTTP ${statusCode})`,
-          );
-        }
-      }
-
-      this.logger.log(
-        {
-          url,
-          orderId: payload.id,
-          httpStatus: statusCode,
-          responseStatus: data.status,
-          responseMessage: data.message,
-        },
-        'UniCommerce Post Orders response',
-      );
-
-      if (statusCode < 200 || statusCode >= 300) {
-        const message =
-          data.message ?? `UniCommerce Post Orders failed with HTTP ${statusCode}`;
-        this.logger.warn(
-          { url, orderId: payload.id, httpStatus: statusCode, responseMessage: message },
-          'UniCommerce Post Orders HTTP error',
-        );
-        throw new ServiceUnavailableException(message);
-      }
-
-      return data;
-    } catch (error) {
-      if (error instanceof ServiceUnavailableException) {
-        throw error;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        { orderId: payload.id, error: message },
-        'UniCommerce Post Orders request failed (network/timeout)',
-      );
-      throw new ServiceUnavailableException('UniCommerce Post Orders API is unavailable');
-    }
+    return data;
   }
 
-  private requestJson(
+  private httpRequest(
     urlString: string,
-    body: string,
-    auth: {
-      clientId: string;
-      merchantId: string;
-      securityKey: string;
-      timeoutMs: number;
-    },
+    body: string | null,
+    headers: Record<string, string>,
+    timeoutMs: number,
   ): Promise<{ statusCode: number; text: string }> {
     const url = new URL(urlString);
     const transport = url.protocol === 'http:' ? http : https;
+    const method = body !== null ? 'POST' : 'GET';
+
+    const allHeaders: Record<string, string | number> = { ...headers };
+    if (body !== null) {
+      allHeaders['Content-Length'] = Buffer.byteLength(body);
+    }
 
     return new Promise((resolve, reject) => {
       const req = transport.request(
@@ -140,16 +189,8 @@ export class UnicommerceOrderApiService {
           hostname: url.hostname,
           port: url.port || undefined,
           path: `${url.pathname}${url.search}`,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            // Exact casing from UniCommerce Postman collection (case-sensitive gateway).
-            ClientId: auth.clientId,
-            merchantId: auth.merchantId,
-            securitykey: auth.securityKey,
-            'Content-Length': Buffer.byteLength(body),
-          },
+          method,
+          headers: allHeaders,
         },
         (res) => {
           const chunks: Buffer[] = [];
@@ -163,11 +204,11 @@ export class UnicommerceOrderApiService {
         },
       );
 
-      req.setTimeout(auth.timeoutMs, () => {
-        req.destroy(new Error(`UniCommerce Post Orders timed out after ${auth.timeoutMs}ms`));
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`Unicommerce request timed out after ${timeoutMs}ms`));
       });
       req.on('error', reject);
-      req.write(body);
+      if (body !== null) req.write(body);
       req.end();
     });
   }

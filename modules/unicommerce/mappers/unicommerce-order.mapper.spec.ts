@@ -3,23 +3,16 @@ import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
-import {
-  formatUnicommerceOrderDate,
-  mapOrderToUnicommercePayload,
-} from './unicommerce-order.mapper';
+import { mapOrderToUnicommercePayload } from './unicommerce-order.mapper';
 
 function buildOrder(overrides: Partial<OrderEntity> = {}): OrderEntity {
   const item: Partial<OrderItemEntity> = {
-    refId: 'OI200001',
-    productId: 'prod-uuid-1',
-    variantId: 'variant-uuid-1',
     sku: 'SKU-001',
     productName: 'Vitamin C Serum',
     variantName: '30ml',
     quantity: 2,
     unitPrice: '499.00',
     totalPrice: '998.00',
-    product: { refId: 'PRD20260001' } as OrderItemEntity['product'],
   };
 
   return {
@@ -48,71 +41,74 @@ function buildOrder(overrides: Partial<OrderEntity> = {}): OrderEntity {
   } as OrderEntity;
 }
 
-describe('unicommerce-order.mapper', () => {
-  it('formats dates as yyyy-MM-dd HH:mm:ss', () => {
-    expect(formatUnicommerceOrderDate(new Date('2026-07-09T05:06:07.000Z'))).toBe(
-      '2026-07-09 05:06:07',
-    );
+describe('mapOrderToUnicommercePayload', () => {
+  it('maps a prepaid order to the official saleOrder payload', () => {
+    const payload = mapOrderToUnicommercePayload(buildOrder(), { currency: 'INR', channel: 'CUSTOM' });
+    const so = payload.saleOrder;
+
+    expect(so.code).toBe('ORD123456780001');
+    expect(so.displayOrderCode).toBe('ORD123456780001');
+    expect(so.channel).toBe('CUSTOM');
+    expect(so.cashOnDelivery).toBe(false);
+    expect(so.paymentInstrument).toBe('NET_BANKING');
+    expect(so.currencyCode).toBe('INR');
+    expect(so.totalDiscount).toBe(50);
+    expect(so.totalShippingCharges).toBe(40);
+    expect(so.totalPrepaidAmount).toBe(1008);
+    expect(so.totalCashOnDeliveryCharges).toBe(0);
   });
 
-  it('maps a prepaid order to UniCommerce payload', () => {
-    const payload = mapOrderToUnicommercePayload(buildOrder(), {
-      currency: 'INR',
-      slaHours: 48,
-    });
+  it('sets the correct address with shipping and billing referencing the same address', () => {
+    const payload = mapOrderToUnicommercePayload(buildOrder());
+    const so = payload.saleOrder;
 
-    expect(payload.id).toBe('ORD123456780001');
-    expect(payload.displayOrderNumber).toBe('ORD123456780001');
-    expect(payload.orderStatus).toBe('CREATED');
-    expect(payload.paymentType).toBe('PREPAID');
-    expect(payload.orderDate).toBe('2026-07-09 05:00:00');
-    expect(payload.sla).toBe('2026-07-11 05:00:00');
-    expect(payload.orderPrice.totalPrepaidAmount).toBe(1008);
-    expect(payload.orderPrice.totalCashOnDeliveryCharges).toBe(0);
-    expect(payload.orderPrice.totalDiscount).toBe(50);
-    expect(payload.orderPrice.totalShippingCharges).toBe(40);
+    expect(so.addresses).toHaveLength(1);
+    const addr = so.addresses[0];
+    expect(addr.id).toBe('shipping');
+    expect(addr.name).toBe('Jane Doe');
+    expect(addr.addressLine1).toBe('12 MG Road');
+    expect(addr.addressLine2).toBe('Near Park');
+    expect(addr.city).toBe('Chennai');
+    expect(addr.state).toBe('Tamil Nadu');
+    expect(addr.country).toBe('India');
+    expect(addr.pincode).toBe('600001');
+    expect(addr.phone).toBe('9876543210');
+    expect(addr.email).toBe('jane@example.com');
 
-    expect(payload.orderItems).toHaveLength(1);
-    const item = payload.orderItems[0];
-    expect(item.orderItemId).toBe('OI200001');
-    expect(item.productId).toBe('PRD20260001');
-    expect(item.variantId).toBe('SKU-001');
-    expect(item.sku).toBe('SKU-001');
-    expect(item.title).toBe('Vitamin C Serum (30ml)');
-    expect(item.quantity).toBe(2);
-    expect(item.orderItemPrice.sellingPrice).toBe(499);
-    expect(item.orderItemPrice.totalPrice).toBe(998);
-    expect(item.facilityCode).toBeUndefined();
-
-    expect(payload.shippingAddress).toEqual(payload.billingAddress);
-    expect(payload.shippingAddress.email).toBe('jane@example.com');
-    expect(payload.shippingAddress.country).toBe('India');
-    expect(payload.additionalInfo).toBe('Leave at door');
+    expect(so.billingAddress).toEqual({ referenceId: 'shipping' });
+    expect(so.shippingAddress).toEqual({ referenceId: 'shipping' });
   });
 
-  it('maps COD orders with COD charges and no prepaid amount', () => {
+  it('maps sale order items with correct codes and prices', () => {
+    const payload = mapOrderToUnicommercePayload(buildOrder());
+    const so = payload.saleOrder;
+
+    expect(so.saleOrderItems).toHaveLength(1);
+    const item = so.saleOrderItems[0];
+    expect(item.code).toBe('ORD123456780001-1');
+    expect(item.itemSku).toBe('SKU-001');
+    expect(item.shippingMethodCode).toBe('STD');
+    expect(item.sellingPrice).toBe('499');
+    expect(item.totalPrice).toBe('998');
+    expect(item.prepaidAmount).toBe('998');
+    expect(item.giftWrap).toBe(false);
+  });
+
+  it('maps COD orders: cashOnDelivery=true, prepaidAmount=0', () => {
     const payload = mapOrderToUnicommercePayload(
       buildOrder({ paymentMethod: OrderPaymentMethod.COD }),
     );
+    const so = payload.saleOrder;
 
-    expect(payload.paymentType).toBe('COD');
-    expect(payload.orderPrice.totalCashOnDeliveryCharges).toBe(20);
-    expect(payload.orderPrice.totalPrepaidAmount).toBe(0);
+    expect(so.cashOnDelivery).toBe(true);
+    expect(so.paymentInstrument).toBe('CASH');
+    expect(so.totalCashOnDeliveryCharges).toBe(20);
+    expect(so.totalPrepaidAmount).toBe(0);
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('0');
   });
 
-  it('maps cancelled orders to CANCELLED status for order and items', () => {
-    const payload = mapOrderToUnicommercePayload(
-      buildOrder({ orderStatus: OrderStatus.CANCELLED }),
-    );
-
-    expect(payload.orderStatus).toBe('CANCELLED');
-    expect(payload.orderItems[0].status).toBe('CANCELLED');
-  });
-
-  it('falls back to internal productId when product relation missing', () => {
-    const order = buildOrder();
-    order.items[0].product = undefined;
-    const payload = mapOrderToUnicommercePayload(order);
-    expect(payload.orderItems[0].productId).toBe('prod-uuid-1');
+  it('defaults channel to CUSTOM when no options given', () => {
+    const payload = mapOrderToUnicommercePayload(buildOrder());
+    expect(payload.saleOrder.channel).toBe('CUSTOM');
   });
 });
