@@ -10,8 +10,6 @@ import { AppModule } from './app.module';
 import { resolveUploadDir } from './config/storage.config';
 import { APP_CONSTANTS } from '@packages/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { registerUnicommerceContentTypeCompat } from '@modules/unicommerce/config/unicommerce-fastify.plugin';
-
 async function bootstrap(): Promise<void> {
   // Read CORS config from process.env before the NestJS app is created so
   // @fastify/cors is registered on the raw Fastify instance BEFORE NestJS
@@ -91,8 +89,6 @@ async function bootstrap(): Promise<void> {
   const port = configService.get<number>('app.port') ?? 3000;
 
   app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX);
-
-  registerUnicommerceContentTypeCompat(app.getHttpAdapter().getInstance());
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Cureka API')
