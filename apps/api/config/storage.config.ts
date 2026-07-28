@@ -51,7 +51,7 @@ export const storageConfig = registerAs('storage', () => {
     gcs: {
       bucket: process.env['GCS_BUCKET_NAME'],
       credentialsPath: resolveGcsCredentialsPath(process.env['GCS_CREDENTIALS_PATH']),
-      signedUrlTtlSeconds: parseInt(process.env['GCS_SIGNED_URL_TTL_SECONDS'] ?? '3600', 10),
+      signedUrlTtlSeconds: parseInt(process.env['GCS_SIGNED_URL_TTL_SECONDS'] ?? '86400', 10),
     },
   };
 });
