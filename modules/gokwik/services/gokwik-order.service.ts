@@ -56,11 +56,6 @@ export class GokwikOrderService {
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
-      await this.assertProviderIdentifiersAvailable(
-        cartId,
-        dto.payment_details.payment_id,
-        dto.meta_data?.gokwik_order_id,
-      );
       const pricedCart = await this.cartService.getCartById(cartId);
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
@@ -86,8 +81,8 @@ export class GokwikOrderService {
           orderId: order.id,
           cartId,
           gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
-          paymentId: dto.payment_details.payment_id.trim(),
-          gatewayTransactionId: dto.payment_details.pg_payment_trnx_id.trim(),
+          paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+          gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
           paymentMethod: dto.payment_details.payment_method,
           paymentAmount: dto.payment_details.payment_amount.toFixed(2),
           prepaidAmount: (dto.meta_data?.ppcod?.prepaid_amount ?? 0).toFixed(2),
@@ -150,8 +145,8 @@ export class GokwikOrderService {
 
       await this.gokwikRepository.updateOrderLink(link.id, {
         gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || link.gokwikOrderId,
-        paymentId: dto.payment_details.payment_id.trim(),
-        gatewayTransactionId: dto.payment_details.pg_payment_trnx_id.trim(),
+        paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+        gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
         paymentMethod: dto.payment_details.payment_method,
         paymentAmount: dto.payment_details.payment_amount.toFixed(2),
         prepaidAmount: (dto.meta_data?.ppcod?.prepaid_amount ?? 0).toFixed(2),
@@ -309,23 +304,9 @@ export class GokwikOrderService {
     }
   }
 
-  private async assertProviderIdentifiersAvailable(
-    cartId: string,
-    paymentId: string,
-    gokwikOrderId?: string,
-  ): Promise<void> {
-    const paymentLink = await this.gokwikRepository.findOrderByPaymentId(paymentId.trim());
-    if (paymentLink && paymentLink.cartId !== cartId) {
-      throw new BadRequestException('GoKwik payment id is already linked to another cart');
-    }
-    if (gokwikOrderId?.trim()) {
-      const orderLink = await this.gokwikRepository.findOrderByGokwikOrderId(
-        gokwikOrderId.trim(),
-      );
-      if (orderLink && orderLink.cartId !== cartId) {
-        throw new BadRequestException('GoKwik order id is already linked to another cart');
-      }
-    }
+  private normalizeOptionalIdentifier(value?: string | null): string | null {
+    const normalized = String(value ?? '').trim();
+    return normalized || null;
   }
 
   private assertDiscountTotal(

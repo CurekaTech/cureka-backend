@@ -43,8 +43,11 @@ describe('mapCartToGokwikCart', () => {
 
     const result = mapCartToGokwikCart(cart, {
       availablePaymentMethods: [
-        { id: 'razor_pay', title: 'Razorpay' },
-        { id: 'cod', title: 'Cash on Delivery' },
+        { id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' },
+        { id: 'cod', title: 'Cash on Delivery', price: 50, currency: 'INR' },
+      ],
+      availableShippingMethods: [
+        { id: 'shipping', price: 45, title: 'Shipping', currency: 'INR' },
       ],
     });
 
@@ -53,7 +56,6 @@ describe('mapCartToGokwikCart', () => {
       collection_ids: ['category-1', 'category-2'],
       stock_status: 'IN_STOCK',
       salable_qty: 3,
-      metaData: [{ label: 'Form', value: 'Tablet' }],
       metadata: {
         product_details: [{ label: 'Form', value: 'Tablet' }],
       },
@@ -65,22 +67,63 @@ describe('mapCartToGokwikCart', () => {
       expect.objectContaining({ code: 'SAVE50', amount: 50 }),
     ]);
     expect(result.available_payment_methods).toEqual([
-      { id: 'razor_pay', title: 'Razorpay' },
-      { id: 'cod', title: 'Cash on Delivery' },
+      { id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' },
+      { id: 'cod', title: 'Cash on Delivery', price: 50, currency: 'INR' },
     ]);
     expect(result.available_shipping_methods).toEqual([
       {
-        id: 'express_shipping',
-        price: 100,
-        title: 'Express Delivery',
+        id: 'shipping',
+        price: 45,
+        title: 'Shipping',
         currency: 'INR',
       },
-      {
-        id: 'free_shipping',
-        price: 0,
-        title: 'Free Shipping',
-        currency: 'INR',
-      },
+    ]);
+  });
+
+  it('falls back to variant label when product details are missing', () => {
+    const cart: CartResponse = {
+      cartId: 'cart-2',
+      totalItems: 1,
+      subtotal: 250,
+      discountAmount: 0,
+      shippingAmount: 0,
+      handlingAmount: 0,
+      platformFee: 0,
+      codCharge: 0,
+      prepaidDiscount: 0,
+      grandTotal: 250,
+      coupon: null,
+      items: [
+        {
+          id: 'line-2',
+          productId: 'product-2',
+          variantId: 'variant-2',
+          productName: 'Fallback Product',
+          sku: 'SKU-2',
+          variantLabel: 'Size: 30 Tabs · Pack Size: 2',
+          quantity: 1,
+          unitPrice: 250,
+          mrp: 250,
+          totalPrice: 250,
+          stock: 10,
+          inStock: true,
+          isAvailable: true,
+          primaryImageUrl: null,
+          productDetails: [],
+          categoryId: 'category-1',
+          subCategoryId: null,
+          subSubCategoryId: null,
+          subSubSubCategoryId: null,
+          brandId: 'brand-1',
+        },
+      ],
+    };
+
+    const result = mapCartToGokwikCart(cart);
+
+    expect(result.items[0].metadata.product_details).toEqual([
+      { label: 'Size', value: '30 Tabs' },
+      { label: 'Pack Size', value: '2' },
     ]);
   });
 });

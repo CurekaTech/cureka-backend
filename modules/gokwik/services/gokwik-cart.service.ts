@@ -10,7 +10,6 @@ import {
   GokwikGetCartSuccessResponse,
 } from '../interfaces/gokwik-cart.interface';
 import {
-  GOKWIK_DEFAULT_SHIPPING_METHODS,
   mapCartToGokwikCart,
 } from '../mappers/gokwik-cart.mapper';
 import {
@@ -19,13 +18,6 @@ import {
 } from '../dto/gokwik-cart-actions.dto';
 
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'cash_free', 'pay_you', 'shipway'] as const;
-
-const PAYMENT_METHOD_TITLES: Record<(typeof PAYMENT_GATEWAY_KEYS)[number], string> = {
-  razor_pay: 'Razorpay',
-  cash_free: 'Cashfree',
-  pay_you: 'PayU',
-  shipway: 'Shipway',
-};
 
 @Injectable()
 export class GokwikCartService {
@@ -49,7 +41,7 @@ export class GokwikCartService {
 
     return {
       data: {
-        cart: mapCartToGokwikCart(cart, await this.getCartMappingOptions()),
+        cart: mapCartToGokwikCart(cart, await this.getCartMappingOptions(cart)),
       },
     };
   }
@@ -64,7 +56,7 @@ export class GokwikCartService {
 
     return {
       data: {
-        cart: mapCartToGokwikCart(cart, await this.getCartMappingOptions()),
+        cart: mapCartToGokwikCart(cart, await this.getCartMappingOptions(cart)),
       },
     };
   }
@@ -79,7 +71,7 @@ export class GokwikCartService {
     return {
       data: {
         cart: mapCartToGokwikCart(cart, {
-          ...(await this.getCartMappingOptions()),
+          ...(await this.getCartMappingOptions(cart)),
           shippingAddress: { postalCode: dto.shipping_address.postal_code },
         }),
       },
@@ -136,7 +128,7 @@ export class GokwikCartService {
     });
     return {
       data: {
-        cart: mapCartToGokwikCart(updated, await this.getCartMappingOptions()),
+        cart: mapCartToGokwikCart(updated, await this.getCartMappingOptions(updated)),
       },
     };
   }
@@ -149,7 +141,7 @@ export class GokwikCartService {
     const updated = await this.cartService.removeCoupon(cart.userId);
     return {
       data: {
-        cart: mapCartToGokwikCart(updated, await this.getCartMappingOptions()),
+        cart: mapCartToGokwikCart(updated, await this.getCartMappingOptions(updated)),
       },
     };
   }
@@ -160,36 +152,59 @@ export class GokwikCartService {
     return cart;
   }
 
-  private async getCartMappingOptions() {
+  private async getCartMappingOptions(cart: { shippingAmount: number; codCharge: number }) {
     return {
-      availablePaymentMethods: await this.resolveAvailablePaymentMethods(),
-      availableShippingMethods: GOKWIK_DEFAULT_SHIPPING_METHODS,
+      availablePaymentMethods: await this.resolveAvailablePaymentMethods(cart.codCharge),
+      availableShippingMethods: this.resolveAvailableShippingMethods(cart.shippingAmount),
     };
   }
 
   /**
-   * Returns each enabled admin payment gateway, always including COD.
+   * Returns prepaid (when any gateway is enabled) and COD.
    */
-  private async resolveAvailablePaymentMethods(): Promise<GokwikAvailablePaymentMethod[]> {
+  private async resolveAvailablePaymentMethods(codCharge: number): Promise<GokwikAvailablePaymentMethod[]> {
     const settings = await this.adminSettingsRepository.findByKeys([...PAYMENT_GATEWAY_KEYS]);
-    const enabledByKey = new Map(
-      settings
-        .filter(
-          (setting) =>
-            setting.status === AdminSettingStatus.ACTIVE &&
-            String(setting.value).trim() === '1',
-        )
-        .map((setting) => [setting.key, setting]),
+    const hasPrepaid = settings.some(
+      (setting) =>
+        setting.status === AdminSettingStatus.ACTIVE &&
+        String(setting.value).trim() === '1',
     );
-
-    const methods: GokwikAvailablePaymentMethod[] = PAYMENT_GATEWAY_KEYS.filter((key) =>
-      enabledByKey.has(key),
-    ).map((key) => ({
-      id: key,
-      title: PAYMENT_METHOD_TITLES[key],
-    }));
-
-    methods.push({ id: 'cod', title: 'Cash on Delivery' });
+    const methods: GokwikAvailablePaymentMethod[] = [];
+    if (hasPrepaid) {
+      methods.push({ id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' });
+    }
+    methods.push({
+      id: 'cod',
+      title: 'Cash on Delivery',
+      price: Math.max(0, Number(codCharge) || 0),
+      currency: 'INR',
+    });
     return methods;
+  }
+
+  /**
+   * Returns only one shipping option based on current cart charge.
+   */
+  private resolveAvailableShippingMethods(shippingAmount: number) {
+    const isChargeable = (Number(shippingAmount) || 0) > 0;
+    if (isChargeable) {
+      return [
+        {
+          id: 'shipping',
+          price: Number(shippingAmount),
+          title: 'Shipping',
+          currency: 'INR',
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'free_shipping',
+        price: 0,
+        title: 'Free Shipping',
+        currency: 'INR',
+      },
+    ];
   }
 }
