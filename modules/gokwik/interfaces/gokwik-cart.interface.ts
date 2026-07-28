@@ -17,7 +17,6 @@ export type GokwikCartItem = {
   salable_qty: number;
   stock_status: 'IN_STOCK' | 'OUT_OF_STOCK';
   serviceable_status?: boolean;
-  metaData: GokwikCartMetaField[];
   metadata: {
     product_details: GokwikCartMetaField[];
   };
@@ -39,6 +38,8 @@ export type GokwikOrderSummaryExtraField = {
 export type GokwikAvailablePaymentMethod = {
   id: string;
   title: string;
+  price: number;
+  currency: string;
 };
 
 export type GokwikAvailableShippingMethod = {

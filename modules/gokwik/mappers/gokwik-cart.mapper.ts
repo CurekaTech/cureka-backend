@@ -35,7 +35,7 @@ export function mapCartToGokwikCart(
   options: GokwikCartMappingOptions = {},
 ): GokwikCart {
   const items: GokwikCartItem[] = cart.items.map((item) => {
-    const productDetails = item.productDetails ?? [];
+    const productDetails = resolveProductDetails(item);
     const inStock = item.inStock ?? (item.isAvailable && isVariantInStock(item.stock));
     const mrp = item.mrp != null && Number.isFinite(item.mrp) ? item.mrp : item.unitPrice;
 
@@ -58,7 +58,6 @@ export function mapCartToGokwikCart(
       salable_qty: getSalableStockQuantity(item.stock, item.quantity),
       stock_status: inStock ? 'IN_STOCK' : 'OUT_OF_STOCK',
       ...(options.shippingAddress ? { serviceable_status: inStock } : {}),
-      metaData: productDetails,
       metadata: {
         product_details: productDetails,
       },
@@ -117,4 +116,42 @@ function buildOrderSummaryExtraFields(cart: CartResponse): GokwikOrderSummaryExt
   }
 
   return fields;
+}
+
+function resolveProductDetails(item: CartResponse['items'][number]) {
+  const fromAttributes = (item.productDetails ?? []).filter(
+    (detail) => detail.label?.trim() && detail.value?.trim(),
+  );
+  if (fromAttributes.length) {
+    return fromAttributes;
+  }
+
+  const fallback = parseVariantLabel(item.variantLabel);
+  if (fallback.length) {
+    return fallback;
+  }
+
+  return item.sku?.trim() ? [{ label: 'SKU', value: item.sku.trim() }] : [];
+}
+
+function parseVariantLabel(label: string | null): Array<{ label: string; value: string }> {
+  if (!label?.trim()) {
+    return [];
+  }
+
+  return label
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const separatorIndex = part.indexOf(':');
+      if (separatorIndex > 0) {
+        return {
+          label: part.slice(0, separatorIndex).trim(),
+          value: part.slice(separatorIndex + 1).trim(),
+        };
+      }
+      return { label: 'Variant', value: part };
+    })
+    .filter((detail) => detail.label && detail.value);
 }
