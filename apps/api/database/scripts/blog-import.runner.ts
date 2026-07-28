@@ -129,38 +129,126 @@ const buildExcerpt = (metaDescription: string | null, content: string): string |
   return truncate(plain, 500);
 };
 
+const BLOCK_TAGS =
+  'ol|ul|li|h[1-6]|table|thead|tbody|tfoot|tr|td|th|blockquote|div|section|article|figure|figcaption|picture|pre|hr|img|video|iframe|nav|header|footer';
+
+/** Replace 2+ spaces only in text nodes so HTML attributes/tags stay intact. */
+const replaceMultiSpacesOutsideTags = (html: string, replacement: string): string => {
+  let result = '';
+  let index = 0;
+  while (index < html.length) {
+    if (html[index] === '<') {
+      const end = html.indexOf('>', index);
+      if (end === -1) {
+        result += html.slice(index);
+        break;
+      }
+      result += html.slice(index, end + 1);
+      index = end + 1;
+      continue;
+    }
+    let next = index;
+    while (next < html.length && html[next] !== '<') next += 1;
+    result += html.slice(index, next).replace(/ {2,}/g, replacement);
+    index = next;
+  }
+  return result;
+};
+
+/** Repair common WordPress export img attribute damage from the sheet. */
+const fixBrokenImgTags = (html: string): string =>
+  html
+    // class=" src="..."  → src="..."
+    .replace(/<img([^>]*?)\sclass="\s+src="/gi, '<img$1 src="')
+    // alt=" width=" → alt="" width="
+    .replace(/\salt="\s+(width|height|src|class|style)=/gi, ' alt="" $1=')
+    // ensure self-closing-ish imgs stay valid-ish for HTML parsers
+    .replace(/<img([^>]*?)(?<!\/)\s*>/gi, '<img$1 />');
+
+const stripTags = (value: string): string => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
+const HEADING_SKIP =
+  /^(table of contents|written by|reviewed by|references|share this|related posts|leave a comment)/i;
+
+/** Promote strong/b-only paragraphs to h2/h3 (old site used bold as section titles). */
+const promoteStrongParagraphsToHeadings = (html: string): string =>
+  html.replace(/<p>\s*<(strong|b)>([\s\S]*?)<\/\1>\s*<\/p>/gi, (full, _tag, inner: string) => {
+    const text = stripTags(inner);
+    if (!text || text.length > 140 || HEADING_SKIP.test(text)) {
+      return full;
+    }
+    // Numbered sub-sections → h3, main sections → h2
+    if (/^\d+[\).:\s]/.test(text) || /^(less[- ]|when |so why |here('|’)s what)/i.test(text)) {
+      return `<h3><strong>${inner}</strong></h3>`;
+    }
+    return `<h2><strong>${inner}</strong></h2>`;
+  });
+
+/** Merge consecutive single-item <ul>/<ol> lists (common TOC export quirk). */
+const mergeConsecutiveSingleItemLists = (html: string): string => {
+  const pattern =
+    /<(ul|ol)(\s[^>]*)?>\s*<li(\s[^>]*)?>([\s\S]*?)<\/li>\s*<\/\1>(?:\s*<\1(?:\s[^>]*)?>\s*<li(?:\s[^>]*)?>([\s\S]*?)<\/li>\s*<\/\1>)+/gi;
+
+  return html.replace(pattern, (block) => {
+    const typeMatch = block.match(/^<(ul|ol)/i);
+    const listType = typeMatch?.[1]?.toLowerCase() === 'ol' ? 'ol' : 'ul';
+    const items = [...block.matchAll(/<li(\s[^>]*)?>([\s\S]*?)<\/li>/gi)].map(
+      (match) => `<li${match[1] ?? ''}>${match[2]}</li>`,
+    );
+    if (items.length < 2) return block;
+    return `<${listType}>${items.join('')}</${listType}>`;
+  });
+};
+
+const unwrapBlockTagsFromParagraphs = (html: string): string => {
+  let out = html;
+  // Repeated passes: nested wraps from space-splitting around lists/headings/images
+  for (let pass = 0; pass < 4; pass += 1) {
+    const before = out;
+    out = out
+      .replace(new RegExp(`<p>\\s*(<(?:${BLOCK_TAGS})\\b[^>]*>)`, 'gi'), '$1')
+      .replace(new RegExp(`(</(?:${BLOCK_TAGS})>)\\s*</p>`, 'gi'), '$1')
+      .replace(new RegExp(`<p>\\s*(</(?:${BLOCK_TAGS})>)`, 'gi'), '$1')
+      .replace(new RegExp(`(<(?:${BLOCK_TAGS})\\b[^>]*/?>)\\s*</p>`, 'gi'), '$1')
+      .replace(/<p>\s*<\/p>/gi, '');
+    if (out === before) break;
+  }
+  return out;
+};
+
 /**
- * Old-site sheet content often uses 2–4 spaces instead of <p>/<br>.
- * Browsers collapse those spaces, so Q&A dialogue renders as one line.
+ * Rebuild readable HTML from old-site sheet content:
+ * - keep every existing tag (h1–h6, ul/ol/li, img, a, strong, …)
+ * - convert multi-space breaks to <p>
+ * - promote bold-only section titles to h2/h3
+ * - repair broken <img> attributes
+ * - merge single-item TOC lists
  */
 const normalizeImportedBlogContent = (content: string): string => {
-  let html = content.replace(/\u00a0/g, ' ').trim();
+  let html = content.replace(/\u00a0/g, ' ').replace(/\r\n?/g, '\n').trim();
   if (!html) return html;
+
+  html = fixBrokenImgTags(html);
 
   const hasParagraphs = (html.match(/<p[\s>]/gi) || []).length >= 2;
   const hasBreaks = (html.match(/<br\s*\/?>/gi) || []).length >= 3;
+
   if (hasParagraphs || hasBreaks) {
-    return html.replace(/ {2,}/g, ' ');
+    // Already structured — still repair imgs/lists/headings lightly
+    html = replaceMultiSpacesOutsideTags(html, ' ');
+    html = mergeConsecutiveSingleItemLists(html);
+    html = promoteStrongParagraphsToHeadings(html);
+    return html.replace(/\t+/g, '');
   }
 
-  html = html.replace(/ {2,}/g, '</p><p>');
+  // Plain/WP-fragment HTML: multi-spaces were paragraph separators
+  html = replaceMultiSpacesOutsideTags(html, '</p><p>');
   html = `<p>${html}</p>`;
   html = html.replace(/<p>\s*<\/p>/gi, '');
-
-  // Keep block-level tags outside paragraphs
-  html = html
-    .replace(/<p>\s*(<(?:ol|ul|h[1-6]|table|blockquote|div|section|hr)\b[^>]*>)/gi, '$1')
-    .replace(/(<\/(?:ol|ul|h[1-6]|table|blockquote|div|section)>)\s*<\/p>/gi, '$1')
-    .replace(/<p>\s*(<(?:ol|ul|h[1-6]|table|blockquote|div|section)\b)/gi, '$1')
-    .replace(
-      /(<\/?(?:ol|ul|li|h[1-6]|table|thead|tbody|tr|td|th|blockquote|div|section|hr)[^>]*>)\s*<\/p>/gi,
-      '$1',
-    )
-    .replace(/<p>\s*(<\/(?:ol|ul|li|h[1-6]|table|thead|tbody|tr|td|th|blockquote|div|section)>)/gi, '$1')
-    .replace(/<p>\s*(<(?:li|tr|td|th)\b[^>]*>)/gi, '$1')
-    .replace(/(<\/(?:li|tr|td|th)>)\s*<\/p>/gi, '$1')
-    .replace(/<p>\s*<\/p>/gi, '')
-    .replace(/\t+/g, '');
+  html = unwrapBlockTagsFromParagraphs(html);
+  html = mergeConsecutiveSingleItemLists(html);
+  html = promoteStrongParagraphsToHeadings(html);
+  html = html.replace(/\t+/g, '').replace(/<p>\s*<\/p>/gi, '');
 
   return html;
 };
@@ -193,7 +281,8 @@ Options:
 Notes:
   - Without --category-ref-id, a "General" category is ensured (created if missing)
   - Existing posts with the same slug are skipped unless --update is passed
-  - Multi-space paragraph breaks from the old site are converted to <p> tags
+  - Preserves HTML tags; converts multi-space breaks to <p>; promotes bold titles to h2/h3
+  - Repairs broken <img> tags from the old WordPress export
 `);
       process.exit(0);
     }
