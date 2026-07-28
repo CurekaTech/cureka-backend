@@ -16,6 +16,8 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { CategoriesService } from '../services/categories.service';
 import {
   UpdateCategoryStatusDto,
@@ -24,13 +26,14 @@ import {
   ReorderCategoriesDto,
 } from '../dto/category.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('master/categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @ResponseMessage('Category created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -39,6 +42,7 @@ export class CategoriesController {
 
   @ResponseMessage('Categories retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.read')
   @Get()
   findAll(@Query() query: CategoryQueryDto) {
     return this.categoriesService.findAll(query);
@@ -48,6 +52,7 @@ export class CategoriesController {
   // literal "tree" as a refId param.
   @ResponseMessage('Category tree retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.read')
   @Get('tree')
   findTree() {
     return this.categoriesService.findTree();
@@ -55,6 +60,7 @@ export class CategoriesController {
 
   @ResponseMessage('Header categories retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.read')
   @Get('header')
   findHeaderCategories(@Query() query: CategoryPlacementQueryDto) {
     return this.categoriesService.findHeaderCategoriesForIndexing(query.parentCategoryRefId);
@@ -62,6 +68,7 @@ export class CategoriesController {
 
   @ResponseMessage('Shop-by categories retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.read')
   @Get('shop-by')
   findShopByCategories() {
     return this.categoriesService.findShopByCategoriesForIndexing();
@@ -69,6 +76,7 @@ export class CategoriesController {
 
   @ResponseMessage('Header category order updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.update')
   @Patch('reorder-header')
   reorderHeader(
     @Body() dto: ReorderCategoriesDto,
@@ -79,6 +87,7 @@ export class CategoriesController {
 
   @ResponseMessage('Shop-by category order updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.update')
   @Patch('reorder-shop-by')
   reorderShopBy(
     @Body() dto: ReorderCategoriesDto,
@@ -89,6 +98,7 @@ export class CategoriesController {
 
   @ResponseMessage('Category retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.categoriesService.findOne(refId);
@@ -96,6 +106,7 @@ export class CategoriesController {
 
   @ResponseMessage('Category status updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -107,6 +118,7 @@ export class CategoriesController {
 
   @ResponseMessage('Category updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -117,7 +129,8 @@ export class CategoriesController {
   }
 
   @ResponseMessage('Category deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('categories.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.OK)
   remove(@Param('refId', RefIdPipe) refId: string) {
