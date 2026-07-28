@@ -53,7 +53,7 @@ FAIL modules/search/mappers/typesense-product.mapper.spec.ts
 > `getActingAdmin()` (lines 85–91) returns a hardcoded `SUPER_ADMIN` payload when no JWT is present. Combined with disabled guards, any anonymous caller can create, list, update, and deactivate staff users with super-admin privileges.
 
 **[Blocker]** `apps/api/database/seeds/seed.runner.ts` — Hardcoded credential in source
-> `const SEED_PASSWORD = 'Admin@1234'` (line 12) is a plaintext credential committed to source. Automatic blocker per `config.md` (hardcoded secret or credential). Password is also printed to stdout on seed run (line 42).
+> `const SEED_PASSWORD = '...'` (line 12) is a plaintext credential committed to source. Automatic blocker per `config.md` (hardcoded secret or credential). Password is also printed to stdout on seed run (line 42).
 
 **[Warning]** `modules/payment-requests/controllers/payments-webhook.controller.ts` — `console.log` with webhook signature
 > Cashfree webhook handler logs `signature` and `timestamp` via `console.log` (lines 72–78). Webhook signatures are sensitive verification material and must not appear in logs. Also logs full `payload` via `this.logger.log` (line 80).

@@ -9,13 +9,17 @@ import { AdminUserEntity } from '../../../../modules/admin-users/entities/admin-
 import { AdminUserRole } from '../../../../modules/admin-users/enums/admin-user-role.enum';
 
 const SEED_EMAIL = 'superadmin@cureka.com';
-const SEED_PASSWORD = 'Admin@1234';
+const SEED_PASSWORD = process.env['SEED_ADMIN_PASSWORD']?.trim() ?? '';
 const BCRYPT_ROUNDS = 12;
 
 async function run(): Promise<void> {
   await AppDataSource.initialize();
 
   try {
+    if (!SEED_PASSWORD) {
+      throw new Error('SEED_ADMIN_PASSWORD is required');
+    }
+
     const repo = AppDataSource.getRepository(AdminUserEntity);
 
     const existing = await repo.findOne({ where: { email: SEED_EMAIL } });
@@ -39,7 +43,7 @@ async function run(): Promise<void> {
 
     console.log('[seed] Super-admin created successfully.');
     console.log(`  Email   : ${SEED_EMAIL}`);
-    console.log(`  Password: ${SEED_PASSWORD}`);
+    console.log('  Password: [from SEED_ADMIN_PASSWORD]');
     console.log('  Change this password immediately after first login.');
   } finally {
     await AppDataSource.destroy();

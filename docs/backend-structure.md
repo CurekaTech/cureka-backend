@@ -128,7 +128,7 @@ modules/<name>/
 | `DATABASE_LOGGING` | `false` to suppress SQL query logs |
 | `REDIS_HOST/PORT/PASSWORD` | Cache + queue |
 
-**Seed admin:** `npm run seed:run` → `superadmin@cureka.com` / `Admin@1234`
+**Seed admin:** `SEED_ADMIN_PASSWORD=<your-strong-password> npm run seed:run` → `superadmin@cureka.com`
 
 ---
 
