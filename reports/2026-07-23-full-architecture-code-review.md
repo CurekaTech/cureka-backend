@@ -165,7 +165,7 @@ When a UUID param is not validated at the pipe layer, an attacker can send malfo
 
 #### 🔵 Nit — Hardcoded seed password
 
-`apps/api/database/seeds/seed.runner.ts:11–12` contains `Admin@1234` hardcoded. While this is a seed script (not a live API route), the password should be read from an environment variable so it can be rotated without a code change.
+`apps/api/database/seeds/seed.runner.ts:11–12` contains a hardcoded seed password. While this is a seed script (not a live API route), the password should be read from an environment variable so it can be rotated without a code change.
 
 ---
 

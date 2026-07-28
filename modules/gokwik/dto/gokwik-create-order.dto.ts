@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDefined,
@@ -25,20 +25,22 @@ export class GokwikPaymentDetailsDto {
   @Min(0)
   payment_amount!: number;
 
-  @IsNotEmpty()
+  @IsOptional()
+  @Transform(({ value }) => (value == null ? undefined : String(value).trim()))
   @IsString()
   @MaxLength(200)
-  payment_id!: string;
+  payment_id?: string;
 
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
   payment_instrument!: string;
 
-  @IsNotEmpty()
+  @IsOptional()
+  @Transform(({ value }) => (value == null ? undefined : String(value).trim()))
   @IsString()
   @MaxLength(200)
-  pg_payment_trnx_id!: string;
+  pg_payment_trnx_id?: string;
 }
 
 export class GokwikAddressDto {

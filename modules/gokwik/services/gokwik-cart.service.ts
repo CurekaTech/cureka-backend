@@ -1,17 +1,23 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
+import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { CartService } from '@modules/orders/services/cart.service';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import {
   GokwikAvailableCouponsResponse,
+  GokwikAvailablePaymentMethod,
   GokwikGetCartSuccessResponse,
 } from '../interfaces/gokwik-cart.interface';
-import { mapCartToGokwikCart } from '../mappers/gokwik-cart.mapper';
+import {
+  mapCartToGokwikCart,
+} from '../mappers/gokwik-cart.mapper';
 import {
   GokwikDiscountDto,
   GokwikSetShippingAddressDto,
 } from '../dto/gokwik-cart-actions.dto';
+
+const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'cash_free', 'pay_you', 'shipway'] as const;
 
 @Injectable()
 export class GokwikCartService {
@@ -19,7 +25,7 @@ export class GokwikCartService {
     private readonly cartService: CartService,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly couponsRepository: CouponsRepository,
-    private readonly configService: ConfigService,
+    private readonly adminSettingsRepository: AdminSettingsRepository,
   ) {}
 
   async getCart(cartId: string): Promise<GokwikGetCartSuccessResponse> {
@@ -35,7 +41,7 @@ export class GokwikCartService {
 
     return {
       data: {
-        cart: mapCartToGokwikCart(cart, { origin: this.getOrigin() }),
+        cart: mapCartToGokwikCart(cart, await this.getCartMappingOptions(cart)),
       },
     };
   }
@@ -50,7 +56,7 @@ export class GokwikCartService {
 
     return {
       data: {
-        cart: mapCartToGokwikCart(cart, { origin: this.getOrigin() }),
+        cart: mapCartToGokwikCart(cart, await this.getCartMappingOptions(cart)),
       },
     };
   }
@@ -65,7 +71,7 @@ export class GokwikCartService {
     return {
       data: {
         cart: mapCartToGokwikCart(cart, {
-          origin: this.getOrigin(),
+          ...(await this.getCartMappingOptions(cart)),
           shippingAddress: { postalCode: dto.shipping_address.postal_code },
         }),
       },
@@ -120,7 +126,11 @@ export class GokwikCartService {
     const updated = await this.cartService.applyCoupon(cart.userId, {
       couponCode: dto.discount_code.trim(),
     });
-    return { data: { cart: mapCartToGokwikCart(updated, { origin: this.getOrigin() }) } };
+    return {
+      data: {
+        cart: mapCartToGokwikCart(updated, await this.getCartMappingOptions(updated)),
+      },
+    };
   }
 
   async removeDiscount(dto: GokwikDiscountDto): Promise<GokwikGetCartSuccessResponse> {
@@ -129,7 +139,11 @@ export class GokwikCartService {
       throw new BadRequestException('Discount code is not applied to this cart');
     }
     const updated = await this.cartService.removeCoupon(cart.userId);
-    return { data: { cart: mapCartToGokwikCart(updated, { origin: this.getOrigin() }) } };
+    return {
+      data: {
+        cart: mapCartToGokwikCart(updated, await this.getCartMappingOptions(updated)),
+      },
+    };
   }
 
   private async requireCart(cartId: string) {
@@ -138,12 +152,59 @@ export class GokwikCartService {
     return cart;
   }
 
-  private getOrigin() {
+  private async getCartMappingOptions(cart: { shippingAmount: number; codCharge: number }) {
     return {
-      city: this.configService.get<string>('gokwik.origin.city') ?? '',
-      state: this.configService.get<string>('gokwik.origin.state') ?? '',
-      pincode: this.configService.get<string>('gokwik.origin.pincode') ?? '',
-      country: this.configService.get<string>('gokwik.origin.country') ?? 'India',
+      availablePaymentMethods: await this.resolveAvailablePaymentMethods(cart.codCharge),
+      availableShippingMethods: this.resolveAvailableShippingMethods(cart.shippingAmount),
     };
+  }
+
+  /**
+   * Returns prepaid (when any gateway is enabled) and COD.
+   */
+  private async resolveAvailablePaymentMethods(codCharge: number): Promise<GokwikAvailablePaymentMethod[]> {
+    const settings = await this.adminSettingsRepository.findByKeys([...PAYMENT_GATEWAY_KEYS]);
+    const hasPrepaid = settings.some(
+      (setting) =>
+        setting.status === AdminSettingStatus.ACTIVE &&
+        String(setting.value).trim() === '1',
+    );
+    const methods: GokwikAvailablePaymentMethod[] = [];
+    if (hasPrepaid) {
+      methods.push({ id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' });
+    }
+    methods.push({
+      id: 'cod',
+      title: 'Cash on Delivery',
+      price: Math.max(0, Number(codCharge) || 0),
+      currency: 'INR',
+    });
+    return methods;
+  }
+
+  /**
+   * Returns only one shipping option based on current cart charge.
+   */
+  private resolveAvailableShippingMethods(shippingAmount: number) {
+    const isChargeable = (Number(shippingAmount) || 0) > 0;
+    if (isChargeable) {
+      return [
+        {
+          id: 'shipping',
+          price: Number(shippingAmount),
+          title: 'Shipping',
+          currency: 'INR',
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'free_shipping',
+        price: 0,
+        title: 'Free Shipping',
+        currency: 'INR',
+      },
+    ];
   }
 }

@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsEmail,
   IsDefined,
@@ -80,9 +80,8 @@ export class GokwikUtmDetailsDto {
 }
 
 export class GokwikPlaceOrderDto {
-  @IsNotEmpty()
-  @IsString()
-  @MaxLength(50)
+  /** Coerced from number/string; GoKwik may send non-string values. */
+  @Transform(({ value }) => (value == null ? '' : String(value).trim()))
   order_id!: string;
 
   @IsNotEmpty()

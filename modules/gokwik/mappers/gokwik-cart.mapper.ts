@@ -1,15 +1,33 @@
 import { isVariantInStock, getSalableStockQuantity } from '@packages/common';
 import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface';
 import {
+  GokwikAvailablePaymentMethod,
+  GokwikAvailableShippingMethod,
   GokwikCart,
   GokwikCartDiscount,
   GokwikCartItem,
   GokwikOrderSummaryExtraField,
 } from '../interfaces/gokwik-cart.interface';
 
+export const GOKWIK_DEFAULT_SHIPPING_METHODS: GokwikAvailableShippingMethod[] = [
+  {
+    id: 'express_shipping',
+    price: 100,
+    title: 'Express Delivery',
+    currency: 'INR',
+  },
+  {
+    id: 'free_shipping',
+    price: 0,
+    title: 'Free Shipping',
+    currency: 'INR',
+  },
+];
+
 export type GokwikCartMappingOptions = {
-  origin?: { city: string; state: string; pincode: string; country: string };
   shippingAddress?: { postalCode: string };
+  availablePaymentMethods?: GokwikAvailablePaymentMethod[];
+  availableShippingMethods?: GokwikAvailableShippingMethod[];
 };
 
 export function mapCartToGokwikCart(
@@ -17,7 +35,7 @@ export function mapCartToGokwikCart(
   options: GokwikCartMappingOptions = {},
 ): GokwikCart {
   const items: GokwikCartItem[] = cart.items.map((item) => {
-    const productDetails = item.productDetails ?? [];
+    const productDetails = resolveProductDetails(item);
     const inStock = item.inStock ?? (item.isAvailable && isVariantInStock(item.stock));
     const mrp = item.mrp != null && Number.isFinite(item.mrp) ? item.mrp : item.unitPrice;
 
@@ -40,22 +58,8 @@ export function mapCartToGokwikCart(
       salable_qty: getSalableStockQuantity(item.stock, item.quantity),
       stock_status: inStock ? 'IN_STOCK' : 'OUT_OF_STOCK',
       ...(options.shippingAddress ? { serviceable_status: inStock } : {}),
-      metaData: productDetails,
       metadata: {
-        pre_checkout_location: options.origin ?? {
-          city: '',
-          state: '',
-          pincode: '',
-          country: 'India',
-        },
-        ...(productDetails.length ? { product_details: productDetails } : {}),
-        ...(options.shippingAddress
-          ? {
-              edd: buildStaticEdd(),
-              try_and_buy: { enabled: false, instructions: '' },
-              non_serviceable_message: inStock ? '' : 'This item is currently unavailable',
-            }
-          : {}),
+        product_details: productDetails,
       },
     };
   });
@@ -87,26 +91,11 @@ export function mapCartToGokwikCart(
     membership_discount: 0,
     cashback_amount: 0,
     total_tax: 0,
-    available_payment_methods: [],
+    available_payment_methods: options.availablePaymentMethods ?? [],
     available_coupons: [],
-    available_shipping_methods: [],
+    available_shipping_methods:
+      options.availableShippingMethods ?? GOKWIK_DEFAULT_SHIPPING_METHODS,
     order_summary_extra_fields: orderSummaryExtraFields,
-  };
-}
-
-function buildStaticEdd() {
-  const min = new Date();
-  const max = new Date();
-  min.setUTCDate(min.getUTCDate() + 3);
-  max.setUTCDate(max.getUTCDate() + 7);
-  const minDate = min.toISOString().slice(0, 10);
-  const maxDate = max.toISOString().slice(0, 10);
-  return {
-    shipment_group: 1,
-    default: { min_date: minDate, max_date: maxDate },
-    by_shipping_method: [
-      { shipping_id: 'standard', min_date: minDate, max_date: maxDate },
-    ],
   };
 }
 
@@ -127,4 +116,42 @@ function buildOrderSummaryExtraFields(cart: CartResponse): GokwikOrderSummaryExt
   }
 
   return fields;
+}
+
+function resolveProductDetails(item: CartResponse['items'][number]) {
+  const fromAttributes = (item.productDetails ?? []).filter(
+    (detail) => detail.label?.trim() && detail.value?.trim(),
+  );
+  if (fromAttributes.length) {
+    return fromAttributes;
+  }
+
+  const fallback = parseVariantLabel(item.variantLabel);
+  if (fallback.length) {
+    return fallback;
+  }
+
+  return item.sku?.trim() ? [{ label: 'SKU', value: item.sku.trim() }] : [];
+}
+
+function parseVariantLabel(label: string | null): Array<{ label: string; value: string }> {
+  if (!label?.trim()) {
+    return [];
+  }
+
+  return label
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const separatorIndex = part.indexOf(':');
+      if (separatorIndex > 0) {
+        return {
+          label: part.slice(0, separatorIndex).trim(),
+          value: part.slice(separatorIndex + 1).trim(),
+        };
+      }
+      return { label: 'Variant', value: part };
+    })
+    .filter((detail) => detail.label && detail.value);
 }

@@ -376,6 +376,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
         key: 'products-gallery',
         icon: 'ImageIcon',
         href: '/products/gallery',
+        requiredPermissions: ['gallery.read'],
       },
       {
         name: 'Product Reviews',

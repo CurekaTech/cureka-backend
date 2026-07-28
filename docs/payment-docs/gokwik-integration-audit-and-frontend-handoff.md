@@ -12,7 +12,7 @@ The backend now provides:
 - Unique provider identifiers and cart-level locking for retry/concurrency safety.
 - Locked order confirmation and atomic stock decrements to prevent duplicate placement and overselling.
 - Explicit `GOKWIK_PREPAID`, `GOKWIK_PARTIAL_COD`, and `GoKwik` order source values.
-- Exact customer/cart ownership checks, normalized Indian mobile validation, address deduplication, and amount reconciliation.
+- Normalized Indian mobile validation, address deduplication, and amount reconciliation.
 - Five Cureka shipping slabs, hybrid coupon revalidation, and product collection IDs in Get Cart.
 - Durable BullMQ jobs for webhook processing, product/collection sync, and fulfillment updates.
 - KwikPass JWE exchange into Cureka's normal cookie session, including guest-cart conversion/merge.

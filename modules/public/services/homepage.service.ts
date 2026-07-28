@@ -128,11 +128,13 @@ export class HomepageService {
   }
 
   async getBestSellers(): Promise<IPublicBestSellersSection> {
-    return this.cacheStrategy.cacheAside({
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.bestSellers(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadBestSellersUncached(),
     });
+    // Sign storage references AFTER cache read so signed URLs are never persisted.
+    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after product/category mutations. */
@@ -186,11 +188,13 @@ export class HomepageService {
   }
 
   async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {
-    return this.cacheStrategy.cacheAside({
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.watchAndShop(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadWatchAndShopUncached(),
     });
+    // Sign storage references AFTER cache read so signed URLs are never persisted.
+    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after Watch & Shop item mutations. */
@@ -273,11 +277,12 @@ export class HomepageService {
   }
 
   async getShopByWellnessGoals(): Promise<IPublicWellnessGoalCard[]> {
-    return this.cacheStrategy.cacheAside({
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.shopByWellnessGoals(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadShopByWellnessGoalsUncached(),
     });
+    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after wellness goal mutations. */
@@ -294,11 +299,12 @@ export class HomepageService {
   }
 
   async getExpertCuratedBundles(): Promise<IPublicHealthConcernCard[]> {
-    return this.cacheStrategy.cacheAside({
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.expertCuratedBundles(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadExpertCuratedBundlesUncached(),
     });
+    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after health concern mutations. Banner is intentionally omitted. */
@@ -317,11 +323,12 @@ export class HomepageService {
   }
 
   async getBrandsWeTrust(): Promise<IPublicBrandCard[]> {
-    return this.cacheStrategy.cacheAside({
+    const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.brandsWeTrust(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadBrandsWeTrustUncached(),
     });
+    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after brand mutations. */

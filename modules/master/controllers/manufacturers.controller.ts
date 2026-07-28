@@ -13,25 +13,23 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { RefIdPipe } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
+import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ManufacturersService } from '../services/manufacturers.service';
 import { UpdateManufacturerStatusDto } from '../dto/manufacturer.dto';
 import { MasterListQueryDto } from '../dto/master-list-query.dto';
-import { JwtAuthGuard } from '@packages/auth';
-import { RolesGuard } from '@packages/auth';
-import { Roles } from '@packages/auth';
-import { CurrentAdminUser } from '@packages/auth';
-import { IAdminJwtPayload } from '@packages/auth';
-import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { ResponseMessage } from '@packages/common';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('master/manufacturers')
 export class ManufacturersController {
   constructor(private readonly manufacturersService: ManufacturersService) {}
 
   @ResponseMessage('Manufacturer created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('manufacturers.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -40,6 +38,7 @@ export class ManufacturersController {
 
   @ResponseMessage('Manufacturers retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('manufacturers.read')
   @Get()
   findAll(@Query() query: MasterListQueryDto) {
     return this.manufacturersService.findAll(query);
@@ -47,13 +46,15 @@ export class ManufacturersController {
 
   @ResponseMessage('Manufacturer retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('manufacturers.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.manufacturersService.findOne(refId);
   }
 
   @ResponseMessage('Manufacturer updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('manufacturers.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -65,6 +66,7 @@ export class ManufacturersController {
 
   @ResponseMessage('Manufacturer status updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('manufacturers.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -75,7 +77,8 @@ export class ManufacturersController {
   }
 
   @ResponseMessage('Manufacturer deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('manufacturers.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {

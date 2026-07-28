@@ -228,8 +228,10 @@ export class StorageService {
     if (driver !== 'gcs') return 0;
 
     const signedUrlTtlSeconds =
-      this.configService.get<number>('storage.gcs.signedUrlTtlSeconds') ?? 3600;
-    // Refresh before the signed URL itself expires.
-    return Math.max(60_000, signedUrlTtlSeconds * 1000 - 60_000);
+      this.configService.get<number>('storage.gcs.signedUrlTtlSeconds') ?? 86400;
+    // Refresh 5 minutes before the signed URL expires so clients always receive
+    // URLs with meaningful remaining validity (not just seconds).
+    const bufferMs = 5 * 60 * 1000;
+    return Math.max(bufferMs, signedUrlTtlSeconds * 1000 - bufferMs);
   }
 }

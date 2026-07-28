@@ -9,7 +9,7 @@ import { AdminSettingEntity } from '../entities/admin-setting.entity';
 const SHIPROCKET_CHECKOUT_ENABLED_KEY = 'shiprocketCheckoutEnabled';
 const GOKWIK_CHECKOUT_ENABLED_KEY = 'gokwikCheckoutEnabled';
 const GOKWIK_SHIPPING_SLABS_KEY = 'gokwik_shipping_slabs';
-const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'pay_you', 'cash_free'];
+const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'pay_you', 'cash_free', 'shipway'];
 const PAYMENT_SETTING_KEYS = [
   ...PAYMENT_GATEWAY_KEYS,
   SHIPROCKET_CHECKOUT_ENABLED_KEY,

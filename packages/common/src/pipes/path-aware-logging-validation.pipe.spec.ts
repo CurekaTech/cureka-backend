@@ -50,6 +50,19 @@ describe('PathAwareLoggingValidationPipe', () => {
     });
   });
 
+  it('allows extra fields on GoKwik routes', async () => {
+    const pipe = new PathAwareLoggingValidationPipe({
+      url: '/api/v1/gokwik/check-order-exists',
+    } as never);
+
+    await expect(
+      pipe.transform(
+        { id: '1', user_phone: '9876543210', user_email: 'a@b.com' },
+        { type: 'body', metatype: StrictDto },
+      ),
+    ).resolves.toEqual({ id: '1' });
+  });
+
   it('rejects non-whitelisted fields on regular API routes', async () => {
     const pipe = new PathAwareLoggingValidationPipe({
       url: '/api/v1/orders',

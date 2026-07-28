@@ -101,12 +101,6 @@ curl --request POST 'https://<API_HOST>/api/v1/gokwik/get-cart' \
             { "label": "Size", "value": "M" }
           ],
           "metadata": {
-            "pre_checkout_location": {
-              "city": "Chennai",
-              "state": "Tamil Nadu",
-              "pincode": "600001",
-              "country": "India"
-            },
             "product_details": [
               { "label": "Size", "value": "M" }
             ]
@@ -122,9 +116,25 @@ curl --request POST 'https://<API_HOST>/api/v1/gokwik/get-cart' \
           "tnc": ""
         }
       ],
-      "available_payment_methods": [],
+      "available_payment_methods": [
+        { "id": "razor_pay", "title": "Razorpay" },
+        { "id": "cod", "title": "Cash on Delivery" }
+      ],
       "available_coupons": [],
-      "available_shipping_methods": [],
+      "available_shipping_methods": [
+        {
+          "id": "express_shipping",
+          "price": 100,
+          "title": "Express Delivery",
+          "currency": "INR"
+        },
+        {
+          "id": "free_shipping",
+          "price": 0,
+          "title": "Free Shipping",
+          "currency": "INR"
+        }
+      ],
       "order_summary_extra_fields": [
         { "name": "Platform Fee", "value": 0 },
         { "name": "COD Charge", "value": 0 }
@@ -209,7 +219,7 @@ curl --request POST 'https://<API_HOST>/api/v1/gokwik/create-order' \
 | Field | Required | Notes |
 |-------|----------|--------|
 | `cart_id` | Yes | Active cart UUID |
-| `customer_phone` | Yes | 10-digit Indian mobile (`^[6-9]\d{9}$`) — must match cart owner |
+| `customer_phone` | Yes | 10-digit Indian mobile (`^[6-9]\d{9}$`) |
 | `payment_details` | Yes | `payment_method`: `cod` \| `prepaid` \| `pp-cod` |
 | `shipping_address` | Yes (Cureka) | `phone` must match `customer_phone` |
 | `billing_address` | No | Same shape as shipping |
@@ -364,9 +374,13 @@ curl --request POST 'https://<API_HOST>/api/v1/gokwik/check-order-exists' \
 {
   "session_key": "<cart UUID / merchantCheckoutId>",
   "customer_email": "rahul@example.com",
-  "customer_phone": "9876543210"
+  "customer_phone": "9876543210",
+  "user_email": "rahul@example.com",
+  "user_phone": "9876543210"
 }
 ```
+
+Phone/email fields are accepted when sent by GoKwik but are not used to reject the lookup. Existence is resolved by `session_key` (cart id) only.
 
 ### Success `200` — order found
 
