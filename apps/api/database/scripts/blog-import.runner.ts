@@ -16,7 +16,8 @@
  * Usage:
  *   npm run blog:import -- --file="docs/BlogDetailsFinal.xlsx"
  *   npm run blog:apply
- *   npm run blog:import -- --file="docs/BlogDetailsFinal.xlsx" --category-ref-id=GEN2026XXXXXX --apply
+ *   npm run blog:update
+ *   npm run blog:import -- --file="docs/BlogDetailsFinal.xlsx" --update --apply
  */
 import 'reflect-metadata';
 import * as ExcelJS from 'exceljs';
@@ -39,12 +40,20 @@ interface CliOptions {
   file: string;
   sheet?: string;
   apply: boolean;
+  update: boolean;
   batchSize: number;
   categoryRefId?: string;
   author?: string;
 }
 
-type RowStatus = 'pending_create' | 'created' | 'unchanged' | 'invalid' | 'duplicate_sheet';
+type RowStatus =
+  | 'pending_create'
+  | 'pending_update'
+  | 'created'
+  | 'updated'
+  | 'unchanged'
+  | 'invalid'
+  | 'duplicate_sheet';
 
 interface BlogSheetRow {
   rowNumber: number;
@@ -116,14 +125,51 @@ const truncate = (value: string | null | undefined, max: number): string | null 
 
 const buildExcerpt = (metaDescription: string | null, content: string): string | null => {
   if (metaDescription?.trim()) return truncate(metaDescription, 500);
-  const plain = content.replace(/\s+/g, ' ').trim();
+  const plain = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   return truncate(plain, 500);
+};
+
+/**
+ * Old-site sheet content often uses 2–4 spaces instead of <p>/<br>.
+ * Browsers collapse those spaces, so Q&A dialogue renders as one line.
+ */
+const normalizeImportedBlogContent = (content: string): string => {
+  let html = content.replace(/\u00a0/g, ' ').trim();
+  if (!html) return html;
+
+  const hasParagraphs = (html.match(/<p[\s>]/gi) || []).length >= 2;
+  const hasBreaks = (html.match(/<br\s*\/?>/gi) || []).length >= 3;
+  if (hasParagraphs || hasBreaks) {
+    return html.replace(/ {2,}/g, ' ');
+  }
+
+  html = html.replace(/ {2,}/g, '</p><p>');
+  html = `<p>${html}</p>`;
+  html = html.replace(/<p>\s*<\/p>/gi, '');
+
+  // Keep block-level tags outside paragraphs
+  html = html
+    .replace(/<p>\s*(<(?:ol|ul|h[1-6]|table|blockquote|div|section|hr)\b[^>]*>)/gi, '$1')
+    .replace(/(<\/(?:ol|ul|h[1-6]|table|blockquote|div|section)>)\s*<\/p>/gi, '$1')
+    .replace(/<p>\s*(<(?:ol|ul|h[1-6]|table|blockquote|div|section)\b)/gi, '$1')
+    .replace(
+      /(<\/?(?:ol|ul|li|h[1-6]|table|thead|tbody|tr|td|th|blockquote|div|section|hr)[^>]*>)\s*<\/p>/gi,
+      '$1',
+    )
+    .replace(/<p>\s*(<\/(?:ol|ul|li|h[1-6]|table|thead|tbody|tr|td|th|blockquote|div|section)>)/gi, '$1')
+    .replace(/<p>\s*(<(?:li|tr|td|th)\b[^>]*>)/gi, '$1')
+    .replace(/(<\/(?:li|tr|td|th)>)\s*<\/p>/gi, '$1')
+    .replace(/<p>\s*<\/p>/gi, '')
+    .replace(/\t+/g, '');
+
+  return html;
 };
 
 const parseCli = (argv: string[]): CliOptions => {
   const options: CliOptions = {
     file: DEFAULT_FILE,
     apply: false,
+    update: false,
     batchSize: DEFAULT_BATCH_SIZE,
   };
 
@@ -141,17 +187,21 @@ Options:
   --category-ref-id <refId>     Existing blog category ref_id (optional)
   --author <name>               Author string stored on each post (optional)
   --batch-size <number>         Creates per transaction (default: ${DEFAULT_BATCH_SIZE})
+  --update                      Refresh content/SEO for existing slugs
   --apply                       Write changes (without this flag, dry-run only)
 
 Notes:
   - Without --category-ref-id, a "General" category is ensured (created if missing)
-  - Existing posts with the same slug are skipped
+  - Existing posts with the same slug are skipped unless --update is passed
+  - Multi-space paragraph breaks from the old site are converted to <p> tags
 `);
       process.exit(0);
     }
 
     if (arg === '--apply') {
       options.apply = true;
+    } else if (arg === '--update') {
+      options.update = true;
     } else if (arg.startsWith('--file=')) {
       options.file = arg.slice('--file='.length);
     } else if (arg === '--file' && next) {
@@ -239,7 +289,7 @@ const readBlogRowsFromSheet = async (
       rowNumber,
       blogId: col.blogId ? cellText(excelRow.getCell(col.blogId)) : '',
       title,
-      content,
+      content: normalizeImportedBlogContent(content),
       blogUrl: col.blogUrl ? cellText(excelRow.getCell(col.blogUrl)) : '',
       publishedAt: col.publishedDate ? cellDate(excelRow.getCell(col.publishedDate)) : null,
       lastModified: col.lastModified ? cellDate(excelRow.getCell(col.lastModified)) : null,
@@ -326,7 +376,9 @@ const ensureCategoryRefId = async (
 const run = async (options: CliOptions): Promise<void> => {
   const filePath = absolutePath(options.file);
   console.log(`[blog-import] File: ${filePath}`);
-  console.log(`[blog-import] Mode: ${options.apply ? 'APPLY' : 'DRY RUN'}`);
+  console.log(
+    `[blog-import] Mode: ${options.apply ? 'APPLY' : 'DRY RUN'}${options.update ? ' + UPDATE' : ''}`,
+  );
 
   const sheetRows = await readBlogRowsFromSheet(filePath, options.sheet);
   console.log(`[blog-import] Non-empty sheet rows: ${sheetRows.length}`);
@@ -382,12 +434,20 @@ const run = async (options: CliOptions): Promise<void> => {
     const usedRefIds = new Set(existingPosts.map((post) => post.refId));
 
     const creates: BlogSheetRow[] = [];
+    const updates: BlogSheetRow[] = [];
+
     for (const candidate of candidates) {
       const existing = existingBySlug.get(candidate.slug);
       if (existing) {
-        candidate.status = 'unchanged';
         candidate.postRefId = existing.refId;
-        candidate.reason = 'Blog post with this slug already exists.';
+        if (options.update) {
+          candidate.status = 'pending_update';
+          candidate.reason = 'Will refresh content/SEO from sheet.';
+          updates.push(candidate);
+        } else {
+          candidate.status = 'unchanged';
+          candidate.reason = 'Blog post with this slug already exists.';
+        }
         continue;
       }
       candidate.status = 'pending_create';
@@ -395,7 +455,9 @@ const run = async (options: CliOptions): Promise<void> => {
     }
 
     let created = 0;
-    if (options.apply && creates.length) {
+    let updated = 0;
+
+    if (options.apply && (creates.length || updates.length)) {
       if (categoryRefId === 'DRY_RUN_CATEGORY') {
         throw new Error('Internal error: category was not resolved before apply');
       }
@@ -454,6 +516,44 @@ const run = async (options: CliOptions): Promise<void> => {
           `[blog-import] Created ${Math.min(offset + batch.length, creates.length)}/${creates.length}`,
         );
       }
+
+      for (let offset = 0; offset < updates.length; offset += options.batchSize) {
+        const batch = updates.slice(offset, offset + options.batchSize);
+        await AppDataSource.transaction(async (manager) => {
+          const repo = manager.getRepository(BlogPostEntity);
+          for (const row of batch) {
+            const publishedAt = row.publishedAt;
+            const result = await repo.update(
+              { slug: row.slug },
+              {
+                title: truncate(row.title, 255)!,
+                excerpt: buildExcerpt(row.metaDescription, row.content),
+                content: row.content,
+                metaTitle: row.metaTitle,
+                metaDescription: row.metaDescription,
+                publishedAt,
+                status: publishedAt ? BlogPostStatus.PUBLISHED : BlogPostStatus.DRAFT,
+                visibility: BlogPostVisibility.PUBLIC,
+                updatedBy: CREATED_BY,
+                ...(options.author?.trim() ? { author: options.author.trim() } : {}),
+              },
+            );
+
+            if (!result.affected) {
+              row.status = 'unchanged';
+              row.reason = 'Update skipped — post not found.';
+              continue;
+            }
+
+            row.status = 'updated';
+            row.reason = 'Updated content/SEO from BlogDetailsFinal.xlsx.';
+            updated += 1;
+          }
+        });
+        console.log(
+          `[blog-import] Updated ${Math.min(offset + batch.length, updates.length)}/${updates.length}`,
+        );
+      }
     }
 
     const unchanged = candidates.filter((item) => item.status === 'unchanged').length;
@@ -464,9 +564,12 @@ const run = async (options: CliOptions): Promise<void> => {
     console.log('\n[blog-import] Summary');
     console.log(`  Sheet rows                   : ${sheetRows.length}`);
     console.log(`  Unique valid slugs           : ${candidates.length}`);
-    console.log(`  Already in database          : ${unchanged}`);
+    console.log(`  Already in database (skip)   : ${unchanged}`);
     console.log(
       `  ${options.apply ? 'Created' : 'Would create'}                     : ${options.apply ? created : creates.length}`,
+    );
+    console.log(
+      `  ${options.apply ? 'Updated' : 'Would update'}                     : ${options.apply ? updated : updates.length}`,
     );
     console.log(`  Invalid                      : ${invalidCount}`);
     console.log(`  Duplicate in sheet           : ${duplicateSheetCount}`);
@@ -481,6 +584,9 @@ const run = async (options: CliOptions): Promise<void> => {
 
     if (!options.apply) {
       console.log('\n[blog-import] Dry-run only. Re-run with --apply to write.');
+      if (!options.update && updates.length === 0 && creates.length === 0) {
+        console.log('[blog-import] Tip: use --update --apply to refresh existing post content.');
+      }
     }
   } finally {
     if (AppDataSource.isInitialized) {
