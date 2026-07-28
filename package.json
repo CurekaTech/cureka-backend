@@ -28,6 +28,8 @@
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "bulk-upload:diagnose": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bulk-upload-diagnose.runner.ts",
+    "blog:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/blog-import.runner.ts",
+    "blog:apply": "ts-node -r tsconfig-paths/register apps/api/database/scripts/blog-import.runner.ts --file=\"docs/BlogDetailsFinal.xlsx\" --apply",
     "typesense:reindex": "npm run build && node dist/apps/api/database/scripts/typesense-reindex.runner.js",
     "cache:invalidate-products": "ts-node -r tsconfig-paths/register apps/api/database/scripts/cache-invalidate-products.runner.ts",
     "bulk-upload:cancel": "ts-node -r tsconfig-paths/register apps/api/database/scripts/cancel-bulk-upload.runner.ts",
