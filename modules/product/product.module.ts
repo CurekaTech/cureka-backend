@@ -77,6 +77,7 @@ import {
 
 // ── Product controllers ──────────────────────────────────────────────────────
 import { ProductsController } from './controllers/products.controller';
+import { BundleProductsController } from './controllers/bundle-products.controller';
 import { ProductVariantsController } from './controllers/product-variants.controller';
 import { ProductFaqsController } from './controllers/product-faqs.controller';
 import { ProductTagsController } from './controllers/product-tags.controller';
@@ -138,6 +139,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
   controllers: [
     BulkUploadController,
     ProductsController,
+    BundleProductsController,
     ProductVariantsController,
     ProductFaqsController,
     ProductTagsController,

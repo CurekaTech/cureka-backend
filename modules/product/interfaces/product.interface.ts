@@ -197,6 +197,10 @@ export interface IProduct {
   metaKeywords: string[] | null;
   sizeChart: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;
+  /** Bundle-only: curated by (e.g. doctor names). Null for non-bundle products. */
+  curatedBy: string | null;
+  /** Bundle-only: curated for description. Null for non-bundle products. */
+  curatedFor: string | null;
   attributes: IProductAttribute[];
   variants: IProductVariant[];
   media: IProductMedia[];

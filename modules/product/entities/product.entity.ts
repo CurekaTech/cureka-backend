@@ -149,6 +149,12 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'meta_keywords', type: 'jsonb', nullable: true })
   metaKeywords!: string[] | null;
 
+  @Column({ name: 'curated_by', type: 'varchar', length: 500, nullable: true })
+  curatedBy!: string | null;
+
+  @Column({ name: 'curated_for', type: 'text', nullable: true })
+  curatedFor!: string | null;
+
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;
 

@@ -10,10 +10,12 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -450,14 +452,88 @@ export class CreateProductDto {
   @ArrayMinSize(1)
   variants?: CreateVariantDto[];
 
-  @ApiPropertyOptional({ type: [CreateBundleItemDto] })
+  @ApiPropertyOptional({
+    type: [CreateBundleItemDto],
+    description: 'Required for bundle products — at least one linked child product',
+  })
   @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
-  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateBundleItemDto)
-  @ArrayMinSize(1)
+  @ArrayMinSize(1, { message: 'Bundle must contain at least one product' })
   bundleItems?: CreateBundleItemDto[];
+
+  @ApiPropertyOptional({
+    example: 'Dr. Patel, Dr. Shah',
+    description: 'Bundle-only: doctors/experts who curated this bundle (comma-separated names)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  curatedBy?: string;
+
+  @ApiPropertyOptional({
+    example: 'Recommended for daily skincare routine and sensitive skin.',
+    description: 'Bundle-only: who/what this bundle is curated for',
+  })
+  @IsOptional()
+  @IsString()
+  curatedFor?: string;
+
+  @ApiPropertyOptional({
+    example: 1999,
+    description: 'Bundle pricing shortcut (MRP). Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  mrp?: number;
+
+  @ApiPropertyOptional({
+    example: 1499,
+    description: 'Bundle pricing shortcut (selling price). Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  sellingPrice?: number;
+
+  @ApiPropertyOptional({
+    example: 100,
+    description: 'Bundle inventory shortcut. Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock?: number;
+
+  @ApiPropertyOptional({
+    example: 25,
+    description: 'Bundle discount % shortcut. Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  discountPercentage?: number;
+
+  @ApiPropertyOptional({
+    example: 'BND-SUMMER-KIT-001',
+    description: 'SKU for the bundle pricing variant when variants[] is omitted.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  sku?: string;
 
   @ApiPropertyOptional({ type: [CreateProductMediaDto] })
   @IsOptional()
@@ -507,6 +583,32 @@ export class BulkMarkOutOfStockDto {
   @ArrayMaxSize(500)
   @IsRefId({ each: true })
   productRefIds!: string[];
+}
+
+export class BulkRestoreStockItemDto {
+  @ApiProperty({ example: 'PRO20261234' })
+  @IsNotEmpty()
+  @IsRefId()
+  productRefId!: string;
+
+  @ApiProperty({ example: 50, description: 'Stock quantity to set on the product pricing variant(s)' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock!: number;
+}
+
+export class BulkRestoreStockDto {
+  @ApiProperty({
+    type: [BulkRestoreStockItemDto],
+    description: 'Per-product stock restore values (max 500)',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BulkRestoreStockItemDto)
+  items!: BulkRestoreStockItemDto[];
 }
 
 export class ProductQueryDto extends ProductCategoryFilterQueryDto {

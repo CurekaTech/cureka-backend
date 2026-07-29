@@ -21,7 +21,7 @@ import {
 } from '@packages/cache';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
-import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto } from '../dto/product.dto';
+import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
@@ -29,6 +29,11 @@ import { enrichProductInformation } from '../utils/product-information.util';
 import { mapSpecificationFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
+import {
+  ensureBundlePricingVariants,
+  normalizeBundleCreateDto,
+  resolveBundleChildItems,
+} from '../utils/bundle-product.util';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductVariantsRepository } from '../repositories/product-variants.repository';
@@ -92,6 +97,62 @@ export class ProductsService {
     }
   }
 
+  async createBundleFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
+    try {
+      const dto = await this.productMultipartService.parseCreateProduct(req);
+      dto.productType = ProductType.BUNDLE;
+      return await this.createDraft(dto, createdBy);
+    } catch (error) {
+      this.logProductCreateFailure('multipart', error);
+      throw error;
+    }
+  }
+
+  async createBundleFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
+    const dto = {
+      ...(body as object),
+      productType: ProductType.BUNDLE,
+    };
+    return this.createFromJsonBody(dto, createdBy);
+  }
+
+  async updateBundleFromRequest(
+    req: FastifyRequest,
+    refId: string,
+    updatedBy: string,
+  ): Promise<IProduct> {
+    await this.assertProductIsBundle(refId);
+    const dto = await this.productMultipartService.parseUpdateProduct(req);
+    dto.productType = ProductType.BUNDLE;
+    return this.update(refId, dto, updatedBy);
+  }
+
+  async updateBundleFromJsonBody(
+    body: unknown,
+    refId: string,
+    updatedBy: string,
+  ): Promise<IProduct> {
+    await this.assertProductIsBundle(refId);
+    const dto = {
+      ...(body as object),
+      productType: ProductType.BUNDLE,
+    };
+    return this.updateFromJsonBody(dto, refId, updatedBy);
+  }
+
+  async findBundleOne(refId: string): Promise<IProductDetail> {
+    await this.assertProductIsBundle(refId);
+    return this.findOne(refId);
+  }
+
+  private async assertProductIsBundle(refId: string): Promise<void> {
+    const existing = await this.productsRepository.findByRefId(refId);
+    if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
+    if (existing.productType !== ProductType.BUNDLE) {
+      throw new NotFoundException(`Bundle product with refId ${refId} not found`);
+    }
+  }
+
   async createFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
     try {
       const dto = await this.productMultipartService.validateJsonBody(body);
@@ -125,10 +186,13 @@ export class ProductsService {
     createdBy: string,
     options?: ProductMutationOptions,
   ): Promise<IProduct> {
+    const normalizedDto =
+      dto.productType === ProductType.BUNDLE ? normalizeBundleCreateDto(dto) : dto;
+
     const [masters, slugExists] = await Promise.all([
-      this.masterResolver.resolve(dto),
+      this.masterResolver.resolve(normalizedDto),
       (async () => {
-        const slug = dto.slug ?? generateProductSlug(dto.name);
+        const slug = normalizedDto.slug ?? generateProductSlug(normalizedDto.name);
         return { slug, exists: await this.productsRepository.existsBySlug(slug) };
       })(),
     ]);
@@ -139,16 +203,16 @@ export class ProductsService {
     const slug = slugExists.slug;
     assertProductUrlSlugLength(slug, 'Product');
 
-    if (dto.productType === ProductType.VARIABLE) {
-      const allowed = new Set(dto.attributeRefIds ?? []);
-      for (const variant of dto.variants ?? []) {
+    if (normalizedDto.productType === ProductType.VARIABLE) {
+      const allowed = new Set(normalizedDto.attributeRefIds ?? []);
+      for (const variant of normalizedDto.variants ?? []) {
         validateVariantAttributeScope(variant.attributes ?? [], allowed);
       }
     }
 
-    await this.assertTagUsageWithinCategoryLimit(masters.categoryId, dto.tagNames ?? [], null);
+    await this.assertTagUsageWithinCategoryLimit(masters.categoryId, normalizedDto.tagNames ?? [], null);
 
-    const refId = await generateUniqueRefId(dto.name, (candidate) =>
+    const refId = await generateUniqueRefId(normalizedDto.name, (candidate) =>
       this.productsRepository.existsByRefId(candidate),
     );
     const attributeIdByRefId = masters.attributeIdByRefId;
@@ -157,10 +221,10 @@ export class ProductsService {
     const product = await this.dataSource.transaction(async (manager) => {
       const created = await this.productsRepository.create(
         {
-          vendorId: dto.vendorId ?? null,
-          name: dto.name,
+          vendorId: normalizedDto.vendorId ?? null,
+          name: normalizedDto.name,
           slug,
-          productType: dto.productType,
+          productType: normalizedDto.productType,
           productNatureId: masters.productNatureId,
           categoryId: masters.categoryId,
           subCategoryId: masters.subCategoryId,
@@ -173,16 +237,16 @@ export class ProductsService {
           countryOfOriginId: masters.countryOfOriginId,
           status: ProductStatus.DRAFT,
           rejectionReason: null,
-          ...mapSpecificationFields(dto, { labelSortOrders }),
-          description: dto.description ?? null,
+          ...mapSpecificationFields(normalizedDto, { labelSortOrders }),
+          description: normalizedDto.description ?? null,
           refId,
           createdBy,
         },
         manager,
       );
 
-      const strategy = this.strategyFactory.resolve(dto.productType);
-      await strategy.createVariants(manager, created, dto, masters, attributeIdByRefId);
+      const strategy = this.strategyFactory.resolve(normalizedDto.productType);
+      await strategy.createVariants(manager, created, normalizedDto, masters, attributeIdByRefId);
 
       await Promise.all([
         this.relationsRepository.syncCategoryHierarchies(
@@ -196,7 +260,7 @@ export class ProductsService {
           masters.healthConcernIds,
         ),
         this.relationsRepository.syncWellnessGoals(manager, created.id, masters.wellnessGoalIds),
-        this.relationsRepository.syncTags(manager, created.id, dto.tagNames ?? [], createdBy),
+        this.relationsRepository.syncTags(manager, created.id, normalizedDto.tagNames ?? [], createdBy),
         this.relationsRepository.syncProductAttributes(manager, created.id, masters.attributeIds),
         this.relationsRepository.syncCategoryFilters(
           manager,
@@ -206,18 +270,18 @@ export class ProductsService {
       ]);
 
       const faqIds = [...masters.faqIds];
-      if (dto.customFaqs?.length) {
+      if (normalizedDto.customFaqs?.length) {
         faqIds.push(
           ...(await this.relationsRepository.createCustomProductFaqs(
             manager,
-            dto.customFaqs,
+            normalizedDto.customFaqs,
             createdBy,
           )),
         );
       }
       await this.relationsRepository.syncProductFaqs(manager, created.id, faqIds);
 
-      const productMedia = collectProductMedia(dto);
+      const productMedia = collectProductMedia(normalizedDto);
       if (productMedia.length) {
         const variants = await manager.getRepository(ProductVariantEntity).find({
           where: { productId: created.id },
@@ -520,7 +584,12 @@ export class ProductsService {
       dtoHasCategoryHierarchyChanges(dto) ||
       masters?.attributeIds,
     );
-    const needsVariantSync = dto.variants !== undefined;
+    const needsVariantSync = dto.variants !== undefined || (
+      effectiveProductType === ProductType.BUNDLE &&
+      (dto.mrp !== undefined || dto.sellingPrice !== undefined || dto.stock !== undefined || dto.sku !== undefined)
+    );
+    const needsBundleItemsSync =
+      effectiveProductType === ProductType.BUNDLE && dto.bundleItems !== undefined;
     const needsMediaSync =
       dto.media !== undefined || hasVariantMediaInPayload(dto.variants);
 
@@ -633,6 +702,15 @@ export class ProductsService {
         );
       }
 
+      if (needsBundleItemsSync && dto.bundleItems) {
+        const resolvedItems = await resolveBundleChildItems(
+          dto.bundleItems,
+          existing.id,
+          (refIds) => this.productsRepository.findIdsByRefIds(refIds, manager),
+        );
+        await this.relationsRepository.syncBundles(manager, existing.id, resolvedItems);
+      }
+
       if (needsVariantSync && dto.variants) {
         const variantsForSync =
           effectiveProductType === ProductType.SIMPLE && dto.expiryDate
@@ -641,7 +719,17 @@ export class ProductsService {
                 ? { ...variant, expiryDate: variant.expiryDate ?? dto.expiryDate }
                 : variant,
             )
-            : dto.variants;
+            : effectiveProductType === ProductType.BUNDLE
+              ? ensureBundlePricingVariants({
+                  name: dto.name ?? existing.name,
+                  variants: dto.variants,
+                  mrp: dto.mrp,
+                  sellingPrice: dto.sellingPrice,
+                  stock: dto.stock,
+                  sku: dto.sku,
+                  discountPercentage: dto.discountPercentage,
+                })
+              : dto.variants;
 
         await this.variantsRepository.syncVariants(
           manager,
@@ -649,6 +737,32 @@ export class ProductsService {
           productSlug,
           effectiveProductType,  // use the new type, not the old one
           variantsForSync,
+          attributeIdByRefId,
+        );
+      } else if (
+        needsVariantSync &&
+        effectiveProductType === ProductType.BUNDLE &&
+        !dto.variants
+      ) {
+        const pricingVariants = ensureBundlePricingVariants({
+          name: dto.name ?? existing.name,
+          variants: undefined,
+          mrp: dto.mrp ?? Number(existing.variants?.[0]?.mrp ?? 0),
+          sellingPrice: dto.sellingPrice ?? Number(existing.variants?.[0]?.sellingPrice ?? 0),
+          stock: dto.stock ?? existing.variants?.[0]?.stock ?? 0,
+          sku: dto.sku ?? existing.variants?.[0]?.sku,
+          discountPercentage:
+            dto.discountPercentage ??
+            (existing.variants?.[0]?.discountPercentage != null
+              ? Number(existing.variants[0].discountPercentage)
+              : undefined),
+        });
+        await this.variantsRepository.syncVariants(
+          manager,
+          existing.id,
+          productSlug,
+          ProductType.BUNDLE,
+          pricingVariants,
           attributeIdByRefId,
         );
       }
@@ -833,6 +947,82 @@ export class ProductsService {
     };
   }
 
+  async bulkRestoreStock(dto: BulkRestoreStockDto): Promise<{
+    requested: number;
+    updated: string[];
+    notFound: string[];
+    variantsUpdated: number;
+  }> {
+    const uniqueItems = new Map<string, number>();
+    for (const item of dto.items) {
+      uniqueItems.set(item.productRefId.trim(), item.stock);
+    }
+    const uniqueRefIds = [...uniqueItems.keys()].filter(Boolean);
+    if (!uniqueRefIds.length) {
+      throw new BadRequestException('items must contain at least one product refId');
+    }
+
+    const idByRefId = await this.productsRepository.findIdsByRefIds(uniqueRefIds);
+    const notFound = uniqueRefIds.filter((refId) => !idByRefId.has(refId));
+    const updates = [...idByRefId.entries()].map(([refId, productId]) => ({
+      productId,
+      stock: uniqueItems.get(refId) ?? 0,
+      refId,
+    }));
+
+    if (!updates.length) {
+      return { requested: uniqueRefIds.length, updated: [], notFound, variantsUpdated: 0 };
+    }
+
+    const counts = await this.variantsRepository.setStockByProductIds(
+      updates.map(({ productId, stock }) => ({ productId, stock })),
+    );
+
+    const updated = updates
+      .filter((item) => (counts.get(item.productId) ?? 0) > 0)
+      .map((item) => item.refId);
+    const variantsUpdated = [...counts.values()].reduce((sum, n) => sum + n, 0);
+
+    await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
+
+    return {
+      requested: uniqueRefIds.length,
+      updated,
+      notFound,
+      variantsUpdated,
+    };
+  }
+
+  async unpublish(refId: string, updatedBy: string): Promise<IProduct> {
+    const existing = await this.productsRepository.findByRefId(refId);
+    if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
+
+    await this.productsRepository.updateByRefId(refId, {
+      status: ProductStatus.INACTIVE,
+      updatedBy,
+    });
+    await this.emitProductUpdated(refId, 'status_updated');
+    return this.findOne(refId);
+  }
+
+  async restore(refId: string): Promise<IProduct> {
+    const restored = await this.productsRepository.restoreByRefId(refId);
+    if (!restored) {
+      throw new NotFoundException(`Deleted product with refId ${refId} not found`);
+    }
+    await this.emitProductUpdated(refId, 'updated');
+    return this.findOne(refId);
+  }
+
+  /** List helpers for dedicated bundle endpoints. */
+  async findBundles(query: ProductQueryDto, status?: ProductStatus): Promise<PaginatedResult<IProduct>> {
+    return this.findAll({
+      ...query,
+      productType: ProductType.BUNDLE,
+      ...(status ? { status } : { status: query.status ?? ProductStatus.PUBLISHED }),
+    });
+  }
+
   async remove(refId: string): Promise<void> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
@@ -898,7 +1088,10 @@ export class ProductsService {
 
     if (entity.productType === ProductType.BUNDLE) {
       if (!entity.bundleItems?.length) {
-        throw new BadRequestException('Bundle products require at least one bundle item');
+        throw new BadRequestException('Bundle must contain at least one product');
+      }
+      if (!entity.variants?.length) {
+        throw new BadRequestException('Bundle products require pricing (mrp, sellingPrice, stock)');
       }
       return;
     }
