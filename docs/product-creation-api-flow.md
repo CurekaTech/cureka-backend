@@ -60,11 +60,13 @@ sequenceDiagram
 
 NestJS validates `CreateProductDto` before the service runs:
 
-- Required: `name`, `productType`, `productNatureRefId`, `categoryRefId`
+- Required: `name`, `productType`, and either `categories[]` **or** `categoryRefId`
 - `productType` must be one of: `simple`, `variable`, `bundle`
 - For **simple / variable**: `variants` array required (min 1 item) when not a bundle
 - For **bundle**: `bundleItems` array required (min 1 item)
 - All master references use **refId** format (e.g. `HEA20260016`), not UUIDs
+- Prefer `categories: [{ categoryRefId, subCategoryRefId?, ... }, ...]` for multiple hierarchies.
+  Flat `categoryRefId` / `subCategoryRefId` / … remain supported as a single hierarchy.
 
 ### 2. Master resolution
 
@@ -73,16 +75,20 @@ NestJS validates `CreateProductDto` before the service runs:
 | Request field | Master table |
 |---------------|--------------|
 | `productNatureRefId` | `product_natures` |
-| `categoryRefId` | `categories` |
-| `subCategoryRefId` | `categories` |
-| `subSubCategoryRefId` | `categories` |
-| `subSubSubCategoryRefId` | `categories` |
+| `categories[].categoryRefId` (or flat `categoryRefId`) | `categories` |
+| `categories[].subCategoryRefId` (or flat `subCategoryRefId`) | `categories` |
+| `categories[].subSubCategoryRefId` (or flat `subSubCategoryRefId`) | `categories` |
+| `categories[].subSubSubCategoryRefId` (or flat `subSubSubCategoryRefId`) | `categories` |
 | `brandRefId` | `brands` |
 | `manufacturerRefId` | `manufacturers` |
 | `packerRefId` | `packers` |
 | `importerRefId` | `importers` |
 | `healthConcernRefIds[]` | `health_concerns` |
 | `faqRefIds[]` | `product_faqs` |
+
+The first hierarchy is written to `products.category_id` / sub-* columns (primary). All hierarchies are stored in `product_category_hierarchies`.
+
+See also: [Frontend guide — multiple category hierarchies](./frontend-multiple-category-hierarchies.md).
 
 Missing refIds return `404 Not Found`.
 

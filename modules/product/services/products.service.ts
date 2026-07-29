@@ -21,9 +21,10 @@ import {
 } from '@packages/cache';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
-import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto } from '../dto/product.dto';
+import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
+import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
 import { enrichProductInformation } from '../utils/product-information.util';
 import { mapSpecificationFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
@@ -48,6 +49,7 @@ import { ProductNaturesRepository } from '@modules/master/repositories/product-n
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
+import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
 
 /** Max products in a single category that may share the same tag (e.g. "bestSeller"). */
 const MAX_PRODUCTS_PER_CATEGORY_TAG = 10;
@@ -183,6 +185,11 @@ export class ProductsService {
       await strategy.createVariants(manager, created, dto, masters, attributeIdByRefId);
 
       await Promise.all([
+        this.relationsRepository.syncCategoryHierarchies(
+          manager,
+          created.id,
+          masters.categoryHierarchies,
+        ),
         this.relationsRepository.syncHealthConcerns(
           manager,
           created.id,
@@ -431,7 +438,7 @@ export class ProductsService {
 
     const masters =
       dto.productNatureRefId ||
-        dto.categoryRefId ||
+        dtoHasCategoryHierarchyChanges(dto) ||
         dto.brandRefId ||
         dto.countryOfOriginRefId ||
         dto.attributeRefIds
@@ -440,6 +447,36 @@ export class ProductsService {
           productType: effectiveProductType,
           productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
           categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
+          subCategoryRefId:
+            dto.subCategoryRefId !== undefined
+              ? dto.subCategoryRefId
+              : (existing.subCategory?.refId ?? undefined),
+          subSubCategoryRefId:
+            dto.subSubCategoryRefId !== undefined
+              ? dto.subSubCategoryRefId
+              : (existing.subSubCategory?.refId ?? undefined),
+          subSubSubCategoryRefId:
+            dto.subSubSubCategoryRefId !== undefined
+              ? dto.subSubSubCategoryRefId
+              : (existing.subSubSubCategory?.refId ?? undefined),
+          // Prefer explicit `categories[]`. When only flat fields change, omit
+          // `categories` so normalizeCategoryHierarchyInputs uses the flat refs.
+          categories:
+            dto.categories !== undefined
+              ? dto.categories
+              : dtoHasCategoryHierarchyChanges(dto)
+                ? undefined
+                : existing.categoryHierarchies?.length
+                  ? existing.categoryHierarchies
+                      .slice()
+                      .sort((a, b) => a.sortOrder - b.sortOrder)
+                      .map((item) => ({
+                        categoryRefId: item.category?.refId ?? '',
+                        subCategoryRefId: item.subCategory?.refId ?? undefined,
+                        subSubCategoryRefId: item.subSubCategory?.refId ?? undefined,
+                        subSubSubCategoryRefId: item.subSubSubCategory?.refId ?? undefined,
+                      }))
+                  : undefined,
           brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
           name: dto.name ?? existing.name,
         } as CreateProductDto)
@@ -477,6 +514,7 @@ export class ProductsService {
       dto.customFaqs ||
       dto.attributeRefIds ||
       dto.categoryFilters !== undefined ||
+      dtoHasCategoryHierarchyChanges(dto) ||
       masters?.attributeIds,
     );
     const needsVariantSync = dto.variants !== undefined;
@@ -540,6 +578,13 @@ export class ProductsService {
       await this.relationsRepository.cleanupLegacyManualMediaKeys(manager, existing.id);
 
       if (resolved) {
+        if (dtoHasCategoryHierarchyChanges(dto) && masters?.categoryHierarchies) {
+          await this.relationsRepository.syncCategoryHierarchies(
+            manager,
+            existing.id,
+            masters.categoryHierarchies,
+          );
+        }
         if (dto.healthConcernRefIds) {
           await this.relationsRepository.syncHealthConcerns(
             manager,
@@ -733,6 +778,58 @@ export class ProductsService {
     return this.findOne(refId);
   }
 
+  /**
+   * Sets stock = 0 on every non-deleted variant for the selected products.
+   * Used by admin product list multi-select "Mark out of stock".
+   */
+  async bulkMarkOutOfStock(dto: BulkMarkOutOfStockDto): Promise<IBulkMarkOutOfStockResult> {
+    const uniqueRefIds = [...new Set(dto.productRefIds.map((refId) => refId.trim()).filter(Boolean))];
+    if (!uniqueRefIds.length) {
+      throw new BadRequestException('productRefIds must contain at least one product refId');
+    }
+
+    const idByRefId = await this.productsRepository.findIdsByRefIds(uniqueRefIds);
+    const notFound = uniqueRefIds.filter((refId) => !idByRefId.has(refId));
+    const foundEntries = [...idByRefId.entries()];
+
+    if (!foundEntries.length) {
+      return {
+        requested: uniqueRefIds.length,
+        updated: [],
+        alreadyOutOfStock: [],
+        notFound,
+        variantsUpdated: 0,
+      };
+    }
+
+    const productIds = foundEntries.map(([, productId]) => productId);
+    const statsByProductId = await this.variantsRepository.markOutOfStockByProductIds(productIds);
+
+    const updated: string[] = [];
+    const alreadyOutOfStock: string[] = [];
+    let variantsUpdated = 0;
+
+    for (const [refId, productId] of foundEntries) {
+      const stats = statsByProductId.get(productId) ?? { updated: 0, alreadyZero: 0 };
+      variantsUpdated += stats.updated;
+      if (stats.updated > 0) {
+        updated.push(refId);
+      } else {
+        alreadyOutOfStock.push(refId);
+      }
+    }
+
+    await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
+
+    return {
+      requested: uniqueRefIds.length,
+      updated,
+      alreadyOutOfStock,
+      notFound,
+      variantsUpdated,
+    };
+  }
+
   async remove(refId: string): Promise<void> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
@@ -855,6 +952,7 @@ export class ProductsService {
       subCategory: product.subCategory,
       subSubCategory: product.subSubCategory,
       subSubSubCategory: product.subSubSubCategory,
+      categoryHierarchies: product.categoryHierarchies,
       brand,
       productNature: product.productNature,
       manufacturer,

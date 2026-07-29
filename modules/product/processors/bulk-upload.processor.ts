@@ -1,9 +1,11 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
-import { Logger, HttpException } from '@nestjs/common';
+import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Job, Queue } from 'bullmq';
+import { PinoLogger } from 'nestjs-pino';
+import { createJobLogger, type JobLogger } from '@packages/logger';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { CacheKeys, CacheStrategyService, RedisConnectionService } from '@packages/cache';
 import { StorageService } from '@packages/storage';
@@ -84,7 +86,12 @@ interface BulkExportJobData {
 
 @Processor('bulk-upload', { concurrency: 1 })
 export class BulkUploadProcessor extends WorkerHost {
-  private readonly logger = new Logger(BulkUploadProcessor.name);
+  /** Bound per job (concurrency: 1). Falls back to root pino logger outside process(). */
+  private jobLogger: JobLogger | null = null;
+
+  private get logger(): JobLogger {
+    return this.jobLogger ?? createJobLogger(this.pinoLogger, { queue: 'bulk-upload' });
+  }
 
   private getErrorMessage(error: unknown): string {
     if (error instanceof HttpException) {
@@ -364,6 +371,7 @@ export class BulkUploadProcessor extends WorkerHost {
   }
 
   constructor(
+    private readonly pinoLogger: PinoLogger,
     private readonly bulkUploadsRepository: BulkUploadsRepository,
     private readonly redisConnection: RedisConnectionService,
     private readonly cacheStrategy: CacheStrategyService,
@@ -380,6 +388,7 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly unicommerceProductQueue: Queue,
   ) {
     super();
+    this.pinoLogger.setContext(BulkUploadProcessor.name);
   }
 
   private async mapWithConcurrency<T, R>(
@@ -562,6 +571,22 @@ export class BulkUploadProcessor extends WorkerHost {
 
   private async processUploadSheet(job: Job<BulkUploadJobData, any, string>): Promise<any> {
     const { uploadRefId, fileUrl, imagesZipUrl, lockToken } = job.data;
+    this.jobLogger = createJobLogger(this.pinoLogger, {
+      jobId: job.id,
+      jobName: job.name,
+      queue: 'bulk-upload',
+      uploadRefId,
+    });
+
+    try {
+      return await this.runBulkUploadJob(job);
+    } finally {
+      this.jobLogger = null;
+    }
+  }
+
+  private async runBulkUploadJob(job: Job<BulkUploadJobData, any, string>): Promise<any> {
+    const { uploadRefId, fileUrl, imagesZipUrl, lockToken } = job.data;
     const lockTtlMs =
       job.data.lockTtlMs ??
       this.configService.get<number>('PRODUCT_BULK_UPLOAD_LOCK_TTL_MS', 1800000);
@@ -588,13 +613,6 @@ export class BulkUploadProcessor extends WorkerHost {
       }, Math.max(10000, Math.floor(lockTtlMs / 3)));
       lockRenewalTimer.unref();
     }
-    console.log('[BULK_UPLOAD_DEBUG][Processor.process] JOB_RECEIVED', {
-      uploadRefId,
-      fileUrl,
-      imagesZipUrl,
-      jobId: job.id,
-      jobName: job.name,
-    });
     this.logger.log(`Received bulk upload job for refId: ${uploadRefId}, file: ${fileUrl}, zip: ${imagesZipUrl}`);
 
     const tempDir = join(process.cwd(), 'temp-uploads');
@@ -635,22 +653,6 @@ export class BulkUploadProcessor extends WorkerHost {
       const imageLookup = await loadImageUrlsByProductId();
       const slugLookup = await loadSlugsByProductId();
       const productPageUrlLookup = await loadProductPageUrlsByProductId();
-      console.log('[BULK_UPLOAD_DEBUG][Processor.process] CACHE_AND_GALLERY_READY', {
-        uploadRefId,
-        galleryImageCount: galleryMap.size,
-        manufacturerLookupLoaded: manufacturerLookup.loaded,
-        manufacturerLookupCount: manufacturerLookup.byProductId.size,
-        manufacturerLookupPath: manufacturerLookup.path,
-        imageLookupLoaded: imageLookup.loaded,
-        imageLookupCount: imageLookup.byProductId.size,
-        imageLookupPath: imageLookup.path,
-        slugLookupLoaded: slugLookup.loaded,
-        slugLookupCount: slugLookup.byProductId.size,
-        slugLookupPath: slugLookup.path,
-        productPageUrlLookupLoaded: productPageUrlLookup.loaded,
-        productPageUrlLookupCount: productPageUrlLookup.byProductId.size,
-        productPageUrlLookupPath: productPageUrlLookup.path,
-      });
       if (!manufacturerLookup.loaded) {
         this.logger.warn(
           `Manufacturer lookup file not loaded (${manufacturerLookup.path}). Manufacturer auto-attach by Product ID is disabled for this job.`,
@@ -681,11 +683,6 @@ export class BulkUploadProcessor extends WorkerHost {
       await mkdir(tempDir, { recursive: true });
       const readStream = await this.storageService.createReadStream(fileUrl);
       await pipeline(readStream, createWriteStream(tempFilePath));
-      console.log('[BULK_UPLOAD_DEBUG][Processor.process] FILE_DOWNLOADED', {
-        uploadRefId,
-        fileUrl,
-        tempFilePath,
-      });
       this.logger.log(`Downloaded storage file to temp path: ${tempFilePath}`);
 
       // 2. Parse and group rows in chunks
@@ -722,9 +719,6 @@ export class BulkUploadProcessor extends WorkerHost {
           }
 
           totalProductsGrouped += batch.length;
-          this.logger.log(
-            `[BULK_UPLOAD] Parsed batch size=${batch.length} scannedRows=${scannedRows}`,
-          );
           
           // Execute batch validation
           const { errors, validatedProducts } = this.validatorService.validateBatch(
@@ -732,16 +726,6 @@ export class BulkUploadProcessor extends WorkerHost {
             sheetSkus,
             sheetExternalProductIds,
           );
-          if (errors.length) {
-            this.logger.warn(
-              `[BULK_UPLOAD] Batch validation errors=${errors.length} valid=${validatedProducts.length}`,
-            );
-            for (const error of errors.slice(0, 20)) {
-              this.logger.warn(
-                `[BULK_UPLOAD] Validation error row=${error.rowNumber} sku=${error.sku} column=${error.column}: ${error.reason}`,
-              );
-            }
-          }
 
           // For successfully validated products, transform and save them to the DB using existing ProductsService
           const batchResults = await this.mapWithConcurrency(
@@ -1111,6 +1095,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 subCategoryRefId: refs.subCategoryRefId,
                 subSubCategoryRefId: refs.subSubCategoryRefId,
                 subSubSubCategoryRefId: refs.subSubSubCategoryRefId,
+                categories: refs.categories,
                 brandRefId: refs.brandRefId!,
                 description: descriptionFromProductInformation,
                 tagNames: group.productTags,

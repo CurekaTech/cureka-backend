@@ -1052,14 +1052,12 @@ export class PaymentRequestsService {
     providerPaymentId?: string,
     updatedBy = 'cashfree-webhook',
   ): Promise<void> {
-    console.log('PaymentRequestsService.handleCashfreePaymentSuccess', {
-      orderId,
-      providerPaymentId,
-      updatedBy,
-    });
+    this.logger.log(
+      { orderId, providerPaymentId, updatedBy },
+      'Handling Cashfree payment success',
+    );
     const existing = await this.paymentRequestsRepository.findById(orderId);
     if (!existing) {
-      console.log('PaymentRequestsService.handleCashfreePaymentSuccess not found', { orderId });
       this.logger.warn(`Payment request not found for Cashfree orderId ${orderId}`);
       return;
     }
@@ -1085,14 +1083,12 @@ export class PaymentRequestsService {
     providerPaymentId?: string,
     updatedBy = 'razorpay-webhook',
   ): Promise<void> {
-    console.log('PaymentRequestsService.handlePaymentLinkPaid', {
-      providerReferenceId,
-      providerPaymentId,
-      updatedBy,
-    });
+    this.logger.log(
+      { providerReferenceId, providerPaymentId, updatedBy },
+      'Handling Razorpay payment link paid',
+    );
     const existing = await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId);
     if (!existing) {
-      console.log('PaymentRequestsService.handlePaymentLinkPaid not found', { providerReferenceId });
       this.logger.warn(`Payment request not found for provider reference ${providerReferenceId}`);
       return;
     }
@@ -1100,13 +1096,12 @@ export class PaymentRequestsService {
   }
 
   async handlePaymentCaptured(paymentRequestId: string, providerPaymentId?: string): Promise<void> {
-    console.log('PaymentRequestsService.handlePaymentCaptured', {
-      paymentRequestId,
-      providerPaymentId,
-    });
+    this.logger.log(
+      { paymentRequestId, providerPaymentId },
+      'Handling Razorpay payment captured',
+    );
     const existing = await this.paymentRequestsRepository.findById(paymentRequestId);
     if (!existing) {
-      console.log('PaymentRequestsService.handlePaymentCaptured not found', { paymentRequestId });
       this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
       return;
     }

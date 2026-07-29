@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
@@ -12,6 +12,7 @@ import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { DataSource } from 'typeorm';
 import { GokwikCheckOrderExistsDto } from '../dto/gokwik-check-order-exists.dto';
+import { GokwikOrderEntity } from '../entities/gokwik-order.entity';
 import {
   GokwikAddressDto,
   GokwikCreateOrderDto,
@@ -28,6 +29,8 @@ import { GokwikRepository } from '../repositories/gokwik.repository';
 
 @Injectable()
 export class GokwikOrderService {
+  private readonly logger = new Logger(GokwikOrderService.name);
+
   constructor(
     private readonly cartService: CartService,
     private readonly ordersService: OrdersService,
@@ -179,19 +182,48 @@ export class GokwikOrderService {
   /**
    * Failsafe for GoKwik order-retry / auto-refund: returns whether an order
    * already exists for this merchant checkout session (cart id).
+   * When GoKwik omits session_key it falls back to customer_phone lookup.
    */
   async checkOrderExists(dto: GokwikCheckOrderExistsDto): Promise<GokwikCheckOrderExistsResponse> {
     const sessionKey = String(dto.session_key ?? '').trim();
-    if (!sessionKey) {
+    const rawPhone = dto.customer_phone ?? dto.user_phone ?? '';
+    const customerPhone = parseIndianMobileNumber(rawPhone) ?? '';
+    this.logger.log(
+      `[checkOrderExists] session_key="${sessionKey}" customer_phone_raw="${rawPhone}" customer_phone_parsed="${customerPhone}" customer_email="${dto.customer_email ?? dto.user_email ?? ''}"`,
+    );
+
+    let link: GokwikOrderEntity | null = null;
+
+    if (sessionKey) {
+      link = await this.gokwikRepository.findOrderByCartId(sessionKey);
+      this.logger.log(
+        `[checkOrderExists] lookup=by_session_key result=${link ? `id=${link.id} orderId=${link.orderId}` : 'NOT FOUND'}`,
+      );
+    } else if (customerPhone) {
+      link = await this.gokwikRepository.findLatestOrderByCustomerPhone(customerPhone);
+      this.logger.log(
+        `[checkOrderExists] lookup=by_phone("${customerPhone}") result=${link ? `id=${link.id} orderId=${link.orderId}` : 'NOT FOUND'}`,
+      );
+    } else {
+      this.logger.warn('[checkOrderExists] Both session_key and customer_phone are empty → No order found');
       return { message: 'No order found.' };
     }
 
-    const link = await this.gokwikRepository.findOrderByCartId(sessionKey);
     const order = link?.order;
-    if (!order || order.orderStatus !== OrderStatus.CONFIRMED) {
+    this.logger.log(
+      `[checkOrderExists] order=${order ? `orderNumber=${order.orderNumber} status=${order.orderStatus}` : 'NOT FOUND'}`,
+    );
+
+    if (!order || order.orderStatus === OrderStatus.CANCELLED) {
+      this.logger.warn(
+        `[checkOrderExists] Returning "No order found." — order=${order?.orderNumber ?? 'null'} status=${order?.orderStatus ?? 'null'}`,
+      );
       return { message: 'No order found.' };
     }
 
+    this.logger.log(
+      `[checkOrderExists] Returning "Order exists." — orderNumber=${order.orderNumber} status=${order.orderStatus}`,
+    );
     return {
       order_id: order.orderNumber,
       message: 'Order exists.',

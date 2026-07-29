@@ -61,6 +61,8 @@ async function bootstrap(): Promise<void> {
       'apiKey',
       'Cookie',
       'ngrok-skip-browser-warning',
+      'x-request-id',
+      'x-correlation-id',
     ],
     exposedHeaders: ['Set-Cookie', 'Content-Disposition', 'Content-Length'],
   });
@@ -105,9 +107,10 @@ async function bootstrap(): Promise<void> {
   // Graceful shutdown
   app.enableShutdownHooks();
 
-  await app.listen(port, '0.0.0.0');
-  // Use Pino logger
+  // Bridge Nest Logger → Pino before listen so early request/bootstrap logs are structured.
   app.useLogger(app.get(Logger));
+
+  await app.listen(port, '0.0.0.0');
 
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port} in ${nodeEnv} mode`);

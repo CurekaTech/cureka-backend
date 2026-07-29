@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   ParseUUIDPipe,
   Post,
@@ -27,6 +28,7 @@ import {
   IGuestAuthResponse,
   IRefreshAuthResponse,
 } from '../interfaces/auth.interface';
+import { IKwikpassPublicConfig } from '../services/kwikpass.service';
 import { IUser } from '@modules/users/interfaces/user.interface';
 import { ResponseMessage } from '@packages/common';
 import { SessionCookieGuard } from '../guards/session-cookie.guard';
@@ -47,6 +49,8 @@ import { KwikpassService } from '../services/kwikpass.service';
  */
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly kwikpassService: KwikpassService,
@@ -63,6 +67,18 @@ export class AuthController {
     return this.authService.login(dto.identifier, req);
   }
 
+  // ── KwikPass ──────────────────────────────────────────────────────────────
+
+  @ResponseMessage('KwikPass configuration')
+  @Get('kwikpass/config')
+  getKwikpassConfig(): IKwikpassPublicConfig {
+    const config = this.kwikpassService.getPublicConfig();
+    this.logger.log(
+      `[kwikpass/config] enabled=${config.enabled} mid="${config.merchantId}" env="${config.environment}" sdkUrl="${config.sdkUrl}"`,
+    );
+    return config;
+  }
+
   @ResponseMessage('KwikPass session created')
   @Post('kwikpass/exchange')
   @HttpCode(HttpStatus.OK)
@@ -71,6 +87,9 @@ export class AuthController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<IUserAuthResponse> {
+    this.logger.log(
+      `[kwikpass/exchange] REQUEST ip="${req.ip}" tokenLength=${dto.kpToken?.length ?? 0}`,
+    );
     const sessionToken = getSessionTokenFromRequest(req);
     const guestUserId =
       await this.authService.resolveGuestUserIdFromSessionToken(sessionToken);
@@ -85,12 +104,28 @@ export class AuthController {
       this.authService.getRefreshExpiresInDays(),
       req,
     );
+    this.logger.log(
+      `[kwikpass/exchange] SUCCESS sessionId=${result.sessionId} isRegistered=${result.isRegistered}`,
+    );
     return {
       sessionId: result.sessionId,
       isRegistered: result.isRegistered,
       user: result.user,
       token: result.sessionToken,
     };
+  }
+
+  /**
+   * Diagnostic endpoint — decrypts a kpToken and returns what's inside it.
+   * Useful for debugging from Postman without going through the full login flow.
+   * Does NOT create a session.
+   */
+  @ResponseMessage('KwikPass token probe result')
+  @Post('kwikpass/probe')
+  @HttpCode(HttpStatus.OK)
+  probeKwikpassToken(@Body() dto: KwikpassExchangeDto): Promise<Record<string, unknown>> {
+    this.logger.log(`[kwikpass/probe] Probing token (length=${dto.kpToken?.length ?? 0})`);
+    return this.kwikpassService.probe(dto.kpToken);
   }
 
   @ResponseMessage('OTP sent successfully')
