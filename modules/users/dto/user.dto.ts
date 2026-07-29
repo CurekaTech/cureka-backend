@@ -64,7 +64,11 @@ export class UpdateUserProfileDto {
   maritalStatus?: UserMaritalStatus;
 
   @IsOptional()
-  @IsDateString()
+  @Transform(({ value }) => {
+    if (value === null || value === '' || value === undefined) return undefined;
+    return value;
+  })
+  @IsDateString({}, { message: 'dateOfBirth must be a valid ISO 8601 date string (e.g. 1990-06-15)' })
   dateOfBirth?: string;
 }
 

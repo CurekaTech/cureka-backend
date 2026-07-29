@@ -36,7 +36,7 @@ const toNumber = (value: string | number | null | undefined): number | null => {
 export const isProductOutOfStock = (entity: ProductEntity): boolean => {
   const variants = entity.variants ?? [];
   if (!variants.length) return true;
-  return variants.every((variant) => (variant.stock ?? 0) <= 0);
+  return variants.every((variant) => variant.outOfStock === true);
 };
 
 const mapCategoryHierarchy = (
@@ -342,6 +342,7 @@ const mapVariant = (
   sellingPrice: toNumber(variant.sellingPrice) ?? 0,
   discountPercentage: toNumber(variant.discountPercentage),
   stock: variant.stock,
+  outOfStock: variant.outOfStock ?? false,
   weight: toNumber(variant.weight),
   weightUnit: variant.weightUnit,
   length: toNumber(variant.length),

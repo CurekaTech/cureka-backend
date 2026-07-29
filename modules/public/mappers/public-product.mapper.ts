@@ -56,12 +56,12 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
   }
 
   const sorted = sortVariantsBySellingPrice(activeVariants);
-  const inStockVariants = sorted.filter((variant) => isVariantInStock(variant.stock));
+  const inStockVariants = sorted.filter((variant) => !variant.outOfStock);
   return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
 };
 
 export const pickPreferredPublicVariant = <
-  T extends { sellingPrice: number; stock: number },
+  T extends { sellingPrice: number; stock: number; outOfStock: boolean },
 >(
   variants: T[],
 ): T | null => {
@@ -70,7 +70,7 @@ export const pickPreferredPublicVariant = <
   }
 
   const sorted = [...variants].sort((left, right) => left.sellingPrice - right.sellingPrice);
-  const inStockVariants = sorted.filter((variant) => isVariantInStock(variant.stock));
+  const inStockVariants = sorted.filter((variant) => !variant.outOfStock);
   return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
 };
 
@@ -90,7 +90,7 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     maxSellingPrice: sellingPrices.length ? Math.max(...sellingPrices) : 0,
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
-    inStock: activeVariants.some((variant) => isVariantInStock(variant.stock)),
+    inStock: activeVariants.some((variant) => !variant.outOfStock),
   };
 };
 
@@ -305,6 +305,7 @@ export const mapVariantEntityToPublicSearchItem = (
     discountPercentage: toNumber(variant.discountPercentage),
     stock: getSalableStockQuantity(variant.stock),
     inStock: isVariantInStock(variant.stock),
+    outOfStock: variant.outOfStock ?? false,
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
     length: toNumber(variant.length),
@@ -452,6 +453,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       discountPercentage: toNumber(variant.discountPercentage),
       stock: getSalableStockQuantity(variant.stock),
       inStock: isVariantInStock(variant.stock),
+      outOfStock: variant.outOfStock ?? false,
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,
       length: toNumber(variant.length),

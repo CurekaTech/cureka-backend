@@ -294,6 +294,7 @@ export class ProductsService {
   }
 
   async findAll(query: ProductQueryDto): Promise<PaginatedResult<IProduct>> {
+    
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
     const queryHash = buildQueryCacheHash({

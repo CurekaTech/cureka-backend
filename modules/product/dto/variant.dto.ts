@@ -158,7 +158,13 @@ export class CreateVariantDto {
   @Min(0)
   stock!: number;
 
-  @ApiPropertyOptional({ example: 0.25 })
+  @ApiPropertyOptional({
+    type: Boolean,
+    description: 'Manually flag this variant as out of stock. Defaults to false.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  outOfStock?: boolean;
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })

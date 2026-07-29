@@ -137,6 +137,7 @@ export class ProductVariantsRepository {
         sellingPrice: dto.sellingPrice.toFixed(2),
         discountPercentage: discountPercentage.toFixed(2),
         stock: dto.stock,
+        outOfStock: dto.outOfStock ?? false,
         weight: dto.weight?.toFixed(3) ?? null,
         weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
         length: dto.length?.toFixed(2) ?? null,
@@ -348,6 +349,7 @@ export class ProductVariantsRepository {
           sellingPrice: dto.sellingPrice.toFixed(2),
           discountPercentage: discountPercentage.toFixed(2),
           stock: dto.stock,
+          ...(dto.outOfStock !== undefined ? { outOfStock: dto.outOfStock } : {}),
           weight: dto.weight?.toFixed(3) ?? null,
           weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
           length: dto.length?.toFixed(2) ?? null,
@@ -452,7 +454,7 @@ export class ProductVariantsRepository {
       await this.repo
         .createQueryBuilder()
         .update(ProductVariantEntity)
-        .set({ stock: 0 })
+        .set({ stock: 0, outOfStock: true })
         .where('id IN (:...ids)', { ids: toZeroIds })
         .execute();
     }
