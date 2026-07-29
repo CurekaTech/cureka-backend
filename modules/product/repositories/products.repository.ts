@@ -702,20 +702,20 @@ export class ProductsRepository {
 
     if (options.outOfStock === true) {
       qb.andWhere(
-        `NOT EXISTS (
-          SELECT 1 FROM product_variants pv
-          WHERE pv.product_id = product.id
-            AND pv.deleted_at IS NULL
-            AND pv.out_of_stock = false
-        )`,
-      );
-    } else if (options.outOfStock === false) {
-      qb.andWhere(
         `EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
             AND pv.deleted_at IS NULL
-            AND pv.out_of_stock = false
+            AND pv.out_of_stock = true
+        )`,
+      );
+    } else if (options.outOfStock === false) {
+      qb.andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.out_of_stock = true
         )`,
       );
     }
