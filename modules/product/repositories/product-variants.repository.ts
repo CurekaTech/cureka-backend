@@ -450,44 +450,43 @@ export class ProductVariantsRepository {
 
     return result;
   }
-
   /**
-   * Sets stock = 0 for all non-deleted variants belonging to the given product IDs.
-   * Returns per-product counts of variants touched vs already at zero.
+   * Sets outOfStock = true for all non-deleted variants belonging to the given product IDs.
+   * Does not read or change stock. Returns per-product counts of variants flagged vs already flagged.
    */
   async markOutOfStockByProductIds(
     productIds: string[],
-  ): Promise<Map<string, { updated: number; alreadyZero: number }>> {
-    const result = new Map<string, { updated: number; alreadyZero: number }>();
+  ): Promise<Map<string, { updated: number; alreadyMarked: number }>> {
+    const result = new Map<string, { updated: number; alreadyMarked: number }>();
     if (!productIds.length) return result;
 
     const variants = await this.repo.find({
       where: { productId: In([...new Set(productIds)]) },
-      select: ['id', 'productId', 'stock'],
+      select: ['id', 'productId', 'outOfStock'],
     });
 
     for (const productId of productIds) {
-      result.set(productId, { updated: 0, alreadyZero: 0 });
+      result.set(productId, { updated: 0, alreadyMarked: 0 });
     }
 
-    const toZeroIds: string[] = [];
+    const toMarkIds: string[] = [];
     for (const variant of variants) {
-      const stats = result.get(variant.productId) ?? { updated: 0, alreadyZero: 0 };
-      if (variant.stock <= 0) {
-        stats.alreadyZero += 1;
+      const stats = result.get(variant.productId) ?? { updated: 0, alreadyMarked: 0 };
+      if (variant.outOfStock) {
+        stats.alreadyMarked += 1;
       } else {
         stats.updated += 1;
-        toZeroIds.push(variant.id);
+        toMarkIds.push(variant.id);
       }
       result.set(variant.productId, stats);
     }
 
-    if (toZeroIds.length) {
+    if (toMarkIds.length) {
       await this.repo
         .createQueryBuilder()
         .update(ProductVariantEntity)
-        .set({ stock: 0, outOfStock: true })
-        .where('id IN (:...ids)', { ids: toZeroIds })
+        .set({ outOfStock: true })
+        .where('id IN (:...ids)', { ids: toMarkIds })
         .execute();
     }
 
