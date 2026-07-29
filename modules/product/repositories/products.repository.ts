@@ -695,6 +695,26 @@ export class ProductsRepository {
       );
     }
 
+    if (options.outOfStock === true) {
+      qb.andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.out_of_stock = false
+        )`,
+      );
+    } else if (options.outOfStock === false) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.out_of_stock = false
+        )`,
+      );
+    }
+
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
@@ -1017,9 +1037,9 @@ export class ProductsRepository {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
     }
     if (options.outOfStock === true) {
-      qb.andWhere('variant.stock = 0');
+      qb.andWhere('variant.outOfStock = true');
     } else if (options.outOfStock === false) {
-      qb.andWhere('variant.stock > 0');
+      qb.andWhere('variant.outOfStock = false');
     }
   }
 

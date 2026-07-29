@@ -37,6 +37,7 @@ export interface IProductVariant {
   sellingPrice: number;
   discountPercentage: number | null;
   stock: number;
+  outOfStock: boolean;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;
