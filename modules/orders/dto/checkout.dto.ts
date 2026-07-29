@@ -7,7 +7,11 @@ export class CheckoutDto {
   @IsUUID()
   addressId!: string;
 
-  /** When set, payment-method-specific fees (COD charge, prepaid discount) are included in the summary. */
+  /**
+   * Optional fee hint only (COD charge / prepaid discount in the summary).
+   * Does not start Razorpay/Cashfree/GoKwik. To open GoKwik, call POST /payment-requests/checkout
+   * when admin setting `gokwikCheckoutEnabled` is active — do not send `GOKWIK_*` here.
+   */
   @IsOptional()
   @IsEnum(OrderPaymentMethod)
   paymentMethod?: OrderPaymentMethod;

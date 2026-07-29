@@ -16,7 +16,13 @@ import { OrdersService } from '../services/orders.service';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
-  @ApiOperation({ summary: 'Validate checkout details' })
+  @ApiOperation({
+    summary: 'Validate checkout details',
+    description:
+      'Returns cart pricing summary plus `checkoutProvider` (`gokwik` | `shiprocket` | `legacy`). ' +
+      'Does not start payment. To pay/open a gateway modal, call POST /payment-requests/checkout (or /checkout/modal). ' +
+      '`paymentMethod` is optional and only affects fee lines (COD charge / prepaid discount) — it does not select GoKwik.',
+  })
   @ResponseMessage('Checkout validated successfully')
   @Post('checkout')
   checkout(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: CheckoutDto) {
