@@ -361,9 +361,12 @@ export class ProductsService {
     
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
+    // Admin product list shows only simple/variable; bundles use /bundle-products
+    const excludeProductTypes = query.productType ? undefined : [ProductType.BUNDLE];
     const queryHash = buildQueryCacheHash({
       ...filters,
       productType: query.productType,
+      excludeProductTypes,
       status: query.status,
       variantSlug: query.variantSlug,
       outOfStock: query.outOfStock,
@@ -389,6 +392,7 @@ export class ProductsService {
           sortBy: paginationOptions.sortBy,
           sortOrder: paginationOptions.sortOrder,
           productType: query.productType,
+          excludeProductTypes,
           status: query.status,
           categoryId: filters.categoryId,
           brandId: filters.brandId,
@@ -586,7 +590,13 @@ export class ProductsService {
     );
     const needsVariantSync = dto.variants !== undefined || (
       effectiveProductType === ProductType.BUNDLE &&
-      (dto.mrp !== undefined || dto.sellingPrice !== undefined || dto.stock !== undefined || dto.sku !== undefined)
+      (dto.mrp !== undefined ||
+        dto.sellingPrice !== undefined ||
+        dto.stock !== undefined ||
+        dto.sku !== undefined ||
+        dto.discountPercentage !== undefined ||
+        dto.expiryDate !== undefined ||
+        dto.expiresIn !== undefined)
     );
     const needsBundleItemsSync =
       effectiveProductType === ProductType.BUNDLE && dto.bundleItems !== undefined;
@@ -713,22 +723,29 @@ export class ProductsService {
 
       if (needsVariantSync && dto.variants) {
         const variantsForSync =
-          effectiveProductType === ProductType.SIMPLE && dto.expiryDate
-            ? dto.variants.map((variant, index) =>
-              index === 0
-                ? { ...variant, expiryDate: variant.expiryDate ?? dto.expiryDate }
-                : variant,
-            )
-            : effectiveProductType === ProductType.BUNDLE
-              ? ensureBundlePricingVariants({
-                  name: dto.name ?? existing.name,
-                  variants: dto.variants,
-                  mrp: dto.mrp,
-                  sellingPrice: dto.sellingPrice,
-                  stock: dto.stock,
-                  sku: dto.sku,
-                  discountPercentage: dto.discountPercentage,
-                })
+          effectiveProductType === ProductType.BUNDLE
+            ? ensureBundlePricingVariants({
+                name: dto.name ?? existing.name,
+                variants: dto.variants,
+                mrp: dto.mrp,
+                sellingPrice: dto.sellingPrice,
+                stock: dto.stock,
+                sku: dto.sku,
+                discountPercentage: dto.discountPercentage,
+                expiryDate: dto.expiryDate,
+                expiresIn: dto.expiresIn,
+                description: dto.description,
+              })
+            : effectiveProductType === ProductType.SIMPLE
+              ? dto.variants.map((variant, index) =>
+                  index === 0
+                    ? {
+                        ...variant,
+                        expiryDate: variant.expiryDate ?? dto.expiryDate,
+                        expiresIn: variant.expiresIn ?? dto.expiresIn,
+                      }
+                    : variant,
+                )
               : dto.variants;
 
         await this.variantsRepository.syncVariants(
@@ -756,6 +773,9 @@ export class ProductsService {
             (existing.variants?.[0]?.discountPercentage != null
               ? Number(existing.variants[0].discountPercentage)
               : undefined),
+          expiryDate: dto.expiryDate ?? existing.variants?.[0]?.expiryDate ?? undefined,
+          expiresIn: dto.expiresIn ?? existing.variants?.[0]?.expiresIn ?? undefined,
+          description: dto.description ?? existing.variants?.[0]?.description ?? undefined,
         });
         await this.variantsRepository.syncVariants(
           manager,
@@ -1015,12 +1035,12 @@ export class ProductsService {
     return this.findOne(refId);
   }
 
-  /** List helpers for dedicated bundle endpoints. */
+  /** List helpers for dedicated bundle endpoints. Forces productType=bundle; status only when provided. */
   async findBundles(query: ProductQueryDto, status?: ProductStatus): Promise<PaginatedResult<IProduct>> {
     return this.findAll({
       ...query,
       productType: ProductType.BUNDLE,
-      ...(status ? { status } : { status: query.status ?? ProductStatus.PUBLISHED }),
+      status: status ?? query.status,
     });
   }
 

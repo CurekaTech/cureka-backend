@@ -53,6 +53,7 @@ export class SimpleProductStrategy implements IProductCreationStrategy {
       {
         ...variant!,
         expiryDate: variant!.expiryDate ?? dto.expiryDate,
+        expiresIn: variant!.expiresIn ?? dto.expiresIn,
       },
     ];
 
@@ -131,11 +132,19 @@ export class BundleProductStrategy implements IProductCreationStrategy {
     await this.relationsRepository.syncBundles(manager, product.id, resolvedItems);
 
     const pricingVariants = ensureBundlePricingVariants(dto);
+    // Mirror simple products: apply top-level expiry/description onto the pricing variant
+    const variantsWithDetails = pricingVariants.map((variant) => ({
+      ...variant,
+      expiryDate: variant.expiryDate ?? dto.expiryDate,
+      expiresIn: variant.expiresIn ?? dto.expiresIn,
+      description: variant.description ?? dto.description,
+    }));
+
     await this.variantsRepository.createVariants(
       manager,
       product.id,
       product.slug,
-      pricingVariants,
+      variantsWithDetails,
       attributeIdByRefId,
     );
   }

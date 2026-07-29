@@ -21,7 +21,6 @@ import { BrandEntity } from '../entities/brand.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
-import { HOMEPAGE_FLAG_LIMIT } from '../constants/homepage-flag-limit.constant';
 
 const BRAND_MEDIA_FIELDS = ['logo', 'banner'] as const;
 
@@ -82,8 +81,6 @@ export class BrandsService {
       throw new ConflictException(`A brand with slug "${slug}" already exists`);
     }
 
-    await this.assertInHomePageWithinLimit(dto.inHomePage ?? false);
-
     const entity = await this.brandsRepository.create({
       name: dto.name,
       slug,
@@ -143,10 +140,6 @@ export class BrandsService {
       }
     }
 
-    if (dto.inHomePage !== undefined) {
-      await this.assertInHomePageWithinLimit(dto.inHomePage, existing.id);
-    }
-
     const payload: Partial<BrandEntity> = { ...dto, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
@@ -194,21 +187,6 @@ export class BrandsService {
     await this.deletionGuard.assertBrandDeletable(existing.id, existing.name);
     await this.brandsRepository.softDeleteByRefId(refId);
     await this.emitBrandUpdated(refId, 'deleted');
-  }
-
-  /** Enforces that at most {@link HOMEPAGE_FLAG_LIMIT} brands are shown on the homepage. */
-  private async assertInHomePageWithinLimit(
-    enabling: boolean,
-    excludeId?: string,
-  ): Promise<void> {
-    if (!enabling) return;
-
-    const count = await this.brandsRepository.countInHomePage(excludeId);
-    if (count + 1 > HOMEPAGE_FLAG_LIMIT) {
-      throw new ConflictException(
-        `A maximum of ${HOMEPAGE_FLAG_LIMIT} brands can be shown on the homepage`,
-      );
-    }
   }
 
   private async emitBrandUpdated(

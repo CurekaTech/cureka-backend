@@ -176,19 +176,6 @@ export class BrandsRepository {
     return count > 0;
   }
 
-  /** Counts brands flagged for the homepage (optionally excluding one brand). */
-  async countInHomePage(excludeId?: string): Promise<number> {
-    const qb = this.repo
-      .createQueryBuilder('brand')
-      .where('brand.inHomePage = :enabled', { enabled: true });
-
-    if (excludeId) {
-      qb.andWhere('brand.id != :excludeId', { excludeId });
-    }
-
-    return qb.getCount();
-  }
-
   /** Active brands shown on the homepage (newest first), capped to `limit`. */
   async findHomePageBrands(limit: number): Promise<BrandEntity[]> {
     return this.repo

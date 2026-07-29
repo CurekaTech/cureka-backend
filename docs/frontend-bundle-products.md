@@ -12,12 +12,16 @@ This guide explains how to build the Bundle Product admin UI. Bundle products re
 | Concern | Behaviour |
 |---------|-----------|
 | Form / listing / filters / actions | Same as Product module wherever possible |
-| Variants | **Not supported** — hide variant UI |
+| Variants | **Not supported** — hide variant UI (one internal pricing variant is stored) |
 | Linked products | Search existing products → add with quantity |
 | Pricing | Manual MRP / selling price / discount (not calculated from children) |
 | Inventory | Bundle-level stock (ignore child stock for now) |
 | Categories | Same as products (single or multiple hierarchies via `categories[]`) |
-| Images / SEO | Same as products |
+| Health concerns / wellness goals | Same as products (`healthConcernRefIds`, `wellnessGoalRefIds`) |
+| Description | Same as products (`description`) |
+| Expiry | Same as simple products (`expiryDate`, `expiresIn`, `expiresInMonths`) |
+| Images / SEO | Same as products (`media[]`, `metaTitle`, `metaDescription`, `metaKeywords`) |
+| SKU | Unique across all variants (`sku` top-level or `variants[0].sku`) |
 | Permissions | Same as products (`SUPER_ADMIN` / `ADMIN`) |
 
 `productType` is always `bundle` on these endpoints (forced by the API).
@@ -31,7 +35,21 @@ This guide explains how to build the Bundle Product admin UI. Bundle products re
 - Variant section
 - Variant generation / attribute combinations
 
-### Add
+### Include (same as products)
+
+| Field | API field(s) | Notes |
+|-------|----------------|-------|
+| Description | `description` | Bundle description (product-level) |
+| Health concerns | `healthConcernRefIds` | Array of health concern refIds |
+| Wellness goals | `wellnessGoalRefIds` | Array of wellness goal refIds |
+| Expires in (days) | `expiresIn` | Applied to pricing variant |
+| Expires in months | `expiresInMonths` | Product shelf-life field |
+| Expiry date | `expiryDate` | `dd-mm-yyyy`; applied to pricing variant |
+| Images | `media[]` (+ multipart files like products) | Bundle images |
+| SEO | `metaTitle`, `metaDescription`, `metaKeywords` | Same as products |
+| SKU | `sku` | **Must be unique**; auto-generated if omitted |
+
+### Add (bundle-only)
 
 #### Curated By
 
@@ -86,7 +104,7 @@ Send either top-level shortcuts **or** a single `variants[0]` entry (backend sto
 }
 ```
 
-Do **not** auto-sum child product prices or stock.
+Do **not** auto-sum child product prices or stock. SKU must be unique across the catalog.
 
 ---
 
@@ -97,6 +115,7 @@ Do **not** auto-sum child product prices or stock.
 ```json
 {
   "name": "Summer Skin Care Kit",
+  "description": "Expert curated summer skincare essentials in one kit.",
   "brandRefId": "BRA20261234",
   "categoryRefId": "HEA20260016",
   "categories": [
@@ -105,15 +124,24 @@ Do **not** auto-sum child product prices or stock.
       "subCategoryRefId": "SUB20260011"
     }
   ],
+  "healthConcernRefIds": ["HLT20260001", "HLT20260002"],
+  "wellnessGoalRefIds": ["WEL20260001"],
   "curatedBy": "Dr. Patel, Dr. Shah",
   "curatedFor": "Recommended for daily skincare routine and sensitive skin.",
   "mrp": 2499,
   "sellingPrice": 1999,
   "stock": 100,
+  "sku": "BND-SUMMER-KIT-001",
+  "expiresIn": 365,
+  "expiresInMonths": 12,
+  "expiryDate": "31-12-2027",
   "bundleItems": [
     { "childProductRefId": "PRO20260001", "quantity": 1 },
     { "childProductRefId": "PRO20260002", "quantity": 1 },
     { "childProductRefId": "PRO20260003", "quantity": 1 }
+  ],
+  "media": [
+    { "type": "image", "url": { "key": "products/bundles/summer-kit.jpg", "name": "summer-kit.jpg" }, "isPrimary": true, "sortOrder": 0 }
   ],
   "metaTitle": "Summer Skin Care Kit",
   "metaDescription": "Expert curated summer skincare bundle",
@@ -125,7 +153,8 @@ Notes:
 
 - Do **not** send `productType` (API forces `bundle`).
 - Do **not** send `attributeRefIds` / multi-variant payloads.
-- Media / size chart / SEO fields work like products.
+- Health concerns, wellness goals, description, expiry, media, and SEO work like products.
+- Duplicate `sku` returns a conflict error.
 
 ---
 
@@ -185,14 +214,17 @@ UI tip: show MRP / selling / stock from `variants[0]` (or map to form fields on 
 
 ## Listing pages
 
-| Page | Method | Path | Fixed status |
-|------|--------|------|--------------|
-| Active | `GET` | `/api/v1/bundle-products` | `published` |
+| Page | Method | Path | Status filter |
+|------|--------|------|---------------|
+| All / main list | `GET` | `/api/v1/bundle-products` | Optional `?status=` (omit = all statuses) |
 | Drafts | `GET` | `/api/v1/bundle-products/drafts` | `draft` |
 | Pending | `GET` | `/api/v1/bundle-products/pending` | `pending_review` |
 | Rejected | `GET` | `/api/v1/bundle-products/rejected` | `rejected` |
+| Published only | `GET` | `/api/v1/bundle-products?status=published` | `published` |
 
-Query params (same as products): `page`, `limit`, `search`, `categoryRefId`, `brandRefId` / `brandRefIds`, `sortBy`, `sortOrder`, etc.
+Query params (same as products): `page`, `limit`, `search`, `status`, `categoryRefId`, `brandRefId` / `brandRefIds`, `sortBy`, `sortOrder`, etc.
+
+**Note:** Create submits bundles as `pending_review`, so the main list must not be locked to `published` only.
 
 Reuse the Product table layout; hide variant-specific columns if unused. Show `outOfStock` badge like products.
 

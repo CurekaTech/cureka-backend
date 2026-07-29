@@ -38,19 +38,6 @@ export class HealthConcernsRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
-  /** Counts health concerns flagged for the homepage (optionally excluding one). */
-  async countInHomePage(excludeId?: string): Promise<number> {
-    const qb = this.repo
-      .createQueryBuilder('healthConcern')
-      .where('healthConcern.inHomePage = :enabled', { enabled: true });
-
-    if (excludeId) {
-      qb.andWhere('healthConcern.id != :excludeId', { excludeId });
-    }
-
-    return qb.getCount();
-  }
-
   /** Active health concerns shown on the homepage, ordered by sortIndex ASC NULLS LAST, then name. */
   async findHomePageConcerns(limit: number): Promise<HealthConcernEntity[]> {
     return this.repo
