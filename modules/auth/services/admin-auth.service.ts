@@ -316,12 +316,47 @@ export const MENU_HIERARCHY: MenuItem[] = [
     key: 'products',
     icon: 'Package',
     subItems: [
+      // {
+      //   name: 'Add Product',
+      //   key: 'products-add',
+      //   icon: 'Plus',
+      //   href: '/products/add',
+      //   requiredPermissions: ['products.create'],
+      // },
       {
-        name: 'Add Product',
-        key: 'products-add',
-        icon: 'Plus',
-        href: '/products/add',
-        requiredPermissions: ['products.create'],
+        name: 'Bundle Products',
+        key: 'bundle-product-list',
+        icon: 'Package',
+        subItems: [
+          {
+            name: 'All',
+            key: 'bundle-products-list-all',
+            icon: '',
+            href: '/products/bundles',
+            requiredPermissions: ['bundle-products.read'],
+          },
+          {
+            name: 'Active',
+            key: 'bundle-products-list-approved',
+            icon: '',
+            href: '/products/bundles?status=published',
+            requiredPermissions: ['bundle-products.read'],
+          },
+          {
+            name: 'Pending Review',
+            key: 'bundle-products-list-pending',
+            icon: '',
+            href: '/products/bundles?status=pending_review',
+            requiredPermissions: ['bundle-products.read'],
+          },
+          {
+            name: 'Rejected',
+            key: 'bundle-products-list-rejected',
+            icon: '',
+            href: '/products/bundles?status=rejected',
+            requiredPermissions: ['bundle-products.read'],
+          },
+        ],
       },
       {
         name: 'Product List',
@@ -339,7 +374,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
             name: 'Active',
             key: 'products-list-approved',
             icon: '',
-            href: '/products?status=approved',
+            href: '/products?status=published',
             requiredPermissions: ['products.read'],
           },
           {

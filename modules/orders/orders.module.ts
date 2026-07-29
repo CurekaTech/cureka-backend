@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
+import { CheckoutModule } from '@modules/checkout/checkout.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
@@ -36,6 +37,7 @@ import { OrdersService } from './services/orders.service';
       OrderItemEntity,
     ]),
     AdminSettingsModule,
+    CheckoutModule,
     MasterModule,
     UsersModule,
     UploadsModule,

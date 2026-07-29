@@ -26,6 +26,8 @@ type SpecificationFields = Pick<
   | 'manufacturerAddress'
   | 'packerAddress'
   | 'importerAddress'
+  | 'curatedBy'
+  | 'curatedFor'
 >;
 
 export const mapSpecificationFields = (
@@ -62,4 +64,6 @@ export const mapSpecificationFields = (
   ...(dto.importerAddress !== undefined && {
     importerAddress: dto.importerAddress ?? null,
   }),
+  ...(dto.curatedBy !== undefined && { curatedBy: dto.curatedBy?.trim() || null }),
+  ...(dto.curatedFor !== undefined && { curatedFor: dto.curatedFor?.trim() || null }),
 });

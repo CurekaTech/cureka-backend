@@ -9,6 +9,10 @@ import { ProductVariantsRepository } from '../repositories/product-variants.repo
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductsRepository } from '../repositories/products.repository';
 import { validateUniqueVariantCombinations } from '../validators/variant.validator';
+import {
+  ensureBundlePricingVariants,
+  resolveBundleChildItems,
+} from '../utils/bundle-product.util';
 
 @Injectable()
 export class SimpleProductStrategy implements IProductCreationStrategy {
@@ -49,6 +53,7 @@ export class SimpleProductStrategy implements IProductCreationStrategy {
       {
         ...variant!,
         expiryDate: variant!.expiryDate ?? dto.expiryDate,
+        expiresIn: variant!.expiresIn ?? dto.expiresIn,
       },
     ];
 
@@ -118,41 +123,30 @@ export class BundleProductStrategy implements IProductCreationStrategy {
     attributeIdByRefId: Map<string, string>,
   ): Promise<void> {
     const bundleItems = dto.bundleItems ?? [];
-    if (!bundleItems.length) {
-      throw new BadRequestException('Bundle products require at least one bundle item');
-    }
-
-    const childRefIds = bundleItems.map((item) => item.childProductRefId);
-    const childIdsByRefId = await this.productsRepository.findIdsByRefIds(childRefIds, manager);
-
-    const resolvedItems: Array<{ childProductId: string; quantity: number }> = [];
-    for (const item of bundleItems) {
-      const childProductId = childIdsByRefId.get(item.childProductRefId);
-      if (!childProductId) {
-        throw new BadRequestException(
-          `Child product with refId "${item.childProductRefId}" not found`,
-        );
-      }
-      if (childProductId === product.id) {
-        throw new BadRequestException('Bundle cannot include itself as a child product');
-      }
-      resolvedItems.push({ childProductId, quantity: item.quantity });
-    }
+    const resolvedItems = await resolveBundleChildItems(
+      bundleItems,
+      product.id,
+      (refIds) => this.productsRepository.findIdsByRefIds(refIds, manager),
+    );
 
     await this.relationsRepository.syncBundles(manager, product.id, resolvedItems);
 
-    if (dto.variants?.length) {
-      if (dto.variants.length !== 1) {
-        throw new BadRequestException('Bundle products support exactly one pricing variant');
-      }
-      await this.variantsRepository.createVariants(
-        manager,
-        product.id,
-        product.slug,
-        dto.variants,
-        attributeIdByRefId,
-      );
-    }
+    const pricingVariants = ensureBundlePricingVariants(dto);
+    // Mirror simple products: apply top-level expiry/description onto the pricing variant
+    const variantsWithDetails = pricingVariants.map((variant) => ({
+      ...variant,
+      expiryDate: variant.expiryDate ?? dto.expiryDate,
+      expiresIn: variant.expiresIn ?? dto.expiresIn,
+      description: variant.description ?? dto.description,
+    }));
+
+    await this.variantsRepository.createVariants(
+      manager,
+      product.id,
+      product.slug,
+      variantsWithDetails,
+      attributeIdByRefId,
+    );
   }
 }
 

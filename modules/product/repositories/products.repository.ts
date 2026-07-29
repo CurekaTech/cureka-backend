@@ -31,12 +31,15 @@ export interface ProductListOptions {
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
   productType?: string;
+  /** When set and productType is not set, exclude these types (e.g. bundles from admin product list). */
+  excludeProductTypes?: string[];
   status?: ProductStatus;
   categoryId?: string;
   brandId?: string;
   brandIds?: string[];
   productNatureId?: string;
   variantSlug?: string;
+  outOfStock?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
@@ -632,6 +635,11 @@ export class ProductsRepository {
     await this.repo.softDelete({ refId });
   }
 
+  async restoreByRefId(refId: string): Promise<boolean> {
+    const result = await this.repo.restore({ refId });
+    return (result.affected ?? 0) > 0;
+  }
+
   async findAllPaginated(
     options: ProductListOptions,
   ): Promise<{ data: ProductEntity[]; total: number }> {
@@ -665,6 +673,10 @@ export class ProductsRepository {
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
+    } else if (options.excludeProductTypes?.length) {
+      qb.andWhere('product.productType NOT IN (:...excludeProductTypes)', {
+        excludeProductTypes: options.excludeProductTypes,
+      });
     }
     if (options.status != null) {
       qb.andWhere('product.status = :status', { status: options.status });
@@ -691,6 +703,26 @@ export class ProductsRepository {
             AND pv.deleted_at IS NULL
         )`,
         { variantSlug: options.variantSlug },
+      );
+    }
+
+    if (options.outOfStock === true) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.out_of_stock = true
+        )`,
+      );
+    } else if (options.outOfStock === false) {
+      qb.andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.out_of_stock = true
+        )`,
       );
     }
 
@@ -995,6 +1027,10 @@ export class ProductsRepository {
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
+    } else if (options.excludeProductTypes?.length) {
+      qb.andWhere('product.productType NOT IN (:...excludeProductTypes)', {
+        excludeProductTypes: options.excludeProductTypes,
+      });
     }
     if (options.status != null) {
       qb.andWhere('product.status = :status', { status: options.status });
@@ -1014,6 +1050,11 @@ export class ProductsRepository {
     }
     if (options.variantSlug) {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
+    }
+    if (options.outOfStock === true) {
+      qb.andWhere('variant.outOfStock = true');
+    } else if (options.outOfStock === false) {
+      qb.andWhere('variant.outOfStock = false');
     }
   }
 

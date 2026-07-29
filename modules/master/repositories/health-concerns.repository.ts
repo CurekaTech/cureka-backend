@@ -38,26 +38,14 @@ export class HealthConcernsRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
-  /** Counts health concerns flagged for the homepage (optionally excluding one). */
-  async countInHomePage(excludeId?: string): Promise<number> {
-    const qb = this.repo
-      .createQueryBuilder('healthConcern')
-      .where('healthConcern.inHomePage = :enabled', { enabled: true });
-
-    if (excludeId) {
-      qb.andWhere('healthConcern.id != :excludeId', { excludeId });
-    }
-
-    return qb.getCount();
-  }
-
-  /** Active health concerns shown on the homepage (newest first), capped to `limit`. */
+  /** Active health concerns shown on the homepage, ordered by sortIndex ASC NULLS LAST, then name. */
   async findHomePageConcerns(limit: number): Promise<HealthConcernEntity[]> {
     return this.repo
       .createQueryBuilder('healthConcern')
       .where('healthConcern.inHomePage = :enabled', { enabled: true })
       .andWhere('healthConcern.status = :status', { status: MasterStatus.ACTIVE })
-      .orderBy('healthConcern.createdAt', 'DESC')
+      .orderBy('healthConcern.sortIndex', 'ASC', 'NULLS LAST')
+      .addOrderBy('healthConcern.name', 'ASC')
       .take(limit)
       .getMany();
   }
@@ -67,6 +55,11 @@ export class HealthConcernsRepository {
     data: Partial<HealthConcernEntity>,
   ): Promise<HealthConcernEntity | null> {
     await this.repo.update({ refId }, data);
+    return this.findByRefId(refId);
+  }
+
+  async updateSortIndexByRefId(refId: string, sortIndex: number | null): Promise<HealthConcernEntity | null> {
+    await this.repo.update({ refId }, { sortIndex });
     return this.findByRefId(refId);
   }
 
@@ -164,14 +157,22 @@ export class HealthConcernsRepository {
   }
 
   async findActiveHomePageConcerns(): Promise<HealthConcernEntity[]> {
-    return this.repo.find({
-      where: {
-        inHomePage: true,
-        status: MasterStatus.ACTIVE,
-      },
-      order: {
-        name: 'ASC',
-      },
-    });
+    return this.repo
+      .createQueryBuilder('healthConcern')
+      .where('healthConcern.inHomePage = :enabled', { enabled: true })
+      .andWhere('healthConcern.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('healthConcern.sortIndex', 'ASC', 'NULLS LAST')
+      .addOrderBy('healthConcern.name', 'ASC')
+      .getMany();
+  }
+
+  /** All homepage health concerns (any status) for admin management, ordered by index. */
+  async findAllHomePageConcernsForAdmin(): Promise<HealthConcernEntity[]> {
+    return this.repo
+      .createQueryBuilder('healthConcern')
+      .where('healthConcern.inHomePage = :enabled', { enabled: true })
+      .orderBy('healthConcern.sortIndex', 'ASC', 'NULLS LAST')
+      .addOrderBy('healthConcern.name', 'ASC')
+      .getMany();
   }
 }

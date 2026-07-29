@@ -137,6 +137,7 @@ export class ProductVariantsRepository {
         sellingPrice: dto.sellingPrice.toFixed(2),
         discountPercentage: discountPercentage.toFixed(2),
         stock: dto.stock,
+        outOfStock: dto.outOfStock ?? false,
         weight: dto.weight?.toFixed(3) ?? null,
         weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
         length: dto.length?.toFixed(2) ?? null,
@@ -186,6 +187,15 @@ export class ProductVariantsRepository {
   ): Promise<void> {
     if (productType === ProductType.SIMPLE && variants.length !== 1) {
       throw new BadRequestException('Simple products must have exactly one variant');
+    }
+
+    if (productType === ProductType.BUNDLE) {
+      if (variants.length !== 1) {
+        throw new BadRequestException('Bundle products must have exactly one pricing variant');
+      }
+      if (variants[0]?.attributes?.length) {
+        throw new BadRequestException('Bundle pricing variants cannot have attributes');
+      }
     }
 
     if (productType === ProductType.VARIABLE) {
@@ -348,6 +358,7 @@ export class ProductVariantsRepository {
           sellingPrice: dto.sellingPrice.toFixed(2),
           discountPercentage: discountPercentage.toFixed(2),
           stock: dto.stock,
+          ...(dto.outOfStock !== undefined ? { outOfStock: dto.outOfStock } : {}),
           weight: dto.weight?.toFixed(3) ?? null,
           weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
           length: dto.length?.toFixed(2) ?? null,
@@ -417,43 +428,65 @@ export class ProductVariantsRepository {
     await this.repo.update({ id: variantId }, { stock });
   }
 
+  async setStockByProductIds(
+    updates: Array<{ productId: string; stock: number }>,
+  ): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    if (!updates.length) return result;
+
+    const productIds = [...new Set(updates.map((item) => item.productId))];
+    const variants = await this.repo.find({
+      where: { productId: In(productIds) },
+      select: ['id', 'productId'],
+    });
+    const stockByProductId = new Map(updates.map((item) => [item.productId, item.stock]));
+
+    for (const variant of variants) {
+      const stock = stockByProductId.get(variant.productId);
+      if (stock === undefined) continue;
+      await this.repo.update({ id: variant.id }, { stock });
+      result.set(variant.productId, (result.get(variant.productId) ?? 0) + 1);
+    }
+
+    return result;
+  }
   /**
-   * Sets stock = 0 for all non-deleted variants belonging to the given product IDs.
-   * Returns per-product counts of variants touched vs already at zero.
+   * Sets outOfStock = true for all non-deleted variants belonging to the given product IDs.
+   * Does not read or change stock. Returns per-product counts of variants flagged vs already flagged.
    */
   async markOutOfStockByProductIds(
     productIds: string[],
-  ): Promise<Map<string, { updated: number; alreadyZero: number }>> {
-    const result = new Map<string, { updated: number; alreadyZero: number }>();
+  ): Promise<Map<string, { updated: number; alreadyMarked: number }>> {
+    const result = new Map<string, { updated: number; alreadyMarked: number }>();
     if (!productIds.length) return result;
 
     const variants = await this.repo.find({
       where: { productId: In([...new Set(productIds)]) },
-      select: ['id', 'productId', 'stock'],
+      select: ['id', 'productId', 'outOfStock'],
     });
 
     for (const productId of productIds) {
-      result.set(productId, { updated: 0, alreadyZero: 0 });
+      result.set(productId, { updated: 0, alreadyMarked: 0 });
     }
 
-    const toZeroIds: string[] = [];
+    const toMarkIds: string[] = [];
     for (const variant of variants) {
-      const stats = result.get(variant.productId) ?? { updated: 0, alreadyZero: 0 };
-      if (variant.stock <= 0) {
-        stats.alreadyZero += 1;
+      const stats = result.get(variant.productId) ?? { updated: 0, alreadyMarked: 0 };
+      if (variant.outOfStock) {
+        stats.alreadyMarked += 1;
       } else {
         stats.updated += 1;
-        toZeroIds.push(variant.id);
+        toMarkIds.push(variant.id);
       }
       result.set(variant.productId, stats);
     }
 
-    if (toZeroIds.length) {
+    if (toMarkIds.length) {
       await this.repo
         .createQueryBuilder()
         .update(ProductVariantEntity)
-        .set({ stock: 0 })
-        .where('id IN (:...ids)', { ids: toZeroIds })
+        .set({ outOfStock: true })
+        .where('id IN (:...ids)', { ids: toMarkIds })
         .execute();
     }
 

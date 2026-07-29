@@ -75,6 +75,10 @@ export class ProductVariantEntity {
   @Column({ type: 'int', default: 0 })
   stock!: number;
 
+  @Index()
+  @Column({ name: 'out_of_stock', type: 'boolean', default: false })
+  outOfStock!: boolean;
+
   @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
   weight!: string | null;
 

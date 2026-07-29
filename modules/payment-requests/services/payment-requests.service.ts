@@ -504,13 +504,21 @@ export class PaymentRequestsService {
       throw new BadRequestException('Cart not found');
     }
 
+    const appId = this.configService.get<string>('gokwik.appId')?.trim() ?? '';
+    const merchantId = this.configService.get<string>('gokwik.merchantId')?.trim() ?? '';
+    if (!appId || !merchantId) {
+      throw new BadRequestException(
+        'GoKwik checkout is enabled but GOKWIK_APP_ID / GOKWIK_MERCHANT_ID are not configured',
+      );
+    }
+
     return {
       gateway: 'gokwik',
       checkoutProvider: 'gokwik',
       paymentData: {
         merchantCheckoutId: cart.id,
-        appId: this.configService.get<string>('gokwik.appId') ?? '',
-        merchantId: this.configService.get<string>('gokwik.merchantId') ?? '',
+        appId,
+        merchantId,
         amount: pricing.grandTotal,
         currency: 'INR',
       },

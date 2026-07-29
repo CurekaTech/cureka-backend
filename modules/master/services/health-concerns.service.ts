@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -12,6 +11,7 @@ import { HealthConcernsRepository } from '../repositories/health-concerns.reposi
 import {
   CreateHealthConcernDto,
   UpdateHealthConcernDto,
+  UpdateHealthConcernIndexDto,
   UpdateHealthConcernStatusDto,
 } from '../dto/health-concern.dto';
 import { IHealthConcern } from '../interfaces/health-concern.interface';
@@ -33,7 +33,6 @@ import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
-import { HOMEPAGE_FLAG_LIMIT } from '../constants/homepage-flag-limit.constant';
 
 const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner'] as const;
 
@@ -97,8 +96,6 @@ export class HealthConcernsService {
       throw new ConflictException(`A health concern with slug "${slug}" already exists`);
     }
 
-    await this.assertInHomePageWithinLimit(dto.inHomePage ?? false);
-
     const entity = await this.healthConcernsRepository.create({
       name: dto.name,
       slug,
@@ -130,6 +127,34 @@ export class HealthConcernsService {
     return this.storageUrlEnricher.enrichPaginated(result, [...HEALTH_CONCERN_MEDIA_FIELDS]);
   }
 
+  /** Returns all homepage health concerns (any status) ordered by sortIndex — for admin management. */
+  async getHomePageConcerns(): Promise<IHealthConcern[]> {
+    const entities = await this.healthConcernsRepository.findAllHomePageConcernsForAdmin();
+    const mapped = mapHealthConcernEntitiesToResponse(entities);
+    return Promise.all(mapped.map((item) => this.enrichHealthConcern(item)));
+  }
+
+  /** Updates the sortIndex for a single health concern and invalidates homepage cache. */
+  async updateIndex(
+    refId: string,
+    dto: UpdateHealthConcernIndexDto,
+    updatedBy: string,
+  ): Promise<IHealthConcern> {
+    const existing = await this.healthConcernsRepository.findByRefId(refId);
+    if (!existing) {
+      throw new NotFoundException(`Health concern with refId ${refId} not found`);
+    }
+
+    const updated = await this.healthConcernsRepository.updateSortIndexByRefId(refId, dto.sortIndex ?? null);
+    if (!updated) {
+      throw new NotFoundException(`Health concern with refId ${refId} not found after update`);
+    }
+
+    await this.emitHealthConcernUpdated(refId, 'updated');
+    await this.invalidateHomePageCache();
+    return this.enrichHealthConcern(mapHealthConcernEntityToResponse(updated));
+  }
+
   async findOne(refId: string): Promise<IHealthConcern> {
     const entity = await this.healthConcernsRepository.findByRefId(refId);
     if (!entity) {
@@ -154,10 +179,6 @@ export class HealthConcernsService {
       if (await this.healthConcernsRepository.existsBySlugExcluding(dto.slug, existing.id)) {
         throw new ConflictException(`A health concern with slug "${dto.slug}" already exists`);
       }
-    }
-
-    if (dto.inHomePage !== undefined) {
-      await this.assertInHomePageWithinLimit(dto.inHomePage, existing.id);
     }
 
     const payload: Partial<HealthConcernEntity> = { ...dto, updatedBy };
@@ -218,21 +239,6 @@ export class HealthConcernsService {
       EVENTS.HEALTH_CONCERN_UPDATED,
       new HealthConcernUpdatedEvent(refId, action),
     );
-  }
-
-  /** Enforces that at most {@link HOMEPAGE_FLAG_LIMIT} health concerns are shown on the homepage. */
-  private async assertInHomePageWithinLimit(
-    enabling: boolean,
-    excludeId?: string,
-  ): Promise<void> {
-    if (!enabling) return;
-
-    const count = await this.healthConcernsRepository.countInHomePage(excludeId);
-    if (count + 1 > HOMEPAGE_FLAG_LIMIT) {
-      throw new BadRequestException(
-        `A maximum of ${HOMEPAGE_FLAG_LIMIT} health concerns can be shown on the homepage`,
-      );
-    }
   }
 
   private async invalidateHomePageCache(): Promise<void> {

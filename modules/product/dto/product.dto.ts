@@ -10,10 +10,12 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -316,7 +318,7 @@ export class CreateProductDto {
   @ApiPropertyOptional({
     example: '31-12-2026',
     description:
-      'Expiry date for simple products (dd-mm-yyyy). Applied to the single variant when variants[].expiryDate is omitted. For variable products, send expiryDate on each variants[] entry instead.',
+      'Expiry date (dd-mm-yyyy). For simple and bundle products, applied to the single pricing variant when variants[].expiryDate is omitted. For variable products, send expiryDate on each variants[] entry instead.',
   })
   @IsOptional()
   @Transform(({ value }) => normalizeExpiryDateInput(value))
@@ -325,6 +327,17 @@ export class CreateProductDto {
     message: 'expiryDate must be a valid date in dd-mm-yyyy format',
   })
   expiryDate?: string;
+
+  @ApiPropertyOptional({
+    example: 365,
+    description:
+      'Expiry in days. For simple and bundle products, applied to the pricing variant when variants[].expiresIn is omitted.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expiresIn?: number;
 
   @ApiPropertyOptional({ default: false })
   @IsOptional()
@@ -450,14 +463,89 @@ export class CreateProductDto {
   @ArrayMinSize(1)
   variants?: CreateVariantDto[];
 
-  @ApiPropertyOptional({ type: [CreateBundleItemDto] })
+  @ApiPropertyOptional({
+    type: [CreateBundleItemDto],
+    description: 'Required for bundle products — at least one linked child product',
+  })
   @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
-  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateBundleItemDto)
-  @ArrayMinSize(1)
+  @ArrayMinSize(1, { message: 'Bundle must contain at least one product' })
   bundleItems?: CreateBundleItemDto[];
+
+  @ApiPropertyOptional({
+    example: 'Dr. Patel, Dr. Shah',
+    description: 'Bundle-only: doctors/experts who curated this bundle (comma-separated names)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  curatedBy?: string;
+
+  @ApiPropertyOptional({
+    example: 'Recommended for daily skincare routine and sensitive skin.',
+    description: 'Bundle-only: who/what this bundle is curated for',
+  })
+  @IsOptional()
+  @IsString()
+  curatedFor?: string;
+
+  @ApiPropertyOptional({
+    example: 1999,
+    description: 'Bundle pricing shortcut (MRP). Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  mrp?: number;
+
+  @ApiPropertyOptional({
+    example: 1499,
+    description: 'Bundle pricing shortcut (selling price). Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  sellingPrice?: number;
+
+  @ApiPropertyOptional({
+    example: 100,
+    description: 'Bundle inventory shortcut. Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock?: number;
+
+  @ApiPropertyOptional({
+    example: 25,
+    description: 'Bundle discount % shortcut. Used when variants[] is omitted for productType=bundle.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  discountPercentage?: number;
+
+  @ApiPropertyOptional({
+    example: 'BND-SUMMER-KIT-001',
+    description:
+      'Unique SKU for the bundle pricing variant when variants[] is omitted. Must be unique across all product variants; auto-generated if omitted.',
+  })
+  @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  sku?: string;
 
   @ApiPropertyOptional({ type: [CreateProductMediaDto] })
   @IsOptional()
@@ -509,6 +597,32 @@ export class BulkMarkOutOfStockDto {
   productRefIds!: string[];
 }
 
+export class BulkRestoreStockItemDto {
+  @ApiProperty({ example: 'PRO20261234' })
+  @IsNotEmpty()
+  @IsRefId()
+  productRefId!: string;
+
+  @ApiProperty({ example: 50, description: 'Stock quantity to set on the product pricing variant(s)' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock!: number;
+}
+
+export class BulkRestoreStockDto {
+  @ApiProperty({
+    type: [BulkRestoreStockItemDto],
+    description: 'Per-product stock restore values (max 500)',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BulkRestoreStockItemDto)
+  items!: BulkRestoreStockItemDto[];
+}
+
 export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
@@ -550,9 +664,17 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsEnum(ProductType)
   productType?: ProductType;
 
-  @ApiPropertyOptional({ enum: ProductStatus })
+  @ApiPropertyOptional({
+    enum: ProductStatus,
+    description: 'Filter by status. Alias `approved` is accepted as `published`.',
+  })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.trim().toLowerCase();
+    // Admin UI historically used "approved" for live products
+    return normalized === 'approved' ? ProductStatus.PUBLISHED : normalized;
+  })
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 
@@ -599,4 +721,17 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
     message: `Variant slug must not exceed ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters`,
   })
   variantSlug?: string;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description: 'When true, return only products where ALL active variants have stock = 0.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  outOfStock?: boolean;
 }

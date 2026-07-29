@@ -12,6 +12,7 @@ export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): I
   banner: entity.banner,
   status: entity.status,
   inHomePage: entity.inHomePage,
+  sortIndex: entity.sortIndex,
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,

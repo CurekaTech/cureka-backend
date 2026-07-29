@@ -37,6 +37,7 @@ export interface IProductVariant {
   sellingPrice: number;
   discountPercentage: number | null;
   stock: number;
+  outOfStock: boolean;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;
@@ -196,6 +197,10 @@ export interface IProduct {
   metaKeywords: string[] | null;
   sizeChart: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;
+  /** Bundle-only: curated by (e.g. doctor names). Null for non-bundle products. */
+  curatedBy: string | null;
+  /** Bundle-only: curated for description. Null for non-bundle products. */
+  curatedFor: string | null;
   attributes: IProductAttribute[];
   variants: IProductVariant[];
   media: IProductMedia[];
@@ -206,6 +211,11 @@ export interface IProduct {
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];
+  /**
+   * True when the product has no sellable stock:
+   * no variants, or every variant has stock &lt;= 0.
+   */
+  outOfStock: boolean;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

@@ -11,6 +11,7 @@ export interface IHealthConcern {
   banner: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   inHomePage: boolean;
+  sortIndex: number | null;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

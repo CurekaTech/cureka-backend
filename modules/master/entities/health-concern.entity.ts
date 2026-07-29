@@ -32,4 +32,11 @@ export class HealthConcernEntity extends BaseEntity {
 
   @Column({ name: 'in_home_page', type: 'boolean', default: false })
   inHomePage!: boolean;
+
+  /**
+   * Display order for homepage listing. Lower value = shown first.
+   * NULL means unordered; nulls are sorted after explicit indices.
+   */
+  @Column({ name: 'sort_index', type: 'int', nullable: true, default: null })
+  sortIndex!: number | null;
 }

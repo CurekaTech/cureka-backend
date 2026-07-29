@@ -10,8 +10,8 @@ export class AddGokwikCheckoutSetting1780913000000 implements MigrationInterface
         'SET20260716',
         'gokwikCheckoutEnabled',
         'false',
-        'active',
-        'Controls whether GoKwik Checkout is used as the storefront checkout UX provider. (true = Enabled, false = Disabled). Priority over Shiprocket when both are enabled.',
+        'inactive',
+        'Controls whether GoKwik Checkout is used as the storefront checkout UX provider. (status active = Enabled). Priority over Shiprocket and native Razorpay/Cashfree when enabled.',
         'system'
       )
       ON CONFLICT ("key") DO NOTHING
