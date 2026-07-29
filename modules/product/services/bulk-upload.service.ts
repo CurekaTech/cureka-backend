@@ -426,6 +426,11 @@ export class BulkUploadService {
         ?? activeAttributesResult[0]?.name
         ?? 'Size';
 
+      // Sample 1: single category hierarchy (no pipes).
+      importSheet.addRow(this.buildSimpleSampleRow(headers));
+      // Sample 2: multiple category hierarchies via "|" (index-aligned).
+      importSheet.addRow(this.buildMultiCategorySampleRow(headers));
+
       importSheet.addRow(
         this.buildVerticalStyleGroupVariantRow(headers, {
           attributeOne,
@@ -455,7 +460,8 @@ export class BulkUploadService {
         }),
       );
     }
-    // Two vertical rows sharing style_group_id=5005 → one variable product, 2 variants.
+    // Rows: single-category sample, multi-category sample, then two vertical
+    // style_group_id=5005 rows → one variable product with 2 variants.
 
     const categoryNameById = new Map(
       activeCategories.map((category) => [category.id, category.name]),
@@ -474,6 +480,32 @@ export class BulkUploadService {
         : '',
       this.sheetColumnForCategoryLevel(category.hierarchyLevel),
     ]));
+
+    this.addReferenceWorksheet(workbook, 'Multi-Category Notes', [
+      'Rule',
+      'Details',
+    ], [
+      [
+        'Multiple hierarchies',
+        'Separate values with "|" in Category *, Sub Category, Sub Sub Category, and Sub Sub Sub Category.',
+      ],
+      [
+        'Index alignment',
+        'Values are paired by position: Category "A | B", Sub Category "A1 | B1" → A→A1 and B→B1.',
+      ],
+      [
+        'Length validation',
+        'All filled hierarchy columns must have the same number of pipe-separated values or the row fails validation.',
+      ],
+      [
+        'Single hierarchy',
+        'Leave values without "|" for one hierarchy (existing behavior).',
+      ],
+      [
+        'Empty levels',
+        'Use an empty segment for a missing level, e.g. Sub Category "A1 | " when hierarchy 2 has no sub-category.',
+      ],
+    ]);
 
     this.addReferenceWorksheet(workbook, 'Brand Reference', [
       'Brand Name',
@@ -582,7 +614,10 @@ export class BulkUploadService {
     const values = new Map<string, string | number | null>([
       ['Product Name*', 'Ethicare Hydromax Moisturizing Cream-200gm'],
       ['Product Type *', 'simple'],
+      // Single category hierarchy example (no pipes).
       ['Category *', 'Health & Wellness'],
+      ['Sub Category', 'Skin Care'],
+      ['Sub Sub Category', 'Moisturizers'],
       ['Brand*', 'Samsung'],
       ['Product SKU Code*', 'ETH/HYD/54141-A1'],
       ['MRP (Rs)*', 499],
@@ -603,8 +638,35 @@ export class BulkUploadService {
       
       // Product ID drives manufacturer + image auto-attach from lookup XLSX files.
       ['Product ID (String)', '54141'],
-      ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID.'],
+      ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID. Single category hierarchy example.'],
       ['Product Highlights', 'Moisturizing | Suitable for daily use'],
+      ['Product Status', 'published'],
+      ['Variant Status', 'active'],
+    ]);
+
+    return headers.map((header) => values.get(header) ?? null);
+  }
+
+  private buildMultiCategorySampleRow(headers: string[]): Array<string | number | null> {
+    const values = new Map<string, string | number | null>([
+      ['Product Name*', 'Multi-Category Sample Vitamin C Serum'],
+      ['Product Type *', 'simple'],
+      // Multiple independent hierarchies — values aligned by pipe index.
+      // Hierarchy 1: Health & Wellness → Skin Care → Serums
+      // Hierarchy 2: Beauty → Face Care → Treatments
+      ['Category *', 'Health & Wellness | Beauty'],
+      ['Sub Category', 'Skin Care | Face Care'],
+      ['Sub Sub Category', 'Serums | Treatments'],
+      ['Brand*', 'Samsung'],
+      ['Product SKU Code*', 'ETH/SER/99001-A1'],
+      ['MRP (Rs)*', 799],
+      ['Selling Price (Rs)*', 649],
+      ['Quantity / Stock', 50],
+      ['Product ID (String)', '99001'],
+      [
+        'Product Description',
+        'Multi-category example: use "|" to assign multiple hierarchies. Category/Sub Category/Sub Sub Category counts must match by index.',
+      ],
       ['Product Status', 'published'],
       ['Variant Status', 'active'],
     ]);

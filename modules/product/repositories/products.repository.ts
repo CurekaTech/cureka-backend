@@ -12,10 +12,12 @@ import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity'
 import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity';
 import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
+import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
+import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
@@ -153,6 +155,17 @@ export class ProductsRepository {
       }),
     ]);
 
+    const categoryHierarchies = await mgr.getRepository(ProductCategoryHierarchyEntity).find({
+      where: { productId: In(productIds) },
+      relations: {
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+      },
+      order: { sortOrder: 'ASC' },
+    });
+
     const variantIds = variants.map((v) => v.id);
     const attributeValues = variantIds.length
       ? await mgr.getRepository(VariantAttributeValueEntity).find({
@@ -185,9 +198,17 @@ export class ProductsRepository {
       variantsByProduct.set(variant.productId, list);
     }
 
+    const hierarchiesByProduct = new Map<string, ProductCategoryHierarchyEntity[]>();
+    for (const mapping of categoryHierarchies) {
+      const list = hierarchiesByProduct.get(mapping.productId) ?? [];
+      list.push(mapping);
+      hierarchiesByProduct.set(mapping.productId, list);
+    }
+
     for (const product of products) {
       product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
       product.variants = variantsByProduct.get(product.id) ?? [];
+      product.categoryHierarchies = hierarchiesByProduct.get(product.id) ?? [];
       product.media = [];
       product.healthConcernMappings = [];
       product.wellnessGoalMappings = [];
@@ -649,7 +670,7 @@ export class ProductsRepository {
       qb.andWhere('product.status = :status', { status: options.status });
     }
     if (options.categoryId) {
-      qb.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
+      qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
     }
     if (options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
@@ -751,6 +772,7 @@ export class ProductsRepository {
       faqMappings,
       bundleItems,
       categoryFilterMappings,
+      categoryHierarchies,
     ] = await Promise.all([
       mgr.getRepository(ProductAttributeMappingEntity).find({
         where: { productId: In(productIds) },
@@ -795,6 +817,16 @@ export class ProductsRepository {
         where: { productId: In(productIds) },
         relations: { categoryFilter: true },
       }),
+      mgr.getRepository(ProductCategoryHierarchyEntity).find({
+        where: { productId: In(productIds) },
+        relations: {
+          category: true,
+          subCategory: true,
+          subSubCategory: true,
+          subSubSubCategory: true,
+        },
+        order: { sortOrder: 'ASC' },
+      }),
     ]);
 
     // Load variant attribute values in one query after variants are known
@@ -831,6 +863,7 @@ export class ProductsRepository {
     const tagsByProduct = group(tagMappings);
     const faqsByProduct = group(faqMappings);
     const categoryFiltersByProduct = group(categoryFilterMappings);
+    const hierarchiesByProduct = group(categoryHierarchies);
 
     // bundleItems use parentProductId not productId
     const bundleByProduct = new Map<string, ProductBundleEntity[]>();
@@ -850,6 +883,7 @@ export class ProductsRepository {
       product.faqMappings = faqsByProduct.get(product.id) ?? [];
       product.bundleItems = bundleByProduct.get(product.id) ?? [];
       product.categoryFilterMappings = categoryFiltersByProduct.get(product.id) ?? [];
+      product.categoryHierarchies = hierarchiesByProduct.get(product.id) ?? [];
     }
   }
 
@@ -894,10 +928,7 @@ export class ProductsRepository {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
     }
     if (options.categoryId) {
-      qb.andWhere(
-        '(product.categoryId = :categoryId OR product.subCategoryId = :categoryId OR product.subSubCategoryId = :categoryId OR product.subSubSubCategoryId = :categoryId)',
-        { categoryId: options.categoryId },
-      );
+      qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
     }
     if (options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
@@ -969,7 +1000,7 @@ export class ProductsRepository {
       qb.andWhere('product.status = :status', { status: options.status });
     }
     if (options.categoryId) {
-      qb.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
+      qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
     }
     if (options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
@@ -1143,10 +1174,7 @@ export class ProductsRepository {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
     }
     if (options.categoryId) {
-      qb.andWhere(
-        '(product.categoryId = :categoryId OR product.subCategoryId = :categoryId OR product.subSubCategoryId = :categoryId OR product.subSubSubCategoryId = :categoryId)',
-        { categoryId: options.categoryId },
-      );
+      qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
     }
     if (options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
@@ -1617,7 +1645,17 @@ export class ProductsRepository {
           product.category_id = $3 OR
           product.sub_category_id = $3 OR
           product.sub_sub_category_id = $3 OR
-          product.sub_sub_sub_category_id = $3
+          product.sub_sub_sub_category_id = $3 OR
+          EXISTS (
+            SELECT 1 FROM product_category_hierarchies pch
+            WHERE pch.product_id = product.id
+              AND (
+                pch.category_id = $3 OR
+                pch.sub_category_id = $3 OR
+                pch.sub_sub_category_id = $3 OR
+                pch.sub_sub_sub_category_id = $3
+              )
+          )
         )
       ORDER BY pcfm.value ASC
       `,
@@ -1635,7 +1673,17 @@ export class ProductsRepository {
           product.category_id = :categoryId OR
           product.sub_category_id = :categoryId OR
           product.sub_sub_category_id = :categoryId OR
-          product.sub_sub_sub_category_id = :categoryId
+          product.sub_sub_sub_category_id = :categoryId OR
+          EXISTS (
+            SELECT 1 FROM product_category_hierarchies pch
+            WHERE pch.product_id = product.id
+              AND (
+                pch.category_id = :categoryId OR
+                pch.sub_category_id = :categoryId OR
+                pch.sub_sub_category_id = :categoryId OR
+                pch.sub_sub_sub_category_id = :categoryId
+              )
+          )
         )`,
         { categoryId },
       )

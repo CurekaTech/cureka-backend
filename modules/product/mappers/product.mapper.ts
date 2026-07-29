@@ -10,6 +10,7 @@ import {
   IProductAttribute,
   IProductWellnessGoal,
   IProductCategoryFilterBinding,
+  IProductCategoryHierarchy,
 } from '../interfaces/product.interface';
 import { IProductDetail } from '../interfaces/product-detail.interface';
 import { ProductMediaType } from '../enums/product-media-type.enum';
@@ -24,10 +25,51 @@ import { mapImporterEntityToResponse } from '@modules/master/mappers/importer.ma
 import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapper';
 import { mapHealthConcernEntityToResponse } from '@modules/master/mappers/health-concern.mapper';
 import { mapVariantEntityToDetailFields } from './variant-details.mapper';
+import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
   return typeof value === 'number' ? value : parseFloat(value);
+};
+
+const mapCategoryHierarchy = (
+  mapping: ProductCategoryHierarchyEntity,
+): IProductCategoryHierarchy => ({
+  categoryRefId: mapping.category?.refId ?? '',
+  categoryName: mapping.category?.name ?? '',
+  subCategoryRefId: mapping.subCategory?.refId ?? null,
+  subCategoryName: mapping.subCategory?.name ?? null,
+  subSubCategoryRefId: mapping.subSubCategory?.refId ?? null,
+  subSubCategoryName: mapping.subSubCategory?.name ?? null,
+  subSubSubCategoryRefId: mapping.subSubSubCategory?.refId ?? null,
+  subSubSubCategoryName: mapping.subSubSubCategory?.name ?? null,
+  sortOrder: mapping.sortOrder,
+});
+
+const mapCategoryHierarchies = (entity: ProductEntity): IProductCategoryHierarchy[] => {
+  const mappings = (entity.categoryHierarchies ?? [])
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  if (mappings.length) {
+    return mappings.map(mapCategoryHierarchy);
+  }
+
+  // Fallback for rows not yet backfilled / lightweight loads without join rows.
+  if (!entity.category && !entity.categoryId) return [];
+  return [
+    {
+      categoryRefId: entity.category?.refId ?? '',
+      categoryName: entity.category?.name ?? '',
+      subCategoryRefId: entity.subCategory?.refId ?? null,
+      subCategoryName: entity.subCategory?.name ?? null,
+      subSubCategoryRefId: entity.subSubCategory?.refId ?? null,
+      subSubCategoryName: entity.subSubCategory?.name ?? null,
+      subSubSubCategoryRefId: entity.subSubSubCategory?.refId ?? null,
+      subSubSubCategoryName: entity.subSubSubCategory?.name ?? null,
+      sortOrder: 0,
+    },
+  ];
 };
 
 export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
@@ -53,6 +95,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   subCategoryRefId: entity.subCategory?.refId ?? null,
   subSubCategoryRefId: entity.subSubCategory?.refId ?? null,
   subSubSubCategoryRefId: entity.subSubSubCategory?.refId ?? null,
+  categories: mapCategoryHierarchies(entity),
   brandRefId: entity.brand?.refId ?? '',
   brandName: entity.brand?.name ?? '',
   manufacturerRefId: entity.manufacturer?.refId ?? null,
@@ -150,6 +193,38 @@ export const mapProductEntityToDetailResponse = (entity: ProductEntity): IProduc
   subSubSubCategory: entity.subSubSubCategory
     ? mapCategoryEntityToDetailResponse(entity.subSubSubCategory)
     : null,
+  categoryHierarchies: (() => {
+    const mapped = (entity.categoryHierarchies ?? [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((item) => ({
+        category: item.category ? mapCategoryEntityToDetailResponse(item.category) : null,
+        subCategory: item.subCategory ? mapCategoryEntityToDetailResponse(item.subCategory) : null,
+        subSubCategory: item.subSubCategory
+          ? mapCategoryEntityToDetailResponse(item.subSubCategory)
+          : null,
+        subSubSubCategory: item.subSubSubCategory
+          ? mapCategoryEntityToDetailResponse(item.subSubSubCategory)
+          : null,
+        sortOrder: item.sortOrder,
+      }));
+    if (mapped.length) return mapped;
+    return [
+      {
+        category: entity.category ? mapCategoryEntityToDetailResponse(entity.category) : null,
+        subCategory: entity.subCategory
+          ? mapCategoryEntityToDetailResponse(entity.subCategory)
+          : null,
+        subSubCategory: entity.subSubCategory
+          ? mapCategoryEntityToDetailResponse(entity.subSubCategory)
+          : null,
+        subSubSubCategory: entity.subSubSubCategory
+          ? mapCategoryEntityToDetailResponse(entity.subSubSubCategory)
+          : null,
+        sortOrder: 0,
+      },
+    ];
+  })(),
   brand: entity.brand ? mapBrandEntityToResponse(entity.brand) : null,
   productNature: entity.productNature ? mapProductNatureEntityToResponse(entity.productNature) : null,
   manufacturer: entity.manufacturer ? mapManufacturerEntityToResponse(entity.manufacturer) : null,

@@ -1,7 +1,9 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Job, Queue } from 'bullmq';
 import { PinoLogger } from 'nestjs-pino';
 import { createJobLogger, type JobLogger } from '@packages/logger';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
@@ -650,6 +652,7 @@ export class BulkUploadProcessor extends WorkerHost {
       const manufacturerLookup = await loadManufacturerAddressByProductId();
       const imageLookup = await loadImageUrlsByProductId();
       const slugLookup = await loadSlugsByProductId();
+      const productPageUrlLookup = await loadProductPageUrlsByProductId();
       if (!manufacturerLookup.loaded) {
         this.logger.warn(
           `Manufacturer lookup file not loaded (${manufacturerLookup.path}). Manufacturer auto-attach by Product ID is disabled for this job.`,
@@ -1092,6 +1095,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 subCategoryRefId: refs.subCategoryRefId,
                 subSubCategoryRefId: refs.subSubCategoryRefId,
                 subSubSubCategoryRefId: refs.subSubSubCategoryRefId,
+                categories: refs.categories,
                 brandRefId: refs.brandRefId!,
                 description: descriptionFromProductInformation,
                 tagNames: group.productTags,

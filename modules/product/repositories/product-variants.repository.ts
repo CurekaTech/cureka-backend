@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
 import { ProductMediaEntity } from '../entities/product-media.entity';
@@ -415,6 +415,49 @@ export class ProductVariantsRepository {
 
   async updateStockById(variantId: string, stock: number): Promise<void> {
     await this.repo.update({ id: variantId }, { stock });
+  }
+
+  /**
+   * Sets stock = 0 for all non-deleted variants belonging to the given product IDs.
+   * Returns per-product counts of variants touched vs already at zero.
+   */
+  async markOutOfStockByProductIds(
+    productIds: string[],
+  ): Promise<Map<string, { updated: number; alreadyZero: number }>> {
+    const result = new Map<string, { updated: number; alreadyZero: number }>();
+    if (!productIds.length) return result;
+
+    const variants = await this.repo.find({
+      where: { productId: In([...new Set(productIds)]) },
+      select: ['id', 'productId', 'stock'],
+    });
+
+    for (const productId of productIds) {
+      result.set(productId, { updated: 0, alreadyZero: 0 });
+    }
+
+    const toZeroIds: string[] = [];
+    for (const variant of variants) {
+      const stats = result.get(variant.productId) ?? { updated: 0, alreadyZero: 0 };
+      if (variant.stock <= 0) {
+        stats.alreadyZero += 1;
+      } else {
+        stats.updated += 1;
+        toZeroIds.push(variant.id);
+      }
+      result.set(variant.productId, stats);
+    }
+
+    if (toZeroIds.length) {
+      await this.repo
+        .createQueryBuilder()
+        .update(ProductVariantEntity)
+        .set({ stock: 0 })
+        .where('id IN (:...ids)', { ids: toZeroIds })
+        .execute();
+    }
+
+    return result;
   }
 
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {

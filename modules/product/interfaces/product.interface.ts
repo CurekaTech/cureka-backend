@@ -135,6 +135,18 @@ export interface IProductCategoryFilterBinding {
   values: string[];
 }
 
+export interface IProductCategoryHierarchy {
+  categoryRefId: string;
+  categoryName: string;
+  subCategoryRefId: string | null;
+  subCategoryName: string | null;
+  subSubCategoryRefId: string | null;
+  subSubCategoryName: string | null;
+  subSubSubCategoryRefId: string | null;
+  subSubSubCategoryName: string | null;
+  sortOrder: number;
+}
+
 export interface IProduct {
   id: string;
   refId: string;
@@ -152,11 +164,14 @@ export interface IProduct {
   productType: ProductType;
   productNatureRefId: string | null;
   productNatureName: string | null;
+  /** Primary hierarchy (first entry in `categories`) — kept for backward compatibility. */
   categoryRefId: string;
   categoryName: string;
   subCategoryRefId: string | null;
   subSubCategoryRefId: string | null;
   subSubSubCategoryRefId: string | null;
+  /** All category hierarchies assigned to this product. */
+  categories: IProductCategoryHierarchy[];
   brandRefId: string;
   brandName: string;
   manufacturerRefId: string | null;

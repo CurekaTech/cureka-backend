@@ -11,6 +11,7 @@ import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductFaqEntity } from '../entities/product-faq.entity';
 import { ProductAttributeMappingEntity } from '../entities/product-attribute-mapping.entity';
 import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
+import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 import { CreateProductMediaDto } from '../dto/variant.dto';
 import { CustomProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
@@ -19,6 +20,7 @@ import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
 import { StorageService } from '@packages/storage';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -43,8 +45,32 @@ export class ProductRelationsRepository {
     private readonly attributeMappingRepo: Repository<ProductAttributeMappingEntity>,
     @InjectRepository(ProductCategoryFilterMappingEntity)
     private readonly categoryFilterMappingRepo: Repository<ProductCategoryFilterMappingEntity>,
+    @InjectRepository(ProductCategoryHierarchyEntity)
+    private readonly categoryHierarchyRepo: Repository<ProductCategoryHierarchyEntity>,
     private readonly storageService: StorageService,
   ) {}
+
+  async syncCategoryHierarchies(
+    manager: EntityManager,
+    productId: string,
+    hierarchies: IResolvedCategoryHierarchy[],
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductCategoryHierarchyEntity);
+    await repo.delete({ productId });
+    if (!hierarchies.length) return;
+    await repo.save(
+      hierarchies.map((item) =>
+        repo.create({
+          productId,
+          sortOrder: item.sortOrder,
+          categoryId: item.categoryId,
+          subCategoryId: item.subCategoryId,
+          subSubCategoryId: item.subSubCategoryId,
+          subSubSubCategoryId: item.subSubSubCategoryId,
+        }),
+      ),
+    );
+  }
 
   async syncHealthConcerns(
     manager: EntityManager,

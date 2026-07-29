@@ -18,6 +18,7 @@ import { ProductBundleEntity } from './product-bundle.entity';
 import { ProductFaqMappingEntity } from './product-faq-mapping.entity';
 import { ProductAttributeMappingEntity } from './product-attribute-mapping.entity';
 import { ProductCategoryFilterMappingEntity } from './product-category-filter-mapping.entity';
+import { ProductCategoryHierarchyEntity } from './product-category-hierarchy.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
@@ -239,4 +240,7 @@ export class ProductEntity extends BaseEntity {
 
   @OneToMany(() => ProductCategoryFilterMappingEntity, (mapping) => mapping.product)
   categoryFilterMappings!: ProductCategoryFilterMappingEntity[];
+
+  @OneToMany(() => ProductCategoryHierarchyEntity, (mapping) => mapping.product)
+  categoryHierarchies!: ProductCategoryHierarchyEntity[];
 }

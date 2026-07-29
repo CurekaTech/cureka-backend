@@ -22,6 +22,7 @@ import {
   CreateProductDto,
   ProductQueryDto,
   UpdateProductStatusDto,
+  BulkMarkOutOfStockDto,
 } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 
@@ -60,6 +61,19 @@ export class ProductsController {
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productsService.findAll(query);
+  }
+
+  @ApiOperation({
+    summary: 'Bulk mark products out of stock',
+    description:
+      'Accepts product refIds selected from the admin product list. Sets stock = 0 on every non-deleted variant of each product. Duplicate refIds are ignored. Emits product-updated events for cache/search/Unicommerce sync. Max 500 refIds per request.',
+  })
+  @ResponseMessage('Products marked out of stock successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('bulk-mark-out-of-stock')
+  @HttpCode(HttpStatus.OK)
+  bulkMarkOutOfStock(@Body() dto: BulkMarkOutOfStockDto) {
+    return this.productsService.bulkMarkOutOfStock(dto);
   }
 
   @ApiOperation({ summary: 'Re-submit product for checker approval (after rejection or draft edits)' })

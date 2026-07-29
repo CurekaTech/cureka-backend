@@ -68,6 +68,10 @@ const yesNo = (value: boolean | undefined | null): string => (value ? 'Yes' : 'N
 const joinPipe = (items: Array<string | undefined | null>): string =>
   items.map((item) => item?.trim()).filter(Boolean).join(' | ');
 
+/** Join preserving empty slots so pipe-aligned category hierarchies round-trip correctly. */
+const joinPipeAligned = (items: Array<string | undefined | null>): string =>
+  items.map((item) => item?.trim() ?? '').join(' | ');
+
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined || value === '') return null;
   const parsed = typeof value === 'number' ? value : parseFloat(String(value));
@@ -191,11 +195,30 @@ const buildSharedProductValues = (
 
   values.set('Product Name*', product.name);
   values.set('Product Type *', product.productType);
-  values.set('Category *', product.category?.name ?? null);
-  if (product.subCategory?.name) values.set('Sub Category', product.subCategory.name);
-  if (product.subSubCategory?.name) values.set('Sub Sub Category', product.subSubCategory.name);
-  if (product.subSubSubCategory?.name) {
-    values.set('Sub Sub Sub Category', product.subSubSubCategory.name);
+
+  const hierarchyRows = (product.categoryHierarchies ?? [])
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  if (hierarchyRows.length > 1) {
+    values.set(
+      'Category *',
+      joinPipeAligned(hierarchyRows.map((item) => item.category?.name)),
+    );
+    const subNames = hierarchyRows.map((item) => item.subCategory?.name ?? '');
+    const subSubNames = hierarchyRows.map((item) => item.subSubCategory?.name ?? '');
+    const subSubSubNames = hierarchyRows.map((item) => item.subSubSubCategory?.name ?? '');
+    if (subNames.some(Boolean)) values.set('Sub Category', joinPipeAligned(subNames));
+    if (subSubNames.some(Boolean)) values.set('Sub Sub Category', joinPipeAligned(subSubNames));
+    if (subSubSubNames.some(Boolean)) {
+      values.set('Sub Sub Sub Category', joinPipeAligned(subSubSubNames));
+    }
+  } else {
+    values.set('Category *', product.category?.name ?? null);
+    if (product.subCategory?.name) values.set('Sub Category', product.subCategory.name);
+    if (product.subSubCategory?.name) values.set('Sub Sub Category', product.subSubCategory.name);
+    if (product.subSubSubCategory?.name) {
+      values.set('Sub Sub Sub Category', product.subSubSubCategory.name);
+    }
   }
   if (product.brand?.name) values.set('Brand*', product.brand.name);
 

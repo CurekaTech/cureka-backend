@@ -435,6 +435,12 @@ export class BulkUploadValidatorService {
     subCategoryRefId?: string;
     subSubCategoryRefId?: string;
     subSubSubCategoryRefId?: string;
+    categories?: Array<{
+      categoryRefId: string;
+      subCategoryRefId?: string;
+      subSubCategoryRefId?: string;
+      subSubSubCategoryRefId?: string;
+    }>;
     healthConcernRefIds?: string[];
     wellnessGoalRefIds?: string[];
     manufacturerRefId?: string;
@@ -442,13 +448,47 @@ export class BulkUploadValidatorService {
     importerRefId?: string;
     countryOfOriginRefId?: string;
   } {
+    const hierarchies = (group.categoryHierarchies?.length
+      ? group.categoryHierarchies
+      : group.category
+        ? [
+            {
+              category: group.category,
+              subCategory: group.subCategory,
+              subSubCategory: group.subSubCategory,
+              subSubSubCategory: group.subSubSubCategory,
+            },
+          ]
+        : []
+    )
+      .map((item) => {
+        const categoryRefId = this.categoryMap.get(item.category.toLowerCase().trim());
+        if (!categoryRefId) return null;
+        return {
+          categoryRefId,
+          subCategoryRefId: item.subCategory
+            ? this.subCategoryMap.get(item.subCategory.toLowerCase().trim())
+            : undefined,
+          subSubCategoryRefId: item.subSubCategory
+            ? this.subSubCategoryMap.get(item.subSubCategory.toLowerCase().trim())
+            : undefined,
+          subSubSubCategoryRefId: item.subSubSubCategory
+            ? this.subSubSubCategoryMap.get(item.subSubSubCategory.toLowerCase().trim())
+            : undefined,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    const primary = hierarchies[0];
+
     return {
       productNatureRefId: group.productNature ? this.natureMap.get(group.productNature.toLowerCase().trim()) : undefined,
       brandRefId: group.brand ? this.brandMap.get(group.brand.toLowerCase().trim()) : undefined,
-      categoryRefId: group.category ? this.categoryMap.get(group.category.toLowerCase().trim()) : undefined,
-      subCategoryRefId: group.subCategory ? this.subCategoryMap.get(group.subCategory.toLowerCase().trim()) : undefined,
-      subSubCategoryRefId: group.subSubCategory ? this.subSubCategoryMap.get(group.subSubCategory.toLowerCase().trim()) : undefined,
-      subSubSubCategoryRefId: group.subSubSubCategory ? this.subSubSubCategoryMap.get(group.subSubSubCategory.toLowerCase().trim()) : undefined,
+      categoryRefId: primary?.categoryRefId,
+      subCategoryRefId: primary?.subCategoryRefId,
+      subSubCategoryRefId: primary?.subSubCategoryRefId,
+      subSubSubCategoryRefId: primary?.subSubSubCategoryRefId,
+      categories: hierarchies.length ? hierarchies : undefined,
       healthConcernRefIds: group.healthConcerns ? group.healthConcerns.map(hc => this.healthConcernMap.get(hc.toLowerCase().trim())!).filter(Boolean) : [],
       wellnessGoalRefIds: (group as any).wellnessGoals ? (group as any).wellnessGoals.map((wg: string) => this.wellnessGoalMap.get(wg.toLowerCase().trim())!).filter(Boolean) : [],
       manufacturerRefId: group.manufacturer ? this.manufacturerMap.get(group.manufacturer.toLowerCase().replace(/\s+/g, ' ').trim()) : undefined,
@@ -620,7 +660,19 @@ export class BulkUploadValidatorService {
         }
       }
 
-      if (!group.category) {
+      if (group.categoryHierarchyParseError) {
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: productSku,
+          column: 'Category',
+          invalidValue: [group.category, group.subCategory, group.subSubCategory, group.subSubSubCategory]
+            .filter(Boolean)
+            .join(' | '),
+          reason: group.categoryHierarchyParseError,
+          suggestedFix:
+            'Align pipe-separated values by index across Category, Sub Category, Sub Sub Category, and Sub Sub Sub Category. Example: Category "A | B", Sub Category "A1 | B1".',
+        });
+      } else if (!group.category && !(group.categoryHierarchies?.length)) {
         groupErrors.push({
           rowNumber: group.rowNumber,
           sku: productSku,
@@ -630,17 +682,32 @@ export class BulkUploadValidatorService {
           suggestedFix: 'Enter a valid category name.',
         });
       } else {
-        const normalizedCategory = group.category.toLowerCase().trim();
-        const refId = this.categoryMap.get(normalizedCategory);
-        if (!refId) {
-          groupErrors.push({
-            rowNumber: group.rowNumber,
-            sku: productSku,
-            column: 'Category',
-            invalidValue: group.category,
-            reason: masterRecordUnavailableReason('Category', group.category),
-            suggestedFix: masterRecordUnavailableFix('category'),
-          });
+        const hierarchies =
+          group.categoryHierarchies?.length
+            ? group.categoryHierarchies
+            : [
+                {
+                  category: group.category,
+                  subCategory: group.subCategory,
+                  subSubCategory: group.subSubCategory,
+                  subSubSubCategory: group.subSubSubCategory,
+                },
+              ];
+
+        for (const [index, hierarchy] of hierarchies.entries()) {
+          const labelSuffix = hierarchies.length > 1 ? ` (hierarchy ${index + 1})` : '';
+          const normalizedCategory = hierarchy.category.toLowerCase().trim();
+          const refId = this.categoryMap.get(normalizedCategory);
+          if (!refId) {
+            groupErrors.push({
+              rowNumber: group.rowNumber,
+              sku: productSku,
+              column: 'Category',
+              invalidValue: hierarchy.category,
+              reason: masterRecordUnavailableReason('Category', hierarchy.category) + labelSuffix,
+              suggestedFix: masterRecordUnavailableFix('category'),
+            });
+          }
         }
       }
 
@@ -1452,27 +1519,42 @@ export class BulkUploadValidatorService {
 
   private validateSubCategories(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
     const productSku = group.variants[0]?.sku ?? 'PARENT';
-    const checks: Array<{ value?: string; column: string; map: Map<string, string> }> = [
-      { value: group.subCategory, column: 'Sub Category', map: this.subCategoryMap },
-      { value: group.subSubCategory, column: 'Sub Sub Category', map: this.subSubCategoryMap },
-      {
-        value: group.subSubSubCategory,
-        column: 'Sub Sub Sub Category',
-        map: this.subSubSubCategoryMap,
-      },
-    ];
+    const hierarchies =
+      group.categoryHierarchies?.length
+        ? group.categoryHierarchies
+        : [
+            {
+              category: group.category,
+              subCategory: group.subCategory,
+              subSubCategory: group.subSubCategory,
+              subSubSubCategory: group.subSubSubCategory,
+            },
+          ];
 
-    for (const { value, column, map } of checks) {
-      if (!value?.trim()) continue;
-      if (!map.get(value.toLowerCase().trim())) {
-        groupErrors.push({
-          rowNumber: group.rowNumber,
-          sku: productSku,
-          column,
-          invalidValue: value,
-          reason: masterRecordUnavailableReason(column, value),
-          suggestedFix: masterRecordUnavailableFix('category'),
-        });
+    for (const [index, hierarchy] of hierarchies.entries()) {
+      const labelSuffix = hierarchies.length > 1 ? ` (hierarchy ${index + 1})` : '';
+      const checks: Array<{ value?: string; column: string; map: Map<string, string> }> = [
+        { value: hierarchy.subCategory, column: 'Sub Category', map: this.subCategoryMap },
+        { value: hierarchy.subSubCategory, column: 'Sub Sub Category', map: this.subSubCategoryMap },
+        {
+          value: hierarchy.subSubSubCategory,
+          column: 'Sub Sub Sub Category',
+          map: this.subSubSubCategoryMap,
+        },
+      ];
+
+      for (const { value, column, map } of checks) {
+        if (!value?.trim()) continue;
+        if (!map.get(value.toLowerCase().trim())) {
+          groupErrors.push({
+            rowNumber: group.rowNumber,
+            sku: productSku,
+            column,
+            invalidValue: value,
+            reason: masterRecordUnavailableReason(column, value) + labelSuffix,
+            suggestedFix: masterRecordUnavailableFix('category'),
+          });
+        }
       }
     }
   }
@@ -1545,9 +1627,17 @@ export class BulkUploadValidatorService {
     if (!group.categoryFilters.length) return;
 
     const productSku = group.variants[0]?.sku ?? 'PARENT';
-    const categoryId = group.category
-      ? this.categoryIdByName.get(group.category.toLowerCase().trim())
-      : undefined;
+    const rootCategoryIds = new Set<string>();
+    const hierarchies =
+      group.categoryHierarchies?.length
+        ? group.categoryHierarchies
+        : group.category
+          ? [{ category: group.category }]
+          : [];
+    for (const hierarchy of hierarchies) {
+      const categoryId = this.categoryIdByName.get(hierarchy.category.toLowerCase().trim());
+      if (categoryId) rootCategoryIds.add(categoryId);
+    }
 
     for (const binding of group.categoryFilters) {
       const lookupKey = binding.categoryFilterRefId.toLowerCase().trim();
@@ -1570,13 +1660,16 @@ export class BulkUploadValidatorService {
         continue;
       }
 
-      if (categoryId && !filter.categoryIds.has(categoryId)) {
+      if (
+        rootCategoryIds.size &&
+        ![...rootCategoryIds].some((categoryId) => filter.categoryIds.has(categoryId))
+      ) {
         groupErrors.push({
           rowNumber: group.rowNumber,
           sku: productSku,
           column: columnName,
           invalidValue: binding.values.join('|'),
-          reason: `Category filter "${filter.name}" is not assigned to category "${group.category}".`,
+          reason: `Category filter "${filter.name}" is not assigned to any of the selected categories (${hierarchies.map((item) => item.category).join(' | ')}).`,
           suggestedFix: 'Select a category that has this filter, or remove the value from this column.',
         });
         continue;
