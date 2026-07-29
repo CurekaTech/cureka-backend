@@ -1,5 +1,11 @@
 import { registerAs } from '@nestjs/config';
 
+/** Returns empty string for values that are placeholder comments like "<from GoKwik>". */
+function sanitizePlaceholder(value: string | undefined): string {
+  const v = (value ?? '').trim();
+  return v.startsWith('<') || v === '' ? '' : v;
+}
+
 export const gokwikConfig = registerAs('gokwik', () => ({
   baseUrl: (process.env['GOKWIK_BASE_URL'] ?? '').replace(/\/+$/, ''),
   appId: process.env['GOKWIK_APP_ID'] ?? '',
@@ -22,8 +28,13 @@ export const gokwikConfig = registerAs('gokwik', () => ({
     environment: process.env['KWIKPASS_ENVIRONMENT'] ?? 'sandbox',
     merchantId: process.env['KWIKPASS_MERCHANT_ID'] ?? '',
     jweSecret: process.env['KWIKPASS_JWE_SECRET'] ?? '',
-    issuer: process.env['KWIKPASS_JWE_ISSUER'] ?? '',
-    audience: process.env['KWIKPASS_JWE_AUDIENCE'] ?? '',
+    // URL shared by GoKwik (e.g. https://sandbox.pdp.gokwik.co).
+    // Leave empty to auto-derive from environment.
+    baseUrl: sanitizePlaceholder(process.env['KWIKPASS_BASE_URL']),
+    // Treat placeholder values like "<from GoKwik>" as unset — an incorrect
+    // value here causes every token to fail with "issuer / audience mismatch".
+    issuer: sanitizePlaceholder(process.env['KWIKPASS_JWE_ISSUER']),
+    audience: sanitizePlaceholder(process.env['KWIKPASS_JWE_AUDIENCE']),
   },
   timeoutMs: parseInt(process.env['GOKWIK_TIMEOUT_MS'] ?? '15000', 10),
 }));
