@@ -369,9 +369,30 @@ Admin product list can multi-select products and mark them out of stock in one a
 
 1. Collect `refId` from each selected list row (product refId, not variant UUID).
 2. Deduplicate client-side before calling (optional; server also dedupes).
-3. On success, refresh the list (or patch local stock to `0` for those products/variants).
+3. On success, refresh the list (or patch local stock to `0` / set `outOfStock: true` for those products).
 4. Show a toast using `variantsUpdated` / `updated.length` — and mention `notFound` if any.
 5. Empty selection: disable the action button (do not call with `[]`).
+6. Product list items include `outOfStock: boolean` — `true` when every variant has stock ≤ 0 (or the product has no variants). Use this to badge rows / disable re-marking.
+
+### List response field
+
+`GET /api/v1/products` (and create/update/detail product payloads) now include:
+
+```json
+{
+  "refId": "PRO20261234",
+  "outOfStock": true,
+  "variants": [
+    { "id": "...", "sku": "ABC-1", "stock": 0 }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `outOfStock` | `boolean` | `true` if the product has no variants with `stock > 0` |
+
+Note: admin list is one row per variant, but `outOfStock` is still **product-level** (all variants). Per-SKU stock remains on `variants[0].stock` for that row.
 
 ### Error cases
 

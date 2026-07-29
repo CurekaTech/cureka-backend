@@ -206,6 +206,11 @@ export interface IProduct {
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];
+  /**
+   * True when the product has no sellable stock:
+   * no variants, or every variant has stock &lt;= 0.
+   */
+  outOfStock: boolean;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;
