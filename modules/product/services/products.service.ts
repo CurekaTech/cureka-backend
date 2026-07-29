@@ -301,6 +301,7 @@ export class ProductsService {
       productType: query.productType,
       status: query.status,
       variantSlug: query.variantSlug,
+      outOfStock: query.outOfStock,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       brandId: filters.brandId,
       brandIds: filters.brandIds,
@@ -330,6 +331,7 @@ export class ProductsService {
           productNatureId: filters.productNatureId,
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
+          outOfStock: query.outOfStock,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
