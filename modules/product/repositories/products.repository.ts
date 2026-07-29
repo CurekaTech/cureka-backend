@@ -632,6 +632,11 @@ export class ProductsRepository {
     await this.repo.softDelete({ refId });
   }
 
+  async restoreByRefId(refId: string): Promise<boolean> {
+    const result = await this.repo.restore({ refId });
+    return (result.affected ?? 0) > 0;
+  }
+
   async findAllPaginated(
     options: ProductListOptions,
   ): Promise<{ data: ProductEntity[]; total: number }> {

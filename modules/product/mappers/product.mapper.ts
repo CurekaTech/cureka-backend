@@ -127,6 +127,8 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   metaKeywords: entity.metaKeywords,
   sizeChart: entity.sizeChart,
   publishedAt: entity.publishedAt,
+  curatedBy: entity.curatedBy ?? null,
+  curatedFor: entity.curatedFor ?? null,
   attributes: (entity.attributeMappings ?? []).map(mapAttribute),
   variants: mapVariants(entity),
   media: (entity.media ?? []).map(mapMedia),

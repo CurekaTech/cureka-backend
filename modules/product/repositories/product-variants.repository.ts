@@ -188,6 +188,15 @@ export class ProductVariantsRepository {
       throw new BadRequestException('Simple products must have exactly one variant');
     }
 
+    if (productType === ProductType.BUNDLE) {
+      if (variants.length !== 1) {
+        throw new BadRequestException('Bundle products must have exactly one pricing variant');
+      }
+      if (variants[0]?.attributes?.length) {
+        throw new BadRequestException('Bundle pricing variants cannot have attributes');
+      }
+    }
+
     if (productType === ProductType.VARIABLE) {
       if (!variants.length) {
         throw new BadRequestException('Variable products require at least one variant');
@@ -415,6 +424,29 @@ export class ProductVariantsRepository {
 
   async updateStockById(variantId: string, stock: number): Promise<void> {
     await this.repo.update({ id: variantId }, { stock });
+  }
+
+  async setStockByProductIds(
+    updates: Array<{ productId: string; stock: number }>,
+  ): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    if (!updates.length) return result;
+
+    const productIds = [...new Set(updates.map((item) => item.productId))];
+    const variants = await this.repo.find({
+      where: { productId: In(productIds) },
+      select: ['id', 'productId'],
+    });
+    const stockByProductId = new Map(updates.map((item) => [item.productId, item.stock]));
+
+    for (const variant of variants) {
+      const stock = stockByProductId.get(variant.productId);
+      if (stock === undefined) continue;
+      await this.repo.update({ id: variant.id }, { stock });
+      result.set(variant.productId, (result.get(variant.productId) ?? 0) + 1);
+    }
+
+    return result;
   }
 
   /**

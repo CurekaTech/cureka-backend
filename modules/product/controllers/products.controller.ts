@@ -23,6 +23,7 @@ import {
   ProductQueryDto,
   UpdateProductStatusDto,
   BulkMarkOutOfStockDto,
+  BulkRestoreStockDto,
 } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 
@@ -63,17 +64,25 @@ export class ProductsController {
     return this.productsService.findAll(query);
   }
 
-  @ApiOperation({
-    summary: 'Bulk mark products out of stock',
-    description:
-      'Accepts product refIds selected from the admin product list. Sets stock = 0 on every non-deleted variant of each product. Duplicate refIds are ignored. Emits product-updated events for cache/search/Unicommerce sync. Max 500 refIds per request.',
-  })
+  @ApiOperation({ summary: 'Bulk mark products out of stock' })
   @ResponseMessage('Products marked out of stock successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post('bulk-mark-out-of-stock')
   @HttpCode(HttpStatus.OK)
   bulkMarkOutOfStock(@Body() dto: BulkMarkOutOfStockDto) {
     return this.productsService.bulkMarkOutOfStock(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Bulk restore product stock',
+    description: 'Sets stock on all variants for each productRefId to the given value.',
+  })
+  @ResponseMessage('Product stock restored successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('bulk-restore-stock')
+  @HttpCode(HttpStatus.OK)
+  bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
+    return this.productsService.bulkRestoreStock(dto);
   }
 
   @ApiOperation({ summary: 'Re-submit product for checker approval (after rejection or draft edits)' })
