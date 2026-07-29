@@ -1,6 +1,16 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { MasterStatus } from '../enums/master-status.enum';
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
@@ -41,4 +51,13 @@ export class UpdateHealthConcernStatusDto {
   @IsNotEmpty()
   @IsEnum(MasterStatus)
   status!: MasterStatus;
+}
+
+export class UpdateHealthConcernIndexDto {
+  @Transform(({ value }) => (value === null || value === '' ? null : Number(value)))
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9999)
+  sortIndex!: number | null;
 }
