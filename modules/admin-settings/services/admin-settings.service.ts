@@ -138,6 +138,10 @@ export class AdminSettingsService {
           updateData.status = item.status;
         }
 
+        if (BOOLEAN_SETTING_KEYS.includes(item.key)) {
+          Object.assign(updateData, this.syncBooleanSettingFields(item.status, item.value));
+        }
+
         await this.adminSettingsRepository.updateByKey(item.key, updateData, manager);
       }
 
@@ -154,10 +158,15 @@ export class AdminSettingsService {
     }
     this.validateSettingValue(key, dto.value);
 
-    await this.adminSettingsRepository.updateByKey(key, {
+    const updateData: Partial<AdminSettingEntity> = {
       value: dto.value,
       updatedBy,
-    });
+    };
+    if (BOOLEAN_SETTING_KEYS.includes(key)) {
+      Object.assign(updateData, this.syncBooleanSettingFields(undefined, dto.value));
+    }
+
+    await this.adminSettingsRepository.updateByKey(key, updateData);
 
     const updated = await this.adminSettingsRepository.findByKey(key);
     return mapAdminSettingEntityToResponse(updated!);
@@ -184,20 +193,48 @@ export class AdminSettingsService {
         }
       }
 
-      await this.adminSettingsRepository.updateByKey(
-        key,
-        {
-          status: dto.status,
-          updatedBy,
-        },
-        manager,
-      );
+      const updateData: Partial<AdminSettingEntity> = {
+        status: dto.status,
+        updatedBy,
+      };
+      if (BOOLEAN_SETTING_KEYS.includes(key)) {
+        Object.assign(updateData, this.syncBooleanSettingFields(dto.status, undefined));
+      }
+
+      await this.adminSettingsRepository.updateByKey(key, updateData, manager);
 
       const updated = await this.adminSettingsRepository.findByKey(key, manager);
       return updated!;
     });
 
     return mapAdminSettingEntityToResponse(updatedEntity);
+  }
+
+  /**
+   * Keep checkout boolean flags consistent: status active ↔ value true/1.
+   * Admin UI often toggles only one of the two fields.
+   */
+  private syncBooleanSettingFields(
+    status?: AdminSettingStatus,
+    value?: string,
+  ): Partial<Pick<AdminSettingEntity, 'status' | 'value'>> {
+    if (status !== undefined) {
+      return {
+        status,
+        value: status === AdminSettingStatus.ACTIVE ? 'true' : 'false',
+      };
+    }
+
+    if (value === undefined) {
+      return {};
+    }
+
+    const normalized = value.toLowerCase().trim();
+    const enabled = ['1', 'true', 'yes', 'on'].includes(normalized);
+    return {
+      value: enabled ? 'true' : 'false',
+      status: enabled ? AdminSettingStatus.ACTIVE : AdminSettingStatus.INACTIVE,
+    };
   }
 
   private validateSettingValue(key: string, value?: string): void {

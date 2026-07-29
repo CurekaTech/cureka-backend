@@ -25,9 +25,20 @@ export class PaymentGatewayResolverService {
     const razorPaySecret = this.configService.get<string>('RAZORPAY_SECRET');
     const hasRazorPayCreds = !!(razorPayKeyId && razorPayKeyId.trim() && razorPaySecret && razorPaySecret.trim());
 
-    const isCashFreeEnabled = cashFreeSetting && cashFreeSetting.value === '1' && cashFreeSetting.status === AdminSettingStatus.ACTIVE && hasCashFreeCreds;
-    const isRazorPayEnabled = razorPaySetting && razorPaySetting.value === '1' && razorPaySetting.status === AdminSettingStatus.ACTIVE && hasRazorPayCreds;
-    const isPayYouEnabled = payYouSetting && payYouSetting.value === '1' && payYouSetting.status === AdminSettingStatus.ACTIVE;
+    const isCashFreeEnabled =
+      !!cashFreeSetting &&
+      cashFreeSetting.value === '1' &&
+      cashFreeSetting.status === AdminSettingStatus.ACTIVE &&
+      hasCashFreeCreds;
+    const isRazorPayEnabled =
+      !!razorPaySetting &&
+      razorPaySetting.value === '1' &&
+      razorPaySetting.status === AdminSettingStatus.ACTIVE &&
+      hasRazorPayCreds;
+    const isPayYouEnabled =
+      !!payYouSetting &&
+      payYouSetting.value === '1' &&
+      payYouSetting.status === AdminSettingStatus.ACTIVE;
 
     if (isCashFreeEnabled) {
       return 'cashfree';
@@ -39,11 +50,8 @@ export class PaymentGatewayResolverService {
       return 'payu';
     }
 
-    // Default fallback to razorpay if it has credentials
-    if (hasRazorPayCreds) {
-      return 'razorpay';
-    }
-
-    throw new BadRequestException('No payment gateway is currently available');
+    throw new BadRequestException(
+      'No native payment gateway is enabled. Enable GoKwik/Shiprocket checkout, or activate razor_pay / cash_free in admin payment settings.',
+    );
   }
 }

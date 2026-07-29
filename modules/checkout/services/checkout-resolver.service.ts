@@ -32,11 +32,21 @@ export class CheckoutResolverService {
     return this.isBooleanSettingEnabled(SHIPROCKET_CHECKOUT_ENABLED_KEY);
   }
 
+  /**
+   * Checkout UX flags: enabled when status is `active` OR value is truthy.
+   * Admin may toggle either field; AdminSettingsService keeps them synced going forward.
+   */
   private async isBooleanSettingEnabled(key: string): Promise<boolean> {
     const setting = await this.adminSettingsRepository.findByKey(key);
-    if (!setting || setting.status !== AdminSettingStatus.ACTIVE) {
+    if (!setting) {
       return false;
     }
-    return ['1', 'true', 'yes', 'on'].includes(setting.value.toLowerCase().trim());
+
+    if (setting.status === AdminSettingStatus.ACTIVE) {
+      return true;
+    }
+
+    const normalized = (setting.value ?? '').toLowerCase().trim();
+    return ['1', 'true', 'yes', 'on'].includes(normalized);
   }
 }

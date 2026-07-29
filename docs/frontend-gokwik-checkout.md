@@ -171,12 +171,14 @@ Admin keys (not Swagger payment-method names):
 
 | Setting key | Meaning |
 |-------------|---------|
-| `gokwikCheckoutEnabled` | Prefer GoKwik checkout UX |
+| `gokwikCheckoutEnabled` | Prefer GoKwik checkout UX (**first priority** when `status` is `active`) |
 | `shiprocketCheckoutEnabled` | Prefer Shiprocket (if GoKwik off) |
-| `razor_pay` | Enable Razorpay as native PG |
+| `razor_pay` | Enable Razorpay as native PG (`value: "1"` + `status: active`) |
 | `cash_free` | Enable Cashfree as native PG |
 
-Priority: **gokwik → shiprocket → legacy**.
+Priority: **gokwik → shiprocket → legacy**. Native Razorpay is **not** used as a silent fallback when it is turned off.
+
+To enable GoKwik in admin: set `gokwikCheckoutEnabled` status to **active** (the API syncs `value` to `"true"`). Then call `/payment-requests/checkout/modal` again — response must be `"gateway": "gokwik"`.
 
 ---
 
