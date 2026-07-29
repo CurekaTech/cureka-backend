@@ -27,6 +27,7 @@ import {
   IGuestAuthResponse,
   IRefreshAuthResponse,
 } from '../interfaces/auth.interface';
+import { IKwikpassPublicConfig } from '../services/kwikpass.service';
 import { IUser } from '@modules/users/interfaces/user.interface';
 import { ResponseMessage } from '@packages/common';
 import { SessionCookieGuard } from '../guards/session-cookie.guard';
@@ -61,6 +62,12 @@ export class AuthController {
     @Req() req: FastifyRequest,
   ): Promise<{ message: string; otp?: string }> {
     return this.authService.login(dto.identifier, req);
+  }
+
+  @ResponseMessage('KwikPass configuration')
+  @Get('kwikpass/config')
+  getKwikpassConfig(): IKwikpassPublicConfig {
+    return this.kwikpassService.getPublicConfig();
   }
 
   @ResponseMessage('KwikPass session created')
