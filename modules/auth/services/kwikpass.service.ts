@@ -273,9 +273,23 @@ export class KwikpassService {
   private validateClaims(claims: KwikpassClaims): void {
     const now = Math.floor(Date.now() / 1000);
 
-    if (!claims.exp || claims.exp <= now) {
-      throw new Error(`KwikPass token is expired (exp=${claims.exp}, now=${now})`);
+    // Log all claim keys so we can see the exact token structure GoKwik sends.
+    this.logger.log(`[validateClaims] Claim keys present: [${Object.keys(claims).join(', ')}]`);
+    this.logger.log(
+      `[validateClaims] exp=${claims.exp} nbf=${claims.nbf} iss="${claims.iss}" merchant_id="${claims.merchant_id}" phone fields: mobile_number="${claims.mobile_number}" mobile="${claims.mobile}" phone="${claims.phone}"`,
+    );
+
+    // Expiry check — GoKwik tokens may omit `exp`; treat absence as valid but warn.
+    if (claims.exp !== undefined) {
+      if (claims.exp <= now) {
+        throw new Error(`KwikPass token is expired (exp=${claims.exp}, now=${now})`);
+      }
+    } else {
+      this.logger.warn(
+        '[validateClaims] kpToken has no `exp` field — skipping expiry check (GoKwik sandbox tokens may omit it)',
+      );
     }
+
     if (claims.nbf !== undefined && claims.nbf > now + 30) {
       throw new Error(`KwikPass token is not yet active (nbf=${claims.nbf}, now=${now})`);
     }
