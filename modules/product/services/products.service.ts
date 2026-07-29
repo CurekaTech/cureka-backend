@@ -896,8 +896,8 @@ export class ProductsService {
   }
 
   /**
-   * Sets stock = 0 on every non-deleted variant for the selected products.
-   * Used by admin product list multi-select "Mark out of stock".
+   * Sets outOfStock = true on every non-deleted variant for the selected products.
+   * Does not change stock. Used by admin product list multi-select "Mark out of stock".
    */
   async bulkMarkOutOfStock(dto: BulkMarkOutOfStockDto): Promise<IBulkMarkOutOfStockResult> {
     const uniqueRefIds = [...new Set(dto.productRefIds.map((refId) => refId.trim()).filter(Boolean))];
@@ -927,7 +927,7 @@ export class ProductsService {
     let variantsUpdated = 0;
 
     for (const [refId, productId] of foundEntries) {
-      const stats = statsByProductId.get(productId) ?? { updated: 0, alreadyZero: 0 };
+      const stats = statsByProductId.get(productId) ?? { updated: 0, alreadyMarked: 0 };
       variantsUpdated += stats.updated;
       if (stats.updated > 0) {
         updated.push(refId);
