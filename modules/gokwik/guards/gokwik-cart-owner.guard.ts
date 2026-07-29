@@ -39,7 +39,7 @@ export class GokwikCartOwnerGuard implements CanActivate {
       throw new BadRequestException('cart_id or session_key is required');
     }
 
-    const cart = await this.cartService.findActiveCartById(cartId);
+    const cart = await this.cartService.findCartById(cartId);
     if (!cart) {
       throw new BadRequestException('Invalid cart id');
     }

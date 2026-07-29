@@ -37,6 +37,14 @@ export class GokwikRepository {
     });
   }
 
+  findLatestOrderByCustomerPhone(customerPhone: string): Promise<GokwikOrderEntity | null> {
+    return this.orderRepo.findOne({
+      where: { customerPhone },
+      relations: { order: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   findOrderByOrderId(orderId: string): Promise<GokwikOrderEntity | null> {
     return this.orderRepo.findOne({
       where: { orderId },
