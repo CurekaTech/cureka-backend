@@ -6,7 +6,7 @@ import { ProductType } from '../enums/product-type.enum';
 /**
  * Bundle products use a single internal pricing variant for MRP / selling price / stock
  * (same model as simple products). Frontend may send either `variants[0]` or top-level
- * `mrp` / `sellingPrice` / `stock` / `sku` / `discountPercentage`.
+ * `mrp` / `sellingPrice` / `stock` / `sku` / `discountPercentage` / `expiryDate` / `expiresIn`.
  */
 export const normalizeBundleCreateDto = (dto: CreateProductDto): CreateProductDto => {
   if (dto.productType !== ProductType.BUNDLE) {
@@ -32,6 +32,9 @@ export const ensureBundlePricingVariants = (
     | 'stock'
     | 'sku'
     | 'discountPercentage'
+    | 'expiryDate'
+    | 'expiresIn'
+    | 'description'
   >,
 ): CreateVariantDto[] => {
   if (dto.variants?.length) {
@@ -42,7 +45,14 @@ export const ensureBundlePricingVariants = (
     if (variant.attributes?.length) {
       throw new BadRequestException('Bundle pricing variants cannot have attributes');
     }
-    return dto.variants;
+    return [
+      {
+        ...variant,
+        expiryDate: variant.expiryDate ?? dto.expiryDate,
+        expiresIn: variant.expiresIn ?? dto.expiresIn,
+        description: variant.description ?? dto.description,
+      },
+    ];
   }
 
   if (dto.mrp === undefined || dto.sellingPrice === undefined || dto.stock === undefined) {
@@ -66,6 +76,9 @@ export const ensureBundlePricingVariants = (
       sellingPrice: dto.sellingPrice,
       stock: dto.stock,
       discountPercentage: dto.discountPercentage,
+      expiryDate: dto.expiryDate,
+      expiresIn: dto.expiresIn,
+      description: dto.description,
     },
   ];
 };

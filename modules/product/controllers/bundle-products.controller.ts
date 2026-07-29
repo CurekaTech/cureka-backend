@@ -41,7 +41,7 @@ export class BundleProductsController {
   @ApiOperation({
     summary: 'Create bundle product and submit for review',
     description:
-      'productType is forced to `bundle`. Provide bundleItems (≥1) and pricing via top-level mrp/sellingPrice/stock (or a single variants[] entry). Optional curatedBy / curatedFor. Categories support the same single/multiple hierarchy format as products.',
+      'productType is forced to `bundle`. Provide bundleItems (≥1) and pricing via top-level mrp/sellingPrice/stock/sku (or a single variants[] entry). Same as products: description, healthConcernRefIds, wellnessGoalRefIds, expiryDate/expiresIn/expiresInMonths, media, SEO (metaTitle/metaDescription/metaKeywords). Optional curatedBy / curatedFor. Categories support the same single/multiple hierarchy format as products. SKU must be unique.',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Bundle product created and submitted for review')
@@ -56,12 +56,16 @@ export class BundleProductsController {
     return this.productsService.createBundleFromJsonBody(req.body, user.email);
   }
 
-  @ApiOperation({ summary: 'Active (published) bundle products list' })
+  @ApiOperation({
+    summary: 'Paginated bundle products list',
+    description:
+      'Same filters as products, scoped to productType=bundle. Pass status to filter (draft, pending_review, published, rejected). Omit status to return all.',
+  })
   @ResponseMessage('Bundle products retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findActive(@Query() query: ProductQueryDto) {
-    return this.productsService.findBundles(query, ProductStatus.PUBLISHED);
+  findAll(@Query() query: ProductQueryDto) {
+    return this.productsService.findBundles(query);
   }
 
   @ApiOperation({ summary: 'Rejected bundle products list' })

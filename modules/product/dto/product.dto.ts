@@ -318,7 +318,7 @@ export class CreateProductDto {
   @ApiPropertyOptional({
     example: '31-12-2026',
     description:
-      'Expiry date for simple products (dd-mm-yyyy). Applied to the single variant when variants[].expiryDate is omitted. For variable products, send expiryDate on each variants[] entry instead.',
+      'Expiry date (dd-mm-yyyy). For simple and bundle products, applied to the single pricing variant when variants[].expiryDate is omitted. For variable products, send expiryDate on each variants[] entry instead.',
   })
   @IsOptional()
   @Transform(({ value }) => normalizeExpiryDateInput(value))
@@ -327,6 +327,17 @@ export class CreateProductDto {
     message: 'expiryDate must be a valid date in dd-mm-yyyy format',
   })
   expiryDate?: string;
+
+  @ApiPropertyOptional({
+    example: 365,
+    description:
+      'Expiry in days. For simple and bundle products, applied to the pricing variant when variants[].expiresIn is omitted.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expiresIn?: number;
 
   @ApiPropertyOptional({ default: false })
   @IsOptional()
@@ -527,7 +538,8 @@ export class CreateProductDto {
 
   @ApiPropertyOptional({
     example: 'BND-SUMMER-KIT-001',
-    description: 'SKU for the bundle pricing variant when variants[] is omitted.',
+    description:
+      'Unique SKU for the bundle pricing variant when variants[] is omitted. Must be unique across all product variants; auto-generated if omitted.',
   })
   @ValidateIf((dto: CreateProductDto) => dto.productType === ProductType.BUNDLE)
   @IsOptional()
@@ -652,9 +664,17 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsEnum(ProductType)
   productType?: ProductType;
 
-  @ApiPropertyOptional({ enum: ProductStatus })
+  @ApiPropertyOptional({
+    enum: ProductStatus,
+    description: 'Filter by status. Alias `approved` is accepted as `published`.',
+  })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.trim().toLowerCase();
+    // Admin UI historically used "approved" for live products
+    return normalized === 'approved' ? ProductStatus.PUBLISHED : normalized;
+  })
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 

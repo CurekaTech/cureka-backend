@@ -31,6 +31,8 @@ export interface ProductListOptions {
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
   productType?: string;
+  /** When set and productType is not set, exclude these types (e.g. bundles from admin product list). */
+  excludeProductTypes?: string[];
   status?: ProductStatus;
   categoryId?: string;
   brandId?: string;
@@ -671,6 +673,10 @@ export class ProductsRepository {
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
+    } else if (options.excludeProductTypes?.length) {
+      qb.andWhere('product.productType NOT IN (:...excludeProductTypes)', {
+        excludeProductTypes: options.excludeProductTypes,
+      });
     }
     if (options.status != null) {
       qb.andWhere('product.status = :status', { status: options.status });
@@ -1021,6 +1027,10 @@ export class ProductsRepository {
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
+    } else if (options.excludeProductTypes?.length) {
+      qb.andWhere('product.productType NOT IN (:...excludeProductTypes)', {
+        excludeProductTypes: options.excludeProductTypes,
+      });
     }
     if (options.status != null) {
       qb.andWhere('product.status = :status', { status: options.status });
