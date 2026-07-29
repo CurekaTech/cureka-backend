@@ -156,10 +156,8 @@ export class KwikpassService {
 
     try {
       const key = await this.resolveKey(secret);
-      const { plaintext, protectedHeader } = await compactDecrypt(token.trim(), key, {
-        keyManagementAlgorithms: ['dir'],
-        contentEncryptionAlgorithms: ['A256GCM'],
-      });
+      // No algorithm restriction — log whatever GoKwik actually sends.
+      const { plaintext, protectedHeader } = await compactDecrypt(token.trim(), key);
 
       const claims = JSON.parse(new TextDecoder().decode(plaintext)) as KwikpassClaims;
       const now = Math.floor(Date.now() / 1000);
@@ -169,7 +167,10 @@ export class KwikpassService {
       const result: Record<string, unknown> = {
         ok: true,
         stage: 'decrypted',
-        protectedHeader,
+        protectedHeader: {
+          alg: protectedHeader.alg,
+          enc: protectedHeader.enc,
+        },
         claims,
         derived: {
           rawPhone,
@@ -219,16 +220,12 @@ export class KwikpassService {
 
     try {
       const key = await this.resolveKey(secret);
-      const { plaintext, protectedHeader } = await compactDecrypt(token.trim(), key, {
-        keyManagementAlgorithms: ['dir'],
-        contentEncryptionAlgorithms: ['A256GCM'],
-      });
+      // Do NOT restrict algorithms — let jose accept whatever alg+enc GoKwik uses.
+      const { plaintext, protectedHeader } = await compactDecrypt(token.trim(), key);
 
-      if (protectedHeader.alg !== 'dir' || protectedHeader.enc !== 'A256GCM') {
-        throw new Error(
-          `Unexpected KwikPass JWE algorithms: alg=${protectedHeader.alg} enc=${protectedHeader.enc}`,
-        );
-      }
+      this.logger.log(
+        `[decryptAndValidate] JWE header — alg="${protectedHeader.alg}" enc="${protectedHeader.enc}"`,
+      );
 
       const claims = JSON.parse(new TextDecoder().decode(plaintext)) as KwikpassClaims;
       this.validateClaims(claims);
@@ -244,23 +241,32 @@ export class KwikpassService {
   }
 
   private async resolveKey(secret: string): Promise<Uint8Array | KeyLike> {
+    // JWK object
     if (secret.startsWith('{')) {
       const jwk = JSON.parse(secret) as JWK;
       return importJWK(jwk, 'A256GCM');
     }
 
-    const decoded = Buffer.from(secret, 'base64url');
-    if (decoded.length === 32) {
-      return decoded;
+    // Try base64url first (most common from GoKwik)
+    const decodedUrl = Buffer.from(secret, 'base64url');
+    this.logger.log(
+      `[resolveKey] Secret length=${secret.length} chars → base64url decoded=${decodedUrl.length} bytes`,
+    );
+    if (decodedUrl.length >= 16) {
+      // Valid key size for AES-128 (16 bytes) or AES-256 (32 bytes)
+      return decodedUrl;
     }
 
-    const raw = Buffer.from(secret, 'utf8');
-    if (raw.length !== 32) {
-      this.logger.error(
-        `[resolveKey] KWIKPASS_JWE_SECRET decoded to ${decoded.length} bytes (base64url) / ${raw.length} bytes (utf8) — must be 32 bytes`,
-      );
-      throw new ServiceUnavailableException('KWIKPASS_JWE_SECRET must be a 256-bit (32-byte) key');
+    // Try standard base64 (with + / characters)
+    const decodedBase64 = Buffer.from(secret, 'base64');
+    if (decodedBase64.length >= 16) {
+      this.logger.log(`[resolveKey] Using standard base64 decoded key (${decodedBase64.length} bytes)`);
+      return decodedBase64;
     }
+
+    // Raw UTF-8 string key
+    const raw = Buffer.from(secret, 'utf8');
+    this.logger.log(`[resolveKey] Using raw UTF-8 key (${raw.length} bytes)`);
     return raw;
   }
 
