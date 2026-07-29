@@ -17,8 +17,14 @@ import { PaymentRequestsService } from '../services/payment-requests.service';
 export class CustomerPaymentRequestsController {
   constructor(private readonly paymentRequestsService: PaymentRequestsService) {}
 
-  @ApiOperation({ summary: 'Create Razorpay payment link from active cart checkout' })
-  @ResponseMessage('Payment link generated successfully')
+  @ApiOperation({
+    summary: 'Start storefront checkout (GoKwik / Shiprocket / native PG)',
+    description:
+      'Routes by admin flags: `gokwikCheckoutEnabled` → GoKwik SDK payload; ' +
+      '`shiprocketCheckoutEnabled` → Shiprocket session; else Razorpay/Cashfree payment link. ' +
+      'Body needs `addressId` only. `paymentMethod` is ignored for provider selection.',
+  })
+  @ResponseMessage('Checkout session created successfully')
   @Post('checkout')
   checkout(
     @CurrentSessionUser() user: IUserSessionContext,
@@ -31,8 +37,13 @@ export class CustomerPaymentRequestsController {
     );
   }
 
-  @ApiOperation({ summary: 'Create Razorpay order for storefront checkout modal' })
-  @ResponseMessage('Razorpay order created successfully')
+  @ApiOperation({
+    summary: 'Start storefront checkout modal (GoKwik / Shiprocket / native PG)',
+    description:
+      'Same provider routing as POST /checkout. Prefer this for in-page modals (Razorpay Checkout.js / GoKwik SDK). ' +
+      'When `checkoutProvider` is `gokwik`, open the GoKwik SDK with `paymentData` — do not call Razorpay.',
+  })
+  @ResponseMessage('Checkout session created successfully')
   @Post('checkout/modal')
   checkoutModal(
     @CurrentSessionUser() user: IUserSessionContext,
@@ -45,7 +56,10 @@ export class CustomerPaymentRequestsController {
     );
   }
 
-  @ApiOperation({ summary: 'Verify Razorpay checkout modal payment' })
+  @ApiOperation({
+    summary: 'Verify native checkout modal payment (Razorpay / Cashfree)',
+    description: 'Not used for GoKwik — GoKwik confirms orders via merchant callbacks.',
+  })
   @ResponseMessage('Payment verified successfully')
   @Post('checkout/modal/verify')
   verifyModalCheckout(
@@ -55,7 +69,10 @@ export class CustomerPaymentRequestsController {
     return this.paymentRequestsService.verifyModalCheckoutPayment(user.sub, dto);
   }
 
-  @ApiOperation({ summary: 'Cancel Razorpay checkout modal when dismissed' })
+  @ApiOperation({
+    summary: 'Cancel native checkout modal when dismissed',
+    description: 'Not used for GoKwik — on SDK close, keep the cart and re-enable the CTA.',
+  })
   @ResponseMessage('Checkout cancelled successfully')
   @Post('checkout/modal/cancel')
   cancelModalCheckout(

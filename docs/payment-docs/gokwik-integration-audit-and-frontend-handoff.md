@@ -101,6 +101,10 @@ Enable catalog sync only after the Product and Collection payloads pass GoKwik s
 
 ## Frontend implementation
 
+Storefront step-by-step guide (validate → payment-requests → open SDK):
+
+[docs/frontend-gokwik-checkout.md](../frontend-gokwik-checkout.md)
+
 ### 1. Load public GoKwik configuration
 
 Use the checkout response's `paymentData.appId`, `merchantId`, and `merchantCheckoutId`. Never expose:

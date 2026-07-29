@@ -28,6 +28,7 @@ import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.ma
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
+import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { toMoneyString } from '../utils/money.util';
@@ -45,6 +46,7 @@ export class OrdersService {
     private readonly cartsRepository: CartsRepository,
     private readonly cartService: CartService,
     private readonly checkoutService: CheckoutService,
+    private readonly checkoutResolver: CheckoutResolverService,
     private readonly userAddressesService: UserAddressesService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly couponCheckoutService: CouponCheckoutService,
@@ -53,8 +55,12 @@ export class OrdersService {
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
   ) {}
 
-  checkout(userId: string, dto: CheckoutDto) {
-    return this.checkoutService.validateCheckout(userId, dto);
+  async checkout(userId: string, dto: CheckoutDto) {
+    const [summary, checkoutProvider] = await Promise.all([
+      this.checkoutService.validateCheckout(userId, dto),
+      this.checkoutResolver.resolveProvider(),
+    ]);
+    return { ...summary, checkoutProvider };
   }
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
@@ -64,6 +70,15 @@ export class OrdersService {
     ) {
       throw new BadRequestException(
         `Online ${dto.paymentMethod} checkout must use POST /payment-requests/checkout`,
+      );
+    }
+
+    if (
+      dto.paymentMethod === OrderPaymentMethod.GOKWIK_PREPAID ||
+      dto.paymentMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD
+    ) {
+      throw new BadRequestException(
+        'GoKwik checkout must use POST /payment-requests/checkout (opens GoKwik SDK). Orders are created via GoKwik merchant callbacks.',
       );
     }
 
