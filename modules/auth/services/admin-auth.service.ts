@@ -434,7 +434,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
   //       href: '/order-requests?status=CANCELLED',
   //       requiredPermissions: ['orders.read'],
   //     },
-    
+
   //   ],
   // },
   {
@@ -457,6 +457,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
     icon: 'Grid',
     subItems: [
       {
+        name: 'Header Indexing',
+        key: 'cms-header-indexing',
+        icon: 'SlidersHorizontal',
+        href: '/master/category/header-indexing',
+        requiredPermissions: ['header_indexing.read'],
+      },
+      {
         name: 'Banners',
         key: 'cms-banners',
         icon: 'ImageIcon',
@@ -464,11 +471,25 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['banners.read'],
       },
       {
-        name: 'Watch & Shop',
-        key: 'cms-watch-and-shop',
-        icon: 'ShoppingBag',
-        href: '/master/watch-and-shop',
-        requiredPermissions: ['watch_and_shop.read'],
+        name: 'Category Indexing',
+        key: 'cms-shopby-indexing',
+        icon: 'Target',
+        href: '/master/category/shop-by-indexing',
+        requiredPermissions: ['shop_by_indexing.read'],
+      },
+      {
+        name: 'Health Concern Indexing', // added new one
+        key: 'health-concern-indexing',
+        icon: 'HeartPulse',
+        href: '/cms/health-concern-indexing',
+        requiredPermissions: ['healthconcern.read'],
+      },
+      {
+        name: 'Home Section Indexing',
+        key: 'cms-home-sections',
+        icon: 'ListTree',
+        href: '/cms/home-section-indexing',
+        requiredPermissions: ['home_sections.read'],
       },
       {
         name: 'Expert Talks & Podcasts',
@@ -485,25 +506,11 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['testimonials.read'],
       },
       {
-        name: 'Home Section Indexing',
-        key: 'cms-home-sections',
-        icon: 'ListTree',
-        href: '/cms/home-section-indexing',
-        requiredPermissions: ['home_sections.read'],
-      },
-      {
-        name: 'Header Indexing',
-        key: 'cms-header-indexing',
-        icon: 'SlidersHorizontal',
-        href: '/master/category/header-indexing',
-        requiredPermissions: ['header_indexing.read'],
-      },
-      {
-        name: 'Shop By Indexing',
-        key: 'cms-shopby-indexing',
-        icon: 'Target',
-        href: '/master/category/shop-by-indexing',
-        requiredPermissions: ['shop_by_indexing.read'],
+        name: 'Watch & Shop',
+        key: 'cms-watch-and-shop',
+        icon: 'ShoppingBag',
+        href: '/master/watch-and-shop',
+        requiredPermissions: ['watch_and_shop.read'],
       },
     ],
   },
