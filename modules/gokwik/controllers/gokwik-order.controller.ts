@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Logger,Post, UseGuards } from '@nestjs/common';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { RawResponse } from '@packages/common';
@@ -22,17 +22,24 @@ import { GokwikOrderService } from '../services/gokwik-order.service';
 @Controller('gokwik')
 @UseGuards(SessionCookieGuard, VerifiedUserGuard, GokwikCartOwnerGuard)
 export class GokwikOrderController {
+  private readonly logger = new Logger(GokwikOrderController.name);
+
   constructor(private readonly gokwikOrderService: GokwikOrderService) {}
 
   @Post('create-order')
   @RawResponse()
-  createOrder(@Body() dto: GokwikCreateOrderDto): Promise<GokwikCreateOrderResponse> {
+  async createOrder(@Body() dto: GokwikCreateOrderDto): Promise<GokwikCreateOrderResponse> {
+    this.logger.log({ cartId: dto.cart_id }, 'GoKwik create-order callback');
     return this.gokwikOrderService.createOrder(dto);
   }
 
   @Post('place-order')
   @RawResponse()
-  placeOrder(@Body() dto: GokwikPlaceOrderDto): Promise<GokwikPlaceOrderResponse> {
+  async placeOrder(@Body() dto: GokwikPlaceOrderDto): Promise<GokwikPlaceOrderResponse> {
+    this.logger.log(
+      { cartId: dto.cart_id, orderId: dto.order_id },
+      'GoKwik place-order callback',
+    );
     return this.gokwikOrderService.placeOrder(dto);
   }
 

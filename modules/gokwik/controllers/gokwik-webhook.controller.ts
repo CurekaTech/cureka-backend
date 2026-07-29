@@ -1,5 +1,6 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Logger, Post, Req, UseGuards } from '@nestjs/common';
 import { RawResponse } from '@packages/common';
+import { FastifyRequest } from 'fastify';
 import {
   GokwikAbandonedCartWebhookDto,
   GokwikRefundWebhookDto,
@@ -12,23 +13,66 @@ import { GokwikWebhookService } from '../services/gokwik-webhook.service';
 @Controller('gokwik/webhooks')
 @RawResponse()
 export class GokwikWebhookController {
+  private readonly logger = new Logger(GokwikWebhookController.name);
+
   constructor(private readonly webhookService: GokwikWebhookService) {}
 
   @Post('transaction')
   @UseGuards(GokwikWebhookGuard)
-  transaction(@Body() dto: GokwikTransactionWebhookDto) {
-    return this.webhookService.receiveTransaction(dto);
+  async transaction(@Req() req: FastifyRequest, @Body() dto: GokwikTransactionWebhookDto) {
+    this.logger.log(
+      {
+        requestId: req.id,
+        event: dto.event,
+        paymentId: dto.data?.paymentId,
+      },
+      'GoKwik transaction webhook received',
+    );
+    const result = await this.webhookService.receiveTransaction(dto);
+    this.logger.log(
+      { requestId: req.id, event: dto.event, result },
+      'GoKwik transaction webhook accepted',
+    );
+    return result;
   }
 
   @Post('refund')
   @UseGuards(GokwikWebhookGuard)
-  refund(@Body() dto: GokwikRefundWebhookDto) {
-    return this.webhookService.receiveRefund(dto);
+  async refund(@Req() req: FastifyRequest, @Body() dto: GokwikRefundWebhookDto) {
+    this.logger.log(
+      {
+        requestId: req.id,
+        event: dto.event,
+        refundId: dto.data?.refundId,
+      },
+      'GoKwik refund webhook received',
+    );
+    const result = await this.webhookService.receiveRefund(dto);
+    this.logger.log(
+      { requestId: req.id, event: dto.event, result },
+      'GoKwik refund webhook accepted',
+    );
+    return result;
   }
 
   @Post('abandoned-carts')
   @UseGuards(GokwikCallbackGuard)
-  abandonedCarts(@Body() dto: GokwikAbandonedCartWebhookDto) {
-    return this.webhookService.receiveAbandonedCarts(dto);
+  async abandonedCarts(
+    @Req() req: FastifyRequest,
+    @Body() dto: GokwikAbandonedCartWebhookDto,
+  ) {
+    this.logger.log(
+      {
+        requestId: req.id,
+        cartCount: dto.carts?.length ?? 0,
+      },
+      'GoKwik abandoned-carts webhook received',
+    );
+    const result = await this.webhookService.receiveAbandonedCarts(dto);
+    this.logger.log(
+      { requestId: req.id, received: result.received },
+      'GoKwik abandoned-carts webhook processed',
+    );
+    return result;
   }
 }

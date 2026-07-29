@@ -386,6 +386,20 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   subSubCategoryName: entity.subSubCategory?.name ?? null,
   subSubSubCategoryRefId: entity.subSubSubCategory?.refId ?? null,
   subSubSubCategoryName: entity.subSubSubCategory?.name ?? null,
+  categories: (entity.categoryHierarchies ?? [])
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((item) => ({
+      categoryRefId: item.category?.refId ?? '',
+      categoryName: item.category?.name ?? '',
+      subCategoryRefId: item.subCategory?.refId ?? null,
+      subCategoryName: item.subCategory?.name ?? null,
+      subSubCategoryRefId: item.subSubCategory?.refId ?? null,
+      subSubCategoryName: item.subSubCategory?.name ?? null,
+      subSubSubCategoryRefId: item.subSubSubCategory?.refId ?? null,
+      subSubSubCategoryName: item.subSubSubCategory?.name ?? null,
+      sortOrder: item.sortOrder,
+    })),
   categorySlugPath,
   permalink: buildProductPermalink(categorySlugPath, entity.slug),
   brandRefId: entity.brand?.refId ?? null,

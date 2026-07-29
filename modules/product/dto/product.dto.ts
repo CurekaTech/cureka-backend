@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   Allow,
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -102,6 +103,28 @@ export class ProductFileReferenceDto {
   name!: string;
 }
 
+export class ProductCategoryHierarchyDto {
+  @ApiProperty({ example: 'HEA20260016', description: 'Root category refId' })
+  @IsNotEmpty()
+  @IsRefId()
+  categoryRefId!: string;
+
+  @ApiPropertyOptional({ example: 'SUB20260011' })
+  @IsOptional()
+  @IsRefId()
+  subCategoryRefId?: string;
+
+  @ApiPropertyOptional({ example: 'SSC20260022' })
+  @IsOptional()
+  @IsRefId()
+  subSubCategoryRefId?: string;
+
+  @ApiPropertyOptional({ example: 'SSS20260033' })
+  @IsOptional()
+  @IsRefId()
+  subSubSubCategoryRefId?: string;
+}
+
 export class CreateProductDto {
   @ApiPropertyOptional({ description: 'Nullable until vendor module is live' })
   @IsOptional()
@@ -182,25 +205,59 @@ export class CreateProductDto {
   @IsRefId()
   productNatureRefId?: string;
 
-  @ApiProperty({ example: 'HEA20260016' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({
+    example: 'HEA20260016',
+    description:
+      'Primary (first) category hierarchy root refId. Required when `categories` is omitted. Kept for backward compatibility; when both are sent, `categories` wins.',
+  })
+  @ValidateIf((dto: CreateProductDto) => !dto.categories?.length)
+  @IsNotEmpty({ message: 'categoryRefId is required when categories is not provided' })
   @IsRefId()
-  categoryRefId!: string;
+  categoryRefId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'Primary hierarchy sub-category. Ignored when `categories` is provided.',
+  })
   @IsOptional()
   @IsRefId()
   subCategoryRefId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'Primary hierarchy sub-sub-category. Ignored when `categories` is provided.',
+  })
   @IsOptional()
   @IsRefId()
   subSubCategoryRefId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'Primary hierarchy sub-sub-sub-category. Ignored when `categories` is provided.',
+  })
   @IsOptional()
   @IsRefId()
   subSubSubCategoryRefId?: string;
+
+  @ApiPropertyOptional({
+    type: [ProductCategoryHierarchyDto],
+    description:
+      'One or more independent category hierarchies for this product. Preferred over the flat categoryRefId fields. The first entry is also stored as the primary hierarchy (flat response fields).',
+    example: [
+      {
+        categoryRefId: 'HEA20260016',
+        subCategoryRefId: 'SUB20260011',
+        subSubCategoryRefId: 'SSC20260022',
+      },
+      {
+        categoryRefId: 'BEA20260001',
+        subCategoryRefId: 'SUB20260099',
+      },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ProductCategoryHierarchyDto)
+  categories?: ProductCategoryHierarchyDto[];
 
   @ApiProperty({ example: 'BRA20261234' })
   @IsNotEmpty()
@@ -436,6 +493,20 @@ export class UpdateProductStatusDto {
   @IsNotEmpty()
   @IsEnum(ProductStatus)
   status!: ProductStatus;
+}
+
+export class BulkMarkOutOfStockDto {
+  @ApiProperty({
+    type: [String],
+    example: ['PRO20261234', 'PRO20265678'],
+    description:
+      'Product refIds selected from the admin product list. Duplicates are ignored. Sets stock = 0 on every non-deleted variant of each product.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsRefId({ each: true })
+  productRefIds!: string[];
 }
 
 export class ProductQueryDto extends ProductCategoryFilterQueryDto {

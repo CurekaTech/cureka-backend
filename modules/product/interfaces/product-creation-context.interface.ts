@@ -1,9 +1,20 @@
-export interface IResolvedProductMasters {
-  productNatureId: string | null;
+export interface IResolvedCategoryHierarchy {
   categoryId: string;
   subCategoryId: string | null;
   subSubCategoryId: string | null;
   subSubSubCategoryId: string | null;
+  sortOrder: number;
+}
+
+export interface IResolvedProductMasters {
+  productNatureId: string | null;
+  /** Primary hierarchy (first entry) — mirrored on products.* category FK columns. */
+  categoryId: string;
+  subCategoryId: string | null;
+  subSubCategoryId: string | null;
+  subSubSubCategoryId: string | null;
+  /** All independent category hierarchies for the product. */
+  categoryHierarchies: IResolvedCategoryHierarchy[];
   brandId: string;
   manufacturerId: string | null;
   packerId: string | null;

@@ -30,6 +30,7 @@ import {
   resolveBulkUploadSizeChart,
 } from '../utils/bulk-upload-image.util';
 import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
+import { zipBulkCategoryHierarchies } from '../utils/product-category-hierarchies.util';
 
 export interface IParsedAttribute {
   name: string;
@@ -113,6 +114,13 @@ export interface IParsedBundleItem {
   quantity: number;
 }
 
+export interface IParsedCategoryHierarchy {
+  category: string;
+  subCategory?: string;
+  subSubCategory?: string;
+  subSubSubCategory?: string;
+}
+
 export interface IParsedProductGroup {
   rowNumber: number;
   name: string;
@@ -126,10 +134,15 @@ export interface IParsedProductGroup {
   productType: string;
   /** Raw Product Type from the first sheet row (before structure-based finalize). */
   sheetProductType?: string;
+  /** Primary hierarchy root (first pipe segment) — kept for existing validators. */
   category: string;
   subCategory?: string;
   subSubCategory?: string;
   subSubSubCategory?: string;
+  /** All category hierarchies (pipe-aligned by index). */
+  categoryHierarchies: IParsedCategoryHierarchy[];
+  /** Set when Category/Sub Category/... pipe counts do not match. */
+  categoryHierarchyParseError?: string;
   brand?: string;
   healthConcerns: string[];
   wellnessGoals: string[];
@@ -620,6 +633,18 @@ export class BulkUploadParserService {
       const isNewGroup = !group;
 
       if (!group) {
+        const categoryRaw = getVal('category');
+        const subCategoryRaw = getVal('sub category') || undefined;
+        const subSubCategoryRaw = getVal('sub sub category') || undefined;
+        const subSubSubCategoryRaw = getVal('sub sub sub category') || undefined;
+        const zipped = zipBulkCategoryHierarchies({
+          category: categoryRaw,
+          subCategory: subCategoryRaw,
+          subSubCategory: subSubCategoryRaw,
+          subSubSubCategory: subSubSubCategoryRaw,
+        });
+        const primary = zipped.hierarchies[0];
+
         group = {
           rowNumber,
           name,
@@ -632,10 +657,12 @@ export class BulkUploadParserService {
           productNature: getVal('product nature'),
           productType: effectiveProductType,
           sheetProductType: productTypeRaw,
-          category: getVal('category'),
-          subCategory: getVal('sub category') || undefined,
-          subSubCategory: getVal('sub sub category') || undefined,
-          subSubSubCategory: getVal('sub sub sub category') || undefined,
+          category: primary?.category ?? categoryRaw,
+          subCategory: primary?.subCategory,
+          subSubCategory: primary?.subSubCategory,
+          subSubSubCategory: primary?.subSubSubCategory,
+          categoryHierarchies: zipped.hierarchies,
+          categoryHierarchyParseError: zipped.error,
           brand: getVal('brand') || undefined,
           healthConcerns: getVal('health concerns')
             ? getVal('health concerns').split('|').map((s) => s.trim()).filter(Boolean)

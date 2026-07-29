@@ -181,17 +181,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
     message: string | string[],
   ): void {
     const err = exception instanceof Error ? exception : new Error(String(exception));
-    const summary = `${request.method} ${request.url} -> ${statusCode}: ${
-      Array.isArray(message) ? message.join(', ') : message
-    }`;
+    const messageText = Array.isArray(message) ? message.join(', ') : message;
+    const payload = {
+      requestId: request.id,
+      method: request.method,
+      url: request.url?.split('?')[0] ?? request.url,
+      statusCode,
+      errorName: err.name,
+      message: messageText,
+    };
 
     if (statusCode >= 500) {
-      this.logger.error(summary, err.stack);
+      this.logger.error({ ...payload, stack: err.stack }, 'Request failed');
       return;
     }
 
-    if (statusCode === HttpStatus.BAD_REQUEST) {
-      this.logger.warn(summary);
+    if (
+      statusCode === HttpStatus.BAD_REQUEST ||
+      statusCode === HttpStatus.UNAUTHORIZED ||
+      statusCode === HttpStatus.FORBIDDEN
+    ) {
+      this.logger.warn(payload, 'Request rejected');
     }
   }
 }

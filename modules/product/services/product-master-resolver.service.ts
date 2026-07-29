@@ -13,7 +13,10 @@ import { CountriesRepository } from '@modules/master/repositories/countries.repo
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import { CreateProductDto } from '../dto/product.dto';
 import { ProductCategoryFilterBindingDto } from '../dto/product-category-filter.dto';
-import { IResolvedProductMasters } from '../interfaces/product-creation-context.interface';
+import {
+  IResolvedCategoryHierarchy,
+  IResolvedProductMasters,
+} from '../interfaces/product-creation-context.interface';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductFaqEntity } from '../entities/product-faq.entity';
@@ -21,6 +24,7 @@ import { AttributeEntity } from '@modules/master/entities/attribute.entity';
 import { HealthConcernEntity } from '@modules/master/entities/health-concern.entity';
 import { WellnessGoalEntity } from '@modules/master/entities/wellness-goal.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { normalizeCategoryHierarchyInputs } from '../utils/product-category-hierarchies.util';
 
 @Injectable()
 export class ProductMasterResolverService {
@@ -41,13 +45,14 @@ export class ProductMasterResolverService {
   ) {}
 
   async resolve(dto: CreateProductDto): Promise<IResolvedProductMasters> {
+    const hierarchyInputs = normalizeCategoryHierarchyInputs(dto);
+    const categoryHierarchies = await this.resolveCategoryHierarchies(hierarchyInputs);
+    const primary = categoryHierarchies[0]!;
+    const rootCategoryIds = [...new Set(categoryHierarchies.map((item) => item.categoryId))];
+
     const [
       productNature,
-      category,
       brand,
-      subCategory,
-      subSubCategory,
-      subSubSubCategory,
       manufacturer,
       packer,
       importer,
@@ -65,36 +70,10 @@ export class ProductMasterResolverService {
           )
         : Promise.resolve(null),
       this.requireByRefId(
-        this.categoriesRepository.findByRefId.bind(this.categoriesRepository),
-        dto.categoryRefId,
-        'Category',
-      ),
-      this.requireByRefId(
         this.brandsRepository.findByRefId.bind(this.brandsRepository),
         dto.brandRefId,
         'Brand',
       ),
-      dto.subCategoryRefId
-        ? this.requireByRefId(
-            this.categoriesRepository.findByRefId.bind(this.categoriesRepository),
-            dto.subCategoryRefId,
-            'Sub category',
-          )
-        : Promise.resolve(null),
-      dto.subSubCategoryRefId
-        ? this.requireByRefId(
-            this.categoriesRepository.findByRefId.bind(this.categoriesRepository),
-            dto.subSubCategoryRefId,
-            'Sub sub category',
-          )
-        : Promise.resolve(null),
-      dto.subSubSubCategoryRefId
-        ? this.requireByRefId(
-            this.categoriesRepository.findByRefId.bind(this.categoriesRepository),
-            dto.subSubSubCategoryRefId,
-            'Sub sub sub category',
-          )
-        : Promise.resolve(null),
       dto.manufacturerRefId
         ? this.requireByRefId(
             this.manufacturersRepository.findByRefId.bind(this.manufacturersRepository),
@@ -138,7 +117,7 @@ export class ProductMasterResolverService {
     ]);
     const categoryFilterBindings = await this.resolveCategoryFilterBindings(
       dto.categoryFilters,
-      category.id,
+      rootCategoryIds,
     );
 
     if (dto.productType === ProductType.VARIABLE && !attributeResolution.attributeIds.length) {
@@ -147,10 +126,11 @@ export class ProductMasterResolverService {
 
     return {
       productNatureId: productNature?.id ?? null,
-      categoryId: category.id,
-      subCategoryId: subCategory?.id ?? null,
-      subSubCategoryId: subSubCategory?.id ?? null,
-      subSubSubCategoryId: subSubSubCategory?.id ?? null,
+      categoryId: primary.categoryId,
+      subCategoryId: primary.subCategoryId,
+      subSubCategoryId: primary.subSubCategoryId,
+      subSubSubCategoryId: primary.subSubSubCategoryId,
+      categoryHierarchies,
       brandId: brand.id,
       manufacturerId: manufacturer?.id ?? null,
       packerId: packer?.id ?? null,
@@ -165,9 +145,69 @@ export class ProductMasterResolverService {
     };
   }
 
+  async resolveCategoryHierarchies(
+    inputs: Array<{
+      categoryRefId: string;
+      subCategoryRefId?: string;
+      subSubCategoryRefId?: string;
+      subSubSubCategoryRefId?: string;
+    }>,
+  ): Promise<IResolvedCategoryHierarchy[]> {
+    if (!inputs.length) {
+      throw new BadRequestException('At least one category hierarchy is required');
+    }
+
+    const allRefIds = [
+      ...new Set(
+        inputs.flatMap((item) =>
+          [
+            item.categoryRefId,
+            item.subCategoryRefId,
+            item.subSubCategoryRefId,
+            item.subSubSubCategoryRefId,
+          ].filter((refId): refId is string => Boolean(refId?.trim())),
+        ),
+      ),
+    ];
+
+    const categories = await this.categoriesRepository.findByRefIds(allRefIds);
+    const byRefId = new Map(categories.map((category) => [category.refId, category]));
+
+    return inputs.map((item, index) => {
+      const category = byRefId.get(item.categoryRefId);
+      if (!category) {
+        throw new NotFoundException(`Category with refId "${item.categoryRefId}" not found`);
+      }
+
+      const resolveOptional = (refId: string | undefined, label: string) => {
+        if (!refId?.trim()) return null;
+        const entity = byRefId.get(refId);
+        if (!entity) {
+          throw new NotFoundException(`${label} with refId "${refId}" not found`);
+        }
+        return entity;
+      };
+
+      const subCategory = resolveOptional(item.subCategoryRefId, 'Sub category');
+      const subSubCategory = resolveOptional(item.subSubCategoryRefId, 'Sub sub category');
+      const subSubSubCategory = resolveOptional(
+        item.subSubSubCategoryRefId,
+        'Sub sub sub category',
+      );
+
+      return {
+        categoryId: category.id,
+        subCategoryId: subCategory?.id ?? null,
+        subSubCategoryId: subSubCategory?.id ?? null,
+        subSubSubCategoryId: subSubSubCategory?.id ?? null,
+        sortOrder: index,
+      };
+    });
+  }
+
   async resolveCategoryFilterBindings(
     bindings: ProductCategoryFilterBindingDto[] | undefined,
-    categoryId?: string,
+    categoryIds: string | string[] = [],
   ): Promise<Array<{ categoryFilterId: string; values: string[] }>> {
     const activeBindings = (bindings ?? []).filter(
       (binding) =>
@@ -175,6 +215,12 @@ export class ProductMasterResolverService {
         (binding.values ?? []).some((value) => String(value).trim()),
     );
     if (!activeBindings.length) return [];
+
+    const rootCategoryIds = Array.isArray(categoryIds)
+      ? categoryIds.filter(Boolean)
+      : categoryIds
+        ? [categoryIds]
+        : [];
 
     const uniqueKeys = [...new Set(activeBindings.map((binding) => binding.categoryFilterRefId))];
     const filters = await this.categoryFiltersRepository.findByRefIdsOrNames(uniqueKeys);
@@ -196,13 +242,14 @@ export class ProductMasterResolverService {
         );
       }
 
-      if (
-        categoryId &&
-        !filter.categories?.some((assignedCategory) => assignedCategory.id === categoryId)
-      ) {
-        throw new BadRequestException(
-          `Category filter "${filter.name}" is not assigned to the selected category.`,
-        );
+      if (rootCategoryIds.length) {
+        const assignedIds = new Set((filter.categories ?? []).map((category) => category.id));
+        const matchesAny = rootCategoryIds.some((categoryId) => assignedIds.has(categoryId));
+        if (!matchesAny) {
+          throw new BadRequestException(
+            `Category filter "${filter.name}" is not assigned to any of the selected categories.`,
+          );
+        }
       }
 
       const allowedValues = new Set((filter.values ?? []).map((value) => value.trim()));

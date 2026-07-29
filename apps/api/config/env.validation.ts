@@ -51,7 +51,10 @@ export const envValidationSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('7d'),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN_DAYS: Joi.number().integer().min(1).max(365).default(90),
-  LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug', 'trace').default('info'),
+  // Optional — LoggerModule resolves development→debug, production/staging→info, test→silent
+  LOG_LEVEL: Joi.string()
+    .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent')
+    .optional(),
   CORS_ORIGINS: Joi.string().allow('').optional(),
   COOKIE_SECURE: Joi.string().valid('true', 'false').optional(),
   DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),

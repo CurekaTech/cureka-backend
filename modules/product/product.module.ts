@@ -23,6 +23,7 @@ import { ProductFaqEntity } from './entities/product-faq.entity';
 import { ProductFaqMappingEntity } from './entities/product-faq-mapping.entity';
 import { ProductAttributeMappingEntity } from './entities/product-attribute-mapping.entity';
 import { ProductCategoryFilterMappingEntity } from './entities/product-category-filter-mapping.entity';
+import { ProductCategoryHierarchyEntity } from './entities/product-category-hierarchy.entity';
 import { BulkUploadEntity } from './entities/bulk-upload.entity';
 
 // ── Wishlist entity ──────────────────────────────────────────────────────────
@@ -125,6 +126,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
       ProductFaqMappingEntity,
       ProductAttributeMappingEntity,
       ProductCategoryFilterMappingEntity,
+      ProductCategoryHierarchyEntity,
       BulkUploadEntity,
       // ── Wishlist ─────────────────────────────────────────────────────────
       WishlistItemEntity,

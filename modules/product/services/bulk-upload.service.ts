@@ -67,10 +67,6 @@ export class BulkUploadService {
   ) {}
 
   async createBulkUploadJob(req: FastifyRequest, createdBy: string) {
-    console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] START', {
-      createdBy,
-      isMultipart: req.isMultipart(),
-    });
 
     // 1. Concurrency Check (Distributed Lock)
     const redis = await this.redisConnection.getConnectedClient();
@@ -87,19 +83,12 @@ export class BulkUploadService {
         lockTtlMs,
         'NX',
       );
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] REDIS_LOCK_ATTEMPT', {
-        lockKey: BULK_UPLOAD_LOCK_KEY,
-        acquired: Boolean(acquired),
-      });
       if (!acquired) {
         throw new ConflictException('Another bulk upload is currently in progress. Please try again later.');
       }
     } else {
       // Fallback check against database status if Redis is down
       const activeCount = await this.repository.countActiveJobs();
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] REDIS_UNAVAILABLE_DB_ACTIVE_CHECK', {
-        activeCount,
-      });
       if (activeCount > 0) {
         throw new ConflictException('Another bulk upload is currently in progress. Please try again later.');
       }
@@ -124,11 +113,6 @@ export class BulkUploadService {
       for await (const part of parts) {
         const filePart = part as any;
         if (filePart.file) {
-          console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] MULTIPART_FILE_PART', {
-            fieldname: filePart.fieldname,
-            filename: filePart.filename,
-            mimetype: filePart.mimetype,
-          });
           if (filePart.fieldname === 'file') {
             const allowedMimeTypes = [
               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -146,11 +130,6 @@ export class BulkUploadService {
               folder: 'bulk-uploads',
             });
             fileUrl = uploadResult.path;
-            console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] SHEET_UPLOADED', {
-              originalFilename: filePart.filename,
-              mimetype: filePart.mimetype,
-              fileUrl,
-            });
           } else if (filePart.fieldname === 'imagesZip' || filePart.fieldname === 'images' || filePart.fieldname === 'zip') {
             const zipUploadResult = await this.storageService.uploadImage({
               stream: filePart.file,
@@ -159,24 +138,12 @@ export class BulkUploadService {
               folder: 'bulk-uploads',
             });
             imagesZipUrl = zipUploadResult.path;
-            console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] IMAGES_ZIP_UPLOADED', {
-              originalFilename: filePart.filename,
-              mimetype: filePart.mimetype,
-              imagesZipUrl,
-            });
           } else {
-            console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] IGNORED_FILE_FIELD', {
-              fieldname: filePart.fieldname,
-              filename: filePart.filename,
-            });
             filePart.file.resume();
           }
         }
       }
     } catch (err) {
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] MULTIPART_ERROR', {
-        error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-      });
       if (redis) {
         await releaseBulkUploadLock(redis, lockToken);
       }
@@ -206,13 +173,6 @@ export class BulkUploadService {
       errorSummary: [],
       createdBy,
     });
-    console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] DB_RECORD_CREATED', {
-      refId: record.refId,
-      status: record.status,
-      fileUrl: record.fileUrl,
-      imagesZipUrl: record.imagesZipUrl,
-      createdBy,
-    });
 
     // 2. Queue background job
     try {
@@ -223,16 +183,14 @@ export class BulkUploadService {
         lockToken: redis ? lockToken : undefined,
         lockTtlMs,
       });
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] QUEUE_JOB_ADDED', {
-        refId: record.refId,
-        fileUrl: record.fileUrl,
-        imagesZipUrl: record.imagesZipUrl,
-      });
     } catch (queueError) {
-      console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] QUEUE_JOB_FAILED', {
-        refId: record.refId,
-        error: queueError instanceof Error ? { name: queueError.name, message: queueError.message, stack: queueError.stack } : String(queueError),
-      });
+      this.logger.error(
+        {
+          refId: record.refId,
+          error: queueError instanceof Error ? queueError.message : String(queueError),
+        },
+        'Failed to queue bulk upload job',
+      );
       // If queueing fails, mark DB record as failed and release lock
       await this.repository.updateFieldsByRefId(record.refId, {
         status: BulkUploadStatus.FAILED,
@@ -244,11 +202,6 @@ export class BulkUploadService {
       throw new BadRequestException(`Failed to queue bulk upload task: ${queueError instanceof Error ? queueError.message : String(queueError)}`);
     }
 
-    console.log('[BULK_UPLOAD_DEBUG][Service.createBulkUploadJob] RETURN_RESPONSE', {
-      refId: record.refId,
-      status: record.status,
-      fileUrl: record.fileUrl,
-    });
     return {
       refId: record.refId,
       status: record.status,
@@ -473,6 +426,11 @@ export class BulkUploadService {
         ?? activeAttributesResult[0]?.name
         ?? 'Size';
 
+      // Sample 1: single category hierarchy (no pipes).
+      importSheet.addRow(this.buildSimpleSampleRow(headers));
+      // Sample 2: multiple category hierarchies via "|" (index-aligned).
+      importSheet.addRow(this.buildMultiCategorySampleRow(headers));
+
       importSheet.addRow(
         this.buildVerticalStyleGroupVariantRow(headers, {
           attributeOne,
@@ -502,7 +460,8 @@ export class BulkUploadService {
         }),
       );
     }
-    // Two vertical rows sharing style_group_id=5005 → one variable product, 2 variants.
+    // Rows: single-category sample, multi-category sample, then two vertical
+    // style_group_id=5005 rows → one variable product with 2 variants.
 
     const categoryNameById = new Map(
       activeCategories.map((category) => [category.id, category.name]),
@@ -521,6 +480,32 @@ export class BulkUploadService {
         : '',
       this.sheetColumnForCategoryLevel(category.hierarchyLevel),
     ]));
+
+    this.addReferenceWorksheet(workbook, 'Multi-Category Notes', [
+      'Rule',
+      'Details',
+    ], [
+      [
+        'Multiple hierarchies',
+        'Separate values with "|" in Category *, Sub Category, Sub Sub Category, and Sub Sub Sub Category.',
+      ],
+      [
+        'Index alignment',
+        'Values are paired by position: Category "A | B", Sub Category "A1 | B1" → A→A1 and B→B1.',
+      ],
+      [
+        'Length validation',
+        'All filled hierarchy columns must have the same number of pipe-separated values or the row fails validation.',
+      ],
+      [
+        'Single hierarchy',
+        'Leave values without "|" for one hierarchy (existing behavior).',
+      ],
+      [
+        'Empty levels',
+        'Use an empty segment for a missing level, e.g. Sub Category "A1 | " when hierarchy 2 has no sub-category.',
+      ],
+    ]);
 
     this.addReferenceWorksheet(workbook, 'Brand Reference', [
       'Brand Name',
@@ -629,7 +614,10 @@ export class BulkUploadService {
     const values = new Map<string, string | number | null>([
       ['Product Name*', 'Ethicare Hydromax Moisturizing Cream-200gm'],
       ['Product Type *', 'simple'],
+      // Single category hierarchy example (no pipes).
       ['Category *', 'Health & Wellness'],
+      ['Sub Category', 'Skin Care'],
+      ['Sub Sub Category', 'Moisturizers'],
       ['Brand*', 'Samsung'],
       ['Product SKU Code*', 'ETH/HYD/54141-A1'],
       ['MRP (Rs)*', 499],
@@ -650,8 +638,35 @@ export class BulkUploadService {
       
       // Product ID drives manufacturer + image auto-attach from lookup XLSX files.
       ['Product ID (String)', '54141'],
-      ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID.'],
+      ['Product Description', 'Hydromax moisturizing cream — manufacturer & images attach via Product ID. Single category hierarchy example.'],
       ['Product Highlights', 'Moisturizing | Suitable for daily use'],
+      ['Product Status', 'published'],
+      ['Variant Status', 'active'],
+    ]);
+
+    return headers.map((header) => values.get(header) ?? null);
+  }
+
+  private buildMultiCategorySampleRow(headers: string[]): Array<string | number | null> {
+    const values = new Map<string, string | number | null>([
+      ['Product Name*', 'Multi-Category Sample Vitamin C Serum'],
+      ['Product Type *', 'simple'],
+      // Multiple independent hierarchies — values aligned by pipe index.
+      // Hierarchy 1: Health & Wellness → Skin Care → Serums
+      // Hierarchy 2: Beauty → Face Care → Treatments
+      ['Category *', 'Health & Wellness | Beauty'],
+      ['Sub Category', 'Skin Care | Face Care'],
+      ['Sub Sub Category', 'Serums | Treatments'],
+      ['Brand*', 'Samsung'],
+      ['Product SKU Code*', 'ETH/SER/99001-A1'],
+      ['MRP (Rs)*', 799],
+      ['Selling Price (Rs)*', 649],
+      ['Quantity / Stock', 50],
+      ['Product ID (String)', '99001'],
+      [
+        'Product Description',
+        'Multi-category example: use "|" to assign multiple hierarchies. Category/Sub Category/Sub Sub Category counts must match by index.',
+      ],
       ['Product Status', 'published'],
       ['Variant Status', 'active'],
     ]);

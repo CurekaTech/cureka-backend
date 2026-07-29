@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
@@ -88,6 +89,8 @@ const HOME_SECTION_UPLOAD_FIELDS = {
 
 @Injectable()
 export class HomeSectionsService implements OnModuleInit {
+  private readonly logger = new Logger(HomeSectionsService.name);
+
   constructor(
     private readonly homeSectionsRepository: HomeSectionsRepository,
     private readonly cacheStrategy: CacheStrategyService,
@@ -105,9 +108,10 @@ export class HomeSectionsService implements OnModuleInit {
         await this.invalidateHomeSectionsCache();
       }
     } catch (error) {
-      console.warn(
-        '[HomeSectionsService] Skipping default seed — run database migrations first.',
-        error instanceof Error ? error.message : error,
+      this.logger.warn(
+        `Skipping default seed — run database migrations first. ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
   }

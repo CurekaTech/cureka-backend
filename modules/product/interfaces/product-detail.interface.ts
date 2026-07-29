@@ -8,11 +8,21 @@ import { IPacker } from '@modules/master/interfaces/packer.interface';
 import { IProductNature } from '@modules/master/interfaces/product-nature.interface';
 import { IProduct } from './product.interface';
 
+export interface IProductCategoryHierarchyDetail {
+  category: ICategoryForProduct | null;
+  subCategory: ICategoryForProduct | null;
+  subSubCategory: ICategoryForProduct | null;
+  subSubSubCategory: ICategoryForProduct | null;
+  sortOrder: number;
+}
+
 export interface IProductDetail extends IProduct {
   category: ICategoryForProduct | null;
   subCategory: ICategoryForProduct | null;
   subSubCategory: ICategoryForProduct | null;
   subSubSubCategory: ICategoryForProduct | null;
+  /** Full nested objects for every category hierarchy (same order as `categories`). */
+  categoryHierarchies: IProductCategoryHierarchyDetail[];
   brand: IBrand | null;
   productNature: IProductNature | null;
   manufacturer: IManufacturer | null;

@@ -207,6 +207,18 @@ export interface IPublicProductDetail {
   subSubCategoryName: string | null;
   subSubSubCategoryRefId: string | null;
   subSubSubCategoryName: string | null;
+  /** All category hierarchies (primary first). Empty when not loaded. */
+  categories?: Array<{
+    categoryRefId: string;
+    categoryName: string;
+    subCategoryRefId: string | null;
+    subCategoryName: string | null;
+    subSubCategoryRefId: string | null;
+    subSubCategoryName: string | null;
+    subSubSubCategoryRefId: string | null;
+    subSubSubCategoryName: string | null;
+    sortOrder: number;
+  }>;
   /** Ordered category slugs from root → leaf for this product. */
   categorySlugPath: string[];
   /** Legacy-compatible path, e.g. /shop/skin-care/skin-serum/anti-wrinkle-serum/{slug} */
