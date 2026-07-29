@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
@@ -28,6 +28,8 @@ import { GokwikRepository } from '../repositories/gokwik.repository';
 
 @Injectable()
 export class GokwikOrderService {
+  private readonly logger = new Logger(GokwikOrderService.name);
+
   constructor(
     private readonly cartService: CartService,
     private readonly ordersService: OrdersService,
@@ -182,16 +184,25 @@ export class GokwikOrderService {
    */
   async checkOrderExists(dto: GokwikCheckOrderExistsDto): Promise<GokwikCheckOrderExistsResponse> {
     const sessionKey = String(dto.session_key ?? '').trim();
+    this.logger.log(`[checkOrderExists] session_key="${sessionKey}" customer_email="${dto.customer_email ?? ''}" customer_phone="${dto.customer_phone ?? ''}"`);
+
     if (!sessionKey) {
+      this.logger.warn('[checkOrderExists] Empty session_key → No order found');
       return { message: 'No order found.' };
     }
 
     const link = await this.gokwikRepository.findOrderByCartId(sessionKey);
+    this.logger.log(`[checkOrderExists] gokwik_link=${link ? `id=${link.id} orderId=${link.orderId}` : 'NOT FOUND'}`);
+
     const order = link?.order;
+    this.logger.log(`[checkOrderExists] order=${order ? `orderNumber=${order.orderNumber} status=${order.orderStatus}` : 'NOT FOUND'}`);
+
     if (!order || order.orderStatus === OrderStatus.CANCELLED) {
+      this.logger.warn(`[checkOrderExists] Returning "No order found." — order=${order?.orderNumber ?? 'null'} status=${order?.orderStatus ?? 'null'}`);
       return { message: 'No order found.' };
     }
 
+    this.logger.log(`[checkOrderExists] Returning "Order exists." — orderNumber=${order.orderNumber} status=${order.orderStatus}`);
     return {
       order_id: order.orderNumber,
       message: 'Order exists.',
