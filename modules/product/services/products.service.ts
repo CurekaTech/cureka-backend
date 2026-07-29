@@ -931,7 +931,8 @@ export class ProductsService {
       variantsUpdated += stats.updated;
       if (stats.updated > 0) {
         updated.push(refId);
-      } else {
+      } else if (stats.alreadyMarked > 0) {
+        // All variants already have outOfStock = true
         alreadyOutOfStock.push(refId);
       }
     }
