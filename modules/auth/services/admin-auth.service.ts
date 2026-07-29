@@ -324,7 +324,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
       //   requiredPermissions: ['products.create'],
       // },
       {
-        name: 'Bundle Product List',
+        name: 'Bundle Products',
         key: 'bundle-product-list',
         icon: 'Package',
         subItems: [
