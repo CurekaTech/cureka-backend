@@ -12,6 +12,7 @@ import { HealthConcernsRepository } from '../repositories/health-concerns.reposi
 import {
   CreateHealthConcernDto,
   UpdateHealthConcernDto,
+  UpdateHealthConcernIndexDto,
   UpdateHealthConcernStatusDto,
 } from '../dto/health-concern.dto';
 import { IHealthConcern } from '../interfaces/health-concern.interface';
@@ -128,6 +129,34 @@ export class HealthConcernsService {
       paginationOptions,
     );
     return this.storageUrlEnricher.enrichPaginated(result, [...HEALTH_CONCERN_MEDIA_FIELDS]);
+  }
+
+  /** Returns all homepage health concerns (any status) ordered by sortIndex — for admin management. */
+  async getHomePageConcerns(): Promise<IHealthConcern[]> {
+    const entities = await this.healthConcernsRepository.findAllHomePageConcernsForAdmin();
+    const mapped = mapHealthConcernEntitiesToResponse(entities);
+    return Promise.all(mapped.map((item) => this.enrichHealthConcern(item)));
+  }
+
+  /** Updates the sortIndex for a single health concern and invalidates homepage cache. */
+  async updateIndex(
+    refId: string,
+    dto: UpdateHealthConcernIndexDto,
+    updatedBy: string,
+  ): Promise<IHealthConcern> {
+    const existing = await this.healthConcernsRepository.findByRefId(refId);
+    if (!existing) {
+      throw new NotFoundException(`Health concern with refId ${refId} not found`);
+    }
+
+    const updated = await this.healthConcernsRepository.updateSortIndexByRefId(refId, dto.sortIndex ?? null);
+    if (!updated) {
+      throw new NotFoundException(`Health concern with refId ${refId} not found after update`);
+    }
+
+    await this.emitHealthConcernUpdated(refId, 'updated');
+    await this.invalidateHomePageCache();
+    return this.enrichHealthConcern(mapHealthConcernEntityToResponse(updated));
   }
 
   async findOne(refId: string): Promise<IHealthConcern> {
