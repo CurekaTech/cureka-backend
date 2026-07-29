@@ -32,6 +32,13 @@ const toNumber = (value: string | number | null | undefined): number | null => {
   return typeof value === 'number' ? value : parseFloat(value);
 };
 
+/** Product is out of stock when it has no variants with stock &gt; 0. */
+export const isProductOutOfStock = (entity: ProductEntity): boolean => {
+  const variants = entity.variants ?? [];
+  if (!variants.length) return true;
+  return variants.every((variant) => (variant.stock ?? 0) <= 0);
+};
+
 const mapCategoryHierarchy = (
   mapping: ProductCategoryHierarchyEntity,
 ): IProductCategoryHierarchy => ({
@@ -134,6 +141,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   tags: (entity.tagMappings ?? []).map(mapTag),
   faqs: (entity.faqMappings ?? []).map(mapFaq),
   bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
+  outOfStock: isProductOutOfStock(entity),
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,
@@ -177,6 +185,8 @@ export const mapProductEntityToVariantListItem = (
     name: buildVariantListName(entity, variant),
     slug: variant.slug,
     variants: [variant],
+    // Keep product-level outOfStock (all variants), not just this list-row variant.
+    outOfStock: mapped.outOfStock,
   };
 };
 
