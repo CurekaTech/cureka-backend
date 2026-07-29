@@ -119,6 +119,95 @@ export class KwikpassService {
     return result;
   }
 
+  /**
+   * Decrypts a kpToken and returns its raw claims for diagnostic purposes.
+   * Does NOT create a session. Use from Postman to debug token issues.
+   */
+  async probe(token: string): Promise<Record<string, unknown>> {
+    this.logger.log('[probe] Decrypting kpToken for diagnostic inspection');
+
+    const config = this.getPublicConfig();
+    this.logger.log(
+      `[probe] Current config — enabled=${config.enabled} merchantId="${config.merchantId}" env="${config.environment}"`,
+    );
+
+    const secret = this.configService.get<string>('gokwik.kwikpass.jweSecret')?.trim();
+    this.logger.log(`[probe] JWE secret present=${Boolean(secret)} length=${secret?.length ?? 0}`);
+
+    const expectedIssuer = this.configService.get<string>('gokwik.kwikpass.issuer')?.trim();
+    const expectedAudience = this.configService.get<string>('gokwik.kwikpass.audience')?.trim();
+    const expectedMerchantId = this.configService.get<string>('gokwik.kwikpass.merchantId')?.trim();
+    this.logger.log(
+      `[probe] Validation config — issuer="${expectedIssuer || '(skip)'}" audience="${expectedAudience || '(skip)'}" merchantId="${expectedMerchantId || '(skip)'}"`,
+    );
+
+    if (!secret) {
+      return {
+        ok: false,
+        stage: 'config',
+        error: 'KWIKPASS_JWE_SECRET is not configured on the server',
+        config: { merchantId: config.merchantId, environment: config.environment },
+      };
+    }
+
+    if (!token?.trim()) {
+      return { ok: false, stage: 'input', error: 'No kpToken provided' };
+    }
+
+    try {
+      const key = await this.resolveKey(secret);
+      const { plaintext, protectedHeader } = await compactDecrypt(token.trim(), key, {
+        keyManagementAlgorithms: ['dir'],
+        contentEncryptionAlgorithms: ['A256GCM'],
+      });
+
+      const claims = JSON.parse(new TextDecoder().decode(plaintext)) as KwikpassClaims;
+      const now = Math.floor(Date.now() / 1000);
+      const rawPhone = claims.mobile_number ?? claims.mobile ?? claims.phone;
+      const phone = rawPhone ? parseIndianMobileNumber(rawPhone) : null;
+
+      const result: Record<string, unknown> = {
+        ok: true,
+        stage: 'decrypted',
+        protectedHeader,
+        claims,
+        derived: {
+          rawPhone,
+          parsedPhone: phone,
+          isExpired: !claims.exp || claims.exp <= now,
+          expiresInSeconds: claims.exp ? claims.exp - now : null,
+          issuerMatch:
+            !expectedIssuer || claims.iss === expectedIssuer
+              ? 'ok'
+              : `MISMATCH: token="${claims.iss}" expected="${expectedIssuer}"`,
+          audienceMatch: !expectedAudience
+            ? 'ok (not configured)'
+            : (Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : []).includes(
+                  expectedAudience,
+                )
+              ? 'ok'
+              : `MISMATCH: token="${JSON.stringify(claims.aud)}" expected="${expectedAudience}"`,
+          merchantIdMatch:
+            !expectedMerchantId || claims.merchant_id === expectedMerchantId
+              ? 'ok'
+              : `MISMATCH: token="${claims.merchant_id}" expected="${expectedMerchantId}"`,
+        },
+      };
+
+      this.logger.log(`[probe] Decryption successful — rawPhone="${rawPhone}" exp=${claims.exp}`);
+      return result;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[probe] Decryption failed: ${msg}`);
+      return {
+        ok: false,
+        stage: 'decrypt',
+        error: msg,
+        hint: 'Check that KWIKPASS_JWE_SECRET on the server matches the key GoKwik provided',
+      };
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   private async decryptAndValidate(token: string): Promise<KwikpassClaims> {
