@@ -599,4 +599,17 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
     message: `Variant slug must not exceed ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters`,
   })
   variantSlug?: string;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description: 'When true, return only products where ALL active variants have stock = 0.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  outOfStock?: boolean;
 }

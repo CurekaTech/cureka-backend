@@ -37,6 +37,7 @@ export interface ProductListOptions {
   brandIds?: string[];
   productNatureId?: string;
   variantSlug?: string;
+  outOfStock?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
@@ -1014,6 +1015,11 @@ export class ProductsRepository {
     }
     if (options.variantSlug) {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
+    }
+    if (options.outOfStock === true) {
+      qb.andWhere('variant.stock = 0');
+    } else if (options.outOfStock === false) {
+      qb.andWhere('variant.stock > 0');
     }
   }
 
