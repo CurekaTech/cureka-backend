@@ -12,11 +12,16 @@ import { AuthService } from './auth.service';
 import { compactDecrypt, importJWK, JWK, KeyLike } from 'jose';
 
 type KwikpassClaims = {
+  // Standard JWT claims (may be absent in GoKwik sandbox tokens)
   exp?: number;
   nbf?: number;
   iss?: string;
   aud?: string | string[];
+  // GoKwik-specific claims
   merchant_id?: string;
+  country_code?: string;
+  email?: string;
+  // Phone — GoKwik uses different field names across environments
   phone?: string;
   mobile?: string;
   mobile_number?: string;
@@ -308,7 +313,9 @@ export class KwikpassService {
     }
 
     const merchantId = this.configService.get<string>('gokwik.kwikpass.merchantId')?.trim();
-    if (merchantId && claims.merchant_id !== merchantId) {
+    // Only check merchant_id when it is actually present in the token.
+    // GoKwik sandbox tokens omit this field entirely.
+    if (merchantId && 'merchant_id' in claims && claims.merchant_id !== merchantId) {
       throw new Error(
         `KwikPass merchant mismatch: got "${claims.merchant_id}", expected "${merchantId}"`,
       );
