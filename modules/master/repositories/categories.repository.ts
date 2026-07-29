@@ -257,27 +257,6 @@ export class CategoriesRepository {
     return (await qb.getCount()) > 0;
   }
 
-  /** Counts root categories that have the given homepage flag enabled (optionally excluding one). */
-  async countRootCategoriesByFlag(
-    flag: 'isInHeader' | 'isInShopBy',
-    excludeId?: string,
-  ): Promise<number> {
-    const column = flag === 'isInHeader' ? 'category.isInHeader' : 'category.isInShopBy';
-    const qb = this.repo
-      .createQueryBuilder('category')
-      .where(`${column} = :enabled`, { enabled: true })
-      .andWhere('category.parentCategoryId IS NULL')
-      .andWhere('category.hierarchyLevel = :level', {
-        level: String(CategoryHierarchyLevel.ROOT),
-      });
-
-    if (excludeId) {
-      qb.andWhere('category.id != :excludeId', { excludeId });
-    }
-
-    return qb.getCount();
-  }
-
   async updateByRefId(refId: string, data: Partial<CategoryEntity>): Promise<CategoryEntity | null> {
     await this.repo.update({ refId }, data);
     return this.findByRefId(refId);

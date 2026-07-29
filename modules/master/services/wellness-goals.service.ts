@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { WellnessGoalsRepository } from '../repositories/wellness-goals.repository';
@@ -25,7 +25,6 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
-import { HOMEPAGE_FLAG_LIMIT } from '../constants/homepage-flag-limit.constant';
 
 const WELLNESS_GOAL_MEDIA_FIELDS = ['image'] as const;
 
@@ -76,8 +75,6 @@ export class WellnessGoalsService {
       throw new ConflictException(`A wellness goal with name "${dto.name}" already exists`);
     }
 
-    await this.assertInHomePageWithinLimit(dto.inHomePage ?? false);
-
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
       description: dto.description ?? null,
@@ -123,10 +120,6 @@ export class WellnessGoalsService {
     const existing = await this.wellnessGoalsRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Wellness goal with refId ${refId} not found`);
-    }
-
-    if (dto.inHomePage !== undefined) {
-      await this.assertInHomePageWithinLimit(dto.inHomePage, existing.id);
     }
 
     if (dto.name !== undefined && dto.name !== existing.name) {
@@ -182,21 +175,6 @@ export class WellnessGoalsService {
     await this.deletionGuard.assertWellnessGoalDeletable(existing.id, existing.name);
     await this.wellnessGoalsRepository.softDeleteByRefId(refId);
     await this.invalidateHomePageCache();
-  }
-
-  /** Enforces that at most {@link HOMEPAGE_FLAG_LIMIT} wellness goals are shown on the homepage. */
-  private async assertInHomePageWithinLimit(
-    enabling: boolean,
-    excludeId?: string,
-  ): Promise<void> {
-    if (!enabling) return;
-
-    const count = await this.wellnessGoalsRepository.countInHomePage(excludeId);
-    if (count + 1 > HOMEPAGE_FLAG_LIMIT) {
-      throw new BadRequestException(
-        `A maximum of ${HOMEPAGE_FLAG_LIMIT} wellness goals can be shown on the homepage`,
-      );
-    }
   }
 
   private async invalidateHomePageCache(): Promise<void> {

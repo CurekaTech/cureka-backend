@@ -47,19 +47,6 @@ export class WellnessGoalsRepository {
     await this.repo.softDelete({ refId });
   }
 
-  /** Counts wellness goals flagged for the homepage (optionally excluding one). */
-  async countInHomePage(excludeId?: string): Promise<number> {
-    const qb = this.repo
-      .createQueryBuilder('wellnessGoal')
-      .where('wellnessGoal.inHomePage = :enabled', { enabled: true });
-
-    if (excludeId) {
-      qb.andWhere('wellnessGoal.id != :excludeId', { excludeId });
-    }
-
-    return qb.getCount();
-  }
-
   /** Active wellness goals shown on the homepage (newest first), capped to `limit`. */
   async findHomePageGoals(limit: number): Promise<WellnessGoalEntity[]> {
     return this.repo
