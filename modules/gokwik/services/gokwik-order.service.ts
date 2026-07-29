@@ -188,7 +188,7 @@ export class GokwikOrderService {
 
     const link = await this.gokwikRepository.findOrderByCartId(sessionKey);
     const order = link?.order;
-    if (!order || order.orderStatus !== OrderStatus.CONFIRMED) {
+    if (!order || order.orderStatus === OrderStatus.CANCELLED) {
       return { message: 'No order found.' };
     }
 
