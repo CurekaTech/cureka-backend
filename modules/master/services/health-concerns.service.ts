@@ -245,6 +245,7 @@ export class HealthConcernsService {
     await this.cacheStrategy.invalidateOnly({
       patterns: [
         CacheKeys.homepage.expertCuratedBundlesPattern(),
+        CacheKeys.homepage.healthConcernsPattern(),
         CacheKeys.homepage.sectionsPattern(),
       ],
     });

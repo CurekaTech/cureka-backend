@@ -198,6 +198,8 @@ export interface IProduct {
   metaDescription: string | null;
   metaKeywords: string[] | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  /** Bundle-only icon. Null for non-bundle products. */
+  bundleIcon: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;
   /** Bundle-only: curated by (e.g. doctor names). Null for non-bundle products. */
   curatedBy: string | null;

@@ -7,6 +7,7 @@ export interface ProductUploadedFiles {
   productImages: string[];
   variantImages: Record<string, string[]>;
   sizeChart?: string;
+  bundleIcon?: string;
 }
 
 type ImageMeta = {

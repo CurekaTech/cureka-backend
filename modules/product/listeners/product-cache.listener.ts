@@ -21,6 +21,8 @@ export class ProductCacheListener {
         CacheKeys.publicProducts.listPattern(),
         CacheKeys.publicProducts.variantSearchPattern(),
         CacheKeys.publicProducts.detailPattern(),
+        CacheKeys.publicBundles.listPattern(),
+        CacheKeys.publicBundles.detailPattern(),
         CacheKeys.homepage.bestSellersPattern(),
         CacheKeys.homepage.sectionsPattern(),
       ],

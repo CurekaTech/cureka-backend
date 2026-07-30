@@ -1319,6 +1319,9 @@ export class ProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
+    const bundleIcon = product.bundleIcon
+      ? await this.storageUrlEnricher.toReference(product.bundleIcon)
+      : null;
 
     const variantImagesById = new Map<
       string,
@@ -1355,7 +1358,7 @@ export class ProductsService {
       resolvedLabelSortOrders,
     );
 
-    return { ...product, productInformation, media, wellnessGoals, sizeChart, variants };
+    return { ...product, productInformation, media, wellnessGoals, sizeChart, bundleIcon, variants };
   }
 
   private async enrichPaginatedProducts(

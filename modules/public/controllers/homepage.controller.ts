@@ -60,4 +60,10 @@ export class HomepageController {
   getHomepageBanners() {
     return this.homepageService.getHomepageBanners();
   }
+
+  @ResponseMessage('Homepage health concerns retrieved successfully')
+  @Get('health-concerns')
+  getHomePageHealthConcerns() {
+    return this.homepageService.getHomePageHealthConcerns();
+  }
 }
