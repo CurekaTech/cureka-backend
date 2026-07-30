@@ -662,10 +662,11 @@ export class ProductsService {
     }
 
     const productSlug = payload.slug ?? existing.slug;
+    const hasTagNamesInput = dto.tagNames !== undefined;
     const needsRelationSync = Boolean(
       dto.healthConcernRefIds ||
       dto.wellnessGoalRefIds ||
-      dto.tagNames ||
+      hasTagNamesInput ||
       dto.faqRefIds ||
       dto.customFaqs ||
       dto.attributeRefIds ||
@@ -732,10 +733,10 @@ export class ProductsService {
         ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
         : null;
 
-    if (dto.tagNames) {
+    if (hasTagNamesInput) {
       await this.assertTagUsageWithinCategoryLimit(
         masters?.categoryId ?? existing.categoryId,
-        dto.tagNames,
+        dto.tagNames ?? [],
         existing.id,
       );
     }
@@ -766,8 +767,13 @@ export class ProductsService {
             resolved.wellnessGoalIds,
           );
         }
-        if (dto.tagNames) {
-          await this.relationsRepository.syncTags(manager, existing.id, dto.tagNames, updatedBy);
+        if (hasTagNamesInput) {
+          await this.relationsRepository.syncTags(
+            manager,
+            existing.id,
+            dto.tagNames ?? [],
+            updatedBy,
+          );
         }
         if (dto.faqRefIds) {
           await this.relationsRepository.syncProductFaqs(manager, existing.id, resolved.faqIds);
