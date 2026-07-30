@@ -5,6 +5,7 @@ import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
+import { HOMEPAGE_SHOP_BY_HIERARCHY_LEVELS } from '../constants/homepage-shop-by-hierarchy.constant';
 import { MasterStatus } from '../enums/master-status.enum';
 import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
 import {
@@ -565,28 +566,29 @@ export class CategoriesRepository {
       .getMany();
   }
 
+  /**
+   * Categories flagged for Shop by Category homepage (root, sub, and sub-sub).
+   */
   async findShopByRootCategories(): Promise<CategoryEntity[]> {
     return this.repo
       .createQueryBuilder('category')
       .where('category.isInShopBy = :isInShopBy', { isInShopBy: true })
-      .andWhere('category.hierarchyLevel = :level', {
-        level: String(CategoryHierarchyLevel.ROOT),
+      .andWhere('category.hierarchyLevel IN (:...levels)', {
+        levels: HOMEPAGE_SHOP_BY_HIERARCHY_LEVELS.map(String),
       })
-      .andWhere('category.parentCategoryId IS NULL')
       .orderBy('category.position', 'ASC')
       .addOrderBy('category.hierarchyId', 'ASC')
       .getMany();
   }
 
-  /** Latest shop-by root categories (newest first), capped to `limit`. */
+  /** Latest shop-by categories (newest first), capped to `limit`. */
   async findLatestShopByRootCategories(limit: number): Promise<CategoryEntity[]> {
     return this.repo
       .createQueryBuilder('category')
       .where('category.isInShopBy = :isInShopBy', { isInShopBy: true })
-      .andWhere('category.hierarchyLevel = :level', {
-        level: String(CategoryHierarchyLevel.ROOT),
+      .andWhere('category.hierarchyLevel IN (:...levels)', {
+        levels: HOMEPAGE_SHOP_BY_HIERARCHY_LEVELS.map(String),
       })
-      .andWhere('category.parentCategoryId IS NULL')
       .orderBy('category.createdAt', 'DESC')
       .addOrderBy('category.hierarchyId', 'DESC')
       .take(limit)

@@ -19,6 +19,7 @@ import { CategoryFiltersRepository } from '../repositories/category-filters.repo
 import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, CategoryQueryDto, ReorderCategoriesDto } from '../dto/category.dto';
 import { ICategory, ICategoryTree } from '../interfaces/category.interface';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
+import { isHomepageShopByHierarchyLevel } from '../constants/homepage-shop-by-hierarchy.constant';
 import { MasterStatus } from '../enums/master-status.enum';
 import { resolveMasterListStatus } from '../utils/master-list-query.util';
 import { AttributeEntity } from '../entities/attribute.entity';
@@ -410,6 +411,7 @@ export class CategoriesService {
   }
 
   async findShopByCategoriesForIndexing(): Promise<ICategory[]> {
+    // Root, subcategory, and sub-subcategory with isInShopBy.
     const roots = await this.categoriesRepository.findShopByRootCategories();
     return mapCategoryEntitiesToResponse(roots);
   }
@@ -463,9 +465,12 @@ export class CategoriesService {
             `Category "${existing.name}" is not a root header category`,
           );
         }
-      } else if (!existing.isInShopBy || existing.hierarchyLevel !== CategoryHierarchyLevel.ROOT) {
+      } else if (
+        !existing.isInShopBy ||
+        !isHomepageShopByHierarchyLevel(existing.hierarchyLevel)
+      ) {
         throw new BadRequestException(
-          `Category "${existing.name}" is not a root shop-by category`,
+          `Category "${existing.name}" is not a shop-by homepage category (root, sub, or sub-sub)`,
         );
       }
     }

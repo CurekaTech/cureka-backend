@@ -30,6 +30,11 @@ import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity
 import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
+import {
+  buildSkuPrefix,
+  findMaxSkuSequenceForPrefix,
+  formatGeneratedSku,
+} from '../utils/bulk-upload-variable.util';
 
 const pickVariantUnit = (
   dto: CreateVariantDto,
@@ -56,6 +61,33 @@ export class ProductVariantsRepository {
     const qb = this.repo.createQueryBuilder('variant').where('variant.sku = :sku', { sku });
     if (excludeId) qb.andWhere('variant.id != :excludeId', { excludeId });
     return (await qb.getCount()) > 0;
+  }
+
+  /**
+   * Next SKU in format CAT/BRA/NNN (first 3 letters of category + brand + sequence).
+   * Same format as bulk-upload auto SKUs.
+   */
+  async generateNextSku(categoryName: string, brandName: string): Promise<string> {
+    const prefix = buildSkuPrefix(categoryName, brandName);
+    const likePattern = `${prefix.replace(/[%_]/g, '\\$&')}%`;
+    const rows = await this.repo
+      .createQueryBuilder('variant')
+      .select(['variant.sku'])
+      .withDeleted()
+      .where('variant.sku ILIKE :pattern', { pattern: likePattern })
+      .getMany();
+
+    let sequence = findMaxSkuSequenceForPrefix(
+      prefix,
+      rows.map((row) => row.sku),
+    );
+    let sku = '';
+    do {
+      sequence += 1;
+      sku = formatGeneratedSku(prefix, sequence);
+    } while (await this.existsBySku(sku));
+
+    return sku;
   }
 
   async getAllSkus(): Promise<string[]> {

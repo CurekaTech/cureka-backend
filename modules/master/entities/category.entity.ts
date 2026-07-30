@@ -109,6 +109,7 @@ export class CategoryEntity extends BaseEntity {
   @Column({ name: 'is_in_header', type: 'boolean', default: false })
   isInHeader!: boolean;
 
+  /** Show on homepage Shop by Category (root, subcategory, or sub-subcategory). */
   @Column({ name: 'is_in_shop_by', type: 'boolean', default: false })
   isInShopBy!: boolean;
 }

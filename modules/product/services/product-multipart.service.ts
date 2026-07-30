@@ -23,28 +23,52 @@ export class ProductMultipartService {
 
   constructor(private readonly storageService: StorageService) {}
 
-  async parseCreateProduct(req: FastifyRequest): Promise<CreateProductDto> {
+  async parseCreateProduct(
+    req: FastifyRequest,
+    defaults?: Record<string, unknown>,
+  ): Promise<CreateProductDto> {
     const { parsed, uploads } = await this.parseMultipartPayload(req);
-    return this.validateAndNormalizeCreateProduct(parsed, uploads);
+    return this.validateAndNormalizeCreateProduct(
+      { ...parsed, ...defaults },
+      uploads,
+    );
   }
 
-  async parseUpdateProduct(req: FastifyRequest): Promise<UpdateProductDto> {
+  async parseUpdateProduct(
+    req: FastifyRequest,
+    defaults?: Record<string, unknown>,
+  ): Promise<UpdateProductDto> {
     const { parsed, uploads } = await this.parseMultipartPayload(req);
-    return this.validateAndNormalizeUpdateProduct(parsed, uploads);
+    return this.validateAndNormalizeUpdateProduct(
+      { ...parsed, ...defaults },
+      uploads,
+    );
   }
 
-  async validateJsonBody(body: unknown): Promise<CreateProductDto> {
+  async validateJsonBody(
+    body: unknown,
+    defaults?: Record<string, unknown>,
+  ): Promise<CreateProductDto> {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Request body must be a JSON object');
     }
-    return this.validateAndNormalizeCreateProduct(body as Record<string, unknown>);
+    return this.validateAndNormalizeCreateProduct({
+      ...(body as Record<string, unknown>),
+      ...defaults,
+    });
   }
 
-  async validateUpdateJsonBody(body: unknown): Promise<UpdateProductDto> {
+  async validateUpdateJsonBody(
+    body: unknown,
+    defaults?: Record<string, unknown>,
+  ): Promise<UpdateProductDto> {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Request body must be a JSON object');
     }
-    return this.validateAndNormalizeUpdateProduct(body as Record<string, unknown>);
+    return this.validateAndNormalizeUpdateProduct({
+      ...(body as Record<string, unknown>),
+      ...defaults,
+    });
   }
 
   private async parseMultipartPayload(req: FastifyRequest): Promise<{
