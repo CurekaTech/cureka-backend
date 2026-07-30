@@ -100,6 +100,7 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('watch_and_shop', 'Watch & Shop'),
   ...buildCrudPermissions('expert_talks', 'Expert Talks'),
   ...buildCrudPermissions('testimonials', 'Testimonials'),
+  ...buildCrudPermissions('cms_pages', 'CMS Pages'),
   ...buildCrudPermissions('audit_logs', 'Audit Logs'),
   ...buildCrudPermissions('support_categories', 'Support Categories'),
   ...buildCrudPermissions('support_articles', 'Support Articles'),
