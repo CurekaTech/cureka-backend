@@ -568,26 +568,28 @@ export class ProductsRepository {
   > {
     if (!tagSlug) return [];
 
+    // Join category via entity relation so TypeORM can resolve property paths
+    // (raw table joins break orderBy/groupBy with "databaseName" errors).
     const qb = this.repo
       .createQueryBuilder('product')
       .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
       .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
-      .innerJoin('categories', 'category', 'category.id = product.category_id')
+      .innerJoin('product.category', 'category')
       .select('category.id', 'id')
-      .addSelect('category.ref_id', 'refId')
+      .addSelect('category.refId', 'refId')
       .addSelect('category.name', 'name')
       .addSelect('category.slug', 'slug')
-      .addSelect('category.bestseller_sort_index', 'bestsellerSortIndex')
+      .addSelect('category.bestsellerSortIndex', 'bestsellerSortIndex')
       .addSelect('COUNT(DISTINCT product.id)', 'productCount')
-      .where('product.deleted_at IS NULL')
+      .where('product.deletedAt IS NULL')
       .andWhere('tag.slug = :tagSlug', { tagSlug })
-      .andWhere('category.deleted_at IS NULL')
+      .andWhere('category.deletedAt IS NULL')
       .groupBy('category.id')
-      .addGroupBy('category.ref_id')
+      .addGroupBy('category.refId')
       .addGroupBy('category.name')
       .addGroupBy('category.slug')
-      .addGroupBy('category.bestseller_sort_index')
-      .orderBy('category.bestseller_sort_index', 'ASC', 'NULLS LAST')
+      .addGroupBy('category.bestsellerSortIndex')
+      .orderBy('category.bestsellerSortIndex', 'ASC', 'NULLS LAST')
       .addOrderBy('category.name', 'ASC');
 
     if (options?.publishedOnly) {
@@ -646,8 +648,9 @@ export class ProductsRepository {
       .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.category_id = :categoryId', { categoryId })
-      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
+      .andWhere('product.categoryId = :categoryId', { categoryId })
+      // Quote raw join columns — TypeORM cannot resolve metadata for free-table aliases.
+      .orderBy('"ptm"."sort_order"', 'ASC', 'NULLS LAST')
       .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
       .take(limit);
 
@@ -673,10 +676,10 @@ export class ProductsRepository {
       .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
         tagSlug,
       })
-      .addSelect('ptm.sort_order', 'mapping_sort_order')
-      .where('product.category_id = :categoryId', { categoryId })
-      .andWhere('product.deleted_at IS NULL')
-      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
+      .addSelect('"ptm"."sort_order"', 'mapping_sort_order')
+      .where('product.categoryId = :categoryId', { categoryId })
+      .andWhere('product.deletedAt IS NULL')
+      .orderBy('"ptm"."sort_order"', 'ASC', 'NULLS LAST')
       .addOrderBy('product.name', 'ASC')
       .getRawAndEntities();
 
