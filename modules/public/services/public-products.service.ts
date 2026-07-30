@@ -158,8 +158,8 @@ export class PublicProductsService {
   async findBestSellers(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
     return this.findAll({
       ...query,
-      sortBy: query.sortBy ?? 'publishedAt',
-      sortOrder: query.sortOrder ?? 'DESC',
+      sortBy: query.sortBy ?? 'bestsellerIndex',
+      sortOrder: query.sortOrder ?? 'ASC',
       tagSlug: BEST_SELLERS_TAG_SLUG,
     });
   }
@@ -574,7 +574,7 @@ export class PublicProductsService {
     return {
       ...item,
       stock: getSalableStockQuantity(item.stock),
-      inStock: isVariantInStock(item.stock),
+      inStock: !item.outOfStock && isVariantInStock(item.stock),
       primaryImageUrl: await this.storageUrlEnricher.toReference(item.primaryImageUrl),
     };
   }
@@ -587,7 +587,8 @@ export class PublicProductsService {
       result.data.map(async (card) => {
         const pricing = {
           ...card.pricing,
-          inStock: card.pricing.inStock || isVariantInStock(0),
+          // Keep stock-bypass behavior, but never force in-stock when the list variant is OOS.
+          inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0)),
         };
 
         if (!card.primaryImageUrl) {
@@ -617,7 +618,7 @@ export class PublicProductsService {
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
       pricing: {
         ...card.pricing,
-        inStock: card.pricing.inStock || isVariantInStock(0),
+        inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0)),
       },
     };
   }

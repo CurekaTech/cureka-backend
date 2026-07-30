@@ -12,3 +12,17 @@ export interface IPublicHealthConcernCard {
   description: string | null;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
+
+/**
+ * Active health concerns flagged for the homepage (`inHomePage`), ordered by `sortIndex`.
+ */
+export interface IPublicHomePageHealthConcern {
+  refId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  /** Homepage display order. Lower = first; null = unordered (sorted after indexed items). */
+  sortIndex: number | null;
+}

@@ -492,6 +492,18 @@ export class CreateProductDto {
   curatedFor?: string;
 
   @ApiPropertyOptional({
+    type: ProductFileReferenceDto,
+    nullable: true,
+    description:
+      'Bundle-only icon. Accepts a storage path string, { key, name }, or { url }. Multipart file field "bundleIcon" is also supported.',
+    example: 'icons/bundle-summer-kit.png',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFileReferenceDto)
+  bundleIcon?: ProductFileReferenceDto | null;
+
+  @ApiPropertyOptional({
     example: 1999,
     description: 'Bundle pricing shortcut (MRP). Used when variants[] is omitted for productType=bundle.',
   })

@@ -271,6 +271,43 @@ export class PermissionsService {
             key: 'cms-shopby-indexing',
             permissions: getPerms('shop_by_indexing'),
           },
+          {
+            name: 'Best Sellers Indexing',
+            key: 'cms-best-sellers-indexing',
+            permissions: getPerms('best_sellers'),
+          },
+          {
+            name: 'Pages',
+            key: 'cms-pages',
+            permissions: getPerms('cms_pages'),
+            subItems: [
+              {
+                name: 'About Cureka',
+                key: 'cms-pages-about-cureka',
+                permissions: getPerms('cms_pages'),
+              },
+              {
+                name: 'Privacy Policy',
+                key: 'cms-pages-privacy-policy',
+                permissions: getPerms('cms_pages'),
+              },
+              {
+                name: 'Terms & Conditions',
+                key: 'cms-pages-terms-and-conditions',
+                permissions: getPerms('cms_pages'),
+              },
+              {
+                name: 'Returns & Refunds',
+                key: 'cms-pages-returns-refunds',
+                permissions: getPerms('cms_pages'),
+              },
+              {
+                name: 'Shipping Policy',
+                key: 'cms-pages-shipping-policy',
+                permissions: getPerms('cms_pages'),
+              },
+            ],
+          },
         ],
       },
       {

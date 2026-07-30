@@ -21,7 +21,10 @@ This guide explains how to build the Bundle Product admin UI. Bundle products re
 | Description | Same as products (`description`) |
 | Expiry | Same as simple products (`expiryDate`, `expiresIn`, `expiresInMonths`) |
 | Images / SEO | Same as products (`media[]`, `metaTitle`, `metaDescription`, `metaKeywords`) |
-| SKU | Unique across all variants (`sku` top-level or `variants[0].sku`) |
+| Manufacturer / packer / country | Same as products (`manufacturerRefId`, `packerRefId`, `countryOfOriginRefId`) |
+| Components | Same as products (`components`) |
+| Commerce flags | Same as products — subscription, COD, EMI, return, replacement |
+| SKU | Unique across all variants; **auto-generated** if omitted as `CAT/BRA/NNN` (first 3 letters of category + brand + sequence, e.g. `SUP/NES/001`) |
 | Permissions | Same as products (`SUPER_ADMIN` / `ADMIN`) |
 
 `productType` is always `bundle` on these endpoints (forced by the API).
@@ -40,14 +43,26 @@ This guide explains how to build the Bundle Product admin UI. Bundle products re
 | Field | API field(s) | Notes |
 |-------|----------------|-------|
 | Description | `description` | Bundle description (product-level) |
-| Health concerns | `healthConcernRefIds` | Array of health concern refIds |
-| Wellness goals | `wellnessGoalRefIds` | Array of wellness goal refIds |
+| Health concerns | `healthConcernRefIds` | Array of health concern refIds or names |
+| Wellness goals | `wellnessGoalRefIds` | Array of wellness goal refIds or names |
+| Manufacturer | `manufacturerRefId` | Same as products |
+| Packer | `packerRefId` | Same as products |
+| Country of origin | `countryOfOriginRefId` | Same as products |
+| Components | `components` | Free-text components / composition |
+| Subscription | `subscriptionEnabled` | boolean, default `false` |
+| Cash on delivery | `codAvailable` | boolean, default `false` |
+| EMI | `emiAvailable` | boolean, default `false` |
+| Return available | `returnAllowed` | boolean, default `false` |
+| Return days | `returnWindowDays` | int ≥ 0 |
+| Return policy | `returnPolicy` | text (e.g. `"7 Days Return"`) |
+| Replacement allowed | `replaceAllowed` | boolean, default `false` |
+| Replacement days | `replaceWindowDays` | int ≥ 0 |
 | Expires in (days) | `expiresIn` | Applied to pricing variant |
 | Expires in months | `expiresInMonths` | Product shelf-life field |
 | Expiry date | `expiryDate` | `dd-mm-yyyy`; applied to pricing variant |
 | Images | `media[]` (+ multipart files like products) | Bundle images |
 | SEO | `metaTitle`, `metaDescription`, `metaKeywords` | Same as products |
-| SKU | `sku` | **Must be unique**; auto-generated if omitted |
+| SKU | `sku` | Optional; backend generates `CAT/BRA/NNN` if omitted |
 
 ### Add (bundle-only)
 
@@ -99,12 +114,11 @@ Send either top-level shortcuts **or** a single `variants[0]` entry (backend sto
   "mrp": 1999,
   "sellingPrice": 1499,
   "discountPercentage": 25,
-  "stock": 100,
-  "sku": "BND-SUMMER-KIT-001"
+  "stock": 100
 }
 ```
 
-Do **not** auto-sum child product prices or stock. SKU must be unique across the catalog.
+Omit `sku` to auto-generate as `CAT/BRA/NNN` (e.g. `SUP/NES/001`). If you send `sku`, it must be unique across the catalog.
 
 ---
 
@@ -117,6 +131,10 @@ Do **not** auto-sum child product prices or stock. SKU must be unique across the
   "name": "Summer Skin Care Kit",
   "description": "Expert curated summer skincare essentials in one kit.",
   "brandRefId": "BRA20261234",
+  "manufacturerRefId": "MAN20261234",
+  "packerRefId": "PAC20261234",
+  "countryOfOriginRefId": "IND20260001",
+  "components": "Face wash, moisturizer, sunscreen",
   "categoryRefId": "HEA20260016",
   "categories": [
     {
@@ -131,10 +149,17 @@ Do **not** auto-sum child product prices or stock. SKU must be unique across the
   "mrp": 2499,
   "sellingPrice": 1999,
   "stock": 100,
-  "sku": "BND-SUMMER-KIT-001",
   "expiresIn": 365,
   "expiresInMonths": 12,
   "expiryDate": "31-12-2027",
+  "subscriptionEnabled": true,
+  "codAvailable": true,
+  "emiAvailable": false,
+  "returnAllowed": true,
+  "returnWindowDays": 7,
+  "returnPolicy": "7 Days Return",
+  "replaceAllowed": true,
+  "replaceWindowDays": 7,
   "bundleItems": [
     { "childProductRefId": "PRO20260001", "quantity": 1 },
     { "childProductRefId": "PRO20260002", "quantity": 1 },
@@ -198,7 +223,7 @@ Notes:
   ],
   "variants": [
     {
-      "sku": "BND-SUMMER-KIT-001",
+      "sku": "SUP/NES/001",
       "mrp": 2499,
       "sellingPrice": 1999,
       "stock": 100
@@ -242,7 +267,7 @@ Reuse the Product table layout; hide variant-specific columns if unused. Show `o
 | Change status | `PATCH /bundle-products/:refId/status` |
 | Submit for review | `POST /bundle-products/:refId/submit-for-review` |
 | Approve | `POST /bundle-products/:refId/approve` |
-| Reject | `POST /bundle-products/:refId/reject` `{ "rejectionReason": "..." }` |
+| Reject | `POST /bundle-products/:refId/reject` body: `{ "reason": "…" }` (alias `{ "rejectionReason": "…" }` also accepted). Detail/list return `rejectionReason`. |
 | Soft delete | `DELETE /bundle-products/:refId` |
 | Restore | `POST /bundle-products/:refId/restore` |
 | Out of stock | `POST /bundle-products/bulk-mark-out-of-stock` `{ "productRefIds": ["…"] }` |

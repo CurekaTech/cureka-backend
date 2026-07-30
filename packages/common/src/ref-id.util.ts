@@ -1,4 +1,4 @@
-/** Format: 3-letter prefix + 4-digit year + 4–6 digit random (11 or 13 chars). */
+﻿/** Format: 3-letter prefix + 4-digit year + 4-6 digit random (11 or 13 chars). */
 export const REF_ID_PATTERN = /^[A-Z]{3}\d{8}(\d{2})?$/;
 
 /** Legacy length used by existing rows. New IDs use 13 chars. */
@@ -20,12 +20,12 @@ const RANDOM_MODULO = 1_000_000;
  *   - Prefix: first 3 alphabetic characters of `name`, uppercased.
  *             Padded with 'X' if the name has fewer than 3 letters.
  *   - Year:   current calendar year (4 digits).
- *   - Random: cryptographically random 6-digit number, zero-padded (000000–999999).
+ *   - Random: cryptographically random 6-digit number, zero-padded (000000-999999).
  *
  * @example
- *   generateRefId('Sundar')  // → 'SUN2026652714'
- *   generateRefId('Ali')     // → 'ALI2026083412'
- *   generateRefId('Jo')      // → 'JOX2026149203'
+ *   generateRefId('Sundar')  // -> 'SUN2026652714'
+ *   generateRefId('Ali')     // -> 'ALI2026083412'
+ *   generateRefId('Jo')      // -> 'JOX2026149203'
  */
 export const generateRefId = (name: string): string => {
   const letters = name.replace(/[^a-zA-Z]/g, '');
@@ -68,4 +68,5 @@ export const generateUniqueRefId = async (
   );
 };
 
-export const isValidRefId = (value: string): boolean => REF_ID_PATTERN.test(value);
+export const isValidRefId = (value: string): boolean =>
+  REF_ID_PATTERN.test(value.trim().toUpperCase());

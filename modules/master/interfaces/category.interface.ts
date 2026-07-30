@@ -32,6 +32,7 @@ export interface ICategory {
   belowTheFold: string | null;
   isInHeader: boolean;
   isInShopBy: boolean;
+  bestsellerSortIndex: number | null;
   status: MasterStatus;
   parent: IParentCategory | null;
   attributes: IAttribute[];

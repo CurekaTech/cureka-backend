@@ -1,9 +1,11 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FastifyRequest } from 'fastify';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
+import { getSessionTokenFromRequest } from '@modules/auth/utils/auth-cookie.util';
 import { ResponseMessage } from '@packages/common';
 import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
 import { CheckoutPaymentRequestDto } from '../dto/checkout-payment-request.dto';
@@ -22,18 +24,21 @@ export class CustomerPaymentRequestsController {
     description:
       'Routes by admin flags: `gokwikCheckoutEnabled` → GoKwik SDK payload; ' +
       '`shiprocketCheckoutEnabled` → Shiprocket session; else Razorpay/Cashfree payment link. ' +
-      'Body needs `addressId` only. `paymentMethod` is ignored for provider selection.',
+      'Body needs `addressId` only. `paymentMethod` is ignored for provider selection. ' +
+      'When GoKwik: `paymentData.customerToken` is the Cureka session bearer for the SDK.',
   })
   @ResponseMessage('Checkout session created successfully')
   @Post('checkout')
   checkout(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutPaymentRequestDto,
+    @Req() req: FastifyRequest,
   ) {
     return this.paymentRequestsService.checkoutFromCart(
       user.sub,
       dto.addressId,
       dto.orderSource,
+      getSessionTokenFromRequest(req),
     );
   }
 
@@ -41,18 +46,21 @@ export class CustomerPaymentRequestsController {
     summary: 'Start storefront checkout modal (GoKwik / Shiprocket / native PG)',
     description:
       'Same provider routing as POST /checkout. Prefer this for in-page modals (Razorpay Checkout.js / GoKwik SDK). ' +
-      'When `checkoutProvider` is `gokwik`, open the GoKwik SDK with `paymentData` — do not call Razorpay.',
+      'When `checkoutProvider` is `gokwik`, open the GoKwik SDK with `paymentData` — include `customerToken` in SDK init. ' +
+      'Do not call Razorpay or /checkout/modal/verify for GoKwik.',
   })
   @ResponseMessage('Checkout session created successfully')
   @Post('checkout/modal')
   checkoutModal(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutPaymentRequestDto,
+    @Req() req: FastifyRequest,
   ) {
     return this.paymentRequestsService.checkoutModalFromCart(
       user.sub,
       dto.addressId,
       dto.orderSource,
+      getSessionTokenFromRequest(req),
     );
   }
 

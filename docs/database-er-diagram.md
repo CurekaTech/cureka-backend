@@ -721,7 +721,7 @@ Every column for every table. **BE** = includes BaseEntity columns (`id`, `ref_i
 | `below_the_fold` | TEXT | Yes | |
 | `status` | ENUM | No | |
 | `is_in_header` | BOOLEAN | No | default false |
-| `is_in_shop_by` | BOOLEAN | No | default false |
+| `is_in_shop_by` | BOOLEAN | No | default false; Show on homepage (Shop by Category) for root, sub, and sub-sub |
 
 ### `category_attributes` (junction)
 

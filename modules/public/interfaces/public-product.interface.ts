@@ -109,6 +109,11 @@ export interface IPublicProductCard {
   productNatureName: string | null;
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
+  /**
+   * OOS flag for the displayed list variant (`variantId` / `defaultVariantId`).
+   * True when that variant is marked out of stock by admin.
+   */
+  outOfStock: boolean;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;

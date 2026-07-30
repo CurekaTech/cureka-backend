@@ -41,7 +41,7 @@ export class BundleProductsController {
   @ApiOperation({
     summary: 'Create bundle product and submit for review',
     description:
-      'productType is forced to `bundle`. Provide bundleItems (≥1) and pricing via top-level mrp/sellingPrice/stock/sku (or a single variants[] entry). Same as products: description, healthConcernRefIds, wellnessGoalRefIds, expiryDate/expiresIn/expiresInMonths, media, SEO (metaTitle/metaDescription/metaKeywords). Optional curatedBy / curatedFor. Categories support the same single/multiple hierarchy format as products. SKU must be unique.',
+      'productType is forced to `bundle`. Provide bundleItems (≥1) and pricing via top-level mrp/sellingPrice/stock/sku (or a single variants[] entry). Same as products: description, healthConcernRefIds, wellnessGoalRefIds, manufacturer/packer/countryOfOrigin/components, commerce flags (subscriptionEnabled, codAvailable, emiAvailable, returnAllowed/returnWindowDays/returnPolicy, replaceAllowed/replaceWindowDays), expiryDate/expiresIn/expiresInMonths, media, SEO. Optional curatedBy / curatedFor / bundleIcon (multipart field "bundleIcon"). Categories via categories[]. SKU auto-generated as CAT/BRA/NNN if omitted (e.g. SUP/NES/001).',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Bundle product created and submitted for review')
@@ -94,7 +94,8 @@ export class BundleProductsController {
 
   @ApiOperation({
     summary: 'Bulk mark bundle products out of stock',
-    description: 'Sets stock = 0 on the pricing variant of each selected bundle.',
+    description:
+      'Sets outOfStock = true on the pricing variant of each selected bundle. Does not change stock quantity.',
   })
   @ResponseMessage('Bundle products marked out of stock successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
@@ -106,7 +107,8 @@ export class BundleProductsController {
 
   @ApiOperation({
     summary: 'Bulk restore stock for bundle products',
-    description: 'Sets stock on the pricing variant for each selected bundle.',
+    description:
+      'Sets stock on the pricing variant for each selected bundle and clears outOfStock (reverts mark-out-of-stock).',
   })
   @ResponseMessage('Bundle product stock restored successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
@@ -135,7 +137,11 @@ export class BundleProductsController {
     return this.productsService.approve(refId, user.email);
   }
 
-  @ApiOperation({ summary: 'Reject bundle product' })
+  @ApiOperation({
+    summary: 'Reject bundle product',
+    description:
+      'Body: `{ "reason": "..." }` (alias `rejectionReason` also accepted). Reason is stored and returned as `rejectionReason` on detail/list.',
+  })
   @ResponseMessage('Bundle product rejected')
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Post(':refId/reject')
@@ -194,7 +200,7 @@ export class BundleProductsController {
   @ApiOperation({
     summary: 'Update bundle product',
     description:
-      'Send bundleItems to replace linked products. Send mrp/sellingPrice/stock (or variants[0]) to update pricing/inventory. curatedBy / curatedFor supported. Multiple categories via categories[].',
+      'Send bundleItems to replace linked products. Send mrp/sellingPrice/stock (or variants[0]) to update pricing/inventory. Commerce flags, manufacturer/packer/country/components, curatedBy/curatedFor/bundleIcon, and categories[] work the same as products.',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Bundle product updated successfully')

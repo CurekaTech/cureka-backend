@@ -23,7 +23,7 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(['name', 'publishedAt', 'price', 'variantSlug'])
+  @IsIn(['name', 'publishedAt', 'price', 'variantSlug', 'bestsellerIndex'])
   sortBy?: string;
 
   @IsOptional()

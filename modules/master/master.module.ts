@@ -16,6 +16,7 @@ import { BannerEntity } from './entities/banner.entity';
 import { WatchAndShopItemEntity } from './entities/watch-and-shop-item.entity';
 import { ExpertTalkItemEntity } from './entities/expert-talk-item.entity';
 import { TestimonialEntity } from './entities/testimonial.entity';
+import { CmsPageEntity } from './entities/cms-page.entity';
 import { ImporterEntity } from './entities/importer.entity';
 import { PackerEntity } from './entities/packer.entity';
 import { ProductNatureEntity } from './entities/product-nature.entity';
@@ -73,6 +74,7 @@ import { BannersRepository } from './repositories/banners.repository';
 import { WatchAndShopRepository } from './repositories/watch-and-shop.repository';
 import { ExpertTalkRepository } from './repositories/expert-talk.repository';
 import { TestimonialRepository } from './repositories/testimonial.repository';
+import { CmsPagesRepository } from './repositories/cms-pages.repository';
 import { ImportersRepository } from './repositories/importers.repository';
 import { PackersRepository } from './repositories/packers.repository';
 import { ProductNaturesRepository } from './repositories/product-natures.repository';
@@ -120,6 +122,7 @@ import { WatchAndShopCacheSyncService } from './services/watch-and-shop-cache-sy
 import { ExpertTalkService } from './services/expert-talk.service';
 import { ExpertTalkCacheSyncService } from './services/expert-talk-cache-sync.service';
 import { TestimonialService } from './services/testimonial.service';
+import { CmsPagesService } from './services/cms-pages.service';
 import { TestimonialCacheSyncService } from './services/testimonial-cache-sync.service';
 import { ImportersService } from './services/importers.service';
 import { PackersService } from './services/packers.service';
@@ -164,6 +167,8 @@ import { BannersController } from './controllers/banners.controller';
 import { WatchAndShopController } from './controllers/watch-and-shop.controller';
 import { ExpertTalkController } from './controllers/expert-talk.controller';
 import { TestimonialController } from './controllers/testimonial.controller';
+import { CmsPagesController } from './controllers/cms-pages.controller';
+import { PublicCmsPagesController } from './controllers/public-cms-pages.controller';
 import { ImportersController } from './controllers/importers.controller';
 import { PackersController } from './controllers/packers.controller';
 import { ProductNaturesController } from './controllers/product-natures.controller';
@@ -217,6 +222,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
       WatchAndShopItemEntity,
       ExpertTalkItemEntity,
       TestimonialEntity,
+      CmsPageEntity,
       ImporterEntity,
       PackerEntity,
       ProductNatureEntity,
@@ -271,6 +277,8 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     WatchAndShopController,
     ExpertTalkController,
     TestimonialController,
+    CmsPagesController,
+    PublicCmsPagesController,
     ImportersController,
     PackersController,
     ProductNaturesController,
@@ -324,7 +332,9 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     ExpertTalkRepository,
     ExpertTalkCacheSyncService,
     TestimonialService,
+    CmsPagesService,
     TestimonialRepository,
+    CmsPagesRepository,
     TestimonialCacheSyncService,
     ProductsRepository,
     ImportersService,
@@ -402,6 +412,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     WatchAndShopService,
     ExpertTalkService,
     TestimonialService,
+    CmsPagesService,
     ImportersService,
     PackersService,
     ProductNaturesService,

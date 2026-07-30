@@ -1,4 +1,4 @@
-import { Entity, Index, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 import { ProductEntity } from './product.entity';
 import { ProductTagEntity } from './product-tag.entity';
 
@@ -9,6 +9,10 @@ export class ProductTagMappingEntity {
 
   @PrimaryColumn({ name: 'tag_id', type: 'uuid' })
   tagId!: string;
+
+  /** Display order within a tag (used by bestsellers indexing). Lower = first. */
+  @Column({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder!: number;
 
   @Index()
   @ManyToOne(() => ProductEntity, (product) => product.tagMappings, { onDelete: 'CASCADE' })

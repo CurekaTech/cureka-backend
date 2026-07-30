@@ -8,6 +8,7 @@ import { IHomepageBannersBundle, IStorefrontBannerItem } from '@modules/master/i
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
+import { isHomepageShopByHierarchyLevel } from '@modules/master/constants/homepage-shop-by-hierarchy.constant';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
@@ -23,7 +24,7 @@ import {
   IPublicHeroBannerSection,
 } from '../interfaces/public-banner-section.interface';
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
-import { IPublicHealthConcernCard } from '../interfaces/public-health-concern.interface';
+import { IPublicHealthConcernCard, IPublicHomePageHealthConcern } from '../interfaces/public-health-concern.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
@@ -37,7 +38,7 @@ import {
 /** Max products returned per Best Sellers category tab in the homepage section. */
 const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
 
-/** Max category tabs shown in the homepage Best Sellers section (latest first). */
+/** Max category tabs shown in the homepage Best Sellers section (CMS index order). */
 const BEST_SELLERS_MAX_CATEGORIES = 10;
 
 /**
@@ -139,52 +140,30 @@ export class HomepageService {
 
   /** Used by cache refresh after product/category mutations. */
   async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
-    // Load published products carrying the bestsellers tag, then group by root category.
-    // This matches GET /homepage/best-sellers and avoids dropping products when the
-    // root category is inactive or soft-deleted.
-    const { data } = await this.productsRepository.findPublishedPaginated({
-      page: 1,
-      limit: BEST_SELLERS_MAX_CATEGORIES * BEST_SELLERS_PRODUCTS_PER_CATEGORY,
-      sortBy: 'publishedAt',
-      sortOrder: 'DESC',
-      tagSlug: BEST_SELLERS_TAG_SLUG,
-    });
+    const categories = await this.productsRepository.findRootCategoriesWithTag(
+      BEST_SELLERS_TAG_SLUG,
+      { limit: BEST_SELLERS_MAX_CATEGORIES, publishedOnly: true },
+    );
 
-    const grouped = new Map<
-      string,
-      { refId: string; name: string; slug: string; products: typeof data }
-    >();
+    const tabs = await Promise.all(
+      categories.map(async (category, position) => {
+        const products = await this.productsRepository.findPublishedByCategoryAndTag(
+          category.id,
+          BEST_SELLERS_TAG_SLUG,
+          BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+        );
 
-    for (const product of data) {
-      const category = product.category;
-      if (!category) continue;
-
-      let tab = grouped.get(category.id);
-      if (!tab) {
-        if (grouped.size >= BEST_SELLERS_MAX_CATEGORIES) continue;
-        tab = {
+        return {
+          index: position + 1,
           refId: category.refId,
           name: category.name,
           slug: category.slug,
-          products: [],
+          products: mapProductEntitiesToPublicCards(products),
         };
-        grouped.set(category.id, tab);
-      }
+      }),
+    );
 
-      if (tab.products.length < BEST_SELLERS_PRODUCTS_PER_CATEGORY) {
-        tab.products.push(product);
-      }
-    }
-
-    const tabs = [...grouped.values()].map((category, position) => ({
-      index: position + 1,
-      refId: category.refId,
-      name: category.name,
-      slug: category.slug,
-      products: mapProductEntitiesToPublicCards(category.products),
-    }));
-
-    return { categories: tabs };
+    return { categories: tabs.filter((tab) => tab.products.length > 0) };
   }
 
   async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {
@@ -322,6 +301,34 @@ export class HomepageService {
     }));
   }
 
+  /**
+   * All active health concerns flagged for the homepage, ordered by sortIndex.
+   * Includes sortIndex so the storefront can control display order.
+   */
+  async getHomePageHealthConcerns(): Promise<IPublicHomePageHealthConcern[]> {
+    const raw = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.healthConcerns(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadHomePageHealthConcernsUncached(),
+    });
+    return this.storageUrlEnricher.enrichDeep(raw);
+  }
+
+  /** Used by cache refresh after health concern mutations. */
+  async loadHomePageHealthConcernsUncached(): Promise<IPublicHomePageHealthConcern[]> {
+    const concerns = await this.healthConcernsRepository.findActiveHomePageConcerns();
+
+    return concerns.map((concern) => ({
+      refId: concern.refId,
+      name: concern.name,
+      slug: concern.slug,
+      description: concern.description,
+      icon: this.storageUrlEnricher.persist(concern.icon),
+      banner: this.storageUrlEnricher.persist(concern.banner),
+      sortIndex: concern.sortIndex,
+    }));
+  }
+
   async getBrandsWeTrust(): Promise<IPublicBrandCard[]> {
     const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.brandsWeTrust(),
@@ -372,6 +379,7 @@ export class HomepageService {
   }
 
   private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicCategoryTree[] {
+    const byId = new Map(categories.map((category) => [category.id, category]));
     const childrenByParentId = new Map<string, CategoryEntity[]>();
 
     for (const category of categories) {
@@ -384,6 +392,18 @@ export class HomepageService {
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
 
+    const buildAncestorSlugPath = (entity: CategoryEntity): string[] => {
+      const slugs: string[] = [];
+      let parentId = entity.parentCategoryId;
+      while (parentId) {
+        const parent = byId.get(parentId);
+        if (!parent) break;
+        slugs.unshift(parent.slug);
+        parentId = parent.parentCategoryId;
+      }
+      return slugs;
+    };
+
     const buildNode = (entity: CategoryEntity, parentSlugPath: string[] = []): IPublicCategoryTree => {
       const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
         buildNode(child, [...parentSlugPath, entity.slug]),
@@ -394,8 +414,8 @@ export class HomepageService {
     return sortCategories(
       categories.filter(
         (category) =>
-          category.isInShopBy && category.hierarchyLevel === CategoryHierarchyLevel.ROOT,
+          category.isInShopBy && isHomepageShopByHierarchyLevel(category.hierarchyLevel),
       ),
-    ).map((entity) => buildNode(entity));
+    ).map((entity) => buildNode(entity, buildAncestorSlugPath(entity)));
   }
 }
