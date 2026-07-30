@@ -157,7 +157,7 @@ UI should render in array order (or re-sort by `sortIndex` the same way).
 | `GET /public/homepage/sections` | Combined homepage sections payload |
 | `GET /public/homepage/banners` | Hero / festival / brand banners |
 | `GET /public/homepage/category/header` | Header category tree |
-| `GET /public/homepage/best-sellers` | Best sellers |
+| `GET /public/homepage/best-sellers` | Best sellers (default sort: CMS `bestsellerIndex`, then `publishedAt`) |
 | `GET /public/homepage/home-sections/active` | Active custom home sections |
 | `GET /public/homepage/home-sections/:slug` | One custom section by slug |
 

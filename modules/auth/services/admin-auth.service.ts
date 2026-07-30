@@ -521,6 +521,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['shop_by_indexing.read'],
       },
       {
+        name: 'Best Sellers Indexing',
+        key: 'best-sellers-indexing',
+        icon: 'Award',
+        href: '/cms/best-sellers-indexing',
+        requiredPermissions: ['best_sellers.read'],
+      },
+      {
         name: 'Health Concern Indexing', // added new one
         key: 'health-concern-indexing',
         icon: 'HeartPulse',

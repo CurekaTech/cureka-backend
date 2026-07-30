@@ -158,8 +158,8 @@ export class PublicProductsService {
   async findBestSellers(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
     return this.findAll({
       ...query,
-      sortBy: query.sortBy ?? 'publishedAt',
-      sortOrder: query.sortOrder ?? 'DESC',
+      sortBy: query.sortBy ?? 'bestsellerIndex',
+      sortOrder: query.sortOrder ?? 'ASC',
       tagSlug: BEST_SELLERS_TAG_SLUG,
     });
   }

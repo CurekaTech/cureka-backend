@@ -97,6 +97,7 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('home_sections', 'Home Sections'),
   ...buildCrudPermissions('header_indexing', 'Header Indexing'),
   ...buildCrudPermissions('shop_by_indexing', 'Shop By Indexing'),
+  ...buildCrudPermissions('best_sellers', 'Best Sellers Indexing'),
   ...buildCrudPermissions('watch_and_shop', 'Watch & Shop'),
   ...buildCrudPermissions('expert_talks', 'Expert Talks'),
   ...buildCrudPermissions('testimonials', 'Testimonials'),

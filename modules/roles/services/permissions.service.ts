@@ -272,6 +272,11 @@ export class PermissionsService {
             permissions: getPerms('shop_by_indexing'),
           },
           {
+            name: 'Best Sellers Indexing',
+            key: 'cms-best-sellers-indexing',
+            permissions: getPerms('best_sellers'),
+          },
+          {
             name: 'Pages',
             key: 'cms-pages',
             permissions: getPerms('cms_pages'),

@@ -36,6 +36,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   belowTheFold: entity.belowTheFold,
   isInHeader: entity.isInHeader,
   isInShopBy: entity.isInShopBy,
+  bestsellerSortIndex: entity.bestsellerSortIndex ?? null,
   status: entity.status,
   parent: mapParentEntityToResponse(entity.parent),
   attributes: (entity.attributes ?? []).map(mapAttributeEntityToResponse),
