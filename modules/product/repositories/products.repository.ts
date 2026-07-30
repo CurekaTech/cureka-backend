@@ -635,28 +635,44 @@ export class ProductsRepository {
   ): Promise<ProductEntity[]> {
     if (!categoryId || !tagSlug || limit <= 0) return [];
 
-    const qb = this.repo
+    // Avoid getMany()+take()+orderBy(join col): TypeORM wraps a DISTINCT subquery and
+    // fails with "distinctAlias.ptm_sort_order does not exist".
+    const idRows = await this.repo
       .createQueryBuilder('product')
       .innerJoin('product.tagMappings', 'ptm')
       .innerJoin('ptm.tag', 'tag')
+      .select('product.id', 'id')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.categoryId = :categoryId', { categoryId })
+      .andWhere('tag.slug = :tagSlug', { tagSlug })
+      .orderBy('ptm.sortOrder', 'ASC', 'NULLS LAST')
+      .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .limit(limit)
+      .getRawMany<{ id: string }>();
+
+    const productIds = idRows.map((row) => row.id).filter(Boolean);
+    if (!productIds.length) return [];
+
+    const products = await this.repo
+      .createQueryBuilder('product')
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
       .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
       .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
-      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.categoryId = :categoryId', { categoryId })
-      .andWhere('tag.slug = :tagSlug', { tagSlug })
-      .orderBy('ptm.sortOrder', 'ASC', 'NULLS LAST')
-      .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
-      .take(limit);
+      .where('product.id IN (:...productIds)', { productIds })
+      .getMany();
 
-    const products = await qb.getMany();
-    if (products.length) {
-      await this.attachPublicListRelations(products);
+    const byId = new Map(products.map((product) => [product.id, product]));
+    const ordered = productIds
+      .map((id) => byId.get(id))
+      .filter((product): product is ProductEntity => Boolean(product));
+
+    if (ordered.length) {
+      await this.attachPublicListRelations(ordered);
     }
-    return products;
+    return ordered;
   }
 
   /**
