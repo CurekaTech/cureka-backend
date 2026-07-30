@@ -94,7 +94,8 @@ export class BundleProductsController {
 
   @ApiOperation({
     summary: 'Bulk mark bundle products out of stock',
-    description: 'Sets stock = 0 on the pricing variant of each selected bundle.',
+    description:
+      'Sets outOfStock = true on the pricing variant of each selected bundle. Does not change stock quantity.',
   })
   @ResponseMessage('Bundle products marked out of stock successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
@@ -106,7 +107,8 @@ export class BundleProductsController {
 
   @ApiOperation({
     summary: 'Bulk restore stock for bundle products',
-    description: 'Sets stock on the pricing variant for each selected bundle.',
+    description:
+      'Sets stock on the pricing variant for each selected bundle and clears outOfStock (reverts mark-out-of-stock).',
   })
   @ResponseMessage('Bundle product stock restored successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)

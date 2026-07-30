@@ -1072,6 +1072,10 @@ export class ProductsService {
     };
   }
 
+  /**
+   * Restores stock on every non-deleted variant for the selected products and
+   * clears outOfStock so storefront treats them as in stock again.
+   */
   async bulkRestoreStock(dto: BulkRestoreStockDto): Promise<{
     requested: number;
     updated: string[];

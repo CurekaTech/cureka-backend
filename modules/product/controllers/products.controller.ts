@@ -75,7 +75,8 @@ export class ProductsController {
 
   @ApiOperation({
     summary: 'Bulk restore product stock',
-    description: 'Sets stock on all variants for each productRefId to the given value.',
+    description:
+      'Sets stock on all variants for each productRefId and clears outOfStock (reverts bulk mark-out-of-stock so products are in stock again).',
   })
   @ResponseMessage('Product stock restored successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
