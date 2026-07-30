@@ -8,6 +8,8 @@ import { StorageService } from '@packages/storage';
 import type { IStorageFileReference } from '@packages/storage';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
+import { ProductType } from '../enums/product-type.enum';
+import { ensureBundleSkuInPayload } from '../utils/bundle-product.util';
 import { mergeUploadedProductMedia, ProductUploadedFiles } from '../utils/product-media.util';
 
 const PRODUCT_IMAGE_FIELDS = new Set(['images', 'image', 'images[]']);
@@ -149,10 +151,13 @@ export class ProductMultipartService {
     payload: Record<string, unknown>,
     uploads?: ProductUploadedFiles,
   ): Promise<CreateProductDto> {
-    const sanitized = this.normalizeSizeChartInPayload(this.stripClientOnlyFields(payload));
+    let prepared = this.normalizeSizeChartInPayload(this.stripClientOnlyFields(payload));
+    if (prepared.productType === ProductType.BUNDLE) {
+      prepared = ensureBundleSkuInPayload(prepared);
+    }
     const mergedBase = uploads
-      ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
-      : (sanitized as unknown as CreateProductDto);
+      ? mergeUploadedProductMedia(prepared as unknown as CreateProductDto, uploads)
+      : (prepared as unknown as CreateProductDto);
     const merged = uploads?.sizeChart
       ? {
           ...mergedBase,
@@ -167,10 +172,20 @@ export class ProductMultipartService {
     payload: Record<string, unknown>,
     uploads?: ProductUploadedFiles,
   ): Promise<UpdateProductDto> {
-    const sanitized = this.normalizeSizeChartInPayload(this.stripClientOnlyFields(payload));
+    let prepared = this.normalizeSizeChartInPayload(this.stripClientOnlyFields(payload));
+    if (prepared.productType === ProductType.BUNDLE) {
+      // Only fill SKU when creating/replacing pricing via top-level sku or variants[];
+      // leave omitted so existing variant SKU is preserved on partial updates.
+      const hasPricingVariantInput =
+        prepared.sku !== undefined ||
+        (Array.isArray(prepared.variants) && prepared.variants.length > 0);
+      if (hasPricingVariantInput) {
+        prepared = ensureBundleSkuInPayload(prepared);
+      }
+    }
     const mergedBase = uploads
-      ? mergeUploadedProductMedia(sanitized as unknown as CreateProductDto, uploads)
-      : (sanitized as unknown as UpdateProductDto);
+      ? mergeUploadedProductMedia(prepared as unknown as CreateProductDto, uploads)
+      : (prepared as unknown as UpdateProductDto);
     const merged = uploads?.sizeChart
       ? {
           ...mergedBase,

@@ -176,7 +176,9 @@ export interface IProduct {
   brandRefId: string;
   brandName: string;
   manufacturerRefId: string | null;
+  manufacturerName: string | null;
   packerRefId: string | null;
+  packerName: string | null;
   importerRefId: string | null;
   countryOfOriginRefId: string | null;
   countryOfOriginName: string | null;
