@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -28,6 +30,7 @@ export class CartController {
   @ApiOperation({ summary: 'Add item to cart' })
   @ResponseMessage('Item added to cart')
   @Post('items')
+  @HttpCode(HttpStatus.OK)
   addItem(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: AddCartItemDto) {
     return this.cartService.addItem(user.sub, dto);
   }
@@ -35,6 +38,7 @@ export class CartController {
   @ApiOperation({ summary: 'Get active cart' })
   @ResponseMessage('Cart fetched successfully')
   @Get()
+  @HttpCode(HttpStatus.OK)
   getCart(@CurrentSessionUser() user: IUserSessionContext) {
     return this.cartService.getCart(user.sub);
   }
@@ -42,6 +46,7 @@ export class CartController {
   @ApiOperation({ summary: 'Apply coupon to cart' })
   @ResponseMessage('Coupon applied successfully')
   @Post('coupon')
+  @HttpCode(HttpStatus.OK)
   applyCoupon(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCouponDto) {
     return this.cartService.applyCoupon(user.sub, dto);
   }
@@ -49,6 +54,7 @@ export class CartController {
   @ApiOperation({ summary: 'Remove coupon from cart' })
   @ResponseMessage('Coupon removed successfully')
   @Delete('coupon')
+  @HttpCode(HttpStatus.OK)
   removeCoupon(@CurrentSessionUser() user: IUserSessionContext) {
     return this.cartService.removeCoupon(user.sub);
   }
@@ -56,6 +62,7 @@ export class CartController {
   @ApiOperation({ summary: 'Update cart item quantity' })
   @ResponseMessage('Cart updated successfully')
   @Patch('items/:itemId')
+  @HttpCode(HttpStatus.OK)
   updateQuantity(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -67,6 +74,7 @@ export class CartController {
   @ApiOperation({ summary: 'Remove cart item' })
   @ResponseMessage('Item removed from cart')
   @Delete('items/:itemId')
+  @HttpCode(HttpStatus.OK)
   removeItem(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -77,6 +85,7 @@ export class CartController {
   @ApiOperation({ summary: 'Clear active cart' })
   @ResponseMessage('Cart cleared successfully')
   @Delete()
+  @HttpCode(HttpStatus.OK)
   async clear(@CurrentSessionUser() user: IUserSessionContext): Promise<void> {
     await this.cartService.clear(user.sub);
   }
@@ -85,6 +94,7 @@ export class CartController {
   @ResponseMessage('Guest cart merged successfully')
   @UseGuards(VerifiedUserGuard)
   @Post('merge')
+  @HttpCode(HttpStatus.OK)
   mergeGuestCart(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() body: MergeGuestCartDto,

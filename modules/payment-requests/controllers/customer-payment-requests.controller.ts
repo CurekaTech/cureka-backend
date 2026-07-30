@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
@@ -29,6 +29,7 @@ export class CustomerPaymentRequestsController {
   })
   @ResponseMessage('Checkout session created successfully')
   @Post('checkout')
+  @HttpCode(HttpStatus.OK)
   checkout(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutPaymentRequestDto,
@@ -51,6 +52,7 @@ export class CustomerPaymentRequestsController {
   })
   @ResponseMessage('Checkout session created successfully')
   @Post('checkout/modal')
+  @HttpCode(HttpStatus.OK)
   checkoutModal(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutPaymentRequestDto,
@@ -70,6 +72,7 @@ export class CustomerPaymentRequestsController {
   })
   @ResponseMessage('Payment verified successfully')
   @Post('checkout/modal/verify')
+  @HttpCode(HttpStatus.OK)
   verifyModalCheckout(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutVerifyPaymentDto,
@@ -83,6 +86,7 @@ export class CustomerPaymentRequestsController {
   })
   @ResponseMessage('Checkout cancelled successfully')
   @Post('checkout/modal/cancel')
+  @HttpCode(HttpStatus.OK)
   cancelModalCheckout(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CheckoutCancelPaymentDto,

@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { RawResponse } from '@packages/common';
@@ -23,18 +23,21 @@ export class GokwikCartController {
   constructor(private readonly gokwikCartService: GokwikCartService) {}
 
   @Post('get-cart')
+  @HttpCode(HttpStatus.OK)
   @RawResponse()
   getCart(@Body() dto: GokwikGetCartDto): Promise<GokwikGetCartSuccessResponse> {
     return this.gokwikCartService.getCart(dto.cart_id);
   }
 
   @Post('remove-out-of-stock-items')
+  @HttpCode(HttpStatus.OK)
   @RawResponse()
   removeOutOfStockItems(@Body() dto: GokwikGetCartDto): Promise<GokwikGetCartSuccessResponse> {
     return this.gokwikCartService.removeOutOfStockItems(dto.cart_id);
   }
 
   @Post('set-shipping-address')
+  @HttpCode(HttpStatus.OK)
   @RawResponse()
   setShippingAddress(
     @Body() dto: GokwikSetShippingAddressDto,
@@ -43,18 +46,21 @@ export class GokwikCartController {
   }
 
   @Post('get-all-discount')
+  @HttpCode(HttpStatus.OK)
   @RawResponse()
   getAllDiscount(@Body() dto: GokwikGetCartDto) {
     return this.gokwikCartService.getAvailableCoupons(dto.cart_id);
   }
 
   @Post('apply-discount')
+  @HttpCode(HttpStatus.OK)
   @RawResponse()
   applyDiscount(@Body() dto: GokwikDiscountDto): Promise<GokwikGetCartSuccessResponse> {
     return this.gokwikCartService.applyDiscount(dto);
   }
 
   @Post('remove-discount')
+  @HttpCode(HttpStatus.OK)
   @RawResponse()
   removeDiscount(@Body() dto: GokwikDiscountDto): Promise<GokwikGetCartSuccessResponse> {
     return this.gokwikCartService.removeDiscount(dto);
