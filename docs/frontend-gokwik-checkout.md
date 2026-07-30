@@ -100,13 +100,21 @@ Content-Type: application/json
     "appId": "<public-gokwik-app-id>",
     "merchantId": "<public-merchant-id>",
     "amount": 1299,
-    "currency": "INR"
+    "currency": "INR",
+    "environment": "sandbox",
+    "customerToken": "<cureka-session-bearer>",
+    "customer": {
+      "name": "…",
+      "email": "…",
+      "contact": "…"
+    }
   }
 }
 ```
 
-- `merchantCheckoutId` is the Cureka **cart id**. Pass it unchanged to the SDK. Do not invent a browser-only id.
-- Never hard-code `appId` / `merchantId` from secrets; use this response (or env public values that match backend).
+- `merchantCheckoutId` is the Cureka **cart id**. Pass it unchanged to the SDK.
+- `customerToken` is the Cureka storefront session bearer (same token from cookie / `Authorization`). Pass into GoKwik `sdk.initCheckout` as `customerToken` and on `merchantParams.customerToken`.
+- Guest / missing token: field may be omitted — SDK still opens; confirm with GoKwik if a guest token is required.
 
 ### Step 3 — Open GoKwik modal
 
