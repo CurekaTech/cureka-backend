@@ -13,6 +13,7 @@ import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity'
 import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
+import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
@@ -459,7 +460,7 @@ export class ProductsRepository {
       .take(take);
 
     this.applyPublicListFilters(qb, options);
-    this.applyPublicListSort(qb, options.sortBy, sortOrder);
+    this.applyPublicListSort(qb, options.sortBy, sortOrder, options);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
@@ -548,17 +549,26 @@ export class ProductsRepository {
   }
 
   /**
-   * Returns the root categories that contain at least one published product carrying
-   * the given tag (e.g. "bestsellers"), newest best-seller first. The category itself
-   * does NOT need to be a shop-by category. Used to drive the homepage Best Sellers tabs.
+   * Returns root categories that contain at least one product carrying the given tag
+   * (e.g. "bestsellers"), ordered by bestseller_sort_index ASC NULLS LAST, then name.
+   * Used by homepage Best Sellers tabs and CMS indexing.
    */
   async findRootCategoriesWithTag(
     tagSlug: string,
-    limit: number,
-  ): Promise<Array<{ id: string; refId: string; name: string; slug: string }>> {
-    if (!tagSlug || limit <= 0) return [];
+    options?: { limit?: number; publishedOnly?: boolean },
+  ): Promise<
+    Array<{
+      id: string;
+      refId: string;
+      name: string;
+      slug: string;
+      bestsellerSortIndex: number | null;
+      productCount: number;
+    }>
+  > {
+    if (!tagSlug) return [];
 
-    const rows = await this.repo
+    const qb = this.repo
       .createQueryBuilder('product')
       .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
       .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
@@ -567,26 +577,150 @@ export class ProductsRepository {
       .addSelect('category.ref_id', 'refId')
       .addSelect('category.name', 'name')
       .addSelect('category.slug', 'slug')
-      .addSelect('MAX(product.published_at)', 'latest')
-      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.deleted_at IS NULL')
+      .addSelect('category.bestseller_sort_index', 'bestsellerSortIndex')
+      .addSelect('COUNT(DISTINCT product.id)', 'productCount')
+      .where('product.deleted_at IS NULL')
       .andWhere('tag.slug = :tagSlug', { tagSlug })
       .andWhere('category.deleted_at IS NULL')
-      .andWhere('category.status = :categoryStatus', { categoryStatus: 'active' })
       .groupBy('category.id')
       .addGroupBy('category.ref_id')
       .addGroupBy('category.name')
       .addGroupBy('category.slug')
-      .orderBy('MAX(product.published_at)', 'DESC')
-      .limit(limit)
-      .getRawMany<{ id: string; refId: string; name: string; slug: string }>();
+      .addGroupBy('category.bestseller_sort_index')
+      .orderBy('category.bestseller_sort_index', 'ASC', 'NULLS LAST')
+      .addOrderBy('category.name', 'ASC');
+
+    if (options?.publishedOnly) {
+      qb.andWhere('product.status = :status', { status: ProductStatus.PUBLISHED }).andWhere(
+        'category.status = :categoryStatus',
+        { categoryStatus: 'active' },
+      );
+    }
+
+    if (options?.limit && options.limit > 0) {
+      qb.limit(options.limit);
+    }
+
+    const rows = await qb.getRawMany<{
+      id: string;
+      refId: string;
+      name: string;
+      slug: string;
+      bestsellerSortIndex: string | number | null;
+      productCount: string;
+    }>();
 
     return rows.map((row) => ({
       id: row.id,
       refId: row.refId,
       name: row.name,
       slug: row.slug,
+      bestsellerSortIndex:
+        row.bestsellerSortIndex === null || row.bestsellerSortIndex === undefined
+          ? null
+          : Number(row.bestsellerSortIndex),
+      productCount: parseInt(row.productCount, 10) || 0,
     }));
+  }
+
+  /**
+   * Published products in a category with the given tag, ordered by tag mapping sort_order.
+   */
+  async findPublishedByCategoryAndTag(
+    categoryId: string,
+    tagSlug: string,
+    limit: number,
+  ): Promise<ProductEntity[]> {
+    if (!categoryId || !tagSlug || limit <= 0) return [];
+
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
+        tagSlug,
+      })
+      .leftJoinAndSelect('product.productNature', 'productNature')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.category_id = :categoryId', { categoryId })
+      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
+      .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .take(limit);
+
+    const products = await qb.getMany();
+    if (products.length) {
+      await this.attachPublicListRelations(products);
+    }
+    return products;
+  }
+
+  /**
+   * Admin indexing list: all products (any status) in a category with the bestsellers tag.
+   */
+  async findBestSellerProductsForIndexing(
+    categoryId: string,
+    tagSlug: string,
+  ): Promise<Array<{ product: ProductEntity; sortOrder: number }>> {
+    if (!categoryId || !tagSlug) return [];
+
+    const rawRows = await this.repo
+      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
+        tagSlug,
+      })
+      .addSelect('ptm.sort_order', 'mapping_sort_order')
+      .where('product.category_id = :categoryId', { categoryId })
+      .andWhere('product.deleted_at IS NULL')
+      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
+      .addOrderBy('product.name', 'ASC')
+      .getRawAndEntities();
+
+    const products = rawRows.entities;
+    if (products.length) {
+      const media = await this.repo.manager.getRepository(ProductMediaEntity).find({
+        where: { productId: In(products.map((product) => product.id)) },
+        order: { sortOrder: 'ASC' },
+      });
+      const mediaByProductId = new Map<string, ProductMediaEntity[]>();
+      for (const item of media) {
+        const list = mediaByProductId.get(item.productId) ?? [];
+        list.push(item);
+        mediaByProductId.set(item.productId, list);
+      }
+      for (const product of products) {
+        product.media = mediaByProductId.get(product.id) ?? [];
+      }
+    }
+
+    return products.map((product, index) => {
+      const raw = rawRows.raw[index] as Record<string, unknown> | undefined;
+      const sortOrder = Number(raw?.['mapping_sort_order'] ?? 0);
+      return { product, sortOrder };
+    });
+  }
+
+  async reorderBestSellerTagSortOrders(
+    tagSlug: string,
+    updates: Array<{ productId: string; sortOrder: number }>,
+  ): Promise<void> {
+    if (!updates.length) return;
+
+    const tag = await this.repo.manager.getRepository(ProductTagEntity).findOne({
+      where: { slug: tagSlug },
+    });
+    if (!tag) return;
+
+    const mappingRepo = this.repo.manager.getRepository(ProductTagMappingEntity);
+    await Promise.all(
+      updates.map(({ productId, sortOrder }) =>
+        mappingRepo.update({ productId, tagId: tag.id }, { sortOrder }),
+      ),
+    );
   }
 
   async findIdsByRefIds(
@@ -1304,7 +1438,21 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
+    options?: Pick<PublicProductListOptions, 'tagSlug'>,
   ): void {
+    if (sortBy === 'bestsellerIndex' && options?.tagSlug) {
+      qb.addSelect(
+        `(SELECT ptm.sort_order FROM product_tag_mappings ptm
+          INNER JOIN product_tags t ON t.id = ptm.tag_id
+          WHERE ptm.product_id = product.id AND t.slug = :tagSlug
+          LIMIT 1)`,
+        'bestseller_sort_order',
+      );
+      qb.orderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
+      qb.addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST');
+      return;
+    }
+
     if (sortBy === 'price') {
       qb.setParameter('variantStatus', VariantStatus.ACTIVE);
       qb.addSelect(

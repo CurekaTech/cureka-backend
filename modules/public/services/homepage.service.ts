@@ -38,7 +38,7 @@ import {
 /** Max products returned per Best Sellers category tab in the homepage section. */
 const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
 
-/** Max category tabs shown in the homepage Best Sellers section (latest first). */
+/** Max category tabs shown in the homepage Best Sellers section (CMS index order). */
 const BEST_SELLERS_MAX_CATEGORIES = 10;
 
 /**
@@ -140,52 +140,30 @@ export class HomepageService {
 
   /** Used by cache refresh after product/category mutations. */
   async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
-    // Load published products carrying the bestsellers tag, then group by root category.
-    // This matches GET /homepage/best-sellers and avoids dropping products when the
-    // root category is inactive or soft-deleted.
-    const { data } = await this.productsRepository.findPublishedPaginated({
-      page: 1,
-      limit: BEST_SELLERS_MAX_CATEGORIES * BEST_SELLERS_PRODUCTS_PER_CATEGORY,
-      sortBy: 'publishedAt',
-      sortOrder: 'DESC',
-      tagSlug: BEST_SELLERS_TAG_SLUG,
-    });
+    const categories = await this.productsRepository.findRootCategoriesWithTag(
+      BEST_SELLERS_TAG_SLUG,
+      { limit: BEST_SELLERS_MAX_CATEGORIES, publishedOnly: true },
+    );
 
-    const grouped = new Map<
-      string,
-      { refId: string; name: string; slug: string; products: typeof data }
-    >();
+    const tabs = await Promise.all(
+      categories.map(async (category, position) => {
+        const products = await this.productsRepository.findPublishedByCategoryAndTag(
+          category.id,
+          BEST_SELLERS_TAG_SLUG,
+          BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+        );
 
-    for (const product of data) {
-      const category = product.category;
-      if (!category) continue;
-
-      let tab = grouped.get(category.id);
-      if (!tab) {
-        if (grouped.size >= BEST_SELLERS_MAX_CATEGORIES) continue;
-        tab = {
+        return {
+          index: position + 1,
           refId: category.refId,
           name: category.name,
           slug: category.slug,
-          products: [],
+          products: mapProductEntitiesToPublicCards(products),
         };
-        grouped.set(category.id, tab);
-      }
+      }),
+    );
 
-      if (tab.products.length < BEST_SELLERS_PRODUCTS_PER_CATEGORY) {
-        tab.products.push(product);
-      }
-    }
-
-    const tabs = [...grouped.values()].map((category, position) => ({
-      index: position + 1,
-      refId: category.refId,
-      name: category.name,
-      slug: category.slug,
-      products: mapProductEntitiesToPublicCards(category.products),
-    }));
-
-    return { categories: tabs };
+    return { categories: tabs.filter((tab) => tab.products.length > 0) };
   }
 
   async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {

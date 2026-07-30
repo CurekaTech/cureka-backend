@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
+import { ProductEntity } from '../entities/product.entity';
 import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductHealthConcernEntity } from '../entities/product-health-concern.entity';
 import { ProductWellnessGoalEntity } from '../entities/product-wellness-goal.entity';
@@ -21,6 +22,9 @@ import { generateUniqueRefId } from '@packages/common';
 import { StorageService } from '@packages/storage';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
+
+/** Canonical slug for homepage / CMS Best Sellers membership. */
+export const BEST_SELLERS_TAG_SLUG = 'bestsellers';
 
 @Injectable()
 export class ProductRelationsRepository {
@@ -106,14 +110,25 @@ export class ProductRelationsRepository {
   ): Promise<void> {
     const tagRepository = manager.getRepository(ProductTagEntity);
     const mappingRepository = manager.getRepository(ProductTagMappingEntity);
+    const productRepository = manager.getRepository(ProductEntity);
+
+    const existingMappings = await mappingRepository.find({
+      where: { productId },
+      relations: ['tag'],
+    });
+    const previousSortBySlug = new Map(
+      existingMappings
+        .filter((mapping) => mapping.tag?.slug)
+        .map((mapping) => [mapping.tag.slug, mapping.sortOrder ?? 0]),
+    );
+
     await mappingRepository.delete({ productId });
     if (!tagNames.length) return;
 
-    const normalizedNames = tagNames.map((name) => name.trim());
+    const normalizedNames = tagNames.map((name) => name.trim()).filter(Boolean);
     const slugs = normalizedNames.map((name) => generateTagSlug(name));
     const existingTags = await tagRepository.find({ where: { slug: In(slugs) } });
     const tagsBySlug = new Map(existingTags.map((tag) => [tag.slug, tag]));
-    const tagIds: string[] = [];
 
     const tagsToCreate = normalizedNames
       .map((name, index) => ({ name, slug: slugs[index]! }))
@@ -146,14 +161,51 @@ export class ProductRelationsRepository {
       }
     }
 
+    const product = await productRepository.findOne({
+      where: { id: productId },
+      select: ['id', 'categoryId'],
+    });
+
+    const rows: Array<{ productId: string; tagId: string; sortOrder: number }> = [];
     for (const slug of slugs) {
       const tag = tagsBySlug.get(slug);
-      if (tag) tagIds.push(tag.id);
+      if (!tag) continue;
+
+      let sortOrder = previousSortBySlug.get(slug);
+      if (sortOrder === undefined) {
+        if (slug === BEST_SELLERS_TAG_SLUG && product?.categoryId) {
+          sortOrder = await this.getNextBestsellerSortOrder(manager, product.categoryId, tag.id);
+        } else {
+          sortOrder = 0;
+        }
+      }
+
+      rows.push({ productId, tagId: tag.id, sortOrder });
     }
 
-    await mappingRepository.save(
-      tagIds.map((tagId) => mappingRepository.create({ productId, tagId })),
-    );
+    if (rows.length) {
+      await mappingRepository.save(rows.map((row) => mappingRepository.create(row)));
+    }
+  }
+
+  /** Next sort_order for a newly tagged bestseller in a root category (append). */
+  private async getNextBestsellerSortOrder(
+    manager: EntityManager,
+    categoryId: string,
+    tagId: string,
+  ): Promise<number> {
+    const result = await manager
+      .getRepository(ProductTagMappingEntity)
+      .createQueryBuilder('ptm')
+      .innerJoin(ProductEntity, 'product', 'product.id = ptm.productId')
+      .select('MAX(ptm.sortOrder)', 'max')
+      .where('ptm.tagId = :tagId', { tagId })
+      .andWhere('product.categoryId = :categoryId', { categoryId })
+      .andWhere('product.deletedAt IS NULL')
+      .getRawOne<{ max: string | null }>();
+
+    if (result?.max === null || result?.max === undefined) return 1;
+    return parseInt(result.max, 10) + 1;
   }
 
   async createCustomProductFaqs(

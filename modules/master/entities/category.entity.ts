@@ -112,4 +112,9 @@ export class CategoryEntity extends BaseEntity {
   /** Show on homepage Shop by Category (root, subcategory, or sub-subcategory). */
   @Column({ name: 'is_in_shop_by', type: 'boolean', default: false })
   isInShopBy!: boolean;
+
+  /** Homepage Best Sellers tab order (lower first; null = unordered / fallback). */
+  @Index()
+  @Column({ name: 'bestseller_sort_index', type: 'int', nullable: true })
+  bestsellerSortIndex!: number | null;
 }
