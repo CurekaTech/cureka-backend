@@ -1,4 +1,4 @@
-import {
+﻿import {
   registerDecorator,
   ValidationOptions,
   ValidatorConstraint,
@@ -13,7 +13,7 @@ export class IsRefIdConstraint implements ValidatorConstraintInterface {
   }
 
   defaultMessage(): string {
-    return 'refId must be an 11-character code (e.g. SUN20261234)';
+    return 'refId must be a valid code (11 or 13 chars), e.g. SUN20261234 or SUN2026123456';
   }
 }
 
