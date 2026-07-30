@@ -155,6 +155,10 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'curated_for', type: 'text', nullable: true })
   curatedFor!: string | null;
 
+  /** Bundle-only icon shown on public bundle list/detail cards. */
+  @Column({ ...storageFileReferenceColumn({ name: 'bundle_icon', nullable: true }) })
+  bundleIcon!: IStorageFileReference | null;
+
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;
 

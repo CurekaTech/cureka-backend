@@ -24,7 +24,7 @@ import {
   IPublicHeroBannerSection,
 } from '../interfaces/public-banner-section.interface';
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
-import { IPublicHealthConcernCard } from '../interfaces/public-health-concern.interface';
+import { IPublicHealthConcernCard, IPublicHomePageHealthConcern } from '../interfaces/public-health-concern.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
@@ -320,6 +320,34 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+    }));
+  }
+
+  /**
+   * All active health concerns flagged for the homepage, ordered by sortIndex.
+   * Includes sortIndex so the storefront can control display order.
+   */
+  async getHomePageHealthConcerns(): Promise<IPublicHomePageHealthConcern[]> {
+    const raw = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.healthConcerns(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadHomePageHealthConcernsUncached(),
+    });
+    return this.storageUrlEnricher.enrichDeep(raw);
+  }
+
+  /** Used by cache refresh after health concern mutations. */
+  async loadHomePageHealthConcernsUncached(): Promise<IPublicHomePageHealthConcern[]> {
+    const concerns = await this.healthConcernsRepository.findActiveHomePageConcerns();
+
+    return concerns.map((concern) => ({
+      refId: concern.refId,
+      name: concern.name,
+      slug: concern.slug,
+      description: concern.description,
+      icon: this.storageUrlEnricher.persist(concern.icon),
+      banner: this.storageUrlEnricher.persist(concern.banner),
+      sortIndex: concern.sortIndex,
     }));
   }
 

@@ -94,6 +94,11 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
   };
 };
 
+/** Available to buy: not admin-marked OOS, and passes stock rules when enabled. */
+const isVariantAvailable = (
+  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock'>,
+): boolean => !(variant.outOfStock ?? false) && isVariantInStock(variant.stock);
+
 const storageMediaKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
   if (!ref) return null;
   if (typeof ref === 'string') {
@@ -304,7 +309,7 @@ export const mapVariantEntityToPublicSearchItem = (
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
     stock: getSalableStockQuantity(variant.stock),
-    inStock: isVariantInStock(variant.stock),
+    inStock: isVariantAvailable(variant),
     outOfStock: variant.outOfStock ?? false,
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
@@ -331,6 +336,8 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
   const productPageUrl = listVariant?.productPageUrl ?? null;
+  const pricing = buildPriceSummary(entity);
+  const outOfStock = listVariant?.outOfStock ?? false;
   return {
   id: entity.id,
   refId: entity.refId,
@@ -351,7 +358,12 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   productNatureRefId: entity.productNature?.refId ?? null,
   productNatureName: entity.productNature?.name ?? null,
   primaryImageUrl: getPrimaryImageUrl(entity),
-  pricing: buildPriceSummary(entity),
+  pricing: {
+    ...pricing,
+    // List UI shows one variant per card — availability matches that variant.
+    inStock: !outOfStock,
+  },
+  outOfStock,
   variantId: listVariant?.id ?? null,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
@@ -452,7 +464,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
       stock: getSalableStockQuantity(variant.stock),
-      inStock: isVariantInStock(variant.stock),
+      inStock: isVariantAvailable(variant),
       outOfStock: variant.outOfStock ?? false,
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,

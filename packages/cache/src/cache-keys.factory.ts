@@ -70,6 +70,8 @@ export const CacheKeys = {
     brandsWeTrustPattern: () => 'homepage:section:brandsWeTrust*',
     expertCuratedBundles: () => 'homepage:section:expertCuratedBundles',
     expertCuratedBundlesPattern: () => 'homepage:section:expertCuratedBundles*',
+    healthConcerns: () => 'homepage:section:healthConcerns',
+    healthConcernsPattern: () => 'homepage:section:healthConcerns*',
     curatedWellnessEssentials: () => 'homepage:section:curatedWellnessEssentials:v2',
     curatedWellnessEssentialsPattern: () => 'homepage:section:curatedWellnessEssentials*',
     homeSections: () => 'homepage:home-sections',
@@ -85,6 +87,13 @@ export const CacheKeys = {
     detail: (slug: string) => `public:products:v3:detail:${slug}`,
     detailPattern: (slug?: string) =>
       slug ? `public:products:v3:detail:${slug}` : 'public:products:v3:detail:*',
+  },
+  publicBundles: {
+    list: (queryHash: string) => `public:bundles:v1:list:${queryHash}`,
+    listPattern: () => 'public:bundles:v1:list:*',
+    detail: (slug: string) => `public:bundles:v1:detail:${slug}`,
+    detailPattern: (slug?: string) =>
+      slug ? `public:bundles:v1:detail:${slug}` : 'public:bundles:v1:detail:*',
   },
   tags: {
     listPattern: () => 'tags:list:*',

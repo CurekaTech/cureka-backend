@@ -28,6 +28,7 @@ type SpecificationFields = Pick<
   | 'importerAddress'
   | 'curatedBy'
   | 'curatedFor'
+  | 'bundleIcon'
 >;
 
 export const mapSpecificationFields = (
@@ -66,4 +67,5 @@ export const mapSpecificationFields = (
   }),
   ...(dto.curatedBy !== undefined && { curatedBy: dto.curatedBy?.trim() || null }),
   ...(dto.curatedFor !== undefined && { curatedFor: dto.curatedFor?.trim() || null }),
+  ...(dto.bundleIcon !== undefined && { bundleIcon: dto.bundleIcon ?? null }),
 });
