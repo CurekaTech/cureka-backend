@@ -33,8 +33,8 @@ export class CheckoutResolverService {
   }
 
   /**
-   * Checkout UX flags: enabled when status is `active` OR value is truthy.
-   * Admin may toggle either field; AdminSettingsService keeps them synced going forward.
+   * Checkout UX flags: `status === active` means enabled (admin toggle).
+   * Truthy `value` is also accepted. Stale `value: "false"` with active status still counts as on.
    */
   private async isBooleanSettingEnabled(key: string): Promise<boolean> {
     const setting = await this.adminSettingsRepository.findByKey(key);
@@ -42,11 +42,26 @@ export class CheckoutResolverService {
       return false;
     }
 
-    if (setting.status === AdminSettingStatus.ACTIVE) {
+    const status = String(setting.status ?? '')
+      .toLowerCase()
+      .trim();
+    if (status === AdminSettingStatus.ACTIVE || status === 'active') {
+      // Keep value in sync so admin UI and older resolvers stay consistent.
+      const normalized = String(setting.value ?? '')
+        .toLowerCase()
+        .trim();
+      if (!['1', 'true', 'yes', 'on'].includes(normalized)) {
+        void this.adminSettingsRepository.updateByKey(key, {
+          value: 'true',
+          updatedBy: 'system',
+        });
+      }
       return true;
     }
 
-    const normalized = (setting.value ?? '').toLowerCase().trim();
+    const normalized = String(setting.value ?? '')
+      .toLowerCase()
+      .trim();
     return ['1', 'true', 'yes', 'on'].includes(normalized);
   }
 }

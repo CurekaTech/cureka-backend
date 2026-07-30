@@ -166,6 +166,23 @@ export class PaymentRequestsService {
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
+    try {
+      return await this.createLegacyModalCheckout(userId, addressId, orderSource);
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(
+          `${error.message} Checkout provider is legacy because gokwikCheckoutEnabled is not active (set status=active / value=true in admin payment settings).`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async createLegacyModalCheckout(
+    userId: string,
+    addressId: string,
+    orderSource?: OrderSource,
+  ) {
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     if (activeGateway === 'cashfree') {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
@@ -225,62 +242,64 @@ export class PaymentRequestsService {
           },
         },
       };
-    } else if (activeGateway === 'payu') {
-      throw new BadRequestException('PayU payment gateway is not fully implemented yet');
-    } else {
-      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
-        userId,
-        addressId,
-        orderSource,
-      );
-
-      const amountPaise = Math.round(Number(totals.totalAmount) * 100);
-      const razorpayOrder = await this.razorpayService.createOrder({
-        amount: amountPaise,
-        currency: paymentRequest.currency,
-        receipt: paymentRequest.refId,
-        notes: {
-          paymentRequestId: paymentRequest.id,
-          paymentRequestRefId: paymentRequest.refId,
-          customerId: userId,
-        },
-      });
-
-      const razorpayOrderId = String(razorpayOrder['id'] ?? '');
-      if (!razorpayOrderId) {
-        throw new BadRequestException('Failed to create Razorpay order');
-      }
-
-      await this.paymentRequestsRepository.updateById(paymentRequest.id, {
-        providerReferenceId: razorpayOrderId,
-        paymentReference: razorpayOrderId,
-        status: PaymentRequestStatus.LINK_GENERATED,
-        updatedBy: userId,
-      });
-
-      const customerName =
-        [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
-        customer.mobileNumber ||
-        'Customer';
-
-      return {
-        gateway: 'razorpay',
-        paymentData: {
-          paymentRequestId: paymentRequest.id,
-          refId: paymentRequest.refId,
-          razorpayOrderId,
-          amount: Number(razorpayOrder['amount'] ?? amountPaise),
-          currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
-          keyId: this.razorpayService.getKeyId(),
-          totalAmount: paymentRequest.totalAmount,
-          customer: {
-            name: customerName,
-            email: customer.email ?? '',
-            contact: parseIndianMobileNumber(customer.mobileNumber!),
-          },
-        },
-      };
     }
+
+    if (activeGateway === 'payu') {
+      throw new BadRequestException('PayU payment gateway is not fully implemented yet');
+    }
+
+    const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
+      userId,
+      addressId,
+      orderSource,
+    );
+
+    const amountPaise = Math.round(Number(totals.totalAmount) * 100);
+    const razorpayOrder = await this.razorpayService.createOrder({
+      amount: amountPaise,
+      currency: paymentRequest.currency,
+      receipt: paymentRequest.refId,
+      notes: {
+        paymentRequestId: paymentRequest.id,
+        paymentRequestRefId: paymentRequest.refId,
+        customerId: userId,
+      },
+    });
+
+    const razorpayOrderId = String(razorpayOrder['id'] ?? '');
+    if (!razorpayOrderId) {
+      throw new BadRequestException('Failed to create Razorpay order');
+    }
+
+    await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+      providerReferenceId: razorpayOrderId,
+      paymentReference: razorpayOrderId,
+      status: PaymentRequestStatus.LINK_GENERATED,
+      updatedBy: userId,
+    });
+
+    const customerName =
+      [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+      customer.mobileNumber ||
+      'Customer';
+
+    return {
+      gateway: 'razorpay',
+      paymentData: {
+        paymentRequestId: paymentRequest.id,
+        refId: paymentRequest.refId,
+        razorpayOrderId,
+        amount: Number(razorpayOrder['amount'] ?? amountPaise),
+        currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
+        keyId: this.razorpayService.getKeyId(),
+        totalAmount: paymentRequest.totalAmount,
+        customer: {
+          name: customerName,
+          email: customer.email ?? '',
+          contact: parseIndianMobileNumber(customer.mobileNumber!),
+        },
+      },
+    };
   }
 
   async verifyModalCheckoutPayment(userId: string, dto: CheckoutVerifyPaymentDto) {
