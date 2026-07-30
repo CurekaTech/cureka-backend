@@ -568,12 +568,12 @@ export class ProductsRepository {
   > {
     if (!tagSlug) return [];
 
-    // Join category via entity relation so TypeORM can resolve property paths
-    // (raw table joins break orderBy/groupBy with "databaseName" errors).
+    // Join category + tags via entity relations so TypeORM can resolve property paths
+    // (raw table joins break orderBy/groupBy with "databaseName" / alias errors).
     const qb = this.repo
       .createQueryBuilder('product')
-      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
-      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .innerJoin('product.tagMappings', 'ptm')
+      .innerJoin('ptm.tag', 'tag')
       .innerJoin('product.category', 'category')
       .select('category.id', 'id')
       .addSelect('category.refId', 'refId')
@@ -637,10 +637,8 @@ export class ProductsRepository {
 
     const qb = this.repo
       .createQueryBuilder('product')
-      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
-      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
-        tagSlug,
-      })
+      .innerJoin('product.tagMappings', 'ptm')
+      .innerJoin('ptm.tag', 'tag')
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
@@ -649,8 +647,8 @@ export class ProductsRepository {
       .leftJoinAndSelect('product.brand', 'brand')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere('product.categoryId = :categoryId', { categoryId })
-      // Quote raw join columns — TypeORM cannot resolve metadata for free-table aliases.
-      .orderBy('"ptm"."sort_order"', 'ASC', 'NULLS LAST')
+      .andWhere('tag.slug = :tagSlug', { tagSlug })
+      .orderBy('ptm.sortOrder', 'ASC', 'NULLS LAST')
       .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
       .take(limit);
 
@@ -672,14 +670,13 @@ export class ProductsRepository {
 
     const rawRows = await this.repo
       .createQueryBuilder('product')
-      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
-      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
-        tagSlug,
-      })
-      .addSelect('"ptm"."sort_order"', 'mapping_sort_order')
+      .innerJoin('product.tagMappings', 'ptm')
+      .innerJoin('ptm.tag', 'tag')
+      .addSelect('ptm.sortOrder', 'mapping_sort_order')
       .where('product.categoryId = :categoryId', { categoryId })
       .andWhere('product.deletedAt IS NULL')
-      .orderBy('"ptm"."sort_order"', 'ASC', 'NULLS LAST')
+      .andWhere('tag.slug = :tagSlug', { tagSlug })
+      .orderBy('ptm.sortOrder', 'ASC', 'NULLS LAST')
       .addOrderBy('product.name', 'ASC')
       .getRawAndEntities();
 
