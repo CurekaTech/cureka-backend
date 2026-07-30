@@ -65,10 +65,15 @@ export class PaymentRequestsService {
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) { }
 
-  async checkoutFromCart(userId: string, addressId: string, orderSource?: OrderSource) {
+  async checkoutFromCart(
+    userId: string,
+    addressId: string,
+    orderSource?: OrderSource,
+    customerToken?: string,
+  ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
     if (checkoutProvider === 'gokwik') {
-      return this.createGokwikCheckoutSession(userId, addressId);
+      return this.createGokwikCheckoutSession(userId, addressId, customerToken);
     }
     if (checkoutProvider === 'shiprocket') {
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
@@ -157,10 +162,15 @@ export class PaymentRequestsService {
   }
 
   /** Storefront checkout modal — separate from payment-link flow. */
-  async checkoutModalFromCart(userId: string, addressId: string, orderSource?: OrderSource) {
+  async checkoutModalFromCart(
+    userId: string,
+    addressId: string,
+    orderSource?: OrderSource,
+    customerToken?: string,
+  ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
     if (checkoutProvider === 'gokwik') {
-      return this.createGokwikCheckoutSession(userId, addressId);
+      return this.createGokwikCheckoutSession(userId, addressId, customerToken);
     }
     if (checkoutProvider === 'shiprocket') {
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
@@ -514,10 +524,15 @@ export class PaymentRequestsService {
     return { paymentRequest, customer, totals };
   }
 
-  private async createGokwikCheckoutSession(userId: string, addressId: string) {
-    const [cart, pricing] = await Promise.all([
+  private async createGokwikCheckoutSession(
+    userId: string,
+    addressId: string,
+    customerToken?: string,
+  ) {
+    const [cart, pricing, customer] = await Promise.all([
       this.cartService.getActiveCartEntity(userId),
       this.checkoutService.validateCheckout(userId, { addressId }),
+      this.usersService.findById(userId),
     ]);
     if (!cart) {
       throw new BadRequestException('Cart not found');
@@ -531,6 +546,21 @@ export class PaymentRequestsService {
       );
     }
 
+    const name =
+      [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+      customer.mobileNumber ||
+      'Customer';
+    const contact = customer.mobileNumber
+      ? parseIndianMobileNumber(customer.mobileNumber)
+      : '';
+
+    const kwikpassEnv = (
+      this.configService.get<string>('gokwik.kwikpass.environment') ?? 'sandbox'
+    )
+      .toLowerCase()
+      .trim();
+    const environment = kwikpassEnv === 'production' ? 'production' : 'sandbox';
+
     return {
       gateway: 'gokwik',
       checkoutProvider: 'gokwik',
@@ -540,6 +570,13 @@ export class PaymentRequestsService {
         merchantId,
         amount: pricing.grandTotal,
         currency: 'INR',
+        environment,
+        ...(customerToken ? { customerToken } : {}),
+        customer: {
+          name,
+          email: customer.email ?? '',
+          contact,
+        },
       },
     };
   }
