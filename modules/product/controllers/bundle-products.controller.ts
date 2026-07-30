@@ -41,7 +41,7 @@ export class BundleProductsController {
   @ApiOperation({
     summary: 'Create bundle product and submit for review',
     description:
-      'productType is forced to `bundle`. Provide bundleItems (≥1) and pricing via top-level mrp/sellingPrice/stock/sku (or a single variants[] entry). Same as products: description, healthConcernRefIds, wellnessGoalRefIds, manufacturer/packer/countryOfOrigin/components, commerce flags (subscriptionEnabled, codAvailable, emiAvailable, returnAllowed/returnWindowDays/returnPolicy, replaceAllowed/replaceWindowDays), expiryDate/expiresIn/expiresInMonths, media, SEO. Optional curatedBy / curatedFor. Categories via categories[]. SKU auto-generated if omitted.',
+      'productType is forced to `bundle`. Provide bundleItems (≥1) and pricing via top-level mrp/sellingPrice/stock/sku (or a single variants[] entry). Same as products: description, healthConcernRefIds, wellnessGoalRefIds, manufacturer/packer/countryOfOrigin/components, commerce flags (subscriptionEnabled, codAvailable, emiAvailable, returnAllowed/returnWindowDays/returnPolicy, replaceAllowed/replaceWindowDays), expiryDate/expiresIn/expiresInMonths, media, SEO. Optional curatedBy / curatedFor. Categories via categories[]. SKU auto-generated as CAT/BRA/NNN if omitted (e.g. SUP/NES/001).',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Bundle product created and submitted for review')

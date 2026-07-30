@@ -8,6 +8,7 @@ import { IHomepageBannersBundle, IStorefrontBannerItem } from '@modules/master/i
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
+import { isHomepageShopByHierarchyLevel } from '@modules/master/constants/homepage-shop-by-hierarchy.constant';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
@@ -372,6 +373,7 @@ export class HomepageService {
   }
 
   private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicCategoryTree[] {
+    const byId = new Map(categories.map((category) => [category.id, category]));
     const childrenByParentId = new Map<string, CategoryEntity[]>();
 
     for (const category of categories) {
@@ -384,6 +386,18 @@ export class HomepageService {
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
 
+    const buildAncestorSlugPath = (entity: CategoryEntity): string[] => {
+      const slugs: string[] = [];
+      let parentId = entity.parentCategoryId;
+      while (parentId) {
+        const parent = byId.get(parentId);
+        if (!parent) break;
+        slugs.unshift(parent.slug);
+        parentId = parent.parentCategoryId;
+      }
+      return slugs;
+    };
+
     const buildNode = (entity: CategoryEntity, parentSlugPath: string[] = []): IPublicCategoryTree => {
       const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
         buildNode(child, [...parentSlugPath, entity.slug]),
@@ -394,8 +408,8 @@ export class HomepageService {
     return sortCategories(
       categories.filter(
         (category) =>
-          category.isInShopBy && category.hierarchyLevel === CategoryHierarchyLevel.ROOT,
+          category.isInShopBy && isHomepageShopByHierarchyLevel(category.hierarchyLevel),
       ),
-    ).map((entity) => buildNode(entity));
+    ).map((entity) => buildNode(entity, buildAncestorSlugPath(entity)));
   }
 }

@@ -24,7 +24,7 @@ This guide explains how to build the Bundle Product admin UI. Bundle products re
 | Manufacturer / packer / country | Same as products (`manufacturerRefId`, `packerRefId`, `countryOfOriginRefId`) |
 | Components | Same as products (`components`) |
 | Commerce flags | Same as products — subscription, COD, EMI, return, replacement |
-| SKU | Unique across all variants; **auto-generated** if omitted (`BND-…`) |
+| SKU | Unique across all variants; **auto-generated** if omitted as `CAT/BRA/NNN` (first 3 letters of category + brand + sequence, e.g. `SUP/NES/001`) |
 | Permissions | Same as products (`SUPER_ADMIN` / `ADMIN`) |
 
 `productType` is always `bundle` on these endpoints (forced by the API).
@@ -62,7 +62,7 @@ This guide explains how to build the Bundle Product admin UI. Bundle products re
 | Expiry date | `expiryDate` | `dd-mm-yyyy`; applied to pricing variant |
 | Images | `media[]` (+ multipart files like products) | Bundle images |
 | SEO | `metaTitle`, `metaDescription`, `metaKeywords` | Same as products |
-| SKU | `sku` | Optional; backend generates unique SKU if omitted |
+| SKU | `sku` | Optional; backend generates `CAT/BRA/NNN` if omitted |
 
 ### Add (bundle-only)
 
@@ -114,12 +114,11 @@ Send either top-level shortcuts **or** a single `variants[0]` entry (backend sto
   "mrp": 1999,
   "sellingPrice": 1499,
   "discountPercentage": 25,
-  "stock": 100,
-  "sku": "BND-SUMMER-KIT-001"
+  "stock": 100
 }
 ```
 
-Do **not** auto-sum child product prices or stock. SKU must be unique across the catalog.
+Omit `sku` to auto-generate as `CAT/BRA/NNN` (e.g. `SUP/NES/001`). If you send `sku`, it must be unique across the catalog.
 
 ---
 
@@ -150,7 +149,6 @@ Do **not** auto-sum child product prices or stock. SKU must be unique across the
   "mrp": 2499,
   "sellingPrice": 1999,
   "stock": 100,
-  "sku": "BND-SUMMER-KIT-001",
   "expiresIn": 365,
   "expiresInMonths": 12,
   "expiryDate": "31-12-2027",
@@ -225,7 +223,7 @@ Notes:
   ],
   "variants": [
     {
-      "sku": "BND-SUMMER-KIT-001",
+      "sku": "SUP/NES/001",
       "mrp": 2499,
       "sellingPrice": 1999,
       "stock": 100
