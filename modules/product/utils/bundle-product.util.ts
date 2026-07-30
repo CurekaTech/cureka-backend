@@ -3,6 +3,51 @@ import { CreateProductDto } from '../dto/product.dto';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { ProductType } from '../enums/product-type.enum';
 
+/** Generates a unique-ish bundle SKU when the client omits one. */
+export const generateBundleSku = (name?: string): string => {
+  const base =
+    (name ?? 'bundle')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'BUNDLE';
+  return `BND-${base}-${Date.now().toString(36).toUpperCase()}`;
+};
+
+/**
+ * Ensures bundle payloads have a SKU before DTO validation
+ * (CreateVariantDto.sku is required; top-level sku is optional).
+ */
+export const ensureBundleSkuInPayload = (
+  payload: Record<string, unknown>,
+): Record<string, unknown> => {
+  const name = typeof payload.name === 'string' ? payload.name : 'bundle';
+  const topSku = typeof payload.sku === 'string' ? payload.sku.trim() : '';
+  const generated = topSku || generateBundleSku(name);
+
+  if (Array.isArray(payload.variants) && payload.variants.length > 0) {
+    const variants = payload.variants.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+      const variant = { ...(item as Record<string, unknown>) };
+      const sku = typeof variant.sku === 'string' ? variant.sku.trim() : '';
+      if (!sku) {
+        variant.sku = generated;
+      }
+      return variant;
+    });
+    return {
+      ...payload,
+      sku: topSku || generated,
+      variants,
+    };
+  }
+
+  return {
+    ...payload,
+    sku: generated,
+  };
+};
+
 /**
  * Bundle products use a single internal pricing variant for MRP / selling price / stock
  * (same model as simple products). Frontend may send either `variants[0]` or top-level
@@ -45,9 +90,11 @@ export const ensureBundlePricingVariants = (
     if (variant.attributes?.length) {
       throw new BadRequestException('Bundle pricing variants cannot have attributes');
     }
+    const sku = variant.sku?.trim() || dto.sku?.trim() || generateBundleSku(dto.name);
     return [
       {
         ...variant,
+        sku,
         expiryDate: variant.expiryDate ?? dto.expiryDate,
         expiresIn: variant.expiresIn ?? dto.expiresIn,
         description: variant.description ?? dto.description,
@@ -61,13 +108,7 @@ export const ensureBundlePricingVariants = (
     );
   }
 
-  const sku =
-    dto.sku?.trim() ||
-    `BND-${(dto.name ?? 'bundle')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 40)}-${Date.now().toString(36).toUpperCase()}`;
+  const sku = dto.sku?.trim() || generateBundleSku(dto.name);
 
   return [
     {
