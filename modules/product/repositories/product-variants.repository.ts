@@ -460,6 +460,10 @@ export class ProductVariantsRepository {
     await this.repo.update({ id: variantId }, { stock });
   }
 
+  /**
+   * Sets stock on all non-deleted variants for the given products and clears
+   * outOfStock (restores in-stock / reverses bulk mark-out-of-stock).
+   */
   async setStockByProductIds(
     updates: Array<{ productId: string; stock: number }>,
   ): Promise<Map<string, number>> {
@@ -476,7 +480,7 @@ export class ProductVariantsRepository {
     for (const variant of variants) {
       const stock = stockByProductId.get(variant.productId);
       if (stock === undefined) continue;
-      await this.repo.update({ id: variant.id }, { stock });
+      await this.repo.update({ id: variant.id }, { stock, outOfStock: false });
       result.set(variant.productId, (result.get(variant.productId) ?? 0) + 1);
     }
 
