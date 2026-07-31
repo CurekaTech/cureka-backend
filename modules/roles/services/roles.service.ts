@@ -4,8 +4,9 @@ import {
   buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
+import { MasterListQueryDto } from '@modules/master/dto/master-list-query.dto';
+import { MasterListStatusFilter } from '@modules/master/enums/master-list-status-filter.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CreateRoleDto, UpdateRoleDto, UpdateRoleStatusDto } from '../dto/role.dto';
 import { IRole } from '../interfaces/role.interface';
@@ -53,9 +54,16 @@ export class RolesService {
     return mapRoleEntityToResponse(entity);
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IRole>> {
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IRole>> {
     const paginationOptions = buildPaginationOptions(query);
-    const { data, total } = await this.rolesRepository.findAllPaginated(paginationOptions);
+    const status =
+      query.status && query.status !== MasterListStatusFilter.ALL
+        ? (query.status as MasterStatus)
+        : undefined;
+    const { data, total } = await this.rolesRepository.findAllPaginated({
+      ...paginationOptions,
+      status,
+    });
     return buildPaginatedResult(mapRoleEntitiesToResponse(data), total, paginationOptions);
   }
 

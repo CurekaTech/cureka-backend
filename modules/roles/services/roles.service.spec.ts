@@ -53,6 +53,7 @@ describe('RolesService', () => {
         search: undefined,
         sortBy: undefined,
         sortOrder: 'DESC',
+        status: undefined,
       });
 
       expect(result.data).toHaveLength(1);
