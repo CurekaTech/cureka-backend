@@ -118,38 +118,6 @@ export class WellnessGoalsRepository {
     return { data, total };
   }
 
-  /** Active wellness goals for public view-all (not limited to inHomePage). */
-  async findPublicPaginated(
-    options: PaginationOptions,
-  ): Promise<{ data: WellnessGoalEntity[]; total: number }> {
-    const { skip, take } = buildSkipTake(options.page, options.limit);
-
-    const SORTABLE_COLUMNS: Record<string, string> = {
-      createdAt: 'wellnessGoal.createdAt',
-      name: 'wellnessGoal.name',
-    };
-    const sortColumn =
-      (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'wellnessGoal.name';
-    const sortOrder = options.sortOrder ?? 'ASC';
-
-    const qb = this.repo
-      .createQueryBuilder('wellnessGoal')
-      .where('wellnessGoal.status = :status', { status: MasterStatus.ACTIVE })
-      .orderBy(sortColumn, sortOrder)
-      .skip(skip)
-      .take(take);
-
-    if (options.search) {
-      qb.andWhere(
-        '(wellnessGoal.name ILIKE :search OR wellnessGoal.refId ILIKE :search)',
-        { search: `%${options.search}%` },
-      );
-    }
-
-    const [data, total] = await qb.getManyAndCount();
-    return { data, total };
-  }
-
   async findCursorPaginated(
     options: MasterCursorStatusOptions,
   ): Promise<CursorPaginatedResult<WellnessGoalEntity>> {
