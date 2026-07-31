@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
@@ -25,6 +37,7 @@ export class OrdersController {
   })
   @ResponseMessage('Checkout validated successfully')
   @Post('checkout')
+  @HttpCode(HttpStatus.OK)
   checkout(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: CheckoutDto) {
     return this.ordersService.checkout(user.sub, dto);
   }
@@ -32,6 +45,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Place order from active cart' })
   @ResponseMessage('Order placed successfully')
   @Post()
+  @HttpCode(HttpStatus.OK)
   placeOrder(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: PlaceOrderDto) {
     return this.ordersService.placeOrder(user.sub, dto);
   }
@@ -39,6 +53,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'List my orders' })
   @ResponseMessage('Orders fetched successfully')
   @Get()
+  @HttpCode(HttpStatus.OK)
   findMyOrders(@CurrentSessionUser() user: IUserSessionContext, @Query() query: OrderQueryDto) {
     return this.ordersService.findMyOrders(user.sub, query);
   }
@@ -46,6 +61,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Get my order by id' })
   @ResponseMessage('Order fetched successfully')
   @Get(':id')
+  @HttpCode(HttpStatus.OK)
   findOne(@CurrentSessionUser() user: IUserSessionContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.findOne(user.sub, id);
   }
@@ -53,6 +69,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Reorder items from a past order into the active cart' })
   @ResponseMessage('Items added to cart successfully')
   @Post(':id/reorder')
+  @HttpCode(HttpStatus.OK)
   reorder(@CurrentSessionUser() user: IUserSessionContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.reorder(user.sub, id);
   }
@@ -60,6 +77,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Cancel my order' })
   @ResponseMessage('Order cancelled successfully')
   @Patch(':id/cancel')
+  @HttpCode(HttpStatus.OK)
   cancel(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
