@@ -1,7 +1,6 @@
 import { ShipmentEntity } from '../entities/shipment.entity';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
 import { mapShipmentToResponse } from './shipment.mapper';
-import { ShipmentEventEntity } from '../entities/shipment-event.entity';
 
 describe('ShipmentMapper', () => {
   const baseShipment: Partial<ShipmentEntity> = {
@@ -21,7 +20,7 @@ describe('ShipmentMapper', () => {
     events: [],
   };
 
-  it('should map CONFIRMED shipment correctly', () => {
+  it('should map CONFIRMED shipment with static flow (no Ready to Pack)', () => {
     const shipment = {
       ...baseShipment,
       shipmentStatus: ShipmentStatus.CONFIRMED,
@@ -30,7 +29,13 @@ describe('ShipmentMapper', () => {
     const response = mapShipmentToResponse(shipment);
 
     expect(response.currentStatusLabel).toBe('Order Confirmed');
-    expect(response.statusFlow).toHaveLength(5);
+    expect(response.statusFlow).toHaveLength(4);
+    expect(response.statusFlow.map((s) => s.label)).toEqual([
+      'Order Confirmed',
+      'Dispatched',
+      'Out for Delivery',
+      'Delivered',
+    ]);
     expect(response.statusFlow[0]).toEqual({
       key: 'confirmed',
       label: 'Order Confirmed',
@@ -40,10 +45,9 @@ describe('ShipmentMapper', () => {
     expect(response.statusFlow[1].status).toBe('pending');
     expect(response.statusFlow[2].status).toBe('pending');
     expect(response.statusFlow[3].status).toBe('pending');
-    expect(response.statusFlow[4].status).toBe('pending');
   });
 
-  it('should map PROCESSING shipment correctly', () => {
+  it('should map PROCESSING as Order Confirmed (no Ready to Pack)', () => {
     const shipment = {
       ...baseShipment,
       shipmentStatus: ShipmentStatus.PROCESSING,
@@ -51,31 +55,25 @@ describe('ShipmentMapper', () => {
 
     const response = mapShipmentToResponse(shipment);
 
-    expect(response.currentStatusLabel).toBe('Ready to Pack');
+    expect(response.currentStatusLabel).toBe('Order Confirmed');
+    expect(response.statusFlow).toHaveLength(4);
+    expect(response.statusFlow.find((s) => s.label === 'Ready to Pack')).toBeUndefined();
     expect(response.statusFlow[0].status).toBe('completed');
-    expect(response.statusFlow[1].status).toBe('current');
-    expect(response.statusFlow[2].status).toBe('pending');
+    expect(response.statusFlow[1].status).toBe('pending');
   });
 
   it('should map IN_TRANSIT shipment correctly', () => {
-    const event = {
-      status: 'In Transit',
-      happenedAt: new Date('2026-07-17T07:00:00.000Z'),
-    } as ShipmentEventEntity;
-
     const shipment = {
       ...baseShipment,
       shipmentStatus: ShipmentStatus.IN_TRANSIT,
-      events: [event],
     } as ShipmentEntity;
 
     const response = mapShipmentToResponse(shipment);
 
     expect(response.currentStatusLabel).toBe('Dispatched');
     expect(response.statusFlow[0].status).toBe('completed');
-    expect(response.statusFlow[1].status).toBe('completed');
-    expect(response.statusFlow[2].status).toBe('current');
-    expect(response.statusFlow[2].happenedAt?.toISOString()).toBe(event.happenedAt!.toISOString());
+    expect(response.statusFlow[1].status).toBe('current');
+    expect(response.statusFlow[2].status).toBe('pending');
     expect(response.statusFlow[3].status).toBe('pending');
   });
 
@@ -88,7 +86,7 @@ describe('ShipmentMapper', () => {
     const response = mapShipmentToResponse(shipment);
 
     expect(response.currentStatusLabel).toBe('Cancelled');
-    expect(response.statusFlow).toHaveLength(2); // Placed, Cancelled
+    expect(response.statusFlow).toHaveLength(2);
     expect(response.statusFlow[1].key).toBe('cancelled');
     expect(response.statusFlow[1].status).toBe('completed');
   });
@@ -102,8 +100,8 @@ describe('ShipmentMapper', () => {
     const response = mapShipmentToResponse(shipment);
 
     expect(response.currentStatusLabel).toBe('Returned to Origin');
-    expect(response.statusFlow).toHaveLength(4); // Placed, Packed, Dispatched, RTO
-    expect(response.statusFlow[3].key).toBe('rto');
-    expect(response.statusFlow[3].status).toBe('completed');
+    expect(response.statusFlow).toHaveLength(3);
+    expect(response.statusFlow.map((s) => s.key)).toEqual(['confirmed', 'dispatched', 'rto']);
+    expect(response.statusFlow[2].status).toBe('completed');
   });
 });
