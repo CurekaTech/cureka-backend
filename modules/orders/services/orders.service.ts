@@ -25,6 +25,10 @@ import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
 import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
+import {
+  mapDefaultShipmentResponse,
+  mapShipmentToResponse,
+} from '@modules/shipping/mappers/shipment.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
@@ -603,14 +607,43 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException(`Order ${idOrRefId} not found`);
     }
-    return mapOrderToAdminResponse(order, this.storageUrlEnricher);
+
+    const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
+      order.id,
+      order.orderNumber,
+    );
+    const shipmentResponse = shipment
+      ? mapShipmentToResponse(shipment, {
+          shipwayStatus,
+          orderStatus: order.orderStatus,
+        })
+      : mapDefaultShipmentResponse(order);
+
+    return mapOrderToAdminResponse(
+      { ...order, shipment, shipmentResponse, shipwayStatus },
+      this.storageUrlEnricher,
+    );
   }
 
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    const shipment = await this.shippingService.getShipmentByOrderId(id);
-    return mapOrderToResponse({ ...order, shipment }, this.storageUrlEnricher);
+
+    const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
+      id,
+      order.orderNumber,
+    );
+    const shipmentResponse = shipment
+      ? mapShipmentToResponse(shipment, {
+          shipwayStatus,
+          orderStatus: order.orderStatus,
+        })
+      : mapDefaultShipmentResponse(order);
+
+    return mapOrderToResponse(
+      { ...order, shipment, shipmentResponse, shipwayStatus },
+      this.storageUrlEnricher,
+    );
   }
 
   /**

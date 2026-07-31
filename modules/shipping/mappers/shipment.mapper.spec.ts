@@ -1,6 +1,7 @@
+import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { ShipmentEntity } from '../entities/shipment.entity';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
-import { mapShipmentToResponse } from './shipment.mapper';
+import { mapDefaultShipmentResponse, mapShipmentToResponse } from './shipment.mapper';
 
 describe('ShipmentMapper', () => {
   const baseShipment: Partial<ShipmentEntity> = {
@@ -20,15 +21,19 @@ describe('ShipmentMapper', () => {
     events: [],
   };
 
-  it('should map CONFIRMED shipment with static flow (no Ready to Pack)', () => {
+  it('when shipwayStatus=false, uses order status for default 4-step flow', () => {
     const shipment = {
       ...baseShipment,
-      shipmentStatus: ShipmentStatus.CONFIRMED,
+      shipmentStatus: ShipmentStatus.IN_TRANSIT,
     } as ShipmentEntity;
 
-    const response = mapShipmentToResponse(shipment);
+    const response = mapShipmentToResponse(shipment, {
+      shipwayStatus: false,
+      orderStatus: OrderStatus.SHIPPED,
+    });
 
-    expect(response.currentStatusLabel).toBe('Order Confirmed');
+    expect(response.shipwayStatus).toBe(false);
+    expect(response.currentStatusLabel).toBe('Dispatched');
     expect(response.statusFlow).toHaveLength(4);
     expect(response.statusFlow.map((s) => s.label)).toEqual([
       'Order Confirmed',
@@ -36,72 +41,68 @@ describe('ShipmentMapper', () => {
       'Out for Delivery',
       'Delivered',
     ]);
-    expect(response.statusFlow[0]).toEqual({
-      key: 'confirmed',
-      label: 'Order Confirmed',
-      status: 'completed',
-      happenedAt: shipment.pushedAt,
-    });
-    expect(response.statusFlow[1].status).toBe('pending');
-    expect(response.statusFlow[2].status).toBe('pending');
-    expect(response.statusFlow[3].status).toBe('pending');
-  });
-
-  it('should map PROCESSING as Order Confirmed (no Ready to Pack)', () => {
-    const shipment = {
-      ...baseShipment,
-      shipmentStatus: ShipmentStatus.PROCESSING,
-    } as ShipmentEntity;
-
-    const response = mapShipmentToResponse(shipment);
-
-    expect(response.currentStatusLabel).toBe('Order Confirmed');
-    expect(response.statusFlow).toHaveLength(4);
-    expect(response.statusFlow.find((s) => s.label === 'Ready to Pack')).toBeUndefined();
-    expect(response.statusFlow[0].status).toBe('completed');
-    expect(response.statusFlow[1].status).toBe('pending');
-  });
-
-  it('should map IN_TRANSIT shipment correctly', () => {
-    const shipment = {
-      ...baseShipment,
-      shipmentStatus: ShipmentStatus.IN_TRANSIT,
-    } as ShipmentEntity;
-
-    const response = mapShipmentToResponse(shipment);
-
-    expect(response.currentStatusLabel).toBe('Dispatched');
     expect(response.statusFlow[0].status).toBe('completed');
     expect(response.statusFlow[1].status).toBe('current');
     expect(response.statusFlow[2].status).toBe('pending');
     expect(response.statusFlow[3].status).toBe('pending');
   });
 
-  it('should map CANCELLED shipment correctly', () => {
+  it('when shipwayStatus=true, uses Shipway shipment status', () => {
     const shipment = {
       ...baseShipment,
-      shipmentStatus: ShipmentStatus.CANCELLED,
+      shipmentStatus: ShipmentStatus.IN_TRANSIT,
+      shipwayRawStatus: 'In Transit',
     } as ShipmentEntity;
 
-    const response = mapShipmentToResponse(shipment);
+    const response = mapShipmentToResponse(shipment, {
+      shipwayStatus: true,
+      orderStatus: OrderStatus.CONFIRMED,
+    });
 
-    expect(response.currentStatusLabel).toBe('Cancelled');
-    expect(response.statusFlow).toHaveLength(2);
-    expect(response.statusFlow[1].key).toBe('cancelled');
-    expect(response.statusFlow[1].status).toBe('completed');
+    expect(response.shipwayStatus).toBe(true);
+    expect(response.currentStatusLabel).toBe('Dispatched');
+    expect(response.statusFlow[1].status).toBe('current');
   });
 
-  it('should map RTO shipment correctly', () => {
-    const shipment = {
-      ...baseShipment,
-      shipmentStatus: ShipmentStatus.RTO,
-    } as ShipmentEntity;
+  it('maps default response from order CONFIRMED status', () => {
+    const response = mapDefaultShipmentResponse({
+      id: 'order-123',
+      orderNumber: 'ORD12345',
+      orderStatus: OrderStatus.CONFIRMED,
+      createdAt: new Date('2026-07-17T06:00:00.000Z'),
+    });
 
-    const response = mapShipmentToResponse(shipment);
+    expect(response.shipwayStatus).toBe(false);
+    expect(response.currentStatusLabel).toBe('Order Confirmed');
+    expect(response.statusFlow).toHaveLength(4);
+    expect(response.statusFlow[0].status).toBe('completed');
+    expect(response.statusFlow[1].status).toBe('pending');
+    expect(response.awbNumber).toBeNull();
+  });
 
-    expect(response.currentStatusLabel).toBe('Returned to Origin');
-    expect(response.statusFlow).toHaveLength(3);
-    expect(response.statusFlow.map((s) => s.key)).toEqual(['confirmed', 'dispatched', 'rto']);
-    expect(response.statusFlow[2].status).toBe('completed');
+  it('maps default response from order DELIVERED status', () => {
+    const response = mapDefaultShipmentResponse({
+      id: 'order-123',
+      orderNumber: 'ORD12345',
+      orderStatus: OrderStatus.DELIVERED,
+      createdAt: new Date('2026-07-17T06:00:00.000Z'),
+    });
+
+    expect(response.shipwayStatus).toBe(false);
+    expect(response.currentStatusLabel).toBe('Delivered');
+    expect(response.statusFlow.every((s) => s.status === 'completed')).toBe(true);
+  });
+
+  it('maps CANCELLED order into confirmed + cancelled steps', () => {
+    const response = mapDefaultShipmentResponse({
+      id: 'order-123',
+      orderNumber: 'ORD12345',
+      orderStatus: OrderStatus.CANCELLED,
+      createdAt: new Date('2026-07-17T06:00:00.000Z'),
+    });
+
+    expect(response.shipwayStatus).toBe(false);
+    expect(response.currentStatusLabel).toBe('Cancelled');
+    expect(response.statusFlow.map((s) => s.key)).toEqual(['confirmed', 'cancelled']);
   });
 });
