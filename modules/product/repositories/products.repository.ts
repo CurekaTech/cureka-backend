@@ -567,6 +567,9 @@ export class ProductsRepository {
    * Returns root categories that contain at least one product carrying the given tag
    * (e.g. "bestsellers"), ordered by bestseller_sort_index ASC NULLS LAST, then name.
    * Used by homepage Best Sellers tabs and CMS indexing.
+   *
+   * Uses a raw SQL query (not ProductEntity QB joins) to avoid TypeORM relation-metadata
+   * crashes (`databaseName` undefined) seen on homepage sections.
    */
   async findRootCategoriesWithTag(
     tagSlug: string,
@@ -583,63 +586,63 @@ export class ProductsRepository {
   > {
     if (!tagSlug) return [];
 
-    const qb = this.repo
-      .createQueryBuilder('product')
-      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
-      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
-      .innerJoin('categories', 'category', 'category.id = product.category_id')
-      .select('category.id', 'id')
-      .addSelect('category.ref_id', 'refId')
-      .addSelect('category.name', 'name')
-      .addSelect('category.slug', 'slug')
-      .addSelect('category.bestseller_sort_index', 'bestsellerSortIndex')
-      .addSelect('COUNT(DISTINCT product.id)', 'productCount')
-      .where('product.deleted_at IS NULL')
-      .andWhere('tag.slug = :tagSlug', { tagSlug })
-      .andWhere('category.deleted_at IS NULL')
-      .groupBy('category.id')
-      .addGroupBy('category.ref_id')
-      .addGroupBy('category.name')
-      .addGroupBy('category.slug')
-      .addGroupBy('category.bestseller_sort_index')
-      .orderBy('category.bestseller_sort_index', 'ASC', 'NULLS LAST')
-      .addOrderBy('category.name', 'ASC');
-
+    const params: unknown[] = [tagSlug];
+    let publishedClause = '';
     if (options?.publishedOnly) {
-      qb.andWhere('product.status = :status', { status: ProductStatus.PUBLISHED }).andWhere(
-        'category.status = :categoryStatus',
-        { categoryStatus: 'active' },
-      );
+      params.push(ProductStatus.PUBLISHED, 'active');
+      publishedClause = `AND p.status = $2 AND c.status = $3`;
     }
 
+    let limitClause = '';
     if (options?.limit && options.limit > 0) {
-      qb.limit(options.limit);
+      params.push(options.limit);
+      limitClause = `LIMIT $${params.length}`;
     }
 
-    const rows = await qb.getRawMany<{
-      id: string;
-      refId: string;
-      name: string;
-      slug: string;
-      bestsellerSortIndex: string | number | null;
-      productCount: string;
-    }>();
+    const rows = await this.repo.manager.query(
+      `
+      SELECT
+        c.id AS id,
+        c.ref_id AS "refId",
+        c.name AS name,
+        c.slug AS slug,
+        c.bestseller_sort_index AS "bestsellerSortIndex",
+        COUNT(DISTINCT p.id)::int AS "productCount"
+      FROM categories c
+      INNER JOIN products p
+        ON p.category_id = c.id
+       AND p.deleted_at IS NULL
+      INNER JOIN product_tag_mappings ptm
+        ON ptm.product_id = p.id
+      INNER JOIN product_tags t
+        ON t.id = ptm.tag_id
+       AND t.slug = $1
+      WHERE c.deleted_at IS NULL
+        ${publishedClause}
+      GROUP BY c.id, c.ref_id, c.name, c.slug, c.bestseller_sort_index
+      ORDER BY c.bestseller_sort_index ASC NULLS LAST, c.name ASC
+      ${limitClause}
+      `,
+      params,
+    );
 
-    return rows.map((row) => ({
-      id: row.id,
-      refId: row.refId,
-      name: row.name,
-      slug: row.slug,
+    return (rows as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      refId: String(row.refId),
+      name: String(row.name),
+      slug: String(row.slug),
       bestsellerSortIndex:
         row.bestsellerSortIndex === null || row.bestsellerSortIndex === undefined
           ? null
           : Number(row.bestsellerSortIndex),
-      productCount: parseInt(row.productCount, 10) || 0,
+      productCount: Number(row.productCount) || 0,
     }));
   }
 
   /**
    * Published products in a category with the given tag, ordered by tag mapping sort_order.
+   * Reuses findPublishedPaginated (same path as GET /public/homepage/best-sellers) to avoid
+   * fragile raw join / relation metadata failures that broke homepage sections.
    */
   async findPublishedByCategoryAndTag(
     categoryId: string,
@@ -648,29 +651,15 @@ export class ProductsRepository {
   ): Promise<ProductEntity[]> {
     if (!categoryId || !tagSlug || limit <= 0) return [];
 
-    const qb = this.repo
-      .createQueryBuilder('product')
-      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
-      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
-        tagSlug,
-      })
-      .leftJoinAndSelect('product.productNature', 'productNature')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.subCategory', 'subCategory')
-      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
-      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
-      .leftJoinAndSelect('product.brand', 'brand')
-      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.category_id = :categoryId', { categoryId })
-      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
-      .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
-      .take(limit);
-
-    const products = await qb.getMany();
-    if (products.length) {
-      await this.attachPublicListRelations(products);
-    }
-    return products;
+    const { data } = await this.findPublishedPaginated({
+      page: 1,
+      limit,
+      categoryId,
+      tagSlug,
+      sortBy: 'bestsellerIndex',
+      sortOrder: 'ASC',
+    });
+    return data;
   }
 
   /**
