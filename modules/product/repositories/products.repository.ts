@@ -59,6 +59,11 @@ export interface PublicProductListOptions {
   wellnessGoalId?: string;
   variantSlug?: string;
   tagSlug?: string;
+  /**
+   * When true, keep all filtered products but pin `bestsellers`-tagged ones first
+   * (by product_tag_mappings.sort_order), then the rest.
+   */
+  prioritizeBestsellers?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
   minPrice?: number;
   maxPrice?: number;
@@ -377,6 +382,7 @@ export class ProductsRepository {
   /**
    * Resolve a published product by variant product_page_url
    * (legacy Cureka path such as `/shop/.../product-name/`).
+   * Matches with/without trailing slash and ignores surrounding whitespace.
    */
   async findPublishedByProductPageUrl(
     pageUrl: string,
@@ -392,11 +398,20 @@ export class ProductsRepository {
       return null;
     }
 
+    const normalized = candidates.map((value) => value.replace(/\/+$/, '') || value);
+
     const match = await this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoin('variant.product', 'product')
-      .where('variant.product_page_url IN (:...candidates)', { candidates })
+      .where(
+        `(
+          variant.productPageUrl IN (:...candidates)
+          OR TRIM(BOTH FROM variant.productPageUrl) IN (:...candidates)
+          OR RTRIM(TRIM(BOTH FROM variant.productPageUrl), '/') IN (:...normalized)
+        )`,
+        { candidates, normalized },
+      )
       .andWhere('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
@@ -568,28 +583,26 @@ export class ProductsRepository {
   > {
     if (!tagSlug) return [];
 
-    // Join category + tags via entity relations so TypeORM can resolve property paths
-    // (raw table joins break orderBy/groupBy with "databaseName" / alias errors).
     const qb = this.repo
       .createQueryBuilder('product')
-      .innerJoin('product.tagMappings', 'ptm')
-      .innerJoin('ptm.tag', 'tag')
-      .innerJoin('product.category', 'category')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
+      .innerJoin('categories', 'category', 'category.id = product.category_id')
       .select('category.id', 'id')
-      .addSelect('category.refId', 'refId')
+      .addSelect('category.ref_id', 'refId')
       .addSelect('category.name', 'name')
       .addSelect('category.slug', 'slug')
-      .addSelect('category.bestsellerSortIndex', 'bestsellerSortIndex')
+      .addSelect('category.bestseller_sort_index', 'bestsellerSortIndex')
       .addSelect('COUNT(DISTINCT product.id)', 'productCount')
-      .where('product.deletedAt IS NULL')
+      .where('product.deleted_at IS NULL')
       .andWhere('tag.slug = :tagSlug', { tagSlug })
-      .andWhere('category.deletedAt IS NULL')
+      .andWhere('category.deleted_at IS NULL')
       .groupBy('category.id')
-      .addGroupBy('category.refId')
+      .addGroupBy('category.ref_id')
       .addGroupBy('category.name')
       .addGroupBy('category.slug')
-      .addGroupBy('category.bestsellerSortIndex')
-      .orderBy('category.bestsellerSortIndex', 'ASC', 'NULLS LAST')
+      .addGroupBy('category.bestseller_sort_index')
+      .orderBy('category.bestseller_sort_index', 'ASC', 'NULLS LAST')
       .addOrderBy('category.name', 'ASC');
 
     if (options?.publishedOnly) {
@@ -635,44 +648,29 @@ export class ProductsRepository {
   ): Promise<ProductEntity[]> {
     if (!categoryId || !tagSlug || limit <= 0) return [];
 
-    // Avoid getMany()+take()+orderBy(join col): TypeORM wraps a DISTINCT subquery and
-    // fails with "distinctAlias.ptm_sort_order does not exist".
-    const idRows = await this.repo
+    const qb = this.repo
       .createQueryBuilder('product')
-      .innerJoin('product.tagMappings', 'ptm')
-      .innerJoin('ptm.tag', 'tag')
-      .select('product.id', 'id')
-      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.categoryId = :categoryId', { categoryId })
-      .andWhere('tag.slug = :tagSlug', { tagSlug })
-      .orderBy('ptm.sortOrder', 'ASC', 'NULLS LAST')
-      .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
-      .limit(limit)
-      .getRawMany<{ id: string }>();
-
-    const productIds = idRows.map((row) => row.id).filter(Boolean);
-    if (!productIds.length) return [];
-
-    const products = await this.repo
-      .createQueryBuilder('product')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
+        tagSlug,
+      })
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
       .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
       .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
-      .where('product.id IN (:...productIds)', { productIds })
-      .getMany();
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.category_id = :categoryId', { categoryId })
+      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
+      .addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .take(limit);
 
-    const byId = new Map(products.map((product) => [product.id, product]));
-    const ordered = productIds
-      .map((id) => byId.get(id))
-      .filter((product): product is ProductEntity => Boolean(product));
-
-    if (ordered.length) {
-      await this.attachPublicListRelations(ordered);
+    const products = await qb.getMany();
+    if (products.length) {
+      await this.attachPublicListRelations(products);
     }
-    return ordered;
+    return products;
   }
 
   /**
@@ -686,13 +684,14 @@ export class ProductsRepository {
 
     const rawRows = await this.repo
       .createQueryBuilder('product')
-      .innerJoin('product.tagMappings', 'ptm')
-      .innerJoin('ptm.tag', 'tag')
-      .addSelect('ptm.sortOrder', 'mapping_sort_order')
-      .where('product.categoryId = :categoryId', { categoryId })
-      .andWhere('product.deletedAt IS NULL')
-      .andWhere('tag.slug = :tagSlug', { tagSlug })
-      .orderBy('ptm.sortOrder', 'ASC', 'NULLS LAST')
+      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
+      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id AND tag.slug = :tagSlug', {
+        tagSlug,
+      })
+      .addSelect('ptm.sort_order', 'mapping_sort_order')
+      .where('product.category_id = :categoryId', { categoryId })
+      .andWhere('product.deleted_at IS NULL')
+      .orderBy('ptm.sort_order', 'ASC', 'NULLS LAST')
       .addOrderBy('product.name', 'ASC')
       .getRawAndEntities();
 
@@ -1454,17 +1453,37 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
-    options?: Pick<PublicProductListOptions, 'tagSlug'>,
+    options?: Pick<PublicProductListOptions, 'tagSlug' | 'prioritizeBestsellers'>,
   ): void {
-    if (sortBy === 'bestsellerIndex' && options?.tagSlug) {
+    const bestsellerTagSlug = options?.prioritizeBestsellers
+      ? 'bestsellers'
+      : sortBy === 'bestsellerIndex'
+        ? options?.tagSlug
+        : undefined;
+
+    if (bestsellerTagSlug) {
+      qb.setParameter('bestsellerSortTagSlug', bestsellerTagSlug);
+      qb.addSelect(
+        `(CASE WHEN EXISTS (
+            SELECT 1 FROM product_tag_mappings ptm_bs
+            INNER JOIN product_tags t_bs ON t_bs.id = ptm_bs.tag_id
+            WHERE ptm_bs.product_id = product.id AND t_bs.slug = :bestsellerSortTagSlug
+          ) THEN 0 ELSE 1 END)`,
+        'bestseller_rank',
+      );
       qb.addSelect(
         `(SELECT ptm.sort_order FROM product_tag_mappings ptm
           INNER JOIN product_tags t ON t.id = ptm.tag_id
-          WHERE ptm.product_id = product.id AND t.slug = :tagSlug
+          WHERE ptm.product_id = product.id AND t.slug = :bestsellerSortTagSlug
           LIMIT 1)`,
         'bestseller_sort_order',
       );
-      qb.orderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
+      qb.orderBy('bestseller_rank', 'ASC');
+      qb.addOrderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
+    }
+
+    if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {
+      // Bestsellers-only listing: index already applied above; tie-break by publishedAt.
       qb.addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST');
       return;
     }
@@ -1475,7 +1494,11 @@ export class ProductsRepository {
         `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
         'min_price',
       );
-      qb.orderBy('min_price', sortOrder, 'NULLS LAST');
+      if (options?.prioritizeBestsellers) {
+        qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
+      } else {
+        qb.orderBy('min_price', sortOrder, 'NULLS LAST');
+      }
       return;
     }
 
@@ -1483,8 +1506,18 @@ export class ProductsRepository {
       name: 'product.name',
       publishedAt: 'product.publishedAt',
     };
-    const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
-    qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    const sortColumn =
+      sortBy === 'bestsellerIndex'
+        ? 'product.publishedAt'
+        : (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
+    const secondaryOrder = sortBy === 'bestsellerIndex' ? 'DESC' : sortOrder;
+
+    if (options?.prioritizeBestsellers || (sortBy === 'bestsellerIndex' && options?.tagSlug)) {
+      qb.addOrderBy(sortColumn, secondaryOrder, 'NULLS LAST');
+      return;
+    }
+
+    qb.orderBy(sortColumn, secondaryOrder, 'NULLS LAST');
   }
 
   /**
@@ -1697,7 +1730,8 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachDetailRelations(products, this.repo.manager);
+    // Card/list callers only — avoid attachDetailRelations (heavy + hierarchy joins).
+    await this.attachPublicListRelations(products);
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(

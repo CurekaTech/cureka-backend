@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   CacheKeys,
   CacheModuleName,
@@ -100,6 +100,8 @@ type SectionMeta = {
 
 @Injectable()
 export class HomepageSectionsService {
+  private readonly logger = new Logger(HomepageSectionsService.name);
+
   /** Data loaders keyed by section type. Types without a loader return null data. */
   private readonly loaders: Partial<
     Record<HomeSectionType, () => Promise<HomepageSectionData>>
@@ -136,8 +138,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v5: curatedWellnessEssentials includes CMS testimonials.
-      key: CacheKeys.homepage.sections(`v5-${this.buildVariantKey(requested)}`),
+      // v6: productSlider / categorySlider include optional section banner.
+      key: CacheKeys.homepage.sections(`v6-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
@@ -216,14 +218,27 @@ export class HomepageSectionsService {
       .sort((a, b) => a.index - b.index || a.type.localeCompare(b.type));
 
     const built = await Promise.all(
-      visibleSections.map(async (section): Promise<IHomepageSection> => ({
-        refId: section.refId,
-        index: section.index,
-        type: section.type,
-        title: section.title,
-        slug: section.slug,
-        data: await this.resolveSectionData(section),
-      })),
+      visibleSections.map(async (section): Promise<IHomepageSection> => {
+        let data: HomepageSectionData | null = null;
+        try {
+          data = await this.resolveSectionData(section);
+        } catch (error) {
+          // Keep the rest of the homepage usable if one section loader fails.
+          this.logger.error(
+            `Failed to load section type=${section.type} slug=${section.slug}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+          data = null;
+        }
+        return {
+          refId: section.refId,
+          index: section.index,
+          type: section.type,
+          title: section.title,
+          slug: section.slug,
+          data,
+        };
+      }),
     );
 
     return { sections: built };
@@ -252,7 +267,10 @@ export class HomepageSectionsService {
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
         .filter((product): product is NonNullable<typeof product> => Boolean(product));
-      return { products: mapProductEntitiesToPublicCards(ordered) };
+      return {
+        banner: section.banners?.[0] ?? null,
+        products: mapProductEntitiesToPublicCards(ordered),
+      };
     }
 
     if (section.type === HomeSectionType.CATEGORY_SLIDER) {
@@ -262,7 +280,10 @@ export class HomepageSectionsService {
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
         .filter((category): category is NonNullable<typeof category> => Boolean(category));
-      return { categories: mapCategoryEntitiesToPublicListItems(ordered) };
+      return {
+        banner: section.banners?.[0] ?? null,
+        categories: mapCategoryEntitiesToPublicListItems(ordered),
+      };
     }
 
     return null;

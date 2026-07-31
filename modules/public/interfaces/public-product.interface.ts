@@ -114,6 +114,8 @@ export interface IPublicProductCard {
    * True when that variant is marked out of stock by admin.
    */
   outOfStock: boolean;
+  /** True when the product carries the `bestsellers` tag. */
+  isBestSeller: boolean;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;
@@ -264,6 +266,11 @@ export interface IPublicProductDetail {
   publishedAt: Date | null;
   sizeChart: IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
+  /**
+   * True when the displayed selling price is above `shipping_charge_threshold`
+   * from admin settings (eligible for free delivery on a single-item order).
+   */
+  isFreeDelivery: boolean;
   /** Set when product detail is loaded via a variant slug URL. */
   selectedVariantId?: string | null;
   selectedVariantSlug?: string | null;

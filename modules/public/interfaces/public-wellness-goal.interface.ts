@@ -4,6 +4,7 @@ import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/
 export interface IPublicWellnessGoalCard {
   refId: string;
   name: string;
+  description?: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
 

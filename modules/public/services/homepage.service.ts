@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
+  PaginationOptions,
 } from '@packages/common';
+import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ExpertTalkService } from '@modules/master/services/expert-talk.service';
@@ -29,17 +30,9 @@ import {
   IPublicHeroBannerSection,
 } from '../interfaces/public-banner-section.interface';
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
-import {
-  IPublicHealthConcernCard,
-  IPublicHealthConcernListItem,
-  IPublicHomePageHealthConcern,
-} from '../interfaces/public-health-concern.interface';
+import { IPublicHealthConcernCard, IPublicHomePageHealthConcern } from '../interfaces/public-health-concern.interface';
 import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
-import {
-  IPublicWellnessGoalCard,
-  IPublicWellnessGoalListItem,
-} from '../interfaces/public-wellness-goal.interface';
-import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
+import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
 import {
@@ -47,10 +40,6 @@ import {
   HOMEPAGE_TESTIMONIALS_PREVIEW_LIMIT,
   HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT,
 } from '../constants/homepage-section-preview-limit.constant';
-
-const BRAND_VIEW_ALL_MEDIA_FIELDS = ['logo'] as const;
-const WELLNESS_GOAL_VIEW_ALL_MEDIA_FIELDS = ['image'] as const;
-const HEALTH_CONCERN_VIEW_ALL_MEDIA_FIELDS = ['icon', 'banner'] as const;
 
 /** Max products returned per Best Sellers category tab in the homepage section. */
 const BEST_SELLERS_PRODUCTS_PER_CATEGORY = 5;
@@ -367,75 +356,101 @@ export class HomepageService {
     }));
   }
 
-  /** All active brands (view-all) — not limited to inHomePage. */
-  async getBrandsViewAll(
-    query: HomepageViewAllQueryDto,
+  /**
+   * Homepage "View all" — every active brand (paginated).
+   * Distinct from the limited Brands We Trust homepage strip.
+   */
+  async findAllBrandsPaginated(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
   ): Promise<PaginatedResult<IPublicBrandCard>> {
-    const paginationOptions = buildPaginationOptions({
-      ...query,
-      sortBy: query.sortBy ?? 'name',
-      sortOrder: query.sortOrder ?? 'ASC',
-    });
-    const { data, total } = await this.brandsRepository.findPublicPaginated(paginationOptions);
-    const mapped: IPublicBrandCard[] = data.map((brand) => ({
+    const options = this.buildViewAllPaginationOptions(query, 'name', 'ASC');
+    const { data, total } = await this.brandsRepository.findPublicPaginated(options);
+    const cards: IPublicBrandCard[] = data.map((brand) => ({
       refId: brand.refId,
       name: brand.name,
       slug: brand.slug,
-      logo: brand.logo,
+      logo: this.storageUrlEnricher.persist(brand.logo),
     }));
-    const enriched = await this.storageUrlEnricher.enrichManyFields(mapped, [
-      ...BRAND_VIEW_ALL_MEDIA_FIELDS,
-    ]);
-    return buildPaginatedResult(enriched, total, paginationOptions);
+    const enriched = await this.storageUrlEnricher.enrichDeep(cards);
+    return buildPaginatedResult(enriched, total, options);
   }
 
-  /** All active wellness goals (view-all) — not limited to inHomePage. */
-  async getWellnessGoalsViewAll(
-    query: HomepageViewAllQueryDto,
-  ): Promise<PaginatedResult<IPublicWellnessGoalListItem>> {
-    const paginationOptions = buildPaginationOptions({
-      ...query,
-      sortBy: query.sortBy ?? 'name',
-      sortOrder: query.sortOrder ?? 'ASC',
-    });
-    const { data, total } =
-      await this.wellnessGoalsRepository.findPublicPaginated(paginationOptions);
-    const mapped: IPublicWellnessGoalListItem[] = data.map((goal) => ({
-      refId: goal.refId,
-      name: goal.name,
-      description: goal.description,
-      image: goal.image,
-    }));
-    const enriched = await this.storageUrlEnricher.enrichManyFields(mapped, [
-      ...WELLNESS_GOAL_VIEW_ALL_MEDIA_FIELDS,
-    ]);
-    return buildPaginatedResult(enriched, total, paginationOptions);
-  }
-
-  /** All active health concerns (view-all) — not limited to inHomePage. */
-  async getHealthConcernsViewAll(
-    query: HomepageViewAllQueryDto,
-  ): Promise<PaginatedResult<IPublicHealthConcernListItem>> {
-    const paginationOptions = buildPaginationOptions({
-      ...query,
-      sortBy: query.sortBy ?? 'name',
-      sortOrder: query.sortOrder ?? 'ASC',
-    });
-    const { data, total } =
-      await this.healthConcernsRepository.findPublicPaginated(paginationOptions);
-    const mapped: IPublicHealthConcernListItem[] = data.map((concern) => ({
+  /**
+   * Homepage "View all" — every active health concern (paginated).
+   * Distinct from `getHomePageHealthConcerns` (inHomePage strip with sortIndex).
+   */
+  async findAllHealthConcernsPaginated(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+  ): Promise<PaginatedResult<IPublicHomePageHealthConcern>> {
+    const options = this.buildViewAllPaginationOptions(query, 'name', 'ASC');
+    const { data, total } = await this.healthConcernsRepository.findPublicPaginated(options);
+    const cards: IPublicHomePageHealthConcern[] = data.map((concern) => ({
       refId: concern.refId,
       name: concern.name,
       slug: concern.slug,
       description: concern.description,
-      icon: concern.icon,
-      banner: concern.banner,
+      icon: this.storageUrlEnricher.persist(concern.icon),
+      banner: this.storageUrlEnricher.persist(concern.banner),
       sortIndex: concern.sortIndex,
     }));
-    const enriched = await this.storageUrlEnricher.enrichManyFields(mapped, [
-      ...HEALTH_CONCERN_VIEW_ALL_MEDIA_FIELDS,
-    ]);
-    return buildPaginatedResult(enriched, total, paginationOptions);
+    const enriched = await this.storageUrlEnricher.enrichDeep(cards);
+    return buildPaginatedResult(enriched, total, options);
+  }
+
+  /**
+   * Homepage "View all" — every active wellness goal (paginated).
+   * Distinct from the limited Shop by Wellness Goals homepage strip.
+   */
+  async findAllWellnessGoalsPaginated(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+  ): Promise<PaginatedResult<IPublicWellnessGoalCard>> {
+    const options = this.buildViewAllPaginationOptions(query, 'name', 'ASC');
+    const { data, total } = await this.wellnessGoalsRepository.findPublicPaginated(options);
+    const cards: IPublicWellnessGoalCard[] = data.map((goal) => ({
+      refId: goal.refId,
+      name: goal.name,
+      description: goal.description,
+      image: this.storageUrlEnricher.persist(goal.image),
+    }));
+    const enriched = await this.storageUrlEnricher.enrichDeep(cards);
+    return buildPaginatedResult(enriched, total, options);
+  }
+
+  private buildViewAllPaginationOptions(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+    defaultSortBy: string,
+    defaultSortOrder: 'ASC' | 'DESC',
+  ): PaginationOptions {
+    const options = buildPaginationOptions({
+      ...query,
+      sortBy: query.sortBy ?? defaultSortBy,
+      sortOrder: query.sortOrder ?? defaultSortOrder,
+    });
+    return options;
   }
 
   private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicHeaderCategory[] {

@@ -15,6 +15,7 @@ import {
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -71,6 +72,7 @@ export class PublicProductsService {
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
+    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -95,6 +97,7 @@ export class PublicProductsService {
       wellnessGoalRefId: query.wellnessGoalRefId,
       variantSlug: query.variantSlug,
       tagSlug: query.tagSlug,
+      bestSeller: query.bestSeller === true,
       minPrice: priceRange?.minPrice,
       maxPrice: priceRange?.maxPrice,
       priceRange: query.priceRange,
@@ -126,6 +129,7 @@ export class PublicProductsService {
           wellnessGoalId: filters.wellnessGoalId,
           variantSlug: query.variantSlug,
           tagSlug: query.tagSlug,
+          prioritizeBestsellers: query.bestSeller === true,
           categoryFilterCriteria: filters.categoryFilterCriteria,
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
@@ -687,14 +691,36 @@ export class PublicProductsService {
       variants,
     });
 
+    const isFreeDelivery = await this.resolveIsFreeDelivery(merged);
+
     // Re-apply live master order after variant merge (variant payload may replace product info).
     return {
       ...merged,
+      isFreeDelivery,
       productInformation: enrichProductInformation(
         merged.productInformation,
         labelSortOrders,
       ),
     };
+  }
+
+  /**
+   * Free delivery when displayed selling price exceeds `shipping_charge_threshold`
+   * (same comparison as checkout: charge applies while payable ≤ threshold).
+   */
+  private async resolveIsFreeDelivery(product: IPublicProductDetail): Promise<boolean> {
+    const checkoutSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const threshold =
+      this.cartCheckoutAdminSettingsService.getFreeShippingThreshold(checkoutSettings);
+
+    const selectedVariant = product.selectedVariantId
+      ? product.variants.find((variant) => variant.id === product.selectedVariantId)
+      : null;
+    const displayVariant = selectedVariant ?? pickPreferredPublicVariant(product.variants);
+    const sellingPrice =
+      displayVariant?.sellingPrice ?? product.pricing.minSellingPrice ?? 0;
+
+    return sellingPrice > threshold;
   }
 
   private async enrichPartySummary<

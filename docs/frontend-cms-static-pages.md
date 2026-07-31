@@ -112,12 +112,65 @@ No Delete. No Add.
 
 ## Storefront / mobile
 
+### Preferred — all pages in one call (homepage controller)
+
+```http
+GET /api/v1/public/homepage/cms-pages
+```
+
+Auth: none.
+
+Returns every predefined CMS page under a **stable key**. Use this for footer / legal links so the UI does not need five separate requests.
+
+| Key | Slug | Sidebar label |
+|-----|------|---------------|
+| `aboutCureka` | `about-cureka` | About Cureka |
+| `privacyPolicy` | `privacy-policy` | Privacy Policy |
+| `termsAndConditions` | `terms-and-conditions` | Terms & Conditions |
+| `returnsRefunds` | `returns-refunds` | Returns & Refunds |
+| `shippingPolicy` | `shipping-policy` | Shipping Policy |
+
+Example `data`:
+
+```json
+{
+  "aboutCureka": {
+    "title": "About Cureka",
+    "slug": "about-cureka",
+    "content": "<p>…</p>",
+    "metaTitle": "About Cureka",
+    "metaDescription": null,
+    "status": "active"
+  },
+  "privacyPolicy": { "title": "Privacy Policy", "slug": "privacy-policy", "content": "…", "metaTitle": "Privacy Policy", "metaDescription": null, "status": "active" },
+  "termsAndConditions": { "…": "…" },
+  "returnsRefunds": { "…": "…" },
+  "shippingPolicy": { "…": "…" }
+}
+```
+
+- Keys are **always present**.
+- If a page is inactive or missing, that key is `null` — hide the footer link.
+- `content` is HTML — sanitize before `dangerouslySetInnerHTML`.
+- Use `metaTitle` / `metaDescription` on the dedicated page route for SEO.
+
+Footer example:
+
+```ts
+const pages = await api.get('/public/homepage/cms-pages');
+// pages.privacyPolicy?.slug → "/privacy-policy"
+```
+
+### Single page by slug (existing)
+
 ```http
 GET /api/v1/cms/:slug
 ```
 
-Returns active page: `title`, `slug`, `content` (HTML — sanitize), `metaTitle`, `metaDescription`, `status`.  
-Inactive / missing → 404.
+Examples: `/cms/about-cureka`, `/cms/privacy-policy`, `/cms/terms-and-conditions`, `/cms/returns-refunds`, `/cms/shipping-policy`.
+
+Returns one active page: `title`, `slug`, `content`, `metaTitle`, `metaDescription`, `status`.  
+Inactive / missing → **404**. Use this for the full page view after the user clicks a footer link.
 
 ---
 
@@ -129,6 +182,8 @@ Inactive / missing → 404.
 - [ ] Slug locked
 - [ ] Loading + toasts
 - [ ] Matches existing CMS admin styling
+- [ ] Storefront footer loads `GET /public/homepage/cms-pages` and links via the keys above
+- [ ] Full page route uses `GET /cms/:slug` (or the matching key’s `slug`)
 
 ---
 
@@ -137,5 +192,6 @@ Inactive / missing → 404.
 1. Sidebar shows CMS → Pages → five items.
 2. Open Terms & Conditions → form loads.
 3. Edit content + meta → Save → reload OK.
-4. Public `GET /api/v1/cms/terms-and-conditions` shows updated HTML.
-5. Set inactive → public GET 404; set active again → OK.
+4. Public `GET /api/v1/public/homepage/cms-pages` includes updated `termsAndConditions.content`.
+5. Public `GET /api/v1/cms/terms-and-conditions` shows updated HTML.
+6. Set inactive → homepage key is `null` and `/cms/:slug` returns 404; set active again → OK.

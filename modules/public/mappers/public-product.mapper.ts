@@ -364,6 +364,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     inStock: !outOfStock,
   },
   outOfStock,
+  isBestSeller: (entity.tagMappings ?? []).some(
+    (mapping) => mapping.tag?.slug === 'bestsellers',
+  ),
   variantId: listVariant?.id ?? null,
   subscriptionEnabled: entity.subscriptionEnabled,
   codAvailable: entity.codAvailable,
@@ -448,6 +451,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   publishedAt: entity.publishedAt,
   sizeChart: entity.sizeChart,
   pricing: buildPriceSummary(entity),
+  // Computed live in PublicProductsService.enrichDetail from admin settings.
+  isFreeDelivery: false,
   attributes: (entity.attributeMappings ?? []).map((mapping) => ({
     refId: mapping.attribute?.refId ?? '',
     name: mapping.attribute?.name ?? '',
