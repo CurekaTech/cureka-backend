@@ -115,6 +115,8 @@ export const envValidationSchema = Joi.object({
     otherwise: Joi.allow('').optional(),
   }),
   SHIPWAY_BASE_URL: Joi.string().uri().default('https://app.shipway.com'),
+  SHIPWAY_TRACKING_BASE_URL: Joi.string().uri().default('https://shipway.in'),
+  SHIPWAY_CLASSIC_BASE_URL: Joi.string().uri().optional(),
   SHIPWAY_WAREHOUSE_ID: Joi.string().allow('').optional(),
   SHIPWAY_RETURN_WAREHOUSE_ID: Joi.string().allow('').optional(),
   SHIPWAY_CARRIER_ID: Joi.number().integer().positive().allow('').optional(),

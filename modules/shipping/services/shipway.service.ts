@@ -19,6 +19,8 @@ export class ShipwayService {
   private readonly email: string;
   private readonly licenseKey: string;
   private readonly baseUrl: string;
+  /** Classic tracking host — getOrderShipmentDetails lives here (docs: shipway.in). */
+  private readonly trackingBaseUrl: string;
   private readonly timeoutMs: number;
   private readonly webhookSecret: string;
 
@@ -26,12 +28,16 @@ export class ShipwayService {
     this.email = this.configService.get<string>('shipway.email') ?? '';
     this.licenseKey = this.configService.get<string>('shipway.licenseKey') ?? '';
     this.baseUrl = this.normalizeBaseUrl(this.configService.get<string>('shipway.baseUrl') ?? 'https://app.shipway.com');
+    this.trackingBaseUrl = this.normalizeBaseUrl(
+      this.configService.get<string>('shipway.trackingBaseUrl') ?? 'https://shipway.in',
+    );
     this.timeoutMs = this.configService.get<number>('shipway.timeoutMs') ?? 15000;
     this.webhookSecret = this.configService.get<string>('shipway.webhookSecret') ?? '';
 
     this.logger.log(
       {
         baseUrl: this.baseUrl,
+        trackingBaseUrl: this.trackingBaseUrl,
         timeoutMs: this.timeoutMs,
         emailConfigured: Boolean(this.email),
         licenseKeyConfigured: Boolean(this.licenseKey),
@@ -48,111 +54,377 @@ export class ShipwayService {
     });
   }
 
-  async getShipmentDetails(orderId: string): Promise<IShipwayTrackingResponse> {
+  /**
+   * Resolve live tracking for a merchant order id.
+   * 1) Classic POST shipway.in/api/getOrderShipmentDetails
+   * 2) OMS GET app.shipway.com/api/getorders?orderid=
+   * 3) OMS GET app.shipway.com/api/tracking?awb_numbers= (when AWB known)
+   */
+  async getShipmentDetails(
+    orderId: string,
+    options?: { awbNumber?: string | null },
+  ): Promise<IShipwayTrackingResponse> {
     const startedAt = Date.now();
+    const knownAwb = options?.awbNumber?.trim() || null;
+    const attempts: Array<{ source: string; ok: boolean; detail?: string }> = [];
+
     this.logger.log(
       {
         shipwayOrderId: orderId,
-        baseUrl: this.baseUrl,
+        knownAwb,
+        omsBaseUrl: this.baseUrl,
+        trackingBaseUrl: this.trackingBaseUrl,
+        timeoutMs: this.timeoutMs,
+      },
+      '[Shipway] getShipmentDetails — starting multi-host lookup',
+    );
+
+    // 1) Classic order tracking (shipway.in)
+    try {
+      const classic = await this.fetchClassicOrderShipmentDetails(orderId);
+      attempts.push({
+        source: 'classic_getOrderShipmentDetails',
+        ok: Boolean(classic.current_status),
+        detail: classic.current_status ?? classic.message ?? undefined,
+      });
+      if (classic.current_status) {
+        this.logger.log(
+          {
+            shipwayOrderId: orderId,
+            source: 'classic_getOrderShipmentDetails',
+            elapsedMs: Date.now() - startedAt,
+            current_status: classic.current_status,
+            awb_number: classic.awb_number ?? null,
+            attempts,
+          },
+          '[Shipway] getShipmentDetails — resolved via classic API',
+        );
+        return classic;
+      }
+      this.logger.warn(
+        {
+          shipwayOrderId: orderId,
+          source: 'classic_getOrderShipmentDetails',
+          message: classic.message ?? null,
+          success: classic.success,
+        },
+        '[Shipway] Classic API returned no current_status — trying OMS fallbacks',
+      );
+    } catch (error) {
+      attempts.push({
+        source: 'classic_getOrderShipmentDetails',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      this.logger.warn(
+        {
+          shipwayOrderId: orderId,
+          source: 'classic_getOrderShipmentDetails',
+          trackingBaseUrl: this.trackingBaseUrl,
+          error: this.serializeError(error),
+        },
+        '[Shipway] Classic getOrderShipmentDetails failed — trying OMS fallbacks',
+      );
+    }
+
+    // 2) OMS getorders by orderid
+    let awbFromOrders: string | null = null;
+    try {
+      const fromOrders = await this.fetchOmsOrderByOrderId(orderId);
+      attempts.push({
+        source: 'oms_getorders',
+        ok: Boolean(fromOrders?.current_status),
+        detail: fromOrders?.current_status ?? fromOrders?.message ?? undefined,
+      });
+      if (fromOrders?.awb_number) {
+        awbFromOrders = fromOrders.awb_number;
+      }
+      if (fromOrders?.current_status) {
+        this.logger.log(
+          {
+            shipwayOrderId: orderId,
+            source: 'oms_getorders',
+            elapsedMs: Date.now() - startedAt,
+            current_status: fromOrders.current_status,
+            awb_number: fromOrders.awb_number ?? null,
+            attempts,
+          },
+          '[Shipway] getShipmentDetails — resolved via OMS getorders',
+        );
+        return fromOrders;
+      }
+    } catch (error) {
+      attempts.push({
+        source: 'oms_getorders',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      this.logger.warn(
+        {
+          shipwayOrderId: orderId,
+          source: 'oms_getorders',
+          error: this.serializeError(error),
+        },
+        '[Shipway] OMS getorders failed',
+      );
+    }
+
+    // 3) OMS tracking by AWB
+    const awb = knownAwb ?? awbFromOrders;
+    if (awb) {
+      try {
+        const byAwb = await this.fetchOmsTrackingByAwb(awb);
+        attempts.push({
+          source: 'oms_tracking_by_awb',
+          ok: Boolean(byAwb.current_status),
+          detail: byAwb.current_status ?? byAwb.message ?? undefined,
+        });
+        if (byAwb.current_status) {
+          this.logger.log(
+            {
+              shipwayOrderId: orderId,
+              source: 'oms_tracking_by_awb',
+              awb,
+              elapsedMs: Date.now() - startedAt,
+              current_status: byAwb.current_status,
+              attempts,
+            },
+            '[Shipway] getShipmentDetails — resolved via OMS tracking',
+          );
+          return { ...byAwb, order_id: byAwb.order_id ?? orderId };
+        }
+      } catch (error) {
+        attempts.push({
+          source: 'oms_tracking_by_awb',
+          ok: false,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        this.logger.warn(
+          {
+            shipwayOrderId: orderId,
+            source: 'oms_tracking_by_awb',
+            awb,
+            error: this.serializeError(error),
+          },
+          '[Shipway] OMS tracking by AWB failed',
+        );
+      }
+    } else {
+      attempts.push({
+        source: 'oms_tracking_by_awb',
+        ok: false,
+        detail: 'skipped_no_awb',
+      });
+      this.logger.log(
+        { shipwayOrderId: orderId, knownAwb, awbFromOrders },
+        '[Shipway] Skipping OMS /api/tracking — no AWB available',
+      );
+    }
+
+    this.logger.warn(
+      {
+        shipwayOrderId: orderId,
+        elapsedMs: Date.now() - startedAt,
+        attempts,
+        shipwayStatus: false,
+      },
+      '[Shipway] getShipmentDetails — all lookups exhausted, no live status',
+    );
+
+    return {
+      success: false,
+      message: 'No Shipway shipment details found for this order',
+      order_id: orderId,
+    };
+  }
+
+  private async fetchClassicOrderShipmentDetails(orderId: string): Promise<IShipwayTrackingResponse> {
+    this.logger.log(
+      {
+        shipwayOrderId: orderId,
+        baseUrl: this.trackingBaseUrl,
         method: 'POST',
         endpoint: '/api/getOrderShipmentDetails',
         authMode: 'json_body_username_password_plus_basic_header',
         requestBody: {
-          username: this.email ? '<configured>' : '<missing>',
+          username: this.email ? this.maskEmail(this.email) : '<missing>',
           password: this.licenseKey ? '<redacted>' : '<missing>',
           order_id: orderId,
         },
-        emailConfigured: Boolean(this.email),
-        licenseKeyConfigured: Boolean(this.licenseKey),
-        timeoutMs: this.timeoutMs,
       },
-      '[Shipway] getShipmentDetails — connecting (POST JSON body)',
+      '[Shipway] Classic tracking — connecting',
     );
 
-    // Shipway classic tracking API: POST JSON body (not GET query params).
-    const raw = await this.request<IShipwayTrackingResponse>('/api/getOrderShipmentDetails', {
-      method: 'POST',
-      body: JSON.stringify({
-        username: this.email,
-        password: this.licenseKey,
-        order_id: orderId,
-      }),
-    });
+    const raw = await this.request<IShipwayTrackingResponse>(
+      '/api/getOrderShipmentDetails',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          username: this.email,
+          password: this.licenseKey,
+          order_id: orderId,
+        }),
+      },
+      this.trackingBaseUrl,
+    );
 
     this.logger.log(
       {
         shipwayOrderId: orderId,
-        elapsedMs: Date.now() - startedAt,
+        baseUrl: this.trackingBaseUrl,
         rawEnvelopeStatus: raw.status ?? null,
         rawSuccess: raw.success ?? null,
         rawMessage: raw.message ?? null,
         hasNestedResponse: Boolean(raw.response),
         rawCurrentStatus: raw.current_status ?? raw.response?.current_status ?? null,
-        rawCurrentStatusCode: raw.current_status_code ?? raw.response?.current_status_code ?? null,
-        rawAwb: raw.awb_number ?? raw.response?.awb_number ?? null,
-        rawCourier: raw.courier_name ?? raw.response?.courier_name ?? null,
-        rawScanCount: (
-          raw.events ??
-          raw.scans ??
-          raw.scan ??
-          raw.response?.events ??
-          raw.response?.scans ??
-          raw.response?.scan ??
-          []
-        ).length,
         rawBody: raw,
       },
-      '[Shipway] getShipmentDetails — raw API body',
+      '[Shipway] Classic tracking — raw API body',
     );
 
-    const tracking = this.normalizeTrackingResponse(raw, orderId);
-    const eventCount = (tracking.events ?? tracking.scans ?? []).length;
+    return this.normalizeTrackingResponse(raw, orderId);
+  }
 
+  private async fetchOmsOrderByOrderId(orderId: string): Promise<IShipwayTrackingResponse | null> {
+    const path = `/api/getorders?orderid=${encodeURIComponent(orderId)}`;
     this.logger.log(
       {
         shipwayOrderId: orderId,
-        elapsedMs: Date.now() - startedAt,
-        success: tracking.success,
-        message: tracking.message ?? null,
-        current_status: tracking.current_status ?? null,
-        current_status_code: tracking.current_status_code ?? null,
-        status: tracking.status ?? null,
-        awb_number: tracking.awb_number ?? null,
-        courier_name: tracking.courier_name ?? null,
-        courier_id: tracking.courier_id ?? null,
-        shipment_id: tracking.shipment_id ?? null,
-        pickup_id: tracking.pickup_id ?? null,
-        tracking_url: tracking.tracking_url ?? null,
-        label_url: tracking.label_url ?? null,
-        invoice_url: tracking.invoice_url ?? null,
-        eventCount,
-        events: (tracking.events ?? tracking.scans ?? []).map((event) => ({
-          status: event.status,
-          status_date: event.status_date,
-          location: event.location,
-          message: event.message,
-          activity: event.activity,
-        })),
-        normalized: tracking,
+        baseUrl: this.baseUrl,
+        method: 'GET',
+        endpoint: path,
       },
-      '[Shipway] getShipmentDetails — normalized response',
+      '[Shipway] OMS getorders — connecting',
     );
 
-    if (!tracking.success || !tracking.current_status) {
-      this.logger.warn(
-        {
-          shipwayOrderId: orderId,
-          elapsedMs: Date.now() - startedAt,
-          success: tracking.success,
-          current_status: tracking.current_status ?? null,
-          message: tracking.message ?? null,
-          rawEnvelopeStatus: raw.status ?? null,
-        },
-        '[Shipway] getShipmentDetails — no usable shipment status after normalize',
-      );
+    const raw = await this.request<Record<string, unknown>>(path, { method: 'GET' }, this.baseUrl);
+    this.logger.log(
+      { shipwayOrderId: orderId, rawBody: raw },
+      '[Shipway] OMS getorders — raw API body',
+    );
+
+    const orders = this.extractOrdersList(raw);
+    const match =
+      orders.find((order) => String(order['order_id'] ?? order['orderid'] ?? '') === orderId) ??
+      orders[0];
+
+    if (!match) {
+      this.logger.warn({ shipwayOrderId: orderId, orderCount: orders.length }, '[Shipway] OMS getorders — no matching order');
+      return null;
     }
 
-    return tracking;
+    const awb = this.firstString(match, ['tracking_number', 'awb_number', 'awb', 'awbNumber']);
+    const currentStatus = this.firstString(match, [
+      'shipment_status',
+      'current_status',
+      'new_shipment_status',
+      'status',
+    ]);
+    const courier = this.firstString(match, ['courier_name', 'carrier_name', 'carrier']);
+    const trackingUrl = this.firstString(match, ['tracking_url', 'track_url']);
+
+    return {
+      success: Boolean(currentStatus),
+      order_id: orderId,
+      awb_number: awb ?? undefined,
+      current_status: currentStatus ?? undefined,
+      courier_name: courier ?? undefined,
+      tracking_url: trackingUrl ?? undefined,
+      message: currentStatus ? undefined : 'OMS order found but no shipment status',
+    };
+  }
+
+  private async fetchOmsTrackingByAwb(awbNumber: string): Promise<IShipwayTrackingResponse> {
+    const path = `/api/tracking?awb_numbers=${encodeURIComponent(awbNumber)}&tracking_history=1`;
+    this.logger.log(
+      {
+        awbNumber,
+        baseUrl: this.baseUrl,
+        method: 'GET',
+        endpoint: path,
+      },
+      '[Shipway] OMS tracking — connecting',
+    );
+
+    const raw = await this.request<Record<string, unknown>>(path, { method: 'GET' }, this.baseUrl);
+    this.logger.log({ awbNumber, rawBody: raw }, '[Shipway] OMS tracking — raw API body');
+
+    const shipments = Array.isArray(raw['shipments'])
+      ? (raw['shipments'] as Array<Record<string, unknown>>)
+      : Array.isArray(raw)
+        ? (raw as Array<Record<string, unknown>>)
+        : [];
+    const first = shipments[0] ?? raw;
+    const trackingDetails =
+      (first['tracking_details'] as Record<string, unknown> | undefined) ??
+      (raw['tracking_details'] as Record<string, unknown> | undefined) ??
+      {};
+    const shipmentDetails = Array.isArray(trackingDetails['shipment_details'])
+      ? (trackingDetails['shipment_details'][0] as Record<string, unknown> | undefined)
+      : undefined;
+
+    const currentStatus =
+      this.firstString(trackingDetails, ['shipment_status', 'current_status', 'status']) ??
+      this.firstString(first, ['shipment_status', 'current_status', 'status', 'error']);
+
+    const activities =
+      (trackingDetails['shipment_track_activities'] as Array<Record<string, unknown>> | undefined) ??
+      (trackingDetails['tracking_history'] as Array<Record<string, unknown>> | undefined) ??
+      [];
+
+    const events = activities.map((event) => ({
+      status: String(event['activity'] ?? event['status'] ?? event['status_detail'] ?? ''),
+      status_date: [event['date'], event['time']].filter(Boolean).join(' ').trim() || String(event['status_date'] ?? ''),
+      location: event['location'] != null ? String(event['location']) : undefined,
+      message: event['activity'] != null ? String(event['activity']) : undefined,
+      activity: event['activity'] != null ? String(event['activity']) : undefined,
+    }));
+
+    const awb =
+      this.firstString(first, ['awb', 'awb_number']) ??
+      awbNumber;
+
+    return {
+      success: Boolean(currentStatus) && !String(first['error'] ?? '').trim(),
+      message: this.firstString(first, ['error', 'message']) ?? undefined,
+      awb_number: awb ?? undefined,
+      current_status: currentStatus && !first['error'] ? currentStatus : undefined,
+      courier_name:
+        this.firstString(shipmentDetails ?? {}, ['courier_name', 'carrier_name']) ??
+        this.firstString(trackingDetails, ['courier_name', 'carrier_name']) ??
+        undefined,
+      tracking_url: this.firstString(trackingDetails, ['track_url', 'tracking_url']) ?? undefined,
+      order_id: this.firstString(shipmentDetails ?? {}, ['order_id']) ?? undefined,
+      events,
+      scans: events,
+    };
+  }
+
+  private extractOrdersList(raw: Record<string, unknown>): Array<Record<string, unknown>> {
+    if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
+    for (const key of ['orders', 'message', 'data', 'response']) {
+      const value = raw[key];
+      if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+      if (value && typeof value === 'object' && Array.isArray((value as { orders?: unknown }).orders)) {
+        return (value as { orders: Array<Record<string, unknown>> }).orders;
+      }
+    }
+    return [];
+  }
+
+  private firstString(obj: Record<string, unknown>, keys: string[]): string | null {
+    for (const key of keys) {
+      const value = obj[key];
+      if (value != null && String(value).trim()) return String(value).trim();
+    }
+    return null;
+  }
+
+  private serializeError(error: unknown): { name?: string; message: string } {
+    if (error instanceof Error) {
+      return { name: error.name, message: error.message };
+    }
+    return { message: String(error) };
   }
 
   /** Flatten classic `{ status, response: {...} }` and scan aliases into our tracking shape. */
@@ -218,7 +490,7 @@ export class ShipwayService {
     });
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, baseUrlOverride?: string): Promise<T> {
     if (!this.email || !this.licenseKey) {
       this.logger.error(
         {
@@ -232,8 +504,9 @@ export class ShipwayService {
       throw new ServiceUnavailableException('Shipway credentials are not configured');
     }
 
-    this.assertApiBaseUrl();
-    const url = `${this.baseUrl}${path}`;
+    const host = baseUrlOverride ?? this.baseUrl;
+    this.assertApiBaseUrl(host);
+    const url = `${host}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAt = Date.now();
@@ -244,6 +517,7 @@ export class ShipwayService {
       {
         path,
         method,
+        host,
         url,
         timeoutMs: this.timeoutMs,
         body: requestBody,
@@ -404,20 +678,32 @@ export class ShipwayService {
     }
   }
 
-  private assertApiBaseUrl(): void {
+  private assertApiBaseUrl(host: string = this.baseUrl): void {
     try {
-      const url = new URL(this.baseUrl);
+      const url = new URL(host);
       if (/webhook|shipments\/webhook/i.test(url.pathname)) {
         throw new ServiceUnavailableException(
-          'SHIPWAY_BASE_URL must be the Shipway API host, not the webhook endpoint',
+          'Shipway base URL must be an API host, not the webhook endpoint',
         );
       }
     } catch (error) {
       if (error instanceof ServiceUnavailableException) {
         throw error;
       }
-      throw new ServiceUnavailableException('SHIPWAY_BASE_URL is not a valid URL');
+      throw new ServiceUnavailableException('Shipway base URL is not a valid URL');
     }
+  }
+
+  private extractShipwayErrorMessage(
+    data: { message?: string; error?: string; status?: string } | string | null | undefined,
+    status: number,
+  ): string {
+    if (typeof data === 'string' && data.trim()) return data.trim();
+    if (data && typeof data === 'object') {
+      const fromObject = data.message ?? data.error ?? data.status;
+      if (fromObject) return String(fromObject);
+    }
+    return `Shipway request failed with HTTP ${status}`;
   }
 
   private parseRequestBodyForLog(body: BodyInit): unknown {
@@ -453,9 +739,5 @@ export class ShipwayService {
     } catch {
       return { rawBody: text };
     }
-  }
-
-  private extractShipwayErrorMessage(data: { message?: string; error?: string; status?: string }, status: number): string {
-    return data.message ?? data.error ?? data.status ?? `Shipway request failed with HTTP ${status}`;
   }
 }
