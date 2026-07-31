@@ -55,6 +55,15 @@ import { ProductHealthConcernEntity } from '@modules/product/entities/product-he
 import { ProductWellnessGoalEntity } from '@modules/product/entities/product-wellness-goal.entity';
 import { ProductAttributeMappingEntity } from '@modules/product/entities/product-attribute-mapping.entity';
 import { VariantAttributeValueEntity } from '@modules/product/entities/variant-attribute-value.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
+import { ProductTagEntity } from '@modules/product/entities/product-tag.entity';
+import { ProductTagMappingEntity } from '@modules/product/entities/product-tag-mapping.entity';
+import { ProductFaqEntity } from '@modules/product/entities/product-faq.entity';
+import { ProductFaqMappingEntity } from '@modules/product/entities/product-faq-mapping.entity';
+import { ProductBundleEntity } from '@modules/product/entities/product-bundle.entity';
+import { ProductCategoryFilterMappingEntity } from '@modules/product/entities/product-category-filter-mapping.entity';
+import { ProductCategoryHierarchyEntity } from '@modules/product/entities/product-category-hierarchy.entity';
 
 // ── External entities required by support ────────────────────────────────────
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
@@ -236,12 +245,21 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
       CouponBrandMappingEntity,
       HomeSectionEntity,
       UnitEntity,
-      // ── Product (needed for master deletion-guard and home-sections) ────
+      // ── Product (needed for master deletion-guard, blog, home-sections) ─
       ProductEntity,
+      ProductVariantEntity,
+      ProductMediaEntity,
       ProductHealthConcernEntity,
       ProductWellnessGoalEntity,
       ProductAttributeMappingEntity,
       VariantAttributeValueEntity,
+      ProductTagEntity,
+      ProductTagMappingEntity,
+      ProductFaqEntity,
+      ProductFaqMappingEntity,
+      ProductBundleEntity,
+      ProductCategoryFilterMappingEntity,
+      ProductCategoryHierarchyEntity,
       // ── Audit ────────────────────────────────────────────────────────────
       AuditLogEntity,
       // ── Blog ─────────────────────────────────────────────────────────────
