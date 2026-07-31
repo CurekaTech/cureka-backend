@@ -50,3 +50,13 @@ npm run product-page-url:import:apply
 
 npm run product-sku:remap -- --file="docs/sku-code-mismatch-beta-1.xlsx"
 npm run product-sku:remap:apply
+
+-------------------------------
+
+# preview — no DB/storage writes
+npm run product:backfill-media -- --only-bmp
+
+# apply safely (append missing BMPs only)
+npm run product:backfill-media -- --only-bmp --apply
+
+npm run product:backfill-media -- --only-bmp --replace --confirm --apply
