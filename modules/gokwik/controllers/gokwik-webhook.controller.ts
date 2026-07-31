@@ -1,4 +1,4 @@
-import { Body, Controller, Logger, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Logger, Post, Req, UseGuards } from '@nestjs/common';
 import { RawResponse } from '@packages/common';
 import { FastifyRequest } from 'fastify';
 import {
@@ -18,6 +18,7 @@ export class GokwikWebhookController {
   constructor(private readonly webhookService: GokwikWebhookService) {}
 
   @Post('transaction')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(GokwikWebhookGuard)
   async transaction(@Req() req: FastifyRequest, @Body() dto: GokwikTransactionWebhookDto) {
     this.logger.log(
@@ -37,6 +38,7 @@ export class GokwikWebhookController {
   }
 
   @Post('refund')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(GokwikWebhookGuard)
   async refund(@Req() req: FastifyRequest, @Body() dto: GokwikRefundWebhookDto) {
     this.logger.log(
@@ -56,6 +58,7 @@ export class GokwikWebhookController {
   }
 
   @Post('abandoned-carts')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(GokwikCallbackGuard)
   async abandonedCarts(
     @Req() req: FastifyRequest,
