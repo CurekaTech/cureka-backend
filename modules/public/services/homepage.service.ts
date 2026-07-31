@@ -1,4 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import {
+  buildPaginatedResult,
+  buildPaginationOptions,
+  PaginatedResult,
+  PaginationOptions,
+} from '@packages/common';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
@@ -348,6 +354,103 @@ export class HomepageService {
       slug: brand.slug,
       logo: this.storageUrlEnricher.persist(brand.logo),
     }));
+  }
+
+  /**
+   * Homepage "View all" — every active brand (paginated).
+   * Distinct from the limited Brands We Trust homepage strip.
+   */
+  async findAllBrandsPaginated(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+  ): Promise<PaginatedResult<IPublicBrandCard>> {
+    const options = this.buildViewAllPaginationOptions(query, 'name', 'ASC');
+    const { data, total } = await this.brandsRepository.findPublicPaginated(options);
+    const cards: IPublicBrandCard[] = data.map((brand) => ({
+      refId: brand.refId,
+      name: brand.name,
+      slug: brand.slug,
+      logo: this.storageUrlEnricher.persist(brand.logo),
+    }));
+    const enriched = await this.storageUrlEnricher.enrichDeep(cards);
+    return buildPaginatedResult(enriched, total, options);
+  }
+
+  /**
+   * Homepage "View all" — every active health concern (paginated).
+   * Distinct from `getHomePageHealthConcerns` (inHomePage strip with sortIndex).
+   */
+  async findAllHealthConcernsPaginated(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+  ): Promise<PaginatedResult<IPublicHomePageHealthConcern>> {
+    const options = this.buildViewAllPaginationOptions(query, 'name', 'ASC');
+    const { data, total } = await this.healthConcernsRepository.findPublicPaginated(options);
+    const cards: IPublicHomePageHealthConcern[] = data.map((concern) => ({
+      refId: concern.refId,
+      name: concern.name,
+      slug: concern.slug,
+      description: concern.description,
+      icon: this.storageUrlEnricher.persist(concern.icon),
+      banner: this.storageUrlEnricher.persist(concern.banner),
+      sortIndex: concern.sortIndex,
+    }));
+    const enriched = await this.storageUrlEnricher.enrichDeep(cards);
+    return buildPaginatedResult(enriched, total, options);
+  }
+
+  /**
+   * Homepage "View all" — every active wellness goal (paginated).
+   * Distinct from the limited Shop by Wellness Goals homepage strip.
+   */
+  async findAllWellnessGoalsPaginated(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+  ): Promise<PaginatedResult<IPublicWellnessGoalCard>> {
+    const options = this.buildViewAllPaginationOptions(query, 'name', 'ASC');
+    const { data, total } = await this.wellnessGoalsRepository.findPublicPaginated(options);
+    const cards: IPublicWellnessGoalCard[] = data.map((goal) => ({
+      refId: goal.refId,
+      name: goal.name,
+      description: goal.description,
+      image: this.storageUrlEnricher.persist(goal.image),
+    }));
+    const enriched = await this.storageUrlEnricher.enrichDeep(cards);
+    return buildPaginatedResult(enriched, total, options);
+  }
+
+  private buildViewAllPaginationOptions(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    },
+    defaultSortBy: string,
+    defaultSortOrder: 'ASC' | 'DESC',
+  ): PaginationOptions {
+    const options = buildPaginationOptions({
+      ...query,
+      sortBy: query.sortBy ?? defaultSortBy,
+      sortOrder: query.sortOrder ?? defaultSortOrder,
+    });
+    return options;
   }
 
   private buildHeaderCategoryTree(categories: CategoryEntity[]): IPublicHeaderCategory[] {

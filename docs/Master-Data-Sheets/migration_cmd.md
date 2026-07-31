@@ -44,3 +44,9 @@ npm run typesense:reindex
 npm run product-page-url:import
 # apply
 npm run product-page-url:import:apply
+
+
+-----------------------------
+
+npm run product-sku:remap -- --file="docs/sku-code-mismatch-beta-1.xlsx"
+npm run product-sku:remap:apply
