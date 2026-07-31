@@ -107,6 +107,45 @@ export class HealthConcernsRepository {
     return { data, total };
   }
 
+  /** Active health concerns for public view-all (not limited to inHomePage). */
+  async findPublicPaginated(
+    options: PaginationOptions,
+  ): Promise<{ data: HealthConcernEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'healthConcern.createdAt',
+      name: 'healthConcern.name',
+      slug: 'healthConcern.slug',
+      sortIndex: 'healthConcern.sortIndex',
+    };
+    const sortColumn =
+      (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'healthConcern.name';
+    const sortOrder = options.sortOrder ?? 'ASC';
+
+    const qb = this.repo
+      .createQueryBuilder('healthConcern')
+      .where('healthConcern.status = :status', { status: MasterStatus.ACTIVE })
+      .skip(skip)
+      .take(take);
+
+    if (sortColumn === 'healthConcern.sortIndex') {
+      qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    } else {
+      qb.orderBy(sortColumn, sortOrder);
+    }
+
+    if (options.search) {
+      qb.andWhere(
+        '(healthConcern.name ILIKE :search OR healthConcern.slug ILIKE :search OR healthConcern.refId ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
   async findCursorPaginated(
     options: MasterCursorStatusOptions,
   ): Promise<CursorPaginatedResult<HealthConcernEntity>> {

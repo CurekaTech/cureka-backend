@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ResponseMessage } from '@packages/common';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
+import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { HomepageSectionsService } from '../services/homepage-sections.service';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
@@ -59,6 +60,25 @@ export class HomepageController {
   @Get('banners')
   getHomepageBanners() {
     return this.homepageService.getHomepageBanners();
+  }
+
+  @ResponseMessage('Active brands retrieved successfully')
+  @Get('brands')
+  getBrandsViewAll(@Query() query: HomepageViewAllQueryDto) {
+    return this.homepageService.getBrandsViewAll(query);
+  }
+
+  @ResponseMessage('Active wellness goals retrieved successfully')
+  @Get('wellness-goals')
+  getWellnessGoalsViewAll(@Query() query: HomepageViewAllQueryDto) {
+    return this.homepageService.getWellnessGoalsViewAll(query);
+  }
+
+  /** Must be declared before any `health-concerns/:param` route if one is added later. */
+  @ResponseMessage('Active health concerns retrieved successfully')
+  @Get('health-concerns/view-all')
+  getHealthConcernsViewAll(@Query() query: HomepageViewAllQueryDto) {
+    return this.homepageService.getHealthConcernsViewAll(query);
   }
 
   @ResponseMessage('Homepage health concerns retrieved successfully')

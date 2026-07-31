@@ -26,3 +26,6 @@ export interface IPublicHomePageHealthConcern {
   /** Homepage display order. Lower = first; null = unordered (sorted after indexed items). */
   sortIndex: number | null;
 }
+
+/** Active health concern for public view-all listing (not limited to inHomePage). */
+export type IPublicHealthConcernListItem = IPublicHomePageHealthConcern;
