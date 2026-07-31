@@ -13,7 +13,8 @@ import {
 } from '@nestjs/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
-import { PaginationQueryDto, RefIdPipe, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { MasterListQueryDto } from '@modules/master/dto/master-list-query.dto';
 import { CreateRoleDto, UpdateRoleDto, UpdateRoleStatusDto } from '../dto/role.dto';
 import { RolesService } from '../services/roles.service';
 import { PermissionsGuard } from '../guards/permissions.guard';
@@ -37,7 +38,7 @@ export class RolesController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('roles.read')
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.rolesService.findAll(query);
   }
 
