@@ -3,7 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { RoleEntity } from '../entities/role.entity';
+
+export type RoleListOptions = PaginationOptions & {
+  status?: MasterStatus;
+};
 
 @Injectable()
 export class RolesRepository {
@@ -61,7 +66,7 @@ export class RolesRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: RoleListOptions,
   ): Promise<{ data: RoleEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -82,9 +87,13 @@ export class RolesRepository {
       .take(take);
 
     if (options.search) {
-      qb.where('role.name ILIKE :search OR role.slug ILIKE :search', {
+      qb.andWhere('(role.name ILIKE :search OR role.slug ILIKE :search)', {
         search: `%${options.search}%`,
       });
+    }
+
+    if (options.status) {
+      qb.andWhere('role.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();

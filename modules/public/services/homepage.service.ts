@@ -136,7 +136,8 @@ export class HomepageService {
 
   async getBestSellers(): Promise<IPublicBestSellersSection> {
     const raw = await this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.bestSellers(),
+      // v2: load products via findPublishedPaginated (same path as list API).
+      key: `${CacheKeys.homepage.bestSellers()}:v2`,
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadBestSellersUncached(),
     });
