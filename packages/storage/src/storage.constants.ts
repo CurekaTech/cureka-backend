@@ -5,6 +5,8 @@ export const ALLOWED_IMAGE_MIME_TYPES = [
   'image/png',
   'image/webp',
   'image/gif',
+  'image/bmp',
+  'image/x-ms-bmp',
   'application/pdf',
 ] as const;
 
