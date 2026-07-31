@@ -5,7 +5,7 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
-import { PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { ResponseMessage } from '@packages/common';
 import { CmsPagesService } from '@modules/master/services/cms-pages.service';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
@@ -51,7 +51,7 @@ export class HomepageController {
   /** View all brands (paginated) — use from Brands We Trust "View all". */
   @ResponseMessage('Brands retrieved successfully')
   @Get('brands')
-  getAllBrands(@Query() query: PaginationQueryDto) {
+  getAllBrands(@Query() query: HomepageViewAllQueryDto) {
     return this.homepageService.findAllBrandsPaginated(query);
   }
 
@@ -61,14 +61,14 @@ export class HomepageController {
    */
   @ResponseMessage('Health concerns retrieved successfully')
   @Get('health-concerns/view-all')
-  getAllHealthConcerns(@Query() query: PaginationQueryDto) {
+  getAllHealthConcerns(@Query() query: HomepageViewAllQueryDto) {
     return this.homepageService.findAllHealthConcernsPaginated(query);
   }
 
   /** View all wellness goals (paginated) — use from Shop by Wellness Goals "View all". */
   @ResponseMessage('Wellness goals retrieved successfully')
   @Get('wellness-goals')
-  getAllWellnessGoals(@Query() query: PaginationQueryDto) {
+  getAllWellnessGoals(@Query() query: HomepageViewAllQueryDto) {
     return this.homepageService.findAllWellnessGoalsPaginated(query);
   }
 
@@ -97,25 +97,6 @@ export class HomepageController {
   @Get('banners')
   getHomepageBanners() {
     return this.homepageService.getHomepageBanners();
-  }
-
-  @ResponseMessage('Active brands retrieved successfully')
-  @Get('brands')
-  getBrandsViewAll(@Query() query: HomepageViewAllQueryDto) {
-    return this.homepageService.getBrandsViewAll(query);
-  }
-
-  @ResponseMessage('Active wellness goals retrieved successfully')
-  @Get('wellness-goals')
-  getWellnessGoalsViewAll(@Query() query: HomepageViewAllQueryDto) {
-    return this.homepageService.getWellnessGoalsViewAll(query);
-  }
-
-  /** Must be declared before any `health-concerns/:param` route if one is added later. */
-  @ResponseMessage('Active health concerns retrieved successfully')
-  @Get('health-concerns/view-all')
-  getHealthConcernsViewAll(@Query() query: HomepageViewAllQueryDto) {
-    return this.homepageService.getHealthConcernsViewAll(query);
   }
 
   @ResponseMessage('Homepage health concerns retrieved successfully')
