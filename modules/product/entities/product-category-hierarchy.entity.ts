@@ -1,6 +1,6 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import type { ProductEntity } from './product.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
+import { ProductEntity } from './product.entity';
 
 @Entity('product_category_hierarchies')
 export class ProductCategoryHierarchyEntity {
@@ -30,7 +30,9 @@ export class ProductCategoryHierarchyEntity {
   @Column({ name: 'sub_sub_sub_category_id', type: 'uuid', nullable: true })
   subSubSubCategoryId!: string | null;
 
-  @ManyToOne('ProductEntity', 'categoryHierarchies', { onDelete: 'CASCADE' })
+  @ManyToOne(() => ProductEntity, (product) => product.categoryHierarchies, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'product_id' })
   product!: ProductEntity;
 
