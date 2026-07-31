@@ -31,8 +31,8 @@ export class UnicommerceOrderApiService {
   isConfigured(): boolean {
     return Boolean(
       this.configService.get<string>('unicommerceOrder.tenant') &&
-        this.configService.get<string>('unicommerceOrder.username') &&
-        this.configService.get<string>('unicommerceOrder.password'),
+      this.configService.get<string>('unicommerceOrder.username') &&
+      this.configService.get<string>('unicommerceOrder.password'),
     );
   }
 

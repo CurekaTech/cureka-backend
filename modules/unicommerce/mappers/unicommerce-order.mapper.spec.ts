@@ -83,15 +83,59 @@ describe('mapOrderToUnicommercePayload', () => {
     const payload = mapOrderToUnicommercePayload(buildOrder());
     const so = payload.saleOrder;
 
-    expect(so.saleOrderItems).toHaveLength(1);
-    const item = so.saleOrderItems[0];
-    expect(item.code).toBe('ORD123456780001-1');
-    expect(item.itemSku).toBe('SKU-001');
-    expect(item.shippingMethodCode).toBe('STD');
-    expect(item.sellingPrice).toBe('499');
-    expect(item.totalPrice).toBe('998');
-    expect(item.prepaidAmount).toBe('998');
-    expect(item.giftWrap).toBe(false);
+    // quantity=2 → Unicommerce needs 2 single-unit rows
+    expect(so.saleOrderItems).toHaveLength(2);
+    expect(so.saleOrderItems[0].code).toBe('ORD123456780001-1');
+    expect(so.saleOrderItems[0].itemSku).toBe('SKU-001');
+    expect(so.saleOrderItems[0].shippingMethodCode).toBe('STD');
+    expect(so.saleOrderItems[0].sellingPrice).toBe('499.00');
+    expect(so.saleOrderItems[0].totalPrice).toBe('499.00');
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('499.00');
+    expect(so.saleOrderItems[0].giftWrap).toBe(false);
+
+    expect(so.saleOrderItems[1].code).toBe('ORD123456780001-2');
+    expect(so.saleOrderItems[1].sellingPrice).toBe('499.00');
+    expect(so.saleOrderItems[1].totalPrice).toBe('499.00');
+  });
+
+  it('expands quantity into one Unicommerce saleOrderItem per unit', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        items: [
+          {
+            sku: 'WEL/CET/14253',
+            productName: 'Cetaphil Baby Mild Bar 100gm',
+            variantName: null,
+            quantity: 5,
+            unitPrice: '192.20',
+            totalPrice: '961.00',
+          } as OrderItemEntity,
+        ],
+        subtotal: '961.00',
+        discountAmount: '99.00',
+        shippingAmount: '0.00',
+        grandTotal: '961.00',
+        paymentMethod: OrderPaymentMethod.COD,
+      }),
+    );
+    const so = payload.saleOrder;
+
+    expect(so.saleOrderItems).toHaveLength(5);
+    expect(so.saleOrderItems.map((i) => i.code)).toEqual([
+      'ORD123456780001-1',
+      'ORD123456780001-2',
+      'ORD123456780001-3',
+      'ORD123456780001-4',
+      'ORD123456780001-5',
+    ]);
+    for (const item of so.saleOrderItems) {
+      expect(item.itemSku).toBe('WEL/CET/14253');
+      expect(item.sellingPrice).toBe('192.20');
+      expect(item.totalPrice).toBe('192.20');
+      expect(item.prepaidAmount).toBe('0.00');
+    }
+    expect(so.totalDiscount).toBe(99);
+    expect(so.cashOnDelivery).toBe(true);
   });
 
   it('maps COD orders: cashOnDelivery=true, prepaidAmount=0', () => {
@@ -104,7 +148,7 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.paymentInstrument).toBe('CASH');
     expect(so.totalCashOnDeliveryCharges).toBe(20);
     expect(so.totalPrepaidAmount).toBe(0);
-    expect(so.saleOrderItems[0].prepaidAmount).toBe('0');
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('0.00');
   });
 
   it('defaults channel to CUSTOM when no options given', () => {

@@ -58,9 +58,7 @@ export class UnicommerceOrderService implements OnModuleInit {
 
   async pushOrder(orderId: string): Promise<IUnicommerceCreateSaleOrderResponse | null> {
     if (!this.isEnabled()) {
-      this.logger.warn(
-        `Unicommerce order push disabled; skipping order ${orderId}`,
-      );
+      this.logger.warn(`Unicommerce order push disabled; skipping order ${orderId}`);
       return null;
     }
 
