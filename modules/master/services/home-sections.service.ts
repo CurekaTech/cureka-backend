@@ -424,7 +424,11 @@ export class HomeSectionsService implements OnModuleInit {
         throw new BadRequestException('Select at least one product');
       }
       await this.assertProductsExist(productRefIds);
-      return { banners: null, productRefIds, categoryRefIds: null };
+      return {
+        banners: this.resolveOptionalSectionBanner(dto, uploadedUrls, existing),
+        productRefIds,
+        categoryRefIds: null,
+      };
     }
 
     if (type === HomeSectionType.CATEGORY_SLIDER) {
@@ -433,10 +437,49 @@ export class HomeSectionsService implements OnModuleInit {
         throw new BadRequestException('Select at least one category');
       }
       await this.assertCategoriesExist(categoryRefIds);
-      return { banners: null, productRefIds: null, categoryRefIds };
+      return {
+        banners: this.resolveOptionalSectionBanner(dto, uploadedUrls, existing),
+        productRefIds: null,
+        categoryRefIds,
+      };
     }
 
     throw new BadRequestException(`Unsupported home section type: ${type}`);
+  }
+
+  /**
+   * Optional promo banner for productSlider / categorySlider
+   * (e.g. Deal of the Day, Curated Wellness Essentials).
+   * Multipart fields: `banner_image` (required to set/replace), optional `mobileImageUrl`.
+   * Omit upload on update to keep the existing banner.
+   */
+  private resolveOptionalSectionBanner(
+    dto: Pick<CreateHomeSectionDto, 'linkUrl'>,
+    uploadedUrls: Record<string, string>,
+    existing?: HomeSectionEntity,
+  ): HomeSectionBannerItem[] | null {
+    const desktop = uploadedUrls['banner_image'];
+    const mobile = uploadedUrls['mobileImageUrl'];
+    const existingBanner = existing?.banners?.[0];
+
+    if (!desktop && !mobile && !existingBanner) {
+      return null;
+    }
+
+    const imageUrl = this.storageUrlEnricher.persist(desktop ?? existingBanner?.imageUrl);
+    if (!imageUrl) {
+      return existingBanner ? [existingBanner] : null;
+    }
+
+    return [
+      {
+        imageUrl,
+        mobileImageUrl: this.storageUrlEnricher.persist(
+          mobile ?? existingBanner?.mobileImageUrl,
+        ),
+        linkUrl: (dto.linkUrl ?? existingBanner?.linkUrl ?? '#').trim() || '#',
+      },
+    ];
   }
 
   private async assertProductsExist(refIds: string[]): Promise<void> {

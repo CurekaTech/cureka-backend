@@ -22,10 +22,14 @@ export type IPublicCustomBannerSection = {
 };
 
 export type IPublicProductSliderSection = {
+  /** Optional section promo banner (desktop + optional mobile). */
+  banner: HomeSectionBannerItem | null;
   products: IPublicProductCard[];
 };
 
 export type IPublicCategorySliderSection = {
+  /** Optional section promo banner (desktop + optional mobile). */
+  banner: HomeSectionBannerItem | null;
   categories: IPublicCategoryListItem[];
 };
 
