@@ -17,13 +17,22 @@ import {
 } from '../dto/cms-page.dto';
 import { CmsPageEntity } from '../entities/cms-page.entity';
 import { MasterStatus } from '../enums/master-status.enum';
-import { ICmsPage, IPublicCmsPage } from '../interfaces/cms-page.interface';
+import {
+  ICmsPage,
+  IPublicCmsPage,
+  IPublicCmsPagesByKey,
+  PUBLIC_CMS_PAGE_KEY_BY_SLUG,
+  PublicCmsPageKey,
+} from '../interfaces/cms-page.interface';
 import {
   mapCmsPageEntitiesToResponse,
   mapCmsPageEntityToResponse,
   mapCmsPageToPublicResponse,
 } from '../mappers/cms-page.mapper';
-import { CmsPagesRepository } from '../repositories/cms-pages.repository';
+import {
+  CmsPagesRepository,
+  PREDEFINED_CMS_PAGES,
+} from '../repositories/cms-pages.repository';
 
 @Injectable()
 export class CmsPagesService {
@@ -65,6 +74,24 @@ export class CmsPagesService {
     return mapCmsPageToPublicResponse(entity);
   }
 
+  /**
+   * Storefront bundle: all predefined CMS pages keyed by stable camelCase keys.
+   * Inactive / missing pages are `null` so the response shape stays fixed.
+   */
+  async findPublicPagesByKey(): Promise<IPublicCmsPagesByKey> {
+    const slugs = PREDEFINED_CMS_PAGES.map((page) => page.slug);
+    const entities = await this.cmsPagesRepository.findActiveBySlugs([...slugs]);
+    const bySlug = new Map(entities.map((entity) => [entity.slug, entity]));
+
+    const result = {} as IPublicCmsPagesByKey;
+    for (const page of PREDEFINED_CMS_PAGES) {
+      const key = PUBLIC_CMS_PAGE_KEY_BY_SLUG[page.slug] as PublicCmsPageKey;
+      const entity = bySlug.get(page.slug);
+      result[key] = entity ? mapCmsPageToPublicResponse(entity) : null;
+    }
+    return result;
+  }
+
   async create(dto: CreateCmsPageDto, createdBy: string): Promise<ICmsPage> {
     const slug = dto.slug.trim().toLowerCase();
     if (await this.cmsPagesRepository.existsBySlug(slug)) {
@@ -94,15 +121,18 @@ export class CmsPagesService {
   async update(refId: string, dto: UpdateCmsPageDto, updatedBy: string): Promise<ICmsPage> {
     const existing = await this.requireByRefId(refId);
 
-    if (dto.title !== undefined && !dto.title.trim()) {
+    if (dto.title !== undefined && !dto.title?.trim()) {
       throw new BadRequestException('Title is required');
     }
-    if (dto.content !== undefined && !String(dto.content).trim()) {
+    if (dto.content !== undefined && !String(dto.content ?? '').trim()) {
       throw new BadRequestException('Content is required');
     }
 
     if (dto.slug !== undefined) {
-      const slug = dto.slug.trim().toLowerCase();
+      const slug = dto.slug?.trim().toLowerCase();
+      if (!slug) {
+        throw new BadRequestException('Slug is required');
+      }
       if (existing.isPredefined && slug !== existing.slug) {
         throw new BadRequestException('Slug cannot be changed for predefined CMS pages');
       }
@@ -113,15 +143,16 @@ export class CmsPagesService {
 
     const updateData: Partial<CmsPageEntity> = { updatedBy };
 
-    if (dto.title !== undefined) updateData.title = dto.title.trim();
+    if (dto.title !== undefined) updateData.title = dto.title!.trim();
     if (dto.content !== undefined) updateData.content = dto.content;
-    if (dto.metaTitle !== undefined) updateData.metaTitle = dto.metaTitle.trim() || null;
+    // Optional SEO fields may arrive as null (IsOptional skips IsString for null).
+    if (dto.metaTitle !== undefined) updateData.metaTitle = dto.metaTitle?.trim() || null;
     if (dto.metaDescription !== undefined) {
-      updateData.metaDescription = dto.metaDescription.trim() || null;
+      updateData.metaDescription = dto.metaDescription?.trim() || null;
     }
     if (dto.status !== undefined) updateData.status = dto.status;
     if (dto.slug !== undefined && !existing.isPredefined) {
-      updateData.slug = dto.slug.trim().toLowerCase();
+      updateData.slug = dto.slug!.trim().toLowerCase();
     }
 
     const updated = await this.cmsPagesRepository.updateByRefId(refId, updateData);

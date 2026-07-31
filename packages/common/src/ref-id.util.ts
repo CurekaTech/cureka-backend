@@ -1,4 +1,4 @@
-﻿/** Format: 3-letter prefix + 4-digit year + 4-6 digit random (11 or 13 chars). */
+ï»¿/** Format: 3-letter prefix + 4-digit year + 4-6 digit random (11 or 13 chars). */
 export const REF_ID_PATTERN = /^[A-Z]{3}\d{8}(\d{2})?$/;
 
 /** Legacy length used by existing rows. New IDs use 13 chars. */
@@ -68,5 +68,7 @@ export const generateUniqueRefId = async (
   );
 };
 
-export const isValidRefId = (value: string): boolean =>
-  REF_ID_PATTERN.test(value.trim().toUpperCase());
+export const isValidRefId = (value: string | null | undefined): boolean => {
+  if (value == null) return false;
+  return REF_ID_PATTERN.test(String(value).trim().toUpperCase());
+};

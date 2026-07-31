@@ -107,4 +107,13 @@ export class CmsPagesRepository {
       where: { slug, status: MasterStatus.ACTIVE },
     });
   }
+
+  async findActiveBySlugs(slugs: string[]): Promise<CmsPageEntity[]> {
+    if (!slugs.length) return [];
+    return this.repo
+      .createQueryBuilder('page')
+      .where('page.slug IN (:...slugs)', { slugs })
+      .andWhere('page.status = :status', { status: MasterStatus.ACTIVE })
+      .getMany();
+  }
 }

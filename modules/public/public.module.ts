@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MasterModule } from '@modules/master/master.module';
+import { OrdersModule } from '@modules/orders/orders.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { HomepageController } from './controllers/homepage.controller';
@@ -16,7 +17,7 @@ import { PublicProductsService } from './services/public-products.service';
 import { PublicBundlesService } from './services/public-bundles.service';
 
 @Module({
-  imports: [MasterModule, ProductModule, UploadsModule],
+  imports: [MasterModule, OrdersModule, ProductModule, UploadsModule],
   controllers: [
     HomepageController,
     PublicCommonController,

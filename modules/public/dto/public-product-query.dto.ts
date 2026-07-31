@@ -1,8 +1,25 @@
-import { Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductCategoryFilterQueryDto } from '@modules/product/dto/product-category-filter.dto';
+
+const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  return undefined;
+};
 
 export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsOptional()
@@ -78,6 +95,16 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsString()
   @MaxLength(300)
   tagSlug?: string;
+
+  /**
+   * When true, list keeps the normal filters but pins bestsellers first
+   * (ordered by CMS bestseller index), then remaining products.
+   * Example: `?categorySlug=nutrition&bestSeller=true`
+   */
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  bestSeller?: boolean;
 
   @IsOptional()
   @IsString()
