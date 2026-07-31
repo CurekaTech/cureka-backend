@@ -156,6 +156,45 @@ export class HealthConcernsRepository {
     });
   }
 
+  /** Active health concerns for storefront "View all" (paginated). */
+  async findPublicPaginated(
+    options: PaginationOptions,
+  ): Promise<{ data: HealthConcernEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+
+    const SORTABLE_COLUMNS: Record<string, string> = {
+      createdAt: 'healthConcern.createdAt',
+      name: 'healthConcern.name',
+      slug: 'healthConcern.slug',
+      sortIndex: 'healthConcern.sortIndex',
+    };
+    const sortColumn =
+      (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'healthConcern.name';
+    const sortOrder = options.sortOrder ?? 'ASC';
+
+    const qb = this.repo
+      .createQueryBuilder('healthConcern')
+      .where('healthConcern.status = :status', { status: MasterStatus.ACTIVE })
+      .skip(skip)
+      .take(take);
+
+    if (sortColumn === 'healthConcern.sortIndex') {
+      qb.orderBy(sortColumn, sortOrder, 'NULLS LAST').addOrderBy('healthConcern.name', 'ASC');
+    } else {
+      qb.orderBy(sortColumn, sortOrder).addOrderBy('healthConcern.name', 'ASC');
+    }
+
+    if (options.search) {
+      qb.andWhere(
+        '(healthConcern.name ILIKE :search OR healthConcern.slug ILIKE :search OR healthConcern.refId ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
   async findActiveHomePageConcerns(): Promise<HealthConcernEntity[]> {
     return this.repo
       .createQueryBuilder('healthConcern')

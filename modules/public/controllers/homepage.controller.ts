@@ -5,7 +5,8 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
-import { ResponseMessage } from '@packages/common';
+import { PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { CmsPagesService } from '@modules/master/services/cms-pages.service';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { HomepageSectionsService } from '../services/homepage-sections.service';
@@ -20,6 +21,7 @@ export class HomepageController {
     private readonly homepageSectionsService: HomepageSectionsService,
     private readonly homeSectionsService: HomeSectionsService,
     private readonly publicProductsService: PublicProductsService,
+    private readonly cmsPagesService: CmsPagesService,
   ) {}
 
   @ResponseMessage('Homepage sections retrieved successfully')
@@ -32,6 +34,41 @@ export class HomepageController {
   @Get('best-sellers')
   getBestSellers(@Query() query: PublicProductQueryDto) {
     return this.publicProductsService.findBestSellers(query);
+  }
+
+  /**
+   * All predefined CMS static pages in one payload, keyed for footer / legal links.
+   * Keys: aboutCureka, privacyPolicy, termsAndConditions, returnsRefunds, shippingPolicy.
+   * Inactive pages are `null`.
+   */
+  @ResponseMessage('CMS pages retrieved successfully')
+  @Get('cms-pages')
+  getCmsPages() {
+    return this.cmsPagesService.findPublicPagesByKey();
+  }
+
+  /** View all brands (paginated) — use from Brands We Trust "View all". */
+  @ResponseMessage('Brands retrieved successfully')
+  @Get('brands')
+  getAllBrands(@Query() query: PaginationQueryDto) {
+    return this.homepageService.findAllBrandsPaginated(query);
+  }
+
+  /**
+   * View all health concerns (paginated) — use from health-concern homepage "View all".
+   * Must be declared before `health-concerns` if a param route is added later.
+   */
+  @ResponseMessage('Health concerns retrieved successfully')
+  @Get('health-concerns/view-all')
+  getAllHealthConcerns(@Query() query: PaginationQueryDto) {
+    return this.homepageService.findAllHealthConcernsPaginated(query);
+  }
+
+  /** View all wellness goals (paginated) — use from Shop by Wellness Goals "View all". */
+  @ResponseMessage('Wellness goals retrieved successfully')
+  @Get('wellness-goals')
+  getAllWellnessGoals(@Query() query: PaginationQueryDto) {
+    return this.homepageService.findAllWellnessGoalsPaginated(query);
   }
 
   @ResponseMessage('Active home sections retrieved successfully')

@@ -1,4 +1,5 @@
 import { PartialType } from '@nestjs/mapped-types';
+import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsNotEmpty,
@@ -10,6 +11,10 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+
+/** Treat explicit JSON `null` as omitted so @IsOptional + @IsString work as expected. */
+const nullToUndefined = ({ value }: { value: unknown }): unknown =>
+  value === null ? undefined : value;
 
 export class CreateCmsPageDto {
   @IsNotEmpty()
@@ -31,11 +36,13 @@ export class CreateCmsPageDto {
   content!: string;
 
   @IsOptional()
+  @Transform(nullToUndefined)
   @IsString()
   @MaxLength(255)
   metaTitle?: string;
 
   @IsOptional()
+  @Transform(nullToUndefined)
   @IsString()
   @MaxLength(500)
   metaDescription?: string;
