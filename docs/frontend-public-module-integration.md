@@ -162,7 +162,8 @@ UI should render in array order (or re-sort by `sortIndex` the same way).
 | `GET /public/homepage/home-sections/:slug` | One custom section by slug |
 
 > Note: homepage section `expertCuratedBundles` still returns **health concern cards** (icon only, limited count).  
-> Use **`/public/homepage/health-concerns`** when you need the full active homepage set **with `sortIndex` + banner**.
+> Use **`/public/homepage/health-concerns`** when you need the full active homepage set **with `sortIndex` + banner**.  
+> For **View all** (brands / wellness goals / health concerns), see [frontend-homepage-view-all.md](./frontend-homepage-view-all.md).
 
 ---
 

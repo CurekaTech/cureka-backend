@@ -136,8 +136,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v5: curatedWellnessEssentials includes CMS testimonials.
-      key: CacheKeys.homepage.sections(`v5-${this.buildVariantKey(requested)}`),
+      // v6: productSlider / categorySlider include optional section banner.
+      key: CacheKeys.homepage.sections(`v6-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
@@ -252,7 +252,10 @@ export class HomepageSectionsService {
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
         .filter((product): product is NonNullable<typeof product> => Boolean(product));
-      return { products: mapProductEntitiesToPublicCards(ordered) };
+      return {
+        banner: section.banners?.[0] ?? null,
+        products: mapProductEntitiesToPublicCards(ordered),
+      };
     }
 
     if (section.type === HomeSectionType.CATEGORY_SLIDER) {
@@ -262,7 +265,10 @@ export class HomepageSectionsService {
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
         .filter((category): category is NonNullable<typeof category> => Boolean(category));
-      return { categories: mapCategoryEntitiesToPublicListItems(ordered) };
+      return {
+        banner: section.banners?.[0] ?? null,
+        categories: mapCategoryEntitiesToPublicListItems(ordered),
+      };
     }
 
     return null;
