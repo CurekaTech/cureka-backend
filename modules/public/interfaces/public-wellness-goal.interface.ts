@@ -7,3 +7,11 @@ export interface IPublicWellnessGoalCard {
   description?: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
+
+/** Active wellness goal for public view-all listing. */
+export interface IPublicWellnessGoalListItem {
+  refId: string;
+  name: string;
+  description: string | null;
+  image: IStorageFileReference | IStorageFileReferenceResponse | null;
+}

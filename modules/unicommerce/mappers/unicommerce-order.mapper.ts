@@ -20,6 +20,10 @@ function toNumber(value: string | number | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toMoneyString(value: number): string {
+  return value.toFixed(2);
+}
+
 function buildAddress(order: OrderEntity): IUnicommerceSaleOrderAddress {
   return {
     id: 'shipping',
@@ -35,29 +39,40 @@ function buildAddress(order: OrderEntity): IUnicommerceSaleOrderAddress {
   };
 }
 
-function buildSaleOrderItem(
+/**
+ * Unicommerce createSaleOrder treats each `saleOrderItem` as ONE physical unit
+ * (sellingPrice/totalPrice = price of a single item). There is no quantity field
+ * in the official API — multi-qty lines must be expanded into N item rows.
+ */
+function buildSaleOrderItemsForLine(
   item: OrderItemEntity,
-  index: number,
+  startingIndex: number,
   orderNumber: string,
   isCod: boolean,
-): IUnicommerceSaleOrderItem {
-  const itemCode = `${orderNumber}-${index + 1}`;
-  const sellingPrice = toNumber(item.unitPrice);
-  const totalPrice = toNumber(item.totalPrice);
-  const prepaidAmount = isCod ? 0 : totalPrice;
+): IUnicommerceSaleOrderItem[] {
+  const quantity = Math.max(1, Math.floor(toNumber(item.quantity)) || 1);
+  const unitPrice = toNumber(item.unitPrice);
+  const lineTotal = toNumber(item.totalPrice);
+  // Prefer explicit unit price; fall back to line total / qty when unitPrice is missing.
+  const sellingPrice =
+    unitPrice > 0 ? unitPrice : quantity > 0 ? lineTotal / quantity : lineTotal;
+  const prepaidAmount = isCod ? 0 : sellingPrice;
 
-  return {
-    code: itemCode,
-    itemSku: item.sku,
-    shippingMethodCode: 'STD',
-    packetNumber: 1,
-    giftWrap: false,
-    totalPrice: String(totalPrice),
-    sellingPrice: String(sellingPrice),
-    prepaidAmount: String(prepaidAmount),
-    discount: '0',
-    shippingCharges: '0',
-  };
+  return Array.from({ length: quantity }, (_, offset) => {
+    const itemIndex = startingIndex + offset;
+    return {
+      code: `${orderNumber}-${itemIndex}`,
+      itemSku: item.sku,
+      shippingMethodCode: 'STD',
+      packetNumber: 1,
+      giftWrap: false,
+      totalPrice: toMoneyString(sellingPrice),
+      sellingPrice: toMoneyString(sellingPrice),
+      prepaidAmount: toMoneyString(prepaidAmount),
+      discount: '0.00',
+      shippingCharges: '0.00',
+    };
+  });
 }
 
 export function mapOrderToUnicommercePayload(
@@ -72,9 +87,13 @@ export function mapOrderToUnicommercePayload(
 
   const address = buildAddress(order);
 
-  const saleOrderItems: IUnicommerceSaleOrderItem[] = (order.items ?? []).map((item, idx) =>
-    buildSaleOrderItem(item, idx, order.orderNumber, isCod),
-  );
+  const saleOrderItems: IUnicommerceSaleOrderItem[] = [];
+  let nextItemIndex = 1;
+  for (const item of order.items ?? []) {
+    const expanded = buildSaleOrderItemsForLine(item, nextItemIndex, order.orderNumber, isCod);
+    saleOrderItems.push(...expanded);
+    nextItemIndex += expanded.length;
+  }
 
   const grandTotal = toNumber(order.grandTotal);
   const totalDiscount = toNumber(order.discountAmount);

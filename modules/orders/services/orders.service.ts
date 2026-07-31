@@ -688,7 +688,10 @@ export class OrdersService {
         throw new BadRequestException('Orders can only be cancelled before shipping');
       }
 
-      if (locked.orderStatus === OrderStatus.CONFIRMED || locked.orderStatus === OrderStatus.PROCESSING) {
+      if (
+        locked.orderStatus === OrderStatus.CONFIRMED ||
+        locked.orderStatus === OrderStatus.PROCESSING
+      ) {
         const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId: id } });
         for (const item of items) {
           await manager

@@ -5,9 +5,10 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
-import { PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { ResponseMessage } from '@packages/common';
 import { CmsPagesService } from '@modules/master/services/cms-pages.service';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
+import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { HomepageSectionsService } from '../services/homepage-sections.service';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
@@ -50,7 +51,7 @@ export class HomepageController {
   /** View all brands (paginated) — use from Brands We Trust "View all". */
   @ResponseMessage('Brands retrieved successfully')
   @Get('brands')
-  getAllBrands(@Query() query: PaginationQueryDto) {
+  getAllBrands(@Query() query: HomepageViewAllQueryDto) {
     return this.homepageService.findAllBrandsPaginated(query);
   }
 
@@ -60,14 +61,14 @@ export class HomepageController {
    */
   @ResponseMessage('Health concerns retrieved successfully')
   @Get('health-concerns/view-all')
-  getAllHealthConcerns(@Query() query: PaginationQueryDto) {
+  getAllHealthConcerns(@Query() query: HomepageViewAllQueryDto) {
     return this.homepageService.findAllHealthConcernsPaginated(query);
   }
 
   /** View all wellness goals (paginated) — use from Shop by Wellness Goals "View all". */
   @ResponseMessage('Wellness goals retrieved successfully')
   @Get('wellness-goals')
-  getAllWellnessGoals(@Query() query: PaginationQueryDto) {
+  getAllWellnessGoals(@Query() query: HomepageViewAllQueryDto) {
     return this.homepageService.findAllWellnessGoalsPaginated(query);
   }
 

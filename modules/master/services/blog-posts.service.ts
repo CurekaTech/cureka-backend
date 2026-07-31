@@ -37,7 +37,6 @@ import { BlogPostsRepository } from '../repositories/blog-posts.repository';
 import { BlogCategoriesService } from './blog-categories.service';
 import { IBlogHealthReadsSection } from '../interfaces/blog-homepage.interface';
 
-
 const BLOG_UPLOAD_FIELDS = {
   featuredImageFile: UploadFolder.BLOG_IMAGES,
   featuredVideoFile: UploadFolder.BLOG_VIDEOS,
@@ -534,10 +533,7 @@ export class BlogPostsService {
 
   private async invalidateHomepageHealthReadsCache(): Promise<void> {
     await this.cacheStrategy.invalidateOnly({
-      patterns: [
-        CacheKeys.homepage.healthReadsPattern(),
-        CacheKeys.homepage.sectionsPattern(),
-      ],
+      patterns: [CacheKeys.homepage.healthReadsPattern(), CacheKeys.homepage.sectionsPattern()],
     });
   }
 }

@@ -22,10 +22,7 @@ const mapBlogFaqs = (entity: BlogPostEntity) =>
       answer: faq.answer.trim(),
     }));
 
-export const mapBlogPost = (
-  entity: BlogPostEntity,
-  extras?: { productRefIds?: string[] },
-) => ({
+export const mapBlogPost = (entity: BlogPostEntity, extras?: { productRefIds?: string[] }) => ({
   refId: entity.refId,
   title: entity.title,
   slug: entity.slug,
