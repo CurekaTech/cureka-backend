@@ -319,19 +319,20 @@ export class ShippingService {
           orderId,
           orderNumber,
           shipwayOrderId,
-          method: 'POST',
-          endpoint: '/api/getOrderShipmentDetails',
-          requestShape: {
-            username: '<configured>',
-            password: '<redacted>',
-            order_id: shipwayOrderId,
-          },
+          awbNumber: local?.awbNumber ?? null,
+          lookupPlan: [
+            'POST {SHIPWAY_TRACKING_BASE_URL}/api/getOrderShipmentDetails',
+            'GET {SHIPWAY_BASE_URL}/api/getorders?orderid=',
+            'GET {SHIPWAY_BASE_URL}/api/tracking?awb_numbers=',
+          ],
         },
-        '[Shipway] Calling getOrderShipmentDetails (POST JSON)',
+        '[Shipway] Calling multi-host shipment lookup',
       );
 
       const trackingStartedAt = Date.now();
-      const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId);
+      const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId, {
+        awbNumber: local?.awbNumber ?? null,
+      });
       const rawStatus = (tracking.current_status ?? tracking.status)?.trim();
       const events = tracking.events ?? tracking.scans ?? [];
 

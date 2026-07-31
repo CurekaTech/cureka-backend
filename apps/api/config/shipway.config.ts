@@ -7,8 +7,17 @@ export const shipwayConfig = registerAs('shipway', () => ({
   /** Shipway license key (used as Basic Auth password). */
   licenseKey: process.env['SHIPWAY_LICENSE_KEY'] ?? '',
 
-  /** Shipway API base URL. */
+  /** Shipway OMS API base URL (v2orders, getorders, tracking by AWB). */
   baseUrl: process.env['SHIPWAY_BASE_URL'] ?? 'https://app.shipway.com',
+
+  /**
+   * Classic order-tracking API host (getOrderShipmentDetails).
+   * Shipway docs use https://shipway.in — this endpoint is NOT on app.shipway.com.
+   */
+  trackingBaseUrl:
+    process.env['SHIPWAY_TRACKING_BASE_URL'] ??
+    process.env['SHIPWAY_CLASSIC_BASE_URL'] ??
+    'https://shipway.in',
 
   /**
    * Warehouse ID registered in Shipway.
