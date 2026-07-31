@@ -429,15 +429,15 @@ export class ShipwayService {
 
   /** Flatten classic `{ status, response: {...} }` and scan aliases into our tracking shape. */
   private normalizeTrackingResponse(
-    raw: IShipwayTrackingResponse,
+    raw: IShipwayTrackingResponse & { msg?: string },
     orderId: string,
   ): IShipwayTrackingResponse {
     const nested = raw.response ?? {};
     const scans = raw.events ?? raw.scans ?? raw.scan ?? nested.events ?? nested.scans ?? nested.scan ?? [];
-    // Never treat envelope status ("Success"/"Error") as the shipment status.
+    // Never treat envelope status ("Success"/"Error"/"Failed") as the shipment status.
     const currentStatus = raw.current_status ?? nested.current_status ?? undefined;
-    const envelopeOk =
-      raw.success === true || String(raw.status ?? '').toLowerCase() === 'success';
+    const envelopeStatus = String(raw.status ?? '').toLowerCase();
+    const envelopeOk = raw.success === true || envelopeStatus === 'success';
     const success = envelopeOk || Boolean(currentStatus);
 
     const mappedScans = scans.map((scan) => ({
@@ -452,7 +452,7 @@ export class ShipwayService {
       ...nested,
       ...raw,
       success,
-      message: raw.message,
+      message: raw.message ?? raw.msg,
       order_id: raw.order_id ?? nested.order_id ?? orderId,
       current_status: currentStatus,
       // Keep envelope status separate; shipping.service prefers current_status.
@@ -548,7 +548,13 @@ export class ShipwayService {
       const responseHeaders = Object.fromEntries(response.headers.entries());
       const elapsedMs = Date.now() - startedAt;
       const contentType = response.headers.get('content-type') ?? '';
+      const trimmedText = typeof text === 'string' ? text.trim() : '';
+      const looksLikeJson =
+        trimmedText.startsWith('{') ||
+        trimmedText.startsWith('[') ||
+        trimmedText.startsWith('"');
       const looksLikeHtml =
+        !looksLikeJson &&
         typeof text === 'string' &&
         (contentType.includes('text/html') || /^\s*<(!doctype|html)/i.test(text));
 
@@ -557,6 +563,7 @@ export class ShipwayService {
           path,
           method,
           url,
+          host,
           elapsedMs,
           httpStatus: response.status,
           statusText: response.statusText,
@@ -564,7 +571,7 @@ export class ShipwayService {
           contentType,
           looksLikeHtml,
           bodyPreview: typeof text === 'string' ? text.slice(0, 500) : text,
-          body: looksLikeHtml ? { rawBody: '<html truncated — wrong host/path?>' } : data,
+          body: looksLikeHtml ? { rawBody: text.slice(0, 300) } : data,
           headers: responseHeaders,
         },
         '[Shipway] API response',
