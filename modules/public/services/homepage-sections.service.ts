@@ -138,8 +138,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v6: productSlider / categorySlider include optional section banner.
-      key: CacheKeys.homepage.sections(`v6-${this.buildVariantKey(requested)}`),
+      // v7: bestSellers uses findPublishedPaginated (fixes empty/500 section data).
+      key: CacheKeys.homepage.sections(`v7-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
