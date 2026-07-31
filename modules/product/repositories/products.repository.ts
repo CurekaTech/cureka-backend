@@ -1730,7 +1730,8 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachDetailRelations(products, this.repo.manager);
+    // Card/list callers only — avoid attachDetailRelations (heavy + hierarchy joins).
+    await this.attachPublicListRelations(products);
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
