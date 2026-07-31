@@ -57,9 +57,11 @@ export class RolesService {
   async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IRole>> {
     const paginationOptions = buildPaginationOptions(query);
     const status =
-      query.status && query.status !== MasterListStatusFilter.ALL
-        ? (query.status as MasterStatus)
-        : undefined;
+      query.status === MasterListStatusFilter.ACTIVE
+        ? MasterStatus.ACTIVE
+        : query.status === MasterListStatusFilter.INACTIVE
+          ? MasterStatus.INACTIVE
+          : undefined;
     const { data, total } = await this.rolesRepository.findAllPaginated({
       ...paginationOptions,
       status,
