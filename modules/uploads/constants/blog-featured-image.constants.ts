@@ -1,10 +1,10 @@
-/** Recommended blog featured banner size for homepage + detail page display. */
-export const BLOG_FEATURED_IMAGE_WIDTH = 1060;
-export const BLOG_FEATURED_IMAGE_HEIGHT = 562;
-export const BLOG_FEATURED_IMAGE_MIN_WIDTH = 850;
-export const BLOG_FEATURED_IMAGE_MIN_HEIGHT = 451;
+/** Blog featured banner — fits homepage hero and detail page (12:5). */
+export const BLOG_FEATURED_IMAGE_WIDTH = 1536;
+export const BLOG_FEATURED_IMAGE_HEIGHT = 640;
+export const BLOG_FEATURED_IMAGE_MIN_WIDTH = 1224;
+export const BLOG_FEATURED_IMAGE_MIN_HEIGHT = 510;
 export const BLOG_FEATURED_IMAGE_ASPECT_RATIO =
   BLOG_FEATURED_IMAGE_WIDTH / BLOG_FEATURED_IMAGE_HEIGHT;
 export const BLOG_FEATURED_IMAGE_ASPECT_TOLERANCE = 0.06;
 export const BLOG_FEATURED_IMAGE_DIMENSIONS_LABEL = `${BLOG_FEATURED_IMAGE_WIDTH}×${BLOG_FEATURED_IMAGE_HEIGHT}px`;
-export const BLOG_FEATURED_IMAGE_ASPECT_LABEL = '530:281';
+export const BLOG_FEATURED_IMAGE_ASPECT_LABEL = '12:5';
