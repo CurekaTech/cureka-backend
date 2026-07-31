@@ -20,6 +20,9 @@ function buildOrder(overrides: Partial<OrderEntity> = {}): OrderEntity {
     subtotal: '998.00',
     discountAmount: '50.00',
     shippingAmount: '40.00',
+    handlingAmount: '0.00',
+    platformFee: '0.00',
+    prepaidDiscount: '0.00',
     codCharge: '20.00',
     grandTotal: '1008.00',
     paymentMethod: OrderPaymentMethod.RAZORPAY,
@@ -149,6 +152,44 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.totalCashOnDeliveryCharges).toBe(20);
     expect(so.totalPrepaidAmount).toBe(0);
     expect(so.saleOrderItems[0].prepaidAmount).toBe('0.00');
+  });
+
+  it('folds handling and platform fees into totalShippingCharges so UC order amount matches', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        items: [
+          {
+            sku: 'NUT/SOG/13665',
+            productName: 'So Good Soy Beverage Unsweetened (200 ml)',
+            variantName: null,
+            quantity: 4,
+            unitPrice: '40.00',
+            totalPrice: '160.00',
+          } as OrderItemEntity,
+        ],
+        subtotal: '160.00',
+        discountAmount: '0.00',
+        shippingAmount: '75.00',
+        handlingAmount: '50.00',
+        platformFee: '50.00',
+        codCharge: '0.00',
+        grandTotal: '335.00',
+        paymentMethod: OrderPaymentMethod.COD,
+      }),
+    );
+    const so = payload.saleOrder;
+
+    expect(so.saleOrderItems).toHaveLength(4);
+    // 75 shipping + 50 handling + 50 platform
+    expect(so.totalShippingCharges).toBe(175);
+    expect(so.totalDiscount).toBe(0);
+    expect(so.totalCashOnDeliveryCharges).toBe(0);
+    // Items 160 + charges 175 = 335 (matches website grandTotal)
+    const itemsTotal = so.saleOrderItems.reduce(
+      (sum, item) => sum + Number(item.totalPrice),
+      0,
+    );
+    expect(itemsTotal + so.totalShippingCharges!).toBe(335);
   });
 
   it('defaults channel to CUSTOM when no options given', () => {

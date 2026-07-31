@@ -19,6 +19,7 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "strict": true,
+    "types": ["node", "jest"],
     "paths": {
       "@config/*": ["apps/api/config/*"],
       "@common/*": ["apps/api/common/*"],
