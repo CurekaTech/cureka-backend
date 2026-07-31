@@ -11,7 +11,13 @@ import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.e
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { ShipwayStatusMapper } from '../mappers/shipway-status.mapper';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
-import { IShipwayPushOrderPayload, IShipwayPushOrderResponse, IShipwayTrackingEvent, IShipwayWebhookEvent } from '../interfaces/shipway-api.interface';
+import {
+  IShipwayPushOrderPayload,
+  IShipwayPushOrderResponse,
+  IShipwayTrackingEvent,
+  IShipwayTrackingResponse,
+  IShipwayWebhookEvent,
+} from '../interfaces/shipway-api.interface';
 import { ShipmentEntity } from '../entities/shipment.entity';
 import { ShipmentsRepository } from '../repositories/shipments.repository';
 import { ShipmentEventsRepository } from '../repositories/shipment-events.repository';
@@ -267,6 +273,238 @@ export class ShippingService {
 
   getShipmentByOrderId(orderId: string): Promise<ShipmentEntity | null> {
     return this.shipmentsRepository.findByOrderId(orderId);
+  }
+
+  /**
+   * Live Shipway lookup for the customer shipment API.
+   * Returns shipwayStatus=true only when Shipway returns a non-empty status string.
+   * On API failure / empty status, falls back to the local shipment (if any) with shipwayStatus=false.
+   */
+  async resolveShipmentForOrder(
+    orderId: string,
+    orderNumber: string,
+  ): Promise<{ shipment: ShipmentEntity | null; shipwayStatus: boolean }> {
+    const local = await this.shipmentsRepository.findByOrderId(orderId);
+    const shipwayOrderId = local?.shipwayOrderId ?? orderNumber;
+
+    this.logger.log(
+      {
+        orderId,
+        orderNumber,
+        shipwayOrderId,
+        hasLocalShipment: Boolean(local),
+        localShipment: local
+          ? {
+              id: local.id,
+              refId: local.refId,
+              shipwayOrderId: local.shipwayOrderId,
+              shipmentId: local.shipmentId,
+              shipmentStatus: local.shipmentStatus,
+              shipwayRawStatus: local.shipwayRawStatus,
+              awbNumber: local.awbNumber,
+              courierName: local.courierName,
+              trackingUrl: local.trackingUrl,
+              pushedAt: local.pushedAt,
+              lastSyncedAt: local.lastSyncedAt,
+              eventCount: local.events?.length ?? 0,
+            }
+          : null,
+      },
+      '[Shipway] Connecting to Shipway for order shipment details',
+    );
+
+    try {
+      this.logger.log(
+        {
+          orderId,
+          orderNumber,
+          shipwayOrderId,
+          endpoint: `/api/getOrderShipmentDetails?order_id=${shipwayOrderId}`,
+        },
+        '[Shipway] Calling getOrderShipmentDetails',
+      );
+
+      const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId);
+      const rawStatus = (tracking.current_status ?? tracking.status)?.trim();
+      const events = tracking.events ?? tracking.scans ?? [];
+
+      this.logger.log(
+        {
+          orderId,
+          orderNumber,
+          shipwayOrderId,
+          success: tracking.success,
+          message: tracking.message,
+          rawStatus: rawStatus || null,
+          current_status: tracking.current_status ?? null,
+          status: tracking.status ?? null,
+          current_status_date: tracking.current_status_date ?? null,
+          awb_number: tracking.awb_number ?? null,
+          courier_name: tracking.courier_name ?? null,
+          courier_id: tracking.courier_id ?? null,
+          shipment_id: tracking.shipment_id ?? null,
+          pickup_id: tracking.pickup_id ?? null,
+          tracking_url: tracking.tracking_url ?? null,
+          label_url: tracking.label_url ?? null,
+          invoice_url: tracking.invoice_url ?? null,
+          eventCount: events.length,
+          events: events.map((event) => ({
+            status: event.status,
+            status_date: event.status_date,
+            location: event.location,
+            message: event.message,
+            activity: event.activity,
+          })),
+          fullTrackingResponse: tracking,
+        },
+        '[Shipway] Received response from getOrderShipmentDetails',
+      );
+
+      if (!rawStatus) {
+        this.logger.warn(
+          {
+            orderId,
+            orderNumber,
+            shipwayOrderId,
+            shipwayStatus: false,
+            reason: 'empty_status',
+            trackingSuccess: tracking.success,
+            trackingMessage: tracking.message,
+          },
+          '[Shipway] No usable status in response — shipwayStatus=false, default 4-step flow',
+        );
+        return { shipment: local, shipwayStatus: false };
+      }
+
+      if (local) {
+        this.logger.log(
+          {
+            orderId,
+            orderNumber,
+            shipwayOrderId,
+            rawStatus,
+            mappedStatus: ShipwayStatusMapper.toShipmentStatus(rawStatus),
+          },
+          '[Shipway] Status found — persisting sync onto local shipment',
+        );
+        const synced = await this.persistTrackingUpdate(local, tracking, rawStatus);
+        this.logger.log(
+          {
+            orderId,
+            orderNumber,
+            shipwayStatus: true,
+            shipmentId: synced.id,
+            shipmentStatus: synced.shipmentStatus,
+            shipwayRawStatus: synced.shipwayRawStatus,
+            awbNumber: synced.awbNumber,
+            courierName: synced.courierName,
+            lastSyncedAt: synced.lastSyncedAt,
+          },
+          '[Shipway] Local shipment synced from Shipway — shipwayStatus=true',
+        );
+        return { shipment: synced, shipwayStatus: true };
+      }
+
+      this.logger.log(
+        {
+          orderId,
+          orderNumber,
+          shipwayOrderId,
+          rawStatus,
+          mappedStatus: ShipwayStatusMapper.toShipmentStatus(rawStatus),
+          shipwayStatus: true,
+        },
+        '[Shipway] Status found without local shipment row — building ephemeral response, shipwayStatus=true',
+      );
+      return {
+        shipment: this.buildEphemeralShipmentFromTracking(orderId, orderNumber, tracking, rawStatus),
+        shipwayStatus: true,
+      };
+    } catch (error) {
+      this.logger.warn(
+        {
+          orderId,
+          orderNumber,
+          shipwayOrderId,
+          shipwayStatus: false,
+          reason: 'api_error',
+          error: this.serializeError(error),
+          hasLocalShipment: Boolean(local),
+        },
+        '[Shipway] Connection/lookup failed — shipwayStatus=false, default 4-step flow',
+      );
+      return { shipment: local, shipwayStatus: false };
+    }
+  }
+
+  private async persistTrackingUpdate(
+    shipment: ShipmentEntity,
+    tracking: IShipwayTrackingResponse,
+    rawStatus: string,
+  ): Promise<ShipmentEntity> {
+    const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(rawStatus);
+
+    return this.dataSource.transaction(async (manager) => {
+      shipment.awbNumber = tracking.awb_number ?? shipment.awbNumber;
+      shipment.courierName = tracking.courier_name ?? shipment.courierName;
+      shipment.courierId = this.toNullableString(tracking.courier_id) ?? shipment.courierId;
+      shipment.trackingUrl = tracking.tracking_url ?? shipment.trackingUrl;
+      shipment.labelUrl = tracking.label_url ?? shipment.labelUrl;
+      shipment.invoiceUrl = tracking.invoice_url ?? shipment.invoiceUrl;
+      shipment.pickupId = this.toNullableString(tracking.pickup_id) ?? shipment.pickupId;
+      shipment.shipmentId = this.toNullableString(tracking.shipment_id) ?? shipment.shipmentId;
+      shipment.shipmentStatus = shipmentStatus;
+      shipment.shipwayRawStatus = rawStatus;
+      shipment.lastSyncedAt = new Date();
+      shipment.updatedBy = 'shipway-sync';
+
+      const saved = await this.shipmentsRepository.save(shipment, manager);
+      await this.eventEmitter.emitAsync(
+        EVENTS.SHIPMENT_UPDATED,
+        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+      );
+      await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
+      await this.syncOrderStatus(saved.orderId, shipmentStatus, manager);
+      return (await this.shipmentsRepository.findByOrderId(saved.orderId, manager)) ?? saved;
+    });
+  }
+
+  private buildEphemeralShipmentFromTracking(
+    orderId: string,
+    orderNumber: string,
+    tracking: IShipwayTrackingResponse,
+    rawStatus: string,
+  ): ShipmentEntity {
+    const now = new Date();
+    return {
+      id: orderId,
+      refId: orderNumber,
+      orderId,
+      orderNumber,
+      groupKey: 'default',
+      shipwayOrderId: orderNumber,
+      shipmentId: this.toNullableString(tracking.shipment_id),
+      awbNumber: tracking.awb_number ?? null,
+      courierName: tracking.courier_name ?? null,
+      courierId: this.toNullableString(tracking.courier_id),
+      trackingUrl: tracking.tracking_url ?? null,
+      labelUrl: tracking.label_url ?? null,
+      invoiceUrl: tracking.invoice_url ?? null,
+      pickupId: this.toNullableString(tracking.pickup_id),
+      warehouseId: null,
+      returnWarehouseId: null,
+      shipmentStatus: ShipwayStatusMapper.toShipmentStatus(rawStatus),
+      shipwayRawStatus: rawStatus,
+      pushedAt: null,
+      lastSyncedAt: now,
+      lastWebhookEventId: null,
+      events: [],
+      items: [],
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'shipway-live',
+      updatedBy: 'shipway-live',
+    } as ShipmentEntity;
   }
 
   private isReadyForShipway(order: OrderEntity): boolean {

@@ -48,11 +48,40 @@ export class ShipwayService {
     });
   }
 
-  getShipmentDetails(orderId: string): Promise<IShipwayTrackingResponse> {
-    return this.request<IShipwayTrackingResponse>(
+  async getShipmentDetails(orderId: string): Promise<IShipwayTrackingResponse> {
+    this.logger.log(
+      {
+        shipwayOrderId: orderId,
+        baseUrl: this.baseUrl,
+        emailConfigured: Boolean(this.email),
+        licenseKeyConfigured: Boolean(this.licenseKey),
+        timeoutMs: this.timeoutMs,
+      },
+      '[Shipway] getShipmentDetails — connecting',
+    );
+
+    const tracking = await this.request<IShipwayTrackingResponse>(
       `/api/getOrderShipmentDetails?order_id=${encodeURIComponent(orderId)}`,
       { method: 'GET' },
     );
+
+    this.logger.log(
+      {
+        shipwayOrderId: orderId,
+        success: tracking.success,
+        message: tracking.message,
+        current_status: tracking.current_status,
+        status: tracking.status,
+        awb_number: tracking.awb_number,
+        courier_name: tracking.courier_name,
+        shipment_id: tracking.shipment_id,
+        tracking_url: tracking.tracking_url,
+        eventCount: (tracking.events ?? tracking.scans ?? []).length,
+      },
+      '[Shipway] getShipmentDetails — response summary',
+    );
+
+    return tracking;
   }
 
   cancelShipment(payload: IShipwayCancelPayload): Promise<IShipwayCancelResponse> {

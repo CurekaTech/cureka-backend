@@ -21,6 +21,7 @@ export type ShipmentResponse = {
   orderId: string;
   orderNumber: string;
   shipmentStatus: string;
+  shipwayStatus: boolean;
   shipwayRawStatus: string | null;
   awbNumber: string | null;
   courierName: string | null;
@@ -88,7 +89,7 @@ function getFriendlyStatusLabel(status: string | ShipmentStatus): string {
   }
 }
 
-/** Index of the "current" step in STATIC_FLOW_STEPS (-1 = all pending / special). */
+/** Index of the "current" step in STATIC_FLOW_STEPS. */
 function getCurrentStepIndex(status: string | ShipmentStatus): number {
   switch (status) {
     case ShipmentStatus.PENDING:
@@ -107,6 +108,16 @@ function getCurrentStepIndex(status: string | ShipmentStatus): number {
     default:
       return 0;
   }
+}
+
+/** Default 4-step flow when Shipway has no usable status. */
+function buildDefaultStatusFlow(confirmedAt: Date | null): ShipmentStatusFlowStep[] {
+  return STATIC_FLOW_STEPS.map((step, index) => ({
+    key: step.key,
+    label: step.label,
+    status: index === 0 ? 'completed' : 'pending',
+    happenedAt: index === 0 ? confirmedAt : null,
+  }));
 }
 
 function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
@@ -165,7 +176,6 @@ function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
       status = 'completed';
       happenedAt = index === 0 ? confirmedAt : syncedAt ?? confirmedAt;
     } else if (index === currentIndex) {
-      // Confirmed-stage statuses keep first step as completed (matches prior API).
       status = currentIndex === 0 ? 'completed' : 'current';
       happenedAt = index === 0 ? confirmedAt : syncedAt ?? confirmedAt;
     }
@@ -179,15 +189,68 @@ function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
   });
 }
 
-export function mapShipmentToResponse(shipment: ShipmentEntity): ShipmentResponse {
+export function mapDefaultShipmentResponse(order: {
+  id: string;
+  orderNumber: string;
+  createdAt?: Date | null;
+}): ShipmentResponse {
+  const confirmedAt = order.createdAt ?? null;
+
+  return {
+    refId: '',
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    shipmentStatus: ShipmentStatus.CONFIRMED,
+    shipwayStatus: false,
+    shipwayRawStatus: null,
+    awbNumber: null,
+    courierName: null,
+    trackingUrl: null,
+    labelUrl: null,
+    invoiceUrl: null,
+    pushedAt: null,
+    lastSyncedAt: null,
+    events: [],
+    currentStatusLabel: 'Order Confirmed',
+    statusFlow: buildDefaultStatusFlow(confirmedAt),
+  };
+}
+
+export function mapShipmentToResponse(
+  shipment: ShipmentEntity,
+  options: { shipwayStatus: boolean } = { shipwayStatus: false },
+): ShipmentResponse {
   const events = sortEvents(shipment.events ?? []);
   const mappedEvents = events.map(mapShipmentEventToResponse);
+  const shipwayStatus = options.shipwayStatus;
+
+  if (!shipwayStatus) {
+    return {
+      refId: shipment.refId,
+      orderId: shipment.orderId,
+      orderNumber: shipment.orderNumber,
+      shipmentStatus: ShipmentStatus.CONFIRMED,
+      shipwayStatus: false,
+      shipwayRawStatus: shipment.shipwayRawStatus,
+      awbNumber: shipment.awbNumber,
+      courierName: shipment.courierName,
+      trackingUrl: shipment.trackingUrl,
+      labelUrl: shipment.labelUrl,
+      invoiceUrl: shipment.invoiceUrl,
+      pushedAt: shipment.pushedAt,
+      lastSyncedAt: shipment.lastSyncedAt,
+      events: mappedEvents,
+      currentStatusLabel: 'Order Confirmed',
+      statusFlow: buildDefaultStatusFlow(shipment.pushedAt ?? shipment.lastSyncedAt),
+    };
+  }
 
   return {
     refId: shipment.refId,
     orderId: shipment.orderId,
     orderNumber: shipment.orderNumber,
     shipmentStatus: shipment.shipmentStatus,
+    shipwayStatus: true,
     shipwayRawStatus: shipment.shipwayRawStatus,
     awbNumber: shipment.awbNumber,
     courierName: shipment.courierName,
