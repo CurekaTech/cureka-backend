@@ -96,8 +96,14 @@ export function mapOrderToUnicommercePayload(
   }
 
   const grandTotal = toNumber(order.grandTotal);
-  const totalDiscount = toNumber(order.discountAmount);
-  const totalShippingCharges = toNumber(order.shippingAmount);
+  // Unicommerce has no handling/platform fields — fold them into shipping so Order Amount matches Cureka grandTotal.
+  // UC Order Amount ≈ Σ item prices + totalShippingCharges + totalCashOnDeliveryCharges − totalDiscount
+  const totalDiscount =
+    toNumber(order.discountAmount) + toNumber(order.prepaidDiscount);
+  const totalShippingCharges =
+    toNumber(order.shippingAmount) +
+    toNumber(order.handlingAmount) +
+    toNumber(order.platformFee);
   const totalCashOnDeliveryCharges = isCod ? toNumber(order.codCharge) : 0;
   const totalPrepaidAmount = isCod ? 0 : grandTotal;
 
