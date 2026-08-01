@@ -837,11 +837,20 @@ export class PaymentRequestsService {
       toDate: query.toDate,
     });
 
+    const normalizeRecordType = (key: {
+      id: string;
+      recordType?: string;
+      recordtype?: string;
+    }): 'PAYMENT_REQUEST' | 'COD_ORDER' => {
+      const raw = String(key.recordType ?? key.recordtype ?? '').toUpperCase();
+      return raw === 'COD_ORDER' ? 'COD_ORDER' : 'PAYMENT_REQUEST';
+    };
+
     const paymentRequestIds = keys
-      .filter((key) => key.recordType === 'PAYMENT_REQUEST')
+      .filter((key) => normalizeRecordType(key) === 'PAYMENT_REQUEST')
       .map((key) => key.id);
     const codOrderIds = keys
-      .filter((key) => key.recordType === 'COD_ORDER')
+      .filter((key) => normalizeRecordType(key) === 'COD_ORDER')
       .map((key) => key.id);
 
     const [paymentRequests, codOrders] = await Promise.all([
@@ -854,7 +863,7 @@ export class PaymentRequestsService {
 
     const data = keys
       .map((key) => {
-        if (key.recordType === 'PAYMENT_REQUEST') {
+        if (normalizeRecordType(key) === 'PAYMENT_REQUEST') {
           const request = paymentRequestById.get(key.id);
           return request ? mapPaymentRequestToAdminListItem(request) : null;
         }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -8,6 +8,9 @@ import {
 } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
+import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
+import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
+import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -33,6 +36,7 @@ import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.re
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
+import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
 
 @Injectable()
 export class OrdersService {
@@ -229,6 +233,20 @@ export class OrdersService {
         await this.cartsRepository.updateById(
           cart.id,
           { couponId: null, updatedBy: userId },
+          manager,
+        );
+      }
+
+      if (dto.paymentMethod === OrderPaymentMethod.COD) {
+        await this.createCodPaymentRequestForAdminList(
+          {
+            userId,
+            addressId: dto.addressId,
+            order: createdOrder,
+            summary,
+            orderSource: dto.orderSource ?? OrderSource.WEBSITE,
+            couponCode: appliedCoupon?.code ?? null,
+          },
           manager,
         );
       }
@@ -533,6 +551,20 @@ export class OrdersService {
       const confirmed = await this.ordersRepository.findByIdAndUserId(existing.id, userId, manager);
       if (!confirmed) throw new NotFoundException('Order not found after confirmation');
 
+      if (params.paymentMethod === OrderPaymentMethod.COD) {
+        await this.createCodPaymentRequestForAdminList(
+          {
+            userId,
+            addressId: null,
+            order: confirmed,
+            items: confirmed.items ?? [],
+            orderSource: confirmed.orderSource,
+            couponCode: confirmed.couponCode,
+          },
+          manager,
+        );
+      }
+
       this.logger.log(
         {
           orderId: confirmed.id,
@@ -836,6 +868,139 @@ export class OrdersService {
     await this.enqueueUnicommercePush(order.id);
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
+  }
+
+  /**
+   * Mirror COD orders into payment_requests so they appear on GET /admin/payment-requests
+   * (same admin "order list" used for prepaid payment requests).
+   */
+  private async createCodPaymentRequestForAdminList(
+    params: {
+      userId: string;
+      addressId: string | null;
+      order: Pick<
+        OrderEntity,
+        | 'id'
+        | 'orderNumber'
+        | 'subtotal'
+        | 'discountAmount'
+        | 'shippingAmount'
+        | 'handlingAmount'
+        | 'platformFee'
+        | 'codCharge'
+        | 'grandTotal'
+        | 'notes'
+      >;
+      summary?: CheckoutSummary;
+      items?: OrderItemEntity[];
+      orderSource: OrderSource;
+      couponCode: string | null;
+    },
+    manager: EntityManager,
+  ): Promise<void> {
+    const paymentRequestRepo = manager.getRepository(PaymentRequestEntity);
+    const paymentRequestItemRepo = manager.getRepository(PaymentRequestItemEntity);
+
+    const alreadyMirrored = await paymentRequestRepo.exists({
+      where: {
+        paymentProvider: 'COD',
+        paymentReference: params.order.orderNumber,
+      },
+    });
+    if (alreadyMirrored) {
+      return;
+    }
+
+    const lineItems =
+      params.summary?.items.map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        unitPrice: toMoneyString(item.unitPrice),
+        total: toMoneyString(item.totalPrice),
+      })) ??
+      (params.items ?? []).map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.totalPrice,
+      }));
+
+    if (!lineItems.length) {
+      this.logger.warn(
+        { orderId: params.order.id, orderNumber: params.order.orderNumber },
+        'Skipped COD payment-request mirror — order has no items',
+      );
+      return;
+    }
+
+    const refId = await generateUniqueRefId('pay-request', (candidate) =>
+      paymentRequestRepo.exists({ where: { refId: candidate } }),
+    );
+
+    const created = await paymentRequestRepo.save(
+      paymentRequestRepo.create({
+        refId,
+        customerId: params.userId,
+        addressId: params.addressId,
+        status: PaymentRequestStatus.PAYMENT_PENDING,
+        subtotal: params.order.subtotal,
+        discount: params.order.discountAmount,
+        tax: '0.00',
+        shipping: params.order.shippingAmount,
+        handling: params.order.handlingAmount,
+        platformFee: params.order.platformFee,
+        codCharge: params.order.codCharge,
+        totalAmount: params.order.grandTotal,
+        couponCode: params.couponCode,
+        couponDiscount: params.order.discountAmount,
+        currency: 'INR',
+        notes: params.order.notes ?? `COD order ${params.order.orderNumber}`,
+        orderSource: params.orderSource,
+        paymentProvider: 'COD',
+        paymentLink: null,
+        providerReferenceId: params.order.orderNumber,
+        paymentReference: params.order.orderNumber,
+        expiresAt: null,
+        paidAt: null,
+        createdBy: params.userId,
+        updatedBy: params.userId,
+      }),
+    );
+
+    const itemRows = [];
+    for (const item of lineItems) {
+      const itemRefId = await generateUniqueRefId('pay-item', (candidate) =>
+        paymentRequestItemRepo.exists({ where: { refId: candidate } }),
+      );
+      itemRows.push(
+        paymentRequestItemRepo.create({
+          refId: itemRefId,
+          paymentRequestId: created.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: '0.00',
+          tax: '0.00',
+          total: item.total,
+          createdBy: params.userId,
+          updatedBy: params.userId,
+        }),
+      );
+    }
+    await paymentRequestItemRepo.save(itemRows);
+
+    this.logger.log(
+      {
+        orderId: params.order.id,
+        orderNumber: params.order.orderNumber,
+        paymentRequestId: created.id,
+        paymentRequestRefId: created.refId,
+      },
+      'COD order mirrored to payment_requests for admin list',
+    );
   }
 
   private async enqueueUnicommercePush(orderId: string): Promise<void> {
