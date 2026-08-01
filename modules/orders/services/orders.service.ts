@@ -35,6 +35,7 @@ import { CartService } from './cart.service';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
+import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 
@@ -57,6 +58,7 @@ export class OrdersService {
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    private readonly orderNotificationsService: OrderNotificationsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -253,6 +255,7 @@ export class OrdersService {
 
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
     await this.enqueueUnicommercePush(order.id);
+    await this.notifyOrderPlacedSafely(order, 'place-order');
     return this.findOne(userId, order.id);
   }
 
@@ -554,6 +557,7 @@ export class OrdersService {
     if (shouldPushFulfillment) {
       await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'gokwik-place-order');
       await this.enqueueUnicommercePush(order.id);
+      await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
     }
 
     return order;
@@ -867,6 +871,7 @@ export class OrdersService {
 
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'payment-request-order');
     await this.enqueueUnicommercePush(order.id);
+    await this.notifyOrderPlacedSafely(order, 'payment-request-order');
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -887,6 +892,18 @@ export class OrdersService {
         'Failed to enqueue UniCommerce push — check Redis connection (REDIS_HOST, REDIS_TLS, etc.)',
       );
     }
+  }
+
+  private async notifyOrderPlacedSafely(order: OrderEntity, source: string): Promise<void> {
+    await this.orderNotificationsService.notifyOrderPlacedSafely({
+      phoneNumber: order.phoneNumber,
+      customerName: order.recipientName,
+      orderNumber: order.orderNumber,
+      grandTotal: String(order.grandTotal ?? ''),
+      paymentMethod: String(order.paymentMethod ?? ''),
+      orderStatus: String(order.orderStatus ?? ''),
+      source,
+    });
   }
 
   private async pushOrderToShipwaySafely(

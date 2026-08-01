@@ -4,6 +4,7 @@ import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.modu
 import { CheckoutModule } from '@modules/checkout/checkout.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
+import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
@@ -43,6 +44,7 @@ import { OrdersService } from './services/orders.service';
     UploadsModule,
     ShippingModule,
     UnicommerceOrderModule,
+    NotificationsModule,
   ],
   controllers: [CartController, OrdersController, AdminOrdersController],
   providers: [

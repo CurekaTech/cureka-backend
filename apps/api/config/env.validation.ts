@@ -171,4 +171,20 @@ export const envValidationSchema = Joi.object({
   TYPESENSE_API_KEY: Joi.string().optional(),
   TYPESENSE_SEARCH_API_KEY: Joi.string().optional(),
   TYPESENSE_COLLECTION: Joi.string().default('products'),
+
+  // WhatsApp order alerts (Bonb) — https://whatsapp.bonb.io
+  WHATSAPP_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  WHATSAPP_SEND_URL: Joi.string().uri().allow('').optional(),
+  WHATSAPP_API_KEY: Joi.string().allow('').optional(),
+  WHATSAPP_ORDER_PLACED_TEMPLATE: Joi.string().allow('').optional(),
+  WHATSAPP_ORDER_PLACED_LANGUAGE: Joi.string().default('en_US'),
+  WHATSAPP_ORDER_PLACED_BODY_VARS: Joi.string().default('customerName,orderNumber,grandTotal'),
+  WHATSAPP_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
+
+  // MSG91 SMS OTP — https://docs.msg91.com/otp/sendotp (not used for order WhatsApp)
+  MSG91_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  MSG91_AUTH_KEY: Joi.string().allow('').optional(),
+  MSG91_OTP_TEMPLATE_ID: Joi.string().allow('').optional(),
+  MSG91_BASE_URL: Joi.string().uri().default('https://control.msg91.com/api/v5'),
+  MSG91_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
 });
