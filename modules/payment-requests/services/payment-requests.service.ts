@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId, getSalableStockQuantity, isVariantInStock } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
@@ -13,6 +13,7 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
+import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { CartService } from '@modules/orders/services/cart.service';
 import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
@@ -32,6 +33,10 @@ import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
+import {
+  mapCodOrderToAdminListItem,
+  mapPaymentRequestToAdminListItem,
+} from '../mappers/admin-payment-list.mapper';
 import { PaymentRequestItemsRepository } from '../repositories/payment-request-items.repository';
 import { PaymentRequestsRepository } from '../repositories/payment-requests.repository';
 import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
@@ -822,7 +827,7 @@ export class PaymentRequestsService {
   async findAll(query: PaymentRequestQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const { data, total } = await this.paymentRequestsRepository.findPaginated({
+    const { keys, total } = await this.paymentRequestsRepository.findAdminListKeys({
       page,
       limit,
       search: query.search,
@@ -831,18 +836,68 @@ export class PaymentRequestsService {
       fromDate: query.fromDate,
       toDate: query.toDate,
     });
+
+    const normalizeRecordType = (key: {
+      id: string;
+      recordType?: string;
+      recordtype?: string;
+    }): 'PAYMENT_REQUEST' | 'COD_ORDER' => {
+      const raw = String(key.recordType ?? key.recordtype ?? '').toUpperCase();
+      return raw === 'COD_ORDER' ? 'COD_ORDER' : 'PAYMENT_REQUEST';
+    };
+
+    const paymentRequestIds = keys
+      .filter((key) => normalizeRecordType(key) === 'PAYMENT_REQUEST')
+      .map((key) => key.id);
+    const codOrderIds = keys
+      .filter((key) => normalizeRecordType(key) === 'COD_ORDER')
+      .map((key) => key.id);
+
+    const [paymentRequests, codOrders] = await Promise.all([
+      this.paymentRequestsRepository.findByIds(paymentRequestIds),
+      this.findCodOrdersByIds(codOrderIds),
+    ]);
+
+    const paymentRequestById = new Map(paymentRequests.map((row) => [row.id, row]));
+    const codOrderById = new Map(codOrders.map((row) => [row.id, row]));
+
+    const data = keys
+      .map((key) => {
+        if (normalizeRecordType(key) === 'PAYMENT_REQUEST') {
+          const request = paymentRequestById.get(key.id);
+          return request ? mapPaymentRequestToAdminListItem(request) : null;
+        }
+        const order = codOrderById.get(key.id);
+        return order ? mapCodOrderToAdminListItem(order) : null;
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+
     return buildPaginatedResult(data, total, { page, limit, sortOrder: 'DESC' });
   }
 
   async findOne(id: string) {
-    const request = await this.getRequestOrThrow(id);
-    const addresses = await this.userAddressesService.findAll(request.customerId);
+    const request = await this.paymentRequestsRepository.findById(id);
+    if (request) {
+      const addresses = await this.userAddressesService.findAll(request.customerId);
+      return {
+        ...mapPaymentRequestToAdminListItem(request),
+        customer: request.customer
+          ? { ...request.customer, addresses }
+          : request.customer,
+      };
+    }
 
+    const codOrder = await this.findCodOrderByIdOrRef(id);
+    if (!codOrder) {
+      throw new NotFoundException(`Payment request ${id} not found`);
+    }
+
+    const addresses = await this.userAddressesService.findAll(codOrder.userId);
     return {
-      ...request,
-      customer: request.customer
-        ? { ...request.customer, addresses }
-        : request.customer,
+      ...mapCodOrderToAdminListItem(codOrder),
+      customer: codOrder.user
+        ? { ...codOrder.user, addresses }
+        : codOrder.user,
     };
   }
 
@@ -876,6 +931,9 @@ export class PaymentRequestsService {
     options?: { callbackUrl?: string },
   ): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
+    if (existing.paymentProvider === 'COD') {
+      throw new BadRequestException('Payment link cannot be generated for COD orders');
+    }
     if (![PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED].includes(existing.status)) {
       throw new BadRequestException('Payment link can only be generated for pending requests');
     }
@@ -1245,6 +1303,45 @@ export class PaymentRequestsService {
     const request = await this.paymentRequestsRepository.findById(id);
     if (!request) throw new NotFoundException(`Payment request ${id} not found`);
     return request;
+  }
+
+  private async findCodOrdersByIds(ids: string[]): Promise<OrderEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+    return this.dataSource.getRepository(OrderEntity).find({
+      where: { id: In(ids), paymentMethod: OrderPaymentMethod.COD },
+      relations: {
+        user: true,
+        items: {
+          product: true,
+          variant: true,
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  private async findCodOrderByIdOrRef(idOrRefId: string): Promise<OrderEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    const repo = this.dataSource.getRepository(OrderEntity);
+    return repo.findOne({
+      where: isUuid
+        ? { id: idOrRefId, paymentMethod: OrderPaymentMethod.COD }
+        : [
+            { refId: idOrRefId, paymentMethod: OrderPaymentMethod.COD },
+            { orderNumber: idOrRefId, paymentMethod: OrderPaymentMethod.COD },
+          ],
+      relations: {
+        user: true,
+        items: {
+          product: true,
+          variant: true,
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
   }
 
   /**
