@@ -2,7 +2,22 @@ import { Module, Scope } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { PathAwareLoggingValidationPipe } from '@packages/common';
 import { ConfigModule } from '@nestjs/config';
-import { appConfig, databaseConfig, jwtConfig, ordersConfig, shiprocketConfig, shipwayConfig, storageConfig, typesenseConfig, unicommerceOrderConfig, unicommerceProductConfig, gokwikConfig, envValidationSchema } from './config';
+import {
+  appConfig,
+  databaseConfig,
+  jwtConfig,
+  ordersConfig,
+  shiprocketConfig,
+  shipwayConfig,
+  storageConfig,
+  typesenseConfig,
+  unicommerceOrderConfig,
+  unicommerceProductConfig,
+  gokwikConfig,
+  whatsappConfig,
+  msg91Config,
+  envValidationSchema,
+} from './config';
 
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
@@ -28,13 +43,28 @@ import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.modu
 import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { GokwikModule } from '@modules/gokwik/gokwik.module';
+import { NotificationsModule } from '@modules/notifications/notifications.module';
 
 @Module({
   imports: [
     // Config — must be first
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, storageConfig, typesenseConfig, ordersConfig, shipwayConfig, shiprocketConfig, unicommerceOrderConfig, unicommerceProductConfig, gokwikConfig],
+      load: [
+        appConfig,
+        databaseConfig,
+        jwtConfig,
+        storageConfig,
+        typesenseConfig,
+        ordersConfig,
+        shipwayConfig,
+        shiprocketConfig,
+        unicommerceOrderConfig,
+        unicommerceProductConfig,
+        gokwikConfig,
+        whatsappConfig,
+        msg91Config,
+      ],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,
@@ -77,6 +107,7 @@ import { GokwikModule } from '@modules/gokwik/gokwik.module';
     GalleryModule,
     ShippingModule,
     GokwikModule,
+    NotificationsModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }
