@@ -77,7 +77,11 @@ export class AdminPaymentRequestsController {
     return this.paymentRequestsService.update(id, dto, user.email);
   }
 
-  @ApiOperation({ summary: 'List payment requests' })
+  @ApiOperation({
+    summary: 'List payment requests (includes storefront COD orders)',
+    description:
+      'Returns payment_requests plus COD rows from orders. COD rows have recordType=COD_ORDER and paymentProvider=COD.',
+  })
   @ResponseMessage('Payment requests fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
   @RequirePermissions('payment-request.read')
@@ -86,7 +90,10 @@ export class AdminPaymentRequestsController {
     return this.paymentRequestsService.findAll(query);
   }
 
-  @ApiOperation({ summary: 'Get payment request detail' })
+  @ApiOperation({
+    summary: 'Get payment request detail',
+    description: 'Also resolves COD orders by order UUID / refId / orderNumber.',
+  })
   @ResponseMessage('Payment request fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
   @RequirePermissions('payment-request.read')
