@@ -6,7 +6,10 @@ import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CheckoutDto } from '../dto/checkout.dto';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
+import { roundMoney } from '../utils/money.util';
+import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
 
@@ -17,6 +20,7 @@ export class CheckoutService {
     private readonly cartService: CartService,
     private readonly userAddressesService: UserAddressesService,
     private readonly cartPricingService: CartPricingService,
+    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) {}
 
   async validateCheckout(userId: string, dto: CheckoutDto): Promise<CheckoutSummary> {
@@ -58,6 +62,12 @@ export class CheckoutService {
       paymentMethod: dto.paymentMethod,
       strict: true,
     });
+
+    if (dto.paymentMethod === OrderPaymentMethod.COD) {
+      const payable = roundMoney(pricing.subtotal - pricing.discountAmount);
+      const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+      this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
+    }
 
     return {
       items,

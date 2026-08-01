@@ -11,8 +11,11 @@ export const CartCheckoutAdminSettingKey = {
   PLATFORM_FEE_THRESHOLD: 'platform_fee_threshold',
   COD_CHARGE: 'cod_charge',
   COD_CHARGE_THRESHOLD: 'cod_charge_threshold',
+  COD_MIN_ORDER_AMOUNT: 'cod_min_order_amount',
+  COD_MAX_ORDER_AMOUNT: 'cod_max_order_amount',
   PREPAID_CHARGE: 'prepaid_charge',
   PREPAID_CHARGE_THRESHOLD: 'prepaid_charge_threshold',
+  PREPAID_DISCOUNT_PERCENT: 'prepaid_discount_percent',
 } as const;
 
 export type CartCheckoutAdminSettingKey =
@@ -27,8 +30,11 @@ export type CartCheckoutAdminSettingUsage =
   | 'platform_fee_threshold'
   | 'cod_charge'
   | 'cod_charge_threshold'
+  | 'cod_min_order_amount'
+  | 'cod_max_order_amount'
   | 'prepaid_charge'
-  | 'prepaid_charge_threshold';
+  | 'prepaid_charge_threshold'
+  | 'prepaid_discount_percent';
 
 export type CartCheckoutAdminSettingPricingField = 'handlingAmount' | 'platformFee' | 'codCharge' | 'shippingAmount' | 'prepaidCharge';
 
@@ -89,6 +95,16 @@ export const CART_CHECKOUT_ADMIN_SETTINGS: readonly CartCheckoutAdminSettingDefi
     fallbackDefault: 0,
   },
   {
+    key: CartCheckoutAdminSettingKey.COD_MIN_ORDER_AMOUNT,
+    usage: 'cod_min_order_amount',
+    fallbackDefault: 599,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.COD_MAX_ORDER_AMOUNT,
+    usage: 'cod_max_order_amount',
+    fallbackDefault: 10000,
+  },
+  {
     key: CartCheckoutAdminSettingKey.PREPAID_CHARGE,
     usage: 'prepaid_charge',
     pricingField: 'prepaidCharge',
@@ -98,6 +114,11 @@ export const CART_CHECKOUT_ADMIN_SETTINGS: readonly CartCheckoutAdminSettingDefi
     key: CartCheckoutAdminSettingKey.PREPAID_CHARGE_THRESHOLD,
     usage: 'prepaid_charge_threshold',
     fallbackDefault: 0,
+  },
+  {
+    key: CartCheckoutAdminSettingKey.PREPAID_DISCOUNT_PERCENT,
+    usage: 'prepaid_discount_percent',
+    fallbackDefault: 2,
   },
 ] as const;
 

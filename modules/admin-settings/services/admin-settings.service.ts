@@ -45,8 +45,11 @@ export class AdminSettingsService {
         'platform_fee_threshold',
         'cod_charge',
         'cod_charge_threshold',
+        'cod_min_order_amount',
+        'cod_max_order_amount',
         'prepaid_charge',
         'prepaid_charge_threshold',
+        'prepaid_discount_percent',
         GOKWIK_SHIPPING_SLABS_KEY,
       ];
       return response.filter((setting) => chargeKeys.includes(setting.key));
@@ -83,8 +86,11 @@ export class AdminSettingsService {
       'platform_fee_threshold',
       'cod_charge',
       'cod_charge_threshold',
+      'cod_min_order_amount',
+      'cod_max_order_amount',
       'prepaid_charge',
       'prepaid_charge_threshold',
+      'prepaid_discount_percent',
       GOKWIK_SHIPPING_SLABS_KEY,
     ];
 

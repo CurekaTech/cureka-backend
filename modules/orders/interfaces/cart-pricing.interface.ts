@@ -36,6 +36,15 @@ export type CartCouponSummary = {
   title: string;
 } | null;
 
+export type CartCheckoutRules = {
+  /** Admin `prepaid_discount_percent` — percent off product line totals for prepaid. */
+  prepaidDiscountPercent: number;
+  /** Admin `cod_min_order_amount` — min payable (subtotal − coupon) for COD. */
+  codMinOrderAmount: number;
+  /** Admin `cod_max_order_amount` — max payable (subtotal − coupon) for COD. */
+  codMaxOrderAmount: number;
+};
+
 export type CartPricing = {
   subtotal: number;
   coupon: CartCouponSummary;
@@ -47,6 +56,8 @@ export type CartPricing = {
   /** Discount applied when paying with a prepaid method (subtracted from total). */
   prepaidDiscount: number;
   grandTotal: number;
+  /** Live admin rules for FE (prepaid % + COD limits). */
+  checkoutRules: CartCheckoutRules;
 };
 
 export type CartResponse = {

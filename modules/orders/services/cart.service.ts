@@ -11,6 +11,7 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartLineItem, CartResponse } from '../interfaces/cart-pricing.interface';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
@@ -30,6 +31,11 @@ const EMPTY_CART: CartResponse = {
   codCharge: 0,
   prepaidDiscount: 0,
   grandTotal: 0,
+  checkoutRules: {
+    prepaidDiscountPercent: 2,
+    codMinOrderAmount: 599,
+    codMaxOrderAmount: 10000,
+  },
 };
 
 @Injectable()
@@ -107,13 +113,20 @@ export class CartService {
     });
   }
 
-  async getCart(userId: string, manager = this.dataSource.manager): Promise<CartResponse> {
+  async getCart(
+    userId: string,
+    manager = this.dataSource.manager,
+    options?: { paymentMethod?: OrderPaymentMethod },
+  ): Promise<CartResponse> {
     const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
     if (!cart) {
       return { ...EMPTY_CART };
     }
 
-    return this.toCartResponse(cart, userId, manager, { clearInvalidCoupon: true });
+    return this.toCartResponse(cart, userId, manager, {
+      clearInvalidCoupon: true,
+      paymentMethod: options?.paymentMethod,
+    });
   }
 
   /**
@@ -366,7 +379,7 @@ export class CartService {
     cart: CartEntity,
     userId: string,
     manager = this.dataSource.manager,
-    options?: { clearInvalidCoupon?: boolean },
+    options?: { clearInvalidCoupon?: boolean; paymentMethod?: OrderPaymentMethod },
   ): Promise<CartResponse> {
     const items = await this.buildLineItems(cart);
     const pricing = await this.cartPricingService.calculateCartPricing({
@@ -374,6 +387,7 @@ export class CartService {
       cartId: cart.id,
       couponId: cart.couponId,
       items,
+      paymentMethod: options?.paymentMethod,
       manager,
       clearInvalidCoupon: options?.clearInvalidCoupon ?? false,
     });
