@@ -6,18 +6,21 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
 import { AddCartItemDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartService } from '../services/cart.service';
 
 @ApiTags('Cart')
@@ -35,12 +38,26 @@ export class CartController {
     return this.cartService.addItem(user.sub, dto);
   }
 
-  @ApiOperation({ summary: 'Get active cart' })
+  @ApiOperation({
+    summary: 'Get active cart',
+    description:
+      'Pass optional paymentMethod to preview COD charge / prepaid discount in the totals.',
+  })
+  @ApiQuery({
+    name: 'paymentMethod',
+    required: false,
+    enum: OrderPaymentMethod,
+    description: 'RAZORPAY | CASHFREE | WALLET | COD | … — used only for fee/discount preview',
+  })
   @ResponseMessage('Cart fetched successfully')
   @Get()
   @HttpCode(HttpStatus.OK)
-  getCart(@CurrentSessionUser() user: IUserSessionContext) {
-    return this.cartService.getCart(user.sub);
+  getCart(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Query('paymentMethod', new ParseEnumPipe(OrderPaymentMethod, { optional: true }))
+    paymentMethod?: OrderPaymentMethod,
+  ) {
+    return this.cartService.getCart(user.sub, undefined, { paymentMethod });
   }
 
   @ApiOperation({ summary: 'Apply coupon to cart' })

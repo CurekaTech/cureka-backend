@@ -8,7 +8,7 @@ export class CheckoutDto {
   addressId!: string;
 
   /**
-   * Optional fee hint only (COD charge / prepaid discount in the summary).
+   * Drives COD fee / prepaid % discount in the summary, and COD min/max eligibility.
    * Does not start Razorpay/Cashfree/GoKwik. To open GoKwik, call POST /payment-requests/checkout
    * when admin setting `gokwikCheckoutEnabled` is active — do not send `GOKWIK_*` here.
    */

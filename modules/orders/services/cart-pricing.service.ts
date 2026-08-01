@@ -14,6 +14,7 @@ import {
 } from './cart-checkout-admin-settings.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
+import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
 
 @Injectable()
 export class CartPricingService {
@@ -35,6 +36,17 @@ export class CartPricingService {
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
 
+    const [checkoutAdminSettings, shippingSlabs] = await Promise.all([
+      this.cartCheckoutAdminSettingsService.resolveAmounts(),
+      this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
+    ]);
+    const settings = this.cartCheckoutAdminSettingsService;
+    const checkoutRules = {
+      prepaidDiscountPercent: settings.getPrepaidDiscountPercent(checkoutAdminSettings),
+      codMinOrderAmount: settings.getCodMinOrderAmount(checkoutAdminSettings),
+      codMaxOrderAmount: settings.getCodMaxOrderAmount(checkoutAdminSettings),
+    };
+
     if (!params.items.length) {
       return this.buildPricing({
         subtotal,
@@ -45,13 +57,9 @@ export class CartPricingService {
         platformFee: 0,
         codCharge: 0,
         prepaidDiscount: 0,
+        checkoutRules,
       });
     }
-
-    const [checkoutAdminSettings, shippingSlabs] = await Promise.all([
-      this.cartCheckoutAdminSettingsService.resolveAmounts(),
-      this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
-    ]);
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -102,7 +110,6 @@ export class CartPricingService {
     // All threshold-based charges compare against the order payable amount
     // (subtotal − discount), matching the admin-setting descriptions.
     const payableBeforeShipping = roundMoney(subtotal - discountAmount);
-    const settings = this.cartCheckoutAdminSettingsService;
 
     // Handling charge: applied while payable ≤ handling_charge_threshold.
     const handlingAmount = settings.isChargeApplicable(
@@ -128,10 +135,22 @@ export class CartPricingService {
         ? settings.getCodCharge(checkoutAdminSettings)
         : 0;
 
-    // Prepaid discount: only for prepaid (non-COD) orders, while payable ≤ prepaid_charge_threshold.
-    const isPrepaidPayment =
-      params.paymentMethod !== undefined && params.paymentMethod !== OrderPaymentMethod.COD;
-    const prepaidDiscount =
+    const isPrepaidPayment = isPrepaidPaymentMethod(params.paymentMethod);
+
+    // Percent prepaid discount: applied on every product line total when prepaid.
+    const prepaidPercent = checkoutRules.prepaidDiscountPercent;
+    const prepaidPercentDiscount =
+      isPrepaidPayment && prepaidPercent > 0
+        ? roundMoney(
+            params.items.reduce(
+              (sum, item) => sum + roundMoney((item.totalPrice * prepaidPercent) / 100),
+              0,
+            ),
+          )
+        : 0;
+
+    // Optional flat prepaid discount (legacy admin `prepaid_charge` + threshold).
+    const prepaidFlatDiscount =
       isPrepaidPayment &&
       settings.isChargeApplicable(
         payableBeforeShipping,
@@ -139,6 +158,8 @@ export class CartPricingService {
       )
         ? settings.getPrepaidCharge(checkoutAdminSettings)
         : 0;
+
+    const prepaidDiscount = roundMoney(prepaidPercentDiscount + prepaidFlatDiscount);
 
     const shippingAmount = this.resolveShippingAmount(
       payableBeforeShipping,
@@ -155,6 +176,7 @@ export class CartPricingService {
       platformFee,
       codCharge,
       prepaidDiscount,
+      checkoutRules,
     });
   }
 
@@ -167,6 +189,7 @@ export class CartPricingService {
     platformFee: number;
     codCharge: number;
     prepaidDiscount: number;
+    checkoutRules: CartPricing['checkoutRules'];
   }): CartPricing {
     const grandTotal = roundMoney(
       parts.subtotal -
@@ -188,6 +211,7 @@ export class CartPricingService {
       codCharge: parts.codCharge,
       prepaidDiscount: parts.prepaidDiscount,
       grandTotal: Math.max(0, grandTotal),
+      checkoutRules: parts.checkoutRules,
     };
   }
 
