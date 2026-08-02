@@ -173,24 +173,36 @@ export class PaymentRequestsService {
     orderSource?: OrderSource,
     customerToken?: string,
   ) {
+    this.logger.log(
+      { userId, addressId, orderSource: orderSource ?? null },
+      '[CHECKOUT-MODAL] start',
+    );
+
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    this.logger.log(
+      { userId, checkoutProvider },
+      '[CHECKOUT-MODAL] checkout provider resolved (gokwik/shiprocket/legacy)',
+    );
+
+    // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
+      this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to GoKwik');
       return this.createGokwikCheckoutSession(userId, addressId, customerToken);
     }
     if (checkoutProvider === 'shiprocket') {
+      this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to Shiprocket');
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
-    try {
-      return await this.createLegacyModalCheckout(userId, addressId, orderSource);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw new BadRequestException(
-          `${error.message} Checkout provider is legacy because gokwikCheckoutEnabled is not active (set status=active / value=true in admin payment settings).`,
-        );
-      }
-      throw error;
-    }
+    // Legacy = intentional native PG path. Do not suggest enabling GoKwik on PG failures.
+    this.logger.log(
+      {
+        userId,
+        cashfreeCredentials: this.cashfreeService.getCredentialDiagnostics(),
+      },
+      '[CHECKOUT-MODAL] routing to legacy native PG',
+    );
+    return this.createLegacyModalCheckout(userId, addressId, orderSource);
   }
 
   private async createLegacyModalCheckout(
@@ -198,8 +210,30 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
   ) {
+    this.logger.log(
+      {
+        userId,
+        addressId,
+        cashfreeCredentials: this.cashfreeService.getCredentialDiagnostics(),
+      },
+      '[CHECKOUT-MODAL] legacy: resolving active gateway',
+    );
+
     const activeGateway = await this.gatewayResolver.getActiveGateway();
+    this.logger.log(
+      { userId, activeGateway },
+      '[CHECKOUT-MODAL] legacy: active gateway selected',
+    );
+
     if (activeGateway === 'cashfree') {
+      this.logger.log(
+        {
+          userId,
+          credentials: this.cashfreeService.getCredentialDiagnostics(),
+        },
+        '[CHECKOUT-MODAL] legacy: creating Cashfree session',
+      );
+
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
@@ -210,6 +244,18 @@ export class PaymentRequestsService {
 
       const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
       const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
+
+      this.logger.log(
+        {
+          userId,
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          totalAmount: totals.totalAmount,
+          returnUrl,
+          credentials: this.cashfreeService.getCredentialDiagnostics(),
+        },
+        '[CHECKOUT-MODAL] legacy: Cashfree createOrder params',
+      );
 
       const cashfreeOrder = await this.cashfreeService.createOrder({
         orderId: paymentRequest.refId,
@@ -227,6 +273,15 @@ export class PaymentRequestsService {
       const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
       const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
       if (!paymentSessionId) {
+        this.logger.error(
+          {
+            paymentRequestId: paymentRequest.id,
+            refId: paymentRequest.refId,
+            cashfreeOrderKeys: Object.keys(cashfreeOrder ?? {}),
+            credentials: this.cashfreeService.getCredentialDiagnostics(),
+          },
+          '[CHECKOUT-MODAL] legacy: Cashfree response missing payment_session_id',
+        );
         throw new BadRequestException('Failed to create Cashfree order');
       }
 
@@ -237,6 +292,16 @@ export class PaymentRequestsService {
         status: PaymentRequestStatus.LINK_GENERATED,
         updatedBy: userId,
       });
+
+      this.logger.log(
+        {
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          cfOrderId,
+          env: this.cashfreeService.getEnv(),
+        },
+        '[CHECKOUT-MODAL] legacy: Cashfree session ready',
+      );
 
       return {
         gateway: 'cashfree',
@@ -260,8 +325,11 @@ export class PaymentRequestsService {
     }
 
     if (activeGateway === 'payu') {
+      this.logger.error({ userId }, '[CHECKOUT-MODAL] legacy: PayU selected but not implemented');
       throw new BadRequestException('PayU payment gateway is not fully implemented yet');
     }
+
+    this.logger.log({ userId }, '[CHECKOUT-MODAL] legacy: creating Razorpay modal order');
 
     const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
       userId,

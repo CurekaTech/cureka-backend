@@ -1,8 +1,12 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
 import { AdminSettingEntity } from '@modules/admin-settings/entities/admin-setting.entity';
 import { ConfigService } from '@nestjs/config';
+import {
+  describeCashfreeEnv,
+  maskSecret,
+} from '../utils/payment-credential-log.util';
 
 type NativeGateway = 'cashfree' | 'razorpay' | 'payu';
 
@@ -12,33 +16,77 @@ type GatewayProbe = {
   adminEnabled: boolean;
   hasCredentials: boolean;
   reasons: string[];
+  diagnostics: Record<string, unknown>;
 };
 
 @Injectable()
 export class PaymentGatewayResolverService {
+  private readonly logger = new Logger(PaymentGatewayResolverService.name);
+
   constructor(
     private readonly adminSettingsRepository: AdminSettingsRepository,
     private readonly configService: ConfigService,
   ) {}
 
   async getActiveGateway(): Promise<NativeGateway> {
+    this.logger.log('[PG-RESOLVE] Starting native gateway resolution');
+
     const settings = await this.adminSettingsRepository.findAll();
 
     const cashFree = this.probeCashfree(settings.find((s) => s.key === 'cash_free'));
     const razorPay = this.probeRazorpay(settings.find((s) => s.key === 'razor_pay'));
     const payYou = this.probePayu(settings.find((s) => s.key === 'pay_you'));
 
+    this.logger.log(
+      {
+        cashFree: {
+          adminEnabled: cashFree.adminEnabled,
+          hasCredentials: cashFree.hasCredentials,
+          reasons: cashFree.reasons,
+          diagnostics: cashFree.diagnostics,
+        },
+        razorPay: {
+          adminEnabled: razorPay.adminEnabled,
+          hasCredentials: razorPay.hasCredentials,
+          reasons: razorPay.reasons,
+          diagnostics: razorPay.diagnostics,
+        },
+        payYou: {
+          adminEnabled: payYou.adminEnabled,
+          hasCredentials: payYou.hasCredentials,
+          reasons: payYou.reasons,
+        },
+      },
+      '[PG-RESOLVE] Gateway probe results',
+    );
+
     if (cashFree.adminEnabled && cashFree.hasCredentials) {
+      this.logger.log(
+        { gateway: 'cashfree', env: cashFree.diagnostics },
+        '[PG-RESOLVE] Selected Cashfree',
+      );
       return 'cashfree';
     }
     if (razorPay.adminEnabled && razorPay.hasCredentials) {
+      this.logger.log({ gateway: 'razorpay' }, '[PG-RESOLVE] Selected Razorpay');
       return 'razorpay';
     }
     if (payYou.adminEnabled) {
+      this.logger.log({ gateway: 'payu' }, '[PG-RESOLVE] Selected PayU');
       return 'payu';
     }
 
-    throw new BadRequestException(this.buildFailureMessage([cashFree, razorPay, payYou]));
+    const message = this.buildFailureMessage([cashFree, razorPay, payYou]);
+    this.logger.error(
+      {
+        message,
+        cashFree: cashFree.diagnostics,
+        razorPay: razorPay.diagnostics,
+        payYouReasons: payYou.reasons,
+      },
+      '[PG-RESOLVE] No native gateway available',
+    );
+    throw new BadRequestException(message);
   }
 
   private probeCashfree(setting?: AdminSettingEntity): GatewayProbe {
@@ -47,7 +95,30 @@ export class PaymentGatewayResolverService {
 
     const appId = this.configService.get<string>('CASHFREE_APP_ID')?.trim() ?? '';
     const secretKey = this.configService.get<string>('CASHFREE_SECRET_KEY')?.trim() ?? '';
+    const envRaw = this.configService.get<string>('CASHFREE_ENV') ?? null;
+    const envNormalized = (envRaw ?? 'sandbox').toLowerCase();
+    const apiVersion = this.configService.get<string>('CASHFREE_API_VERSION') ?? '2023-08-01';
+    const webhookSecret = this.configService.get<string>('CASHFREE_WEBHOOK_SECRET') ?? '';
+    const baseUrl =
+      envNormalized === 'production'
+        ? 'https://api.cashfree.com/pg'
+        : 'https://sandbox.cashfree.com/pg';
     const hasCredentials = !!(appId && secretKey);
+
+    const diagnostics = {
+      admin: setting
+        ? { key: setting.key, status: setting.status, value: setting.value }
+        : { key: 'cash_free', status: null, value: null, missing: true },
+      env: describeCashfreeEnv({
+        appId,
+        secretKey,
+        envRaw,
+        envNormalized,
+        apiVersion,
+        baseUrl,
+        webhookSecret,
+      }),
+    };
 
     if (adminEnabled && !hasCredentials) {
       const missing = [
@@ -57,6 +128,10 @@ export class PaymentGatewayResolverService {
       reasons.push(
         `cash_free is active in admin but API env is missing ${missing.join(' and ')}`,
       );
+      this.logger.error(
+        { diagnostics, missing },
+        '[PG-RESOLVE] Cashfree admin-enabled but credentials missing/empty',
+      );
     }
 
     return {
@@ -65,6 +140,7 @@ export class PaymentGatewayResolverService {
       adminEnabled,
       hasCredentials,
       reasons,
+      diagnostics,
     };
   }
 
@@ -76,6 +152,17 @@ export class PaymentGatewayResolverService {
     const secret = this.configService.get<string>('RAZORPAY_SECRET')?.trim() ?? '';
     const hasCredentials = !!(keyId && secret);
 
+    const diagnostics = {
+      admin: setting
+        ? { key: setting.key, status: setting.status, value: setting.value }
+        : { key: 'razor_pay', status: null, value: null, missing: true },
+      env: {
+        RAZORPAY_KEY_ID: keyId || null,
+        RAZORPAY_KEY_ID_length: keyId.length,
+        RAZORPAY_SECRET: maskSecret(secret),
+      },
+    };
+
     if (adminEnabled && !hasCredentials) {
       const missing = [
         !keyId ? 'RAZORPAY_KEY_ID' : null,
@@ -83,6 +170,10 @@ export class PaymentGatewayResolverService {
       ].filter(Boolean);
       reasons.push(
         `razor_pay is active in admin but API env is missing ${missing.join(' and ')}`,
+      );
+      this.logger.error(
+        { diagnostics, missing },
+        '[PG-RESOLVE] Razorpay admin-enabled but credentials missing/empty',
       );
     }
 
@@ -92,6 +183,7 @@ export class PaymentGatewayResolverService {
       adminEnabled,
       hasCredentials,
       reasons,
+      diagnostics,
     };
   }
 
@@ -104,6 +196,11 @@ export class PaymentGatewayResolverService {
       adminEnabled,
       hasCredentials: true,
       reasons,
+      diagnostics: {
+        admin: setting
+          ? { key: setting.key, status: setting.status, value: setting.value }
+          : { key: 'pay_you', status: null, value: null, missing: true },
+      },
     };
   }
 
