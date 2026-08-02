@@ -79,8 +79,25 @@ export class CashfreePaymentService {
 
       const json = await response.json();
       if (!response.ok) {
-        this.logger.error(`Cashfree create order failed: ${JSON.stringify(json)}`);
-        throw new BadRequestException(json.message || 'Failed to create Cashfree order');
+        this.logger.error(
+          {
+            status: response.status,
+            env: this.env,
+            baseUrl: this.baseUrl,
+            apiVersion: this.apiVersion,
+            appIdSuffix: this.appId ? this.appId.slice(-6) : null,
+            body: json,
+          },
+          'Cashfree create order failed',
+        );
+        const cashfreeMessage =
+          (typeof json?.message === 'string' && json.message) ||
+          (typeof json?.message === 'object' && json.message?.message) ||
+          'Failed to create Cashfree order';
+        throw new BadRequestException(
+          `Cashfree error: ${cashfreeMessage}. Using ${this.env} API (${this.baseUrl}). ` +
+            'Confirm CASHFREE_APP_ID / CASHFREE_SECRET_KEY match this environment.',
+        );
       }
 
       return json;

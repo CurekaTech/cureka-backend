@@ -174,6 +174,7 @@ export class PaymentRequestsService {
     customerToken?: string,
   ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
       return this.createGokwikCheckoutSession(userId, addressId, customerToken);
     }
@@ -181,16 +182,8 @@ export class PaymentRequestsService {
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
     }
 
-    try {
-      return await this.createLegacyModalCheckout(userId, addressId, orderSource);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw new BadRequestException(
-          `${error.message} Checkout provider is legacy because gokwikCheckoutEnabled is not active (set status=active / value=true in admin payment settings).`,
-        );
-      }
-      throw error;
-    }
+    // Legacy = intentional native PG path. Do not suggest enabling GoKwik on PG failures.
+    return this.createLegacyModalCheckout(userId, addressId, orderSource);
   }
 
   private async createLegacyModalCheckout(
