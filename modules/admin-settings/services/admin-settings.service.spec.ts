@@ -142,23 +142,23 @@ describe('AdminSettingsService', () => {
       // Verify other gateways are set to inactive
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'cash_free',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'pay_you',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'shipway',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
-      // Verify target gateway is updated
+      // Verify target gateway is updated (value synced to 1 when only status is sent)
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'razor_pay',
-        { status: AdminSettingStatus.ACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.ACTIVE, value: '1', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
     });
@@ -240,23 +240,23 @@ describe('AdminSettingsService', () => {
       // Verify other gateways are set to inactive
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'razor_pay',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'pay_you',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'shipway',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
-      // Verify target gateway is set to active
+      // Verify target gateway is set to active (value synced to 1)
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'cash_free',
-        { status: AdminSettingStatus.ACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.ACTIVE, value: '1', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
       expect(result.status).toBe(AdminSettingStatus.ACTIVE);
@@ -292,7 +292,7 @@ describe('AdminSettingsService', () => {
       expect(repository.updateByKey).toHaveBeenCalledTimes(1);
       expect(repository.updateByKey).toHaveBeenCalledWith(
         'cash_free',
-        { status: AdminSettingStatus.INACTIVE, updatedBy: 'user@test.com' },
+        { status: AdminSettingStatus.INACTIVE, value: '0', updatedBy: 'user@test.com' },
         expect.any(Object),
       );
       expect(result.status).toBe(AdminSettingStatus.INACTIVE);

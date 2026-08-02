@@ -168,11 +168,15 @@ export class GokwikCartService {
     cart: CartResponse,
   ): Promise<GokwikAvailablePaymentMethod[]> {
     const settings = await this.adminSettingsRepository.findByKeys([...PAYMENT_GATEWAY_KEYS]);
-    const hasPrepaid = settings.some(
-      (setting) =>
-        setting.status === AdminSettingStatus.ACTIVE &&
-        String(setting.value).trim() === '1',
-    );
+    const hasPrepaid = settings.some((setting) => {
+      const value = String(setting.value ?? '')
+        .toLowerCase()
+        .trim();
+      return (
+        setting.status === AdminSettingStatus.ACTIVE ||
+        ['1', 'true', 'yes', 'on'].includes(value)
+      );
+    });
     const methods: GokwikAvailablePaymentMethod[] = [];
     if (hasPrepaid) {
       methods.push({ id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' });
