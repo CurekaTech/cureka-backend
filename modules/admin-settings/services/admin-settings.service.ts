@@ -122,6 +122,7 @@ export class AdminSettingsService {
               otherKey,
               {
                 status: AdminSettingStatus.INACTIVE,
+                value: '0',
                 updatedBy,
               },
               manager,
@@ -146,6 +147,10 @@ export class AdminSettingsService {
 
         if (BOOLEAN_SETTING_KEYS.includes(item.key)) {
           Object.assign(updateData, this.syncBooleanSettingFields(item.status, item.value));
+        }
+        // Gateway toggles often send only status; keep value 1/0 aligned.
+        if (PAYMENT_GATEWAY_KEYS.includes(item.key) && item.status !== undefined && item.value === undefined) {
+          updateData.value = item.status === AdminSettingStatus.ACTIVE ? '1' : '0';
         }
 
         await this.adminSettingsRepository.updateByKey(item.key, updateData, manager);
@@ -192,6 +197,8 @@ export class AdminSettingsService {
             otherKey,
             {
               status: AdminSettingStatus.INACTIVE,
+              // Keep value in sync so gateway resolvers that still read value stay correct.
+              value: '0',
               updatedBy,
             },
             manager,
@@ -205,6 +212,9 @@ export class AdminSettingsService {
       };
       if (BOOLEAN_SETTING_KEYS.includes(key)) {
         Object.assign(updateData, this.syncBooleanSettingFields(dto.status, undefined));
+      }
+      if (PAYMENT_GATEWAY_KEYS.includes(key)) {
+        updateData.value = dto.status === AdminSettingStatus.ACTIVE ? '1' : '0';
       }
 
       await this.adminSettingsRepository.updateByKey(key, updateData, manager);
