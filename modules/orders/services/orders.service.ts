@@ -271,8 +271,7 @@ export class OrdersService {
       return order;
     });
 
-    await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
-    await this.enqueueUnicommercePush(order.id);
+    await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     await this.notifyOrderPlacedSafely(order, 'place-order');
     return this.findOne(userId, order.id);
   }
@@ -587,8 +586,7 @@ export class OrdersService {
     });
 
     if (shouldPushFulfillment) {
-      await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'gokwik-place-order');
-      await this.enqueueUnicommercePush(order.id);
+      await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
       await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
     }
 
@@ -904,8 +902,7 @@ export class OrdersService {
       return order;
     });
 
-    await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'payment-request-order');
-    await this.enqueueUnicommercePush(order.id);
+    await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
