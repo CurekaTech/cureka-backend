@@ -202,7 +202,7 @@ async function run(): Promise<void> {
       await variantRepo
         .createQueryBuilder()
         .update(ProductVariantEntity)
-        .set({ outOfStock: true, updatedBy: 'oos-update-script' } as Partial<ProductVariantEntity>)
+        .set({ outOfStock: true } as Partial<ProductVariantEntity>)
         .whereInIds(ids)
         .execute();
       updated += batch.length;
