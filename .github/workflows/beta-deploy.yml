@@ -1,19 +1,18 @@
 # =============================================================================
 # beta-deploy.yml
 # -----------------------------------------------------------------------------
-# Continuous Delivery for the beta track.
+# On push to beta_development: SSH into the VM and run scripts/deploy-beta.sh
 #
-# On every push/merge to beta_development, SSH into the Debian VM and run
-# scripts/deploy-beta.sh (git reset, conditional npm ci/build, migrations,
-# PM2 reload, health check).
+# Required secrets:
+#   BETA_SSH_HOST
+#   BETA_SSH_USER
+#   BETA_SSH_PORT
+#   BETA_SSH_PRIVATE_KEY
 #
-# Required repository secrets:
-#   BETA_SSH_HOST, BETA_SSH_USER, BETA_SSH_PRIVATE_KEY
-#
-# Optional secrets or variables:
-#   BETA_SSH_PORT (default 22)
-#   BETA_DEPLOY_PATH (default /var/www/Cureka-backend)
-#   BETA_HEALTH_CHECK_URL (default: http://127.0.0.1:<PORT>/api/v1/health on VM)
+# Optional secrets / variables:
+#   BETA_DEPLOY_PATH       (default /var/www/Cureka-backend)
+#   BETA_HEALTH_CHECK_URL  (override health probe)
+#   BETA_RUN_MIGRATIONS    (set to "true" to run migrations on every deploy)
 # =============================================================================
 
 name: Beta Deploy
@@ -35,9 +34,13 @@ on:
         required: false
         type: boolean
         default: false
+      run_migrations:
+        description: 'Run npm run migration:run during this deploy'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-  # Prevent two merges from deploying at once; cancel the older run.
   group: beta-deployment
   cancel-in-progress: true
 
@@ -54,21 +57,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
       - name: Validate required secrets
         env:
           BETA_SSH_HOST: ${{ secrets.BETA_SSH_HOST }}
           BETA_SSH_USER: ${{ secrets.BETA_SSH_USER }}
+          BETA_SSH_PORT: ${{ secrets.BETA_SSH_PORT }}
           BETA_SSH_PRIVATE_KEY: ${{ secrets.BETA_SSH_PRIVATE_KEY }}
         run: |
           missing=0
-          for name in BETA_SSH_HOST BETA_SSH_USER BETA_SSH_PRIVATE_KEY; do
+          for name in BETA_SSH_HOST BETA_SSH_USER BETA_SSH_PORT BETA_SSH_PRIVATE_KEY; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing required secret: ${name}"
               missing=1
@@ -81,16 +78,24 @@ jobs:
         env:
           SECRET_PATH: ${{ secrets.BETA_DEPLOY_PATH }}
           VAR_PATH: ${{ vars.BETA_DEPLOY_PATH }}
-          SECRET_PORT: ${{ secrets.BETA_SSH_PORT }}
-          VAR_PORT: ${{ vars.BETA_SSH_PORT }}
           SECRET_HEALTH: ${{ secrets.BETA_HEALTH_CHECK_URL }}
           VAR_HEALTH: ${{ vars.BETA_HEALTH_CHECK_URL }}
+          SECRET_MIGRATE: ${{ secrets.BETA_RUN_MIGRATIONS }}
+          VAR_MIGRATE: ${{ vars.BETA_RUN_MIGRATIONS }}
           FORCE_NPM_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.force_npm_ci || false }}
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force_build || false }}
+          DISPATCH_MIGRATE: ${{ github.event_name == 'workflow_dispatch' && inputs.run_migrations || false }}
         run: |
           DEPLOY_PATH="${VAR_PATH:-${SECRET_PATH:-/var/www/Cureka-backend}}"
-          SSH_PORT="${VAR_PORT:-${SECRET_PORT:-22}}"
           HEALTH_CHECK_URL="${VAR_HEALTH:-${SECRET_HEALTH:-}}"
+
+          # Migrations: workflow_dispatch input wins; else secret/var BETA_RUN_MIGRATIONS.
+          RUN_MIGRATIONS="false"
+          if [[ "${DISPATCH_MIGRATE}" == "true" ]]; then
+            RUN_MIGRATIONS="true"
+          elif [[ "${VAR_MIGRATE:-${SECRET_MIGRATE:-}}" == "true" ]]; then
+            RUN_MIGRATIONS="true"
+          fi
 
           EXTRA_FLAGS=""
           if [[ "${FORCE_NPM_CI}" == "true" ]]; then
@@ -99,12 +104,15 @@ jobs:
           if [[ "${FORCE_BUILD}" == "true" ]]; then
             EXTRA_FLAGS+=" --force-build"
           fi
+          if [[ "${RUN_MIGRATIONS}" == "true" ]]; then
+            EXTRA_FLAGS+=" --run-migrations"
+          fi
 
           {
             echo "deploy_path=${DEPLOY_PATH}"
-            echo "ssh_port=${SSH_PORT}"
             echo "health_check_url=${HEALTH_CHECK_URL}"
             echo "extra_flags=${EXTRA_FLAGS}"
+            echo "run_migrations=${RUN_MIGRATIONS}"
           } >> "$GITHUB_OUTPUT"
 
       - name: SSH deploy (execute deploy-beta.sh)
@@ -114,7 +122,7 @@ jobs:
           host: ${{ secrets.BETA_SSH_HOST }}
           username: ${{ secrets.BETA_SSH_USER }}
           key: ${{ secrets.BETA_SSH_PRIVATE_KEY }}
-          port: ${{ steps.cfg.outputs.ssh_port }}
+          port: ${{ secrets.BETA_SSH_PORT }}
           script_stop: true
           command_timeout: 14m
           envs: DEPLOY_PATH,HEALTH_CHECK_URL,EXTRA_FLAGS,GH_ACTOR,GH_SHA,GH_RUN_URL
@@ -122,8 +130,8 @@ jobs:
             set -euo pipefail
 
             cd "${DEPLOY_PATH}"
-            chmod +x scripts/deploy-beta.sh scripts/health-check.sh
-            mkdir -p logs
+            chmod +x scripts/deploy-beta.sh scripts/rollback.sh scripts/cleanup.sh scripts/health-check.sh
+            mkdir -p .deployments logs
 
             if [[ -n "${HEALTH_CHECK_URL:-}" ]]; then
               export HEALTH_CHECK_URL
@@ -137,7 +145,7 @@ jobs:
 
             set +e
             # shellcheck disable=SC2086
-            ./scripts/deploy-beta.sh ${EXTRA_FLAGS} 2>&1 | tee -a logs/last-deploy.log
+            ./scripts/deploy-beta.sh ${EXTRA_FLAGS} 2>&1 | tee -a .deployments/last-deploy.log
             rc=${PIPESTATUS[0]}
             set -e
             exit "${rc}"
@@ -155,11 +163,10 @@ jobs:
           SSH_OUTCOME: ${{ steps.ssh_deploy.outcome }}
           JOB_STATUS: ${{ job.status }}
           DEPLOY_PATH: ${{ steps.cfg.outputs.deploy_path }}
+          RUN_MIGRATIONS: ${{ steps.cfg.outputs.run_migrations }}
         run: |
           STATUS_ICON="failed"
-          if [[ "${JOB_STATUS}" == "success" ]]; then
-            STATUS_ICON="success"
-          fi
+          [[ "${JOB_STATUS}" == "success" ]] && STATUS_ICON="success"
 
           {
             echo "## Beta Deploy (${STATUS_ICON})"
@@ -170,21 +177,17 @@ jobs:
             echo "| SSH step | \`${SSH_OUTCOME}\` |"
             echo "| Branch | \`beta_development\` |"
             echo "| Commit | \`${{ github.sha }}\` |"
-            echo "| Actor | \`${{ github.actor }}\` |"
+            echo "| Migrations | \`${RUN_MIGRATIONS}\` |"
             echo "| Deploy path | \`${DEPLOY_PATH}\` |"
             echo "| Host | \`${{ secrets.BETA_SSH_HOST }}\` |"
-            echo "| Workflow run | [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
             echo ""
-            echo "### Behaviour"
-            echo ""
-            echo "- \`npm ci\` only when package-lock changes"
-            echo "- \`npm run migration:run\` before PM2 reload"
             echo "- \`pm2 reload ecosystem.config.js --update-env\`"
-            echo "- Health: \`GET /api/v1/health\` → HTTP 200"
-            echo "- On-box log: \`${DEPLOY_PATH}/logs/last-deploy.log\`"
+            echo "- Health: \`GET /api/v1/health\` → 200"
+            echo "- On failure: automatic \`scripts/rollback.sh\`"
+            echo "- Log: \`${DEPLOY_PATH}/.deployments/last-deploy.log\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "${JOB_STATUS}" != "success" ]]; then
-            echo "::error::Beta deployment failed — inspect the SSH deploy step and VM logs/last-deploy.log"
+            echo "::error::Beta deployment failed"
             exit 1
           fi
