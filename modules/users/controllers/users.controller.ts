@@ -10,11 +10,12 @@ import { IUserSessionContext } from '@modules/auth/interfaces/session.interface'
 import { UploadsService } from '@modules/uploads/services/uploads.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { UsersService } from '../services/users.service';
-import { UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
+import { UpdateUserProfileDto, UpdateUserStatusDto, UserListQueryDto } from '../dto/user.dto';
+import { CreateUserAddressDto } from '../dto/user-address.dto';
 import { IUser } from '../interfaces/user.interface';
 
 /**
- * Website user endpoints and super-admin user management.
+ * Website user endpoints and admin user management.
  * Profile read for the logged-in customer is available at GET /auth/me.
  */
 @Controller('users')
@@ -26,12 +27,11 @@ export class UsersController {
 
   /**
    * GET /api/v1/users
-   * Paginated list of all website users (super admin only).
-   * Optional `status` filter (ACTIVE | INACTIVE); omit to return all users.
+   * Paginated admin users list with totalOrders / totalSpend.
    */
   @ResponseMessage('Users retrieved successfully')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
   findAll(@Query() query: UserListQueryDto) {
     return this.usersService.findAll(query);
@@ -50,20 +50,9 @@ export class UsersController {
   }
 
   /**
-   * GET /api/v1/users/:refId
-   * Full user details by refId (super admin only).
-   */
-  @ResponseMessage('User retrieved successfully')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN)
-  @Get(':refId')
-  findOne(@Param('refId', RefIdPipe) refId: string) {
-    return this.usersService.findOne(refId);
-  }
-
-  /**
    * PATCH /api/v1/users/me
    * Updates the authenticated user's profile (requires completed registration).
+   * Declared before :refId routes so "me" is not captured as a refId.
    */
   @ResponseMessage('Profile updated successfully')
   @UseGuards(SessionCookieGuard, VerifiedUserGuard)
@@ -88,5 +77,47 @@ export class UsersController {
   ): Promise<IUser> {
     const uploaded = await this.uploadsService.uploadFromRequest(UploadFolder.AVATARS, req);
     return this.usersService.setProfileImageUrl(user.sub, uploaded.path);
+  }
+
+  /**
+   * GET /api/v1/users/:refId
+   * Admin user detail — profile, addresses, recent orders, order metrics.
+   */
+  @ResponseMessage('User details retrieved successfully')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.usersService.findOne(refId);
+  }
+
+  /**
+   * PATCH /api/v1/users/:refId/status
+   * Toggle user ACTIVE / INACTIVE.
+   */
+  @ResponseMessage('User status updated successfully')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Patch(':refId/status')
+  updateStatus(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: UpdateUserStatusDto,
+  ) {
+    return this.usersService.updateStatus(refId, dto);
+  }
+
+  /**
+   * POST /api/v1/users/:refId/addresses
+   * Add a new address for a user (admin).
+   */
+  @ResponseMessage('Address created successfully')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post(':refId/addresses')
+  createAddress(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: CreateUserAddressDto,
+  ) {
+    return this.usersService.createAddressForUser(refId, dto);
   }
 }

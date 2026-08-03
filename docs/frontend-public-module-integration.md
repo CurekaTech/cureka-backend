@@ -195,6 +195,7 @@ GET /api/v1/public/bundles
 
 | Field | Description |
 |-------|-------------|
+| `id` / `productId` | Product UUID — use as cart `productId` |
 | `name` | Bundle name |
 | `slug` | Detail route key |
 | `description` | Short description |
@@ -206,7 +207,7 @@ GET /api/v1/public/bundles
 | `outOfStock` | OOS for displayed pricing variant |
 | `publishedAt` | Publish time |
 | `permalink` / `productPageUrl` | Navigation helpers |
-| `defaultVariantId` | Variant UUID for add-to-cart |
+| `defaultVariantId` / `variantId` | Variant UUID — use as cart `variantId` |
 
 #### Brand object
 
@@ -224,6 +225,8 @@ GET /api/v1/public/bundles
 
 ```json
 {
+  "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "productId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
   "refId": "PRD20269999",
   "name": "Summer Skin Care Kit",
   "slug": "summer-skin-care-kit",
@@ -249,7 +252,18 @@ GET /api/v1/public/bundles
   "publishedAt": "2026-07-01T10:00:00.000Z",
   "permalink": "/shop/.../summer-skin-care-kit",
   "productPageUrl": null,
-  "defaultVariantId": "uuid"
+  "defaultVariantId": "ffffffff-1111-2222-3333-444444444444",
+  "variantId": "ffffffff-1111-2222-3333-444444444444"
+}
+```
+
+Add to cart:
+
+```json
+{
+  "productId": "<bundle.productId>",
+  "variantId": "<bundle.variantId>",
+  "quantity": 1
 }
 ```
 
@@ -275,7 +289,6 @@ Returns everything from the list card, plus:
 
 | Field | Description |
 |-------|-------------|
-| `id` | Internal id |
 | `components` | Components text |
 | `categoryRefId` / `categoryName` / `categorySlugPath` | Category context |
 | `subscriptionEnabled` / `codAvailable` / `emiAvailable` | Commerce flags |

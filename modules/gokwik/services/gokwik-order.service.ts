@@ -312,10 +312,12 @@ export class GokwikOrderService {
     }
 
     if (payment.payment_method === 'pp-cod') {
-      if (!meta?.ppcod) {
+      const prepaid = meta?.ppcod?.prepaid_amount;
+      const payable = meta?.ppcod?.payable_on_delivery;
+      if (prepaid == null || payable == null) {
         throw new BadRequestException('ppcod split is required for Partial COD');
       }
-      const splitTotal = meta.ppcod.prepaid_amount + meta.ppcod.payable_on_delivery;
+      const splitTotal = prepaid + payable;
       if (!equalsMoney(splitTotal, expectedTotal)) {
         throw new BadRequestException('Partial COD split does not match the order total');
       }

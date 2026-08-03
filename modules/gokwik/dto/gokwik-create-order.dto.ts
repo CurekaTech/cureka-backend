@@ -145,15 +145,31 @@ export class GokwikOtherChargeDto {
 }
 
 export class GokwikPpcodDto {
+  /** Present only for Partial COD (`payment_method: pp-cod`). GoKwik often sends `{}` for COD/prepaid. */
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  prepaid_amount!: number;
+  prepaid_amount?: number;
 
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  payable_on_delivery!: number;
+  payable_on_delivery?: number;
+}
+
+/** GoKwik sends `"ppcod": {}` for non-Partial-COD — treat as absent. */
+function normalizePpcod(value: unknown): unknown {
+  if (value == null || value === '') return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const prepaid = record['prepaid_amount'];
+  const payable = record['payable_on_delivery'];
+  const hasPrepaid = prepaid !== undefined && prepaid !== null && prepaid !== '';
+  const hasPayable = payable !== undefined && payable !== null && payable !== '';
+  if (!hasPrepaid && !hasPayable) return undefined;
+  return value;
 }
 
 export class GokwikCreateOrderMetaDataDto {
@@ -164,7 +180,7 @@ export class GokwikCreateOrderMetaDataDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => GokwikRewardsInfoDto)
-  rewards_info?: GokwikRewardsInfoDto;
+  rewards_info?: GokwikRewardsInfoDto | null;
 
   @IsOptional()
   @IsArray()
@@ -183,6 +199,7 @@ export class GokwikCreateOrderMetaDataDto {
   gokwik_order_id?: string;
 
   @IsOptional()
+  @Transform(({ value }) => normalizePpcod(value))
   @ValidateNested()
   @Type(() => GokwikPpcodDto)
   ppcod?: GokwikPpcodDto;
