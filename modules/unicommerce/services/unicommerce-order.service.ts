@@ -81,17 +81,48 @@ export class UnicommerceOrderService implements OnModuleInit {
     });
 
     const skus = payload.saleOrder.saleOrderItems.map((item) => item.itemSku);
+    const itemPrepaidSum = payload.saleOrder.saleOrderItems.reduce(
+      (sum, item) => sum + Number(item.prepaidAmount || 0),
+      0,
+    );
+    const itemsSubtotal = payload.saleOrder.saleOrderItems.reduce(
+      (sum, item) => sum + Number(item.sellingPrice || 0),
+      0,
+    );
+    const ucOrderAmount =
+      itemsSubtotal +
+      (payload.saleOrder.totalShippingCharges ?? 0) +
+      (payload.saleOrder.totalCashOnDeliveryCharges ?? 0) -
+      (payload.saleOrder.totalDiscount ?? 0);
+
     this.logger.log(
       {
         orderId: order.id,
         orderNumber: order.orderNumber,
         paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
         itemCount: payload.saleOrder.saleOrderItems.length,
         skus,
         channel: payload.saleOrder.channel,
         cashOnDelivery: payload.saleOrder.cashOnDelivery,
+        paymentInstrument: payload.saleOrder.paymentInstrument,
+        thirdPartyShipping: payload.saleOrder.thirdPartyShipping,
+        curekaGrandTotal: order.grandTotal,
+        itemsSubtotal,
+        totalDiscount: payload.saleOrder.totalDiscount,
+        totalShippingCharges: payload.saleOrder.totalShippingCharges,
+        totalCashOnDeliveryCharges: payload.saleOrder.totalCashOnDeliveryCharges,
+        totalPrepaidAmount: payload.saleOrder.totalPrepaidAmount,
+        itemPrepaidSum,
+        ucOrderAmount: Math.round(ucOrderAmount * 100) / 100,
+        prepaidReconciles:
+          payload.saleOrder.cashOnDelivery ||
+          Math.abs((payload.saleOrder.totalPrepaidAmount ?? 0) - ucOrderAmount) < 0.01,
+        step: 'unicommerce-push',
+        note: 'Independent of Shipway — Cureka pushes OMS and courier separately',
       },
-      'Pushing order to Unicommerce',
+      '[FULFILLMENT] Pushing order to Unicommerce',
     );
 
     const response = await this.apiService.createSaleOrder(payload);

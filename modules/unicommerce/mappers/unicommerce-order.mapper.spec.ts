@@ -55,10 +55,17 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.cashOnDelivery).toBe(false);
     expect(so.paymentInstrument).toBe('NET_BANKING');
     expect(so.currencyCode).toBe('INR');
+    expect(so.thirdPartyShipping).toBe(false);
+    expect(so.verificationRequired).toBe(false);
     expect(so.totalDiscount).toBe(50);
     expect(so.totalShippingCharges).toBe(40);
-    expect(so.totalPrepaidAmount).toBe(1008);
+    // UC amount = 998 items + 40 ship − 50 discount = 988 (not grandTotal 1008 which still had COD charge)
+    expect(so.totalPrepaidAmount).toBe(988);
     expect(so.totalCashOnDeliveryCharges).toBe(0);
+
+    const itemPrepaidSum = so.saleOrderItems.reduce((sum, i) => sum + Number(i.prepaidAmount), 0);
+    expect(itemPrepaidSum).toBe(948); // 998 − 50
+    expect(itemPrepaidSum + so.totalShippingCharges!).toBe(so.totalPrepaidAmount);
   });
 
   it('sets the correct address with shipping and billing referencing the same address', () => {
@@ -93,12 +100,50 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.saleOrderItems[0].shippingMethodCode).toBe('STD');
     expect(so.saleOrderItems[0].sellingPrice).toBe('499.00');
     expect(so.saleOrderItems[0].totalPrice).toBe('499.00');
-    expect(so.saleOrderItems[0].prepaidAmount).toBe('499.00');
+    // Discount ₹50 allocated across 2 units → each prepaid = 499 − 25 = 474
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('474.00');
     expect(so.saleOrderItems[0].giftWrap).toBe(false);
 
     expect(so.saleOrderItems[1].code).toBe('ORD123456780001-2');
     expect(so.saleOrderItems[1].sellingPrice).toBe('499.00');
     expect(so.saleOrderItems[1].totalPrice).toBe('499.00');
+    expect(so.saleOrderItems[1].prepaidAmount).toBe('474.00');
+  });
+
+  it('maps prepaid + 2% prepaidDiscount so UC prepaid equals order amount', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        items: [
+          {
+            sku: 'Wel/Apt/02003',
+            productName: 'Aptamil',
+            variantName: null,
+            quantity: 1,
+            unitPrice: '706.00',
+            totalPrice: '706.00',
+          } as OrderItemEntity,
+        ],
+        subtotal: '706.00',
+        discountAmount: '0.00',
+        prepaidDiscount: '14.12',
+        shippingAmount: '25.00',
+        handlingAmount: '0.00',
+        platformFee: '0.00',
+        codCharge: '0.00',
+        grandTotal: '716.88',
+        paymentMethod: OrderPaymentMethod.CASHFREE,
+      }),
+    );
+    const so = payload.saleOrder;
+
+    expect(so.cashOnDelivery).toBe(false);
+    expect(so.totalDiscount).toBe(14.12);
+    expect(so.totalShippingCharges).toBe(25);
+    expect(so.totalPrepaidAmount).toBe(716.88);
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('691.88'); // 706 − 14.12
+    expect(Number(so.saleOrderItems[0].prepaidAmount) + so.totalShippingCharges!).toBe(
+      so.totalPrepaidAmount,
+    );
   });
 
   it('expands quantity into one Unicommerce saleOrderItem per unit', () => {

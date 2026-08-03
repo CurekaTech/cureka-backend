@@ -36,6 +36,19 @@ export enum ShipwayStatus {
   // Cancellation
   CANCELLED = 'Cancelled',
 
+  // Shipway short codes (also accepted by ShipwayStatusMapper)
+  CODE_NFI = 'NFI', // Not Found/Incorrect / Status Pending
+  CODE_SCH = 'SCH', // Shipment Booked
+  CODE_INT = 'INT', // In Transit
+  CODE_OOD = 'OOD', // Out for Delivery
+  CODE_DEL = 'DEL', // Delivered
+  CODE_PKP = 'PKP', // Picked Up
+  CODE_PKF = 'PKF', // Pickup Failed
+  CODE_RPF = 'RPF', // Pickup Failed (alt)
+  CODE_CAN = 'CAN', // Cancelled
+  CODE_RTO = 'RTO',
+  CODE_UND = 'UND',
+
   // Fallback
   UNKNOWN = 'Unknown',
 }
