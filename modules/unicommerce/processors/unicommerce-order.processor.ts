@@ -37,7 +37,22 @@ export class UnicommerceOrderProcessor extends WorkerHost {
         case UNICOMMERCE_JOB_NAMES.PUSH_ORDER: {
           const result = await this.unicommerceOrderService.pushOrder(job.data.orderId);
           if (result === null) {
-            logger.warn('UniCommerce push skipped (disabled, misconfigured, or no-op)');
+            logger.warn(
+              { orderId: job.data.orderId, step: 'unicommerce-push' },
+              '[FULFILLMENT] UniCommerce push skipped (disabled, misconfigured, or no-op)',
+            );
+          } else {
+            logger.log(
+              {
+                orderId: job.data.orderId,
+                step: 'unicommerce-push',
+                successful: result.successful,
+                ucOrderCode: result.saleOrderDetailDTO?.code ?? null,
+                ucStatus: result.saleOrderDetailDTO?.status ?? null,
+                message: result.message ?? null,
+              },
+              '[FULFILLMENT] UniCommerce push job completed',
+            );
           }
           return result;
         }
