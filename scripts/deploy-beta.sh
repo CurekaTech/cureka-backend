@@ -11,14 +11,14 @@
 #   git clean -fd
 #   npm ci          (only if package-lock changed)
 #   npm run build   (only if source changed)
-#   migration:run   (only if RUN_MIGRATIONS=true)
 #   pm2 reload ecosystem.config.js --update-env
-#   health check
+#   health check (GET /api/v1/health → 200)
 #   on failure → rollback.sh
+#
+# Migrations are manual — this script never runs migration:run.
 #
 # Usage:
 #   ./scripts/deploy-beta.sh
-#   RUN_MIGRATIONS=true ./scripts/deploy-beta.sh
 # =============================================================================
 
 set -euo pipefail
@@ -52,8 +52,6 @@ FORCE_NPM_CI="${FORCE_NPM_CI:-0}"
 FORCE_BUILD="${FORCE_BUILD:-0}"
 SKIP_HEALTH="${SKIP_HEALTH:-0}"
 SKIP_ROLLBACK="${SKIP_ROLLBACK:-0}"
-# Optional migrations — only when explicitly requested.
-RUN_MIGRATIONS="${RUN_MIGRATIONS:-false}"
 
 DEPLOYMENTS_DIR="${APP_ROOT}/.deployments"
 PREVIOUS_SHA_FILE="${DEPLOYMENTS_DIR}/PREVIOUS_SHA"
@@ -68,7 +66,6 @@ PREVIOUS_SHA=""
 TARGET_SHA=""
 DID_NPM_CI=0
 DID_BUILD=0
-DID_MIGRATIONS=0
 ROLLBACK_STATUS="not_attempted"
 
 while [[ $# -gt 0 ]]; do
@@ -77,7 +74,6 @@ while [[ $# -gt 0 ]]; do
     --force-build) FORCE_BUILD=1; shift ;;
     --skip-health) SKIP_HEALTH=1; shift ;;
     --skip-rollback) SKIP_ROLLBACK=1; shift ;;
-    --run-migrations) RUN_MIGRATIONS=true; shift ;;
     --branch) BRANCH="${2:?}"; shift 2 ;;
     --app-root)
       APP_ROOT="$(cd "${2:?}" && pwd)"
@@ -108,7 +104,6 @@ print_summary() {
   echo " Target SHA:      ${TARGET_SHA:-n/a}"
   echo " npm ci ran:      ${DID_NPM_CI}"
   echo " build ran:       ${DID_BUILD}"
-  echo " migrations ran:  ${DID_MIGRATIONS}"
   echo " Rollback:        ${ROLLBACK_STATUS}"
   echo " Started (UTC):   ${DEPLOY_STARTED_AT}"
   echo " Finished (UTC):  $(ts)"
@@ -243,19 +238,6 @@ fi
 log_ok "Build artifact present: dist/apps/api/main.js"
 
 # ---------------------------------------------------------------------------
-# Optional migrations
-# ---------------------------------------------------------------------------
-if [[ "${RUN_MIGRATIONS}" == "true" || "${RUN_MIGRATIONS}" == "1" ]]; then
-  log_step "RUN_MIGRATIONS=${RUN_MIGRATIONS} → npm run migration:run"
-  if ! npm run migration:run; then
-    fail_deploy "npm run migration:run failed"
-  fi
-  DID_MIGRATIONS=1
-else
-  log_info "Skipping migrations (set RUN_MIGRATIONS=true to enable)"
-fi
-
-# ---------------------------------------------------------------------------
 # PM2 reload — never restart on success path
 # ---------------------------------------------------------------------------
 if [[ ! -f "${ECOSYSTEM_FILE}" ]]; then
@@ -303,8 +285,7 @@ cat > "${HISTORY_DIR}/${stamp}_${TARGET_SHA:0:12}.json" <<EOF
   "timestamp": "$(ts)",
   "status": "success",
   "npmCi": ${DID_NPM_CI},
-  "built": ${DID_BUILD},
-  "migrations": ${DID_MIGRATIONS}
+  "built": ${DID_BUILD}
 }
 EOF
 
