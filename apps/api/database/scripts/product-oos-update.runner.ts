@@ -105,7 +105,7 @@ const readSheet = async (filePath: string, sheetName?: string): Promise<SheetRow
   if (!skuCol) {
     throw new Error(
       `Could not find "SKU" column in sheet "${worksheet.name}". ` +
-      `Found headers: ${worksheet.getRow(1).values?.slice(1).join(', ')}`,
+      `Found headers: ${(worksheet.getRow(1).values as (string | undefined)[])?.slice(1).filter(Boolean).join(', ')}`,
     );
   }
 
