@@ -26,8 +26,12 @@ Roles: `SUPER_ADMIN`, `ADMIN`.
 ## 1. List users
 
 ```
-GET /admin/api/proxy/users?page=1&limit=20&sortBy=createdAt&sortOrder=DESC
+GET /admin/api/proxy/users?page=1&limit=20&status=ACTIVE&userType=customer
 ```
+
+**Default sort:** `createdAt` + `DESC` (newest first).  
+Omit `sortBy` / `sortOrder` unless the user clicks a column header.  
+Sending `sortBy=totalSpend&sortOrder=ASC` overrides the default.
 
 ### Query params
 

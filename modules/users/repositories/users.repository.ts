@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { UserEntity } from '../entities/user.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
@@ -26,25 +26,16 @@ const USER_SORTABLE_COLUMNS: Record<string, string> = {
   isGuest: 'user.isGuest',
   isRegistered: 'user.isRegistered',
   role: 'user.role',
-  totalOrders: 'order_metrics.total_orders',
-  totalSpend: 'order_metrics.total_spend',
-  lastOrderAt: 'order_metrics.last_order_at',
 };
 
-const ORDER_METRICS_SORT_KEYS = new Set(['totalOrders', 'totalSpend', 'lastOrderAt']);
-
-const ORDER_METRICS_SUBQUERY = `
-  (
-    SELECT
-      o.user_id AS user_id,
-      COUNT(*)::int AS total_orders,
-      COALESCE(SUM(o.grand_total::numeric), 0) AS total_spend,
-      MAX(COALESCE(o.placed_at, o.created_at)) AS last_order_at
-    FROM orders o
-    WHERE o.deleted_at IS NULL
-    GROUP BY o.user_id
-  )
-`;
+const ORDER_METRICS_SORT_EXPRESSIONS: Record<string, string> = {
+  totalOrders:
+    '(SELECT COUNT(*)::int FROM orders o WHERE o.user_id = "user"."id" AND o.deleted_at IS NULL)',
+  totalSpend:
+    '(SELECT COALESCE(SUM(o.grand_total::numeric), 0) FROM orders o WHERE o.user_id = "user"."id" AND o.deleted_at IS NULL)',
+  lastOrderAt:
+    '(SELECT MAX(COALESCE(o.placed_at, o.created_at)) FROM orders o WHERE o.user_id = "user"."id" AND o.deleted_at IS NULL)',
+};
 
 @Injectable()
 export class UsersRepository {
@@ -129,75 +120,52 @@ export class UsersRepository {
   async findAllPaginated(
     options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
-    const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
-    const sortOrder = this.normalizeSortOrder(options.sortOrder);
-    const sortBy = options.sortBy?.trim() || 'createdAt';
-    const sortColumn = USER_SORTABLE_COLUMNS[sortBy] ?? USER_SORTABLE_COLUMNS.createdAt;
-
-    const qb = this.repo
-      .createQueryBuilder('user')
-      .leftJoinAndSelect('user.roleRecord', 'roleRecord');
-
-    if (ORDER_METRICS_SORT_KEYS.has(sortBy)) {
-      qb.leftJoin(ORDER_METRICS_SUBQUERY, 'order_metrics', 'order_metrics.user_id = user.id');
-      qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
-    } else {
-      qb.orderBy(sortColumn, sortOrder);
-    }
-
-    qb.addOrderBy('user.createdAt', 'DESC').skip(skip).take(take);
-
-    this.applyUserListFilters(qb, options);
-
-    const [data, total] = await qb.getManyAndCount();
-
-    return { data, total };
+    return this.findUsersPaginated(options);
   }
 
   async findCustomersPaginated(
     options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
+    return this.findUsersPaginated(options, { role: UserRole.CUSTOMER });
+  }
+
+  /**
+   * Paginate without joining relations so metric ORDER BY subqueries work.
+   * Role records are loaded in a second query and reattached in page order.
+   */
+  private async findUsersPaginated(
+    options: UserListOptions,
+    extras?: { role?: UserRole },
+  ): Promise<{ data: UserEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
     const sortOrder = this.normalizeSortOrder(options.sortOrder);
     const sortBy = options.sortBy?.trim() || 'createdAt';
-    const sortColumn = USER_SORTABLE_COLUMNS[sortBy] ?? USER_SORTABLE_COLUMNS.createdAt;
 
-    const qb = this.repo
-      .createQueryBuilder('user')
-      .leftJoinAndSelect('user.roleRecord', 'roleRecord')
-      .select([
-        'user.id',
-        'user.refId',
-        'user.firstName',
-        'user.lastName',
-        'user.email',
-        'user.mobileNumber',
-        'user.isGuest',
-        'user.isRegistered',
-        'user.status',
-        'user.role',
-        'user.roleId',
-        'user.createdAt',
-        'roleRecord.id',
-        'roleRecord.refId',
-        'roleRecord.name',
-        'roleRecord.slug',
-        'roleRecord.status',
-      ])
-      .where('user.role = :role', { role: UserRole.CUSTOMER });
+    const qb = this.repo.createQueryBuilder('user').select(['user.id']);
 
-    if (ORDER_METRICS_SORT_KEYS.has(sortBy)) {
-      qb.leftJoin(ORDER_METRICS_SUBQUERY, 'order_metrics', 'order_metrics.user_id = user.id');
-      qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
-    } else {
-      qb.orderBy(sortColumn, sortOrder);
+    if (extras?.role) {
+      qb.where('user.role = :role', { role: extras.role });
     }
 
+    this.applyUserListFilters(qb, options);
+    this.applyUserListSort(qb, sortBy, sortOrder);
     qb.addOrderBy('user.createdAt', 'DESC').skip(skip).take(take);
 
-    this.applyUserListFilters(qb, options);
+    const [pageRows, total] = await qb.getManyAndCount();
+    const ids = pageRows.map((row) => row.id);
 
-    const [data, total] = await qb.getManyAndCount();
+    if (!ids.length) {
+      return { data: [], total };
+    }
+
+    const entities = await this.repo.find({
+      where: { id: In(ids) },
+      relations: { roleRecord: true },
+    });
+    const byId = new Map(entities.map((entity) => [entity.id, entity]));
+    const data = ids
+      .map((id) => byId.get(id))
+      .filter((entity): entity is UserEntity => Boolean(entity));
 
     return { data, total };
   }
@@ -206,8 +174,27 @@ export class UsersRepository {
     return sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   }
 
+  /**
+   * Metric sorts use correlated subqueries in ORDER BY — avoids TypeORM entity
+   * metadata errors from joining a raw subquery alias.
+   */
+  private applyUserListSort(
+    qb: SelectQueryBuilder<UserEntity>,
+    sortBy: string,
+    sortOrder: 'ASC' | 'DESC',
+  ): void {
+    const metricsExpression = ORDER_METRICS_SORT_EXPRESSIONS[sortBy];
+    if (metricsExpression) {
+      qb.orderBy(metricsExpression, sortOrder, 'NULLS LAST');
+      return;
+    }
+
+    const sortColumn = USER_SORTABLE_COLUMNS[sortBy] ?? USER_SORTABLE_COLUMNS.createdAt;
+    qb.orderBy(sortColumn, sortOrder);
+  }
+
   private applyUserListFilters(
-    qb: ReturnType<Repository<UserEntity>['createQueryBuilder']>,
+    qb: SelectQueryBuilder<UserEntity>,
     options: UserListOptions,
   ): void {
     if (options.status) {
