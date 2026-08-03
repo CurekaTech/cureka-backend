@@ -347,12 +347,20 @@ export class ShippingService {
           orderId,
           orderNumber,
           shipwayOrderId,
-          endpoint: `/api/getOrderShipmentDetails?order_id=${shipwayOrderId}`,
+          awbNumber: local?.awbNumber ?? null,
+          lookupPlan: [
+            'POST {SHIPWAY_TRACKING_BASE_URL}/api/getOrderShipmentDetails',
+            'GET {SHIPWAY_BASE_URL}/api/getorders?orderid=',
+            'GET {SHIPWAY_BASE_URL}/api/tracking?awb_numbers=',
+          ],
         },
-        '[Shipway] Calling getOrderShipmentDetails',
+        '[Shipway] Calling multi-host shipment lookup',
       );
 
-      const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId);
+      const trackingStartedAt = Date.now();
+      const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId, {
+        awbNumber: local?.awbNumber ?? null,
+      });
       const rawStatus = (tracking.current_status ?? tracking.status)?.trim();
       const events = tracking.events ?? tracking.scans ?? [];
 
@@ -361,10 +369,13 @@ export class ShippingService {
           orderId,
           orderNumber,
           shipwayOrderId,
+          elapsedMs: Date.now() - trackingStartedAt,
           success: tracking.success,
-          message: tracking.message,
+          message: tracking.message ?? null,
+          usableStatus: Boolean(rawStatus),
           rawStatus: rawStatus || null,
           current_status: tracking.current_status ?? null,
+          current_status_code: tracking.current_status_code ?? null,
           status: tracking.status ?? null,
           current_status_date: tracking.current_status_date ?? null,
           awb_number: tracking.awb_number ?? null,
@@ -385,7 +396,7 @@ export class ShippingService {
           })),
           fullTrackingResponse: tracking,
         },
-        '[Shipway] Received response from getOrderShipmentDetails',
+        '[Shipway] Received normalized tracking from getOrderShipmentDetails',
       );
 
       if (!rawStatus) {

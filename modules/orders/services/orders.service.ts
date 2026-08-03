@@ -28,12 +28,17 @@ import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
 import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
+import {
+  mapDefaultShipmentResponse,
+  mapShipmentToResponse,
+} from '@modules/shipping/mappers/shipment.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
+import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
@@ -57,6 +62,7 @@ export class OrdersService {
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    private readonly orderNotificationsService: OrderNotificationsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -265,7 +271,9 @@ export class OrdersService {
       return order;
     });
 
-    await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
+    await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
+    await this.enqueueUnicommercePush(order.id);
+    await this.notifyOrderPlacedSafely(order, 'place-order');
     return this.findOne(userId, order.id);
   }
 
@@ -579,7 +587,9 @@ export class OrdersService {
     });
 
     if (shouldPushFulfillment) {
-      await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
+      await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'gokwik-place-order');
+      await this.enqueueUnicommercePush(order.id);
+      await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
     }
 
     return order;
@@ -633,14 +643,43 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException(`Order ${idOrRefId} not found`);
     }
-    return mapOrderToAdminResponse(order, this.storageUrlEnricher);
+
+    const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
+      order.id,
+      order.orderNumber,
+    );
+    const shipmentResponse = shipment
+      ? mapShipmentToResponse(shipment, {
+          shipwayStatus,
+          orderStatus: order.orderStatus,
+        })
+      : mapDefaultShipmentResponse(order);
+
+    return mapOrderToAdminResponse(
+      { ...order, shipment, shipmentResponse, shipwayStatus },
+      this.storageUrlEnricher,
+    );
   }
 
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    const shipment = await this.shippingService.getShipmentByOrderId(id);
-    return mapOrderToResponse({ ...order, shipment }, this.storageUrlEnricher);
+
+    const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
+      id,
+      order.orderNumber,
+    );
+    const shipmentResponse = shipment
+      ? mapShipmentToResponse(shipment, {
+          shipwayStatus,
+          orderStatus: order.orderStatus,
+        })
+      : mapDefaultShipmentResponse(order);
+
+    return mapOrderToResponse(
+      { ...order, shipment, shipmentResponse, shipwayStatus },
+      this.storageUrlEnricher,
+    );
   }
 
   /**
@@ -865,7 +904,9 @@ export class OrdersService {
       return order;
     });
 
-    await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
+    await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'payment-request-order');
+    await this.enqueueUnicommercePush(order.id);
+    await this.notifyOrderPlacedSafely(order, 'payment-request-order');
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -1061,6 +1102,18 @@ export class OrdersService {
         '[FULFILLMENT] Failed to enqueue UniCommerce push — check Redis (REDIS_HOST, REDIS_TLS)',
       );
     }
+  }
+
+  private async notifyOrderPlacedSafely(order: OrderEntity, source: string): Promise<void> {
+    await this.orderNotificationsService.notifyOrderPlacedSafely({
+      phoneNumber: order.phoneNumber,
+      customerName: order.recipientName,
+      orderNumber: order.orderNumber,
+      grandTotal: String(order.grandTotal ?? ''),
+      paymentMethod: String(order.paymentMethod ?? ''),
+      orderStatus: String(order.orderStatus ?? ''),
+      source,
+    });
   }
 
   private async pushOrderToShipwaySafely(

@@ -11,8 +11,8 @@ export class CheckoutResolverService {
   constructor(private readonly adminSettingsRepository: AdminSettingsRepository) {}
 
   /**
-   * Priority: gokwik → shiprocket → legacy.
-   * GoKwik / Shiprocket are checkout UX providers; PG resolution stays separate.
+   * Priority: gokwik → shiprocket → legacy (Razorpay/Cashfree).
+   * Driven by admin settings — both `status=active` AND a truthy `value` are required.
    */
   async resolveProvider(): Promise<CheckoutProviderName> {
     if (await this.isGokwikCheckoutEnabled()) {
@@ -33,8 +33,8 @@ export class CheckoutResolverService {
   }
 
   /**
-   * Checkout UX flags: `status === active` means enabled (admin toggle).
-   * Truthy `value` is also accepted. Stale `value: "false"` with active status still counts as on.
+   * Enabled only when status is active AND value is truthy (`true`/`1`/`yes`/`on`).
+   * Disabling either field turns the provider off (matches admin toggle + value sync).
    */
   private async isBooleanSettingEnabled(key: string): Promise<boolean> {
     const setting = await this.adminSettingsRepository.findByKey(key);
@@ -45,18 +45,8 @@ export class CheckoutResolverService {
     const status = String(setting.status ?? '')
       .toLowerCase()
       .trim();
-    if (status === AdminSettingStatus.ACTIVE || status === 'active') {
-      // Keep value in sync so admin UI and older resolvers stay consistent.
-      const normalized = String(setting.value ?? '')
-        .toLowerCase()
-        .trim();
-      if (!['1', 'true', 'yes', 'on'].includes(normalized)) {
-        void this.adminSettingsRepository.updateByKey(key, {
-          value: 'true',
-          updatedBy: 'system',
-        });
-      }
-      return true;
+    if (status !== AdminSettingStatus.ACTIVE && status !== 'active') {
+      return false;
     }
 
     const normalized = String(setting.value ?? '')
