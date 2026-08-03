@@ -36,9 +36,31 @@ GET /admin/api/proxy/users?page=1&limit=20&sortBy=createdAt&sortOrder=DESC
 | `page` | `1` | 1-based |
 | `limit` | `20` | max 100 |
 | `search` | — | Matches firstName, lastName, email, mobileNumber, refId |
-| `sortBy` | `createdAt` | `createdAt`, `firstName`, `lastName`, `email`, `status`, `lastLoginAt` |
-| `sortOrder` | `DESC` | `ASC` \| `DESC` |
+| `sortBy` | `createdAt` | See sortable columns below |
+| `sortOrder` | `DESC` | `ASC` \| `DESC` (case-insensitive) |
 | `status` | — | `ACTIVE` \| `INACTIVE` (case-insensitive; menu can send `active`) |
+| `userType` | — | `guest` \| `customer` — menu filter for guest vs registered |
+| `isGuest` | — | `true` \| `false` — same as `userType` (`userType` wins if both sent) |
+
+### Sortable columns (`sortBy`)
+
+| Column | Notes |
+|--------|-------|
+| `createdAt` | default |
+| `updatedAt` | |
+| `firstName` | |
+| `lastName` | |
+| `email` | |
+| `mobileNumber` | |
+| `refId` | |
+| `status` | |
+| `lastLoginAt` | |
+| `isGuest` | guest vs customer |
+| `isRegistered` | |
+| `role` | |
+| `totalOrders` | order count (users with 0 orders last when DESC) |
+| `totalSpend` | sum of `grand_total` |
+| `lastOrderAt` | most recent order time |
 
 ### Response shape
 
@@ -89,6 +111,14 @@ Paginated envelope uses `data` (not `rows`) — same as other admin lists:
 Menu shortcuts:
 - Active: `/users?status=active` → `GET .../users?status=ACTIVE`
 - Inactive: `/users?status=inactive`
+- Guests: `/users?userType=guest` → `GET .../users?userType=guest`
+- Customers: `/users?userType=customer` → `GET .../users?userType=customer`
+
+Example — registered customers, highest spend first:
+
+```
+GET /admin/api/proxy/users?userType=customer&sortBy=totalSpend&sortOrder=DESC&page=1&limit=20
+```
 
 ---
 

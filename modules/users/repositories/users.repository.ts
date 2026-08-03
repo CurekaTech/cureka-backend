@@ -8,7 +8,43 @@ import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import { IUserOrderMetrics, IUserRecentOrder } from '../interfaces/user.interface';
 
-type UserListOptions = PaginationOptions & { status?: UserStatus };
+type UserListOptions = PaginationOptions & {
+  status?: UserStatus;
+  isGuest?: boolean;
+};
+
+const USER_SORTABLE_COLUMNS: Record<string, string> = {
+  createdAt: 'user.createdAt',
+  updatedAt: 'user.updatedAt',
+  firstName: 'user.firstName',
+  lastName: 'user.lastName',
+  email: 'user.email',
+  mobileNumber: 'user.mobileNumber',
+  refId: 'user.refId',
+  status: 'user.status',
+  lastLoginAt: 'user.lastLoginAt',
+  isGuest: 'user.isGuest',
+  isRegistered: 'user.isRegistered',
+  role: 'user.role',
+  totalOrders: 'order_metrics.total_orders',
+  totalSpend: 'order_metrics.total_spend',
+  lastOrderAt: 'order_metrics.last_order_at',
+};
+
+const ORDER_METRICS_SORT_KEYS = new Set(['totalOrders', 'totalSpend', 'lastOrderAt']);
+
+const ORDER_METRICS_SUBQUERY = `
+  (
+    SELECT
+      o.user_id AS user_id,
+      COUNT(*)::int AS total_orders,
+      COALESCE(SUM(o.grand_total::numeric), 0) AS total_spend,
+      MAX(COALESCE(o.placed_at, o.created_at)) AS last_order_at
+    FROM orders o
+    WHERE o.deleted_at IS NULL
+    GROUP BY o.user_id
+  )
+`;
 
 @Injectable()
 export class UsersRepository {
@@ -94,36 +130,24 @@ export class UsersRepository {
     options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
-    const sortOrder = options.sortOrder ?? 'DESC';
-
-    const SORTABLE_COLUMNS: Record<string, string> = {
-      createdAt: 'user.createdAt',
-      firstName: 'user.firstName',
-      lastName: 'user.lastName',
-      email: 'user.email',
-      status: 'user.status',
-      lastLoginAt: 'user.lastLoginAt',
-    };
-    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'user.createdAt';
+    const sortOrder = this.normalizeSortOrder(options.sortOrder);
+    const sortBy = options.sortBy?.trim() || 'createdAt';
+    const sortColumn = USER_SORTABLE_COLUMNS[sortBy] ?? USER_SORTABLE_COLUMNS.createdAt;
 
     const qb = this.repo
       .createQueryBuilder('user')
-      .leftJoinAndSelect('user.roleRecord', 'roleRecord')
-      .orderBy(sortColumn, sortOrder)
-      .addOrderBy('user.createdAt', 'DESC')
-      .skip(skip)
-      .take(take);
+      .leftJoinAndSelect('user.roleRecord', 'roleRecord');
 
-    if (options.status) {
-      qb.andWhere('user.status = :status', { status: options.status });
+    if (ORDER_METRICS_SORT_KEYS.has(sortBy)) {
+      qb.leftJoin(ORDER_METRICS_SUBQUERY, 'order_metrics', 'order_metrics.user_id = user.id');
+      qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    } else {
+      qb.orderBy(sortColumn, sortOrder);
     }
 
-    if (options.search) {
-      qb.andWhere(
-        `(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search OR user.mobileNumber ILIKE :search OR user.refId ILIKE :search)`,
-        { search: `%${options.search}%` },
-      );
-    }
+    qb.addOrderBy('user.createdAt', 'DESC').skip(skip).take(take);
+
+    this.applyUserListFilters(qb, options);
 
     const [data, total] = await qb.getManyAndCount();
 
@@ -134,17 +158,9 @@ export class UsersRepository {
     options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page ?? 1, options.limit ?? 20);
-    const sortOrder = options.sortOrder ?? 'DESC';
-
-    const SORTABLE_COLUMNS: Record<string, string> = {
-      createdAt: 'user.createdAt',
-      firstName: 'user.firstName',
-      lastName: 'user.lastName',
-      email: 'user.email',
-      status: 'user.status',
-      lastLoginAt: 'user.lastLoginAt',
-    };
-    const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'user.createdAt';
+    const sortOrder = this.normalizeSortOrder(options.sortOrder);
+    const sortBy = options.sortBy?.trim() || 'createdAt';
+    const sortColumn = USER_SORTABLE_COLUMNS[sortBy] ?? USER_SORTABLE_COLUMNS.createdAt;
 
     const qb = this.repo
       .createQueryBuilder('user')
@@ -168,14 +184,38 @@ export class UsersRepository {
         'roleRecord.slug',
         'roleRecord.status',
       ])
-      .where('user.role = :role', { role: UserRole.CUSTOMER })
-      .orderBy(sortColumn, sortOrder)
-      .addOrderBy('user.createdAt', 'DESC')
-      .skip(skip)
-      .take(take);
+      .where('user.role = :role', { role: UserRole.CUSTOMER });
 
+    if (ORDER_METRICS_SORT_KEYS.has(sortBy)) {
+      qb.leftJoin(ORDER_METRICS_SUBQUERY, 'order_metrics', 'order_metrics.user_id = user.id');
+      qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    } else {
+      qb.orderBy(sortColumn, sortOrder);
+    }
+
+    qb.addOrderBy('user.createdAt', 'DESC').skip(skip).take(take);
+
+    this.applyUserListFilters(qb, options);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
+  }
+
+  private normalizeSortOrder(sortOrder?: string): 'ASC' | 'DESC' {
+    return sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  }
+
+  private applyUserListFilters(
+    qb: ReturnType<Repository<UserEntity>['createQueryBuilder']>,
+    options: UserListOptions,
+  ): void {
     if (options.status) {
       qb.andWhere('user.status = :status', { status: options.status });
+    }
+
+    if (options.isGuest !== undefined) {
+      qb.andWhere('user.isGuest = :isGuest', { isGuest: options.isGuest });
     }
 
     if (options.search) {
@@ -184,10 +224,6 @@ export class UsersRepository {
         { search: `%${options.search}%` },
       );
     }
-
-    const [data, total] = await qb.getManyAndCount();
-
-    return { data, total };
   }
 
   async findStaffPaginated(options: {

@@ -38,7 +38,11 @@ export const mapProductEntityToPublicBundleCard = (entity: ProductEntity): IPubl
     detail.media.find((item) => Boolean(item.url)) ??
     null;
 
+  const defaultVariantId = listVariant?.id ?? null;
+
   return {
+    id: entity.id,
+    productId: entity.id,
     refId: entity.refId,
     name: entity.name,
     slug: entity.slug,
@@ -56,7 +60,8 @@ export const mapProductEntityToPublicBundleCard = (entity: ProductEntity): IPubl
     publishedAt: entity.publishedAt,
     permalink: productPageUrl || buildProductPermalink(categorySlugPath, entity.slug),
     productPageUrl,
-    defaultVariantId: listVariant?.id ?? null,
+    defaultVariantId,
+    variantId: defaultVariantId,
   };
 };
 
@@ -72,7 +77,6 @@ export const mapProductEntityToPublicBundleDetail = (
 
   return {
     ...card,
-    id: entity.id,
     components: entity.components,
     categoryRefId: detail.categoryRefId,
     categoryName: detail.categoryName,

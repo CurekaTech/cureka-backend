@@ -7,6 +7,7 @@ import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
 import {
   CreateAdminCustomerDto,
+  resolveAdminUserIsGuestFilter,
   UpdateAdminCustomerDto,
   UpdateUserProfileAdminDto,
   UpdateUserProfileDto,
@@ -269,6 +270,7 @@ export class UsersService {
     const { data, total } = await this.usersRepository.findAllPaginated({
       ...paginationOptions,
       status: query.status,
+      isGuest: resolveAdminUserIsGuestFilter(query),
     });
 
     const metricsByUserId = await this.usersRepository.findOrderMetricsByUserIds(
@@ -291,6 +293,7 @@ export class UsersService {
     const { data, total } = await this.usersRepository.findCustomersPaginated({
       ...paginationOptions,
       status: query.status,
+      isGuest: resolveAdminUserIsGuestFilter(query),
     });
     return buildPaginatedResult(
       mapCustomerUserEntitiesToListItems(data),
