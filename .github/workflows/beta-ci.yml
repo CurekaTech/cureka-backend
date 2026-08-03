@@ -1,7 +1,13 @@
 # =============================================================================
 # beta-ci.yml
 # -----------------------------------------------------------------------------
-# Pull Request CI for beta_development — fail the PR if install/build breaks.
+# CI for the development branch only.
+#
+# Desired flow:
+#   feature/* → development → Beta CI (this workflow)
+#   merge into beta_development → Beta Deploy (beta-deploy.yml only)
+#
+# Does NOT run on beta_development (avoids CI+Deploy on the same merge).
 # =============================================================================
 
 name: Beta CI
@@ -9,7 +15,10 @@ name: Beta CI
 on:
   pull_request:
     branches:
-      - beta_development
+      - development
+  push:
+    branches:
+      - development
 
 concurrency:
   group: beta-ci-${{ github.event.pull_request.number || github.ref }}

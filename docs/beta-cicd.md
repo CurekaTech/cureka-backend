@@ -2,19 +2,19 @@
 
 All deployment files live in Git. The server only executes tracked scripts from `/var/www/Cureka-backend`.
 
-## Files
+See also: [beta-cicd-fixes.md](./beta-cicd-fixes.md) (latest trigger/health fixes).
 
-| Path | Purpose |
-|------|---------|
-| `ecosystem.config.js` | PM2 cluster (2 instances), `wait_ready`, `--update-env` |
-| `scripts/deploy-beta.sh` | Fetch/reset, conditional ci/build, optional migrations, reload, health, rollback |
-| `scripts/rollback.sh` | Restore previous SHA + reload |
-| `scripts/cleanup.sh` | Keep last 5 `.deployments/history` records |
-| `scripts/health-check.sh` | `GET /api/v1/health` — 15 retries × 2s |
-| `.github/workflows/beta-deploy.yml` | Push → SSH → `deploy-beta.sh` |
-| `.github/workflows/beta-ci.yml` | PR → `npm ci` + `npm run build` |
-| `apps/api/main.ts` | `process.send('ready')` |
-| `apps/api/health/health.controller.ts` | `{ "status": "ok" }` |
+## Flow
+
+```text
+feature/* → development → Beta CI
+PR → beta_development → merge → Beta Deploy
+```
+
+| Workflow | Trigger | Action |
+|----------|---------|--------|
+| `beta-ci.yml` | PR/push → `development` | `npm ci` + `npm run build` (Node 22) |
+| `beta-deploy.yml` | push → `beta_development` | SSH → `./scripts/deploy-beta.sh` |
 
 ## Deploy flow
 
@@ -25,24 +25,25 @@ git clean -fd
 
 if package-lock changed → npm ci
 if source changed      → npm run build
-if RUN_MIGRATIONS=true → npm run migration:run
 
 pm2 reload ecosystem.config.js --update-env
-health check
+health check  (GET /api/v1/health → 200)
   └─ on failure → rollback.sh
 ```
 
-## Migrations
+**Migrations are manual** — never run by CI/CD.
 
-Skipped by default. Enable with:
+## Files
 
-```bash
-RUN_MIGRATIONS=true ./scripts/deploy-beta.sh
-# or
-./scripts/deploy-beta.sh --run-migrations
-```
-
-In GitHub: set secret/variable `BETA_RUN_MIGRATIONS=true`, or use workflow_dispatch → **run_migrations**.
+| Path | Purpose |
+|------|---------|
+| `ecosystem.config.js` | PM2 cluster × 2, `wait_ready`, `--update-env` |
+| `scripts/deploy-beta.sh` | Deploy + rollback on failure |
+| `scripts/rollback.sh` | Restore previous SHA + reload |
+| `scripts/cleanup.sh` | Keep last 5 deploy history records |
+| `scripts/health-check.sh` | `GET /api/v1/health` — 15 retries × 2s |
+| `apps/api/main.ts` | `process.send('ready')` |
+| `apps/api/health/health.controller.ts` | `{ "status": "ok" }` |
 
 ## GitHub Secrets
 
@@ -54,19 +55,8 @@ In GitHub: set secret/variable `BETA_RUN_MIGRATIONS=true`, or use workflow_dispa
 | `BETA_SSH_PRIVATE_KEY` | yes |
 | `BETA_DEPLOY_PATH` | no (default `/var/www/Cureka-backend`) |
 | `BETA_HEALTH_CHECK_URL` | no |
-| `BETA_RUN_MIGRATIONS` | no (`true` to always migrate) |
 
 ## PM2 rules
 
 - Prefer: `pm2 reload ecosystem.config.js --update-env`
 - `pm2 restart` only if reload fails (rollback path)
-
-## First-time VM note
-
-If an old process was named `cureka-api`, rename once:
-
-```bash
-pm2 delete cureka-api || true
-pm2 start ecosystem.config.js --update-env
-pm2 save
-```
