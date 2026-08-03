@@ -63,9 +63,10 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.totalPrepaidAmount).toBe(988);
     expect(so.totalCashOnDeliveryCharges).toBe(0);
 
-    const itemPrepaidSum = so.saleOrderItems.reduce((sum, i) => sum + Number(i.prepaidAmount), 0);
-    expect(itemPrepaidSum).toBe(948); // 998 − 50
-    expect(itemPrepaidSum + so.totalShippingCharges!).toBe(so.totalPrepaidAmount);
+    // Prepaid only at order level — item prepaidAmount must stay 0 (UC mutual-exclusion rule).
+    for (const item of so.saleOrderItems) {
+      expect(item.prepaidAmount).toBe('0.00');
+    }
   });
 
   it('sets the correct address with shipping and billing referencing the same address', () => {
@@ -100,14 +101,14 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.saleOrderItems[0].shippingMethodCode).toBe('STD');
     expect(so.saleOrderItems[0].sellingPrice).toBe('499.00');
     expect(so.saleOrderItems[0].totalPrice).toBe('499.00');
-    // Discount ₹50 allocated across 2 units → each prepaid = 499 − 25 = 474
-    expect(so.saleOrderItems[0].prepaidAmount).toBe('474.00');
+    // Order-level prepaid only — item prepaid stays 0
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('0.00');
     expect(so.saleOrderItems[0].giftWrap).toBe(false);
 
     expect(so.saleOrderItems[1].code).toBe('ORD123456780001-2');
     expect(so.saleOrderItems[1].sellingPrice).toBe('499.00');
     expect(so.saleOrderItems[1].totalPrice).toBe('499.00');
-    expect(so.saleOrderItems[1].prepaidAmount).toBe('474.00');
+    expect(so.saleOrderItems[1].prepaidAmount).toBe('0.00');
   });
 
   it('maps prepaid + 2% prepaidDiscount so UC prepaid equals order amount', () => {
@@ -140,10 +141,7 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.totalDiscount).toBe(14.12);
     expect(so.totalShippingCharges).toBe(25);
     expect(so.totalPrepaidAmount).toBe(716.88);
-    expect(so.saleOrderItems[0].prepaidAmount).toBe('691.88'); // 706 − 14.12
-    expect(Number(so.saleOrderItems[0].prepaidAmount) + so.totalShippingCharges!).toBe(
-      so.totalPrepaidAmount,
-    );
+    expect(so.saleOrderItems[0].prepaidAmount).toBe('0.00');
   });
 
   it('expands quantity into one Unicommerce saleOrderItem per unit', () => {

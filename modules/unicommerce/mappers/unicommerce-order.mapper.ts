@@ -84,40 +84,17 @@ function expandLines(items: OrderItemEntity[]): ExpandedLine[] {
 }
 
 /**
- * Build saleOrderItems with prepaid amounts that reconcile to Uniware:
- *   UC order amount ≈ Σ sellingPrice + totalShipping + totalCOD − totalDiscount
- *   For prepaid: totalPrepaidAmount MUST equal that amount, and
- *   Σ item.prepaidAmount + shipping (order-level) − … should not exceed it.
+ * Build saleOrderItems.
  *
- * Order-level discount is allocated across item prepaid amounts so
- * Σ prepaidAmount + totalShippingCharges (+ COD if any) − 0 = totalPrepaidAmount.
+ * Unicommerce allows prepaid / discount / shipping at EITHER order level OR item
+ * level — never both ("only one of order level/order item level Prepaid Amount
+ * can be specified"). We use order-level totals (totalPrepaidAmount,
+ * totalDiscount, totalShippingCharges) and keep item charge fields at 0.
  */
 function buildSaleOrderItems(
   lines: ExpandedLine[],
   orderNumber: string,
-  isCod: boolean,
-  totalDiscount: number,
 ): IUnicommerceSaleOrderItem[] {
-  const itemsSubtotal = roundMoney(lines.reduce((sum, line) => sum + line.sellingPrice, 0));
-  const discount = Math.min(Math.max(0, roundMoney(totalDiscount)), itemsSubtotal);
-
-  // Allocate discount across units (last unit absorbs rounding residue).
-  const prepaidAfterDiscount: number[] = [];
-  if (isCod || itemsSubtotal <= 0) {
-    for (const _ of lines) prepaidAfterDiscount.push(0);
-  } else {
-    let allocatedDiscount = 0;
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      const isLast = i === lines.length - 1;
-      const share = isLast
-        ? roundMoney(discount - allocatedDiscount)
-        : roundMoney((line.sellingPrice / itemsSubtotal) * discount);
-      if (!isLast) allocatedDiscount = roundMoney(allocatedDiscount + share);
-      prepaidAfterDiscount.push(roundMoney(Math.max(0, line.sellingPrice - share)));
-    }
-  }
-
   return lines.map((line, index) => ({
     code: `${orderNumber}-${index + 1}`,
     itemSku: line.sku,
@@ -126,7 +103,8 @@ function buildSaleOrderItems(
     giftWrap: false,
     totalPrice: toMoneyString(line.sellingPrice),
     sellingPrice: toMoneyString(line.sellingPrice),
-    prepaidAmount: toMoneyString(isCod ? 0 : prepaidAfterDiscount[index]),
+    // Mandatory field, but must stay 0 when totalPrepaidAmount is set at order level.
+    prepaidAmount: '0.00',
     discount: '0.00',
     shippingCharges: '0.00',
   }));
@@ -157,7 +135,7 @@ export function mapOrderToUnicommercePayload(
   );
   const totalCashOnDeliveryCharges = isCod ? roundMoney(toNumber(order.codCharge)) : 0;
 
-  const saleOrderItems = buildSaleOrderItems(lines, order.orderNumber, isCod, totalDiscount);
+  const saleOrderItems = buildSaleOrderItems(lines, order.orderNumber);
 
   const itemsSubtotal = roundMoney(
     saleOrderItems.reduce((sum, item) => sum + toNumber(item.sellingPrice), 0),

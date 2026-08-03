@@ -81,10 +81,6 @@ export class UnicommerceOrderService implements OnModuleInit {
     });
 
     const skus = payload.saleOrder.saleOrderItems.map((item) => item.itemSku);
-    const itemPrepaidSum = payload.saleOrder.saleOrderItems.reduce(
-      (sum, item) => sum + Number(item.prepaidAmount || 0),
-      0,
-    );
     const itemsSubtotal = payload.saleOrder.saleOrderItems.reduce(
       (sum, item) => sum + Number(item.sellingPrice || 0),
       0,
@@ -114,7 +110,6 @@ export class UnicommerceOrderService implements OnModuleInit {
         totalShippingCharges: payload.saleOrder.totalShippingCharges,
         totalCashOnDeliveryCharges: payload.saleOrder.totalCashOnDeliveryCharges,
         totalPrepaidAmount: payload.saleOrder.totalPrepaidAmount,
-        itemPrepaidSum,
         ucOrderAmount: Math.round(ucOrderAmount * 100) / 100,
         prepaidReconciles:
           payload.saleOrder.cashOnDelivery ||
