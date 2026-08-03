@@ -137,12 +137,16 @@ fail_deploy() {
 
   if [[ "${SKIP_ROLLBACK}" == "1" ]]; then
     ROLLBACK_STATUS="skipped"
+    trap - EXIT
+    print_summary
     exit 1
   fi
 
   if [[ -z "${PREVIOUS_SHA}" || "${PREVIOUS_SHA}" == "${TARGET_SHA}" ]]; then
     log_error "No safer previous SHA available for rollback"
     ROLLBACK_STATUS="unavailable"
+    trap - EXIT
+    print_summary
     exit 1
   fi
 
@@ -154,6 +158,8 @@ fail_deploy() {
     ROLLBACK_STATUS="failed"
     log_error "Deploy failed; rollback ALSO failed — manual intervention required"
   fi
+  trap - EXIT
+  print_summary
   exit 1
 }
 
@@ -324,4 +330,10 @@ DEPLOY_STATUS="success"
 log_ok "Deployment succeeded → ${TARGET_SHA}"
 echo "DEPLOY_STATUS=success"
 echo "DEPLOY_SHA=${TARGET_SHA}"
+
+# Clear EXIT trap before exiting so a trap-side failure cannot replace our
+# success status with 1 under `set -e`. Print the summary explicitly, then
+# exit 0 for GitHub Actions / SSH.
+trap - EXIT
+print_summary
 exit 0
