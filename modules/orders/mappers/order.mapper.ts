@@ -1,6 +1,10 @@
 import { UserEntity } from '@modules/users/entities/user.entity';
 import { IStorageFileReferenceResponse } from '@packages/storage';
-import { mapShipmentToResponse, ShipmentResponse } from '@modules/shipping/mappers/shipment.mapper';
+import {
+  mapDefaultShipmentResponse,
+  mapShipmentToResponse,
+  ShipmentResponse,
+} from '@modules/shipping/mappers/shipment.mapper';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
@@ -32,8 +36,11 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> & {
   /** Number of distinct line items in the order. */
   lineItemCount: number;
   items: OrderItemResponse[];
-  /** Shipway shipment record when the order has been pushed to Shipway. */
-  shipment: ShipmentResponse | null;
+  /**
+   * Tracking block for FE status UI.
+   * Always present: Shipway-driven when available, otherwise default 4-step from order status.
+   */
+  shipment: ShipmentResponse;
 };
 
 export type AdminOrderCustomerResponse = {
@@ -46,6 +53,15 @@ export type AdminOrderCustomerResponse = {
 
 export type AdminOrderResponse = OrderResponse & {
   customer: AdminOrderCustomerResponse | null;
+};
+
+type OrderWithShipment = OrderEntity & {
+  user?: UserEntity | null;
+  shipment?: ShipmentEntity | null;
+  /** Pre-mapped shipment (e.g. after live Shipway resolve). */
+  shipmentResponse?: ShipmentResponse | null;
+  /** Whether Shipway returned a usable status for shipmentResponse / shipment entity. */
+  shipwayStatus?: boolean;
 };
 
 async function mapOrderItemToResponse(
@@ -74,8 +90,23 @@ async function mapOrderItemToResponse(
   };
 }
 
+function resolveShipmentResponse(order: OrderWithShipment): ShipmentResponse {
+  if (order.shipmentResponse) {
+    return order.shipmentResponse;
+  }
+
+  if (order.shipment) {
+    return mapShipmentToResponse(order.shipment, {
+      shipwayStatus: order.shipwayStatus ?? false,
+      orderStatus: order.orderStatus,
+    });
+  }
+
+  return mapDefaultShipmentResponse(order);
+}
+
 export async function mapOrderToResponse(
-  order: OrderEntity & { shipment?: ShipmentEntity | null },
+  order: OrderWithShipment,
   enricher: StorageUrlEnricher,
 ): Promise<OrderResponse> {
   const items = await Promise.all(
@@ -85,15 +116,21 @@ export async function mapOrderToResponse(
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const lineItemCount = items.length;
 
-  const { user: _user, items: _items, shipment: shipmentEntity, ...orderFields } = order;
-  const shipment = shipmentEntity ? mapShipmentToResponse(shipmentEntity) : null;
+  const {
+    user: _user,
+    items: _items,
+    shipment: _shipmentEntity,
+    shipmentResponse: _shipmentResponse,
+    shipwayStatus: _shipwayStatus,
+    ...orderFields
+  } = order;
 
   return {
     ...orderFields,
     itemCount,
     lineItemCount,
     items,
-    shipment,
+    shipment: resolveShipmentResponse(order),
   };
 }
 
@@ -109,7 +146,7 @@ function mapOrderCustomer(user?: UserEntity | null): AdminOrderCustomerResponse 
 }
 
 export async function mapOrderToAdminResponse(
-  order: OrderEntity & { user?: UserEntity | null; shipment?: ShipmentEntity | null },
+  order: OrderWithShipment,
   enricher: StorageUrlEnricher,
 ): Promise<AdminOrderResponse> {
   const base = await mapOrderToResponse(order, enricher);

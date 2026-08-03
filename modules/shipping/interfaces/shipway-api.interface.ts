@@ -83,7 +83,8 @@ export interface IShipwayPushOrderResponse {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Tracking (GET /api/getOrderShipmentDetails)
+// Tracking (POST /api/getOrderShipmentDetails)
+// Docs: JSON body { username, password, order_id }
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface IShipwayTrackingEvent {
@@ -92,25 +93,33 @@ export interface IShipwayTrackingEvent {
   location?: string;
   message?: string;
   activity?: string;
+  /** Classic Shipway scan field aliases */
+  time?: string;
+  status_detail?: string;
 }
 
 export interface IShipwayTrackingResponse {
-  success: boolean;
+  success?: boolean;
+  /** Classic API uses status: "Success" | "Error" */
+  status?: string;
   message?: string;
   order_id?: string;
   awb_number?: string;
   courier_name?: string;
   courier_id?: string | number;
   current_status?: string;
+  current_status_code?: string;
   current_status_date?: string;
   tracking_url?: string;
   label_url?: string;
   invoice_url?: string;
   pickup_id?: string | number;
   shipment_id?: string | number;
-  status?: string;
   events?: IShipwayTrackingEvent[];
   scans?: IShipwayTrackingEvent[];
+  scan?: IShipwayTrackingEvent[];
+  /** Classic API nests payload under `response` */
+  response?: Omit<IShipwayTrackingResponse, 'response' | 'success' | 'status' | 'message'>;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

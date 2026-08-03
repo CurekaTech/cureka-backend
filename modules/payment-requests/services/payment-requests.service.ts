@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId, getSalableStockQuantity, isVariantInStock } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
@@ -13,11 +13,14 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
+import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { CartService } from '@modules/orders/services/cart.service';
 import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
+import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
+import { roundMoney } from '@modules/orders/utils/money.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
 import {
@@ -32,6 +35,10 @@ import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
+import {
+  mapCodOrderToAdminListItem,
+  mapPaymentRequestToAdminListItem,
+} from '../mappers/admin-payment-list.mapper';
 import { PaymentRequestItemsRepository } from '../repositories/payment-request-items.repository';
 import { PaymentRequestsRepository } from '../repositories/payment-requests.repository';
 import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
@@ -70,27 +77,38 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
     customerToken?: string,
+    paymentMethod?: OrderPaymentMethod,
   ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
     if (checkoutProvider === 'gokwik') {
       return this.createGokwikCheckoutSession(userId, addressId, customerToken);
     }
     if (checkoutProvider === 'shiprocket') {
-      return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
+      return this.createShiprocketCheckoutSession(userId, addressId, orderSource, paymentMethod);
     }
 
     const activeGateway = await this.gatewayResolver.getActiveGateway();
+    const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
     if (activeGateway === 'cashfree') {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
         orderSource,
+        prepaidMethod,
       );
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
       const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
       const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
+
+      this.assertChargeAmountForQr({
+        source: 'checkout-link-cashfree',
+        paymentMethod: prepaidMethod,
+        chargeAmount: Number(totals.totalAmount),
+        prepaidDiscount: Number(totals.prepaidDiscount),
+        prepaidPercent: Number(totals.prepaidDiscountPercent),
+      });
 
       const cashfreeOrder = await this.cashfreeService.createOrder({
         orderId: paymentRequest.refId,
@@ -120,6 +138,16 @@ export class PaymentRequestsService {
         updatedBy: userId,
       });
 
+      this.logger.log(
+        {
+          refId: paymentRequest.refId,
+          qrChargeAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
+          paymentSessionId,
+        },
+        '[CHECKOUT] Cashfree QR/session created with prepaid-discounted amount',
+      );
+
       return {
         gateway: 'cashfree',
         paymentData: {
@@ -128,18 +156,29 @@ export class PaymentRequestsService {
           paymentSessionId,
           cfOrderId,
           expiresAt: cashfreeOrder['order_expiry_time'] ? new Date(cashfreeOrder['order_expiry_time']) : null,
-          totalAmount: paymentRequest.totalAmount,
+          amount: Number(totals.totalAmount),
+          totalAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
           paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
         },
       };
     } else if (activeGateway === 'payu') {
       throw new BadRequestException('PayU payment gateway is not fully implemented yet');
     } else {
-      const { paymentRequest } = await this.createCheckoutPaymentRequest(
+      const { paymentRequest, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
         orderSource,
+        prepaidMethod,
       );
+
+      this.assertChargeAmountForQr({
+        source: 'checkout-link-razorpay',
+        paymentMethod: prepaidMethod,
+        chargeAmount: Number(totals.totalAmount),
+        prepaidDiscount: Number(totals.prepaidDiscount),
+        prepaidPercent: Number(totals.prepaidDiscountPercent),
+      });
 
       const withLink = await this.generateLink(paymentRequest.id, userId, undefined, {
         callbackUrl: this.getStorefrontPaymentCallbackUrl(),
@@ -148,6 +187,16 @@ export class PaymentRequestsService {
         throw new BadRequestException('Failed to generate payment link');
       }
 
+      this.logger.log(
+        {
+          refId: withLink.refId,
+          qrChargeAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
+          paymentLink: withLink.paymentLink,
+        },
+        '[CHECKOUT] Razorpay payment-link/QR created with prepaid-discounted amount',
+      );
+
       return {
         gateway: 'razorpay',
         paymentData: {
@@ -155,7 +204,9 @@ export class PaymentRequestsService {
           refId: withLink.refId,
           paymentLink: withLink.paymentLink,
           expiresAt: withLink.expiresAt,
-          totalAmount: withLink.totalAmount,
+          amount: Number(totals.totalAmount),
+          totalAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
         },
       };
     }
@@ -167,44 +218,116 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
     customerToken?: string,
+    paymentMethod?: OrderPaymentMethod,
   ) {
+    this.logger.log(
+      {
+        userId,
+        addressId,
+        orderSource: orderSource ?? null,
+        paymentMethod: paymentMethod ?? null,
+      },
+      '[CHECKOUT-MODAL] start',
+    );
+
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    this.logger.log(
+      { userId, checkoutProvider },
+      '[CHECKOUT-MODAL] checkout provider resolved (gokwik/shiprocket/legacy)',
+    );
+
+    // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
+      this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to GoKwik');
       return this.createGokwikCheckoutSession(userId, addressId, customerToken);
     }
     if (checkoutProvider === 'shiprocket') {
-      return this.createShiprocketCheckoutSession(userId, addressId, orderSource);
+      this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to Shiprocket');
+      return this.createShiprocketCheckoutSession(
+        userId,
+        addressId,
+        orderSource,
+        paymentMethod,
+      );
     }
 
-    try {
-      return await this.createLegacyModalCheckout(userId, addressId, orderSource);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw new BadRequestException(
-          `${error.message} Checkout provider is legacy because gokwikCheckoutEnabled is not active (set status=active / value=true in admin payment settings).`,
-        );
-      }
-      throw error;
-    }
+    // Legacy = intentional native PG path. Do not suggest enabling GoKwik on PG failures.
+    this.logger.log(
+      {
+        userId,
+        paymentMethod: paymentMethod ?? null,
+        cashfreeCredentials: this.cashfreeService.getCredentialDiagnostics(),
+      },
+      '[CHECKOUT-MODAL] routing to legacy native PG',
+    );
+    return this.createLegacyModalCheckout(userId, addressId, orderSource, paymentMethod);
   }
 
   private async createLegacyModalCheckout(
     userId: string,
     addressId: string,
     orderSource?: OrderSource,
+    paymentMethod?: OrderPaymentMethod,
   ) {
+    this.logger.log(
+      {
+        userId,
+        addressId,
+        paymentMethod: paymentMethod ?? null,
+        cashfreeCredentials: this.cashfreeService.getCredentialDiagnostics(),
+      },
+      '[CHECKOUT-MODAL] legacy: resolving active gateway',
+    );
+
     const activeGateway = await this.gatewayResolver.getActiveGateway();
+    const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
+    this.logger.log(
+      { userId, activeGateway, prepaidMethod },
+      '[CHECKOUT-MODAL] legacy: active gateway selected',
+    );
+
     if (activeGateway === 'cashfree') {
+      this.logger.log(
+        {
+          userId,
+          prepaidMethod,
+          credentials: this.cashfreeService.getCredentialDiagnostics(),
+        },
+        '[CHECKOUT-MODAL] legacy: creating Cashfree session',
+      );
+
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
         orderSource,
+        prepaidMethod,
       );
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
       const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
       const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
+
+      this.logger.log(
+        {
+          userId,
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          totalAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
+          returnUrl,
+          credentials: this.cashfreeService.getCredentialDiagnostics(),
+        },
+        '[CHECKOUT-MODAL] legacy: Cashfree createOrder params (includes 2% prepaid discount)',
+      );
+
+      this.assertChargeAmountForQr({
+        source: 'checkout-modal-cashfree',
+        paymentMethod: prepaidMethod,
+        chargeAmount: Number(totals.totalAmount),
+        prepaidDiscount: Number(totals.prepaidDiscount),
+        prepaidPercent: Number(totals.prepaidDiscountPercent),
+      });
 
       const cashfreeOrder = await this.cashfreeService.createOrder({
         orderId: paymentRequest.refId,
@@ -222,6 +345,15 @@ export class PaymentRequestsService {
       const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
       const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
       if (!paymentSessionId) {
+        this.logger.error(
+          {
+            paymentRequestId: paymentRequest.id,
+            refId: paymentRequest.refId,
+            cashfreeOrderKeys: Object.keys(cashfreeOrder ?? {}),
+            credentials: this.cashfreeService.getCredentialDiagnostics(),
+          },
+          '[CHECKOUT-MODAL] legacy: Cashfree response missing payment_session_id',
+        );
         throw new BadRequestException('Failed to create Cashfree order');
       }
 
@@ -232,6 +364,18 @@ export class PaymentRequestsService {
         status: PaymentRequestStatus.LINK_GENERATED,
         updatedBy: userId,
       });
+
+      this.logger.log(
+        {
+          paymentRequestId: paymentRequest.id,
+          refId: paymentRequest.refId,
+          cfOrderId,
+          qrChargeAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
+          env: this.cashfreeService.getEnv(),
+        },
+        '[CHECKOUT-MODAL] legacy: Cashfree QR/session ready with discounted amount',
+      );
 
       return {
         gateway: 'cashfree',
@@ -244,7 +388,8 @@ export class PaymentRequestsService {
           currency: paymentRequest.currency,
           appId: this.cashfreeService.getAppId(),
           environment: this.cashfreeService.getEnv(),
-          totalAmount: paymentRequest.totalAmount,
+          totalAmount: totals.totalAmount,
+          prepaidDiscount: totals.prepaidDiscount,
           customer: {
             name,
             email: customer.email ?? '',
@@ -255,14 +400,26 @@ export class PaymentRequestsService {
     }
 
     if (activeGateway === 'payu') {
+      this.logger.error({ userId }, '[CHECKOUT-MODAL] legacy: PayU selected but not implemented');
       throw new BadRequestException('PayU payment gateway is not fully implemented yet');
     }
+
+    this.logger.log({ userId, prepaidMethod }, '[CHECKOUT-MODAL] legacy: creating Razorpay modal order');
 
     const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
       userId,
       addressId,
       orderSource,
+      prepaidMethod,
     );
+
+    this.assertChargeAmountForQr({
+      source: 'checkout-modal-razorpay',
+      paymentMethod: prepaidMethod,
+      chargeAmount: Number(totals.totalAmount),
+      prepaidDiscount: Number(totals.prepaidDiscount),
+      prepaidPercent: Number(totals.prepaidDiscountPercent),
+    });
 
     const amountPaise = Math.round(Number(totals.totalAmount) * 100);
     const razorpayOrder = await this.razorpayService.createOrder({
@@ -302,7 +459,8 @@ export class PaymentRequestsService {
         amount: Number(razorpayOrder['amount'] ?? amountPaise),
         currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
         keyId: this.razorpayService.getKeyId(),
-        totalAmount: paymentRequest.totalAmount,
+        totalAmount: totals.totalAmount,
+        prepaidDiscount: totals.prepaidDiscount,
         customer: {
           name: customerName,
           email: customer.email ?? '',
@@ -432,8 +590,18 @@ export class PaymentRequestsService {
     userId: string,
     addressId: string,
     orderSource: OrderSource = OrderSource.WEBSITE,
+    paymentMethod?: OrderPaymentMethod,
   ) {
-    const summary = await this.checkoutService.validateCheckout(userId, { addressId });
+    // Native online checkout must price as prepaid so QR/PG charge includes 2% off.
+    const pricingMethod =
+      paymentMethod && isPrepaidPaymentMethod(paymentMethod)
+        ? paymentMethod
+        : OrderPaymentMethod.RAZORPAY;
+
+    const summary = await this.checkoutService.validateCheckout(userId, {
+      addressId,
+      paymentMethod: pricingMethod,
+    });
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
     }
@@ -463,14 +631,70 @@ export class PaymentRequestsService {
       }),
     );
 
-    const totals = this.computeTotals(
-      pricedItems,
-      summary.discountAmount > 0 ? summary.discountAmount.toFixed(2) : undefined,
-      undefined,
-      summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
-      summary.handlingAmount > 0 ? summary.handlingAmount.toFixed(2) : undefined,
-      summary.platformFee > 0 ? summary.platformFee.toFixed(2) : undefined,
-      summary.codCharge > 0 ? summary.codCharge.toFixed(2) : undefined,
+    const prepaidPercent = summary.checkoutRules?.prepaidDiscountPercent ?? 2;
+    let prepaidDiscount = summary.prepaidDiscount;
+    let chargeGrandTotal = summary.grandTotal;
+
+    // Safety net: if prepaid pricing did not apply, force line-item % off into the charge.
+    if (prepaidPercent > 0 && prepaidDiscount <= 0) {
+      prepaidDiscount = roundMoney(
+        summary.items.reduce(
+          (sum, item) => sum + roundMoney((item.totalPrice * prepaidPercent) / 100),
+          0,
+        ),
+      );
+      chargeGrandTotal = roundMoney(
+        summary.subtotal -
+          summary.discountAmount +
+          summary.shippingAmount +
+          summary.handlingAmount +
+          summary.platformFee +
+          summary.codCharge -
+          prepaidDiscount,
+      );
+      this.logger.warn(
+        {
+          userId,
+          pricingMethod,
+          prepaidPercent,
+          forcedPrepaidDiscount: prepaidDiscount,
+          forcedGrandTotal: chargeGrandTotal,
+        },
+        '[CHECKOUT] Forced prepaid discount onto payment request / QR amount',
+      );
+    }
+
+    const totals = {
+      ...this.computeTotals(
+        pricedItems,
+        summary.discountAmount > 0 ? summary.discountAmount.toFixed(2) : undefined,
+        undefined,
+        summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
+        summary.handlingAmount > 0 ? summary.handlingAmount.toFixed(2) : undefined,
+        summary.platformFee > 0 ? summary.platformFee.toFixed(2) : undefined,
+        summary.codCharge > 0 ? summary.codCharge.toFixed(2) : undefined,
+        Math.max(0, chargeGrandTotal).toFixed(2),
+        prepaidDiscount > 0 ? prepaidDiscount.toFixed(2) : undefined,
+      ),
+      prepaidDiscountPercent: prepaidPercent,
+    };
+
+    this.logger.log(
+      {
+        userId,
+        paymentMethod: pricingMethod,
+        subtotal: totals.subtotal,
+        couponDiscount: totals.discount,
+        prepaidDiscount: totals.prepaidDiscount,
+        prepaidDiscountPercent: totals.prepaidDiscountPercent,
+        shipping: totals.shipping,
+        handling: totals.handling,
+        platformFee: totals.platformFee,
+        totalAmount: totals.totalAmount,
+        cartGrandTotal: summary.grandTotal,
+        qrWillCharge: totals.totalAmount,
+      },
+      '[CHECKOUT] payment request totals for QR/PG (must include prepaid discount)',
     );
 
     const paymentRequest = await this.dataSource.transaction(async (manager) => {
@@ -490,11 +714,15 @@ export class PaymentRequestsService {
           handling: totals.handling,
           platformFee: totals.platformFee,
           codCharge: totals.codCharge,
+          prepaidDiscount: totals.prepaidDiscount,
           totalAmount: totals.totalAmount,
+          couponCode: summary.coupon?.code ?? null,
+          couponDiscount: totals.discount,
           currency: 'INR',
           notes: 'Storefront checkout',
           orderSource:
             orderSource === OrderSource.APP ? OrderSource.APP : OrderSource.WEBSITE,
+          paymentProvider: pricingMethod,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -585,12 +813,23 @@ export class PaymentRequestsService {
     userId: string,
     addressId: string,
     orderSource?: OrderSource,
+    paymentMethod?: OrderPaymentMethod,
   ) {
-    const { paymentRequest, customer } = await this.createCheckoutPaymentRequest(
+    const activeGateway = await this.gatewayResolver.getActiveGateway();
+    const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
+    const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
       userId,
       addressId,
       orderSource,
+      prepaidMethod,
     );
+    this.assertChargeAmountForQr({
+      source: 'shiprocket-checkout',
+      paymentMethod: prepaidMethod,
+      chargeAmount: Number(totals.totalAmount),
+      prepaidDiscount: Number(totals.prepaidDiscount),
+      prepaidPercent: Number(totals.prepaidDiscountPercent),
+    });
     const address = await this.userAddressesService.findOne(userId, addressId);
     const callbackUrl = this.getStorefrontPaymentCallbackUrl();
     const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
@@ -709,6 +948,7 @@ export class PaymentRequestsService {
           handling: totals.handling,
           platformFee: totals.platformFee,
           codCharge: totals.codCharge,
+          prepaidDiscount: totals.prepaidDiscount,
           totalAmount: totals.totalAmount,
           currency: 'INR',
           notes: dto.notes ?? null,
@@ -786,6 +1026,7 @@ export class PaymentRequestsService {
           handling: totals.handling,
           platformFee: totals.platformFee,
           codCharge: totals.codCharge,
+          prepaidDiscount: totals.prepaidDiscount,
           totalAmount: totals.totalAmount,
           notes: dto.notes ?? existing.notes,
           paymentLink: null,
@@ -822,7 +1063,7 @@ export class PaymentRequestsService {
   async findAll(query: PaymentRequestQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const { data, total } = await this.paymentRequestsRepository.findPaginated({
+    const { keys, total } = await this.paymentRequestsRepository.findAdminListKeys({
       page,
       limit,
       search: query.search,
@@ -831,18 +1072,68 @@ export class PaymentRequestsService {
       fromDate: query.fromDate,
       toDate: query.toDate,
     });
+
+    const normalizeRecordType = (key: {
+      id: string;
+      recordType?: string;
+      recordtype?: string;
+    }): 'PAYMENT_REQUEST' | 'COD_ORDER' => {
+      const raw = String(key.recordType ?? key.recordtype ?? '').toUpperCase();
+      return raw === 'COD_ORDER' ? 'COD_ORDER' : 'PAYMENT_REQUEST';
+    };
+
+    const paymentRequestIds = keys
+      .filter((key) => normalizeRecordType(key) === 'PAYMENT_REQUEST')
+      .map((key) => key.id);
+    const codOrderIds = keys
+      .filter((key) => normalizeRecordType(key) === 'COD_ORDER')
+      .map((key) => key.id);
+
+    const [paymentRequests, codOrders] = await Promise.all([
+      this.paymentRequestsRepository.findByIds(paymentRequestIds),
+      this.findCodOrdersByIds(codOrderIds),
+    ]);
+
+    const paymentRequestById = new Map(paymentRequests.map((row) => [row.id, row]));
+    const codOrderById = new Map(codOrders.map((row) => [row.id, row]));
+
+    const data = keys
+      .map((key) => {
+        if (normalizeRecordType(key) === 'PAYMENT_REQUEST') {
+          const request = paymentRequestById.get(key.id);
+          return request ? mapPaymentRequestToAdminListItem(request) : null;
+        }
+        const order = codOrderById.get(key.id);
+        return order ? mapCodOrderToAdminListItem(order) : null;
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+
     return buildPaginatedResult(data, total, { page, limit, sortOrder: 'DESC' });
   }
 
   async findOne(id: string) {
-    const request = await this.getRequestOrThrow(id);
-    const addresses = await this.userAddressesService.findAll(request.customerId);
+    const request = await this.paymentRequestsRepository.findById(id);
+    if (request) {
+      const addresses = await this.userAddressesService.findAll(request.customerId);
+      return {
+        ...mapPaymentRequestToAdminListItem(request),
+        customer: request.customer
+          ? { ...request.customer, addresses }
+          : request.customer,
+      };
+    }
 
+    const codOrder = await this.findCodOrderByIdOrRef(id);
+    if (!codOrder) {
+      throw new NotFoundException(`Payment request ${id} not found`);
+    }
+
+    const addresses = await this.userAddressesService.findAll(codOrder.userId);
     return {
-      ...request,
-      customer: request.customer
-        ? { ...request.customer, addresses }
-        : request.customer,
+      ...mapCodOrderToAdminListItem(codOrder),
+      customer: codOrder.user
+        ? { ...codOrder.user, addresses }
+        : codOrder.user,
     };
   }
 
@@ -876,6 +1167,9 @@ export class PaymentRequestsService {
     options?: { callbackUrl?: string },
   ): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
+    if (existing.paymentProvider === 'COD') {
+      throw new BadRequestException('Payment link cannot be generated for COD orders');
+    }
     if (![PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED].includes(existing.status)) {
       throw new BadRequestException('Payment link can only be generated for pending requests');
     }
@@ -886,6 +1180,18 @@ export class PaymentRequestsService {
     if (amountPaise <= 0) {
       throw new BadRequestException('Amount must be greater than zero');
     }
+
+    this.logger.log(
+      {
+        paymentRequestId: existing.id,
+        refId: existing.refId,
+        qrChargeAmount: existing.totalAmount,
+        prepaidDiscount: existing.prepaidDiscount ?? '0.00',
+        paymentProvider: existing.paymentProvider,
+        amountPaise,
+      },
+      '[CHECKOUT] generateLink/QR amount (must already include prepaid discount for storefront prepaid)',
+    );
 
     const customer = await this.usersRepository.findById(existing.customerId);
 
@@ -1029,7 +1335,6 @@ export class PaymentRequestsService {
     );
 
     try {
-      const shippingVal = Number(existing.shipping ?? '0') + Number(existing.handling ?? '0');
       let couponDetails: {
         couponId: string | null;
         couponCode: string | null;
@@ -1054,6 +1359,8 @@ export class PaymentRequestsService {
         }
       }
 
+      const paymentMethod = this.mapPaymentProviderToOrderMethod(existing.paymentProvider);
+
       const createdOrder = await this.ordersService.createOrderFromPaymentRequest({
         customerId: existing.customerId,
         addressId: existing.addressId,
@@ -1061,10 +1368,12 @@ export class PaymentRequestsService {
         paymentRequestRefId: existing.refId,
         subtotal: existing.subtotal,
         discountAmount: existing.discount,
-        shippingAmount: shippingVal.toFixed(2),
+        shippingAmount: existing.shipping ?? '0.00',
+        handlingAmount: existing.handling ?? '0.00',
+        prepaidDiscount: existing.prepaidDiscount ?? '0.00',
         grandTotal: existing.totalAmount,
         notes: existing.notes ?? null,
-        paymentMethod: existing.paymentProvider as OrderPaymentMethod,
+        paymentMethod,
         orderSource: existing.orderSource ?? OrderSource.ADMIN,
         createdBy: updatedBy,
         ...couponDetails,
@@ -1247,6 +1556,45 @@ export class PaymentRequestsService {
     return request;
   }
 
+  private async findCodOrdersByIds(ids: string[]): Promise<OrderEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+    return this.dataSource.getRepository(OrderEntity).find({
+      where: { id: In(ids), paymentMethod: OrderPaymentMethod.COD },
+      relations: {
+        user: true,
+        items: {
+          product: true,
+          variant: true,
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  private async findCodOrderByIdOrRef(idOrRefId: string): Promise<OrderEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    const repo = this.dataSource.getRepository(OrderEntity);
+    return repo.findOne({
+      where: isUuid
+        ? { id: idOrRefId, paymentMethod: OrderPaymentMethod.COD }
+        : [
+            { refId: idOrRefId, paymentMethod: OrderPaymentMethod.COD },
+            { orderNumber: idOrRefId, paymentMethod: OrderPaymentMethod.COD },
+          ],
+      relations: {
+        user: true,
+        items: {
+          product: true,
+          variant: true,
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
   /**
    * Lightweight product + variant search for the payment-request creation wizard.
    * Returns products grouped with their active variants (id, sku, price, stock, attribute label).
@@ -1360,6 +1708,65 @@ export class PaymentRequestsService {
     );
   }
 
+  private mapPaymentProviderToOrderMethod(provider?: string | null): OrderPaymentMethod {
+    const normalized = String(provider ?? '')
+      .trim()
+      .toUpperCase();
+    if (normalized === 'CASHFREE') return OrderPaymentMethod.CASHFREE;
+    if (normalized === 'COD') return OrderPaymentMethod.COD;
+    if (normalized === 'WALLET') return OrderPaymentMethod.WALLET;
+    if (normalized === 'GOKWIK_PREPAID') return OrderPaymentMethod.GOKWIK_PREPAID;
+    return OrderPaymentMethod.RAZORPAY;
+  }
+
+  private resolveStorefrontPrepaidMethod(
+    activeGateway: 'cashfree' | 'razorpay' | 'payu',
+    requested?: OrderPaymentMethod,
+  ): OrderPaymentMethod {
+    if (requested && isPrepaidPaymentMethod(requested)) {
+      return requested;
+    }
+    if (activeGateway === 'cashfree') {
+      return OrderPaymentMethod.CASHFREE;
+    }
+    return OrderPaymentMethod.RAZORPAY;
+  }
+
+  /**
+   * Refuse to open a PG/QR session at full price when prepaid % is configured.
+   */
+  private assertChargeAmountForQr(params: {
+    source: string;
+    paymentMethod: OrderPaymentMethod;
+    chargeAmount: number;
+    prepaidDiscount: number;
+    prepaidPercent: number;
+  }): void {
+    this.logger.log(
+      {
+        source: params.source,
+        paymentMethod: params.paymentMethod,
+        qrChargeAmount: params.chargeAmount,
+        prepaidDiscount: params.prepaidDiscount,
+        prepaidPercent: params.prepaidPercent,
+      },
+      '[CHECKOUT] QR/PG charge amount check',
+    );
+
+    if (!isPrepaidPaymentMethod(params.paymentMethod)) {
+      return;
+    }
+    if (params.prepaidPercent > 0 && params.prepaidDiscount <= 0) {
+      throw new BadRequestException(
+        `Prepaid ${params.prepaidPercent}% discount was not applied to the payment QR amount. ` +
+          'Retry checkout; do not charge the full cart total.',
+      );
+    }
+    if (params.chargeAmount <= 0) {
+      throw new BadRequestException('Payment QR amount must be greater than zero');
+    }
+  }
+
   private computeTotals(
     items: Array<{ total: string }>,
     discount?: string,
@@ -1369,6 +1776,7 @@ export class PaymentRequestsService {
     platformFee?: string,
     codCharge?: string,
     finalAmount?: string,
+    prepaidDiscount?: string,
   ) {
     const subtotalNum = items.reduce((sum, item) => sum + Number(item.total), 0);
     const discountNum = Number(discount ?? '0');
@@ -1377,7 +1785,16 @@ export class PaymentRequestsService {
     const handlingNum = Number(handling ?? '0');
     const platformFeeNum = Number(platformFee ?? '0');
     const codChargeNum = Number(codCharge ?? '0');
-    const computed = subtotalNum - discountNum + taxNum + shippingNum + handlingNum + platformFeeNum + codChargeNum;
+    const prepaidDiscountNum = Number(prepaidDiscount ?? '0');
+    const computed =
+      subtotalNum -
+      discountNum +
+      taxNum +
+      shippingNum +
+      handlingNum +
+      platformFeeNum +
+      codChargeNum -
+      prepaidDiscountNum;
     const totalAmountNum = finalAmount ? Number(finalAmount) : computed;
 
     if (totalAmountNum <= 0) throw new BadRequestException('Amount must be greater than zero');
@@ -1389,6 +1806,7 @@ export class PaymentRequestsService {
       handling: handlingNum.toFixed(2),
       platformFee: platformFeeNum.toFixed(2),
       codCharge: codChargeNum.toFixed(2),
+      prepaidDiscount: prepaidDiscountNum.toFixed(2),
       totalAmount: totalAmountNum.toFixed(2),
     };
   }

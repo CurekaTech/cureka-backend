@@ -1486,7 +1486,7 @@ export class ProductsRepository {
       if (options?.prioritizeBestsellers) {
         qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
       } else {
-        qb.orderBy('min_price', sortOrder, 'NULLS LAST');
+      qb.orderBy('min_price', sortOrder, 'NULLS LAST');
       }
       return;
     }

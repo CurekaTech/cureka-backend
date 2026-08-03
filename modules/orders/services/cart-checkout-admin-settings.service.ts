@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AdminSettingEntity } from '@modules/admin-settings/entities/admin-setting.entity';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
@@ -128,8 +128,43 @@ export class CartCheckoutAdminSettingsService {
     return amounts[CartCheckoutAdminSettingKey.PREPAID_CHARGE_THRESHOLD] ?? 0;
   }
 
+  getPrepaidDiscountPercent(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.PREPAID_DISCOUNT_PERCENT] ?? 2;
+  }
+
+  getCodMinOrderAmount(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.COD_MIN_ORDER_AMOUNT] ?? 599;
+  }
+
+  getCodMaxOrderAmount(amounts: ResolvedCartCheckoutAdminSettings): number {
+    return amounts[CartCheckoutAdminSettingKey.COD_MAX_ORDER_AMOUNT] ?? 10000;
+  }
+
   getShippingCharge(amounts: ResolvedCartCheckoutAdminSettings): number {
     return amounts[CartCheckoutAdminSettingKey.SHIPPING_CHARGE] ?? 50;
+  }
+
+  /**
+   * COD eligibility is based on merchandise payable (subtotal − coupon discount).
+   */
+  assertCodOrderEligible(
+    payableAmount: number,
+    amounts: ResolvedCartCheckoutAdminSettings,
+  ): void {
+    const min = this.getCodMinOrderAmount(amounts);
+    const max = this.getCodMaxOrderAmount(amounts);
+    const payable = roundMoney(payableAmount);
+
+    if (payable < min) {
+      throw new BadRequestException(
+        `Cash on Delivery is available for orders of at least Rs. ${min.toFixed(0)}`,
+      );
+    }
+    if (payable > max) {
+      throw new BadRequestException(
+        `Cash on Delivery is available for orders up to Rs. ${max.toFixed(0)}`,
+      );
+    }
   }
 
   /**

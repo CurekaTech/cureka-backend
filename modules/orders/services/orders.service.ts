@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -8,6 +8,9 @@ import {
 } from '@packages/common';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
+import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
+import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
+import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -25,14 +28,20 @@ import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
 import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
+import {
+  mapDefaultShipmentResponse,
+  mapShipmentToResponse,
+} from '@modules/shipping/mappers/shipment.mapper';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
+import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
+import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
 
 @Injectable()
 export class OrdersService {
@@ -53,6 +62,7 @@ export class OrdersService {
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    private readonly orderNotificationsService: OrderNotificationsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -233,6 +243,20 @@ export class OrdersService {
         );
       }
 
+      if (dto.paymentMethod === OrderPaymentMethod.COD) {
+        await this.createCodPaymentRequestForAdminList(
+          {
+            userId,
+            addressId: dto.addressId,
+            order: createdOrder,
+            summary,
+            orderSource: dto.orderSource ?? OrderSource.WEBSITE,
+            couponCode: appliedCoupon?.code ?? null,
+          },
+          manager,
+        );
+      }
+
       const order = await this.ordersRepository.findByIdAndUserId(createdOrder.id, userId, manager);
       if (!order) throw new NotFoundException('Order not found after creation');
       this.logger.log(
@@ -249,6 +273,7 @@ export class OrdersService {
 
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'place-order');
     await this.enqueueUnicommercePush(order.id);
+    await this.notifyOrderPlacedSafely(order, 'place-order');
     return this.findOne(userId, order.id);
   }
 
@@ -533,6 +558,20 @@ export class OrdersService {
       const confirmed = await this.ordersRepository.findByIdAndUserId(existing.id, userId, manager);
       if (!confirmed) throw new NotFoundException('Order not found after confirmation');
 
+      if (params.paymentMethod === OrderPaymentMethod.COD) {
+        await this.createCodPaymentRequestForAdminList(
+          {
+            userId,
+            addressId: null,
+            order: confirmed,
+            items: confirmed.items ?? [],
+            orderSource: confirmed.orderSource,
+            couponCode: confirmed.couponCode,
+          },
+          manager,
+        );
+      }
+
       this.logger.log(
         {
           orderId: confirmed.id,
@@ -550,6 +589,7 @@ export class OrdersService {
     if (shouldPushFulfillment) {
       await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'gokwik-place-order');
       await this.enqueueUnicommercePush(order.id);
+      await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
     }
 
     return order;
@@ -603,14 +643,43 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException(`Order ${idOrRefId} not found`);
     }
-    return mapOrderToAdminResponse(order, this.storageUrlEnricher);
+
+    const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
+      order.id,
+      order.orderNumber,
+    );
+    const shipmentResponse = shipment
+      ? mapShipmentToResponse(shipment, {
+          shipwayStatus,
+          orderStatus: order.orderStatus,
+        })
+      : mapDefaultShipmentResponse(order);
+
+    return mapOrderToAdminResponse(
+      { ...order, shipment, shipmentResponse, shipwayStatus },
+      this.storageUrlEnricher,
+    );
   }
 
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);
-    const shipment = await this.shippingService.getShipmentByOrderId(id);
-    return mapOrderToResponse({ ...order, shipment }, this.storageUrlEnricher);
+
+    const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
+      id,
+      order.orderNumber,
+    );
+    const shipmentResponse = shipment
+      ? mapShipmentToResponse(shipment, {
+          shipwayStatus,
+          orderStatus: order.orderStatus,
+        })
+      : mapDefaultShipmentResponse(order);
+
+    return mapOrderToResponse(
+      { ...order, shipment, shipmentResponse, shipwayStatus },
+      this.storageUrlEnricher,
+    );
   }
 
   /**
@@ -693,6 +762,8 @@ export class OrdersService {
     subtotal: string;
     discountAmount: string;
     shippingAmount: string;
+    handlingAmount?: string;
+    prepaidDiscount?: string;
     grandTotal: string;
     notes: string | null;
     paymentMethod?: OrderPaymentMethod;
@@ -743,9 +814,10 @@ export class OrdersService {
           subtotal: params.subtotal,
           discountAmount: params.discountAmount,
           shippingAmount: params.shippingAmount,
-          handlingAmount: '0',
+          handlingAmount: params.handlingAmount ?? '0.00',
           platformFee: params.platformFee ?? '0.00',
           codCharge: params.codCharge ?? '0.00',
+          prepaidDiscount: params.prepaidDiscount ?? '0.00',
           grandTotal: params.grandTotal,
           couponId: params.couponId ?? null,
           couponCode: params.couponCode ?? null,
@@ -834,8 +906,142 @@ export class OrdersService {
 
     await this.pushOrderToShipwaySafely(order.id, order.orderNumber, 'payment-request-order');
     await this.enqueueUnicommercePush(order.id);
+    await this.notifyOrderPlacedSafely(order, 'payment-request-order');
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
+  }
+
+  /**
+   * Mirror COD orders into payment_requests so they appear on GET /admin/payment-requests
+   * (same admin "order list" used for prepaid payment requests).
+   */
+  private async createCodPaymentRequestForAdminList(
+    params: {
+      userId: string;
+      addressId: string | null;
+      order: Pick<
+        OrderEntity,
+        | 'id'
+        | 'orderNumber'
+        | 'subtotal'
+        | 'discountAmount'
+        | 'shippingAmount'
+        | 'handlingAmount'
+        | 'platformFee'
+        | 'codCharge'
+        | 'grandTotal'
+        | 'notes'
+      >;
+      summary?: CheckoutSummary;
+      items?: OrderItemEntity[];
+      orderSource: OrderSource;
+      couponCode: string | null;
+    },
+    manager: EntityManager,
+  ): Promise<void> {
+    const paymentRequestRepo = manager.getRepository(PaymentRequestEntity);
+    const paymentRequestItemRepo = manager.getRepository(PaymentRequestItemEntity);
+
+    const alreadyMirrored = await paymentRequestRepo.exists({
+      where: {
+        paymentProvider: 'COD',
+        paymentReference: params.order.orderNumber,
+      },
+    });
+    if (alreadyMirrored) {
+      return;
+    }
+
+    const lineItems =
+      params.summary?.items.map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        unitPrice: toMoneyString(item.unitPrice),
+        total: toMoneyString(item.totalPrice),
+      })) ??
+      (params.items ?? []).map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.totalPrice,
+      }));
+
+    if (!lineItems.length) {
+      this.logger.warn(
+        { orderId: params.order.id, orderNumber: params.order.orderNumber },
+        'Skipped COD payment-request mirror — order has no items',
+      );
+      return;
+    }
+
+    const refId = await generateUniqueRefId('pay-request', (candidate) =>
+      paymentRequestRepo.exists({ where: { refId: candidate } }),
+    );
+
+    const created = await paymentRequestRepo.save(
+      paymentRequestRepo.create({
+        refId,
+        customerId: params.userId,
+        addressId: params.addressId,
+        status: PaymentRequestStatus.PAYMENT_PENDING,
+        subtotal: params.order.subtotal,
+        discount: params.order.discountAmount,
+        tax: '0.00',
+        shipping: params.order.shippingAmount,
+        handling: params.order.handlingAmount,
+        platformFee: params.order.platformFee,
+        codCharge: params.order.codCharge,
+        totalAmount: params.order.grandTotal,
+        couponCode: params.couponCode,
+        couponDiscount: params.order.discountAmount,
+        currency: 'INR',
+        notes: params.order.notes ?? `COD order ${params.order.orderNumber}`,
+        orderSource: params.orderSource,
+        paymentProvider: 'COD',
+        paymentLink: null,
+        providerReferenceId: params.order.orderNumber,
+        paymentReference: params.order.orderNumber,
+        expiresAt: null,
+        paidAt: null,
+        createdBy: params.userId,
+        updatedBy: params.userId,
+      }),
+    );
+
+    const itemRows = [];
+    for (const item of lineItems) {
+      const itemRefId = await generateUniqueRefId('pay-item', (candidate) =>
+        paymentRequestItemRepo.exists({ where: { refId: candidate } }),
+      );
+      itemRows.push(
+        paymentRequestItemRepo.create({
+          refId: itemRefId,
+          paymentRequestId: created.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: '0.00',
+          tax: '0.00',
+          total: item.total,
+          createdBy: params.userId,
+          updatedBy: params.userId,
+        }),
+      );
+    }
+    await paymentRequestItemRepo.save(itemRows);
+
+    this.logger.log(
+      {
+        orderId: params.order.id,
+        orderNumber: params.order.orderNumber,
+        paymentRequestId: created.id,
+        paymentRequestRefId: created.refId,
+      },
+      'COD order mirrored to payment_requests for admin list',
+    );
   }
 
   private async enqueueUnicommercePush(orderId: string): Promise<void> {
@@ -854,6 +1060,18 @@ export class OrdersService {
         'Failed to enqueue UniCommerce push — check Redis connection (REDIS_HOST, REDIS_TLS, etc.)',
       );
     }
+  }
+
+  private async notifyOrderPlacedSafely(order: OrderEntity, source: string): Promise<void> {
+    await this.orderNotificationsService.notifyOrderPlacedSafely({
+      phoneNumber: order.phoneNumber,
+      customerName: order.recipientName,
+      orderNumber: order.orderNumber,
+      grandTotal: String(order.grandTotal ?? ''),
+      paymentMethod: String(order.paymentMethod ?? ''),
+      orderStatus: String(order.orderStatus ?? ''),
+      source,
+    });
   }
 
   private async pushOrderToShipwaySafely(

@@ -14,6 +14,11 @@ describe('mapCartToGokwikCart', () => {
       codCharge: 0,
       prepaidDiscount: 0,
       grandTotal: 495,
+      checkoutRules: {
+        prepaidDiscountPercent: 2,
+        codMinOrderAmount: 599,
+        codMaxOrderAmount: 10000,
+      },
       coupon: { id: 'coupon-1', code: 'SAVE50', title: 'Save 50' },
       items: [
         {
@@ -92,6 +97,11 @@ describe('mapCartToGokwikCart', () => {
       codCharge: 0,
       prepaidDiscount: 0,
       grandTotal: 250,
+      checkoutRules: {
+        prepaidDiscountPercent: 2,
+        codMinOrderAmount: 599,
+        codMaxOrderAmount: 10000,
+      },
       coupon: null,
       items: [
         {

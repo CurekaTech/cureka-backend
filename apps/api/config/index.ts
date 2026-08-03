@@ -9,4 +9,6 @@ export { shiprocketConfig } from './shiprocket.config';
 export { gokwikConfig } from './gokwik.config';
 export { unicommerceOrderConfig } from './unicommerce-order.config';
 export { unicommerceProductConfig } from './unicommerce-product.config';
+export { whatsappConfig } from './whatsapp.config';
+export { msg91Config } from './msg91.config';
 export { envValidationSchema } from './env.validation';

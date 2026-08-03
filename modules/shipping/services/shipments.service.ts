@@ -63,20 +63,25 @@ export class ShipmentsService {
         {
           orderId: order.id,
           orderNumber: order.orderNumber,
+          orderStatus: order.orderStatus,
           shipwayStatus: response.shipwayStatus,
           currentStatusLabel: response.currentStatusLabel,
           statusFlow: response.statusFlow,
         },
-        '[Shipway] No local shipment and no Shipway status — returning default 4-step flow',
+        '[Shipway] No Shipway data — returning default 4-step flow from order status',
       );
       return response;
     }
 
-    const response = mapShipmentToResponse(shipment, { shipwayStatus });
+    const response = mapShipmentToResponse(shipment, {
+      shipwayStatus,
+      orderStatus: order.orderStatus,
+    });
     this.logger.log(
       {
         orderId: order.id,
         orderNumber: order.orderNumber,
+        orderStatus: order.orderStatus,
         shipwayStatus: response.shipwayStatus,
         shipmentStatus: response.shipmentStatus,
         shipwayRawStatus: response.shipwayRawStatus,

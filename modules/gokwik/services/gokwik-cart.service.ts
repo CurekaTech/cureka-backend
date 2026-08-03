@@ -2,8 +2,10 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
 import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
+import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface';
 import { CartService } from '@modules/orders/services/cart.service';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
+import { roundMoney } from '@modules/orders/utils/money.util';
 import {
   GokwikAvailableCouponsResponse,
   GokwikAvailablePaymentMethod,
@@ -152,33 +154,45 @@ export class GokwikCartService {
     return cart;
   }
 
-  private async getCartMappingOptions(cart: { shippingAmount: number; codCharge: number }) {
+  private async getCartMappingOptions(cart: CartResponse) {
     return {
-      availablePaymentMethods: await this.resolveAvailablePaymentMethods(cart.codCharge),
+      availablePaymentMethods: await this.resolveAvailablePaymentMethods(cart),
       availableShippingMethods: this.resolveAvailableShippingMethods(cart.shippingAmount),
     };
   }
 
   /**
-   * Returns prepaid (when any gateway is enabled) and COD.
+   * Returns prepaid (when any gateway is enabled) and COD (when payable is within admin min/max).
    */
-  private async resolveAvailablePaymentMethods(codCharge: number): Promise<GokwikAvailablePaymentMethod[]> {
+  private async resolveAvailablePaymentMethods(
+    cart: CartResponse,
+  ): Promise<GokwikAvailablePaymentMethod[]> {
     const settings = await this.adminSettingsRepository.findByKeys([...PAYMENT_GATEWAY_KEYS]);
-    const hasPrepaid = settings.some(
-      (setting) =>
-        setting.status === AdminSettingStatus.ACTIVE &&
-        String(setting.value).trim() === '1',
-    );
+    const hasPrepaid = settings.some((setting) => {
+      const value = String(setting.value ?? '')
+        .toLowerCase()
+        .trim();
+      return (
+        setting.status === AdminSettingStatus.ACTIVE ||
+        ['1', 'true', 'yes', 'on'].includes(value)
+      );
+    });
     const methods: GokwikAvailablePaymentMethod[] = [];
     if (hasPrepaid) {
       methods.push({ id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' });
     }
-    methods.push({
-      id: 'cod',
-      title: 'Cash on Delivery',
-      price: Math.max(0, Number(codCharge) || 0),
-      currency: 'INR',
-    });
+
+    const payable = roundMoney(cart.subtotal - cart.discountAmount);
+    const min = cart.checkoutRules.codMinOrderAmount;
+    const max = cart.checkoutRules.codMaxOrderAmount;
+    if (payable >= min && payable <= max) {
+      methods.push({
+        id: 'cod',
+        title: 'Cash on Delivery',
+        price: Math.max(0, Number(cart.codCharge) || 0),
+        currency: 'INR',
+      });
+    }
     return methods;
   }
 
