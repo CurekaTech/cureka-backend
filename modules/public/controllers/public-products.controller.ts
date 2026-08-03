@@ -2,6 +2,7 @@ import { Controller, Get, Logger, Param, Query, Req } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { ResponseMessage } from '@packages/common';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
+import { YouMayAlsoLikeQueryDto } from '../dto/you-may-also-like-query.dto';
 import { PublicProductsService } from '../services/public-products.service';
 
 @Controller('public/products')
@@ -16,10 +17,27 @@ export class PublicProductsController {
     return this.publicProductsService.findAll(query);
   }
 
-  @ResponseMessage('Product variants retrieved successfully')
+  @ResponseMessage('Products retrieved successfully')
   @Get('search')
   search(@Query() query: PublicProductQueryDto) {
     return this.publicProductsService.searchVariants(query);
+  }
+
+  /**
+   * "You May Also Like" — pass variant IDs from the cart (or product page) and receive
+   * a paginated list of similar published products ranked by sub-category match, then
+   * category, within ±35% price. Cart products are always excluded from results.
+   *
+   * GET /public/products/you-may-also-like?variantIds=<uuid1>,<uuid2>&page=1&limit=20
+   */
+  @ResponseMessage('You may also like products retrieved successfully')
+  @Get('you-may-also-like')
+  findYouMayAlsoLike(@Query() query: YouMayAlsoLikeQueryDto) {
+    return this.publicProductsService.findYouMayAlsoLike(
+      query.variantIds,
+      query.page ?? 1,
+      query.limit ?? 20,
+    );
   }
 
   /**

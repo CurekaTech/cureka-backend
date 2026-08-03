@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
@@ -52,6 +52,10 @@ export interface PublicProductListOptions {
   sortOrder?: 'ASC' | 'DESC';
   productType?: string;
   categoryId?: string;
+  /** Match products in ANY of these categories (OR logic). Ignored when `categoryId` is set. */
+  categoryIds?: string[];
+  /** Exclude products by their primary IDs (e.g. already-in-cart products for YMAL). */
+  excludeProductIds?: string[];
   brandId?: string;
   brandIds?: string[];
   productNatureId?: string;
@@ -1354,6 +1358,37 @@ export class ProductsRepository {
     }
     if (options.categoryId) {
       qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
+    } else if (options.categoryIds?.length) {
+      if (options.categoryIds.length === 1) {
+        qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryIds[0] });
+      } else {
+        // Build an OR across all category IDs using uniquely named parameters per slot
+        const params: Record<string, string> = {};
+        options.categoryIds.forEach((id, i) => {
+          params[`ymalCatId${i}`] = id;
+        });
+        qb.andWhere(
+          new Brackets((sub) => {
+            options.categoryIds!.forEach((_, i) => {
+              const clause = PRODUCT_MATCHES_CATEGORY_ENTITY_SQL.replace(
+                /:categoryId/g,
+                `:ymalCatId${i}`,
+              );
+              if (i === 0) {
+                sub.where(clause);
+              } else {
+                sub.orWhere(clause);
+              }
+            });
+          }),
+          params,
+        );
+      }
+    }
+    if (options.excludeProductIds?.length) {
+      qb.andWhere('product.id NOT IN (:...excludeProductIds)', {
+        excludeProductIds: options.excludeProductIds,
+      });
     }
     if (options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
@@ -1928,4 +1963,54 @@ export class ProductsRepository {
 
     return rows.map((row) => row.refId);
   }
+
+  /**
+   * Look up product + category + price information for a list of variant UUIDs.
+   * Used by the "You May Also Like" API to derive similarity dimensions from cart items.
+   */
+  async findVariantInfoByIds(variantIds: string[]): Promise<
+    Array<{
+      variantId: string;
+      productId: string;
+      categoryId: string | null;
+      subCategoryId: string | null;
+      sellingPrice: number;
+    }>
+  > {
+    if (!variantIds.length) return [];
+
+    const rows = await this.repo.manager.query<
+      Array<{
+        variantId: string;
+        productId: string;
+        categoryId: string | null;
+        subCategoryId: string | null;
+        sellingPrice: string;
+      }>
+    >(
+      `
+      SELECT
+        pv.id                     AS "variantId",
+        pv.product_id             AS "productId",
+        p.category_id             AS "categoryId",
+        p.sub_category_id         AS "subCategoryId",
+        pv.selling_price::numeric AS "sellingPrice"
+      FROM product_variants pv
+      INNER JOIN products p ON p.id = pv.product_id
+      WHERE pv.id = ANY($1)
+        AND pv.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+      `,
+      [variantIds],
+    );
+
+    return rows.map((row) => ({
+      variantId: row.variantId,
+      productId: row.productId,
+      categoryId: row.categoryId,
+      subCategoryId: row.subCategoryId,
+      sellingPrice: Number(row.sellingPrice) || 0,
+    }));
+  }
 }
+
