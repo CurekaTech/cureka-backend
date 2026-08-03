@@ -12,6 +12,10 @@ export interface IPublicBundleBrand {
 
 /** Published bundle card for public list. */
 export interface IPublicBundleCard {
+  /** Product UUID — use as `productId` when calling add-to-cart. */
+  id: string;
+  /** Alias of `id` for cart payload convenience (`AddCartItemDto.productId`). */
+  productId: string;
   refId: string;
   name: string;
   slug: string;
@@ -27,14 +31,16 @@ export interface IPublicBundleCard {
   publishedAt: Date | null;
   permalink: string;
   productPageUrl: string | null;
+  /** Variant UUID for add-to-cart (same as `variantId`). */
   defaultVariantId: string | null;
+  /** Alias of `defaultVariantId` for cart payload convenience. */
+  variantId: string | null;
 }
 
 export interface IPublicBundleListResponse extends PaginatedResult<IPublicBundleCard> {}
 
 /** Published bundle detail for storefront. */
 export interface IPublicBundleDetail extends IPublicBundleCard {
-  id: string;
   components: string | null;
   categoryRefId: string;
   categoryName: string;

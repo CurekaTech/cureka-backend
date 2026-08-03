@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -27,6 +28,19 @@ import {
 
 const normalizeMobileField = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? normalizeMobileNumber(value) : value;
+
+const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  return undefined;
+};
+
+/** Admin list filter: guest checkout users vs registered customers. */
+export enum AdminUserTypeFilter {
+  GUEST = 'guest',
+  CUSTOMER = 'customer',
+}
 
 /** DTO for website users updating their own profile. */
 export class UpdateUserProfileDto {
@@ -168,8 +182,12 @@ export class StaffUserQueryDto {
 }
 
 /**
- * List users with optional status filter (admin panel).
- * When `status` is omitted, both ACTIVE and INACTIVE users are returned.
+ * List users with optional status / guest-customer filters (admin panel).
+ * When filters are omitted, both ACTIVE/INACTIVE and guest/customer users are returned.
+ *
+ * Sortable `sortBy` values:
+ * createdAt, updatedAt, firstName, lastName, email, mobileNumber, refId,
+ * status, lastLoginAt, isGuest, isRegistered, totalOrders, totalSpend, lastOrderAt
  */
 export class UserListQueryDto extends PaginationQueryDto {
   @IsOptional()
@@ -178,7 +196,42 @@ export class UserListQueryDto extends PaginationQueryDto {
   )
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  /**
+   * Menu-friendly filter: `guest` → isGuest=true, `customer` → isGuest=false.
+   * Takes precedence over `isGuest` when both are sent.
+   */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsEnum(AdminUserTypeFilter)
+  userType?: AdminUserTypeFilter;
+
+  /** Filter guest checkout users (`true`) vs registered customers (`false`). */
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  isGuest?: boolean;
+
+  /** Overrides base DTO so `desc` / `asc` are accepted from the admin UI. */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsIn(['ASC', 'DESC'])
+  sortOrder?: 'ASC' | 'DESC';
 }
+
+/** Resolve guest/customer filter from `userType` (wins) or `isGuest`. */
+export const resolveAdminUserIsGuestFilter = (query: {
+  userType?: AdminUserTypeFilter;
+  isGuest?: boolean;
+}): boolean | undefined => {
+  if (query.userType === AdminUserTypeFilter.GUEST) return true;
+  if (query.userType === AdminUserTypeFilter.CUSTOMER) return false;
+  return query.isGuest;
+};
 
 /** PATCH /users/:refId/status */
 export class UpdateUserStatusDto {
