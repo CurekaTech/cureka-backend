@@ -124,11 +124,15 @@ jobs:
             echo "Run: ${GH_RUN_URL}"
             echo "Started (UTC): $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
+            # Do NOT pipe through tee + PIPESTATUS.
+            # appleboy/SSH may not preserve PIPESTATUS; empty rc → `exit ""` → status 1
+            # even when deploy-beta.sh succeeded (exit 0). Capture $? directly instead.
             set +e
             # shellcheck disable=SC2086
-            ./scripts/deploy-beta.sh ${EXTRA_FLAGS} 2>&1 | tee -a .deployments/last-deploy.log
-            rc=${PIPESTATUS[0]}
+            ./scripts/deploy-beta.sh ${EXTRA_FLAGS} >.deployments/last-deploy.log 2>&1
+            rc=$?
             set -e
+            cat .deployments/last-deploy.log
             exit "${rc}"
         env:
           DEPLOY_PATH: ${{ steps.cfg.outputs.deploy_path }}
