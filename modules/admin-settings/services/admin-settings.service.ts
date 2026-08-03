@@ -17,6 +17,13 @@ const PAYMENT_SETTING_KEYS = [
 ];
 const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY, GOKWIK_CHECKOUT_ENABLED_KEY];
 
+/**
+ * These two gateways are the native fallback when GoKwik is disabled.
+ * At least one of them must always remain active so website checkout
+ * (legacy mode) can still process prepaid orders.
+ */
+const REQUIRED_NATIVE_PG_KEYS = ['razor_pay', 'cash_free'];
+
 @Injectable()
 export class AdminSettingsService {
   constructor(private readonly adminSettingsRepository: AdminSettingsRepository) {}
@@ -129,6 +136,27 @@ export class AdminSettingsService {
             );
           }
         }
+
+        // Build effective post-update status map for native PG keys and validate
+        // that at least one of razor_pay / cash_free will remain active.
+        const nativePgPendingMap = new Map<string, AdminSettingStatus>();
+        for (const item of dto.settings) {
+          if (REQUIRED_NATIVE_PG_KEYS.includes(item.key) && item.status !== undefined) {
+            nativePgPendingMap.set(item.key, item.status);
+          }
+        }
+        // When another native PG is activated, the mutual-exclusivity logic above
+        // deactivates razor_pay / cash_free — reflect that in the pending map.
+        if (activeItem && !REQUIRED_NATIVE_PG_KEYS.includes(activeItem.key)) {
+          for (const key of REQUIRED_NATIVE_PG_KEYS) {
+            if (!nativePgPendingMap.has(key)) {
+              nativePgPendingMap.set(key, AdminSettingStatus.INACTIVE);
+            }
+          }
+        }
+        if (nativePgPendingMap.size) {
+          await this.validateNativeGatewayConstraint(nativePgPendingMap, manager);
+        }
       }
 
       for (const item of dto.settings) {
@@ -206,6 +234,11 @@ export class AdminSettingsService {
         }
       }
 
+      // When deactivating a native PG, ensure the other one is still active.
+      if (REQUIRED_NATIVE_PG_KEYS.includes(key) && dto.status === AdminSettingStatus.INACTIVE) {
+        await this.validateNativeGatewayConstraint(new Map([[key, AdminSettingStatus.INACTIVE]]), manager);
+      }
+
       const updateData: Partial<AdminSettingEntity> = {
         status: dto.status,
         updatedBy,
@@ -251,6 +284,40 @@ export class AdminSettingsService {
       value: enabled ? 'true' : 'false',
       status: enabled ? AdminSettingStatus.ACTIVE : AdminSettingStatus.INACTIVE,
     };
+  }
+
+  /**
+   * Ensures that after applying a batch of status updates, at least one of
+   * razor_pay / cash_free will still be active.
+   *
+   * `pendingUpdates` maps native-PG key → the status it will be set to.
+   * Current DB values for keys absent from the map are loaded via `manager`.
+   */
+  private async validateNativeGatewayConstraint(
+    pendingUpdates: Map<string, AdminSettingStatus>,
+    manager?: Parameters<AdminSettingsRepository['findByKeys']>[1],
+  ): Promise<void> {
+    const nativePgSettings = await this.adminSettingsRepository.findByKeys(
+      REQUIRED_NATIVE_PG_KEYS,
+      manager,
+    );
+    const effectiveStatus = new Map(nativePgSettings.map((s) => [s.key, s.status]));
+
+    for (const [key, status] of pendingUpdates.entries()) {
+      if (REQUIRED_NATIVE_PG_KEYS.includes(key)) {
+        effectiveStatus.set(key, status);
+      }
+    }
+
+    const anyActive = REQUIRED_NATIVE_PG_KEYS.some(
+      (k) => effectiveStatus.get(k) === AdminSettingStatus.ACTIVE,
+    );
+
+    if (!anyActive) {
+      throw new BadRequestException(
+        'At least one payment gateway (Razorpay or Cashfree) must remain active at all times',
+      );
+    }
   }
 
   private validateSettingValue(key: string, value?: string): void {
