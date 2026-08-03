@@ -48,6 +48,9 @@ export interface IUnicommerceSaleOrderPayload {
     notificationMobile?: string;
     cashOnDelivery: boolean;
     paymentInstrument?: string;
+    /** false = self-ship (Shipway); UC defaults true (marketplace) which breaks prepaid on custom channels. */
+    thirdPartyShipping?: boolean;
+    verificationRequired?: boolean;
     addresses: IUnicommerceSaleOrderAddress[];
     billingAddress: { referenceId: string };
     shippingAddress: { referenceId: string };

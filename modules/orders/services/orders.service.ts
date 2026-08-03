@@ -1044,20 +1044,62 @@ export class OrdersService {
     );
   }
 
-  private async enqueueUnicommercePush(orderId: string): Promise<void> {
+  /**
+   * Post-payment / post-place fulfillment:
+   * 1) Enqueue UniCommerce sale-order push (async BullMQ)
+   * 2) Push order to Shipway (sync) for AWB / tracking
+   *
+   * These are independent Cureka integrations — Shipway is NOT connected through UniCommerce.
+   * UC job may still be running after Shipway returns (queue worker).
+   */
+  private async kickoffFulfillment(
+    orderId: string,
+    orderNumber: string,
+    source: string,
+  ): Promise<void> {
+    this.logger.log(
+      {
+        orderId,
+        orderNumber,
+        source,
+        sequence: ['unicommerce-enqueue', 'shipway-push'],
+        note: 'Shipway and UniCommerce are independent; Cureka talks to both separately',
+      },
+      '[FULFILLMENT] Kickoff after order confirm — UniCommerce enqueue then Shipway push',
+    );
+
+    await this.enqueueUnicommercePush(orderId, orderNumber, source);
+    await this.pushOrderToShipwaySafely(orderId, orderNumber, source);
+
+    this.logger.log(
+      { orderId, orderNumber, source },
+      '[FULFILLMENT] Kickoff finished (UC queued; Shipway sync attempt done)',
+    );
+  }
+
+  private async enqueueUnicommercePush(
+    orderId: string,
+    orderNumber: string,
+    source: string,
+  ): Promise<void> {
     try {
       const job = await this.unicommerceOrderQueueService.enqueuePushOrder(orderId);
       if (job) {
         this.logger.log(
-          { orderId, jobId: job.id },
-          'UniCommerce push job enqueued after order creation',
+          { orderId, orderNumber, source, jobId: job.id, step: 'unicommerce-enqueue' },
+          '[FULFILLMENT] UniCommerce push job enqueued',
+        );
+      } else {
+        this.logger.warn(
+          { orderId, orderNumber, source, step: 'unicommerce-enqueue' },
+          '[FULFILLMENT] UniCommerce enqueue returned no job (disabled or duplicate)',
         );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        { orderId, error: message },
-        'Failed to enqueue UniCommerce push — check Redis connection (REDIS_HOST, REDIS_TLS, etc.)',
+        { orderId, orderNumber, source, step: 'unicommerce-enqueue', error: message },
+        '[FULFILLMENT] Failed to enqueue UniCommerce push — check Redis (REDIS_HOST, REDIS_TLS)',
       );
     }
   }
@@ -1080,8 +1122,8 @@ export class OrdersService {
     source: string,
   ): Promise<void> {
     this.logger.log(
-      { orderId, orderNumber, source },
-      'Calling Shipway synchronously after order creation',
+      { orderId, orderNumber, source, step: 'shipway-push' },
+      '[FULFILLMENT] Calling Shipway synchronously (independent of UniCommerce)',
     );
 
     try {
@@ -1091,12 +1133,14 @@ export class OrdersService {
           orderId,
           orderNumber,
           source,
+          step: 'shipway-push',
           shipmentId: shipment?.id ?? null,
           awbNumber: shipment?.awbNumber ?? null,
           trackingUrl: shipment?.trackingUrl ?? null,
           shipmentStatus: shipment?.shipmentStatus ?? null,
+          shipwayRawStatus: shipment?.shipwayRawStatus ?? null,
         },
-        'Shipway synchronous push finished',
+        '[FULFILLMENT] Shipway synchronous push finished',
       );
     } catch (error) {
       this.logger.error(
@@ -1104,9 +1148,10 @@ export class OrdersService {
           orderId,
           orderNumber,
           source,
+          step: 'shipway-push',
           error: this.serializeError(error),
         },
-        'Failed to push order to Shipway after order creation',
+        '[FULFILLMENT] Failed to push order to Shipway after order creation',
       );
     }
   }
