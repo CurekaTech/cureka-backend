@@ -3,6 +3,7 @@ import { FastifyRequest } from 'fastify';
 import { ResponseMessage } from '@packages/common';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { YouMayAlsoLikeQueryDto } from '../dto/you-may-also-like-query.dto';
+import { FrequentlyBoughtTogetherQueryDto } from '../dto/frequently-bought-together-query.dto';
 import { PublicProductsService } from '../services/public-products.service';
 
 @Controller('public/products')
@@ -37,6 +38,23 @@ export class PublicProductsController {
       query.variantIds,
       query.page ?? 1,
       query.limit ?? 20,
+    );
+  }
+
+  /**
+   * "Frequently Bought Together" — pass variant IDs from the cart and receive
+   * complementary product recommendations from different but related categories,
+   * within ±35% of the average cart price. Cart products are always excluded.
+   *
+   * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
+   */
+  @ResponseMessage('Frequently bought together products retrieved successfully')
+  @Get('frequently-bought-together')
+  findFrequentlyBoughtTogether(@Query() query: FrequentlyBoughtTogetherQueryDto) {
+    return this.publicProductsService.findFrequentlyBoughtTogether(
+      query.variantIds,
+      query.page ?? 1,
+      query.limit ?? 10,
     );
   }
 

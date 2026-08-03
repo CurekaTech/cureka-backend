@@ -60,3 +60,17 @@ npm run product:backfill-media -- --only-bmp
 npm run product:backfill-media -- --only-bmp --apply
 
 npm run product:backfill-media -- --only-bmp --replace --confirm --apply
+
+----------------------------------
+
+# Dry-run first — shows what will be updated
+npm run product:oos-update -- --file="docs/Master-Data-Sheets/OOS-Beta.xlsx"
+
+# Apply to DB
+npm run product:oos-update -- --file="docs/Master-Data-Sheets/OOS-Beta.xlsx" --apply
+
+# Dry-run first — shows current vs new prices for first 20 rows
+npm run product:price-update -- --file="docs/Master-Data-Sheets/ updated-price-02-aug.xlsx"
+
+# Apply to DB
+npm run product:price-update -- --file="docs/Master-Data-Sheets/updated-price-02-aug.xlsx" --apply

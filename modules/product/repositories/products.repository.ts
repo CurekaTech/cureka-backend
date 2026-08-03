@@ -746,6 +746,16 @@ export class ProductsRepository {
     return new Map(rows.map((row) => [row.refId, row.id]));
   }
 
+  /** Reverse of findIdsByRefIds — given a list of primary IDs, return the matching refIds. */
+  async findRefIdsByIds(ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await this.repo.find({
+      where: { id: In([...new Set(ids)]) },
+      select: ['refId'],
+    });
+    return rows.map((r) => r.refId);
+  }
+
   async updateFieldsByRefId(
     refId: string,
     data: Partial<ProductEntity>,
@@ -2011,6 +2021,94 @@ export class ProductsRepository {
       subCategoryId: row.subCategoryId,
       sellingPrice: Number(row.sellingPrice) || 0,
     }));
+  }
+
+  /**
+   * Extended variant info including category names — used by Frequently Bought Together.
+   */
+  async findVariantWithCategoryByIds(variantIds: string[]): Promise<
+    Array<{
+      variantId: string;
+      productId: string;
+      categoryId: string | null;
+      categoryName: string | null;
+      subCategoryId: string | null;
+      subCategoryName: string | null;
+      sellingPrice: number;
+    }>
+  > {
+    if (!variantIds.length) return [];
+
+    const rows = await this.repo.manager.query<
+      Array<{
+        variantId: string;
+        productId: string;
+        categoryId: string | null;
+        categoryName: string | null;
+        subCategoryId: string | null;
+        subCategoryName: string | null;
+        sellingPrice: string;
+      }>
+    >(
+      `
+      SELECT
+        pv.id                     AS "variantId",
+        pv.product_id             AS "productId",
+        p.category_id             AS "categoryId",
+        cat.name                  AS "categoryName",
+        p.sub_category_id         AS "subCategoryId",
+        subcat.name               AS "subCategoryName",
+        pv.selling_price::numeric AS "sellingPrice"
+      FROM product_variants pv
+      INNER JOIN products p ON p.id = pv.product_id
+      LEFT  JOIN categories cat    ON cat.id    = p.category_id    AND cat.deleted_at IS NULL
+      LEFT  JOIN categories subcat ON subcat.id = p.sub_category_id AND subcat.deleted_at IS NULL
+      WHERE pv.id = ANY($1)
+        AND pv.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+      `,
+      [variantIds],
+    );
+
+    return rows.map((row) => ({
+      variantId: row.variantId,
+      productId: row.productId,
+      categoryId: row.categoryId,
+      categoryName: row.categoryName,
+      subCategoryId: row.subCategoryId,
+      subCategoryName: row.subCategoryName,
+      sellingPrice: Number(row.sellingPrice) || 0,
+    }));
+  }
+
+  /**
+   * Return category IDs whose names contain any of the provided patterns (case-insensitive).
+   * Used by the Frequently Bought Together engine to resolve target category IDs from name rules.
+   */
+  async findCategoryIdsByNamePatterns(patterns: string[]): Promise<string[]> {
+    if (!patterns.length) return [];
+
+    const uniquePatterns = [...new Set(patterns.map((p) => p.toLowerCase().trim()))].filter(Boolean);
+    if (!uniquePatterns.length) return [];
+
+    const conditions = uniquePatterns
+      .map((_, i) => `LOWER(c.name) LIKE $${i + 1}`)
+      .join(' OR ');
+
+    const params = uniquePatterns.map((p) => `%${p}%`);
+
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      SELECT DISTINCT c.id
+      FROM categories c
+      WHERE c.deleted_at IS NULL
+        AND c.status = 'active'
+        AND (${conditions})
+      `,
+      params,
+    );
+
+    return rows.map((r) => r.id);
   }
 }
 

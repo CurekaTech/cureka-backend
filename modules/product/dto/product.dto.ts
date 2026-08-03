@@ -609,6 +609,27 @@ export class BulkMarkOutOfStockDto {
   productRefIds!: string[];
 }
 
+export class BulkUpdateVariantOosDto {
+  @ApiProperty({
+    type: [String],
+    example: ['MUS/MUS/001', 'MUS/MUS/002'],
+    description:
+      'SKUs of the specific variants to update. Duplicates are ignored. Max 500.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  skus!: string[];
+
+  @ApiProperty({
+    example: true,
+    description: 'true = mark variant as Out of Stock; false = mark as In Stock.',
+  })
+  @IsBoolean()
+  outOfStock!: boolean;
+}
+
 export class BulkRestoreStockItemDto {
   @ApiProperty({ example: 'PRO20261234' })
   @IsNotEmpty()

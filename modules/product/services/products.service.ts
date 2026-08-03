@@ -21,7 +21,7 @@ import {
 } from '@packages/cache';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
-import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto } from '../dto/product.dto';
+import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkUpdateVariantOosDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
@@ -1069,6 +1069,52 @@ export class ProductsService {
       alreadyOutOfStock,
       notFound,
       variantsUpdated,
+    };
+  }
+
+  /**
+   * Marks specific variants as Out-Of-Stock (outOfStock=true) or In-Stock (outOfStock=false)
+   * using their SKUs. Only targets the exact variants identified by SKU, not all variants of the product.
+   */
+  async bulkUpdateVariantOos(dto: BulkUpdateVariantOosDto): Promise<{
+    requested: number;
+    updated: string[];
+    alreadyAtTarget: string[];
+    notFound: string[];
+    productsAffected: number;
+  }> {
+    const uniqueSkus = [...new Set(dto.skus.map((s) => s.trim()).filter(Boolean))];
+    if (!uniqueSkus.length) {
+      throw new BadRequestException('skus must contain at least one SKU');
+    }
+
+    const { bySkuResult, updatedProductIds } =
+      await this.variantsRepository.updateOutOfStockBySkus(uniqueSkus, dto.outOfStock);
+
+    const updated: string[] = [];
+    const alreadyAtTarget: string[] = [];
+    const notFound: string[] = [];
+
+    for (const [sku, status] of bySkuResult.entries()) {
+      if (status === 'updated') updated.push(sku);
+      else if (status === 'already') alreadyAtTarget.push(sku);
+      else notFound.push(sku);
+    }
+
+    // Emit product-updated events so caches are invalidated for affected products
+    if (updatedProductIds.size > 0) {
+      const affectedRefIds = await this.productsRepository.findRefIdsByIds([
+        ...updatedProductIds,
+      ]);
+      await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    }
+
+    return {
+      requested: uniqueSkus.length,
+      updated,
+      alreadyAtTarget,
+      notFound,
+      productsAffected: updatedProductIds.size,
     };
   }
 
