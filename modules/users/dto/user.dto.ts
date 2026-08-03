@@ -214,13 +214,19 @@ export class UserListQueryDto extends PaginationQueryDto {
   @IsBoolean()
   isGuest?: boolean;
 
-  /** Overrides base DTO so `desc` / `asc` are accepted from the admin UI. */
+  /** Default: `createdAt` (newest users first when combined with sortOrder=DESC). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  sortBy?: string = 'createdAt';
+
+  /** Default: `DESC`. Accepts `desc` / `asc` from the admin UI. */
   @IsOptional()
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
   @IsIn(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
+  sortOrder?: 'ASC' | 'DESC' = 'DESC';
 }
 
 /** Resolve guest/customer filter from `userType` (wins) or `isGuest`. */
