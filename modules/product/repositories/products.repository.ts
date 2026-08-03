@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
@@ -52,6 +52,10 @@ export interface PublicProductListOptions {
   sortOrder?: 'ASC' | 'DESC';
   productType?: string;
   categoryId?: string;
+  /** Match products in ANY of these categories (OR logic). Ignored when `categoryId` is set. */
+  categoryIds?: string[];
+  /** Exclude products by their primary IDs (e.g. already-in-cart products for YMAL). */
+  excludeProductIds?: string[];
   brandId?: string;
   brandIds?: string[];
   productNatureId?: string;
@@ -742,6 +746,16 @@ export class ProductsRepository {
     return new Map(rows.map((row) => [row.refId, row.id]));
   }
 
+  /** Reverse of findIdsByRefIds — given a list of primary IDs, return the matching refIds. */
+  async findRefIdsByIds(ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await this.repo.find({
+      where: { id: In([...new Set(ids)]) },
+      select: ['refId'],
+    });
+    return rows.map((r) => r.refId);
+  }
+
   async updateFieldsByRefId(
     refId: string,
     data: Partial<ProductEntity>,
@@ -1354,6 +1368,37 @@ export class ProductsRepository {
     }
     if (options.categoryId) {
       qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
+    } else if (options.categoryIds?.length) {
+      if (options.categoryIds.length === 1) {
+        qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryIds[0] });
+      } else {
+        // Build an OR across all category IDs using uniquely named parameters per slot
+        const params: Record<string, string> = {};
+        options.categoryIds.forEach((id, i) => {
+          params[`ymalCatId${i}`] = id;
+        });
+        qb.andWhere(
+          new Brackets((sub) => {
+            options.categoryIds!.forEach((_, i) => {
+              const clause = PRODUCT_MATCHES_CATEGORY_ENTITY_SQL.replace(
+                /:categoryId/g,
+                `:ymalCatId${i}`,
+              );
+              if (i === 0) {
+                sub.where(clause);
+              } else {
+                sub.orWhere(clause);
+              }
+            });
+          }),
+          params,
+        );
+      }
+    }
+    if (options.excludeProductIds?.length) {
+      qb.andWhere('product.id NOT IN (:...excludeProductIds)', {
+        excludeProductIds: options.excludeProductIds,
+      });
     }
     if (options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
@@ -1486,7 +1531,7 @@ export class ProductsRepository {
       if (options?.prioritizeBestsellers) {
         qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
       } else {
-        qb.orderBy('min_price', sortOrder, 'NULLS LAST');
+      qb.orderBy('min_price', sortOrder, 'NULLS LAST');
       }
       return;
     }
@@ -1928,4 +1973,142 @@ export class ProductsRepository {
 
     return rows.map((row) => row.refId);
   }
+
+  /**
+   * Look up product + category + price information for a list of variant UUIDs.
+   * Used by the "You May Also Like" API to derive similarity dimensions from cart items.
+   */
+  async findVariantInfoByIds(variantIds: string[]): Promise<
+    Array<{
+      variantId: string;
+      productId: string;
+      categoryId: string | null;
+      subCategoryId: string | null;
+      sellingPrice: number;
+    }>
+  > {
+    if (!variantIds.length) return [];
+
+    const rows = await this.repo.manager.query<
+      Array<{
+        variantId: string;
+        productId: string;
+        categoryId: string | null;
+        subCategoryId: string | null;
+        sellingPrice: string;
+      }>
+    >(
+      `
+      SELECT
+        pv.id                     AS "variantId",
+        pv.product_id             AS "productId",
+        p.category_id             AS "categoryId",
+        p.sub_category_id         AS "subCategoryId",
+        pv.selling_price::numeric AS "sellingPrice"
+      FROM product_variants pv
+      INNER JOIN products p ON p.id = pv.product_id
+      WHERE pv.id = ANY($1)
+        AND pv.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+      `,
+      [variantIds],
+    );
+
+    return rows.map((row) => ({
+      variantId: row.variantId,
+      productId: row.productId,
+      categoryId: row.categoryId,
+      subCategoryId: row.subCategoryId,
+      sellingPrice: Number(row.sellingPrice) || 0,
+    }));
+  }
+
+  /**
+   * Extended variant info including category names — used by Frequently Bought Together.
+   */
+  async findVariantWithCategoryByIds(variantIds: string[]): Promise<
+    Array<{
+      variantId: string;
+      productId: string;
+      categoryId: string | null;
+      categoryName: string | null;
+      subCategoryId: string | null;
+      subCategoryName: string | null;
+      sellingPrice: number;
+    }>
+  > {
+    if (!variantIds.length) return [];
+
+    const rows = await this.repo.manager.query<
+      Array<{
+        variantId: string;
+        productId: string;
+        categoryId: string | null;
+        categoryName: string | null;
+        subCategoryId: string | null;
+        subCategoryName: string | null;
+        sellingPrice: string;
+      }>
+    >(
+      `
+      SELECT
+        pv.id                     AS "variantId",
+        pv.product_id             AS "productId",
+        p.category_id             AS "categoryId",
+        cat.name                  AS "categoryName",
+        p.sub_category_id         AS "subCategoryId",
+        subcat.name               AS "subCategoryName",
+        pv.selling_price::numeric AS "sellingPrice"
+      FROM product_variants pv
+      INNER JOIN products p ON p.id = pv.product_id
+      LEFT  JOIN categories cat    ON cat.id    = p.category_id    AND cat.deleted_at IS NULL
+      LEFT  JOIN categories subcat ON subcat.id = p.sub_category_id AND subcat.deleted_at IS NULL
+      WHERE pv.id = ANY($1)
+        AND pv.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+      `,
+      [variantIds],
+    );
+
+    return rows.map((row) => ({
+      variantId: row.variantId,
+      productId: row.productId,
+      categoryId: row.categoryId,
+      categoryName: row.categoryName,
+      subCategoryId: row.subCategoryId,
+      subCategoryName: row.subCategoryName,
+      sellingPrice: Number(row.sellingPrice) || 0,
+    }));
+  }
+
+  /**
+   * Return category IDs whose names contain any of the provided patterns (case-insensitive).
+   * Used by the Frequently Bought Together engine to resolve target category IDs from name rules.
+   */
+  async findCategoryIdsByNamePatterns(patterns: string[]): Promise<string[]> {
+    if (!patterns.length) return [];
+
+    const uniquePatterns = [...new Set(patterns.map((p) => p.toLowerCase().trim()))].filter(Boolean);
+    if (!uniquePatterns.length) return [];
+
+    const conditions = uniquePatterns
+      .map((_, i) => `LOWER(c.name) LIKE $${i + 1}`)
+      .join(' OR ');
+
+    const params = uniquePatterns.map((p) => `%${p}%`);
+
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      SELECT DISTINCT c.id
+      FROM categories c
+      WHERE c.deleted_at IS NULL
+        AND c.status = 'active'
+        AND (${conditions})
+      `,
+      params,
+    );
+
+    return rows.map((r) => r.id);
+  }
 }
+

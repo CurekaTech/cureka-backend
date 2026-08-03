@@ -529,6 +529,53 @@ export class ProductVariantsRepository {
     return result;
   }
 
+  /**
+   * Sets `outOfStock` to the given value for all non-deleted variants matched by SKU.
+   * Returns per-SKU results: updated, alreadyAtTarget, notFound.
+   */
+  async updateOutOfStockBySkus(
+    skus: string[],
+    outOfStock: boolean,
+  ): Promise<{
+    bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
+    updatedProductIds: Set<string>;
+  }> {
+    const uniqueSkus = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
+    const bySkuResult = new Map<string, 'updated' | 'already' | 'not_found'>(
+      uniqueSkus.map((sku) => [sku, 'not_found']),
+    );
+    const updatedProductIds = new Set<string>();
+
+    if (!uniqueSkus.length) return { bySkuResult, updatedProductIds };
+
+    const variants = await this.repo.find({
+      where: { sku: In(uniqueSkus) },
+      select: ['id', 'sku', 'productId', 'outOfStock'],
+    });
+
+    const toUpdateIds: string[] = [];
+    for (const variant of variants) {
+      if (variant.outOfStock === outOfStock) {
+        bySkuResult.set(variant.sku, 'already');
+      } else {
+        bySkuResult.set(variant.sku, 'updated');
+        toUpdateIds.push(variant.id);
+        updatedProductIds.add(variant.productId);
+      }
+    }
+
+    if (toUpdateIds.length) {
+      await this.repo
+        .createQueryBuilder()
+        .update(ProductVariantEntity)
+        .set({ outOfStock })
+        .where('id IN (:...ids)', { ids: toUpdateIds })
+        .execute();
+    }
+
+    return { bySkuResult, updatedProductIds };
+  }
+
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {
     if (await this.existsBySku(dto.sku, excludeId)) {
       throw new ConflictException(`SKU "${dto.sku}" already exists`);

@@ -15,10 +15,11 @@ import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartLineItem, CartResponse } from '../interfaces/cart-pricing.interface';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
+import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { CartPricingService } from './cart-pricing.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
 
-const EMPTY_CART: CartResponse = {
+const EMPTY_CART_BASE = {
   cartId: '',
   items: [],
   totalItems: 0,
@@ -31,11 +32,6 @@ const EMPTY_CART: CartResponse = {
   codCharge: 0,
   prepaidDiscount: 0,
   grandTotal: 0,
-  checkoutRules: {
-    prepaidDiscountPercent: 2,
-    codMinOrderAmount: 599,
-    codMaxOrderAmount: 10000,
-  },
 };
 
 @Injectable()
@@ -47,7 +43,23 @@ export class CartService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly cartPricingService: CartPricingService,
     private readonly couponCheckoutService: CouponCheckoutService,
+    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) { }
+
+  private async buildEmptyCartResponse(): Promise<CartResponse> {
+    const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    return {
+      ...EMPTY_CART_BASE,
+      checkoutRules: {
+        prepaidDiscountPercent:
+          this.cartCheckoutAdminSettingsService.getPrepaidDiscountPercent(amounts),
+        codMinOrderAmount:
+          this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(amounts),
+        codMaxOrderAmount:
+          this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(amounts),
+      },
+    };
+  }
 
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
@@ -120,7 +132,7 @@ export class CartService {
   ): Promise<CartResponse> {
     const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
     if (!cart) {
-      return { ...EMPTY_CART };
+      return this.buildEmptyCartResponse();
     }
 
     return this.toCartResponse(cart, userId, manager, {
@@ -220,7 +232,7 @@ export class CartService {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) {
-        return { ...EMPTY_CART };
+        return this.buildEmptyCartResponse();
       }
 
       if (cart.couponId) {
@@ -233,7 +245,7 @@ export class CartService {
 
       const refreshed = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!refreshed) {
-        return { ...EMPTY_CART };
+        return this.buildEmptyCartResponse();
       }
       return this.toCartResponse(refreshed, userId, manager);
     });

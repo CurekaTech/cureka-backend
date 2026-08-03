@@ -81,6 +81,7 @@ export class OrderEntity extends BaseEntity {
   })
   orderStatus!: OrderStatus;
 
+  // Source of the order (Admin, Website, App, Gokwik)
   @Index()
   @Column({
     name: 'order_source',

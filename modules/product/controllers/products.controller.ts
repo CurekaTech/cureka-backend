@@ -24,6 +24,7 @@ import {
   UpdateProductStatusDto,
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
+  BulkUpdateVariantOosDto,
 } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 
@@ -71,6 +72,22 @@ export class ProductsController {
   @HttpCode(HttpStatus.OK)
   bulkMarkOutOfStock(@Body() dto: BulkMarkOutOfStockDto) {
     return this.productsService.bulkMarkOutOfStock(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Bulk update OOS flag on specific variants by SKU',
+    description:
+      'Sets outOfStock=true or outOfStock=false on exactly the variants identified by their SKUs. ' +
+      'Use this instead of bulk-mark-out-of-stock when you want variant-level granularity ' +
+      '(e.g. mark only one size out of stock while other sizes remain available). ' +
+      'Pass outOfStock=false to clear the OOS flag (mark back in stock).',
+  })
+  @ResponseMessage('Variant OOS status updated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('bulk-update-variant-oos')
+  @HttpCode(HttpStatus.OK)
+  bulkUpdateVariantOos(@Body() dto: BulkUpdateVariantOosDto) {
+    return this.productsService.bulkUpdateVariantOos(dto);
   }
 
   @ApiOperation({

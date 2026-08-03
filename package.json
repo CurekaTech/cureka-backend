@@ -26,6 +26,8 @@
     "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert -d apps/api/database/data-source.ts",
     "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create",
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
+    "product:oos-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-oos-update.runner.ts",
+    "product:price-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-price-update.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product:backfill-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-backfill.runner.ts",
     "bulk-upload:diagnose": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bulk-upload-diagnose.runner.ts",

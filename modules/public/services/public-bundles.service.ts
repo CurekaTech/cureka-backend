@@ -115,8 +115,9 @@ export class PublicBundlesService {
   }
 
   private async enrichCard(card: IPublicBundleCard): Promise<IPublicBundleCard> {
-    const [bundleIcon, brand] = await Promise.all([
+    const [bundleIcon, primaryImageUrl, brand] = await Promise.all([
       this.storageUrlEnricher.toReference(card.bundleIcon),
+      this.storageUrlEnricher.toReference(card.primaryImageUrl),
       card.brand
         ? {
             ...card.brand,
@@ -128,6 +129,7 @@ export class PublicBundlesService {
     return {
       ...card,
       bundleIcon,
+      primaryImageUrl,
       brand,
       pricing: {
         ...card.pricing,

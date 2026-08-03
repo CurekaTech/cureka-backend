@@ -196,14 +196,19 @@ export class ShippingService {
     }
 
     const tracking = await this.shipwayService.getShipmentDetails(shipment.shipwayOrderId);
-    const rawStatus = tracking.current_status ?? tracking.status ?? shipment.shipwayRawStatus ?? 'Unknown';
-    const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(rawStatus);
+    const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+    const rawStatus = resolved.rawStatus || shipment.shipwayRawStatus || 'Unknown';
+    const shipmentStatus =
+      resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
+        ? resolved.shipmentStatus
+        : ShipwayStatusMapper.toShipmentStatus(rawStatus);
     this.logger.log(
       {
         orderId,
         shipwayOrderId: shipment.shipwayOrderId,
         rawStatus,
         shipmentStatus,
+        matchedFrom: resolved.matchedFrom,
         previousStatus: shipment.shipmentStatus,
         awbNumber: tracking.awb_number ?? shipment.awbNumber,
       },
@@ -249,15 +254,29 @@ export class ShippingService {
       return shipment;
     }
 
-    const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(payload.status);
+    const resolved = ShipwayStatusMapper.resolveFromTracking({
+      current_status: payload.status,
+      current_status_code:
+        typeof payload['status_code'] === 'string'
+          ? payload['status_code']
+          : typeof payload['current_status_code'] === 'string'
+            ? payload['current_status_code']
+            : null,
+    });
+    const shipmentStatus =
+      resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
+        ? resolved.shipmentStatus
+        : ShipwayStatusMapper.toShipmentStatus(payload.status);
+    const rawStatus = resolved.rawStatus || payload.status;
     this.logger.log(
       {
         orderId: shipment.orderId,
         orderNumber: shipment.orderNumber,
         shipwayOrderId: payload.order_id,
         eventId: payload.event_id ?? null,
-        rawStatus: payload.status,
+        rawStatus,
         shipmentStatus,
+        matchedFrom: resolved.matchedFrom,
         previousStatus: shipment.shipmentStatus,
         awbNumber: payload.awb_number ?? shipment.awbNumber,
       },
@@ -273,7 +292,7 @@ export class ShippingService {
       shipment.pickupId = this.toNullableString(payload.pickup_id) ?? shipment.pickupId;
       shipment.shipmentId = this.toNullableString(payload.shipment_id) ?? shipment.shipmentId;
       shipment.shipmentStatus = shipmentStatus;
-      shipment.shipwayRawStatus = payload.status;
+      shipment.shipwayRawStatus = rawStatus;
       shipment.lastSyncedAt = new Date();
       shipment.lastWebhookEventId = payload.event_id ?? shipment.lastWebhookEventId;
       shipment.updatedBy = 'shipway-webhook';
@@ -361,7 +380,8 @@ export class ShippingService {
       const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId, {
         awbNumber: local?.awbNumber ?? null,
       });
-      const rawStatus = (tracking.current_status ?? tracking.status)?.trim();
+      const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+      const rawStatus = resolved.rawStatus || undefined;
       const events = tracking.events ?? tracking.scans ?? [];
 
       this.logger.log(
@@ -374,6 +394,8 @@ export class ShippingService {
           message: tracking.message ?? null,
           usableStatus: Boolean(rawStatus),
           rawStatus: rawStatus || null,
+          mappedStatus: resolved.shipmentStatus,
+          matchedFrom: resolved.matchedFrom,
           current_status: tracking.current_status ?? null,
           current_status_code: tracking.current_status_code ?? null,
           status: tracking.status ?? null,
@@ -422,7 +444,8 @@ export class ShippingService {
             orderNumber,
             shipwayOrderId,
             rawStatus,
-            mappedStatus: ShipwayStatusMapper.toShipmentStatus(rawStatus),
+            mappedStatus: resolved.shipmentStatus,
+            matchedFrom: resolved.matchedFrom,
           },
           '[Shipway] Status found — persisting sync onto local shipment',
         );
@@ -450,7 +473,8 @@ export class ShippingService {
           orderNumber,
           shipwayOrderId,
           rawStatus,
-          mappedStatus: ShipwayStatusMapper.toShipmentStatus(rawStatus),
+          mappedStatus: resolved.shipmentStatus,
+          matchedFrom: resolved.matchedFrom,
           shipwayStatus: true,
         },
         '[Shipway] Status found without local shipment row — building ephemeral response, shipwayStatus=true',
@@ -481,13 +505,19 @@ export class ShippingService {
     tracking: IShipwayTrackingResponse,
     rawStatus: string,
   ): Promise<ShipmentEntity> {
-    const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(rawStatus);
+    const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+    const shipmentStatus =
+      resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
+        ? resolved.shipmentStatus
+        : ShipwayStatusMapper.toShipmentStatus(rawStatus);
+    const persistedRaw = resolved.rawStatus || rawStatus;
     this.logger.log(
       {
         orderId: shipment.orderId,
         orderNumber: shipment.orderNumber,
-        rawStatus,
+        rawStatus: persistedRaw,
         shipmentStatus,
+        matchedFrom: resolved.matchedFrom,
         previousStatus: shipment.shipmentStatus,
         awbNumber: tracking.awb_number ?? shipment.awbNumber,
       },
@@ -504,7 +534,7 @@ export class ShippingService {
       shipment.pickupId = this.toNullableString(tracking.pickup_id) ?? shipment.pickupId;
       shipment.shipmentId = this.toNullableString(tracking.shipment_id) ?? shipment.shipmentId;
       shipment.shipmentStatus = shipmentStatus;
-      shipment.shipwayRawStatus = rawStatus;
+      shipment.shipwayRawStatus = persistedRaw;
       shipment.lastSyncedAt = new Date();
       shipment.updatedBy = 'shipway-sync';
 
@@ -526,6 +556,11 @@ export class ShippingService {
     rawStatus: string,
   ): ShipmentEntity {
     const now = new Date();
+    const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+    const shipmentStatus =
+      resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
+        ? resolved.shipmentStatus
+        : ShipwayStatusMapper.toShipmentStatus(rawStatus);
     return {
       id: orderId,
       refId: orderNumber,
@@ -543,8 +578,8 @@ export class ShippingService {
       pickupId: this.toNullableString(tracking.pickup_id),
       warehouseId: null,
       returnWarehouseId: null,
-      shipmentStatus: ShipwayStatusMapper.toShipmentStatus(rawStatus),
-      shipwayRawStatus: rawStatus,
+      shipmentStatus,
+      shipwayRawStatus: resolved.rawStatus || rawStatus,
       pushedAt: null,
       lastSyncedAt: now,
       lastWebhookEventId: null,
