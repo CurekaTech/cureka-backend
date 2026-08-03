@@ -65,8 +65,9 @@ function getFriendlyStatusLabel(status: string | ShipmentStatus): string {
     case ShipmentStatus.PENDING:
     case ShipmentStatus.CONFIRMED:
     case ShipmentStatus.PROCESSING:
-    case ShipmentStatus.PICKUP_PENDING:
       return 'Order Confirmed';
+    case ShipmentStatus.PICKUP_PENDING:
+      return 'Pickup Pending';
     case ShipmentStatus.PICKUP_COMPLETE:
     case ShipmentStatus.IN_TRANSIT:
       return 'Dispatched';
