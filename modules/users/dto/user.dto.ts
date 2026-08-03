@@ -180,6 +180,16 @@ export class UserListQueryDto extends PaginationQueryDto {
   status?: UserStatus;
 }
 
+/** PATCH /users/:refId/status */
+export class UpdateUserStatusDto {
+  @IsNotEmpty()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsEnum(UserStatus)
+  status!: UserStatus;
+}
+
 /** Admin DTO to create a new customer user (used in payment-request wizard). */
 export class CreateAdminCustomerDto {
   @IsNotEmpty()

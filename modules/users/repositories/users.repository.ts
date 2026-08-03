@@ -6,6 +6,7 @@ import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
+import { IUserOrderMetrics, IUserRecentOrder } from '../interfaces/user.interface';
 
 type UserListOptions = PaginationOptions & { status?: UserStatus };
 
@@ -217,5 +218,89 @@ export class UsersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  /**
+   * Batch order aggregates for admin users list/detail.
+   * Counts all non-deleted orders; spend is SUM(grand_total).
+   */
+  async findOrderMetricsByUserIds(
+    userIds: string[],
+  ): Promise<Map<string, IUserOrderMetrics>> {
+    const result = new Map<string, IUserOrderMetrics>();
+    if (!userIds.length) return result;
+
+    const rows = await this.repo.manager.query<
+      Array<{
+        userId: string;
+        totalOrders: string;
+        totalSpend: string;
+        lastOrderAt: Date | null;
+      }>
+    >(
+      `
+      SELECT
+        o.user_id AS "userId",
+        COUNT(*)::int AS "totalOrders",
+        COALESCE(SUM(o.grand_total::numeric), 0)::float AS "totalSpend",
+        MAX(COALESCE(o.placed_at, o.created_at)) AS "lastOrderAt"
+      FROM orders o
+      WHERE o.user_id = ANY($1)
+        AND o.deleted_at IS NULL
+      GROUP BY o.user_id
+      `,
+      [userIds],
+    );
+
+    for (const row of rows) {
+      result.set(row.userId, {
+        totalOrders: Number(row.totalOrders) || 0,
+        totalSpend: Math.round((Number(row.totalSpend) || 0) * 100) / 100,
+        lastOrderAt: row.lastOrderAt ? new Date(row.lastOrderAt) : null,
+      });
+    }
+
+    return result;
+  }
+
+  async findRecentOrdersByUserId(
+    userId: string,
+    limit = 10,
+  ): Promise<IUserRecentOrder[]> {
+    const rows = await this.repo.manager.query<
+      Array<{
+        id: string;
+        refId: string;
+        createdAt: Date;
+        status: string;
+        paymentStatus: string;
+        total: string;
+      }>
+    >(
+      `
+      SELECT
+        o.id AS "id",
+        o.order_number AS "refId",
+        COALESCE(o.placed_at, o.created_at) AS "createdAt",
+        o.order_status AS "status",
+        o.payment_status AS "paymentStatus",
+        o.grand_total::float AS "total"
+      FROM orders o
+      WHERE o.user_id = $1
+        AND o.deleted_at IS NULL
+      ORDER BY COALESCE(o.placed_at, o.created_at) DESC NULLS LAST
+      LIMIT $2
+      `,
+      [userId, limit],
+    );
+
+    return rows.map((row) => ({
+      id: row.refId,
+      refId: row.refId,
+      createdAt: new Date(row.createdAt),
+      status: row.status,
+      paymentStatus: row.paymentStatus,
+      total: Math.round((Number(row.total) || 0) * 100) / 100,
+    }));
   }
 }
