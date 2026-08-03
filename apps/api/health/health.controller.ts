@@ -6,15 +6,13 @@ export class HealthController {
   constructor(private readonly redisHealth: RedisHealthService) {}
 
   /**
-   * Liveness probe for load balancers and CI/CD post-deploy checks.
-   * Intentionally dependency-free so a brief Redis blip does not fail deploys.
+   * Liveness probe for CI/CD and load balancers.
+   * No DB/Redis dependency — must return HTTP 200 when the process is up.
    */
   @Get()
   getLiveness() {
     return {
       status: 'ok',
-      service: 'api',
-      timestamp: new Date().toISOString(),
     };
   }
 
