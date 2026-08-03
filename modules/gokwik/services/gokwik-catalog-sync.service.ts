@@ -35,7 +35,7 @@ export class GokwikCatalogSyncService {
       if (!product) throw new NotFoundException('Product not found');
 
       const activeVariants = (product.variants ?? []).filter((variant) => !variant.deletedAt);
-      const media = (product.media ?? []).filter((item) => !item.deletedAt);
+      const media = product.media ?? [];
 
       const images = (
         await Promise.all(
