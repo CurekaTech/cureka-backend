@@ -17,6 +17,8 @@ export interface IPublicBundleCard {
   slug: string;
   description: string | null;
   bundleIcon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  /** Primary product media image — used when `bundleIcon` is unset. */
+  primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
   brand: IPublicBundleBrand | null;
   curatedBy: string | null;
   curatedFor: string | null;

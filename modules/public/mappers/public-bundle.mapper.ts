@@ -33,12 +33,18 @@ export const mapProductEntityToPublicBundleCard = (entity: ProductEntity): IPubl
       null
     : null;
 
+  const primaryMedia =
+    detail.media.find((item) => item.isPrimary && item.url) ??
+    detail.media.find((item) => Boolean(item.url)) ??
+    null;
+
   return {
     refId: entity.refId,
     name: entity.name,
     slug: entity.slug,
     description: entity.description,
     bundleIcon: entity.bundleIcon ?? null,
+    primaryImageUrl: primaryMedia?.url ?? null,
     brand: mapBundleBrand(entity),
     curatedBy: entity.curatedBy ?? null,
     curatedFor: entity.curatedFor ?? null,
