@@ -25,9 +25,12 @@ Required permission for all items: `orders.read`
 ### 1. List orders
 
 ```
-GET /admin/api/orders
+GET /admin/api/proxy/orders
 Authorization: Bearer <admin-jwt>
 ```
+
+> The proxy strips the `/admin/api/proxy/` prefix and forwards to the backend as `/api/v1/admin/orders`.
+> Do NOT include `admin/api/` in the path after `/proxy/` — that causes a 404.
 
 #### Query parameters
 
@@ -96,22 +99,22 @@ Authorization: Bearer <admin-jwt>
 
 ```
 # All orders, latest first
-GET /admin/api/orders?page=1&limit=20&sortBy=placedAt&sortOrder=DESC
+GET /admin/api/proxy/orders?page=1&limit=20&sortBy=placedAt&sortOrder=DESC
 
 # Only GoKwik orders
-GET /admin/api/orders?orderSource=GoKwik
+GET /admin/api/proxy/orders?orderSource=GoKwik
 
 # Only App orders that are confirmed
-GET /admin/api/orders?orderSource=App&orderStatus=CONFIRMED
+GET /admin/api/proxy/orders?orderSource=App&orderStatus=CONFIRMED
 
 # Admin-created orders (telecaller)
-GET /admin/api/orders?orderSource=Admin
+GET /admin/api/proxy/orders?orderSource=Admin
 
 # Search by customer name or order number
-GET /admin/api/orders?search=John&fromDate=2026-07-01&toDate=2026-08-03
+GET /admin/api/proxy/orders?search=John&fromDate=2026-07-01&toDate=2026-08-03
 
 # Active orders (menu shortcut)
-GET /admin/api/orders?orderStatus=PENDING
+GET /admin/api/proxy/orders?orderStatus=PENDING
 ```
 
 #### Response
@@ -134,7 +137,7 @@ GET /admin/api/orders?orderStatus=PENDING
 ### 2. Order detail
 
 ```
-GET /admin/api/orders/:id
+GET /admin/api/proxy/orders/:id
 Authorization: Bearer <admin-jwt>
 ```
 

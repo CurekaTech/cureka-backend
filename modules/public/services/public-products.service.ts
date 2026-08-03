@@ -728,4 +728,87 @@ export class PublicProductsService {
   >(party: T): Promise<T> {
     return this.storageUrlEnricher.enrichFields(party, ['logo']);
   }
+
+  /**
+   * "You May Also Like" — given a list of variant IDs (e.g. from the cart),
+   * returns a paginated list of similar published products.
+   *
+   * Strategy:
+   *  1. Resolve category + price info for each input variant.
+   *  2. Collect the deepest available category IDs (subCategory first, then root).
+   *  3. Single paginated query across all those categories with a ±35% price band.
+   *  4. Fallback on page 1: if results are sparse, re-query without the price band.
+   *  5. Cart products are always excluded from results.
+   */
+  async findYouMayAlsoLike(
+    variantIds: string[],
+    page: number,
+    limit: number,
+  ): Promise<PaginatedResult<IPublicProductCard>> {
+    const resolvedPage = Math.max(1, page);
+    const resolvedLimit = Math.min(40, Math.max(1, limit));
+    const emptyResult = buildPaginatedResult<IPublicProductCard>([], 0, {
+      page: resolvedPage,
+      limit: resolvedLimit,
+      sortOrder: 'ASC',
+    });
+
+    if (!variantIds.length) return emptyResult;
+
+    const variantInfos = await this.productsRepository.findVariantInfoByIds(variantIds);
+    if (!variantInfos.length) return emptyResult;
+
+    const excludeProductIds = [...new Set(variantInfos.map((v) => v.productId))];
+
+    // Deepest non-null category per variant (subCategory preferred over root category)
+    const categoryIds = [
+      ...new Set(
+        variantInfos
+          .map((v) => v.subCategoryId ?? v.categoryId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    if (!categoryIds.length) return emptyResult;
+
+    // Overall price band: avg of all cart variant prices ±35%
+    const prices = variantInfos.map((v) => v.sellingPrice).filter((p) => p > 0);
+    const avgPrice = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
+    const priceFilter = avgPrice
+      ? {
+          minPrice: Math.round(avgPrice * 0.65 * 100) / 100,
+          maxPrice: Math.round(avgPrice * 1.35 * 100) / 100,
+        }
+      : {};
+
+    const baseOptions = {
+      page: resolvedPage,
+      limit: resolvedLimit,
+      categoryIds,
+      excludeProductIds,
+      sortBy: 'bestsellerIndex' as const,
+      sortOrder: 'ASC' as const,
+      prioritizeBestsellers: true,
+    };
+
+    // Pass 1 — with price band
+    let { data, total } = await this.productsRepository.findPublishedPaginated({
+      ...baseOptions,
+      ...priceFilter,
+    });
+
+    // Fallback on page 1: if fewer than half the requested results, drop price band
+    if (resolvedPage === 1 && total < Math.ceil(resolvedLimit / 2)) {
+      ({ data, total } = await this.productsRepository.findPublishedPaginated(baseOptions));
+    }
+
+    const cards = mapProductEntitiesToPublicCards(data);
+    const enriched = await Promise.all(cards.map((card) => this.enrichCard(card)));
+
+    return buildPaginatedResult(enriched, total, {
+      page: resolvedPage,
+      limit: resolvedLimit,
+      sortOrder: 'ASC',
+    });
+  }
 }
