@@ -120,6 +120,15 @@ const codAllowed =
 
 4. **Place order / checkout** with the same `paymentMethod` the user selected.
 
+5. **Prepaid online checkout** (`POST /payment-requests/checkout` or `/checkout/modal`):
+   - Send `{ "addressId": "...", "paymentMethod": "CASHFREE" }` (or `RAZORPAY`).
+   - Backend applies 2% into the PG/QR amount.
+   - Response fields to use for Cashfree/Razorpay SDK **and** any QR:
+     - `paymentData.amount` / `paymentData.totalAmount` → **charge this**
+     - `paymentData.prepaidDiscount` → discount already subtracted
+     - `paymentData.paymentSessionId` (Cashfree) or `paymentData.razorpayOrderId` / `paymentLink`
+   - **Do not** pass cart `subtotal` or undiscounted total into the SDK/QR. If FE overrides amount, the QR will show the full price.
+
 ### COD errors (backend)
 
 If COD is used outside the range:

@@ -23,8 +23,9 @@ export class CustomerPaymentRequestsController {
     summary: 'Start storefront checkout (GoKwik / Shiprocket / native PG)',
     description:
       'Routes by admin flags: `gokwikCheckoutEnabled` → GoKwik SDK payload; ' +
-      '`shiprocketCheckoutEnabled` → Shiprocket session; else Razorpay/Cashfree payment link. ' +
-      'Body needs `addressId` only. `paymentMethod` is ignored for provider selection. ' +
+      '`shiprocketCheckoutEnabled` → Shiprocket session; else Razorpay/Cashfree payment link/QR. ' +
+      'Optional `paymentMethod` (RAZORPAY/CASHFREE/WALLET) applies prepaid % discount to the charged QR amount. ' +
+      'Provider selection still follows admin gateway flags. ' +
       'When GoKwik: `paymentData.customerToken` is the Cureka session bearer for the SDK.',
   })
   @ResponseMessage('Checkout session created successfully')
@@ -40,15 +41,17 @@ export class CustomerPaymentRequestsController {
       dto.addressId,
       dto.orderSource,
       getSessionTokenFromRequest(req),
+      dto.paymentMethod,
     );
   }
 
   @ApiOperation({
     summary: 'Start storefront checkout modal (GoKwik / Shiprocket / native PG)',
     description:
-      'Same provider routing as POST /checkout. Prefer this for in-page modals (Razorpay Checkout.js / GoKwik SDK). ' +
-      'When `checkoutProvider` is `gokwik`, open the GoKwik SDK with `paymentData` — include `customerToken` in SDK init. ' +
-      'Do not call Razorpay or /checkout/modal/verify for GoKwik.',
+      'Same provider routing as POST /checkout. Prefer this for in-page modals (Razorpay Checkout.js / Cashfree). ' +
+      'Pass `paymentMethod: RAZORPAY|CASHFREE` so prepaid 2% is baked into `paymentData.amount` / QR. ' +
+      'FE must open the SDK with `paymentData.amount` / `paymentSessionId` from this response — do not pass cart subtotal. ' +
+      'When `checkoutProvider` is `gokwik`, open the GoKwik SDK with `paymentData`.',
   })
   @ResponseMessage('Checkout session created successfully')
   @Post('checkout/modal')
@@ -63,6 +66,7 @@ export class CustomerPaymentRequestsController {
       dto.addressId,
       dto.orderSource,
       getSessionTokenFromRequest(req),
+      dto.paymentMethod,
     );
   }
 
