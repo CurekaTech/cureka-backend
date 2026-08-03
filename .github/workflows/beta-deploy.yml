@@ -2,7 +2,8 @@
 # beta-deploy.yml
 # -----------------------------------------------------------------------------
 # Deploy only — runs on push/merge to beta_development.
-# Migrations are manual (not run by this workflow).
+# Does not touch the development branch.
+# Migrations run every deploy via scripts/deploy-beta.sh (npm run migration:run).
 #
 # Required secrets:
 #   BETA_SSH_HOST
@@ -159,9 +160,9 @@ jobs:
             echo "| Deploy path | \`${DEPLOY_PATH}\` |"
             echo "| Host | \`${{ secrets.BETA_SSH_HOST }}\` |"
             echo ""
+            echo "- \`npm run migration:run\` every deploy"
             echo "- \`pm2 reload ecosystem.config.js --update-env\` (near-zero downtime)"
             echo "- Health: \`GET /api/v1/health\` → HTTP 200"
-            echo "- Migrations: manual (not run by CI/CD)"
             echo "- On failure: automatic \`scripts/rollback.sh\`"
             echo "- Log: \`${DEPLOY_PATH}/.deployments/last-deploy.log\`"
           } >> "$GITHUB_STEP_SUMMARY"
