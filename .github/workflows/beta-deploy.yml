@@ -1,7 +1,8 @@
 # =============================================================================
 # beta-deploy.yml
 # -----------------------------------------------------------------------------
-# On push to beta_development: SSH into the VM and run scripts/deploy-beta.sh
+# Deploy only — runs on push/merge to beta_development.
+# Migrations are manual (not run by this workflow).
 #
 # Required secrets:
 #   BETA_SSH_HOST
@@ -9,10 +10,9 @@
 #   BETA_SSH_PORT
 #   BETA_SSH_PRIVATE_KEY
 #
-# Optional secrets / variables:
+# Optional:
 #   BETA_DEPLOY_PATH       (default /var/www/Cureka-backend)
-#   BETA_HEALTH_CHECK_URL  (override health probe)
-#   BETA_RUN_MIGRATIONS    (set to "true" to run migrations on every deploy)
+#   BETA_HEALTH_CHECK_URL  (default http://127.0.0.1:${PORT}/api/v1/health on VM)
 # =============================================================================
 
 name: Beta Deploy
@@ -31,11 +31,6 @@ on:
         default: false
       force_build:
         description: 'Force nest build even if sources unchanged'
-        required: false
-        type: boolean
-        default: false
-      run_migrations:
-        description: 'Run npm run migration:run during this deploy'
         required: false
         type: boolean
         default: false
@@ -80,22 +75,11 @@ jobs:
           VAR_PATH: ${{ vars.BETA_DEPLOY_PATH }}
           SECRET_HEALTH: ${{ secrets.BETA_HEALTH_CHECK_URL }}
           VAR_HEALTH: ${{ vars.BETA_HEALTH_CHECK_URL }}
-          SECRET_MIGRATE: ${{ secrets.BETA_RUN_MIGRATIONS }}
-          VAR_MIGRATE: ${{ vars.BETA_RUN_MIGRATIONS }}
           FORCE_NPM_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.force_npm_ci || false }}
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force_build || false }}
-          DISPATCH_MIGRATE: ${{ github.event_name == 'workflow_dispatch' && inputs.run_migrations || false }}
         run: |
           DEPLOY_PATH="${VAR_PATH:-${SECRET_PATH:-/var/www/Cureka-backend}}"
           HEALTH_CHECK_URL="${VAR_HEALTH:-${SECRET_HEALTH:-}}"
-
-          # Migrations: workflow_dispatch input wins; else secret/var BETA_RUN_MIGRATIONS.
-          RUN_MIGRATIONS="false"
-          if [[ "${DISPATCH_MIGRATE}" == "true" ]]; then
-            RUN_MIGRATIONS="true"
-          elif [[ "${VAR_MIGRATE:-${SECRET_MIGRATE:-}}" == "true" ]]; then
-            RUN_MIGRATIONS="true"
-          fi
 
           EXTRA_FLAGS=""
           if [[ "${FORCE_NPM_CI}" == "true" ]]; then
@@ -104,15 +88,11 @@ jobs:
           if [[ "${FORCE_BUILD}" == "true" ]]; then
             EXTRA_FLAGS+=" --force-build"
           fi
-          if [[ "${RUN_MIGRATIONS}" == "true" ]]; then
-            EXTRA_FLAGS+=" --run-migrations"
-          fi
 
           {
             echo "deploy_path=${DEPLOY_PATH}"
             echo "health_check_url=${HEALTH_CHECK_URL}"
             echo "extra_flags=${EXTRA_FLAGS}"
-            echo "run_migrations=${RUN_MIGRATIONS}"
           } >> "$GITHUB_OUTPUT"
 
       - name: SSH deploy (execute deploy-beta.sh)
@@ -163,7 +143,6 @@ jobs:
           SSH_OUTCOME: ${{ steps.ssh_deploy.outcome }}
           JOB_STATUS: ${{ job.status }}
           DEPLOY_PATH: ${{ steps.cfg.outputs.deploy_path }}
-          RUN_MIGRATIONS: ${{ steps.cfg.outputs.run_migrations }}
         run: |
           STATUS_ICON="failed"
           [[ "${JOB_STATUS}" == "success" ]] && STATUS_ICON="success"
@@ -177,12 +156,12 @@ jobs:
             echo "| SSH step | \`${SSH_OUTCOME}\` |"
             echo "| Branch | \`beta_development\` |"
             echo "| Commit | \`${{ github.sha }}\` |"
-            echo "| Migrations | \`${RUN_MIGRATIONS}\` |"
             echo "| Deploy path | \`${DEPLOY_PATH}\` |"
             echo "| Host | \`${{ secrets.BETA_SSH_HOST }}\` |"
             echo ""
-            echo "- \`pm2 reload ecosystem.config.js --update-env\`"
-            echo "- Health: \`GET /api/v1/health\` → 200"
+            echo "- \`pm2 reload ecosystem.config.js --update-env\` (near-zero downtime)"
+            echo "- Health: \`GET /api/v1/health\` → HTTP 200"
+            echo "- Migrations: manual (not run by CI/CD)"
             echo "- On failure: automatic \`scripts/rollback.sh\`"
             echo "- Log: \`${DEPLOY_PATH}/.deployments/last-deploy.log\`"
           } >> "$GITHUB_STEP_SUMMARY"
