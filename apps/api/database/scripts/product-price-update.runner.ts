@@ -335,7 +335,6 @@ async function run(): Promise<void> {
             discountPercentage: target.newDiscountPercent != null
               ? String(target.newDiscountPercent)
               : null,
-            updatedBy: 'price-update-script',
           } as Partial<ProductVariantEntity>)
           .where('id = :id', { id: target.variantId })
           .execute();
