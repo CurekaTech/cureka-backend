@@ -112,9 +112,8 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port, '0.0.0.0');
 
-  // Tell PM2 the worker is ready when wait_ready/listen_timeout are enabled
-  // in ecosystem.config.js (cluster reload waits for this before shifting traffic).
-  if (typeof process.send === 'function') {
+  // PM2 wait_ready: signal that this cluster worker can receive traffic.
+  if (process.send) {
     process.send('ready');
   }
 

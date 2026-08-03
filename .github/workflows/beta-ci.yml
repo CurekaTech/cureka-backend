@@ -1,15 +1,7 @@
 # =============================================================================
 # beta-ci.yml
 # -----------------------------------------------------------------------------
-# Continuous Integration for the beta track.
-#
-# Why this workflow exists:
-# - Fails Pull Requests early when `npm ci` or `npm run build` breaks.
-# - Keeps the NestJS / Node 22 build green before code lands on beta_development.
-# - Uses npm cache keyed on package-lock.json to keep CI fast.
-#
-# Triggers:
-# - pull_request targeting beta_development (and self-PRs within that branch)
+# Pull Request CI for beta_development — fail the PR if install/build breaks.
 # =============================================================================
 
 name: Beta CI
@@ -18,15 +10,8 @@ on:
   pull_request:
     branches:
       - beta_development
-    paths-ignore:
-      # Skip CI for pure docs/changelog noise (override by removing this block
-      # if you prefer every PR to prove a clean build).
-      - 'docs/**'
-      - '**.md'
-      - '!.github/workflows/beta-ci.yml'
 
 concurrency:
-  # Cancel superseded PR runs so the latest commit is the source of truth.
   group: beta-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
@@ -40,12 +25,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      # checkout: materialise the PR merge commit so CI matches GitHub's merge test.
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # setup-node: pin Node 22 to match the Debian VM runtime.
-      # cache: 'npm' uses actions/cache under the hood keyed by package-lock.json.
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -53,31 +35,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      # npm ci: deterministic install from the lockfile; fails on package.json drift.
       - name: Install dependencies (npm ci)
         run: npm ci
 
-      # nest build via package.json "build" script — must emit dist/apps/api/main.js.
       - name: Build NestJS application
         run: npm run build
 
-      # Guard against a "successful" build that somehow omitted the PM2 entrypoint.
       - name: Verify build artifact
         run: |
           test -f dist/apps/api/main.js
-          echo "Artifact OK: dist/apps/api/main.js ($(wc -c < dist/apps/api/main.js) bytes)"
-
-      - name: CI summary
-        if: always()
-        run: |
-          {
-            echo "## Beta CI"
-            echo ""
-            echo "| Check | Result |"
-            echo "| --- | --- |"
-            echo "| Node | 22 |"
-            echo "| npm ci | ${{ job.status == 'success' && 'passed' || 'see logs' }} |"
-            echo "| npm run build | ${{ job.status }} |"
-            echo "| Branch target | \`beta_development\` |"
-            echo "| SHA | \`${{ github.sha }}\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact OK: dist/apps/api/main.js"
