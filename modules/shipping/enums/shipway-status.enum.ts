@@ -43,6 +43,8 @@ export enum ShipwayStatus {
   CODE_OOD = 'OOD', // Out for Delivery
   CODE_DEL = 'DEL', // Delivered
   CODE_PKP = 'PKP', // Picked Up
+  CODE_PKF = 'PKF', // Pickup Failed
+  CODE_RPF = 'RPF', // Pickup Failed (alt)
   CODE_CAN = 'CAN', // Cancelled
   CODE_RTO = 'RTO',
   CODE_UND = 'UND',

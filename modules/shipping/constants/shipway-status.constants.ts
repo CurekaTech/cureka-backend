@@ -16,6 +16,7 @@ export const SHIPWAY_TO_SHIPMENT_STATUS_MAP: Record<string, ShipmentStatus> = {
   'Pickup Pending': ShipmentStatus.PICKUP_PENDING,
   'Pickup Exception': ShipmentStatus.PICKUP_PENDING,
   'Pickup Complete': ShipmentStatus.PICKUP_COMPLETE,
+  'Pickup Failed': ShipmentStatus.PICKUP_PENDING,
   'Shipment Booked': ShipmentStatus.PROCESSING,
   'Picked Up': ShipmentStatus.PICKUP_COMPLETE,
   'Status Pending': ShipmentStatus.PENDING,
@@ -25,12 +26,13 @@ export const SHIPWAY_TO_SHIPMENT_STATUS_MAP: Record<string, ShipmentStatus> = {
   // Pre-dispatch — codes (Shipway current_status_code)
   SCH: ShipmentStatus.PROCESSING, // Shipment Booked
   PKP: ShipmentStatus.PICKUP_COMPLETE, // Picked Up
+  PKF: ShipmentStatus.PICKUP_PENDING, // Pickup Failed (courier could not pick up from warehouse)
   NFI: ShipmentStatus.PENDING, // Not Found/Incorrect / Status Pending (AWB not scanning yet)
   RSCH: ShipmentStatus.PICKUP_PENDING, // Pickup Scheduled
   ROOP: ShipmentStatus.PICKUP_PENDING, // Out for Pickup
   RPKP: ShipmentStatus.PICKUP_COMPLETE, // Shipment Picked Up
   PCAN: ShipmentStatus.CANCELLED, // Pickup Cancelled
-  RPF: ShipmentStatus.PICKUP_PENDING, // Pickup Failed
+  RPF: ShipmentStatus.PICKUP_PENDING, // Pickup Failed (return / alternate code)
 
   // In-transit — labels
   'In Transit': ShipmentStatus.IN_TRANSIT,
