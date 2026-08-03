@@ -1,23 +1,14 @@
 # Beta CI/CD Fixes — Change Summary
 
-Task: fix workflow triggers, health-check 404, review PM2/scripts, keep migrations manual.
+> **Update:** Beta CI no longer touches `development`. Pipelines are linked only to `beta_development`. Migrations run on every deploy (`npm run migration:run`). See [beta-cicd.md](./beta-cicd.md).
 
-## Desired flow (after this fix)
+## Desired flow (current)
 
 ```text
-feature/*
-    ↓
-development
-    ↓
- Beta CI   ← beta-ci.yml (PR + push to development only)
-    ↓
-PR → beta_development
-    ↓
-merge
-    ↓
-beta_development
-    ↓
- Beta Deploy  ← beta-deploy.yml only (no CI on this branch)
+development              ← existing pipelines only (beta workflows do not run)
+
+PR → beta_development    ← Beta CI
+merge → beta_development ← Beta Deploy (includes migration:run every time)
 ```
 
 ---

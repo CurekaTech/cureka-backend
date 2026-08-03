@@ -12,6 +12,21 @@
 
 set -euo pipefail
 
+# Same PATH/nvm bootstrap as deploy-beta.sh (non-interactive SSH).
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "${NVM_DIR}/nvm.sh"
+fi
+export PATH="${PATH}:/usr/local/bin:/usr/bin:${HOME}/.local/bin"
+if command -v npm >/dev/null 2>&1; then
+  _npm_bin="$(npm bin -g 2>/dev/null || true)"
+  if [[ -n "${_npm_bin}" && -d "${_npm_bin}" ]]; then
+    export PATH="${_npm_bin}:${PATH}"
+  fi
+fi
+unset _npm_bin
+
 if [[ -t 1 ]]; then
   C_RESET='\033[0m'
   C_RED='\033[0;31m'
