@@ -83,6 +83,113 @@ describe('mapCartToGokwikCart', () => {
         currency: 'INR',
       },
     ]);
+    // Handling / Platform always present — same values as cart (including 0)
+    expect(result.order_summary_extra_fields).toEqual(
+      expect.arrayContaining([
+        { name: 'Handling Fee', value: 0 },
+        { name: 'Platform Fee', value: 0 },
+      ]),
+    );
+  });
+
+  it('includes handling and platform fees from cart even when waived (0)', () => {
+    const cart: CartResponse = {
+      cartId: 'cart-fees',
+      totalItems: 1,
+      subtotal: 1200,
+      discountAmount: 0,
+      shippingAmount: 0,
+      handlingAmount: 0,
+      platformFee: 0,
+      codCharge: 0,
+      prepaidDiscount: 0,
+      grandTotal: 1200,
+      checkoutRules: {
+        prepaidDiscountPercent: 2,
+        codMinOrderAmount: 599,
+        codMaxOrderAmount: 10000,
+      },
+      coupon: null,
+      items: [
+        {
+          id: 'line-1',
+          productId: 'product-1',
+          variantId: 'variant-1',
+          productName: 'Test',
+          sku: 'SKU-1',
+          variantLabel: null,
+          quantity: 1,
+          unitPrice: 1200,
+          mrp: 1200,
+          totalPrice: 1200,
+          stock: 5,
+          inStock: true,
+          isAvailable: true,
+          primaryImageUrl: null,
+          productDetails: [],
+          categoryId: 'category-1',
+          subCategoryId: null,
+          subSubCategoryId: null,
+          subSubSubCategoryId: null,
+          brandId: null,
+        },
+      ],
+    };
+
+    expect(mapCartToGokwikCart(cart).order_summary_extra_fields).toEqual([
+      { name: 'Handling Fee', value: 0 },
+      { name: 'Platform Fee', value: 0 },
+    ]);
+  });
+
+  it('passes non-zero handling and platform fees through to GoKwik', () => {
+    const cart: CartResponse = {
+      cartId: 'cart-fees-2',
+      totalItems: 1,
+      subtotal: 400,
+      discountAmount: 0,
+      shippingAmount: 45,
+      handlingAmount: 50,
+      platformFee: 50,
+      codCharge: 0,
+      prepaidDiscount: 0,
+      grandTotal: 545,
+      checkoutRules: {
+        prepaidDiscountPercent: 2,
+        codMinOrderAmount: 599,
+        codMaxOrderAmount: 10000,
+      },
+      coupon: null,
+      items: [
+        {
+          id: 'line-1',
+          productId: 'product-1',
+          variantId: 'variant-1',
+          productName: 'Test',
+          sku: 'SKU-1',
+          variantLabel: null,
+          quantity: 1,
+          unitPrice: 400,
+          mrp: 400,
+          totalPrice: 400,
+          stock: 5,
+          inStock: true,
+          isAvailable: true,
+          primaryImageUrl: null,
+          productDetails: [],
+          categoryId: 'category-1',
+          subCategoryId: null,
+          subSubCategoryId: null,
+          subSubSubCategoryId: null,
+          brandId: null,
+        },
+      ],
+    };
+
+    expect(mapCartToGokwikCart(cart).order_summary_extra_fields).toEqual([
+      { name: 'Handling Fee', value: 50 },
+      { name: 'Platform Fee', value: 50 },
+    ]);
   });
 
   it('falls back to variant label when product details are missing', () => {

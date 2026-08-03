@@ -307,14 +307,14 @@ export class PublicProductsService {
             `[PERF] findBySlug (via product_page_url) | DB query: ${Date.now() - tDb}ms`,
           );
           const selectedVariantSlug = matchedVariant?.slug ?? key;
-          return {
-            ...detail,
-            selectedVariantId: matchedVariant?.id ?? null,
+        return {
+          ...detail,
+          selectedVariantId: matchedVariant?.id ?? null,
             selectedVariantSlug,
             permalink:
               matchedVariant?.productPageUrl ||
               buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
-          };
+        };
         }
 
         throw new NotFoundException(`Product with slug "${key}" not found`);
@@ -607,11 +607,11 @@ export class PublicProductsService {
         const t = Date.now();
         const primaryImageUrl = await this.storageUrlEnricher.toReference(card.primaryImageUrl);
         this.logger.log(`  [IMG] key="${key}" signing=${Date.now() - t}ms`);
-        return {
+    return {
           ...card,
           primaryImageUrl,
           pricing,
-        };
+    };
       }),
     );
     return { ...result, data };

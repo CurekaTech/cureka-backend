@@ -105,13 +105,59 @@ export class GokwikApiService {
   }
 
   /** POST /v3/product/update-product-details */
-  syncProducts<T = unknown>(payload: Record<string, unknown>): Promise<T> {
-    return this.request<T>('POST', '/v3/product/update-product-details', payload);
+  async syncProducts(payload: Record<string, unknown>): Promise<{
+    success?: boolean;
+    status_code?: number;
+    error?: string;
+    errors?: string;
+  }> {
+    const response = await this.request<{
+      success?: boolean;
+      status_code?: number;
+      error?: string;
+      errors?: string;
+    }>('POST', '/v3/product/update-product-details', payload);
+
+    if (response?.success === false) {
+      const message = response.error ?? response.errors ?? 'GoKwik Sync Product failed';
+      this.logger.warn(
+        { path: '/v3/product/update-product-details', status_code: response.status_code, error: message },
+        'GoKwik Sync Product returned success=false',
+      );
+      throw new BadGatewayException(message);
+    }
+
+    return response;
   }
 
   /** POST /v3/collection/update-collection */
-  syncCollections<T = unknown>(payload: Record<string, unknown>): Promise<T> {
-    return this.request<T>('POST', '/v3/collection/update-collection', payload);
+  async syncCollections(payload: Record<string, unknown>): Promise<{
+    success?: boolean;
+    status_code?: number;
+    error?: string;
+    errors?: string;
+  }> {
+    const response = await this.request<{
+      success?: boolean;
+      status_code?: number;
+      error?: string;
+      errors?: string;
+    }>('POST', '/v3/collection/update-collection', payload);
+
+    if (response?.success === false) {
+      const message = response.error ?? response.errors ?? 'GoKwik Sync Collection failed';
+      this.logger.warn(
+        {
+          path: '/v3/collection/update-collection',
+          status_code: response.status_code,
+          error: message,
+        },
+        'GoKwik Sync Collection returned success=false',
+      );
+      throw new BadGatewayException(message);
+    }
+
+    return response;
   }
 
   private assertConfigured(): void {
