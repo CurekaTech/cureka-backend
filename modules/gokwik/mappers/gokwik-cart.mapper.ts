@@ -99,15 +99,18 @@ export function mapCartToGokwikCart(
   };
 }
 
+/**
+ * Mirror cart pricing into GoKwik `order_summary_extra_fields`.
+ * Handling Fee and Platform Fee are always included (same values as cart),
+ * including 0 when the charge is waived — same pattern as sample fields
+ * that can be 0 (e.g. Care Guarantee).
+ */
 function buildOrderSummaryExtraFields(cart: CartResponse): GokwikOrderSummaryExtraField[] {
-  const fields: GokwikOrderSummaryExtraField[] = [];
+  const fields: GokwikOrderSummaryExtraField[] = [
+    { name: 'Handling Fee', value: cart.handlingAmount ?? 0 },
+    { name: 'Platform Fee', value: cart.platformFee ?? 0 },
+  ];
 
-  if (cart.handlingAmount > 0) {
-    fields.push({ name: 'Handling Fee', value: cart.handlingAmount });
-  }
-  if (cart.platformFee > 0) {
-    fields.push({ name: 'Platform Fee', value: cart.platformFee });
-  }
   if (cart.codCharge > 0) {
     fields.push({ name: 'COD Charge', value: cart.codCharge });
   }

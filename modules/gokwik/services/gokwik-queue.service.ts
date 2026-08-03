@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { Queue } from 'bullmq';
 import {
@@ -16,8 +16,18 @@ const DEFAULT_OPTIONS = {
   removeOnFail: 5_000,
 };
 
+/** Sync jobs: remove promptly so the same product/collection can be re-enqueued. */
+const SYNC_OPTIONS = {
+  attempts: 6,
+  backoff: { type: 'exponential' as const, delay: 15_000 },
+  removeOnComplete: true,
+  removeOnFail: true,
+};
+
 @Injectable()
 export class GokwikQueueService {
+  private readonly logger = new Logger(GokwikQueueService.name);
+
   constructor(@InjectQueue(QUEUE_NAMES.GOKWIK) private readonly queue: Queue) {}
 
   enqueueWebhook(eventId: string) {
@@ -28,19 +38,25 @@ export class GokwikQueueService {
     });
   }
 
-  enqueueProductSync(resourceId: string) {
+  async enqueueProductSync(resourceId: string): Promise<void> {
     const data: SyncGokwikResourceJobData = { resourceId };
-    return this.queue.add(GOKWIK_JOB_NAMES.SYNC_PRODUCT, data, {
-      ...DEFAULT_OPTIONS,
-      jobId: `gokwik-product-${resourceId}`,
+    const jobId = `gokwik-product-${resourceId}`;
+    const shouldEnqueue = await this.prepareReusableJobId(jobId);
+    if (!shouldEnqueue) return;
+    await this.queue.add(GOKWIK_JOB_NAMES.SYNC_PRODUCT, data, {
+      ...SYNC_OPTIONS,
+      jobId,
     });
   }
 
-  enqueueCollectionSync(resourceId: string) {
+  async enqueueCollectionSync(resourceId: string): Promise<void> {
     const data: SyncGokwikResourceJobData = { resourceId };
-    return this.queue.add(GOKWIK_JOB_NAMES.SYNC_COLLECTION, data, {
-      ...DEFAULT_OPTIONS,
-      jobId: `gokwik-collection-${resourceId}`,
+    const jobId = `gokwik-collection-${resourceId}`;
+    const shouldEnqueue = await this.prepareReusableJobId(jobId);
+    if (!shouldEnqueue) return;
+    await this.queue.add(GOKWIK_JOB_NAMES.SYNC_COLLECTION, data, {
+      ...SYNC_OPTIONS,
+      jobId,
     });
   }
 
@@ -50,5 +66,34 @@ export class GokwikQueueService {
       ...DEFAULT_OPTIONS,
       jobId: `gokwik-fulfillment-${orderId}`,
     });
+  }
+
+  /**
+   * Fixed jobIds prevent duplicate in-flight work, but BullMQ rejects re-add
+   * while a completed/failed job with the same id still exists.
+   * @returns false when a job is already active (skip enqueue)
+   */
+  private async prepareReusableJobId(jobId: string): Promise<boolean> {
+    const existing = await this.queue.getJob(jobId);
+    if (!existing) return true;
+
+    const state = await existing.getState();
+    if (state === 'active') {
+      this.logger.debug({ jobId, state }, 'GoKwik sync already active — skip re-enqueue');
+      return false;
+    }
+
+    // waiting / delayed / completed / failed → remove so we can enqueue fresh
+    await existing.remove().catch((error: unknown) => {
+      this.logger.warn(
+        {
+          jobId,
+          state,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to remove existing GoKwik sync job before re-enqueue',
+      );
+    });
+    return true;
   }
 }

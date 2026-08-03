@@ -135,7 +135,7 @@ Do not call Razorpay/Cashfree after receiving `checkoutProvider: "gokwik"`.
 - `open`: show the SDK and retain the cart page in the background.
 - `close`: restore the checkout CTA; do not clear the cart.
 - `failure`: display a retryable message and retain the cart.
-- `complete`: accept only an allowlisted Cureka redirect or navigate to `/thankyou?order_id=<merchant order id>`.
+- `complete`: accept only an allowlisted Cureka redirect or navigate to `/order/confirmation?order_id=<merchant order id>`.
 - timeout/SDK-load failure: report telemetry and offer retry. Native fallback is allowed only if the backend feature flag is subsequently disabled; never create two simultaneous checkout attempts.
 
 Treat SDK data as display/navigation input only. Backend callbacks are authoritative for order/payment state.
