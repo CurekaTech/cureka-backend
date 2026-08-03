@@ -112,6 +112,12 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port, '0.0.0.0');
 
+  // Tell PM2 the worker is ready when wait_ready/listen_timeout are enabled
+  // in ecosystem.config.js (cluster reload waits for this before shifting traffic).
+  if (typeof process.send === 'function') {
+    process.send('ready');
+  }
+
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port} in ${nodeEnv} mode`);
   logger.log(`API available at http://0.0.0.0:${port}/${APP_CONSTANTS.API_PREFIX}`);
