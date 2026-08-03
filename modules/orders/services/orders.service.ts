@@ -762,6 +762,8 @@ export class OrdersService {
     subtotal: string;
     discountAmount: string;
     shippingAmount: string;
+    handlingAmount?: string;
+    prepaidDiscount?: string;
     grandTotal: string;
     notes: string | null;
     paymentMethod?: OrderPaymentMethod;
@@ -812,9 +814,10 @@ export class OrdersService {
           subtotal: params.subtotal,
           discountAmount: params.discountAmount,
           shippingAmount: params.shippingAmount,
-          handlingAmount: '0',
+          handlingAmount: params.handlingAmount ?? '0.00',
           platformFee: params.platformFee ?? '0.00',
           codCharge: params.codCharge ?? '0.00',
+          prepaidDiscount: params.prepaidDiscount ?? '0.00',
           grandTotal: params.grandTotal,
           couponId: params.couponId ?? null,
           couponCode: params.couponCode ?? null,

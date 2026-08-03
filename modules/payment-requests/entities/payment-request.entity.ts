@@ -45,6 +45,10 @@ export class PaymentRequestEntity extends BaseEntity {
   @Column({ name: 'cod_charge', type: 'decimal', precision: 12, scale: 2, default: 0 })
   codCharge!: string;
 
+  /** Prepaid % (and flat) discount applied for online/prepaid checkout. */
+  @Column({ name: 'prepaid_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  prepaidDiscount!: string;
+
   @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2 })
   totalAmount!: string;
 

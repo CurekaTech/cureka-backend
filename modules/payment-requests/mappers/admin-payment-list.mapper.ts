@@ -20,6 +20,7 @@ export type AdminPaymentListItem = {
   handling: string;
   platformFee: string;
   codCharge: string;
+  prepaidDiscount: string;
   totalAmount: string;
   couponCode: string | null;
   couponDiscount: string;
@@ -67,6 +68,7 @@ export function mapPaymentRequestToAdminListItem(
     handling: request.handling,
     platformFee: request.platformFee,
     codCharge: request.codCharge,
+    prepaidDiscount: request.prepaidDiscount ?? '0.00',
     totalAmount: request.totalAmount,
     couponCode: request.couponCode,
     couponDiscount: request.couponDiscount,
@@ -127,6 +129,7 @@ export function mapCodOrderToAdminListItem(order: OrderEntity): AdminPaymentList
     handling: order.handlingAmount,
     platformFee: order.platformFee,
     codCharge: order.codCharge,
+    prepaidDiscount: order.prepaidDiscount ?? '0.00',
     totalAmount: order.grandTotal,
     couponCode: order.couponCode,
     couponDiscount: order.discountAmount,
