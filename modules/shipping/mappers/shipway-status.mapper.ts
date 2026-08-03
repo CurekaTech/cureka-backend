@@ -7,12 +7,95 @@ import {
   normalizeShipwayStatusKey,
 } from '../constants/shipway-status.constants';
 
+/** Envelope / API-level strings that must never be treated as shipment status. */
+const NON_SHIPMENT_STATUS_TOKENS = new Set([
+  'success',
+  'error',
+  'failed',
+  'fail',
+  'ok',
+  'true',
+  'false',
+]);
+
+export type ShipwayStatusResolveInput = {
+  current_status?: string | null;
+  status?: string | null;
+  current_status_code?: string | null;
+};
+
+export type ShipwayStatusResolveResult = {
+  rawStatus: string;
+  shipmentStatus: ShipmentStatus;
+  matchedFrom: 'current_status' | 'status' | 'current_status_code' | 'none';
+};
+
 /**
  * Translates raw Shipway status strings into our internal representations.
  * All status-mapping logic lives here — never scattered across services or controllers.
  */
 export class ShipwayStatusMapper {
   private static readonly logger = new Logger(ShipwayStatusMapper.name);
+
+  /**
+   * Pick the best usable Shipway status from a tracking payload.
+   * Prefers a mappable label, then falls back to `current_status_code` (e.g. PKF).
+   */
+  static resolveFromTracking(tracking: ShipwayStatusResolveInput): ShipwayStatusResolveResult {
+    const candidates: Array<{
+      value: string;
+      matchedFrom: ShipwayStatusResolveResult['matchedFrom'];
+    }> = [];
+
+    const pushCandidate = (
+      value: string | null | undefined,
+      matchedFrom: ShipwayStatusResolveResult['matchedFrom'],
+    ) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return;
+      if (NON_SHIPMENT_STATUS_TOKENS.has(trimmed.toLowerCase())) return;
+      candidates.push({ value: trimmed, matchedFrom });
+    };
+
+    pushCandidate(tracking.current_status, 'current_status');
+    pushCandidate(tracking.status, 'status');
+    pushCandidate(tracking.current_status_code, 'current_status_code');
+
+    for (const candidate of candidates) {
+      const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(candidate.value);
+      if (shipmentStatus !== ShipmentStatus.UNKNOWN) {
+        this.logger.log(
+          {
+            rawStatus: candidate.value,
+            shipmentStatus,
+            matchedFrom: candidate.matchedFrom,
+            candidates: candidates.map((c) => c.value),
+          },
+          '[ShipwayStatusMapper] Resolved tracking status',
+        );
+        return {
+          rawStatus: candidate.value,
+          shipmentStatus,
+          matchedFrom: candidate.matchedFrom,
+        };
+      }
+    }
+
+    const fallback = candidates[0]?.value ?? '';
+    this.logger.warn(
+      {
+        rawStatus: fallback || null,
+        candidates: candidates.map((c) => c.value),
+        shipmentStatus: ShipmentStatus.UNKNOWN,
+      },
+      '[ShipwayStatusMapper] No mappable tracking status — UNKNOWN',
+    );
+    return {
+      rawStatus: fallback,
+      shipmentStatus: ShipmentStatus.UNKNOWN,
+      matchedFrom: candidates[0]?.matchedFrom ?? 'none',
+    };
+  }
 
   /**
    * Convert a raw Shipway status string/code to an internal ShipmentStatus.
@@ -29,6 +112,14 @@ export class ShipwayStatusMapper {
     }
 
     const raw = shipwayStatus.trim();
+    if (NON_SHIPMENT_STATUS_TOKENS.has(raw.toLowerCase())) {
+      this.logger.warn(
+        { raw },
+        '[ShipwayStatusMapper] Envelope status ignored — mapped to UNKNOWN',
+      );
+      return ShipmentStatus.UNKNOWN;
+    }
+
     const direct = SHIPWAY_TO_SHIPMENT_STATUS_MAP[raw];
     if (direct) {
       this.logger.debug(
