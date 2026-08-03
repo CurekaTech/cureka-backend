@@ -198,6 +198,17 @@ export class ShippingService {
     const tracking = await this.shipwayService.getShipmentDetails(shipment.shipwayOrderId);
     const rawStatus = tracking.current_status ?? tracking.status ?? shipment.shipwayRawStatus ?? 'Unknown';
     const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(rawStatus);
+    this.logger.log(
+      {
+        orderId,
+        shipwayOrderId: shipment.shipwayOrderId,
+        rawStatus,
+        shipmentStatus,
+        previousStatus: shipment.shipmentStatus,
+        awbNumber: tracking.awb_number ?? shipment.awbNumber,
+      },
+      '[Shipway] syncShipmentStatus mapped raw → shipmentStatus',
+    );
 
     return this.dataSource.transaction(async (manager) => {
       shipment.awbNumber = tracking.awb_number ?? shipment.awbNumber;
@@ -231,10 +242,27 @@ export class ShippingService {
     }
 
     if (payload.event_id && shipment.lastWebhookEventId === payload.event_id) {
+      this.logger.log(
+        { orderId: shipment.orderId, eventId: payload.event_id, shipwayOrderId: payload.order_id },
+        '[Shipway] Webhook duplicate event_id — skipped',
+      );
       return shipment;
     }
 
     const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(payload.status);
+    this.logger.log(
+      {
+        orderId: shipment.orderId,
+        orderNumber: shipment.orderNumber,
+        shipwayOrderId: payload.order_id,
+        eventId: payload.event_id ?? null,
+        rawStatus: payload.status,
+        shipmentStatus,
+        previousStatus: shipment.shipmentStatus,
+        awbNumber: payload.awb_number ?? shipment.awbNumber,
+      },
+      '[Shipway] Webhook status mapped raw → shipmentStatus',
+    );
     return this.dataSource.transaction(async (manager) => {
       shipment.awbNumber = payload.awb_number ?? shipment.awbNumber;
       shipment.courierName = payload.courier_name ?? shipment.courierName;
@@ -454,6 +482,17 @@ export class ShippingService {
     rawStatus: string,
   ): Promise<ShipmentEntity> {
     const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(rawStatus);
+    this.logger.log(
+      {
+        orderId: shipment.orderId,
+        orderNumber: shipment.orderNumber,
+        rawStatus,
+        shipmentStatus,
+        previousStatus: shipment.shipmentStatus,
+        awbNumber: tracking.awb_number ?? shipment.awbNumber,
+      },
+      '[Shipway] persistTrackingUpdate mapped raw → shipmentStatus',
+    );
 
     return this.dataSource.transaction(async (manager) => {
       shipment.awbNumber = tracking.awb_number ?? shipment.awbNumber;
@@ -766,7 +805,16 @@ export class ShippingService {
   ) {
     const orderStatus = ShipwayStatusMapper.toOrderStatus(shipmentStatus);
     if (orderStatus) {
+      this.logger.log(
+        { orderId, shipmentStatus, orderStatus },
+        '[Shipway] Syncing orderStatus from shipmentStatus',
+      );
       await this.ordersRepository.updateById(orderId, { orderStatus, updatedBy: 'shipway-sync' }, manager);
+    } else {
+      this.logger.log(
+        { orderId, shipmentStatus, orderStatus: null },
+        '[Shipway] No orderStatus mapping for shipmentStatus — order row unchanged',
+      );
     }
   }
 
