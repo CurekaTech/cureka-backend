@@ -88,3 +88,15 @@ npm run product:meta-update -- --apply --limit=50
 
 # Custom file path
 npm run product:meta-update -- --file="docs/Master-Data-Sheets/meta-data-beta-products.xlsx" --apply
+
+---------------------------------
+
+# Dry-run first
+npm run product:sku-fix
+
+# Apply
+npm run product:sku-fix -- --apply
+
+# Optional
+npm run product:sku-fix -- --apply --limit=10
+
