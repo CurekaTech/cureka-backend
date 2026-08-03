@@ -327,7 +327,7 @@ curl --request POST 'https://<API_HOST>/api/v1/gokwik/place-order' \
 {
   "status": "success",
   "order_id": "ORD202607210001",
-  "thankyou_redirect_url": "https://beta.cureka.com/thankyou?order_id=ORD202607210001"
+  "thankyou_redirect_url": "https://beta.cureka.com/order/confirmation?order_id=ORD202607210001"
 }
 ```
 
@@ -476,4 +476,4 @@ Provide GoKwik:
 | Remove OOS URL | `https://<API_HOST>/api/v1/gokwik/remove-out-of-stock-items` |
 | User auth header | `Authorization: Bearer <Cureka session token>` |
 | `merchantCheckoutId` | Cureka cart UUID |
-| Thank-you pattern | `{STOREFRONT_URL}/thankyou?order_id={order_number}` |
+| Thank-you pattern | `{STOREFRONT_URL}/order/confirmation?order_id={order_number}` |

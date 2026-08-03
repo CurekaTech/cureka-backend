@@ -1377,7 +1377,7 @@ export class ProductsRepository {
         options.categoryIds.forEach((id, i) => {
           params[`ymalCatId${i}`] = id;
         });
-        qb.andWhere(
+      qb.andWhere(
           new Brackets((sub) => {
             options.categoryIds!.forEach((_, i) => {
               const clause = PRODUCT_MATCHES_CATEGORY_ENTITY_SQL.replace(

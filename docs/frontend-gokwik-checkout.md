@@ -38,7 +38,7 @@ sequenceDiagram
     API-->>FE: gateway gokwik + paymentData
     FE->>GK: init(appId, merchantId) + open(merchantCheckoutId)
     Note over GK,API: GoKwik calls Cureka merchant callbacks
-    GK-->>FE: complete → /thankyou?order_id=...
+    GK-->>FE: complete → /order/confirmation?order_id=...
   else legacy / shiprocket
     FE->>API: same payment-requests endpoint
     API-->>FE: Razorpay/Cashfree/Shiprocket payload
@@ -141,7 +141,7 @@ if (response.checkoutProvider === 'gokwik') {
 | `open` | Show SDK; keep cart page in background |
 | `close` | Re-enable CTA; **do not** clear cart |
 | `failure` | Retryable error; keep cart |
-| `complete` | Navigate only to allowlisted Cureka URLs, e.g. `/thankyou?order_id=<merchant order id>` |
+| `complete` | Navigate only to allowlisted Cureka URLs, e.g. `/order/confirmation?order_id=<merchant order id>` |
 
 Backend GoKwik **merchant callbacks** (`/api/v1/gokwik/*`) are the source of truth for order/payment state. Treat SDK data as navigation/display only.
 

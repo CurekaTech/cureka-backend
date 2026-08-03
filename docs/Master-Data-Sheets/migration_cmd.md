@@ -74,3 +74,17 @@ npm run product:price-update -- --file="docs/Master-Data-Sheets/ updated-price-0
 
 # Apply to DB
 npm run product:price-update -- --file="docs/Master-Data-Sheets/updated-price-02-aug.xlsx" --apply
+
+-------------------------------------------------------
+
+# Dry-run first — preview what will change (safe, no DB writes)
+npm run product:meta-update
+
+# Apply the changes
+npm run product:meta-update -- --apply
+
+# Apply with a limit for testing
+npm run product:meta-update -- --apply --limit=50
+
+# Custom file path
+npm run product:meta-update -- --file="docs/Master-Data-Sheets/meta-data-beta-products.xlsx" --apply

@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { Brackets, DataSource, IsNull } from 'typeorm';
 import { GokwikRepository } from '../repositories/gokwik.repository';
@@ -10,6 +11,8 @@ import { GokwikQueueService } from './gokwik-queue.service';
 
 @Injectable()
 export class GokwikCatalogSyncService {
+  private readonly logger = new Logger(GokwikCatalogSyncService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
@@ -20,65 +23,106 @@ export class GokwikCatalogSyncService {
   ) {}
 
   async syncProduct(productId: string): Promise<void> {
-    await this.assertEnabled();
+    this.assertConfiguredEnabled();
     await this.repository.markSyncState('product', productId, 'syncing');
     try {
+      // withDeleted so soft-deleted products can be pushed as is_deleted=true
       const product = await this.dataSource.getRepository(ProductEntity).findOne({
         where: { id: productId },
-        relations: { variants: true, media: true },
+        relations: { variants: true, media: true, tagMappings: { tag: true } },
+        withDeleted: true,
       });
       if (!product) throw new NotFoundException('Product not found');
-      const images = await Promise.all(
-        product.media.map(async (media) => ({
-          id: media.id,
-          product_id: product.id,
-          src: (await this.storageUrlEnricher.toReference(media.url))?.url ?? '',
-          variant_ids: media.variantId ? [media.variantId] : [],
-        })),
-      );
-      await this.apiService.syncProducts({
+
+      const activeVariants = (product.variants ?? []).filter((variant) => !variant.deletedAt);
+      const media = (product.media ?? []).filter((item) => !item.deletedAt);
+
+      const images = (
+        await Promise.all(
+          media.map(async (item) => {
+            const src = (await this.storageUrlEnricher.toReference(item.url))?.url ?? '';
+            if (!src) return null;
+            return {
+              id: item.id,
+              product_id: product.id,
+              src,
+              variant_ids: item.variantId ? [item.variantId] : [],
+            };
+          }),
+        )
+      ).filter((image): image is NonNullable<typeof image> => Boolean(image));
+
+      const fallbackImageId = images[0]?.id ?? '';
+      const isDeleted = Boolean(product.deletedAt) || product.status !== ProductStatus.PUBLISHED;
+      // GoKwik Sync Product only documents status = "published"
+      const status = 'published';
+      const tags = (product.tagMappings ?? [])
+        .map((mapping) => mapping.tag?.slug ?? mapping.tag?.name ?? '')
+        .filter(Boolean)
+        .join(',');
+
+      const payload = {
         id: product.id,
         title: product.name,
-        status: product.status,
-        tags: '',
-        updated_at: product.updatedAt.toISOString(),
+        status,
+        tags,
+        updated_at: (product.updatedAt ?? new Date()).toISOString(),
         handle: product.slug,
         body_html: product.description ?? '',
-        is_deleted: Boolean(product.deletedAt),
-        variants: product.variants.map((variant) => ({
-          id: variant.id,
-          product_id: product.id,
-          image_id:
-            product.media.find((media) => media.variantId === variant.id)?.id ??
-            product.media[0]?.id ??
-            '',
-          title: variant.slug,
-          sku: variant.sku,
-          price: Math.round(Number(variant.sellingPrice)),
-          compare_at_price: Math.round(Number(variant.mrp)),
-          inventory_quantity: variant.stock,
-        })),
+        is_deleted: isDeleted,
+        variants: activeVariants.map((variant) => {
+          const variantImageId =
+            media.find((item) => item.variantId === variant.id)?.id ?? fallbackImageId;
+          return {
+            id: variant.id,
+            product_id: product.id,
+            image_id: variantImageId || product.id,
+            title: variant.displayName?.trim() || variant.slug || variant.sku,
+            sku: variant.sku,
+            price: Math.round(Number(variant.sellingPrice) || 0),
+            compare_at_price: Math.round(Number(variant.mrp) || Number(variant.sellingPrice) || 0),
+            inventory_quantity: Math.max(0, Number(variant.stock) || 0),
+          };
+        }),
         images,
-      });
+      };
+
+      this.logger.log(
+        {
+          productId: product.id,
+          refId: product.refId,
+          status: product.status,
+          is_deleted: isDeleted,
+          variantCount: payload.variants.length,
+          imageCount: payload.images.length,
+        },
+        'Syncing product to GoKwik',
+      );
+
+      await this.apiService.syncProducts(payload);
       await this.repository.markSyncState('product', productId, 'synced', {
         remoteId: product.externalProductId ?? product.id,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown product sync error';
+      this.logger.error({ productId, error: message }, 'GoKwik product sync failed');
       await this.repository.markSyncState('product', productId, 'failed', {
-        lastError: error instanceof Error ? error.message : 'Unknown product sync error',
+        lastError: message,
       });
       throw error;
     }
   }
 
   async syncCollection(categoryId: string): Promise<void> {
-    await this.assertEnabled();
+    this.assertConfiguredEnabled();
     await this.repository.markSyncState('collection', categoryId, 'syncing');
     try {
-      const category = await this.dataSource
-        .getRepository(CategoryEntity)
-        .findOne({ where: { id: categoryId } });
+      const category = await this.dataSource.getRepository(CategoryEntity).findOne({
+        where: { id: categoryId },
+        withDeleted: true,
+      });
       if (!category) throw new NotFoundException('Category not found');
+
       const products = await this.dataSource
         .getRepository(ProductEntity)
         .createQueryBuilder('product')
@@ -93,20 +137,36 @@ export class GokwikCatalogSyncService {
           }),
         )
         .andWhere('product.deletedAt IS NULL')
+        .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
         .getRawMany<{ id: string }>();
-      await this.apiService.syncCollections({
+
+      const payload = {
         id: category.id,
         handle: category.slug,
         title: category.name,
         product_ids: products.map((product) => product.id),
-        updated_at: category.updatedAt.toISOString(),
-      });
+        updated_at: (category.updatedAt ?? new Date()).toISOString(),
+      };
+
+      this.logger.log(
+        {
+          categoryId: category.id,
+          refId: category.refId,
+          productCount: payload.product_ids.length,
+          deleted: Boolean(category.deletedAt),
+        },
+        'Syncing collection to GoKwik',
+      );
+
+      await this.apiService.syncCollections(payload);
       await this.repository.markSyncState('collection', categoryId, 'synced', {
         remoteId: category.id,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown collection sync error';
+      this.logger.error({ categoryId, error: message }, 'GoKwik collection sync failed');
       await this.repository.markSyncState('collection', categoryId, 'failed', {
-        lastError: error instanceof Error ? error.message : 'Unknown collection sync error',
+        lastError: message,
       });
       throw error;
     }
@@ -128,16 +188,26 @@ export class GokwikCatalogSyncService {
     await Promise.all(
       collections.map((collection) => this.queueService.enqueueCollectionSync(collection.id)),
     );
+    this.logger.log(
+      { products: products.length, collections: collections.length },
+      'Enqueued GoKwik catalog backfill',
+    );
     return { products: products.length, collections: collections.length };
-  }
-
-  private async assertEnabled(): Promise<void> {
-    this.assertConfiguredEnabled();
   }
 
   private assertConfiguredEnabled(): void {
     if (!this.configService.get<boolean>('gokwik.catalogSyncEnabled')) {
-      throw new NotFoundException('GoKwik catalog sync is disabled');
+      throw new ServiceUnavailableException(
+        'GoKwik catalog sync is disabled. Set GOKWIK_CATALOG_SYNC_ENABLED=true',
+      );
+    }
+    const baseUrl = this.configService.get<string>('gokwik.baseUrl');
+    const appId = this.configService.get<string>('gokwik.appId');
+    const appSecret = this.configService.get<string>('gokwik.appSecret');
+    if (!baseUrl || !appId || !appSecret) {
+      throw new ServiceUnavailableException(
+        'GoKwik catalog sync is not configured (need GOKWIK_BASE_URL, GOKWIK_APP_ID, GOKWIK_APP_SECRET)',
+      );
     }
   }
 }
