@@ -906,6 +906,7 @@ export class BulkUploadProcessor extends WorkerHost {
                     discountPercentage: v.discountPercentage,
                     taxClass: v.taxClass,
                     stock: v.stock,
+                    ...(v.outOfStock !== undefined ? { outOfStock: v.outOfStock } : {}),
                     weight: v.weight,
                     weightUnit: v.weightUnit,
                     length: v.length,
