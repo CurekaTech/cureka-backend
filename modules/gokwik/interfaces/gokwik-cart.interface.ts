@@ -37,6 +37,9 @@ export type GokwikOrderSummaryExtraField = {
 
 export type GokwikAvailablePaymentMethod = {
   id: string;
+  /** GoKwik get-cart schema label (mandatory when method object is present). */
+  description: string;
+  /** Alias kept for older SDK builds that read `title`. */
   title: string;
   price: number;
   currency: string;

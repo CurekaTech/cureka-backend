@@ -65,6 +65,8 @@ export interface IParsedVariant {
   discountPercentage?: number;
   taxClass?: string;
   stock: number;
+  /** Admin OOS flag from "Out Of Stock" column (Yes/No). */
+  outOfStock?: boolean;
   weight?: number;
   weightUnit?: string;
   length?: number;
@@ -780,6 +782,13 @@ export class BulkUploadParserService {
         0;
       const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
       const stock = parseInt(getVal('quantity / stock'), 10) || 0;
+      const outOfStockRaw = getVal('out of stock').toLowerCase();
+      const outOfStock =
+        outOfStockRaw === 'yes' || outOfStockRaw === 'true' || outOfStockRaw === '1'
+          ? true
+          : outOfStockRaw === 'no' || outOfStockRaw === 'false' || outOfStockRaw === '0'
+            ? false
+            : undefined;
       const weight = parseFloat(getVal('weight (kg)')) || undefined;
       const length = parseFloat(getVal('length (cm)')) || undefined;
       const width = parseFloat(getVal('width (cm)')) || undefined;
@@ -816,6 +825,7 @@ export class BulkUploadParserService {
         discountPercentage,
         taxClass: getVal('tax class') || undefined,
         stock,
+        outOfStock,
         weight,
         weightUnit: getVal('weight unit') || undefined,
         length,
