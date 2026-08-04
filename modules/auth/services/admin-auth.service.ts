@@ -443,6 +443,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
       //   requiredPermissions: ['orders.read'],
       // },
       {
+        name: 'Add Orders',
+        key: 'orders-add',
+        icon: 'Plus',
+        href: '/order-requests/create',
+        requiredPermissions: ['orders.create'],
+      },
+      {
         name: 'All Orders',
         key: 'orders-list-all',
         icon: '',
