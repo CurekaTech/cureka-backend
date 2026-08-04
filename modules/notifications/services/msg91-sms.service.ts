@@ -29,15 +29,25 @@ export class Msg91SmsService {
     this.timeoutMs = this.configService.get<number>('msg91.timeoutMs') ?? 15000;
     this.shortUrl = this.configService.get<string>('msg91.shortUrl') ?? '0';
 
+    const hasEnv = (key: string) => {
+      const value = process.env[key];
+      return typeof value === 'string' && value.trim().length > 0;
+    };
+
     this.logger.log(
       {
-        enabled: this.enabled,
-        authKeyConfigured: Boolean(this.authKey),
-        baseUrl: this.baseUrl,
-        timeoutMs: this.timeoutMs,
-        shortUrl: this.shortUrl,
+        MSG91_ENABLED: hasEnv('MSG91_ENABLED'),
+        MSG91_ENABLED_true: this.enabled,
+        MSG91_AUTH_KEY: hasEnv('MSG91_AUTH_KEY'),
+        MSG91_OTP_TEMPLATE_ID: hasEnv('MSG91_OTP_TEMPLATE_ID'),
+        MSG91_ORDER_THANKYOU_TEMPLATE_ID: hasEnv('MSG91_ORDER_THANKYOU_TEMPLATE_ID'),
+        MSG91_ORDER_THANKYOU_VARS: hasEnv('MSG91_ORDER_THANKYOU_VARS'),
+        MSG91_SHORT_URL: hasEnv('MSG91_SHORT_URL'),
+        MSG91_BASE_URL: hasEnv('MSG91_BASE_URL'),
+        MSG91_TIMEOUT_MS: hasEnv('MSG91_TIMEOUT_MS'),
+        readyToSend: this.isConfigured(),
       },
-      '[MSG91-SMS] Service configured',
+      '[MSG91-SMS] Env presence check (true/false only)',
     );
   }
 
