@@ -38,6 +38,17 @@ export class OrderNotificationsService {
         'var2:grandTotal',
       ],
     );
+
+    this.logger.log(
+      {
+        smsConfigured: this.msg91SmsService.isConfigured(),
+        smsTemplateIdConfigured: Boolean(this.smsTemplateId),
+        smsVarPairs: this.smsVarPairs,
+        whatsappConfigured: this.whatsappService.isConfigured(),
+        whatsappTemplateConfigured: Boolean(this.templateName),
+      },
+      '[OrderNotifications] Channel config loaded',
+    );
   }
 
   /**
@@ -132,26 +143,41 @@ export class OrderNotificationsService {
    * Docs: https://docs.msg91.com/sms/send-sms
    */
   private async notifyOrderPlacedSms(input: IOrderPlacedNotifyInput): Promise<void> {
+    const context = {
+      orderNumber: input.orderNumber,
+      source: input.source,
+      paymentMethod: input.paymentMethod,
+      orderStatus: input.orderStatus,
+    };
+
     if (!this.msg91SmsService.isConfigured()) {
-      this.logger.log(
-        { orderNumber: input.orderNumber, source: input.source },
-        '[MSG91-SMS] Order thank-you skipped — MSG91 disabled/unconfigured',
+      this.logger.warn(
+        { ...context, reason: 'msg91_disabled_or_unconfigured' },
+        '[MSG91-SMS] Order thank-you skipped',
       );
       return;
     }
 
     if (!this.smsTemplateId) {
       this.logger.warn(
-        { orderNumber: input.orderNumber },
-        '[MSG91-SMS] MSG91_ORDER_THANKYOU_TEMPLATE_ID is empty — skipping',
+        { ...context, reason: 'empty_template_id' },
+        '[MSG91-SMS] Order thank-you skipped — MSG91_ORDER_THANKYOU_TEMPLATE_ID is empty',
       );
       return;
     }
 
     if (!input.phoneNumber?.trim()) {
       this.logger.warn(
-        { orderNumber: input.orderNumber },
-        '[MSG91-SMS] Order has no phone number — skipping',
+        { ...context, reason: 'missing_phone' },
+        '[MSG91-SMS] Order thank-you skipped — order has no phone number',
+      );
+      return;
+    }
+
+    if (!this.smsVarPairs.length) {
+      this.logger.warn(
+        { ...context, reason: 'empty_var_pairs' },
+        '[MSG91-SMS] Order thank-you skipped — MSG91_ORDER_THANKYOU_VARS has no valid pairs',
       );
       return;
     }
@@ -164,19 +190,47 @@ export class OrderNotificationsService {
 
     this.logger.log(
       {
-        orderNumber: input.orderNumber,
-        source: input.source,
+        ...context,
+        stage: 'start',
         templateId: this.smsTemplateId,
-        variableKeys: Object.keys(variables),
+        phone: this.maskPhone(input.phoneNumber),
+        varPairs: this.smsVarPairs,
+        variables,
       },
-      '[MSG91-SMS] Sending order thank-you SMS',
+      '[MSG91-SMS] Order thank-you SMS start',
     );
 
-    await this.msg91SmsService.sendFlowSms({
+    const result = await this.msg91SmsService.sendFlowSms({
       templateId: this.smsTemplateId,
       phone: input.phoneNumber,
       variables,
+      context,
     });
+
+    if (result.skipped) {
+      this.logger.warn(
+        { ...context, reason: 'provider_skipped' },
+        '[MSG91-SMS] Order thank-you skipped by provider client',
+      );
+      return;
+    }
+
+    this.logger.log(
+      {
+        ...context,
+        stage: 'done',
+        httpStatus: result.httpStatus,
+        requestId: result.requestId,
+        providerStatus: result.providerStatus,
+      },
+      '[MSG91-SMS] Order thank-you SMS completed',
+    );
+  }
+
+  private maskPhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 6) return '***';
+    return `${digits.slice(0, 2)}******${digits.slice(-2)}`;
   }
 
   private fieldValues(input: IOrderPlacedNotifyInput): Record<Msg91OrderField, string> {
