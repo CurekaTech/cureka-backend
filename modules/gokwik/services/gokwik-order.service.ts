@@ -50,11 +50,6 @@ export class GokwikOrderService {
     }
 
     return this.withCartLock(cartId, async () => {
-      const existing = await this.gokwikRepository.findOrderByCartId(cartId);
-      if (existing?.order) {
-        return { status: 'success', order_id: existing.order.orderNumber };
-      }
-
       const cart = await this.cartService.findActiveCartById(cartId);
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
@@ -63,6 +58,30 @@ export class GokwikOrderService {
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
       const pricedCart = await this.cartService.getCartById(cartId);
+      const existing = await this.gokwikRepository.findOrderByCartId(cartId);
+      if (existing?.order) {
+        const existingOrderTotal = Number(existing.order.grandTotal);
+        const hasStaleOrderAmount =
+          Math.abs(Math.round(existingOrderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) >
+          1;
+        if (hasStaleOrderAmount) {
+          this.logger.warn(
+            {
+              cartId,
+              existingOrderNumber: existing.order.orderNumber,
+              existingOrderTotal,
+              currentCartTotal: pricedCart.grandTotal,
+            },
+            'Stale GoKwik order link detected for cart',
+          );
+          throw new BadRequestException(
+            'Stale GoKwik checkout session. Please refresh checkout and create a new cart session.',
+          );
+        }
+        this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
+        return { status: 'success', order_id: existing.order.orderNumber };
+      }
+
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
       if (dto.payment_details.payment_method === 'cod') {
@@ -151,7 +170,25 @@ export class GokwikOrderService {
         throw new BadRequestException('Invalid order id for this checkout session');
       }
 
-      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(link.order.grandTotal));
+      const pricedCart = await this.cartService.getCartById(cartId);
+      const orderTotal = Number(link.order.grandTotal);
+      const hasStaleOrderAmount =
+        Math.abs(Math.round(orderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) > 1;
+      if (hasStaleOrderAmount) {
+        this.logger.warn(
+          {
+            cartId,
+            orderNumber: link.order.orderNumber,
+            orderTotal,
+            currentCartTotal: pricedCart.grandTotal,
+          },
+          'Place-order rejected due to stale GoKwik order amount',
+        );
+        throw new BadRequestException(
+          'Stale GoKwik checkout session. Please refresh checkout and create-order again.',
+        );
+      }
+      this.assertPaymentTotal(dto.payment_details, dto.meta_data, orderTotal);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
 
       await this.gokwikRepository.updateOrderLink(link.id, {
