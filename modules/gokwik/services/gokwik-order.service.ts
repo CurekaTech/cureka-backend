@@ -306,9 +306,20 @@ export class GokwikOrderService {
   ): void {
     const equalsMoney = (left: number, right: number) =>
       Math.abs(Math.round(left * 100) - Math.round(right * 100)) <= 1;
-    const payableTotal = roundMoney(expectedTotal + this.sumOtherCharges(meta));
+    const otherChargesTotal = this.sumOtherCharges(meta);
+    const payableTotal = roundMoney(expectedTotal + otherChargesTotal);
 
     if (!equalsMoney(payment.payment_amount, payableTotal)) {
+      this.logger.warn(
+        {
+          paymentAmount: payment.payment_amount,
+          expectedTotal,
+          otherChargesTotal,
+          payableTotal,
+          paymentMethod: payment.payment_method,
+        },
+        'GoKwik payment mismatch',
+      );
       throw new BadRequestException('GoKwik payment amount does not match the order total');
     }
 
