@@ -20,4 +20,10 @@ export interface IMsg91FlowSendPayload {
 export interface IMsg91FlowSendResult {
   httpStatus: number;
   body: unknown;
+  /** True when MSG91 was skipped because disabled/unconfigured. */
+  skipped?: boolean;
+  /** MSG91 request id when present in API response. */
+  requestId?: string | null;
+  /** MSG91 response `type` / status when present. */
+  providerStatus?: string | null;
 }

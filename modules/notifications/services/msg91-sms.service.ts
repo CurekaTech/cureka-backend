@@ -35,8 +35,9 @@ export class Msg91SmsService {
         authKeyConfigured: Boolean(this.authKey),
         baseUrl: this.baseUrl,
         timeoutMs: this.timeoutMs,
+        shortUrl: this.shortUrl,
       },
-      '[MSG91] SMS service configured',
+      '[MSG91-SMS] Service configured',
     );
   }
 
@@ -57,24 +58,36 @@ export class Msg91SmsService {
     phone: string;
     /** Template placeholders, e.g. { var: 'Dinesh', var1: 'ORD123' } */
     variables: Record<string, string>;
+    /** Optional correlation fields for logs (order number, source, etc.). */
+    context?: Record<string, string | number | boolean | null | undefined>;
   }): Promise<IMsg91FlowSendResult> {
     if (!this.isConfigured()) {
       this.logger.warn(
         {
+          ...params.context,
           enabled: this.enabled,
           authKeyConfigured: Boolean(this.authKey),
+          reason: 'not_configured',
         },
-        '[MSG91] Skipping Flow SMS — not configured or disabled',
+        '[MSG91-SMS] Skipped — disabled or auth key missing',
       );
-      return { httpStatus: 0, body: { skipped: true } };
+      return { httpStatus: 0, body: { skipped: true }, skipped: true };
     }
 
     if (!params.templateId?.trim()) {
+      this.logger.error(
+        { ...params.context, reason: 'empty_template_id' },
+        '[MSG91-SMS] Rejected — template_id is empty',
+      );
       throw new ServiceUnavailableException('MSG91 Flow template_id is empty');
     }
 
     const mobiles = this.toMsg91Mobile(params.phone);
     if (!mobiles) {
+      this.logger.error(
+        { ...params.context, reason: 'empty_mobile' },
+        '[MSG91-SMS] Rejected — mobile number is empty',
+      );
       throw new ServiceUnavailableException('MSG91 mobile number is empty');
     }
 
@@ -94,15 +107,25 @@ export class Msg91SmsService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAt = Date.now();
+    const variableSummary = Object.fromEntries(
+      Object.entries(params.variables).map(([key, value]) => [
+        key,
+        { length: value?.length ?? 0, empty: !value?.trim() },
+      ]),
+    );
 
     this.logger.log(
       {
+        ...params.context,
+        stage: 'request',
         url,
-        templateId: params.templateId,
+        templateId: params.templateId.trim(),
         phone: this.maskPhone(mobiles),
         variableKeys: Object.keys(params.variables),
+        variableSummary,
+        shortUrl: this.shortUrl,
       },
-      '[MSG91] Sending Flow SMS',
+      '[MSG91-SMS] Sending Flow SMS',
     );
 
     try {
@@ -125,40 +148,69 @@ export class Msg91SmsService {
         parsed = { rawBody: text.slice(0, 500) };
       }
 
-      this.logger.log(
-        {
-          templateId: params.templateId,
-          phone: this.maskPhone(mobiles),
-          elapsedMs: Date.now() - startedAt,
-          httpStatus: response.status,
-          ok: response.ok,
-          body: parsed,
-        },
-        '[MSG91] Flow SMS API response',
-      );
+      const requestId = this.extractRequestId(parsed);
+      const providerStatus = this.extractProviderStatus(parsed);
+      const elapsedMs = Date.now() - startedAt;
+      const result: IMsg91FlowSendResult = {
+        httpStatus: response.status,
+        body: parsed,
+        requestId,
+        providerStatus,
+      };
 
       if (!response.ok) {
+        this.logger.error(
+          {
+            ...params.context,
+            stage: 'response',
+            templateId: params.templateId.trim(),
+            phone: this.maskPhone(mobiles),
+            elapsedMs,
+            httpStatus: response.status,
+            requestId,
+            providerStatus,
+            body: parsed,
+          },
+          '[MSG91-SMS] Flow SMS rejected by provider',
+        );
         throw new ServiceUnavailableException(
           `MSG91 Flow SMS failed with HTTP ${response.status}`,
         );
       }
 
-      return { httpStatus: response.status, body: parsed };
+      this.logger.log(
+        {
+          ...params.context,
+          stage: 'response',
+          templateId: params.templateId.trim(),
+          phone: this.maskPhone(mobiles),
+          elapsedMs,
+          httpStatus: response.status,
+          requestId,
+          providerStatus,
+          body: parsed,
+        },
+        '[MSG91-SMS] Flow SMS sent successfully',
+      );
+
+      return result;
     } catch (error) {
       if (error instanceof ServiceUnavailableException) throw error;
       const isAbort = error instanceof Error && error.name === 'AbortError';
       this.logger.error(
         {
-          templateId: params.templateId,
+          ...params.context,
+          stage: 'error',
+          templateId: params.templateId.trim(),
           phone: this.maskPhone(mobiles),
           elapsedMs: Date.now() - startedAt,
           timedOut: isAbort,
           error:
             error instanceof Error
-              ? { name: error.name, message: error.message }
+              ? { name: error.name, message: error.message, stack: error.stack }
               : { message: String(error) },
         },
-        isAbort ? '[MSG91] Flow SMS timed out' : '[MSG91] Flow SMS request failed',
+        isAbort ? '[MSG91-SMS] Flow SMS timed out' : '[MSG91-SMS] Flow SMS request failed',
       );
       throw new ServiceUnavailableException(
         isAbort
@@ -168,6 +220,20 @@ export class Msg91SmsService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private extractRequestId(body: unknown): string | null {
+    if (!body || typeof body !== 'object') return null;
+    const record = body as Record<string, unknown>;
+    const value = record['request_id'] ?? record['requestId'] ?? record['message'];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  private extractProviderStatus(body: unknown): string | null {
+    if (!body || typeof body !== 'object') return null;
+    const record = body as Record<string, unknown>;
+    const value = record['type'] ?? record['status'];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
   }
 
   private maskPhone(phone: string): string {
