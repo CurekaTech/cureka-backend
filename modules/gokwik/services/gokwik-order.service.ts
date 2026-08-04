@@ -373,16 +373,17 @@ export class GokwikOrderService {
   ): void {
     const equalsMoney = (left: number, right: number) =>
       Math.abs(Math.round(left * 100) - Math.round(right * 100)) <= 1;
-    const otherChargesTotal = this.sumOtherCharges(meta);
     const rewardsAmount = this.resolveRewardsAmount(meta);
-    const payableTotal = roundMoney(Math.max(expectedTotal + otherChargesTotal - rewardsAmount, 0));
+    // Cureka grandTotal already includes handling/platform/COD fees.
+    // GoKwik may also echo those as meta_data.other_charges — do not add them again.
+    const payableTotal = roundMoney(Math.max(expectedTotal - rewardsAmount, 0));
 
     if (!equalsMoney(payment.payment_amount, payableTotal)) {
       this.logger.warn(
         {
           paymentAmount: payment.payment_amount,
           expectedTotal,
-          otherChargesTotal,
+          otherChargesTotal: this.sumOtherCharges(meta),
           rewardsAmount,
           payableTotal,
           paymentMethod: payment.payment_method,
