@@ -172,12 +172,28 @@ function normalizePpcod(value: unknown): unknown {
   return value;
 }
 
+/** GoKwik sends `"rewards_info": {}` when no rewards are applied — treat as absent. */
+function normalizeRewardsInfo(value: unknown): unknown {
+  if (value == null || value === '') return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const provider = record['reward_provider'];
+  const transactionId = record['transaction_id'];
+  const amount = record['reward_amount'];
+  const hasProvider = typeof provider === 'string' && provider.trim().length > 0;
+  const hasTransactionId = typeof transactionId === 'string' && transactionId.trim().length > 0;
+  const hasAmount = amount !== undefined && amount !== null && amount !== '';
+  if (!hasProvider && !hasTransactionId && !hasAmount) return undefined;
+  return value;
+}
+
 export class GokwikCreateOrderMetaDataDto {
   @IsOptional()
   @IsString()
   gst_no?: string;
 
   @IsOptional()
+  @Transform(({ value }) => normalizeRewardsInfo(value))
   @ValidateNested()
   @Type(() => GokwikRewardsInfoDto)
   rewards_info?: GokwikRewardsInfoDto | null;

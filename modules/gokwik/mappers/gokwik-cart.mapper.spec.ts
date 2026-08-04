@@ -48,8 +48,20 @@ describe('mapCartToGokwikCart', () => {
 
     const result = mapCartToGokwikCart(cart, {
       availablePaymentMethods: [
-        { id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' },
-        { id: 'cod', title: 'Cash on Delivery', price: 50, currency: 'INR' },
+        {
+          id: 'prepaid',
+          description: 'Prepaid',
+          title: 'Prepaid',
+          price: 0,
+          currency: 'INR',
+        },
+        {
+          id: 'cod',
+          description: 'Cash on Delivery',
+          title: 'Cash on Delivery',
+          price: 50,
+          currency: 'INR',
+        },
       ],
       availableShippingMethods: [
         { id: 'shipping', price: 45, title: 'Shipping', currency: 'INR' },
@@ -72,8 +84,20 @@ describe('mapCartToGokwikCart', () => {
       expect.objectContaining({ code: 'SAVE50', amount: 50 }),
     ]);
     expect(result.available_payment_methods).toEqual([
-      { id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' },
-      { id: 'cod', title: 'Cash on Delivery', price: 50, currency: 'INR' },
+      {
+        id: 'prepaid',
+        description: 'Prepaid',
+        title: 'Prepaid',
+        price: 0,
+        currency: 'INR',
+      },
+      {
+        id: 'cod',
+        description: 'Cash on Delivery',
+        title: 'Cash on Delivery',
+        price: 50,
+        currency: 'INR',
+      },
     ]);
     expect(result.available_shipping_methods).toEqual([
       {
@@ -86,8 +110,8 @@ describe('mapCartToGokwikCart', () => {
     // Handling / Platform always present — same values as cart (including 0)
     expect(result.order_summary_extra_fields).toEqual(
       expect.arrayContaining([
-        { name: 'Handling Fee', value: 0 },
-        { name: 'Platform Fee', value: 0 },
+        { name: 'Handling charges', value: 0 },
+        { name: 'Platform fee', value: 0 },
       ]),
     );
   });
@@ -137,8 +161,8 @@ describe('mapCartToGokwikCart', () => {
     };
 
     expect(mapCartToGokwikCart(cart).order_summary_extra_fields).toEqual([
-      { name: 'Handling Fee', value: 0 },
-      { name: 'Platform Fee', value: 0 },
+      { name: 'Handling charges', value: 0 },
+      { name: 'Platform fee', value: 0 },
     ]);
   });
 
@@ -186,10 +210,13 @@ describe('mapCartToGokwikCart', () => {
       ],
     };
 
-    expect(mapCartToGokwikCart(cart).order_summary_extra_fields).toEqual([
-      { name: 'Handling Fee', value: 50 },
-      { name: 'Platform Fee', value: 50 },
+    const mapped = mapCartToGokwikCart(cart);
+    expect(mapped.order_summary_extra_fields).toEqual([
+      { name: 'Handling charges', value: 50 },
+      { name: 'Platform fee', value: 50 },
     ]);
+    // total must include fees so GoKwik Order Summary matches To Pay
+    expect(mapped.total).toBe(545);
   });
 
   it('falls back to variant label when product details are missing', () => {

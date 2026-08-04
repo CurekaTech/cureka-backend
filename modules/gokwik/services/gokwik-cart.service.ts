@@ -179,7 +179,13 @@ export class GokwikCartService {
     });
     const methods: GokwikAvailablePaymentMethod[] = [];
     if (hasPrepaid) {
-      methods.push({ id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' });
+      methods.push({
+        id: 'prepaid',
+        description: 'Prepaid',
+        title: 'Prepaid',
+        price: 0,
+        currency: 'INR',
+      });
     }
 
     const payable = roundMoney(cart.subtotal - cart.discountAmount);
@@ -188,8 +194,9 @@ export class GokwikCartService {
     if (payable >= min && payable <= max) {
       methods.push({
         id: 'cod',
+        description: 'Cash on Delivery',
         title: 'Cash on Delivery',
-        price: Math.max(0, Number(cart.codCharge) || 0),
+        price: Math.max(0, Math.round(Number(cart.codCharge) || 0)),
         currency: 'INR',
       });
     }

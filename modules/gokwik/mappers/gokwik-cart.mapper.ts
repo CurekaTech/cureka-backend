@@ -49,9 +49,9 @@ export function mapCartToGokwikCart(
         item.subSubSubCategoryId,
       ].filter((id): id is string => Boolean(id)),
       sku: item.sku,
-      price: item.unitPrice,
-      mrp,
-      total: item.totalPrice,
+      price: toGokwikAmount(item.unitPrice),
+      mrp: toGokwikAmount(mrp),
+      total: toGokwikAmount(item.totalPrice),
       quantity: item.quantity,
       title: item.productName,
       image_url: item.primaryImageUrl?.url ?? '',
@@ -64,11 +64,12 @@ export function mapCartToGokwikCart(
     };
   });
 
+  const discountAmount = toGokwikAmount(cart.discountAmount);
   const discounts: GokwikCartDiscount[] =
-    cart.coupon && cart.discountAmount > 0
+    cart.coupon && discountAmount > 0
       ? [
           {
-            amount: cart.discountAmount,
+            amount: discountAmount,
             code: cart.coupon.code,
             description: cart.coupon.title || cart.coupon.code,
             type: 'CART_DISCOUNT',
@@ -77,13 +78,30 @@ export function mapCartToGokwikCart(
         ]
       : [];
 
-  const orderSummaryExtraFields = buildOrderSummaryExtraFields(cart);
+  const handling = toGokwikAmount(cart.handlingAmount);
+  const platform = toGokwikAmount(cart.platformFee);
+  const cod = toGokwikAmount(cart.codCharge);
+  const prepaid = toGokwikAmount(cart.prepaidDiscount);
+  const subtotal = toGokwikAmount(cart.subtotal);
+  const shippingTotal = toGokwikAmount(cart.shippingAmount);
+  const orderSummaryExtraFields = buildOrderSummaryExtraFields({
+    handling,
+    platform,
+    cod,
+    prepaid,
+  });
+
+  // Keep GoKwik total aligned with summary lines + extra fields.
+  const total = Math.max(
+    0,
+    subtotal - discountAmount + shippingTotal + handling + platform + cod - prepaid,
+  );
 
   return {
-    subtotal: cart.subtotal,
-    discount_total: cart.discountAmount,
-    shipping_total: cart.shippingAmount,
-    total: cart.grandTotal,
+    subtotal,
+    discount_total: discountAmount,
+    shipping_total: shippingTotal,
+    total,
     currency: 'INR',
     items,
     discounts,
@@ -93,32 +111,48 @@ export function mapCartToGokwikCart(
     total_tax: 0,
     available_payment_methods: options.availablePaymentMethods ?? [],
     available_coupons: [],
-    available_shipping_methods:
-      options.availableShippingMethods ?? GOKWIK_DEFAULT_SHIPPING_METHODS,
+    available_shipping_methods: (
+      options.availableShippingMethods ?? GOKWIK_DEFAULT_SHIPPING_METHODS
+    ).map((method) => ({
+      ...method,
+      price: toGokwikAmount(method.price),
+    })),
     order_summary_extra_fields: orderSummaryExtraFields,
   };
 }
 
 /**
  * Mirror cart pricing into GoKwik `order_summary_extra_fields`.
- * Handling Fee and Platform Fee are always included (same values as cart),
- * including 0 when the charge is waived — same pattern as sample fields
- * that can be 0 (e.g. Care Guarantee).
+ * Handling + Platform are always included (including 0 → shown as FREE).
+ * Labels match the storefront bill summary.
+ * Values must be integers (GoKwik schema).
  */
-function buildOrderSummaryExtraFields(cart: CartResponse): GokwikOrderSummaryExtraField[] {
+function buildOrderSummaryExtraFields(fees: {
+  handling: number;
+  platform: number;
+  cod: number;
+  prepaid: number;
+}): GokwikOrderSummaryExtraField[] {
   const fields: GokwikOrderSummaryExtraField[] = [
-    { name: 'Handling Fee', value: cart.handlingAmount ?? 0 },
-    { name: 'Platform Fee', value: cart.platformFee ?? 0 },
+    { name: 'Handling charges', value: fees.handling },
+    { name: 'Platform fee', value: fees.platform },
   ];
 
-  if (cart.codCharge > 0) {
-    fields.push({ name: 'COD Charge', value: cart.codCharge });
+  if (fees.cod > 0) {
+    fields.push({ name: 'COD Charge', value: fees.cod });
   }
-  if (cart.prepaidDiscount > 0) {
-    fields.push({ name: 'Prepaid Discount', value: -cart.prepaidDiscount });
+  if (fees.prepaid > 0) {
+    fields.push({ name: 'Prepaid Discount', value: -fees.prepaid });
   }
 
   return fields;
+}
+
+/** GoKwik money fields are documented as integers (rupees). */
+function toGokwikAmount(value: number | null | undefined): number {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount);
 }
 
 function resolveProductDetails(item: CartResponse['items'][number]) {
