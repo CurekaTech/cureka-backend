@@ -107,21 +107,21 @@ export class CartPricingService {
       }
     }
 
-    // All threshold-based charges compare against the order payable amount
-    // (subtotal − discount), matching the admin-setting descriptions.
-    const payableBeforeShipping = roundMoney(subtotal - discountAmount);
+    // Payable merchandise amount the customer owes for products (before shipping/fees).
+    // Shipping slabs + fee thresholds all use this same base for Cureka + GoKwik carts.
+    const payableSubtotal = roundMoney(subtotal - discountAmount);
 
     // Handling charge: applied while payable ≤ handling_charge_threshold.
     const handlingAmount = settings.isChargeApplicable(
-      payableBeforeShipping,
+      payableSubtotal,
       settings.getHandlingChargeThreshold(checkoutAdminSettings),
     )
       ? settings.getHandlingCharge(checkoutAdminSettings)
       : 0;
 
-    // Platform fee: waived once subtotal reaches the platform-fee threshold.
+    // Platform fee: waived once payable merchandise reaches the platform-fee threshold.
     const platformFee =
-      subtotal < settings.getPlatformFeeThreshold(checkoutAdminSettings)
+      payableSubtotal < settings.getPlatformFeeThreshold(checkoutAdminSettings)
         ? settings.getPlatformFee(checkoutAdminSettings)
         : 0;
 
@@ -129,7 +129,7 @@ export class CartPricingService {
     const codCharge =
       params.paymentMethod === OrderPaymentMethod.COD &&
       settings.isChargeApplicable(
-        payableBeforeShipping,
+        payableSubtotal,
         settings.getCodChargeThreshold(checkoutAdminSettings),
       )
         ? settings.getCodCharge(checkoutAdminSettings)
@@ -153,7 +153,7 @@ export class CartPricingService {
     const prepaidFlatDiscount =
       isPrepaidPayment &&
       settings.isChargeApplicable(
-        payableBeforeShipping,
+        payableSubtotal,
         settings.getPrepaidChargeThreshold(checkoutAdminSettings),
       )
         ? settings.getPrepaidCharge(checkoutAdminSettings)
@@ -161,11 +161,7 @@ export class CartPricingService {
 
     const prepaidDiscount = roundMoney(prepaidPercentDiscount + prepaidFlatDiscount);
 
-    const shippingAmount = this.resolveShippingAmount(
-      payableBeforeShipping,
-      coupon,
-      shippingSlabs,
-    );
+    const shippingAmount = this.resolveShippingAmount(payableSubtotal, coupon, shippingSlabs);
 
     return this.buildPricing({
       subtotal,
@@ -216,12 +212,12 @@ export class CartPricingService {
   }
 
   /**
-   * Shipping is free when payable amount (subtotal − discount) is >= threshold.
-   * Threshold comes from checkout admin settings (`shipping_charge_threshold`).
+   * Shipping charge from `gokwik_shipping_slabs`, keyed by payable merchandise
+   * amount (`subtotal − coupon discount`). Used by Cureka cart and GoKwik get-cart.
    * `free_shipping` coupons always waive shipping.
    */
   resolveShippingAmount(
-    payableBeforeShipping: number,
+    payableSubtotal: number,
     coupon: CouponEntity | null,
     shippingSlabs: ShippingSlab[],
   ): number {
@@ -231,8 +227,8 @@ export class CartPricingService {
 
     const slab = shippingSlabs.find(
       (candidate) =>
-        payableBeforeShipping >= candidate.min &&
-        (candidate.max === null || payableBeforeShipping <= candidate.max),
+        payableSubtotal >= candidate.min &&
+        (candidate.max === null || payableSubtotal <= candidate.max),
     );
     return roundMoney(slab?.charge ?? 0);
   }
