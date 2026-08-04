@@ -306,8 +306,9 @@ export class GokwikOrderService {
   ): void {
     const equalsMoney = (left: number, right: number) =>
       Math.abs(Math.round(left * 100) - Math.round(right * 100)) <= 1;
+    const payableTotal = roundMoney(expectedTotal + this.sumOtherCharges(meta));
 
-    if (!equalsMoney(payment.payment_amount, expectedTotal)) {
+    if (!equalsMoney(payment.payment_amount, payableTotal)) {
       throw new BadRequestException('GoKwik payment amount does not match the order total');
     }
 
@@ -318,10 +319,22 @@ export class GokwikOrderService {
         throw new BadRequestException('ppcod split is required for Partial COD');
       }
       const splitTotal = prepaid + payable;
-      if (!equalsMoney(splitTotal, expectedTotal)) {
+      if (!equalsMoney(splitTotal, payableTotal)) {
         throw new BadRequestException('Partial COD split does not match the order total');
       }
     }
+  }
+
+  private sumOtherCharges(meta: GokwikCreateOrderMetaDataDto | undefined): number {
+    return roundMoney(
+      (meta?.other_charges ?? []).reduce((sum, charge) => {
+        const amount = Number(charge?.amount ?? 0);
+        if (!Number.isFinite(amount) || amount < 0) {
+          return sum;
+        }
+        return sum + amount;
+      }, 0),
+    );
   }
 
   private async applyGokwikDiscount(
