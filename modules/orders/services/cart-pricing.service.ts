@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import {
@@ -18,6 +18,8 @@ import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
 
 @Injectable()
 export class CartPricingService {
+  private readonly logger = new Logger(CartPricingService.name);
+
   constructor(
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartsRepository: CartsRepository,
@@ -107,8 +109,7 @@ export class CartPricingService {
       }
     }
 
-    // Payable merchandise amount the customer owes for products (before shipping/fees).
-    // Shipping slabs + fee thresholds all use this same base for Cureka + GoKwik carts.
+    // Merchandise payable (products after coupon). Fee thresholds use this base.
     const payableSubtotal = roundMoney(subtotal - discountAmount);
 
     // Handling charge: applied while payable ≤ handling_charge_threshold.
@@ -161,7 +162,23 @@ export class CartPricingService {
 
     const prepaidDiscount = roundMoney(prepaidPercentDiscount + prepaidFlatDiscount);
 
-    const shippingAmount = this.resolveShippingAmount(payableSubtotal, coupon, shippingSlabs);
+    // Shipping slabs use payable-before-shipping (merchandise + fees except shipping),
+    // matching Bill Summary "amount before delivery" (e.g. 145 + 100 + 100 = 345 → ₹55).
+    const payableBeforeShipping = roundMoney(payableSubtotal + handlingAmount + platformFee + codCharge);
+    const shippingAmount = this.resolveShippingAmount(
+      payableBeforeShipping,
+      coupon,
+      shippingSlabs,
+      {
+        cartId: params.cartId,
+        subtotal,
+        discountAmount,
+        payableSubtotal,
+        handlingAmount,
+        platformFee,
+        codCharge,
+      },
+    );
 
     return this.buildPricing({
       subtotal,
@@ -212,25 +229,66 @@ export class CartPricingService {
   }
 
   /**
-   * Shipping charge from `gokwik_shipping_slabs`, keyed by payable merchandise
-   * amount (`subtotal − coupon discount`). Used by Cureka cart and GoKwik get-cart.
-   * `free_shipping` coupons always waive shipping.
+   * Shipping charge from `gokwik_shipping_slabs`.
+   * Slab base = payable before shipping:
+   * `(subtotal − coupon) + handling + platform (+ COD when applicable)`.
+   * Used by Cureka cart and GoKwik get-cart. `free_shipping` coupons waive shipping.
    */
   resolveShippingAmount(
-    payableSubtotal: number,
+    payableBeforeShipping: number,
     coupon: CouponEntity | null,
     shippingSlabs: ShippingSlab[],
+    debug?: {
+      cartId?: string;
+      subtotal?: number;
+      discountAmount?: number;
+      payableSubtotal?: number;
+      handlingAmount?: number;
+      platformFee?: number;
+      codCharge?: number;
+    },
   ): number {
     if (coupon?.couponType.trim().toLowerCase() === 'free_shipping') {
+      this.logger.log(
+        {
+          cartId: debug?.cartId,
+          payableBeforeShipping,
+          shippingAmount: 0,
+          reason: 'free_shipping_coupon',
+          couponCode: coupon.code,
+        },
+        'Shipping resolved',
+      );
       return 0;
     }
 
-    const slab = shippingSlabs.find(
+    const matchedSlab = shippingSlabs.find(
       (candidate) =>
-        payableSubtotal >= candidate.min &&
-        (candidate.max === null || payableSubtotal <= candidate.max),
+        payableBeforeShipping >= candidate.min &&
+        (candidate.max === null || payableBeforeShipping <= candidate.max),
     );
-    return roundMoney(slab?.charge ?? 0);
+    const shippingAmount = roundMoney(matchedSlab?.charge ?? 0);
+
+    this.logger.log(
+      {
+        cartId: debug?.cartId,
+        subtotal: debug?.subtotal,
+        discountAmount: debug?.discountAmount,
+        payableSubtotal: debug?.payableSubtotal,
+        handlingAmount: debug?.handlingAmount,
+        platformFee: debug?.platformFee,
+        codCharge: debug?.codCharge,
+        payableBeforeShipping,
+        matchedSlab: matchedSlab
+          ? { min: matchedSlab.min, max: matchedSlab.max, charge: matchedSlab.charge }
+          : null,
+        shippingAmount,
+        slabs: shippingSlabs,
+      },
+      'Shipping resolved from admin slabs',
+    );
+
+    return shippingAmount;
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {
