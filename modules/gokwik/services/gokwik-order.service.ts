@@ -57,7 +57,12 @@ export class GokwikOrderService {
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
-      const pricedCart = await this.cartService.getCartById(cartId);
+      const isCodPayment = dto.payment_details.payment_method === 'cod';
+      const pricedCart = await this.cartService.getCartById(
+        cartId,
+        undefined,
+        isCodPayment ? { paymentMethod: OrderPaymentMethod.COD } : undefined,
+      );
       const existing = await this.gokwikRepository.findOrderByCartId(cartId);
       if (existing?.order) {
         const existingOrderTotal = Number(existing.order.grandTotal);
@@ -71,6 +76,7 @@ export class GokwikOrderService {
               existingOrderNumber: existing.order.orderNumber,
               existingOrderTotal,
               currentCartTotal: pricedCart.grandTotal,
+              paymentMethod: dto.payment_details.payment_method,
             },
             'Refreshing stale GoKwik order link for cart',
           );
@@ -84,7 +90,8 @@ export class GokwikOrderService {
             paymentStatus,
             notes: null,
             orderSource: OrderSource.GOKWIK,
-            ignorePaymentMethodPricing: true,
+            // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
+            ignorePaymentMethodPricing: !isCodPayment,
           });
           this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(refreshedOrder.grandTotal));
           this.assertDiscountTotal(dto.meta_data, Number(refreshedOrder.discountAmount));
@@ -114,9 +121,21 @@ export class GokwikOrderService {
 
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
-      if (dto.payment_details.payment_method === 'cod') {
+      if (isCodPayment) {
         const payable = roundMoney(pricedCart.subtotal - pricedCart.discountAmount);
         const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+        this.logger.log(
+          {
+            cartId,
+            payable,
+            codMinOrderAmount: this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(amounts),
+            codMaxOrderAmount: this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(amounts),
+            paymentAmount: dto.payment_details.payment_amount,
+            cartGrandTotal: pricedCart.grandTotal,
+            codCharge: pricedCart.codCharge,
+          },
+          '[GoKwik] COD create-order eligibility check',
+        );
         this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
       }
       const shippingAddress = this.mapShippingAddress(dto.shipping_address);
@@ -130,7 +149,8 @@ export class GokwikOrderService {
         paymentStatus,
         notes: null,
         orderSource: OrderSource.GOKWIK,
-        ignorePaymentMethodPricing: true,
+        // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
+        ignorePaymentMethodPricing: !isCodPayment,
       });
 
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(order.grandTotal));

@@ -144,13 +144,20 @@ export class CartService {
   /**
    * Load an active cart by primary key (used by GoKwik merchantCheckoutId / cart_id).
    */
-  async getCartById(cartId: string, manager = this.dataSource.manager): Promise<CartResponse> {
+  async getCartById(
+    cartId: string,
+    manager = this.dataSource.manager,
+    options?: { paymentMethod?: OrderPaymentMethod },
+  ): Promise<CartResponse> {
     const cart = await this.cartsRepository.findActiveById(cartId, manager);
     if (!cart) {
       throw new BadRequestException('Invalid cart id');
     }
 
-    return this.toCartResponse(cart, cart.userId, manager, { clearInvalidCoupon: true });
+    return this.toCartResponse(cart, cart.userId, manager, {
+      clearInvalidCoupon: true,
+      paymentMethod: options?.paymentMethod,
+    });
   }
 
   /**
