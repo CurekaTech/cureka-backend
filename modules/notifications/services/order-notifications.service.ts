@@ -41,13 +41,13 @@ export class OrderNotificationsService {
 
     this.logger.log(
       {
-        smsConfigured: this.msg91SmsService.isConfigured(),
-        smsTemplateIdConfigured: Boolean(this.smsTemplateId),
-        smsVarPairs: this.smsVarPairs,
-        whatsappConfigured: this.whatsappService.isConfigured(),
-        whatsappTemplateConfigured: Boolean(this.templateName),
+        smsServiceReady: this.msg91SmsService.isConfigured(),
+        MSG91_ORDER_THANKYOU_TEMPLATE_ID: Boolean(this.smsTemplateId?.trim()),
+        MSG91_ORDER_THANKYOU_VARS_parsed: this.smsVarPairs.length > 0,
+        whatsappServiceReady: this.whatsappService.isConfigured(),
+        WHATSAPP_ORDER_PLACED_TEMPLATE: Boolean(this.templateName?.trim()),
       },
-      '[OrderNotifications] Channel config loaded',
+      '[OrderNotifications] Env/config presence check (true/false only)',
     );
   }
 

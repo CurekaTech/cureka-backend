@@ -271,8 +271,8 @@ export class OrdersService {
       return order;
     });
 
-    await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     await this.notifyOrderPlacedSafely(order, 'place-order');
+    await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     return this.findOne(userId, order.id);
   }
 
@@ -586,8 +586,8 @@ export class OrdersService {
     });
 
     if (shouldPushFulfillment) {
-      await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
       await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
+      await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
     }
 
     return order;
@@ -902,8 +902,8 @@ export class OrdersService {
       return order;
     });
 
-    await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
+    await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -1102,15 +1102,49 @@ export class OrdersService {
   }
 
   private async notifyOrderPlacedSafely(order: OrderEntity, source: string): Promise<void> {
-    await this.orderNotificationsService.notifyOrderPlacedSafely({
-      phoneNumber: order.phoneNumber,
-      customerName: order.recipientName,
-      orderNumber: order.orderNumber,
-      grandTotal: String(order.grandTotal ?? ''),
-      paymentMethod: String(order.paymentMethod ?? ''),
-      orderStatus: String(order.orderStatus ?? ''),
-      source,
-    });
+    const phone = String(order.phoneNumber ?? '').trim();
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        source,
+        hasPhone: Boolean(phone),
+        phone: phone ? `${phone.slice(0, 2)}******${phone.slice(-2)}` : null,
+        paymentMethod: order.paymentMethod,
+        orderStatus: order.orderStatus,
+        grandTotal: order.grandTotal,
+      },
+      '[OrderNotify] Dispatching order-placed notifications (WhatsApp + MSG91 SMS)',
+    );
+
+    try {
+      await this.orderNotificationsService.notifyOrderPlacedSafely({
+        phoneNumber: order.phoneNumber,
+        customerName: order.recipientName,
+        orderNumber: order.orderNumber,
+        grandTotal: String(order.grandTotal ?? ''),
+        paymentMethod: String(order.paymentMethod ?? ''),
+        orderStatus: String(order.orderStatus ?? ''),
+        source,
+      });
+      this.logger.log(
+        { orderId: order.id, orderNumber: order.orderNumber, source },
+        '[OrderNotify] Order-placed notification dispatch finished',
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          source,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : { message: String(error) },
+        },
+        '[OrderNotify] Order-placed notification dispatch crashed (non-blocking)',
+      );
+    }
   }
 
   private async pushOrderToShipwaySafely(
