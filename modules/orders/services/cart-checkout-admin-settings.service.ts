@@ -81,6 +81,21 @@ export class CartCheckoutAdminSettingsService {
     return amounts[definition.key];
   }
 
+  /**
+   * Lowest payable merchandise amount at which shipping becomes free (slab charge = 0).
+   * Falls back to legacy `shipping_charge_threshold` when slabs have no free tier.
+   */
+  getFreeShippingMinFromSlabs(
+    slabs: ShippingSlab[],
+    amounts: ResolvedCartCheckoutAdminSettings,
+  ): number {
+    const freeSlab = slabs.find((slab) => roundMoney(slab.charge) === 0);
+    if (freeSlab) {
+      return freeSlab.min;
+    }
+    return this.getFreeShippingThreshold(amounts);
+  }
+
   resolveCartFlatFees(amounts: ResolvedCartCheckoutAdminSettings): ResolvedCartCheckoutFlatFees {
     const flatFees: ResolvedCartCheckoutFlatFees = {};
 
