@@ -181,10 +181,15 @@ export const envValidationSchema = Joi.object({
   WHATSAPP_ORDER_PLACED_BODY_VARS: Joi.string().default('customerName,orderNumber,grandTotal'),
   WHATSAPP_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
 
-  // MSG91 SMS OTP — https://docs.msg91.com/otp/sendotp (not used for order WhatsApp)
+  // MSG91 SMS — OTP + order thank-you Flow SMS (https://docs.msg91.com/sms/send-sms)
   MSG91_ENABLED: Joi.string().valid('true', 'false').default('false'),
   MSG91_AUTH_KEY: Joi.string().allow('').optional(),
   MSG91_OTP_TEMPLATE_ID: Joi.string().allow('').optional(),
+  MSG91_ORDER_THANKYOU_TEMPLATE_ID: Joi.string().allow('').optional(),
+  MSG91_ORDER_THANKYOU_VARS: Joi.string().default(
+    'var:customerName,var1:orderNumber,var2:grandTotal',
+  ),
+  MSG91_SHORT_URL: Joi.string().valid('0', '1').default('0'),
   MSG91_BASE_URL: Joi.string().uri().default('https://control.msg91.com/api/v5'),
   MSG91_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
 });
