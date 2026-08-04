@@ -72,11 +72,41 @@ export class GokwikOrderService {
               existingOrderTotal,
               currentCartTotal: pricedCart.grandTotal,
             },
-            'Stale GoKwik order link detected for cart',
+            'Refreshing stale GoKwik order link for cart',
           );
-          throw new BadRequestException(
-            'Stale GoKwik checkout session. Please refresh checkout and create a new cart session.',
-          );
+          const shippingAddress = this.mapShippingAddress(dto.shipping_address);
+          const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
+          const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
+          const refreshedOrder = await this.ordersService.createDraftOrderFromCart(cart.userId, {
+            cartId,
+            addressId: address.id,
+            paymentMethod,
+            paymentStatus,
+            notes: null,
+            orderSource: OrderSource.GOKWIK,
+            ignorePaymentMethodPricing: true,
+          });
+          this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(refreshedOrder.grandTotal));
+          this.assertDiscountTotal(dto.meta_data, Number(refreshedOrder.discountAmount));
+          await this.gokwikRepository.updateOrderLink(existing.id, {
+            orderId: refreshedOrder.id,
+            gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
+            paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+            gatewayTransactionId: this.normalizeOptionalIdentifier(
+              dto.payment_details.pg_payment_trnx_id,
+            ),
+            paymentMethod: dto.payment_details.payment_method,
+            paymentAmount: dto.payment_details.payment_amount.toFixed(2),
+            prepaidAmount: (dto.meta_data?.ppcod?.prepaid_amount ?? 0).toFixed(2),
+            payableOnDelivery: (dto.meta_data?.ppcod?.payable_on_delivery ?? 0).toFixed(2),
+            customerPhone,
+            metadata: {
+              ...(existing.metadata ?? {}),
+              rto_risk_flag: dto.meta_data?.rto_risk_flag,
+            },
+            updatedBy: 'gokwik',
+          });
+          return { status: 'success', order_id: refreshedOrder.orderNumber };
         }
         this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
         return { status: 'success', order_id: existing.order.orderNumber };
