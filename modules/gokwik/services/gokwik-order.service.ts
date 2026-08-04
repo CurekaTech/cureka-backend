@@ -307,7 +307,8 @@ export class GokwikOrderService {
     const equalsMoney = (left: number, right: number) =>
       Math.abs(Math.round(left * 100) - Math.round(right * 100)) <= 1;
     const otherChargesTotal = this.sumOtherCharges(meta);
-    const payableTotal = roundMoney(expectedTotal + otherChargesTotal);
+    const rewardsAmount = this.resolveRewardsAmount(meta);
+    const payableTotal = roundMoney(Math.max(expectedTotal + otherChargesTotal - rewardsAmount, 0));
 
     if (!equalsMoney(payment.payment_amount, payableTotal)) {
       this.logger.warn(
@@ -315,6 +316,7 @@ export class GokwikOrderService {
           paymentAmount: payment.payment_amount,
           expectedTotal,
           otherChargesTotal,
+          rewardsAmount,
           payableTotal,
           paymentMethod: payment.payment_method,
         },
@@ -346,6 +348,14 @@ export class GokwikOrderService {
         return sum + amount;
       }, 0),
     );
+  }
+
+  private resolveRewardsAmount(meta: GokwikCreateOrderMetaDataDto | undefined): number {
+    const amount = Number(meta?.rewards_info?.reward_amount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return 0;
+    }
+    return roundMoney(amount);
   }
 
   private async applyGokwikDiscount(
