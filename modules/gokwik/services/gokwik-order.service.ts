@@ -50,11 +50,6 @@ export class GokwikOrderService {
     }
 
     return this.withCartLock(cartId, async () => {
-      const existing = await this.gokwikRepository.findOrderByCartId(cartId);
-      if (existing?.order) {
-        return { status: 'success', order_id: existing.order.orderNumber };
-      }
-
       const cart = await this.cartService.findActiveCartById(cartId);
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
@@ -63,6 +58,60 @@ export class GokwikOrderService {
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
       const pricedCart = await this.cartService.getCartById(cartId);
+      const existing = await this.gokwikRepository.findOrderByCartId(cartId);
+      if (existing?.order) {
+        const existingOrderTotal = Number(existing.order.grandTotal);
+        const hasStaleOrderAmount =
+          Math.abs(Math.round(existingOrderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) >
+          1;
+        if (hasStaleOrderAmount) {
+          this.logger.warn(
+            {
+              cartId,
+              existingOrderNumber: existing.order.orderNumber,
+              existingOrderTotal,
+              currentCartTotal: pricedCart.grandTotal,
+            },
+            'Refreshing stale GoKwik order link for cart',
+          );
+          const shippingAddress = this.mapShippingAddress(dto.shipping_address);
+          const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
+          const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
+          const refreshedOrder = await this.ordersService.createDraftOrderFromCart(cart.userId, {
+            cartId,
+            addressId: address.id,
+            paymentMethod,
+            paymentStatus,
+            notes: null,
+            orderSource: OrderSource.GOKWIK,
+            ignorePaymentMethodPricing: true,
+          });
+          this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(refreshedOrder.grandTotal));
+          this.assertDiscountTotal(dto.meta_data, Number(refreshedOrder.discountAmount));
+          await this.gokwikRepository.updateOrderLink(existing.id, {
+            orderId: refreshedOrder.id,
+            gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
+            paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+            gatewayTransactionId: this.normalizeOptionalIdentifier(
+              dto.payment_details.pg_payment_trnx_id,
+            ),
+            paymentMethod: dto.payment_details.payment_method,
+            paymentAmount: dto.payment_details.payment_amount.toFixed(2),
+            prepaidAmount: (dto.meta_data?.ppcod?.prepaid_amount ?? 0).toFixed(2),
+            payableOnDelivery: (dto.meta_data?.ppcod?.payable_on_delivery ?? 0).toFixed(2),
+            customerPhone,
+            metadata: {
+              ...(existing.metadata ?? {}),
+              rto_risk_flag: dto.meta_data?.rto_risk_flag,
+            },
+            updatedBy: 'gokwik',
+          });
+          return { status: 'success', order_id: refreshedOrder.orderNumber };
+        }
+        this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
+        return { status: 'success', order_id: existing.order.orderNumber };
+      }
+
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
       if (dto.payment_details.payment_method === 'cod') {
@@ -151,7 +200,25 @@ export class GokwikOrderService {
         throw new BadRequestException('Invalid order id for this checkout session');
       }
 
-      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(link.order.grandTotal));
+      const pricedCart = await this.cartService.getCartById(cartId);
+      const orderTotal = Number(link.order.grandTotal);
+      const hasStaleOrderAmount =
+        Math.abs(Math.round(orderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) > 1;
+      if (hasStaleOrderAmount) {
+        this.logger.warn(
+          {
+            cartId,
+            orderNumber: link.order.orderNumber,
+            orderTotal,
+            currentCartTotal: pricedCart.grandTotal,
+          },
+          'Place-order rejected due to stale GoKwik order amount',
+        );
+        throw new BadRequestException(
+          'Stale GoKwik checkout session. Please refresh checkout and create-order again.',
+        );
+      }
+      this.assertPaymentTotal(dto.payment_details, dto.meta_data, orderTotal);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
 
       await this.gokwikRepository.updateOrderLink(link.id, {
@@ -306,8 +373,23 @@ export class GokwikOrderService {
   ): void {
     const equalsMoney = (left: number, right: number) =>
       Math.abs(Math.round(left * 100) - Math.round(right * 100)) <= 1;
+    const rewardsAmount = this.resolveRewardsAmount(meta);
+    // Cureka grandTotal already includes handling/platform/COD fees.
+    // GoKwik may also echo those as meta_data.other_charges — do not add them again.
+    const payableTotal = roundMoney(Math.max(expectedTotal - rewardsAmount, 0));
 
-    if (!equalsMoney(payment.payment_amount, expectedTotal)) {
+    if (!equalsMoney(payment.payment_amount, payableTotal)) {
+      this.logger.warn(
+        {
+          paymentAmount: payment.payment_amount,
+          expectedTotal,
+          otherChargesTotal: this.sumOtherCharges(meta),
+          rewardsAmount,
+          payableTotal,
+          paymentMethod: payment.payment_method,
+        },
+        'GoKwik payment mismatch',
+      );
       throw new BadRequestException('GoKwik payment amount does not match the order total');
     }
 
@@ -318,10 +400,30 @@ export class GokwikOrderService {
         throw new BadRequestException('ppcod split is required for Partial COD');
       }
       const splitTotal = prepaid + payable;
-      if (!equalsMoney(splitTotal, expectedTotal)) {
+      if (!equalsMoney(splitTotal, payableTotal)) {
         throw new BadRequestException('Partial COD split does not match the order total');
       }
     }
+  }
+
+  private sumOtherCharges(meta: GokwikCreateOrderMetaDataDto | undefined): number {
+    return roundMoney(
+      (meta?.other_charges ?? []).reduce((sum, charge) => {
+        const amount = Number(charge?.amount ?? 0);
+        if (!Number.isFinite(amount) || amount < 0) {
+          return sum;
+        }
+        return sum + amount;
+      }, 0),
+    );
+  }
+
+  private resolveRewardsAmount(meta: GokwikCreateOrderMetaDataDto | undefined): number {
+    const amount = Number(meta?.rewards_info?.reward_amount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return 0;
+    }
+    return roundMoney(amount);
   }
 
   private async applyGokwikDiscount(

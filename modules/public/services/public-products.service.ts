@@ -706,13 +706,18 @@ export class PublicProductsService {
   }
 
   /**
-   * Free delivery when displayed selling price exceeds `shipping_charge_threshold`
-   * (same comparison as checkout: charge applies while payable ≤ threshold).
+   * Free delivery badge when displayed selling price reaches free-shipping slab min
+   * (same payable base as cart/checkout shipping slabs).
    */
   private async resolveIsFreeDelivery(product: IPublicProductDetail): Promise<boolean> {
-    const checkoutSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-    const threshold =
-      this.cartCheckoutAdminSettingsService.getFreeShippingThreshold(checkoutSettings);
+    const [checkoutSettings, shippingSlabs] = await Promise.all([
+      this.cartCheckoutAdminSettingsService.resolveAmounts(),
+      this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
+    ]);
+    const threshold = this.cartCheckoutAdminSettingsService.getFreeShippingMinFromSlabs(
+      shippingSlabs,
+      checkoutSettings,
+    );
 
     const selectedVariant = product.selectedVariantId
       ? product.variants.find((variant) => variant.id === product.selectedVariantId)
@@ -721,7 +726,7 @@ export class PublicProductsService {
     const sellingPrice =
       displayVariant?.sellingPrice ?? product.pricing.minSellingPrice ?? 0;
 
-    return sellingPrice > threshold;
+    return sellingPrice >= threshold;
   }
 
   private async enrichPartySummary<
