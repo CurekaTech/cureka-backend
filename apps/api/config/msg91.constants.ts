@@ -16,8 +16,8 @@ export const MSG91_STATIC = {
   /** DLT content template ID mapped on the MSG91 Flow above. */
   dltTemplateId: '1207163584541815417',
 
-  /** DLT Principal Entity ID — set when known; mapped on MSG91 panel. */
-  peId: '',
+  /** DLT Principal Entity ID — mapped on MSG91 Sender ID (CUREKA). Jio DLT (prefix 120). */
+  peId: '1201159828129607743',
 
   /** Registered 6-char sender ID (must match DLT header). */
   senderId: 'CUREKA',
@@ -26,7 +26,7 @@ export const MSG91_STATIC = {
    * Include `sender` in Flow API body only when the MSG91 Flow uses "From API".
    * false = use sender configured on the Flow in MSG91 panel (recommended for DLT).
    */
-  passSenderInFlow: false,
+  passSenderInFlow: true,
 
   /**
    * Exact MSG91 Flow template text (##var## placeholders).
