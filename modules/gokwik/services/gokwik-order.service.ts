@@ -5,7 +5,6 @@ import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.e
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
-import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { CartService } from '@modules/orders/services/cart.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import { roundMoney } from '@modules/orders/utils/money.util';
@@ -40,7 +39,6 @@ export class GokwikOrderService {
     private readonly gokwikRepository: GokwikRepository,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
-    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) {}
 
   async createOrder(dto: GokwikCreateOrderDto): Promise<GokwikCreateOrderResponse> {
@@ -121,23 +119,6 @@ export class GokwikOrderService {
 
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
-      if (isCodPayment) {
-        const payable = roundMoney(pricedCart.subtotal - pricedCart.discountAmount);
-        const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-        this.logger.log(
-          {
-            cartId,
-            payable,
-            codMinOrderAmount: this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(amounts),
-            codMaxOrderAmount: this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(amounts),
-            paymentAmount: dto.payment_details.payment_amount,
-            cartGrandTotal: pricedCart.grandTotal,
-            codCharge: pricedCart.codCharge,
-          },
-          '[GoKwik] COD create-order eligibility check',
-        );
-        this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
-      }
       const shippingAddress = this.mapShippingAddress(dto.shipping_address);
       const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
