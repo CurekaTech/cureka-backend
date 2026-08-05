@@ -56,6 +56,10 @@ export class VendorEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'gst_certificate_document', nullable: false }))
   gstCertificateDocument!: IStorageFileReference;
 
+  /** Product catalog sheet uploaded at onboarding — stored as-is, not parsed/validated. */
+  @Column(storageFileReferenceColumn({ name: 'product_excel_sheet', nullable: false }))
+  productExcelSheet!: IStorageFileReference;
+
   @Column({ name: 'product_categories', type: 'text', nullable: true })
   productCategories!: string | null;
 

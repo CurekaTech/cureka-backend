@@ -123,6 +123,16 @@ export class RegisterVendorDto {
   @Type(() => StorageFileReferenceDto)
   gstCertificateDocument?: StorageFileReferenceDto;
 
+  /**
+   * Optional JSON-only; prefer uploading `productExcelSheet` as a multipart file field.
+   * Sheet contents are not validated — file is stored for later manual review.
+   */
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => StorageFileReferenceDto)
+  productExcelSheet?: StorageFileReferenceDto;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)
