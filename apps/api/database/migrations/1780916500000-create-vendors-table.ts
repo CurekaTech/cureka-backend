@@ -36,6 +36,7 @@ export class CreateVendorsTable1780916500000 implements MigrationInterface {
         "pan_document"              jsonb                                     NOT NULL,
         "gst_number"                character varying(20)                     NOT NULL,
         "gst_certificate_document"  jsonb                                     NOT NULL,
+        "product_excel_sheet"       jsonb                                     NOT NULL,
         "product_categories"        text,
         "brand_details"             text,
         "company_profile"           text,

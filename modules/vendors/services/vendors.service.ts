@@ -27,11 +27,16 @@ import { IVendor } from '../interfaces/vendor.interface';
 import { mapVendorEntitiesToResponse, mapVendorEntityToResponse } from '../mappers/vendor.mapper';
 import { VendorsRepository } from '../repositories/vendors.repository';
 
-const VENDOR_MEDIA_FIELDS = ['panDocument', 'gstCertificateDocument'] as const;
+const VENDOR_MEDIA_FIELDS = [
+  'panDocument',
+  'gstCertificateDocument',
+  'productExcelSheet',
+] as const;
 
 const VENDOR_UPLOAD_FIELDS = {
   panDocument: UploadFolder.VENDOR_DOCUMENTS,
   gstCertificateDocument: UploadFolder.VENDOR_DOCUMENTS,
+  productExcelSheet: UploadFolder.VENDOR_DOCUMENTS,
 } as const;
 
 const splitContactPerson = (contactPerson: string): { firstName: string; lastName?: string } => {
@@ -73,6 +78,7 @@ export class VendorsService {
     return this.register(dto, source, createdBy, {
       panDocumentPath: uploadedUrls['panDocument'],
       gstCertificateDocumentPath: uploadedUrls['gstCertificateDocument'],
+      productExcelSheetPath: uploadedUrls['productExcelSheet'],
     });
   }
 
@@ -92,6 +98,7 @@ export class VendorsService {
     uploads?: {
       panDocumentPath?: string;
       gstCertificateDocumentPath?: string;
+      productExcelSheetPath?: string;
     },
   ): Promise<IVendor> {
     const mobileNumber = parseIndianMobileNumber(dto.mobileNumber);
@@ -118,6 +125,11 @@ export class VendorsService {
       uploads?.gstCertificateDocumentPath,
       dto.gstCertificateDocument,
       'GST certificate document',
+    );
+    const productExcelSheet = this.resolveDocument(
+      uploads?.productExcelSheetPath,
+      dto.productExcelSheet,
+      'Product excel sheet',
     );
 
     const warehouseContactPhone = dto.warehouseContactPhone
@@ -172,6 +184,7 @@ export class VendorsService {
           panDocument,
           gstNumber,
           gstCertificateDocument,
+          productExcelSheet,
           productCategories: dto.productCategories?.trim() || null,
           brandDetails: dto.brandDetails?.trim() || null,
           companyProfile: dto.companyProfile?.trim() || null,

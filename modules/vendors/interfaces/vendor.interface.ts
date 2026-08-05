@@ -20,6 +20,7 @@ export interface IVendor {
   panDocument: IStorageFileReference | IStorageFileReferenceResponse | null;
   gstNumber: string;
   gstCertificateDocument: IStorageFileReference | IStorageFileReferenceResponse | null;
+  productExcelSheet: IStorageFileReference | IStorageFileReferenceResponse | null;
   productCategories: string | null;
   brandDetails: string | null;
   companyProfile: string | null;

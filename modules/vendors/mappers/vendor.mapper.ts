@@ -19,6 +19,7 @@ export const mapVendorEntityToResponse = (entity: VendorEntity): IVendor => ({
   panDocument: entity.panDocument,
   gstNumber: entity.gstNumber,
   gstCertificateDocument: entity.gstCertificateDocument,
+  productExcelSheet: entity.productExcelSheet,
   productCategories: entity.productCategories,
   brandDetails: entity.brandDetails,
   companyProfile: entity.companyProfile,
