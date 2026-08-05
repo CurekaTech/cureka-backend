@@ -38,9 +38,10 @@ export class CartPricingService {
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
 
-    const [checkoutAdminSettings, shippingSlabs] = await Promise.all([
+    const [checkoutAdminSettings, shippingSlabs, codSlabs] = await Promise.all([
       this.cartCheckoutAdminSettingsService.resolveAmounts(),
       this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
+      this.cartCheckoutAdminSettingsService.resolveCodSlabs(),
     ]);
     const settings = this.cartCheckoutAdminSettingsService;
     const checkoutRules = {
@@ -126,15 +127,32 @@ export class CartPricingService {
         ? settings.getPlatformFee(checkoutAdminSettings)
         : 0;
 
-    // COD charge: only for COD orders, and only while payable ≤ cod_charge_threshold.
+    // COD charge: slab-based from admin `cod_charge` JSON (merchandise payable base).
     const codCharge =
-      params.paymentMethod === OrderPaymentMethod.COD &&
-      settings.isChargeApplicable(
-        payableSubtotal,
-        settings.getCodChargeThreshold(checkoutAdminSettings),
-      )
-        ? settings.getCodCharge(checkoutAdminSettings)
+      params.paymentMethod === OrderPaymentMethod.COD
+        ? settings.resolveCodChargeAmount(payableSubtotal, codSlabs, checkoutAdminSettings)
         : 0;
+
+    if (params.paymentMethod === OrderPaymentMethod.COD) {
+      const matchedSlab = codSlabs.find(
+        (candidate) =>
+          payableSubtotal >= candidate.min &&
+          (candidate.max === null || payableSubtotal <= candidate.max),
+      );
+      this.logger.log(
+        {
+          cartId: params.cartId,
+          payableSubtotal,
+          codCharge,
+          matchedSlab: matchedSlab
+            ? { min: matchedSlab.min, max: matchedSlab.max, charge: matchedSlab.charge }
+            : null,
+          codSlabs,
+          legacyFallback: !codSlabs.length,
+        },
+        'COD charge resolved from admin slabs',
+      );
+    }
 
     const isPrepaidPayment = isPrepaidPaymentMethod(params.paymentMethod);
 

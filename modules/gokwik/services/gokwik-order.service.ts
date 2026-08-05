@@ -398,6 +398,8 @@ export class GokwikOrderService {
     // GoKwik may also echo those as meta_data.other_charges — do not add them again.
     const payableTotal = roundMoney(Math.max(expectedTotal - rewardsAmount, 0));
 
+    // GoKwik owns checkout display totals (fees/COD presentation). Soft-validate only —
+    // do not block create-order / place-order on amount drift.
     if (!equalsMoney(payment.payment_amount, payableTotal)) {
       this.logger.warn(
         {
@@ -408,9 +410,8 @@ export class GokwikOrderService {
           payableTotal,
           paymentMethod: payment.payment_method,
         },
-        'GoKwik payment mismatch',
+        'GoKwik payment mismatch (ignored — amount check disabled per GoKwik)',
       );
-      throw new BadRequestException('GoKwik payment amount does not match the order total');
     }
 
     if (payment.payment_method === 'pp-cod') {
@@ -421,7 +422,16 @@ export class GokwikOrderService {
       }
       const splitTotal = prepaid + payable;
       if (!equalsMoney(splitTotal, payableTotal)) {
-        throw new BadRequestException('Partial COD split does not match the order total');
+        this.logger.warn(
+          {
+            prepaid,
+            payable,
+            splitTotal,
+            payableTotal,
+            expectedTotal,
+          },
+          'Partial COD split mismatch (ignored — amount check disabled per GoKwik)',
+        );
       }
     }
   }
