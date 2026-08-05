@@ -5,6 +5,10 @@ import {
   IMsg91FlowSendPayload,
   IMsg91FlowSendResult,
 } from '../interfaces/msg91-sms.interface';
+import {
+  checkDltVariableLengths,
+  renderMsg91TemplatePreview,
+} from '../utils/msg91-dlt.util';
 
 /**
  * MSG91 SMS client — Flow API for transactional SMS (thank-you, etc.).
@@ -21,6 +25,9 @@ export class Msg91SmsService {
   private readonly shortUrl: string;
   private readonly senderId: string;
   private readonly dltTemplateId: string;
+  private readonly peId: string;
+  private readonly passSenderInFlow: boolean;
+  private readonly orderThankYouTemplateText: string;
   private readonly otpTemplateId: string;
   private readonly orderThankYouTemplateId: string;
 
@@ -34,6 +41,10 @@ export class Msg91SmsService {
     this.shortUrl = this.configService.get<string>('msg91.shortUrl') ?? '0';
     this.senderId = (this.configService.get<string>('msg91.senderId') ?? '').trim().toUpperCase();
     this.dltTemplateId = this.configService.get<string>('msg91.dltTemplateId') ?? '';
+    this.peId = this.configService.get<string>('msg91.peId') ?? '';
+    this.passSenderInFlow = this.configService.get<boolean>('msg91.passSenderInFlow') ?? false;
+    this.orderThankYouTemplateText =
+      this.configService.get<string>('msg91.orderThankYouTemplateText') ?? '';
     this.otpTemplateId = this.configService.get<string>('msg91.otpTemplateId') ?? '';
     this.orderThankYouTemplateId =
       this.configService.get<string>('msg91.orderThankYouTemplateId') ?? '';
@@ -43,41 +54,43 @@ export class Msg91SmsService {
         MSG91_ENABLED: this.envPresence('MSG91_ENABLED'),
         MSG91_ENABLED_true: this.enabled,
         MSG91_AUTH_KEY: this.maskSecret(process.env['MSG91_AUTH_KEY'] ?? ''),
-        MSG91_OTP_TEMPLATE_ID: this.envPresence('MSG91_OTP_TEMPLATE_ID'),
-        MSG91_OTP_TEMPLATE_ID_value: this.otpTemplateId || null,
-        MSG91_ORDER_THANKYOU_TEMPLATE_ID: this.envPresence('MSG91_ORDER_THANKYOU_TEMPLATE_ID'),
-        MSG91_ORDER_THANKYOU_TEMPLATE_ID_value: this.orderThankYouTemplateId || null,
-        MSG91_ORDER_THANKYOU_VARS: this.envPresence('MSG91_ORDER_THANKYOU_VARS'),
-        MSG91_SENDER_ID: this.envPresence('MSG91_SENDER_ID'),
-        MSG91_SENDER_ID_resolved: this.senderId,
-        MSG91_DLT_TEMPLATE_ID: this.envPresence('MSG91_DLT_TEMPLATE_ID'),
-        MSG91_DLT_TEMPLATE_ID_value: this.dltTemplateId || null,
-        MSG91_SHORT_URL: this.envPresence('MSG91_SHORT_URL'),
-        MSG91_BASE_URL: this.envPresence('MSG91_BASE_URL'),
-        MSG91_BASE_URL_value: this.baseUrl,
-        MSG91_TIMEOUT_MS: this.envPresence('MSG91_TIMEOUT_MS'),
-        MSG91_FLOW_ID: this.envPresence('MSG91_FLOW_ID'),
-        MSG91_ORDER_FLOW_ID: this.envPresence('MSG91_ORDER_FLOW_ID'),
-        MSG91_SENDER: this.envPresence('MSG91_SENDER'),
+        otpTemplateId: this.otpTemplateId,
+        orderThankYouTemplateId: this.orderThankYouTemplateId,
+        dltTemplateId: this.dltTemplateId || null,
+        peId: this.peId || null,
+        senderId: this.senderId,
+        passSenderInFlow: this.passSenderInFlow,
+        orderThankYouTemplateText: this.orderThankYouTemplateText,
+        baseUrl: this.baseUrl,
         readyToSend: this.isConfigured(),
-        note:
-          'OTP path does not call MSG91 yet; order SMS uses Flow template_id + optional sender',
+        configSource: 'apps/api/config/msg91.constants.ts (static) + MSG91_ENABLED/MSG91_AUTH_KEY (env)',
+        dltNote:
+          'DLT_TE_ID + PE_ID + exact template text must match on MSG91 Flow panel; Flow API does not send DLT_TE_ID in body',
       },
-      '[MSG91-SMS] Env presence / masked secrets check',
+      '[MSG91-SMS] Startup config check',
     );
   }
 
   isConfigured(): boolean {
-    return (
-      this.enabled &&
-      Boolean(this.authKey) &&
-      Boolean(this.baseUrl) &&
-      Boolean(this.senderId)
-    );
+    if (!this.enabled || !this.authKey || !this.baseUrl) {
+      return false;
+    }
+    if (this.passSenderInFlow && !this.senderId) {
+      return false;
+    }
+    return true;
   }
 
   getSenderId(): string {
     return this.senderId;
+  }
+
+  getPeId(): string {
+    return this.peId;
+  }
+
+  shouldPassSenderInFlow(): boolean {
+    return this.passSenderInFlow;
   }
 
   getDltTemplateId(): string {
@@ -132,20 +145,39 @@ export class Msg91SmsService {
 
     const flowId = params.templateId.trim();
     const sender = this.senderId;
+    const dltVariableChecks = checkDltVariableLengths(params.variables);
+    const renderedSmsPreview = this.orderThankYouTemplateText
+      ? renderMsg91TemplatePreview(this.orderThankYouTemplateText, params.variables)
+      : null;
+    const oversizedVars = dltVariableChecks.filter((check) => !check.withinLimit);
 
-    if (!sender) {
+    if (this.passSenderInFlow && !sender) {
       this.logger.error(
         { ...params.context, reason: 'empty_sender_id', envKey: 'MSG91_SENDER_ID' },
-        '[MSG91-SMS] Rejected — MSG91_SENDER_ID is empty',
+        '[MSG91-SMS] Rejected — MSG91_SENDER_ID is empty but MSG91_PASS_SENDER_IN_FLOW=true',
       );
       throw new ServiceUnavailableException('MSG91_SENDER_ID is not configured');
+    }
+
+    if (oversizedVars.length) {
+      this.logger.error(
+        {
+          ...params.context,
+          reason: 'dlt_variable_too_long',
+          oversizedVars,
+          dltMaxPerVariable: 40,
+        },
+        '[MSG91-SMS] Rejected — DLT variable exceeds 40 characters',
+      );
+      throw new ServiceUnavailableException(
+        'MSG91 template variable exceeds DLT 40-character limit',
+      );
     }
 
     const payload: IMsg91FlowSendPayload = {
       template_id: flowId,
       short_url: this.shortUrl,
       realTimeResponse: '1',
-      sender,
       recipients: [
         {
           mobiles,
@@ -153,6 +185,10 @@ export class Msg91SmsService {
         },
       ],
     };
+
+    if (this.passSenderInFlow && sender) {
+      payload.sender = sender;
+    }
 
     const url = `${this.baseUrl}/flow`;
     const method = 'POST';
@@ -190,8 +226,13 @@ export class Msg91SmsService {
           2,
         )}`,
         `Flow ID:\n${flowId}`,
-        `Sender:\n${sender}`,
-        `DLT Template ID (portal mapping, not in body):\n${this.dltTemplateId || '(not configured)'}`,
+        `Sender in API body:\n${payload.sender ?? '(omitted — uses Flow panel sender)'}`,
+        `MSG91_SENDER_ID env:\n${sender || '(not set)'}`,
+        `MSG91_PASS_SENDER_IN_FLOW:\n${this.passSenderInFlow}`,
+        `DLT Template ID (must match on MSG91 Flow panel):\n${this.dltTemplateId || '(not configured in env)'}`,
+        `PE ID (must match on MSG91 panel):\n${this.peId || '(not configured in env)'}`,
+        `Rendered SMS preview (compare with DLT portal text):\n${renderedSmsPreview ?? '(set MSG91_ORDER_THANKYOU_TEMPLATE_TEXT)'}`,
+        `DLT variable lengths:\n${JSON.stringify(dltVariableChecks, null, 2)}`,
         `Mobile:\n${mobiles}`,
         `Variables:\n${Object.entries(params.variables)
           .map(([key, value]) => `${key}:\n${value}`)
@@ -207,8 +248,13 @@ export class Msg91SmsService {
         url,
         method,
         flowId,
-        sender,
+        senderInPayload: payload.sender ?? null,
+        senderEnv: sender || null,
+        passSenderInFlow: this.passSenderInFlow,
         dltTemplateId: this.dltTemplateId || null,
+        peId: this.peId || null,
+        renderedSmsPreview,
+        dltVariableChecks,
         phone: mobiles,
         phoneMasked: this.maskPhone(mobiles),
         variables: params.variables,
