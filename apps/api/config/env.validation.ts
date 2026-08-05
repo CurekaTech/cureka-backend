@@ -186,9 +186,13 @@ export const envValidationSchema = Joi.object({
   MSG91_AUTH_KEY: Joi.string().allow('').optional(),
   MSG91_OTP_TEMPLATE_ID: Joi.string().allow('').optional(),
   MSG91_ORDER_THANKYOU_TEMPLATE_ID: Joi.string().allow('').optional(),
-  MSG91_ORDER_THANKYOU_VARS: Joi.string().default(
-    'var:customerName,var1:orderNumber,var2:grandTotal',
-  ),
+  MSG91_ORDER_THANKYOU_VARS: Joi.string().default('var1:orderNumber,var2:orderStatus'),
+  MSG91_SENDER_ID: Joi.string().when('MSG91_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').default(''),
+  }),
+  MSG91_DLT_TEMPLATE_ID: Joi.string().allow('').optional(),
   MSG91_SHORT_URL: Joi.string().valid('0', '1').default('0'),
   MSG91_BASE_URL: Joi.string().uri().default('https://control.msg91.com/api/v5'),
   MSG91_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
