@@ -24,12 +24,19 @@ export type ShippingSlab = {
   charge: number;
 };
 
+export type ChargeSlab = ShippingSlab;
+
 const DEFAULT_GOKWIK_SHIPPING_SLABS: ShippingSlab[] = [
   { min: 0, max: 199.99, charge: 75 },
   { min: 200, max: 399.99, charge: 55 },
   { min: 400, max: 599.99, charge: 45 },
   { min: 600, max: 899.99, charge: 25 },
   { min: 900, max: null, charge: 0 },
+];
+
+const DEFAULT_COD_CHARGE_SLABS: ChargeSlab[] = [
+  { min: 0, max: 199.99, charge: 50 },
+  { min: 200, max: null, charge: 0 },
 ];
 
 @Injectable()
@@ -59,16 +66,55 @@ export class CartCheckoutAdminSettingsService {
       return DEFAULT_GOKWIK_SHIPPING_SLABS;
     }
 
-    try {
-      const parsed = JSON.parse(entity.value) as unknown;
-      if (!Array.isArray(parsed) || !parsed.length) {
-        return DEFAULT_GOKWIK_SHIPPING_SLABS;
-      }
-      const slabs = parsed.map((value) => this.parseShippingSlab(value));
-      return slabs.sort((left, right) => left.min - right.min);
-    } catch {
-      return DEFAULT_GOKWIK_SHIPPING_SLABS;
+    return this.parseChargeSlabs(entity.value, DEFAULT_GOKWIK_SHIPPING_SLABS);
+  }
+
+  /**
+   * COD charge slabs from admin `cod_charge` JSON.
+   * Slab base = merchandise payable (subtotal − coupon discount).
+   * Returns an empty array when `cod_charge` is still a legacy flat numeric value.
+   */
+  async resolveCodSlabs(): Promise<ChargeSlab[]> {
+    const entity = await this.adminSettingsRepository.findByKey(
+      CartCheckoutAdminSettingKey.COD_CHARGE,
+    );
+    if (entity?.status !== AdminSettingStatus.ACTIVE) {
+      return DEFAULT_COD_CHARGE_SLABS;
     }
+
+    const value = entity.value?.trim() ?? '';
+    if (!this.isChargeSlabsJson(value)) {
+      return [];
+    }
+
+    return this.parseChargeSlabs(value, DEFAULT_COD_CHARGE_SLABS);
+  }
+
+  /**
+   * Resolves COD charge for a payable merchandise amount.
+   * Uses admin COD slabs when configured; otherwise falls back to legacy flat fee + threshold.
+   */
+  resolveCodChargeAmount(
+    payableSubtotal: number,
+    codSlabs: ChargeSlab[],
+    amounts: ResolvedCartCheckoutAdminSettings,
+  ): number {
+    if (codSlabs.length) {
+      return this.resolveChargeFromSlabs(payableSubtotal, codSlabs);
+    }
+
+    return this.isChargeApplicable(payableSubtotal, this.getCodChargeThreshold(amounts))
+      ? this.getCodCharge(amounts)
+      : 0;
+  }
+
+  resolveChargeFromSlabs(payableAmount: number, slabs: ChargeSlab[]): number {
+    const matchedSlab = slabs.find(
+      (candidate) =>
+        payableAmount >= candidate.min &&
+        (candidate.max === null || payableAmount <= candidate.max),
+    );
+    return roundMoney(matchedSlab?.charge ?? 0);
   }
 
   getFreeShippingThreshold(amounts: ResolvedCartCheckoutAdminSettings): number {
@@ -201,7 +247,15 @@ export class CartCheckoutAdminSettingsService {
     entity?: AdminSettingEntity,
   ): number {
     if (entity?.status === AdminSettingStatus.ACTIVE) {
-      const value = Number(entity.value);
+      const rawValue = entity.value?.trim() ?? '';
+      if (
+        definition.key === CartCheckoutAdminSettingKey.COD_CHARGE &&
+        this.isChargeSlabsJson(rawValue)
+      ) {
+        return 0;
+      }
+
+      const value = Number(rawValue);
       if (Number.isFinite(value) && value >= 0) {
         return roundMoney(value);
       }
@@ -220,9 +274,26 @@ export class CartCheckoutAdminSettingsService {
     return roundMoney(definition.fallbackDefault);
   }
 
-  private parseShippingSlab(value: unknown): ShippingSlab {
+  private isChargeSlabsJson(value: string): boolean {
+    return value.startsWith('[');
+  }
+
+  private parseChargeSlabs(value: string, fallback: ChargeSlab[]): ChargeSlab[] {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed) || !parsed.length) {
+        return fallback;
+      }
+      const slabs = parsed.map((item) => this.parseChargeSlab(item));
+      return slabs.sort((left, right) => left.min - right.min);
+    } catch {
+      return fallback;
+    }
+  }
+
+  private parseChargeSlab(value: unknown): ChargeSlab {
     if (!value || typeof value !== 'object') {
-      throw new Error('Invalid shipping slab');
+      throw new Error('Invalid charge slab');
     }
     const slab = value as Record<string, unknown>;
     const min = Number(slab['min']);
@@ -235,8 +306,12 @@ export class CartCheckoutAdminSettingsService {
       !Number.isFinite(charge) ||
       charge < 0
     ) {
-      throw new Error('Invalid shipping slab');
+      throw new Error('Invalid charge slab');
     }
-    return { min: roundMoney(min), max: max === null ? null : roundMoney(max), charge: roundMoney(charge) };
+    return {
+      min: roundMoney(min),
+      max: max === null ? null : roundMoney(max),
+      charge: roundMoney(charge),
+    };
   }
 }

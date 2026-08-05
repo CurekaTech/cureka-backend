@@ -196,13 +196,15 @@ export class GokwikCartService {
     const min = cart.checkoutRules.codMinOrderAmount;
     const max = cart.checkoutRules.codMaxOrderAmount;
     const codEligible = payable >= min && payable <= max;
-    const checkoutAmounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-    const codCharge = this.cartCheckoutAdminSettingsService.isChargeApplicable(
+    const [checkoutAmounts, codSlabs] = await Promise.all([
+      this.cartCheckoutAdminSettingsService.resolveAmounts(),
+      this.cartCheckoutAdminSettingsService.resolveCodSlabs(),
+    ]);
+    const codCharge = this.cartCheckoutAdminSettingsService.resolveCodChargeAmount(
       payable,
-      this.cartCheckoutAdminSettingsService.getCodChargeThreshold(checkoutAmounts),
-    )
-      ? this.cartCheckoutAdminSettingsService.getCodCharge(checkoutAmounts)
-      : 0;
+      codSlabs,
+      checkoutAmounts,
+    );
 
     if (codEligible) {
       methods.push({
@@ -222,6 +224,8 @@ export class GokwikCartService {
         codMaxOrderAmount: max,
         codEligible,
         codCharge,
+        codSlabs,
+        legacyCodFallback: !codSlabs.length,
         hasPrepaid,
         methodIds: methods.map((method) => method.id),
       },

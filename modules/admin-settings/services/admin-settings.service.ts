@@ -9,6 +9,7 @@ import { AdminSettingEntity } from '../entities/admin-setting.entity';
 const SHIPROCKET_CHECKOUT_ENABLED_KEY = 'shiprocketCheckoutEnabled';
 const GOKWIK_CHECKOUT_ENABLED_KEY = 'gokwikCheckoutEnabled';
 const GOKWIK_SHIPPING_SLABS_KEY = 'gokwik_shipping_slabs';
+const COD_CHARGE_KEY = 'cod_charge';
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'pay_you', 'cash_free', 'shipway'];
 const PAYMENT_SETTING_KEYS = [
   ...PAYMENT_GATEWAY_KEYS,
@@ -322,7 +323,11 @@ export class AdminSettingsService {
 
   private validateSettingValue(key: string, value?: string): void {
     if (key === GOKWIK_SHIPPING_SLABS_KEY && value !== undefined) {
-      this.validateShippingSlabs(value);
+      this.validateChargeSlabs(value, GOKWIK_SHIPPING_SLABS_KEY);
+      return;
+    }
+    if (key === COD_CHARGE_KEY && value !== undefined && value.trim().startsWith('[')) {
+      this.validateChargeSlabs(value, COD_CHARGE_KEY);
       return;
     }
     if (value === undefined || !BOOLEAN_SETTING_KEYS.includes(key)) {
@@ -335,7 +340,7 @@ export class AdminSettingsService {
     }
   }
 
-  private validateShippingSlabs(value: string): void {
+  private validateChargeSlabs(value: string, key: string): void {
     try {
       const slabs = JSON.parse(value) as unknown;
       if (!Array.isArray(slabs) || !slabs.length) {
@@ -359,7 +364,7 @@ export class AdminSettingsService {
       }
     } catch {
       throw new BadRequestException(
-        `Setting "${GOKWIK_SHIPPING_SLABS_KEY}" must be a valid shipping-slab JSON array`,
+        `Setting "${key}" must be a valid charge-slab JSON array`,
       );
     }
   }
