@@ -166,7 +166,8 @@ export class GokwikCartService {
   }
 
   /**
-   * Returns prepaid (when any gateway is enabled) and COD (when payable is within admin min/max).
+   * Returns prepaid (when any gateway is enabled) and COD (always when configured).
+   * GoKwik owns checkout UX — min/max COD order limits are not enforced here.
    */
   private async resolveAvailablePaymentMethods(
     cart: CartResponse,
@@ -193,9 +194,6 @@ export class GokwikCartService {
     }
 
     const payable = roundMoney(cart.subtotal - cart.discountAmount);
-    const min = cart.checkoutRules.codMinOrderAmount;
-    const max = cart.checkoutRules.codMaxOrderAmount;
-    const codEligible = payable >= min && payable <= max;
     const [checkoutAmounts, codSlabs] = await Promise.all([
       this.cartCheckoutAdminSettingsService.resolveAmounts(),
       this.cartCheckoutAdminSettingsService.resolveCodSlabs(),
@@ -206,23 +204,18 @@ export class GokwikCartService {
       checkoutAmounts,
     );
 
-    if (codEligible) {
-      methods.push({
-        id: 'cod',
-        description: 'Cash on Delivery',
-        title: 'Cash on Delivery',
-        price: Math.max(0, Math.round(codCharge)),
-        currency: 'INR',
-      });
-    }
+    methods.push({
+      id: 'cod',
+      description: 'Cash on Delivery',
+      title: 'Cash on Delivery',
+      price: Math.max(0, Math.round(codCharge)),
+      currency: 'INR',
+    });
 
     this.logger.log(
       {
         cartId: cart.cartId,
         payable,
-        codMinOrderAmount: min,
-        codMaxOrderAmount: max,
-        codEligible,
         codCharge,
         codSlabs,
         legacyCodFallback: !codSlabs.length,
