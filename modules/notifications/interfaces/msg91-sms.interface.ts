@@ -12,17 +12,16 @@ export interface IMsg91FlowRecipient {
 
 /**
  * MSG91 Flow / Send SMS body for POST {baseUrl}/flow
- * Docs (template_id style): https://docs.msg91.com/sms/send-sms
- * Docs (flow_id + sender style): https://api.msg91.com/apidoc/textsms/send-sms-flow.php
- *
- * control.msg91.com/api/v5/flow accepts `template_id` (Flow/Template ID from dashboard).
- * `sender` is required when the flow uses FromAPI; otherwise optional override.
+ * Official docs use `flow_id` + uppercase VAR keys in recipients.
  */
 export interface IMsg91FlowSendPayload {
-  template_id: string;
+  /** Canonical MSG91 Flow ID (DLT-mapped on panel). */
+  flow_id: string;
+  /** Legacy/alternate key — some accounts accept this instead of flow_id. */
+  template_id?: string;
   short_url?: string;
   realTimeResponse?: string;
-  /** Registered DLT / MSG91 sender ID — must match portal exactly (e.g. CUREKA). */
+  /** Only when Flow sender mode is "From API". */
   sender?: string;
   recipients: IMsg91FlowRecipient[];
 }

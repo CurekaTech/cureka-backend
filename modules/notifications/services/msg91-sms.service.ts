@@ -151,6 +151,19 @@ export class Msg91SmsService {
       : null;
     const oversizedVars = dltVariableChecks.filter((check) => !check.withinLimit);
 
+    if (!this.peId && this.dltTemplateId) {
+      this.logger.error(
+        {
+          dltTemplateId: this.dltTemplateId,
+          flowId: this.orderThankYouTemplateId,
+          senderId: this.senderId,
+          action:
+            'Set MSG91_STATIC.peId in msg91.constants.ts AND map PE ID + DLT template on MSG91 Flow panel',
+        },
+        '[MSG91-SMS] DLT risk — PE ID is not configured (DLT delivery may fail with "Template not matched")',
+      );
+    }
+
     if (this.passSenderInFlow && !sender) {
       this.logger.error(
         { ...params.context, reason: 'empty_sender_id', envKey: 'MSG91_SENDER_ID' },
@@ -175,6 +188,7 @@ export class Msg91SmsService {
     }
 
     const payload: IMsg91FlowSendPayload = {
+      flow_id: flowId,
       template_id: flowId,
       short_url: this.shortUrl,
       realTimeResponse: '1',
@@ -368,14 +382,16 @@ export class Msg91SmsService {
           ...params.context,
           stage: 'response',
           flowId,
-          sender,
-          templateId: flowId,
-          phone: this.maskPhone(mobiles),
-          elapsedMs,
-          httpStatus: response.status,
+          senderInPayload: payload.sender ?? null,
+          senderEnv: sender || null,
+          passSenderInFlow: this.passSenderInFlow,
+          dltTemplateId: this.dltTemplateId || null,
+          peId: this.peId || null,
+          renderedSmsPreview,
           requestId,
           providerStatus,
-          failureReason,
+          dltDeliveryNote:
+            'HTTP success only means MSG91 queued the SMS. Check MSG91 Logs for this requestId — if DLT says "Template not matched", fix Flow 66ab3a0ad6fc0541637a4a34 mapping on MSG91 panel (DLT ID 1207163584541815417, sender CUREKA, PE ID, exact template text, status Verified by DLT).',
           body: parsed,
         },
         '[MSG91-SMS] Flow SMS sent successfully',
