@@ -96,7 +96,7 @@ export class GokwikOrderService {
           await this.gokwikRepository.updateOrderLink(existing.id, {
             orderId: refreshedOrder.id,
             gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
-            paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+            paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
             gatewayTransactionId: this.normalizeOptionalIdentifier(
               dto.payment_details.pg_payment_trnx_id,
             ),
@@ -108,6 +108,7 @@ export class GokwikOrderService {
             metadata: {
               ...(existing.metadata ?? {}),
               rto_risk_flag: dto.meta_data?.rto_risk_flag,
+              ...this.codPaymentMetadata(dto.payment_details),
             },
             updatedBy: 'gokwik',
           });
@@ -142,7 +143,7 @@ export class GokwikOrderService {
           orderId: order.id,
           cartId,
           gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
-          paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+          paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
           gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
           paymentMethod: dto.payment_details.payment_method,
           paymentAmount: dto.payment_details.payment_amount.toFixed(2),
@@ -151,6 +152,7 @@ export class GokwikOrderService {
           customerPhone,
           metadata: {
             rto_risk_flag: dto.meta_data?.rto_risk_flag,
+            ...this.codPaymentMetadata(dto.payment_details),
           },
           createdBy: 'gokwik',
           updatedBy: 'gokwik',
@@ -224,7 +226,7 @@ export class GokwikOrderService {
 
       await this.gokwikRepository.updateOrderLink(link.id, {
         gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || link.gokwikOrderId,
-        paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+        paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
         gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
         paymentMethod: dto.payment_details.payment_method,
         paymentAmount: dto.payment_details.payment_amount.toFixed(2),
@@ -235,6 +237,7 @@ export class GokwikOrderService {
           ...link.metadata,
           rto_risk_flag: dto.meta_data?.rto_risk_flag,
           utm_details: dto.utm_details,
+          ...this.codPaymentMetadata(dto.payment_details),
         },
         updatedBy: 'gokwik',
       });
@@ -462,6 +465,58 @@ export class GokwikOrderService {
   private normalizeOptionalIdentifier(value?: string | null): string | null {
     const normalized = String(value ?? '').trim();
     return normalized || null;
+  }
+
+  /**
+   * GoKwik reuses `KWIKDUMMYTRANSACTIONID` (and similar) for every COD order.
+   * `gokwik_orders.payment_id` is UNIQUE — store null for COD dummies and keep
+   * the raw value in metadata so create-order / place-order can accept them.
+   */
+  private resolveStoredPaymentId(
+    payment: GokwikPaymentDetailsDto,
+    cartId: string,
+  ): string | null {
+    const normalized = this.normalizeOptionalIdentifier(payment.payment_id);
+    if (!normalized) {
+      return null;
+    }
+
+    if (payment.payment_method === 'cod' && this.isCodDummyPaymentId(normalized)) {
+      this.logger.log(
+        {
+          cartId,
+          paymentMethod: payment.payment_method,
+          paymentId: normalized,
+          storedPaymentId: null,
+        },
+        '[GoKwik] COD dummy payment_id accepted (not stored under unique payment_id)',
+      );
+      return null;
+    }
+
+    return normalized;
+  }
+
+  private isCodDummyPaymentId(value: string): boolean {
+    const upper = value.trim().toUpperCase();
+    return (
+      upper === 'KWIKDUMMYTRANSACTIONID' ||
+      upper === 'KWIKDUMMYPAYMENTID' ||
+      upper.startsWith('KWIKDUMMY')
+    );
+  }
+
+  private codPaymentMetadata(
+    payment: GokwikPaymentDetailsDto,
+  ): Record<string, string> {
+    if (payment.payment_method !== 'cod') {
+      return {};
+    }
+    const rawPaymentId = this.normalizeOptionalIdentifier(payment.payment_id);
+    if (!rawPaymentId || !this.isCodDummyPaymentId(rawPaymentId)) {
+      return {};
+    }
+    return { gokwik_cod_payment_id: rawPaymentId };
   }
 
   private assertDiscountTotal(
