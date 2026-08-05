@@ -8,4 +8,5 @@ export enum UploadFolder {
   SUPPORT_ATTACHMENTS = 'support-attachments',
   BLOG_IMAGES = 'blog-images',
   BLOG_VIDEOS = 'blog-videos',
+  VENDOR_DOCUMENTS = 'vendor-documents',
 }
