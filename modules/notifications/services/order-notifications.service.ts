@@ -5,6 +5,7 @@ import {
   IOrderPlacedNotifyInput,
   WhatsAppBodyVariable,
 } from '../interfaces/whatsapp-send.interface';
+import { mapOrderStatusForSms } from '../utils/order-status-sms.util';
 import { Msg91SmsService } from './msg91-sms.service';
 import { WhatsappService } from './whatsapp.service';
 
@@ -33,9 +34,8 @@ export class OrderNotificationsService {
     this.smsTemplateId = this.configService.get<string>('msg91.orderThankYouTemplateId') ?? '';
     this.smsVarPairs = this.parseSmsVarPairs(
       this.configService.get<string[]>('msg91.orderThankYouVars') ?? [
-        'var:customerName',
         'var1:orderNumber',
-        'var2:grandTotal',
+        'var2:orderStatus',
       ],
     );
 
@@ -115,7 +115,7 @@ export class OrderNotificationsService {
       return;
     }
 
-    const values = this.fieldValues(input);
+    const values = this.fieldValues(input, mapOrderStatusForSms(input.orderStatus));
     const bodyTexts = this.bodyVars.map((key) => values[key] ?? '');
 
     this.logger.log(
@@ -143,11 +143,15 @@ export class OrderNotificationsService {
    * Docs: https://docs.msg91.com/sms/send-sms
    */
   private async notifyOrderPlacedSms(input: IOrderPlacedNotifyInput): Promise<void> {
+    const smsOrderStatus = mapOrderStatusForSms(input.orderStatus);
     const context = {
       orderNumber: input.orderNumber,
       source: input.source,
       paymentMethod: input.paymentMethod,
-      orderStatus: input.orderStatus,
+      orderStatusRaw: input.orderStatus,
+      orderStatusSms: smsOrderStatus,
+      sender: this.msg91SmsService.getSenderId(),
+      dltTemplateId: this.msg91SmsService.getDltTemplateId() || null,
     };
 
     if (!this.msg91SmsService.isConfigured()) {
@@ -182,7 +186,7 @@ export class OrderNotificationsService {
       return;
     }
 
-    const values = this.fieldValues(input);
+    const values = this.fieldValues(input, smsOrderStatus);
     const variables: Record<string, string> = {};
     for (const pair of this.smsVarPairs) {
       variables[pair.templateKey] = values[pair.field] ?? '';
@@ -192,10 +196,12 @@ export class OrderNotificationsService {
       {
         ...context,
         stage: 'start',
-        templateId: this.smsTemplateId,
+        flowId: this.smsTemplateId,
         phone: this.maskPhone(input.phoneNumber),
         varPairs: this.smsVarPairs,
         variables,
+        var1: variables['var1'] ?? null,
+        var2: variables['var2'] ?? null,
       },
       '[MSG91-SMS] Order thank-you SMS start',
     );
@@ -219,9 +225,13 @@ export class OrderNotificationsService {
       {
         ...context,
         stage: 'done',
+        flowId: this.smsTemplateId,
         httpStatus: result.httpStatus,
         requestId: result.requestId,
         providerStatus: result.providerStatus,
+        rawBody: result.rawBody,
+        responseHeaders: result.responseHeaders,
+        body: result.body,
       },
       '[MSG91-SMS] Order thank-you SMS completed',
     );
@@ -233,13 +243,16 @@ export class OrderNotificationsService {
     return `${digits.slice(0, 2)}******${digits.slice(-2)}`;
   }
 
-  private fieldValues(input: IOrderPlacedNotifyInput): Record<Msg91OrderField, string> {
+  private fieldValues(
+    input: IOrderPlacedNotifyInput,
+    smsOrderStatus: string,
+  ): Record<Msg91OrderField, string> {
     return {
       customerName: input.customerName || 'Customer',
       orderNumber: input.orderNumber,
       grandTotal: input.grandTotal,
       paymentMethod: input.paymentMethod,
-      orderStatus: input.orderStatus,
+      orderStatus: smsOrderStatus,
     };
   }
 

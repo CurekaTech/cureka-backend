@@ -3,12 +3,16 @@ import { registerAs } from '@nestjs/config';
 /**
  * MSG91 — SMS OTP + order thank-you SMS (Flow API).
  * Send SMS (Flow): https://docs.msg91.com/sms/send-sms
+ * Legacy Flow sample: https://api.msg91.com/apidoc/textsms/send-sms-flow.php
  * OTP: https://docs.msg91.com/otp/sendotp
+ *
+ * NOTE: OTP SMS dispatch via MSG91 is configured (`MSG91_OTP_TEMPLATE_ID`) but
+ * not wired in Auth/OtpService yet — OTP is generated and returned in non-prod only.
  */
 export const msg91Config = registerAs('msg91', () => ({
   enabled: (process.env['MSG91_ENABLED'] ?? 'false').toLowerCase() === 'true',
   authKey: process.env['MSG91_AUTH_KEY'] ?? '',
-  /** OTP template id from MSG91 OTP section */
+  /** OTP template id from MSG91 OTP section (not yet used by Auth send path). */
   otpTemplateId: process.env['MSG91_OTP_TEMPLATE_ID'] ?? '',
   /**
    * Approved Flow SMS template id for order thank-you.
@@ -16,14 +20,24 @@ export const msg91Config = registerAs('msg91', () => ({
    */
   orderThankYouTemplateId: process.env['MSG91_ORDER_THANKYOU_TEMPLATE_ID'] ?? '',
   /**
+   * DLT Template ID mapped on the MSG91 Flow (India). Logged for diagnostics;
+   * not sent in the Flow API body (portal mapping only).
+   */
+  dltTemplateId: process.env['MSG91_DLT_TEMPLATE_ID'] ?? '',
+  /**
+   * Sender ID registered in MSG91 / DLT (`MSG91_SENDER_ID`).
+   * Normalized to uppercase at read time.
+   */
+  senderId: (process.env['MSG91_SENDER_ID'] ?? '').trim().toUpperCase(),
+  /**
    * Comma-separated templateVar:orderField pairs (case-sensitive MSG91 vars).
-   * Example template: "Thank you ##var## … order ##var1## … Rs ##var2##"
-   * → var:customerName,var1:orderNumber,var2:grandTotal
+   * Example template: "… Order ##var1## is under ##var2## …"
+   * → var1:orderNumber,var2:orderStatus
    * Supported fields: customerName, orderNumber, grandTotal, paymentMethod, orderStatus
    */
   orderThankYouVars: (
     process.env['MSG91_ORDER_THANKYOU_VARS'] ??
-    'var:customerName,var1:orderNumber,var2:grandTotal'
+    'var1:orderNumber,var2:orderStatus'
   )
     .split(',')
     .map((value) => value.trim())
