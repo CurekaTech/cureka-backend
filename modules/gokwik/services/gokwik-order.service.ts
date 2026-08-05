@@ -215,10 +215,7 @@ export class GokwikOrderService {
             orderTotal,
             currentCartTotal: pricedCart.grandTotal,
           },
-          'Place-order rejected due to stale GoKwik order amount',
-        );
-        throw new BadRequestException(
-          'Stale GoKwik checkout session. Please refresh checkout and create-order again.',
+          '[GoKwik] Place-order amount drift (ignored — not blocking)',
         );
       }
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, orderTotal);
@@ -402,7 +399,15 @@ export class GokwikOrderService {
       const prepaid = meta?.ppcod?.prepaid_amount;
       const payable = meta?.ppcod?.payable_on_delivery;
       if (prepaid == null || payable == null) {
-        throw new BadRequestException('ppcod split is required for Partial COD');
+        this.logger.warn(
+          {
+            paymentMethod: payment.payment_method,
+            prepaid,
+            payable,
+          },
+          '[GoKwik] ppcod split missing (ignored — not blocking create/place-order)',
+        );
+        return;
       }
       const splitTotal = prepaid + payable;
       if (!equalsMoney(splitTotal, payableTotal)) {
@@ -446,19 +451,58 @@ export class GokwikOrderService {
     meta: GokwikCreateOrderMetaDataDto | undefined,
   ): Promise<void> {
     const discounts = (meta?.discounts ?? []).filter((discount) => discount.amount > 0);
-    if (discounts.length > 1) {
-      throw new BadRequestException('Only one cart coupon can be applied to a Cureka order');
-    }
-    const discount = discounts[0];
-    if (!discount) {
+    if (!discounts.length) {
       return;
     }
-    const code = discount.code?.trim();
-    if (!code) {
-      throw new BadRequestException('GoKwik discount code is required for hybrid validation');
+
+    // GoKwik may send prepaid/promo + cart coupon together — never block create-order.
+    if (discounts.length > 1) {
+      this.logger.warn(
+        {
+          discountCount: discounts.length,
+          discounts: discounts.map((discount) => ({
+            code: discount.code ?? null,
+            type: discount.type,
+            amount: discount.amount,
+          })),
+        },
+        '[GoKwik] Multiple discounts reported — applying first coded coupon only (not blocking)',
+      );
     }
-    if (currentCouponCode !== code) {
+
+    const discountWithCode =
+      discounts.find((discount) => Boolean(discount.code?.trim())) ?? discounts[0];
+    const code = discountWithCode?.code?.trim();
+    if (!code) {
+      this.logger.warn(
+        {
+          discounts: discounts.map((discount) => ({
+            type: discount.type,
+            amount: discount.amount,
+          })),
+        },
+        '[GoKwik] Discount without coupon code — skipping cart coupon sync (not blocking)',
+      );
+      return;
+    }
+
+    if (currentCouponCode === code) {
+      return;
+    }
+
+    try {
       await this.cartService.applyCoupon(userId, { couponCode: code });
+    } catch (error) {
+      this.logger.warn(
+        {
+          code,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : { message: String(error) },
+        },
+        '[GoKwik] Coupon apply failed — continuing create-order without blocking',
+      );
     }
   }
 
@@ -525,7 +569,14 @@ export class GokwikOrderService {
   ): void {
     const reported = (meta?.discounts ?? []).reduce((sum, discount) => sum + discount.amount, 0);
     if (Math.abs(Math.round(reported * 100) - Math.round(expectedDiscount * 100)) > 1) {
-      throw new BadRequestException('GoKwik discount does not match Cureka coupon calculation');
+      this.logger.warn(
+        {
+          reportedDiscount: reported,
+          expectedDiscount,
+          discounts: meta?.discounts ?? [],
+        },
+        '[GoKwik] Discount mismatch (ignored — not blocking create/place-order)',
+      );
     }
   }
 
