@@ -1,5 +1,5 @@
 import { Transform, type Readable } from 'stream';
-import { ALLOWED_VIDEO_MIME_TYPES } from './storage.constants';
+import { ALLOWED_SPREADSHEET_MIME_TYPES, ALLOWED_VIDEO_MIME_TYPES } from './storage.constants';
 
 /** 5 MB — images and PDFs (product images from WC/CDN often exceed 1 MB) */
 export const DEFAULT_MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
@@ -23,10 +23,7 @@ export const isLargePayloadMimeType = (mimetype: string): boolean =>
   mimetype === 'application/pdf';
 
 export const isBulkSheetMimeType = (mimetype: string): boolean =>
-  [
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/csv',
-  ].includes(mimetype);
+  (ALLOWED_SPREADSHEET_MIME_TYPES as readonly string[]).includes(mimetype);
 
 export const resolveMaxFileSizeForMime = (
   mimetype: string,

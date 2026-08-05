@@ -1,6 +1,7 @@
 import { registerAs } from '@nestjs/config';
 import { isAbsolute, join } from 'path';
 import {
+  ALLOWED_SPREADSHEET_MIME_TYPES,
   ALLOWED_UPLOAD_MIME_TYPES,
   ALLOWED_VIDEO_MIME_TYPES,
 } from '@packages/storage';
@@ -27,8 +28,8 @@ export const storageConfig = registerAs('storage', () => {
     ...new Set([
       ...(envMimeTypes.length > 0 ? envMimeTypes : [...ALLOWED_UPLOAD_MIME_TYPES]),
       ...ALLOWED_VIDEO_MIME_TYPES,
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'text/csv',
+      // Always allow product sheets (.xlsx + .csv), even when env MIME list is set.
+      ...ALLOWED_SPREADSHEET_MIME_TYPES,
     ]),
   ];
 

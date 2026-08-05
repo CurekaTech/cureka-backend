@@ -47,7 +47,7 @@ Send fields as **multipart form-data**. Do not set `Content-Type` manually in th
 |-------|----------|---------------|
 | `panDocument` | Yes | Per `UPLOAD_ALLOWED_MIME_TYPES` (typically JPEG, PNG, WebP, GIF, PDF) |
 | `gstCertificateDocument` | Yes | Same as above |
-| `productExcelSheet` | Yes | `.xlsx` or `.csv` — **contents are not validated**; stored for later manual product review |
+| `productExcelSheet` | Yes | **`.xlsx` or `.csv` only** (browser MIME aliases accepted). Sheet **contents are not validated** — file is stored for later manual product review. |
 
 BMP may be rejected if not listed in env `UPLOAD_ALLOWED_MIME_TYPES` — prefer JPEG/PNG/PDF.
 
@@ -129,6 +129,12 @@ curl --location "http://localhost:3005/api/v1/public/vendors/register" \
   --form "panDocument=@./pan.pdf" \
   --form "gstCertificateDocument=@./gst.pdf" \
   --form "productExcelSheet=@./products.xlsx"
+```
+
+CSV works the same way:
+
+```bash
+  --form "productExcelSheet=@./products.csv"
 ```
 
 ---

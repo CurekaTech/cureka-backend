@@ -56,7 +56,7 @@ Same form fields as the website. Prefer multipart with file fields (do not set C
 |-------|----------|-------|
 | `panDocument` | Yes | JPEG / PNG / WebP / GIF / PDF (per env allow-list) |
 | `gstCertificateDocument` | Yes | Same |
-| `productExcelSheet` | Yes | `.xlsx` / `.csv` — **not parsed or validated**; for later product verification |
+| `productExcelSheet` | Yes | **`.xlsx` or `.csv`** (both supported). Contents are **not parsed/validated** — for later product verification |
 
 Optional admin upload helper (if uploading docs separately first):
 
@@ -96,6 +96,12 @@ curl --location "http://localhost:3005/api/v1/admin/vendors" \
   --form "panDocument=@./pan.pdf" \
   --form "gstCertificateDocument=@./gst.pdf" \
   --form "productExcelSheet=@./products.xlsx"
+```
+
+CSV:
+
+```bash
+  --form "productExcelSheet=@./products.csv"
 ```
 
 ---
