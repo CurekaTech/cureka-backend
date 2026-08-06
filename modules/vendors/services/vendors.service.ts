@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { FastifyRequest } from 'fastify';
@@ -20,7 +25,12 @@ import { UserEntity } from '@modules/users/entities/user.entity';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import { UserStatus } from '@modules/users/enums/user-status.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
-import { RegisterVendorDto, VendorListQueryDto } from '../dto/register-vendor.dto';
+import {
+  RegisterVendorDto,
+  UpdateVendorDto,
+  VendorListQueryDto,
+} from '../dto/register-vendor.dto';
+import { VendorEntity } from '../entities/vendor.entity';
 import { VendorSource } from '../enums/vendor-source.enum';
 import { VendorStatus } from '../enums/vendor-status.enum';
 import { IVendor } from '../interfaces/vendor.interface';
@@ -51,6 +61,12 @@ const splitContactPerson = (contactPerson: string): { firstName: string; lastNam
     firstName: parts[0]!,
     lastName: parts.slice(1).join(' '),
   };
+};
+
+type VendorUploadPaths = {
+  panDocumentPath?: string;
+  gstCertificateDocumentPath?: string;
+  productExcelSheetPath?: string;
 };
 
 @Injectable()
@@ -95,11 +111,7 @@ export class VendorsService {
     dto: RegisterVendorDto,
     source: VendorSource,
     createdBy?: string,
-    uploads?: {
-      panDocumentPath?: string;
-      gstCertificateDocumentPath?: string;
-      productExcelSheetPath?: string;
-    },
+    uploads?: VendorUploadPaths,
   ): Promise<IVendor> {
     const mobileNumber = parseIndianMobileNumber(dto.mobileNumber);
     const email = dto.email.trim().toLowerCase();
@@ -116,17 +128,17 @@ export class VendorsService {
       throw new ConflictException('A user with this email already exists');
     }
 
-    const panDocument = this.resolveDocument(
+    const panDocument = this.requireDocument(
       uploads?.panDocumentPath,
       dto.panDocument,
       'PAN document',
     );
-    const gstCertificateDocument = this.resolveDocument(
+    const gstCertificateDocument = this.requireDocument(
       uploads?.gstCertificateDocumentPath,
       dto.gstCertificateDocument,
       'GST certificate document',
     );
-    const productExcelSheet = this.resolveDocument(
+    const productExcelSheet = this.requireDocument(
       uploads?.productExcelSheetPath,
       dto.productExcelSheet,
       'Product excel sheet',
@@ -220,7 +232,180 @@ export class VendorsService {
     return this.storageUrlEnricher.enrichPaginated(result, [...VENDOR_MEDIA_FIELDS]);
   }
 
-  private resolveDocument(
+  async findOne(refId: string): Promise<IVendor> {
+    const entity = await this.vendorsRepository.findByRefId(refId);
+    if (!entity) {
+      throw new NotFoundException(`Vendor with refId ${refId} not found`);
+    }
+    return this.enrichVendor(mapVendorEntityToResponse(entity));
+  }
+
+  async updateFromRequest(
+    refId: string,
+    req: FastifyRequest,
+    updatedBy: string,
+  ): Promise<IVendor> {
+    const { dto, uploadedUrls } = await this.multipartFormService.parseAndValidate(
+      req,
+      UpdateVendorDto,
+      VENDOR_UPLOAD_FIELDS,
+    );
+
+    return this.update(refId, dto, updatedBy, {
+      panDocumentPath: uploadedUrls['panDocument'],
+      gstCertificateDocumentPath: uploadedUrls['gstCertificateDocument'],
+      productExcelSheetPath: uploadedUrls['productExcelSheet'],
+    });
+  }
+
+  async updateFromJson(
+    refId: string,
+    body: unknown,
+    updatedBy: string,
+  ): Promise<IVendor> {
+    const dto = await this.validateJsonDto(UpdateVendorDto, body);
+    return this.update(refId, dto, updatedBy);
+  }
+
+  async update(
+    refId: string,
+    dto: UpdateVendorDto,
+    updatedBy: string,
+    uploads?: VendorUploadPaths,
+  ): Promise<IVendor> {
+    const existing = await this.vendorsRepository.findByRefId(refId);
+    if (!existing) {
+      throw new NotFoundException(`Vendor with refId ${refId} not found`);
+    }
+
+    const nextEmail =
+      dto.email !== undefined ? dto.email.trim().toLowerCase() : existing.email;
+    const nextMobile =
+      dto.mobileNumber !== undefined
+        ? parseIndianMobileNumber(dto.mobileNumber)
+        : existing.mobileNumber;
+    const nextContactPerson =
+      dto.contactPerson !== undefined ? dto.contactPerson.trim() : existing.contactPerson;
+
+    if (nextEmail !== existing.email) {
+      const emailTaken = await this.usersRepository.isEmailTakenByOther(nextEmail, existing.userId);
+      if (emailTaken) {
+        throw new ConflictException('A user with this email already exists');
+      }
+    }
+
+    if (nextMobile !== existing.mobileNumber) {
+      const mobileTaken = await this.usersRepository.isMobileTakenByOther(
+        nextMobile,
+        existing.userId,
+      );
+      if (mobileTaken) {
+        throw new ConflictException('A user with this mobile number already exists');
+      }
+    }
+
+    const panDocument = this.resolveOptionalDocument(
+      uploads?.panDocumentPath,
+      dto.panDocument,
+      existing.panDocument,
+    );
+    const gstCertificateDocument = this.resolveOptionalDocument(
+      uploads?.gstCertificateDocumentPath,
+      dto.gstCertificateDocument,
+      existing.gstCertificateDocument,
+    );
+    const productExcelSheet = this.resolveOptionalDocument(
+      uploads?.productExcelSheetPath,
+      dto.productExcelSheet,
+      existing.productExcelSheet,
+    );
+
+    const warehouseContactPhone =
+      dto.warehouseContactPhone !== undefined
+        ? parseIndianMobileNumber(dto.warehouseContactPhone)
+        : dto.mobileNumber !== undefined
+          ? nextMobile
+          : existing.warehouseContactPhone;
+    const warehouseContactPerson =
+      dto.warehouseContactPerson !== undefined
+        ? dto.warehouseContactPerson.trim() || nextContactPerson
+        : dto.contactPerson !== undefined
+          ? nextContactPerson
+          : existing.warehouseContactPerson;
+
+    const { firstName, lastName } = splitContactPerson(nextContactPerson);
+
+    const vendor = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(UserEntity);
+      await userRepo.update(existing.userId, {
+        firstName,
+        lastName,
+        email: nextEmail,
+        mobileNumber: nextMobile,
+        updatedBy,
+      });
+
+      const payload: Partial<VendorEntity> = {
+        updatedBy,
+        companyName:
+          dto.companyName !== undefined ? dto.companyName.trim() : existing.companyName,
+        contactPerson: nextContactPerson,
+        email: nextEmail,
+        mobileNumber: nextMobile,
+        businessAddress:
+          dto.businessAddress !== undefined
+            ? dto.businessAddress.trim()
+            : existing.businessAddress,
+        warehouseAddress:
+          dto.warehouseAddress !== undefined
+            ? dto.warehouseAddress.trim()
+            : existing.warehouseAddress,
+        warehousePincode:
+          dto.warehousePincode !== undefined
+            ? dto.warehousePincode.trim()
+            : existing.warehousePincode,
+        warehouseContactPerson,
+        warehouseContactPhone,
+        panNumber:
+          dto.panNumber !== undefined
+            ? dto.panNumber.trim().toUpperCase()
+            : existing.panNumber,
+        gstNumber:
+          dto.gstNumber !== undefined
+            ? dto.gstNumber.trim().toUpperCase()
+            : existing.gstNumber,
+        panDocument,
+        gstCertificateDocument,
+        productExcelSheet,
+        productCategories:
+          dto.productCategories !== undefined
+            ? dto.productCategories.trim() || null
+            : existing.productCategories,
+        brandDetails:
+          dto.brandDetails !== undefined
+            ? dto.brandDetails.trim() || null
+            : existing.brandDetails,
+        companyProfile:
+          dto.companyProfile !== undefined
+            ? dto.companyProfile.trim() || null
+            : existing.companyProfile,
+      };
+
+      if (dto.status !== undefined) {
+        payload.status = dto.status;
+      }
+
+      const updated = await this.vendorsRepository.updateByRefId(refId, payload, manager);
+      if (!updated) {
+        throw new NotFoundException(`Vendor with refId ${refId} not found after update`);
+      }
+      return updated;
+    });
+
+    return this.enrichVendor(mapVendorEntityToResponse(vendor));
+  }
+
+  private requireDocument(
     uploadedPath: string | undefined,
     jsonRef: { key: string; name: string } | undefined,
     label: string,
@@ -230,6 +415,21 @@ export class VendorsService {
       throw new BadRequestException(`${label} is required (upload file field or storage reference)`);
     }
     return persisted;
+  }
+
+  private resolveOptionalDocument(
+    uploadedPath: string | undefined,
+    jsonRef: { key: string; name: string } | undefined,
+    existing: IStorageFileReference,
+  ): IStorageFileReference {
+    if (uploadedPath || jsonRef) {
+      const persisted = this.storageUrlEnricher.persist(uploadedPath ?? jsonRef ?? null);
+      if (!persisted) {
+        throw new BadRequestException('Invalid document storage reference');
+      }
+      return persisted;
+    }
+    return existing;
   }
 
   private async validateJsonDto<T extends object>(

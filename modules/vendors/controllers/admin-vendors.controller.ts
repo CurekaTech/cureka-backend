@@ -3,6 +3,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -11,7 +13,7 @@ import {
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
-import { ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
@@ -51,5 +53,35 @@ export class AdminVendorsController {
   @Get()
   findAll(@Query() query: VendorListQueryDto) {
     return this.vendorsService.findAll(query);
+  }
+
+  @ApiOperation({ summary: 'Get vendor details by refId' })
+  @ResponseMessage('Vendor retrieved successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('vendors.read')
+  @Get(':refId')
+  findOne(@Param('refId', RefIdPipe) refId: string) {
+    return this.vendorsService.findOne(refId);
+  }
+
+  @ApiOperation({
+    summary: 'Update vendor (multipart form-data or JSON)',
+    description:
+      'All fields optional. Omit file fields to keep existing documents. Optional status update.',
+  })
+  @ResponseMessage('Vendor updated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('vendors.update')
+  @Patch(':refId')
+  update(
+    @Param('refId', RefIdPipe) refId: string,
+    @Req() req: FastifyRequest,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    const contentType = req.headers['content-type'] ?? '';
+    if (contentType.includes('multipart/form-data')) {
+      return this.vendorsService.updateFromRequest(refId, req, user.email);
+    }
+    return this.vendorsService.updateFromJson(refId, req.body, user.email);
   }
 }
