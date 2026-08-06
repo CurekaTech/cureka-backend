@@ -1,11 +1,11 @@
-import { IsEnum, IsIn, IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderSource } from '../enums/order-source.enum';
 
 export class CheckoutDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsUUID()
-  addressId!: string;
+  addressId?: string;
 
   /**
    * Drives COD fee / prepaid % discount in the summary, and COD min/max eligibility.

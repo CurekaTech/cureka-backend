@@ -24,7 +24,9 @@ export class CheckoutService {
   ) {}
 
   async validateCheckout(userId: string, dto: CheckoutDto): Promise<CheckoutSummary> {
-    await this.userAddressesService.findOne(userId, dto.addressId);
+    if (dto.addressId) {
+      await this.userAddressesService.findOne(userId, dto.addressId);
+    }
 
     const cart = await this.cartService.getActiveCartEntity(userId);
     if (!cart) throw new BadRequestException('Cart not found');
