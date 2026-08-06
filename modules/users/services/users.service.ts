@@ -5,12 +5,29 @@ import {
 } from '@nestjs/common';
 import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
-import { CreateAdminCustomerDto, UpdateAdminCustomerDto, UpdateUserProfileAdminDto, UpdateUserProfileDto, UserListQueryDto } from '../dto/user.dto';
-import { ICustomerDetail, ICustomerUserListItem, IUser } from '../interfaces/user.interface';
 import {
+  CreateAdminCustomerDto,
+  resolveAdminUserIsGuestFilter,
+  UpdateAdminCustomerDto,
+  UpdateUserProfileAdminDto,
+  UpdateUserProfileDto,
+  UpdateUserStatusDto,
+  UserListQueryDto,
+} from '../dto/user.dto';
+import { CreateUserAddressDto } from '../dto/user-address.dto';
+import {
+  IAdminUserDetail,
+  IAdminUserListItem,
+  ICustomerDetail,
+  ICustomerUserListItem,
+  IUser,
+} from '../interfaces/user.interface';
+import { IUserAddress } from '../interfaces/user-address.interface';
+import {
+  EMPTY_USER_ORDER_METRICS,
   mapCustomerUserEntitiesToListItems,
+  mapUserEntityToAdminListItem,
   mapUserEntityToResponse,
-  mapUserEntitiesToResponse,
 } from '../mappers/user.mapper';
 import {
   buildPaginatedResult,
@@ -245,13 +262,29 @@ export class UsersService {
 
   // ── Admin-facing CRUD methods ────────────────────────────────────────────────
 
-  async findAll(query: UserListQueryDto): Promise<PaginatedResult<IUser>> {
+  /**
+   * Admin users list — paginated profile rows with totalOrders / totalSpend.
+   */
+  async findAll(query: UserListQueryDto): Promise<PaginatedResult<IAdminUserListItem>> {
     const paginationOptions = buildPaginationOptions(query);
     const { data, total } = await this.usersRepository.findAllPaginated({
       ...paginationOptions,
       status: query.status,
+      isGuest: resolveAdminUserIsGuestFilter(query),
     });
-    const result = buildPaginatedResult(mapUserEntitiesToResponse(data), total, paginationOptions);
+
+    const metricsByUserId = await this.usersRepository.findOrderMetricsByUserIds(
+      data.map((user) => user.id),
+    );
+
+    const items = data.map((entity) =>
+      mapUserEntityToAdminListItem(
+        entity,
+        metricsByUserId.get(entity.id) ?? EMPTY_USER_ORDER_METRICS,
+      ),
+    );
+
+    const result = buildPaginatedResult(items, total, paginationOptions);
     return this.storageUrlEnricher.enrichPaginated(result, [...USER_MEDIA_FIELDS]);
   }
 
@@ -260,6 +293,7 @@ export class UsersService {
     const { data, total } = await this.usersRepository.findCustomersPaginated({
       ...paginationOptions,
       status: query.status,
+      isGuest: resolveAdminUserIsGuestFilter(query),
     });
     return buildPaginatedResult(
       mapCustomerUserEntitiesToListItems(data),
@@ -268,12 +302,70 @@ export class UsersService {
     );
   }
 
-  async findOne(refId: string): Promise<IUser> {
+  /**
+   * Admin user detail — profile, order metrics, addresses, recent orders.
+   */
+  async findOne(refId: string): Promise<IAdminUserDetail> {
     const entity = await this.usersRepository.findByRefId(refId);
     if (!entity) {
       throw new NotFoundException(`User with refId ${refId} not found`);
     }
-    return this.enrichUser(mapUserEntityToResponse(entity));
+
+    const [user, addresses, metricsMap, recentOrders] = await Promise.all([
+      this.enrichUser(mapUserEntityToResponse(entity)),
+      this.userAddressesService.findAll(entity.id),
+      this.usersRepository.findOrderMetricsByUserIds([entity.id]),
+      this.usersRepository.findRecentOrdersByUserId(entity.id, 10),
+    ]);
+
+    const metrics = metricsMap.get(entity.id) ?? EMPTY_USER_ORDER_METRICS;
+
+    return {
+      ...user,
+      totalOrders: metrics.totalOrders,
+      totalSpend: metrics.totalSpend,
+      lastOrderAt: metrics.lastOrderAt,
+      addresses: addresses.map((address) => ({
+        ...address,
+        country: 'India',
+      })),
+      recentOrders,
+    };
+  }
+
+  async updateStatus(
+    refId: string,
+    dto: UpdateUserStatusDto,
+  ): Promise<{ refId: string; status: UserStatus }> {
+    const existing = await this.usersRepository.findByRefId(refId);
+    if (!existing) {
+      throw new NotFoundException(`User with refId ${refId} not found`);
+    }
+
+    const updated = await this.usersRepository.updateByRefId(refId, {
+      status: dto.status,
+      updatedBy: 'admin',
+    });
+    if (!updated) {
+      throw new NotFoundException(`User with refId ${refId} not found after update`);
+    }
+
+    await this.sessionCacheService.invalidateAllForUser(existing.id);
+
+    return { refId: updated.refId, status: updated.status };
+  }
+
+  async createAddressForUser(
+    refId: string,
+    dto: CreateUserAddressDto,
+  ): Promise<IUserAddress & { country: string }> {
+    const existing = await this.usersRepository.findByRefId(refId);
+    if (!existing) {
+      throw new NotFoundException(`User with refId ${refId} not found`);
+    }
+
+    const address = await this.userAddressesService.create(existing.id, dto);
+    return { ...address, country: 'India' };
   }
 
   async findCustomerByRefId(refId: string): Promise<ICustomerDetail> {

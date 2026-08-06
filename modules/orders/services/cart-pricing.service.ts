@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import {
@@ -18,6 +18,8 @@ import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
 
 @Injectable()
 export class CartPricingService {
+  private readonly logger = new Logger(CartPricingService.name);
+
   constructor(
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartsRepository: CartsRepository,
@@ -36,9 +38,10 @@ export class CartPricingService {
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
 
-    const [checkoutAdminSettings, shippingSlabs] = await Promise.all([
+    const [checkoutAdminSettings, shippingSlabs, codSlabs] = await Promise.all([
       this.cartCheckoutAdminSettingsService.resolveAmounts(),
       this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
+      this.cartCheckoutAdminSettingsService.resolveCodSlabs(),
     ]);
     const settings = this.cartCheckoutAdminSettingsService;
     const checkoutRules = {
@@ -107,33 +110,49 @@ export class CartPricingService {
       }
     }
 
-    // All threshold-based charges compare against the order payable amount
-    // (subtotal − discount), matching the admin-setting descriptions.
-    const payableBeforeShipping = roundMoney(subtotal - discountAmount);
+    // Merchandise payable (products after coupon). Fee thresholds use this base.
+    const payableSubtotal = roundMoney(subtotal - discountAmount);
 
     // Handling charge: applied while payable ≤ handling_charge_threshold.
     const handlingAmount = settings.isChargeApplicable(
-      payableBeforeShipping,
+      payableSubtotal,
       settings.getHandlingChargeThreshold(checkoutAdminSettings),
     )
       ? settings.getHandlingCharge(checkoutAdminSettings)
       : 0;
 
-    // Platform fee: waived once subtotal reaches the platform-fee threshold.
+    // Platform fee: waived once payable merchandise reaches the platform-fee threshold.
     const platformFee =
-      subtotal < settings.getPlatformFeeThreshold(checkoutAdminSettings)
+      payableSubtotal < settings.getPlatformFeeThreshold(checkoutAdminSettings)
         ? settings.getPlatformFee(checkoutAdminSettings)
         : 0;
 
-    // COD charge: only for COD orders, and only while payable ≤ cod_charge_threshold.
+    // COD charge: slab-based from admin `cod_charge` JSON (merchandise payable base).
     const codCharge =
-      params.paymentMethod === OrderPaymentMethod.COD &&
-      settings.isChargeApplicable(
-        payableBeforeShipping,
-        settings.getCodChargeThreshold(checkoutAdminSettings),
-      )
-        ? settings.getCodCharge(checkoutAdminSettings)
+      params.paymentMethod === OrderPaymentMethod.COD
+        ? settings.resolveCodChargeAmount(payableSubtotal, codSlabs, checkoutAdminSettings)
         : 0;
+
+    if (params.paymentMethod === OrderPaymentMethod.COD) {
+      const matchedSlab = codSlabs.find(
+        (candidate) =>
+          payableSubtotal >= candidate.min &&
+          (candidate.max === null || payableSubtotal <= candidate.max),
+      );
+      this.logger.log(
+        {
+          cartId: params.cartId,
+          payableSubtotal,
+          codCharge,
+          matchedSlab: matchedSlab
+            ? { min: matchedSlab.min, max: matchedSlab.max, charge: matchedSlab.charge }
+            : null,
+          codSlabs,
+          legacyFallback: !codSlabs.length,
+        },
+        'COD charge resolved from admin slabs',
+      );
+    }
 
     const isPrepaidPayment = isPrepaidPaymentMethod(params.paymentMethod);
 
@@ -153,7 +172,7 @@ export class CartPricingService {
     const prepaidFlatDiscount =
       isPrepaidPayment &&
       settings.isChargeApplicable(
-        payableBeforeShipping,
+        payableSubtotal,
         settings.getPrepaidChargeThreshold(checkoutAdminSettings),
       )
         ? settings.getPrepaidCharge(checkoutAdminSettings)
@@ -161,10 +180,22 @@ export class CartPricingService {
 
     const prepaidDiscount = roundMoney(prepaidPercentDiscount + prepaidFlatDiscount);
 
+    // Shipping slabs use payable-before-shipping (merchandise + fees except shipping),
+    // matching Bill Summary "amount before delivery" (e.g. 145 + 100 + 100 = 345 → ₹55).
+    const payableBeforeShipping = roundMoney(payableSubtotal + handlingAmount + platformFee + codCharge);
     const shippingAmount = this.resolveShippingAmount(
       payableBeforeShipping,
       coupon,
       shippingSlabs,
+      {
+        cartId: params.cartId,
+        subtotal,
+        discountAmount,
+        payableSubtotal,
+        handlingAmount,
+        platformFee,
+        codCharge,
+      },
     );
 
     return this.buildPricing({
@@ -216,25 +247,66 @@ export class CartPricingService {
   }
 
   /**
-   * Shipping is free when payable amount (subtotal − discount) is >= threshold.
-   * Threshold comes from checkout admin settings (`shipping_charge_threshold`).
-   * `free_shipping` coupons always waive shipping.
+   * Shipping charge from `gokwik_shipping_slabs`.
+   * Slab base = payable before shipping:
+   * `(subtotal − coupon) + handling + platform (+ COD when applicable)`.
+   * Used by Cureka cart and GoKwik get-cart. `free_shipping` coupons waive shipping.
    */
   resolveShippingAmount(
     payableBeforeShipping: number,
     coupon: CouponEntity | null,
     shippingSlabs: ShippingSlab[],
+    debug?: {
+      cartId?: string;
+      subtotal?: number;
+      discountAmount?: number;
+      payableSubtotal?: number;
+      handlingAmount?: number;
+      platformFee?: number;
+      codCharge?: number;
+    },
   ): number {
     if (coupon?.couponType.trim().toLowerCase() === 'free_shipping') {
+      this.logger.log(
+        {
+          cartId: debug?.cartId,
+          payableBeforeShipping,
+          shippingAmount: 0,
+          reason: 'free_shipping_coupon',
+          couponCode: coupon.code,
+        },
+        'Shipping resolved',
+      );
       return 0;
     }
 
-    const slab = shippingSlabs.find(
+    const matchedSlab = shippingSlabs.find(
       (candidate) =>
         payableBeforeShipping >= candidate.min &&
         (candidate.max === null || payableBeforeShipping <= candidate.max),
     );
-    return roundMoney(slab?.charge ?? 0);
+    const shippingAmount = roundMoney(matchedSlab?.charge ?? 0);
+
+    this.logger.log(
+      {
+        cartId: debug?.cartId,
+        subtotal: debug?.subtotal,
+        discountAmount: debug?.discountAmount,
+        payableSubtotal: debug?.payableSubtotal,
+        handlingAmount: debug?.handlingAmount,
+        platformFee: debug?.platformFee,
+        codCharge: debug?.codCharge,
+        payableBeforeShipping,
+        matchedSlab: matchedSlab
+          ? { min: matchedSlab.min, max: matchedSlab.max, charge: matchedSlab.charge }
+          : null,
+        shippingAmount,
+        slabs: shippingSlabs,
+      },
+      'Shipping resolved from admin slabs',
+    );
+
+    return shippingAmount;
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {

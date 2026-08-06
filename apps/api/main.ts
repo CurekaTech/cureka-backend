@@ -112,6 +112,11 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port, '0.0.0.0');
 
+  // PM2 wait_ready: signal that this cluster worker can receive traffic.
+  if (process.send) {
+    process.send('ready');
+  }
+
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port} in ${nodeEnv} mode`);
   logger.log(`API available at http://0.0.0.0:${port}/${APP_CONSTANTS.API_PREFIX}`);

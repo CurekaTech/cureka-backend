@@ -1,5 +1,10 @@
 import { UserEntity } from '../entities/user.entity';
-import { ICustomerUserListItem, IUser } from '../interfaces/user.interface';
+import {
+  IAdminUserListItem,
+  ICustomerUserListItem,
+  IUser,
+  IUserOrderMetrics,
+} from '../interfaces/user.interface';
 import { mapRoleEntityToResponse } from '@modules/roles/mappers/role.mapper';
 
 export const mapUserEntityToResponse = (entity: UserEntity): IUser =>
@@ -21,11 +26,28 @@ export const mapUserEntityToResponse = (entity: UserEntity): IUser =>
   gender: entity.gender,
   dateOfBirth: entity.dateOfBirth,
   maritalStatus: entity.maritalStatus,
+  country: null,
   createdBy: entity.createdBy,
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
   deletedAt: entity.deletedAt,
   }) as IUser;
+
+export const EMPTY_USER_ORDER_METRICS: IUserOrderMetrics = {
+  totalOrders: 0,
+  totalSpend: 0,
+  lastOrderAt: null,
+};
+
+export const mapUserEntityToAdminListItem = (
+  entity: UserEntity,
+  metrics: IUserOrderMetrics = EMPTY_USER_ORDER_METRICS,
+): IAdminUserListItem => ({
+  ...mapUserEntityToResponse(entity),
+  totalOrders: metrics.totalOrders,
+  totalSpend: metrics.totalSpend,
+  lastOrderAt: metrics.lastOrderAt,
+});
 
 export const mapUserEntitiesToResponse = (entities: UserEntity[]): IUser[] =>
   entities.map(mapUserEntityToResponse);

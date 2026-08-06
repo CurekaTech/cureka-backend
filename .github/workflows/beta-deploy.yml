@@ -1,0 +1,177 @@
+# =============================================================================
+# beta-deploy.yml
+# -----------------------------------------------------------------------------
+# Deploy only — runs on push/merge to beta_development.
+# Does not touch the development branch.
+# Migrations run every deploy via scripts/deploy-beta.sh (npm run migration:run).
+#
+# Required secrets:
+#   BETA_SSH_HOST
+#   BETA_SSH_USER
+#   BETA_SSH_PORT
+#   BETA_SSH_PRIVATE_KEY
+#
+# Optional:
+#   BETA_DEPLOY_PATH       (default /var/www/Cureka-backend)
+#   BETA_HEALTH_CHECK_URL  (default http://127.0.0.1:${PORT}/api/v1/health on VM)
+# =============================================================================
+
+name: Beta Deploy
+
+on:
+  push:
+    branches:
+      - beta_development
+
+  workflow_dispatch:
+    inputs:
+      force_npm_ci:
+        description: 'Force npm ci even if package-lock.json unchanged'
+        required: false
+        type: boolean
+        default: false
+      force_build:
+        description: 'Force nest build even if sources unchanged'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: beta-deployment
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Beta VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          BETA_SSH_HOST: ${{ secrets.BETA_SSH_HOST }}
+          BETA_SSH_USER: ${{ secrets.BETA_SSH_USER }}
+          BETA_SSH_PORT: ${{ secrets.BETA_SSH_PORT }}
+          BETA_SSH_PRIVATE_KEY: ${{ secrets.BETA_SSH_PRIVATE_KEY }}
+        run: |
+          missing=0
+          for name in BETA_SSH_HOST BETA_SSH_USER BETA_SSH_PORT BETA_SSH_PRIVATE_KEY; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required secret: ${name}"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Resolve deploy configuration
+        id: cfg
+        env:
+          SECRET_PATH: ${{ secrets.BETA_DEPLOY_PATH }}
+          VAR_PATH: ${{ vars.BETA_DEPLOY_PATH }}
+          SECRET_HEALTH: ${{ secrets.BETA_HEALTH_CHECK_URL }}
+          VAR_HEALTH: ${{ vars.BETA_HEALTH_CHECK_URL }}
+          FORCE_NPM_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.force_npm_ci || false }}
+          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force_build || false }}
+        run: |
+          DEPLOY_PATH="${VAR_PATH:-${SECRET_PATH:-/var/www/Cureka-backend}}"
+          HEALTH_CHECK_URL="${VAR_HEALTH:-${SECRET_HEALTH:-}}"
+
+          EXTRA_FLAGS=""
+          if [[ "${FORCE_NPM_CI}" == "true" ]]; then
+            EXTRA_FLAGS+=" --force-npm-ci"
+          fi
+          if [[ "${FORCE_BUILD}" == "true" ]]; then
+            EXTRA_FLAGS+=" --force-build"
+          fi
+
+          {
+            echo "deploy_path=${DEPLOY_PATH}"
+            echo "health_check_url=${HEALTH_CHECK_URL}"
+            echo "extra_flags=${EXTRA_FLAGS}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: SSH deploy (execute deploy-beta.sh)
+        id: ssh_deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.BETA_SSH_HOST }}
+          username: ${{ secrets.BETA_SSH_USER }}
+          key: ${{ secrets.BETA_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.BETA_SSH_PORT }}
+          script_stop: true
+          command_timeout: 14m
+          envs: DEPLOY_PATH,HEALTH_CHECK_URL,EXTRA_FLAGS,GH_ACTOR,GH_SHA,GH_RUN_URL
+          script: |
+            set -euo pipefail
+
+            cd "${DEPLOY_PATH}"
+            chmod +x scripts/deploy-beta.sh scripts/rollback.sh scripts/cleanup.sh scripts/health-check.sh
+            mkdir -p .deployments logs
+
+            if [[ -n "${HEALTH_CHECK_URL:-}" ]]; then
+              export HEALTH_CHECK_URL
+            fi
+
+            echo "==== GitHub Actions beta deploy ===="
+            echo "Triggered by: ${GH_ACTOR}"
+            echo "Commit: ${GH_SHA}"
+            echo "Run: ${GH_RUN_URL}"
+            echo "Started (UTC): $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+            # Do NOT pipe through tee + PIPESTATUS.
+            # appleboy/SSH may not preserve PIPESTATUS; empty rc → `exit ""` → status 1
+            # even when deploy-beta.sh succeeded (exit 0). Capture $? directly instead.
+            set +e
+            # shellcheck disable=SC2086
+            ./scripts/deploy-beta.sh ${EXTRA_FLAGS} >.deployments/last-deploy.log 2>&1
+            rc=$?
+            set -e
+            cat .deployments/last-deploy.log
+            exit "${rc}"
+        env:
+          DEPLOY_PATH: ${{ steps.cfg.outputs.deploy_path }}
+          HEALTH_CHECK_URL: ${{ steps.cfg.outputs.health_check_url }}
+          EXTRA_FLAGS: ${{ steps.cfg.outputs.extra_flags }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_SHA: ${{ github.sha }}
+          GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Deployment summary
+        if: always()
+        env:
+          SSH_OUTCOME: ${{ steps.ssh_deploy.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          DEPLOY_PATH: ${{ steps.cfg.outputs.deploy_path }}
+        run: |
+          STATUS_ICON="failed"
+          [[ "${JOB_STATUS}" == "success" ]] && STATUS_ICON="success"
+
+          {
+            echo "## Beta Deploy (${STATUS_ICON})"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Status | \`${JOB_STATUS}\` |"
+            echo "| SSH step | \`${SSH_OUTCOME}\` |"
+            echo "| Branch | \`beta_development\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Deploy path | \`${DEPLOY_PATH}\` |"
+            echo "| Host | \`${{ secrets.BETA_SSH_HOST }}\` |"
+            echo ""
+            echo "- \`npm run migration:run\` every deploy"
+            echo "- \`pm2 reload ecosystem.config.js --update-env\` (near-zero downtime)"
+            echo "- Health: \`GET /api/v1/health\` → HTTP 200"
+            echo "- On failure: automatic \`scripts/rollback.sh\`"
+            echo "- Log: \`${DEPLOY_PATH}/.deployments/last-deploy.log\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "${JOB_STATUS}" != "success" ]]; then
+            echo "::error::Beta deployment failed"
+            exit 1
+          fi

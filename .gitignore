@@ -12,6 +12,9 @@ node_modules/
 .env.local
 .env.*.local
 
+# Deploy metadata on the VM (lock pointers / history / last-deploy.log)
+.deployments/
+
 # Logs
 logs/
 *.log

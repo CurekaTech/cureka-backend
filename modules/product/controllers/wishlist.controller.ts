@@ -41,7 +41,7 @@ export class WishlistController {
   }
 
   @ApiOperation({ summary: 'List wishlisted product ids for the authenticated user' })
-  @ResponseMessage('Wishlist ids retrieved successfully')
+  @ResponseMessage('Wishlist ids retrieved successfullyy.')
   @Get('ids')
   findProductIds(@CurrentSessionUser() user: IUserSessionContext) {
     return this.wishlistService.findProductIds(user.sub);

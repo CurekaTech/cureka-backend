@@ -24,10 +24,40 @@ export interface IUser {
   gender?: UserGender;
   dateOfBirth?: Date;
   maritalStatus?: UserMaritalStatus;
+  /** Not stored on users yet — reserved for admin UI; currently null. */
+  country?: string | null;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;
+}
+
+export interface IUserOrderMetrics {
+  totalOrders: number;
+  totalSpend: number;
+  lastOrderAt: Date | null;
+}
+
+export interface IUserRecentOrder {
+  id: string;
+  refId: string;
+  createdAt: Date;
+  status: string;
+  paymentStatus: string;
+  total: number;
+}
+
+/** Admin users list row — profile + order aggregates. */
+export interface IAdminUserListItem extends IUser {
+  totalOrders: number;
+  totalSpend: number;
+  lastOrderAt: Date | null;
+}
+
+/** Admin user detail — profile, metrics, addresses, recent orders. */
+export interface IAdminUserDetail extends IAdminUserListItem {
+  addresses: Array<IUserAddress & { country: string }>;
+  recentOrders: IUserRecentOrder[];
 }
 
 export interface ICustomerUserListItem {

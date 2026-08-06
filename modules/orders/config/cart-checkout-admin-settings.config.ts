@@ -86,7 +86,6 @@ export const CART_CHECKOUT_ADMIN_SETTINGS: readonly CartCheckoutAdminSettingDefi
   {
     key: CartCheckoutAdminSettingKey.COD_CHARGE,
     usage: 'cod_charge',
-    pricingField: 'codCharge',
     fallbackDefault: 50,
   },
   {

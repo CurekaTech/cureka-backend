@@ -5,6 +5,7 @@ import { IProductInformationItem } from '@modules/product/interfaces/product-inf
 import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IVariantInlineFaq } from '@modules/product/interfaces/variant-details.interface';
 import { IProductPackMetadataItem } from '@modules/product/interfaces/product-pack-metadata.interface';
+import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
@@ -139,11 +140,11 @@ export interface IPublicProductVariant {
   subscriptionEnabled?: boolean;
   codAvailable?: boolean;
   emiAvailable?: boolean;
-  returnAllowed?: boolean;
-  returnPolicy?: string | null;
-  returnWindowDays?: number | null;
-  replaceAllowed?: boolean;
-  replaceWindowDays?: number | null;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
+  returnWindowDays: number | null;
+  replaceAllowed: boolean;
+  replaceWindowDays: number | null;
   manufacturerRefId?: string | null;
   manufacturerName?: string | null;
   manufacturerAddress?: string | null;
@@ -292,6 +293,8 @@ export interface IPublicProductDetail {
     childProductSlug: string;
     quantity: number;
   }>;
+  /** Active banners with placement `pdp` from banner master (empty when none). */
+  banners: IStorefrontBannerItem[];
 }
 
 export interface IPublicProductListResponse extends PaginatedResult<IPublicProductCard> {

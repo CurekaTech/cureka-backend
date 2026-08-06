@@ -1,16 +1,23 @@
 import { registerAs } from '@nestjs/config';
+import { MSG91_STATIC } from './msg91.constants';
 
 /**
- * MSG91 — used for SMS OTP (SendOTP), not order WhatsApp.
- * Docs: https://docs.msg91.com/otp/sendotp
- *
- * Order placement alerts use WhatsApp (bonb). Configure MSG91 when wiring auth OTP SMS.
+ * MSG91 — SMS OTP + order thank-you SMS (Flow API).
+ * Env: MSG91_ENABLED, MSG91_AUTH_KEY only. All template/flow/DLT settings → msg91.constants.ts
  */
 export const msg91Config = registerAs('msg91', () => ({
   enabled: (process.env['MSG91_ENABLED'] ?? 'false').toLowerCase() === 'true',
   authKey: process.env['MSG91_AUTH_KEY'] ?? '',
-  /** OTP template id from MSG91 OTP section */
-  otpTemplateId: process.env['MSG91_OTP_TEMPLATE_ID'] ?? '',
-  baseUrl: process.env['MSG91_BASE_URL'] ?? 'https://control.msg91.com/api/v5',
-  timeoutMs: parseInt(process.env['MSG91_TIMEOUT_MS'] ?? '15000', 10),
+
+  otpTemplateId: MSG91_STATIC.otpTemplateId,
+  orderThankYouTemplateId: MSG91_STATIC.orderThankYouTemplateId,
+  dltTemplateId: MSG91_STATIC.dltTemplateId,
+  peId: MSG91_STATIC.peId,
+  senderId: MSG91_STATIC.senderId.trim().toUpperCase(),
+  passSenderInFlow: MSG91_STATIC.passSenderInFlow,
+  orderThankYouTemplateText: MSG91_STATIC.orderThankYouTemplateText,
+  orderThankYouVars: [...MSG91_STATIC.orderThankYouVars],
+  shortUrl: MSG91_STATIC.shortUrl,
+  baseUrl: MSG91_STATIC.baseUrl,
+  timeoutMs: MSG91_STATIC.timeoutMs,
 }));

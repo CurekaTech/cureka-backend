@@ -5,7 +5,6 @@ import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.e
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
-import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { CartService } from '@modules/orders/services/cart.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import { roundMoney } from '@modules/orders/utils/money.util';
@@ -40,7 +39,6 @@ export class GokwikOrderService {
     private readonly gokwikRepository: GokwikRepository,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
-    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) {}
 
   async createOrder(dto: GokwikCreateOrderDto): Promise<GokwikCreateOrderResponse> {
@@ -50,11 +48,6 @@ export class GokwikOrderService {
     }
 
     return this.withCartLock(cartId, async () => {
-      const existing = await this.gokwikRepository.findOrderByCartId(cartId);
-      if (existing?.order) {
-        return { status: 'success', order_id: existing.order.orderNumber };
-      }
-
       const cart = await this.cartService.findActiveCartById(cartId);
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
@@ -62,14 +55,71 @@ export class GokwikOrderService {
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
-      const pricedCart = await this.cartService.getCartById(cartId);
+      const isCodPayment = dto.payment_details.payment_method === 'cod';
+      const pricedCart = await this.cartService.getCartById(
+        cartId,
+        undefined,
+        isCodPayment ? { paymentMethod: OrderPaymentMethod.COD } : undefined,
+      );
+      const existing = await this.gokwikRepository.findOrderByCartId(cartId);
+      if (existing?.order) {
+        const existingOrderTotal = Number(existing.order.grandTotal);
+        const hasStaleOrderAmount =
+          Math.abs(Math.round(existingOrderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) >
+          1;
+        if (hasStaleOrderAmount) {
+          this.logger.warn(
+            {
+              cartId,
+              existingOrderNumber: existing.order.orderNumber,
+              existingOrderTotal,
+              currentCartTotal: pricedCart.grandTotal,
+              paymentMethod: dto.payment_details.payment_method,
+            },
+            'Refreshing stale GoKwik order link for cart',
+          );
+          const shippingAddress = this.mapShippingAddress(dto.shipping_address);
+          const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
+          const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
+          const refreshedOrder = await this.ordersService.createDraftOrderFromCart(cart.userId, {
+            cartId,
+            addressId: address.id,
+            paymentMethod,
+            paymentStatus,
+            notes: null,
+            orderSource: OrderSource.GOKWIK,
+            // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
+            ignorePaymentMethodPricing: !isCodPayment,
+          });
+          this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(refreshedOrder.grandTotal));
+          this.assertDiscountTotal(dto.meta_data, Number(refreshedOrder.discountAmount));
+          await this.gokwikRepository.updateOrderLink(existing.id, {
+            orderId: refreshedOrder.id,
+            gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
+            paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
+            gatewayTransactionId: this.normalizeOptionalIdentifier(
+              dto.payment_details.pg_payment_trnx_id,
+            ),
+            paymentMethod: dto.payment_details.payment_method,
+            paymentAmount: dto.payment_details.payment_amount.toFixed(2),
+            prepaidAmount: (dto.meta_data?.ppcod?.prepaid_amount ?? 0).toFixed(2),
+            payableOnDelivery: (dto.meta_data?.ppcod?.payable_on_delivery ?? 0).toFixed(2),
+            customerPhone,
+            metadata: {
+              ...(existing.metadata ?? {}),
+              rto_risk_flag: dto.meta_data?.rto_risk_flag,
+              ...this.codPaymentMetadata(dto.payment_details),
+            },
+            updatedBy: 'gokwik',
+          });
+          return { status: 'success', order_id: refreshedOrder.orderNumber };
+        }
+        this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
+        return { status: 'success', order_id: existing.order.orderNumber };
+      }
+
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
-      if (dto.payment_details.payment_method === 'cod') {
-        const payable = roundMoney(pricedCart.subtotal - pricedCart.discountAmount);
-        const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-        this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
-      }
       const shippingAddress = this.mapShippingAddress(dto.shipping_address);
       const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
@@ -81,7 +131,8 @@ export class GokwikOrderService {
         paymentStatus,
         notes: null,
         orderSource: OrderSource.GOKWIK,
-        ignorePaymentMethodPricing: true,
+        // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
+        ignorePaymentMethodPricing: !isCodPayment,
       });
 
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(order.grandTotal));
@@ -92,7 +143,7 @@ export class GokwikOrderService {
           orderId: order.id,
           cartId,
           gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
-          paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+          paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
           gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
           paymentMethod: dto.payment_details.payment_method,
           paymentAmount: dto.payment_details.payment_amount.toFixed(2),
@@ -101,6 +152,7 @@ export class GokwikOrderService {
           customerPhone,
           metadata: {
             rto_risk_flag: dto.meta_data?.rto_risk_flag,
+            ...this.codPaymentMetadata(dto.payment_details),
           },
           createdBy: 'gokwik',
           updatedBy: 'gokwik',
@@ -151,12 +203,27 @@ export class GokwikOrderService {
         throw new BadRequestException('Invalid order id for this checkout session');
       }
 
-      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(link.order.grandTotal));
+      const pricedCart = await this.cartService.getCartById(cartId);
+      const orderTotal = Number(link.order.grandTotal);
+      const hasStaleOrderAmount =
+        Math.abs(Math.round(orderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) > 1;
+      if (hasStaleOrderAmount) {
+        this.logger.warn(
+          {
+            cartId,
+            orderNumber: link.order.orderNumber,
+            orderTotal,
+            currentCartTotal: pricedCart.grandTotal,
+          },
+          '[GoKwik] Place-order amount drift (ignored — not blocking)',
+        );
+      }
+      this.assertPaymentTotal(dto.payment_details, dto.meta_data, orderTotal);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
 
       await this.gokwikRepository.updateOrderLink(link.id, {
         gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || link.gokwikOrderId,
-        paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+        paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
         gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
         paymentMethod: dto.payment_details.payment_method,
         paymentAmount: dto.payment_details.payment_amount.toFixed(2),
@@ -167,6 +234,7 @@ export class GokwikOrderService {
           ...link.metadata,
           rto_risk_flag: dto.meta_data?.rto_risk_flag,
           utm_details: dto.utm_details,
+          ...this.codPaymentMetadata(dto.payment_details),
         },
         updatedBy: 'gokwik',
       });
@@ -306,20 +374,75 @@ export class GokwikOrderService {
   ): void {
     const equalsMoney = (left: number, right: number) =>
       Math.abs(Math.round(left * 100) - Math.round(right * 100)) <= 1;
+    const rewardsAmount = this.resolveRewardsAmount(meta);
+    // Cureka grandTotal already includes handling/platform/COD fees.
+    // GoKwik may also echo those as meta_data.other_charges — do not add them again.
+    const payableTotal = roundMoney(Math.max(expectedTotal - rewardsAmount, 0));
 
-    if (!equalsMoney(payment.payment_amount, expectedTotal)) {
-      throw new BadRequestException('GoKwik payment amount does not match the order total');
+    // GoKwik owns checkout display totals (fees/COD presentation). Soft-validate only —
+    // do not block create-order / place-order on amount drift.
+    if (!equalsMoney(payment.payment_amount, payableTotal)) {
+      this.logger.warn(
+        {
+          paymentAmount: payment.payment_amount,
+          expectedTotal,
+          otherChargesTotal: this.sumOtherCharges(meta),
+          rewardsAmount,
+          payableTotal,
+          paymentMethod: payment.payment_method,
+        },
+        'GoKwik payment mismatch (ignored — amount check disabled per GoKwik)',
+      );
     }
 
     if (payment.payment_method === 'pp-cod') {
-      if (!meta?.ppcod) {
-        throw new BadRequestException('ppcod split is required for Partial COD');
+      const prepaid = meta?.ppcod?.prepaid_amount;
+      const payable = meta?.ppcod?.payable_on_delivery;
+      if (prepaid == null || payable == null) {
+        this.logger.warn(
+          {
+            paymentMethod: payment.payment_method,
+            prepaid,
+            payable,
+          },
+          '[GoKwik] ppcod split missing (ignored — not blocking create/place-order)',
+        );
+        return;
       }
-      const splitTotal = meta.ppcod.prepaid_amount + meta.ppcod.payable_on_delivery;
-      if (!equalsMoney(splitTotal, expectedTotal)) {
-        throw new BadRequestException('Partial COD split does not match the order total');
+      const splitTotal = prepaid + payable;
+      if (!equalsMoney(splitTotal, payableTotal)) {
+        this.logger.warn(
+          {
+            prepaid,
+            payable,
+            splitTotal,
+            payableTotal,
+            expectedTotal,
+          },
+          'Partial COD split mismatch (ignored — amount check disabled per GoKwik)',
+        );
       }
     }
+  }
+
+  private sumOtherCharges(meta: GokwikCreateOrderMetaDataDto | undefined): number {
+    return roundMoney(
+      (meta?.other_charges ?? []).reduce((sum, charge) => {
+        const amount = Number(charge?.amount ?? 0);
+        if (!Number.isFinite(amount) || amount < 0) {
+          return sum;
+        }
+        return sum + amount;
+      }, 0),
+    );
+  }
+
+  private resolveRewardsAmount(meta: GokwikCreateOrderMetaDataDto | undefined): number {
+    const amount = Number(meta?.rewards_info?.reward_amount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return 0;
+    }
+    return roundMoney(amount);
   }
 
   private async applyGokwikDiscount(
@@ -328,19 +451,58 @@ export class GokwikOrderService {
     meta: GokwikCreateOrderMetaDataDto | undefined,
   ): Promise<void> {
     const discounts = (meta?.discounts ?? []).filter((discount) => discount.amount > 0);
-    if (discounts.length > 1) {
-      throw new BadRequestException('Only one cart coupon can be applied to a Cureka order');
-    }
-    const discount = discounts[0];
-    if (!discount) {
+    if (!discounts.length) {
       return;
     }
-    const code = discount.code?.trim();
-    if (!code) {
-      throw new BadRequestException('GoKwik discount code is required for hybrid validation');
+
+    // GoKwik may send prepaid/promo + cart coupon together — never block create-order.
+    if (discounts.length > 1) {
+      this.logger.warn(
+        {
+          discountCount: discounts.length,
+          discounts: discounts.map((discount) => ({
+            code: discount.code ?? null,
+            type: discount.type,
+            amount: discount.amount,
+          })),
+        },
+        '[GoKwik] Multiple discounts reported — applying first coded coupon only (not blocking)',
+      );
     }
-    if (currentCouponCode !== code) {
+
+    const discountWithCode =
+      discounts.find((discount) => Boolean(discount.code?.trim())) ?? discounts[0];
+    const code = discountWithCode?.code?.trim();
+    if (!code) {
+      this.logger.warn(
+        {
+          discounts: discounts.map((discount) => ({
+            type: discount.type,
+            amount: discount.amount,
+          })),
+        },
+        '[GoKwik] Discount without coupon code — skipping cart coupon sync (not blocking)',
+      );
+      return;
+    }
+
+    if (currentCouponCode === code) {
+      return;
+    }
+
+    try {
       await this.cartService.applyCoupon(userId, { couponCode: code });
+    } catch (error) {
+      this.logger.warn(
+        {
+          code,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : { message: String(error) },
+        },
+        '[GoKwik] Coupon apply failed — continuing create-order without blocking',
+      );
     }
   }
 
@@ -349,13 +511,72 @@ export class GokwikOrderService {
     return normalized || null;
   }
 
+  /**
+   * GoKwik reuses `KWIKDUMMYTRANSACTIONID` (and similar) for every COD order.
+   * `gokwik_orders.payment_id` is UNIQUE — store null for COD dummies and keep
+   * the raw value in metadata so create-order / place-order can accept them.
+   */
+  private resolveStoredPaymentId(
+    payment: GokwikPaymentDetailsDto,
+    cartId: string,
+  ): string | null {
+    const normalized = this.normalizeOptionalIdentifier(payment.payment_id);
+    if (!normalized) {
+      return null;
+    }
+
+    if (payment.payment_method === 'cod' && this.isCodDummyPaymentId(normalized)) {
+      this.logger.log(
+        {
+          cartId,
+          paymentMethod: payment.payment_method,
+          paymentId: normalized,
+          storedPaymentId: null,
+        },
+        '[GoKwik] COD dummy payment_id accepted (not stored under unique payment_id)',
+      );
+      return null;
+    }
+
+    return normalized;
+  }
+
+  private isCodDummyPaymentId(value: string): boolean {
+    const upper = value.trim().toUpperCase();
+    return (
+      upper === 'KWIKDUMMYTRANSACTIONID' ||
+      upper === 'KWIKDUMMYPAYMENTID' ||
+      upper.startsWith('KWIKDUMMY')
+    );
+  }
+
+  private codPaymentMetadata(
+    payment: GokwikPaymentDetailsDto,
+  ): Record<string, string> {
+    if (payment.payment_method !== 'cod') {
+      return {};
+    }
+    const rawPaymentId = this.normalizeOptionalIdentifier(payment.payment_id);
+    if (!rawPaymentId || !this.isCodDummyPaymentId(rawPaymentId)) {
+      return {};
+    }
+    return { gokwik_cod_payment_id: rawPaymentId };
+  }
+
   private assertDiscountTotal(
     meta: GokwikCreateOrderMetaDataDto | undefined,
     expectedDiscount: number,
   ): void {
     const reported = (meta?.discounts ?? []).reduce((sum, discount) => sum + discount.amount, 0);
     if (Math.abs(Math.round(reported * 100) - Math.round(expectedDiscount * 100)) > 1) {
-      throw new BadRequestException('GoKwik discount does not match Cureka coupon calculation');
+      this.logger.warn(
+        {
+          reportedDiscount: reported,
+          expectedDiscount,
+          discounts: meta?.discounts ?? [],
+        },
+        '[GoKwik] Discount mismatch (ignored — not blocking create/place-order)',
+      );
     }
   }
 

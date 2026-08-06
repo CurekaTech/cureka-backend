@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
 import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface';
+import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { CartService } from '@modules/orders/services/cart.service';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import { roundMoney } from '@modules/orders/utils/money.util';
@@ -23,11 +24,14 @@ const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'cash_free', 'pay_you', 'shipway'] as
 
 @Injectable()
 export class GokwikCartService {
+  private readonly logger = new Logger(GokwikCartService.name);
+
   constructor(
     private readonly cartService: CartService,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly couponsRepository: CouponsRepository,
     private readonly adminSettingsRepository: AdminSettingsRepository,
+    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) {}
 
   async getCart(cartId: string): Promise<GokwikGetCartSuccessResponse> {
@@ -162,7 +166,8 @@ export class GokwikCartService {
   }
 
   /**
-   * Returns prepaid (when any gateway is enabled) and COD (when payable is within admin min/max).
+   * Returns prepaid (when any gateway is enabled) and COD (always when configured).
+   * GoKwik owns checkout UX — min/max COD order limits are not enforced here.
    */
   private async resolveAvailablePaymentMethods(
     cart: CartResponse,
@@ -179,20 +184,47 @@ export class GokwikCartService {
     });
     const methods: GokwikAvailablePaymentMethod[] = [];
     if (hasPrepaid) {
-      methods.push({ id: 'prepaid', title: 'Prepaid', price: 0, currency: 'INR' });
-    }
-
-    const payable = roundMoney(cart.subtotal - cart.discountAmount);
-    const min = cart.checkoutRules.codMinOrderAmount;
-    const max = cart.checkoutRules.codMaxOrderAmount;
-    if (payable >= min && payable <= max) {
       methods.push({
-        id: 'cod',
-        title: 'Cash on Delivery',
-        price: Math.max(0, Number(cart.codCharge) || 0),
+        id: 'prepaid',
+        description: 'Prepaid',
+        title: 'Prepaid',
+        price: 0,
         currency: 'INR',
       });
     }
+
+    const payable = roundMoney(cart.subtotal - cart.discountAmount);
+    const [checkoutAmounts, codSlabs] = await Promise.all([
+      this.cartCheckoutAdminSettingsService.resolveAmounts(),
+      this.cartCheckoutAdminSettingsService.resolveCodSlabs(),
+    ]);
+    const codCharge = this.cartCheckoutAdminSettingsService.resolveCodChargeAmount(
+      payable,
+      codSlabs,
+      checkoutAmounts,
+    );
+
+    methods.push({
+      id: 'cod',
+      description: 'Cash on Delivery',
+      title: 'Cash on Delivery',
+      price: Math.max(0, Math.round(codCharge)),
+      currency: 'INR',
+    });
+
+    this.logger.log(
+      {
+        cartId: cart.cartId,
+        payable,
+        codCharge,
+        codSlabs,
+        legacyCodFallback: !codSlabs.length,
+        hasPrepaid,
+        methodIds: methods.map((method) => method.id),
+      },
+      '[GoKwik] available_payment_methods resolved',
+    );
+
     return methods;
   }
 
