@@ -180,11 +180,9 @@ export class CartPricingService {
 
     const prepaidDiscount = roundMoney(prepaidPercentDiscount + prepaidFlatDiscount);
 
-    // Shipping slabs use payable-before-shipping (merchandise + fees except shipping),
-    // matching Bill Summary "amount before delivery" (e.g. 145 + 100 + 100 = 345 → ₹55).
-    const payableBeforeShipping = roundMoney(payableSubtotal + handlingAmount + platformFee + codCharge);
+    // Shipping slabs use merchandise payable only: subtotal − coupon (before fees).
     const shippingAmount = this.resolveShippingAmount(
-      payableBeforeShipping,
+      payableSubtotal,
       coupon,
       shippingSlabs,
       {
@@ -248,12 +246,12 @@ export class CartPricingService {
 
   /**
    * Shipping charge from `gokwik_shipping_slabs`.
-   * Slab base = payable before shipping:
-   * `(subtotal − coupon) + handling + platform (+ COD when applicable)`.
-   * Used by Cureka cart and GoKwik get-cart. `free_shipping` coupons waive shipping.
+   * Slab base = merchandise payable: `subtotal − discountAmount` (coupon, etc.).
+   * Handling, platform fee, and COD are applied after shipping in the grand total.
+   * Used by Cureka cart, checkout, GoKwik get-cart. `free_shipping` coupons waive shipping.
    */
   resolveShippingAmount(
-    payableBeforeShipping: number,
+    payableSubtotal: number,
     coupon: CouponEntity | null,
     shippingSlabs: ShippingSlab[],
     debug?: {
@@ -270,7 +268,7 @@ export class CartPricingService {
       this.logger.log(
         {
           cartId: debug?.cartId,
-          payableBeforeShipping,
+          payableSubtotal,
           shippingAmount: 0,
           reason: 'free_shipping_coupon',
           couponCode: coupon.code,
@@ -282,8 +280,8 @@ export class CartPricingService {
 
     const matchedSlab = shippingSlabs.find(
       (candidate) =>
-        payableBeforeShipping >= candidate.min &&
-        (candidate.max === null || payableBeforeShipping <= candidate.max),
+        payableSubtotal >= candidate.min &&
+        (candidate.max === null || payableSubtotal <= candidate.max),
     );
     const shippingAmount = roundMoney(matchedSlab?.charge ?? 0);
 
@@ -292,11 +290,10 @@ export class CartPricingService {
         cartId: debug?.cartId,
         subtotal: debug?.subtotal,
         discountAmount: debug?.discountAmount,
-        payableSubtotal: debug?.payableSubtotal,
+        payableSubtotal,
         handlingAmount: debug?.handlingAmount,
         platformFee: debug?.platformFee,
         codCharge: debug?.codCharge,
-        payableBeforeShipping,
         matchedSlab: matchedSlab
           ? { min: matchedSlab.min, max: matchedSlab.max, charge: matchedSlab.charge }
           : null,
