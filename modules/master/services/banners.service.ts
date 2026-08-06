@@ -281,7 +281,12 @@ export class BannersService {
 
   async getPdpBanners(): Promise<IStorefrontBannerItem[]> {
     const items = await this.getPdpBannerReferences();
-    return this.storageUrlEnricher.enrichManyFields(items, ['imageUrl']);
+    const enriched = await this.storageUrlEnricher.enrichManyFields(items, ['imageUrl']);
+    // Ensure placement is always present even if an older cache entry is read.
+    return enriched.map((item, index) => ({
+      ...item,
+      placement: item.placement ?? items[index]?.placement ?? BannerPlacement.PDP,
+    }));
   }
 
   async loadPdpBannersUncached(): Promise<IStorefrontBannerItem[]> {
