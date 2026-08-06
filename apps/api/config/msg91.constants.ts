@@ -29,8 +29,10 @@ export const MSG91_STATIC = {
   passSenderInFlow: false,
 
   /**
-   * Exact MSG91 Flow template text (##var## placeholders).
-   * Used for rendered-SMS preview logs — must match MSG91 panel + DLT-approved content.
+   * LOCAL LOG PREVIEW ONLY — never sent to MSG91 API.
+   * MSG91 builds SMS from the Flow panel template + our var1/var2.
+   * DLT compares that rendered SMS to the DLT-approved template.
+   * Keep this string in sync with MSG91 Flow text for accurate logs only.
    */
   orderThankYouTemplateText:
     'Thank you for ordering on Cureka.com. Your Order ##var1## is under ##var2## and the shipment tracking id will be shared soon. Contact 9655928004 for any queries.',
