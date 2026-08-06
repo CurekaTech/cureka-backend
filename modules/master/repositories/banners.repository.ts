@@ -101,6 +101,21 @@ export class BannersRepository {
       .getMany();
   }
 
+  async findActiveByPlacement(
+    placement: BannerPlacement,
+    now: Date = new Date(),
+  ): Promise<BannerEntity[]> {
+    return this.repo
+      .createQueryBuilder('banner')
+      .where('banner.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('banner.placement = :placement', { placement })
+      .andWhere('(banner.starts_at IS NULL OR banner.starts_at <= :now)', { now })
+      .andWhere('(banner.ends_at IS NULL OR banner.ends_at >= :now)', { now })
+      .orderBy('banner.sort_order', 'ASC')
+      .addOrderBy('banner.created_at', 'ASC')
+      .getMany();
+  }
+
   async updateSortOrders(
     items: Array<{ refId: string; sortOrder: number }>,
   ): Promise<BannerEntity[]> {
