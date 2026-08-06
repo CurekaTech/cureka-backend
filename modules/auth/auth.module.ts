@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppCacheModule } from '@packages/cache';
 import { AuthModule as CoreAuthModule } from '@packages/auth';
 import { AdminUsersModule } from '@modules/admin-users/admin-users.module';
+import { CheckoutModule } from '@modules/checkout/checkout.module';
 import { UsersModule } from '@modules/users/users.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
@@ -30,6 +31,7 @@ import { KwikpassService } from './services/kwikpass.service';
     AppCacheModule.forRoot(),
     CoreAuthModule,
     AdminUsersModule,
+    CheckoutModule,
     UsersModule,
     OrdersModule,
     UploadsModule,

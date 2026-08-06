@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
+import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { UserStatus } from '@modules/users/enums/user-status.enum';
 import { IUserSessionContext } from '../interfaces/session.interface';
 
@@ -21,7 +22,9 @@ import { IUserSessionContext } from '../interfaces/session.interface';
  */
 @Injectable()
 export class VerifiedUserGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly checkoutResolver: CheckoutResolverService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
       .switchToHttp()
       .getRequest<FastifyRequest & { user: IUserSessionContext }>();
@@ -40,12 +43,33 @@ export class VerifiedUserGuard implements CanActivate {
       throw new ForbiddenException('Account is inactive');
     }
 
-    if (!sessionUser.isRegistered) {
+    if (!sessionUser.isRegistered && !(await this.isAllowedForUnregistered(request))) {
       throw new ForbiddenException(
         'Please complete your profile registration before accessing this resource',
       );
     }
 
     return true;
+  }
+
+  /**
+   * Allow pre-registration storefront flows (GoKwik/no-address start).
+   * Keep all other endpoints restricted for unregistered users.
+   */
+  private async isAllowedForUnregistered(request: FastifyRequest): Promise<boolean> {
+    const method = String(request.method ?? '').toUpperCase();
+    const rawPath = String(request.url ?? '');
+    const path = rawPath.split('?')[0];
+    const isCheckoutStartRoute =
+      method === 'POST' &&
+      (path === '/api/v1/orders/checkout' ||
+        path === '/api/v1/payment-requests/checkout' ||
+        path === '/api/v1/payment-requests/checkout/modal');
+    if (!isCheckoutStartRoute) {
+      return false;
+    }
+
+    const provider = await this.checkoutResolver.resolveProvider();
+    return provider === 'gokwik';
   }
 }
