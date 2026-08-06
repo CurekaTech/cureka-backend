@@ -54,6 +54,22 @@ export class VendorsRepository {
     });
   }
 
+  async updateByRefId(
+    refId: string,
+    data: Partial<VendorEntity>,
+    manager?: EntityManager,
+  ): Promise<VendorEntity | null> {
+    const repo = this.getRepo(manager);
+    const existing = await repo.findOne({ where: { refId } });
+    if (!existing) return null;
+    Object.assign(existing, data);
+    await repo.save(existing);
+    return repo.findOne({
+      where: { refId },
+      relations: { user: true },
+    });
+  }
+
   async findAllPaginated(
     options: VendorListOptions,
   ): Promise<{ data: VendorEntity[]; total: number }> {

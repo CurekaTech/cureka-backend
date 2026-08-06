@@ -5,9 +5,9 @@ Admin panel: register vendors and list pending/registered vendor applications.
 **Base URL:** `/api/v1`  
 **Auth:** Admin JWT (`Authorization: Bearer <token>`) + cookie `admin_token` if used  
 **Roles:** `SUPER_ADMIN`, `ADMIN`  
-**Permissions:** `vendors.create` (register), `vendors.read` (list)
+**Permissions:** `vendors.create` (register), `vendors.read` (list/view), `vendors.update` (edit)
 
-Suggested routes: `/vendors` (list), `/vendors/create` (register form).
+Suggested routes: `/vendors` (list), `/vendors/create` (register), `/vendors/[refId]` (view/edit).
 
 ---
 
@@ -17,6 +17,8 @@ Suggested routes: `/vendors` (list), `/vendors/create` (register form).
 |--------|------|------------|-------------|
 | `POST` | `/admin/vendors` | `vendors.create` | Register vendor (multipart) |
 | `GET` | `/admin/vendors` | `vendors.read` | Paginated list + search/sort |
+| `GET` | `/admin/vendors/:refId` | `vendors.read` | Vendor detail |
+| `PATCH` | `/admin/vendors/:refId` | `vendors.update` | Update vendor (multipart or JSON) |
 
 Both public and admin registrations start with `status: PENDING` and `source: ADMIN` (or `PUBLIC` for website).
 
@@ -172,6 +174,60 @@ curl --location "http://localhost:3005/api/v1/admin/vendors?page=1&limit=20&stat
 
 ---
 
+## 3. View vendor
+
+```
+GET /api/v1/admin/vendors/:refId
+```
+
+Permission: `vendors.read`.  
+Response: same vendor object as create/list item (with signed document URLs).
+
+```bash
+curl --location "http://localhost:3005/api/v1/admin/vendors/VND2026XXXXXX" \
+  --header "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+---
+
+## 4. Edit vendor
+
+```
+PATCH /api/v1/admin/vendors/:refId
+```
+
+Permission: `vendors.update`.  
+Supports **multipart/form-data** (preferred when replacing files) or JSON.
+
+- All profile fields are **optional** — send only what changed.
+- Omit `panDocument` / `gstCertificateDocument` / `productExcelSheet` to **keep existing files**.
+- Optional `status` (`PENDING` | `VERIFIED` | `ACTIVE` | `REJECTED` | `CORRECTION_REQUIRED`).
+- Changing email/mobile updates the linked `users` row (must stay unique).
+
+### Multipart example
+
+```bash
+curl --location --request PATCH "http://localhost:3005/api/v1/admin/vendors/VND2026XXXXXX" \
+  --header "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  --form "companyName=Acme Wellness Updated" \
+  --form "warehousePincode=421302" \
+  --form "productExcelSheet=@./products-updated.xlsx"
+```
+
+### JSON example (no file change)
+
+```bash
+curl --location --request PATCH "http://localhost:3005/api/v1/admin/vendors/VND2026XXXXXX" \
+  --header "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  --header "Content-Type: application/json" \
+  --data "{
+    \"contactPerson\": \"Priya Patel\",
+    \"status\": \"PENDING\"
+  }"
+```
+
+---
+
 ## Status & source enums
 
 | Field | Values |
@@ -179,16 +235,18 @@ curl --location "http://localhost:3005/api/v1/admin/vendors?page=1&limit=20&stat
 | `status` | `PENDING`, `VERIFIED`, `ACTIVE`, `REJECTED`, `CORRECTION_REQUIRED` |
 | `source` | `PUBLIC`, `ADMIN` |
 
-This slice only **creates** as `PENDING`. Approve / reject / Unicommerce warehouse APIs are not included yet.
+Create always starts as `PENDING`. Status can be changed via PATCH. Unicommerce warehouse auto-create is still out of scope.
 
 ---
 
 ## Admin UI checklist
 
-- [ ] Gate list with `vendors.read`, create with `vendors.create`
+- [ ] Gate list/view with `vendors.read`, create with `vendors.create`, edit with `vendors.update`
 - [ ] List: search box, status filter, sortable columns, pagination
-- [ ] Create: multipart form with PAN + GST certificate file inputs
-- [ ] Show `PENDING` badge; do not treat as live/selling yet
+- [ ] Detail page loads `GET /admin/vendors/:refId`
+- [ ] Edit form: multipart PATCH; files optional (keep previous if not re-uploaded)
+- [ ] Create: multipart form with PAN + GST + product sheet
+- [ ] Show status badge; do not treat as live/selling until Active + warehouse work
 - [ ] Surface `409` for duplicate email/mobile
 
 ---

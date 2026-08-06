@@ -1,3 +1,4 @@
+import { PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
 import {
   IsEmail,
@@ -147,6 +148,16 @@ export class RegisterVendorDto {
   @IsString()
   @MaxLength(5000)
   companyProfile?: string;
+}
+
+/** Admin edit — all fields optional; omit files to keep existing documents. */
+export class UpdateVendorDto extends PartialType(RegisterVendorDto) {
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsEnum(VendorStatus)
+  status?: VendorStatus;
 }
 
 /**
