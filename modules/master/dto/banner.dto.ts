@@ -80,7 +80,18 @@ export class CreateBannerDto {
   endsAt?: string;
 }
 
-export class UpdateBannerDto extends PartialType(CreateBannerDto) {}
+export class UpdateBannerDto extends PartialType(CreateBannerDto) {
+  /**
+   * Re-declare so multipart edit validation always inherits the `pdp` allow-list
+   * (PartialType can miss custom `@IsIn` / `@Transform` metadata in some builds).
+   */
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsIn(BANNER_PLACEMENT_VALUES, {
+    message: `placement must be one of the following values: ${BANNER_PLACEMENT_VALUES.join(', ')}`,
+  })
+  declare placement?: BannerPlacement;
+}
 
 export class UpdateBannerStatusDto {
   @IsNotEmpty()
