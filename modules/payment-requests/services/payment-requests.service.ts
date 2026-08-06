@@ -74,19 +74,21 @@ export class PaymentRequestsService {
 
   async checkoutFromCart(
     userId: string,
-    addressId: string,
+    addressId?: string,
     orderSource?: OrderSource,
     customerToken?: string,
     paymentMethod?: OrderPaymentMethod,
   ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
     if (checkoutProvider === 'gokwik') {
-      return this.createGokwikCheckoutSession(userId, addressId, customerToken);
+      return this.createGokwikCheckoutSession(userId, addressId, customerToken, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
+      this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource, paymentMethod);
     }
 
+    this.assertAddressRequiredForCheckout(addressId, 'legacy');
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
     if (activeGateway === 'cashfree') {
@@ -215,7 +217,7 @@ export class PaymentRequestsService {
   /** Storefront checkout modal — separate from payment-link flow. */
   async checkoutModalFromCart(
     userId: string,
-    addressId: string,
+    addressId?: string,
     orderSource?: OrderSource,
     customerToken?: string,
     paymentMethod?: OrderPaymentMethod,
@@ -239,9 +241,10 @@ export class PaymentRequestsService {
     // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to GoKwik');
-      return this.createGokwikCheckoutSession(userId, addressId, customerToken);
+      return this.createGokwikCheckoutSession(userId, addressId, customerToken, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
+      this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to Shiprocket');
       return this.createShiprocketCheckoutSession(
         userId,
@@ -260,6 +263,7 @@ export class PaymentRequestsService {
       },
       '[CHECKOUT-MODAL] routing to legacy native PG',
     );
+    this.assertAddressRequiredForCheckout(addressId, 'legacy');
     return this.createLegacyModalCheckout(userId, addressId, orderSource, paymentMethod);
   }
 
@@ -754,12 +758,13 @@ export class PaymentRequestsService {
 
   private async createGokwikCheckoutSession(
     userId: string,
-    addressId: string,
+    addressId?: string,
     customerToken?: string,
+    paymentMethod?: OrderPaymentMethod,
   ) {
     const [cart, pricing, customer] = await Promise.all([
       this.cartService.getActiveCartEntity(userId),
-      this.checkoutService.validateCheckout(userId, { addressId }),
+      this.checkoutService.validateCheckout(userId, { addressId, paymentMethod }),
       this.usersService.findById(userId),
     ]);
     if (!cart) {
@@ -807,6 +812,20 @@ export class PaymentRequestsService {
         },
       },
     };
+  }
+
+  private assertAddressRequiredForCheckout(
+    addressId: string | undefined,
+    provider: 'shiprocket' | 'legacy',
+  ): asserts addressId is string {
+    if (addressId?.trim()) {
+      return;
+    }
+    throw new BadRequestException(
+      provider === 'shiprocket'
+        ? 'addressId is required for Shiprocket checkout'
+        : 'addressId is required for checkout',
+    );
   }
 
   private async createShiprocketCheckoutSession(
