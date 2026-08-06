@@ -31,16 +31,17 @@ sequenceDiagram
   participant API as Cureka API
   participant GK as GoKwik SDK
 
-  FE->>API: POST /orders/checkout { addressId }
+  FE->>API: POST /orders/checkout (addressId optional for GoKwik)
   API-->>FE: summary + checkoutProvider
   alt checkoutProvider === gokwik
-    FE->>API: POST /payment-requests/checkout/modal { addressId }
+    FE->>API: POST /payment-requests/checkout/modal {}
+    Note over FE,API: addressId not required for GoKwik
     API-->>FE: gateway gokwik + paymentData
     FE->>GK: init(appId, merchantId) + open(merchantCheckoutId)
     Note over GK,API: GoKwik calls Cureka merchant callbacks
     GK-->>FE: complete → /order/confirmation?order_id=...
   else legacy / shiprocket
-    FE->>API: same payment-requests endpoint
+    FE->>API: same payment-requests endpoint with addressId
     API-->>FE: Razorpay/Cashfree/Shiprocket payload
   end
 ```
@@ -51,10 +52,10 @@ sequenceDiagram
 POST /api/v1/orders/checkout
 Content-Type: application/json
 
-{
-  "addressId": "f9ab56d7-9848-4770-9274-555722043a19"
-}
+{}
 ```
+
+For GoKwik, `addressId` may be omitted. For Shiprocket/legacy, send `addressId`.
 
 Optional `paymentMethod` (`COD` | `WALLET` | `RAZORPAY` | …) only affects fee lines. Omit it when GoKwik is expected.
 
@@ -82,9 +83,15 @@ Prefer the modal endpoint for in-page UX:
 POST /api/v1/payment-requests/checkout/modal
 Content-Type: application/json
 
-{
-  "addressId": "f9ab56d7-9848-4770-9274-555722043a19"
-}
+{}
+```
+
+GoKwik address-less start: **omit `addressId`** (do not send `""` or `null` — omit the field). Shipping is taken from GoKwik callbacks later.
+
+For Shiprocket / legacy native PG, `addressId` is still required:
+
+```json
+{ "addressId": "f9ab56d7-9848-4770-9274-555722043a19", "paymentMethod": "RAZORPAY" }
 ```
 
 (`POST /payment-requests/checkout` uses the same provider routing; use it if you need a payment-link style flow for legacy PG.)
@@ -210,12 +217,12 @@ Logout: Cureka `POST /auth/logout` **and** KwikPass SDK logout.
 ## QA checklist
 
 - [ ] Admin: `gokwikCheckoutEnabled` = `1` / active on the target env
-- [ ] `POST /orders/checkout` returns `"checkoutProvider": "gokwik"`
-- [ ] `POST /payment-requests/checkout/modal` returns `gateway` + `checkoutProvider` = `gokwik` and non-empty `appId` / `merchantId` / `merchantCheckoutId`
+- [ ] `POST /orders/checkout` with `{}` (no addressId) returns `"checkoutProvider": "gokwik"`
+- [ ] `POST /payment-requests/checkout/modal` with `{}` returns `gateway` + `checkoutProvider` = `gokwik` and non-empty `appId` / `merchantId` / `merchantCheckoutId`
 - [ ] CTA opens GoKwik modal (not Razorpay)
 - [ ] Close modal keeps cart and re-enables CTA
 - [ ] Successful place redirects to thank-you with order id
-- [ ] With flag off, same endpoints fall back to Razorpay/Cashfree/Shiprocket without FE `paymentMethod` tricks
+- [ ] With flag off, same endpoints require `addressId` for Shiprocket/legacy without FE `paymentMethod` tricks
 
 ---
 
