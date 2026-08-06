@@ -7,6 +7,7 @@ import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
 import {
   CreateAdminCustomerDto,
+  PatchUserDto,
   resolveAdminUserIsGuestFilter,
   UpdateAdminCustomerDto,
   UpdateUserProfileAdminDto,
@@ -14,7 +15,7 @@ import {
   UpdateUserStatusDto,
   UserListQueryDto,
 } from '../dto/user.dto';
-import { CreateUserAddressDto } from '../dto/user-address.dto';
+import { AdminCustomerAddressDto, CreateUserAddressDto } from '../dto/user-address.dto';
 import {
   IAdminUserDetail,
   IAdminUserListItem,
@@ -245,6 +246,70 @@ export class UsersService {
     await this.sessionCacheService.invalidateAllForUser(userId);
 
     return this.enrichUser(mapUserEntityToResponse(updated));
+  }
+
+  /**
+   * Storefront register / update after OTP login.
+   * - Uses the authenticated session user (`userId` from token).
+   * - Ensures `mobileNumber` is owned by this user (creates/attaches if missing).
+   * - Marks account registered and upserts profile + optional addresses.
+   */
+  async registerOrUpdateUser(userId: string, dto: PatchUserDto): Promise<ICustomerDetail> {
+    const sessionUser = await this.usersRepository.findById(userId);
+    if (!sessionUser) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
+    const mobileOwner = await this.usersRepository.findByMobileNumber(dto.mobileNumber);
+    if (mobileOwner && mobileOwner.id !== userId) {
+      throw new ConflictException('Mobile number is already associated with another account');
+    }
+
+    if (dto.email) {
+      const emailTaken = await this.usersRepository.isEmailTakenByOther(dto.email, userId);
+      if (emailTaken) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    const profilePatch = this.mapProfileDtoToEntity({
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      profileImageUrl: dto.profileImageUrl,
+      gender: dto.gender,
+      maritalStatus: dto.maritalStatus,
+      dateOfBirth: dto.dateOfBirth,
+    });
+
+    const updated = await this.usersRepository.update(userId, {
+      ...profilePatch,
+      mobileNumber: dto.mobileNumber,
+      isGuest: false,
+      isRegistered: true,
+      updatedBy: userId,
+    });
+
+    if (!updated) {
+      throw new NotFoundException(`User with id ${userId} not found after update`);
+    }
+
+    let addresses: IUserAddress[] = [];
+    if (dto.addresses?.length) {
+      addresses = await this.userAddressesService.syncForUser(
+        userId,
+        dto.addresses as AdminCustomerAddressDto[],
+      );
+    } else {
+      addresses = await this.userAddressesService.findAll(userId);
+    }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
+
+    return {
+      ...(await this.enrichUser(mapUserEntityToResponse(updated))),
+      addresses,
+    };
   }
 
   async setProfileImageUrl(userId: string, profileImageUrl: string): Promise<IUser> {
