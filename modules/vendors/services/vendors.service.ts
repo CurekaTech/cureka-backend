@@ -17,24 +17,34 @@ import {
 } from '@packages/common';
 import { IStorageFileReference } from '@packages/storage';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
+import { BrandEntity } from '@modules/master/entities/brand.entity';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { BrandsRepository } from '@modules/master/repositories/brands.repository';
+import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { RolesRepository } from '@modules/roles/repositories/roles.repository';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
-import { UserEntity } from '@modules/users/entities/user.entity';
-import { UserRole } from '@modules/users/enums/user-role.enum';
+import { BulkUploadService } from '@modules/product/services/bulk-upload.service';
+import { UserEntity } from '@modules/users/entities/user.entity';import { UserRole } from '@modules/users/enums/user-role.enum';
 import { UserStatus } from '@modules/users/enums/user-status.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import {
   RegisterVendorDto,
   UpdateVendorDto,
+  VendorCategoryHierarchyDto,
   VendorListQueryDto,
+  VendorWarehouseDto,
 } from '../dto/register-vendor.dto';
 import { VendorEntity } from '../entities/vendor.entity';
 import { VendorSource } from '../enums/vendor-source.enum';
 import { VendorStatus } from '../enums/vendor-status.enum';
-import { IVendor } from '../interfaces/vendor.interface';
+import {
+  IResolvedVendorCategoryHierarchy,
+  IVendor,
+} from '../interfaces/vendor.interface';
 import { mapVendorEntitiesToResponse, mapVendorEntityToResponse } from '../mappers/vendor.mapper';
+import { VendorRelationsRepository } from '../repositories/vendor-relations.repository';
 import { VendorsRepository } from '../repositories/vendors.repository';
 
 const VENDOR_MEDIA_FIELDS = [
@@ -74,11 +84,24 @@ export class VendorsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly vendorsRepository: VendorsRepository,
+    private readonly vendorRelationsRepository: VendorRelationsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly rolesRepository: RolesRepository,
+    private readonly categoriesRepository: CategoriesRepository,
+    private readonly brandsRepository: BrandsRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly multipartFormService: MultipartFormService,
+    private readonly bulkUploadService: BulkUploadService,
   ) {}
+
+  /** Same XLSX template as product bulk upload — for vendor onboarding sample download. */
+  async getProductSampleSheet(): Promise<{ fileName: string; fileBuffer: Buffer }> {
+    const { fileBuffer } = await this.bulkUploadService.getTemplateFile();
+    return {
+      fileName: 'cureka-vendor-product-sample.xlsx',
+      fileBuffer,
+    };
+  }
 
   async registerFromRequest(
     req: FastifyRequest,
@@ -118,13 +141,10 @@ export class VendorsService {
     const panNumber = dto.panNumber.trim().toUpperCase();
     const gstNumber = dto.gstNumber.trim().toUpperCase();
 
-    const mobileTaken = await this.usersRepository.existsByMobileNumber(mobileNumber);
-    if (mobileTaken) {
+    if (await this.usersRepository.existsByMobileNumber(mobileNumber)) {
       throw new ConflictException('A user with this mobile number already exists');
     }
-
-    const emailTaken = await this.usersRepository.existsByEmail(email);
-    if (emailTaken) {
+    if (await this.usersRepository.existsByEmail(email)) {
       throw new ConflictException('A user with this email already exists');
     }
 
@@ -144,16 +164,15 @@ export class VendorsService {
       'Product excel sheet',
     );
 
-    const warehouseContactPhone = dto.warehouseContactPhone
-      ? parseIndianMobileNumber(dto.warehouseContactPhone)
-      : mobileNumber;
-    const warehouseContactPerson = dto.warehouseContactPerson?.trim() || dto.contactPerson.trim();
+    const hierarchies = await this.resolveCategoryHierarchies(dto.categories);
+    const brands = await this.resolveBrandRefIds(dto.brandRefIds);
+    const warehouses = dto.warehouses;
 
     const roleRecord = await this.rolesRepository.findBySlug(UserRole.VENDOR);
     const { firstName, lastName } = splitContactPerson(dto.contactPerson);
     const actor = createdBy ?? email;
 
-    const vendor = await this.dataSource.transaction(async (manager) => {
+    const vendorId = await this.dataSource.transaction(async (manager) => {
       const userRefId = await generateUniqueRefId('vendor', (id) =>
         this.existsUserRefId(id, manager),
       );
@@ -179,7 +198,7 @@ export class VendorsService {
         }),
       );
 
-      return this.vendorsRepository.create(
+      const vendor = await this.vendorsRepository.create(
         {
           refId: vendorRefId,
           userId: user.id,
@@ -188,30 +207,43 @@ export class VendorsService {
           email,
           mobileNumber,
           businessAddress: dto.businessAddress.trim(),
-          warehouseAddress: dto.warehouseAddress.trim(),
-          warehousePincode: dto.warehousePincode.trim(),
-          warehouseContactPerson,
-          warehouseContactPhone,
           panNumber,
           panDocument,
           gstNumber,
           gstCertificateDocument,
           productExcelSheet,
-          productCategories: dto.productCategories?.trim() || null,
-          brandDetails: dto.brandDetails?.trim() || null,
           companyProfile: dto.companyProfile?.trim() || null,
           status: VendorStatus.PENDING,
           source,
-          warehouseCode: null,
           createdBy: actor,
           updatedBy: actor,
-          user,
         },
         manager,
       );
+
+      await this.vendorRelationsRepository.syncCategoryHierarchies(
+        manager,
+        vendor.id,
+        hierarchies,
+      );
+      await this.vendorRelationsRepository.syncBrands(manager, vendor.id, brands);
+      await this.vendorRelationsRepository.syncWarehouses(
+        manager,
+        vendor.id,
+        warehouses,
+        actor,
+        dto.contactPerson.trim(),
+        mobileNumber,
+      );
+
+      return vendor.id;
     });
 
-    return this.enrichVendor(mapVendorEntityToResponse(vendor));
+    const loaded = await this.vendorsRepository.findDetailedById(vendorId);
+    if (!loaded) {
+      throw new NotFoundException('Vendor not found after create');
+    }
+    return this.enrichVendor(mapVendorEntityToResponse(loaded));
   }
 
   async findAll(query: VendorListQueryDto): Promise<PaginatedResult<IVendor>> {
@@ -304,6 +336,14 @@ export class VendorsService {
       }
     }
 
+    const hierarchies =
+      dto.categories !== undefined
+        ? await this.resolveCategoryHierarchies(dto.categories)
+        : null;
+    const brands =
+      dto.brandRefIds !== undefined ? await this.resolveBrandRefIds(dto.brandRefIds) : null;
+    const warehouses = dto.warehouses !== undefined ? dto.warehouses : null;
+
     const panDocument = this.resolveOptionalDocument(
       uploads?.panDocumentPath,
       dto.panDocument,
@@ -320,22 +360,9 @@ export class VendorsService {
       existing.productExcelSheet,
     );
 
-    const warehouseContactPhone =
-      dto.warehouseContactPhone !== undefined
-        ? parseIndianMobileNumber(dto.warehouseContactPhone)
-        : dto.mobileNumber !== undefined
-          ? nextMobile
-          : existing.warehouseContactPhone;
-    const warehouseContactPerson =
-      dto.warehouseContactPerson !== undefined
-        ? dto.warehouseContactPerson.trim() || nextContactPerson
-        : dto.contactPerson !== undefined
-          ? nextContactPerson
-          : existing.warehouseContactPerson;
-
     const { firstName, lastName } = splitContactPerson(nextContactPerson);
 
-    const vendor = await this.dataSource.transaction(async (manager) => {
+    await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(UserEntity);
       await userRepo.update(existing.userId, {
         firstName,
@@ -356,16 +383,6 @@ export class VendorsService {
           dto.businessAddress !== undefined
             ? dto.businessAddress.trim()
             : existing.businessAddress,
-        warehouseAddress:
-          dto.warehouseAddress !== undefined
-            ? dto.warehouseAddress.trim()
-            : existing.warehouseAddress,
-        warehousePincode:
-          dto.warehousePincode !== undefined
-            ? dto.warehousePincode.trim()
-            : existing.warehousePincode,
-        warehouseContactPerson,
-        warehouseContactPhone,
         panNumber:
           dto.panNumber !== undefined
             ? dto.panNumber.trim().toUpperCase()
@@ -377,14 +394,6 @@ export class VendorsService {
         panDocument,
         gstCertificateDocument,
         productExcelSheet,
-        productCategories:
-          dto.productCategories !== undefined
-            ? dto.productCategories.trim() || null
-            : existing.productCategories,
-        brandDetails:
-          dto.brandDetails !== undefined
-            ? dto.brandDetails.trim() || null
-            : existing.brandDetails,
         companyProfile:
           dto.companyProfile !== undefined
             ? dto.companyProfile.trim() || null
@@ -399,10 +408,112 @@ export class VendorsService {
       if (!updated) {
         throw new NotFoundException(`Vendor with refId ${refId} not found after update`);
       }
-      return updated;
+
+      if (hierarchies) {
+        await this.vendorRelationsRepository.syncCategoryHierarchies(
+          manager,
+          existing.id,
+          hierarchies,
+        );
+      }
+      if (brands) {
+        await this.vendorRelationsRepository.syncBrands(manager, existing.id, brands);
+      }
+      if (warehouses) {
+        await this.vendorRelationsRepository.syncWarehouses(
+          manager,
+          existing.id,
+          warehouses,
+          updatedBy,
+          nextContactPerson,
+          nextMobile,
+        );
+      }
     });
 
-    return this.enrichVendor(mapVendorEntityToResponse(vendor));
+    const loaded = await this.vendorsRepository.findByRefId(refId);
+    if (!loaded) {
+      throw new NotFoundException(`Vendor with refId ${refId} not found`);
+    }
+    return this.enrichVendor(mapVendorEntityToResponse(loaded));
+  }
+
+  private async resolveCategoryHierarchies(
+    inputs: VendorCategoryHierarchyDto[],
+  ): Promise<IResolvedVendorCategoryHierarchy[]> {
+    if (!inputs?.length) {
+      throw new BadRequestException('At least one category hierarchy is required');
+    }
+
+    const allRefIds = [
+      ...new Set(
+        inputs.flatMap((item) =>
+          [
+            item.categoryRefId,
+            item.subCategoryRefId,
+            item.subSubCategoryRefId,
+            item.subSubSubCategoryRefId,
+          ].filter((refId): refId is string => Boolean(refId?.trim())),
+        ),
+      ),
+    ];
+
+    const categories = await this.categoriesRepository.findByRefIds(allRefIds);
+    const byRefId = new Map(categories.map((category) => [category.refId, category]));
+
+    return inputs.map((item, index) => {
+      const category = byRefId.get(item.categoryRefId);
+      if (!category) {
+        throw new NotFoundException(`Category with refId "${item.categoryRefId}" not found`);
+      }
+
+      const resolveOptional = (refId: string | undefined, label: string) => {
+        if (!refId?.trim()) return null;
+        const entity = byRefId.get(refId);
+        if (!entity) {
+          throw new NotFoundException(`${label} with refId "${refId}" not found`);
+        }
+        return entity;
+      };
+
+      const subCategory = resolveOptional(item.subCategoryRefId, 'Sub category');
+      const subSubCategory = resolveOptional(item.subSubCategoryRefId, 'Sub sub category');
+      const subSubSubCategory = resolveOptional(
+        item.subSubSubCategoryRefId,
+        'Sub sub sub category',
+      );
+
+      return {
+        categoryId: category.id,
+        subCategoryId: subCategory?.id ?? null,
+        subSubCategoryId: subSubCategory?.id ?? null,
+        subSubSubCategoryId: subSubSubCategory?.id ?? null,
+        sortOrder: index,
+      };
+    });
+  }
+
+  private async resolveBrandRefIds(refIds: string[]): Promise<BrandEntity[]> {
+    if (!refIds?.length) {
+      throw new BadRequestException('At least one brand is required');
+    }
+
+    const unique = [...new Set(refIds.map((id) => id.trim()).filter(Boolean))];
+    const brands = await this.brandsRepository.findByRefIds(unique);
+    const byRefId = new Map(brands.map((brand) => [brand.refId, brand]));
+
+    const resolved: BrandEntity[] = [];
+    for (const refId of unique) {
+      const brand = byRefId.get(refId);
+      if (!brand) {
+        throw new NotFoundException(`Brand with refId "${refId}" not found`);
+      }
+      if (brand.status !== MasterStatus.ACTIVE) {
+        throw new BadRequestException(`Brand "${refId}" is not active`);
+      }
+      resolved.push(brand);
+    }
+    return resolved;
   }
 
   private requireDocument(

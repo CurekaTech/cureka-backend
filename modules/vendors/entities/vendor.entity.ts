@@ -1,9 +1,21 @@
-import { Column, Entity, Index, JoinColumn, OneToOne } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  JoinTable,
+  ManyToMany,
+  OneToMany,
+  OneToOne,
+} from 'typeorm';
 import { BaseEntity } from '@packages/database';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
+import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { UserEntity } from '@modules/users/entities/user.entity';
 import { VendorSource } from '../enums/vendor-source.enum';
 import { VendorStatus } from '../enums/vendor-status.enum';
+import { VendorCategoryHierarchyEntity } from './vendor-category-hierarchy.entity';
+import { VendorWarehouseEntity } from './vendor-warehouse.entity';
 
 @Entity('vendors')
 export class VendorEntity extends BaseEntity {
@@ -32,18 +44,6 @@ export class VendorEntity extends BaseEntity {
   @Column({ name: 'business_address', type: 'text' })
   businessAddress!: string;
 
-  @Column({ name: 'warehouse_address', type: 'text' })
-  warehouseAddress!: string;
-
-  @Column({ name: 'warehouse_pincode', type: 'varchar', length: 20 })
-  warehousePincode!: string;
-
-  @Column({ name: 'warehouse_contact_person', type: 'varchar', length: 255, nullable: true })
-  warehouseContactPerson!: string | null;
-
-  @Column({ name: 'warehouse_contact_phone', type: 'varchar', length: 20, nullable: true })
-  warehouseContactPhone!: string | null;
-
   @Column({ name: 'pan_number', type: 'varchar', length: 10 })
   panNumber!: string;
 
@@ -59,12 +59,6 @@ export class VendorEntity extends BaseEntity {
   /** Product catalog sheet uploaded at onboarding — stored as-is, not parsed/validated. */
   @Column(storageFileReferenceColumn({ name: 'product_excel_sheet', nullable: false }))
   productExcelSheet!: IStorageFileReference;
-
-  @Column({ name: 'product_categories', type: 'text', nullable: true })
-  productCategories!: string | null;
-
-  @Column({ name: 'brand_details', type: 'text', nullable: true })
-  brandDetails!: string | null;
 
   @Column({ name: 'company_profile', type: 'text', nullable: true })
   companyProfile!: string | null;
@@ -85,6 +79,17 @@ export class VendorEntity extends BaseEntity {
   })
   source!: VendorSource;
 
-  @Column({ name: 'warehouse_code', type: 'varchar', length: 100, nullable: true })
-  warehouseCode!: string | null;
+  @OneToMany(() => VendorCategoryHierarchyEntity, (hierarchy) => hierarchy.vendor)
+  categoryHierarchies!: VendorCategoryHierarchyEntity[];
+
+  @ManyToMany(() => BrandEntity, { eager: false })
+  @JoinTable({
+    name: 'vendor_brands',
+    joinColumn: { name: 'vendor_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'brand_id', referencedColumnName: 'id' },
+  })
+  brands!: BrandEntity[];
+
+  @OneToMany(() => VendorWarehouseEntity, (warehouse) => warehouse.vendor)
+  warehouses!: VendorWarehouseEntity[];
 }

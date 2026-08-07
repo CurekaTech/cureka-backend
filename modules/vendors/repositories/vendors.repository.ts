@@ -22,9 +22,20 @@ const VENDOR_SORTABLE_COLUMNS: Record<VendorListSortField, string> = {
   source: 'vendor.source',
   gstNumber: 'vendor.gstNumber',
   panNumber: 'vendor.panNumber',
-  warehousePincode: 'vendor.warehousePincode',
   refId: 'vendor.refId',
 };
+
+const VENDOR_DETAIL_RELATIONS = {
+  user: true,
+  brands: true,
+  warehouses: true,
+  categoryHierarchies: {
+    category: true,
+    subCategory: true,
+    subSubCategory: true,
+    subSubSubCategory: true,
+  },
+} as const;
 
 @Injectable()
 export class VendorsRepository {
@@ -50,7 +61,14 @@ export class VendorsRepository {
   async findByRefId(refId: string): Promise<VendorEntity | null> {
     return this.repo.findOne({
       where: { refId },
-      relations: { user: true },
+      relations: VENDOR_DETAIL_RELATIONS,
+    });
+  }
+
+  async findDetailedById(id: string, manager?: EntityManager): Promise<VendorEntity | null> {
+    return this.getRepo(manager).findOne({
+      where: { id },
+      relations: VENDOR_DETAIL_RELATIONS,
     });
   }
 
@@ -66,7 +84,7 @@ export class VendorsRepository {
     await repo.save(existing);
     return repo.findOne({
       where: { refId },
-      relations: { user: true },
+      relations: VENDOR_DETAIL_RELATIONS,
     });
   }
 
@@ -77,6 +95,13 @@ export class VendorsRepository {
     const qb = this.repo
       .createQueryBuilder('vendor')
       .leftJoinAndSelect('vendor.user', 'user')
+      .leftJoinAndSelect('vendor.brands', 'brands')
+      .leftJoinAndSelect('vendor.warehouses', 'warehouses')
+      .leftJoinAndSelect('vendor.categoryHierarchies', 'categoryHierarchies')
+      .leftJoinAndSelect('categoryHierarchies.category', 'hierarchyCategory')
+      .leftJoinAndSelect('categoryHierarchies.subCategory', 'hierarchySubCategory')
+      .leftJoinAndSelect('categoryHierarchies.subSubCategory', 'hierarchySubSubCategory')
+      .leftJoinAndSelect('categoryHierarchies.subSubSubCategory', 'hierarchySubSubSubCategory')
       .where('vendor.deletedAt IS NULL');
 
     if (options.status) {
@@ -94,10 +119,9 @@ export class VendorsRepository {
           OR vendor.refId ILIKE :search
           OR vendor.gstNumber ILIKE :search
           OR vendor.panNumber ILIKE :search
-          OR vendor.warehousePincode ILIKE :search
-          OR vendor.warehouseAddress ILIKE :search
-          OR vendor.businessAddress ILIKE :search
-          OR vendor.brandDetails ILIKE :search
+          OR brands.name ILIKE :search
+          OR warehouses.address ILIKE :search
+          OR warehouses.pincode ILIKE :search
         )`,
         { search },
       );
