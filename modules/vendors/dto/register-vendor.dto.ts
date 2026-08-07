@@ -1,5 +1,5 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -14,6 +14,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { IsRefId, PaginationQueryDto } from '@packages/common';
@@ -42,6 +43,20 @@ export const parseJsonField = ({ value }: { value: unknown }): unknown => {
   }
 };
 
+/**
+ * Multipart sends nested arrays as JSON strings. Parse then instantiate nested DTOs
+ * so `@ValidateNested` receives class instances (plain objects cause
+ * `*.undefined: an unknown value was passed to the validate function`).
+ */
+const parseJsonArrayOf =
+  <T>(cls: new () => T) =>
+  ({ value }: { value: unknown }): T[] | unknown => {
+    const parsed = parseJsonField({ value });
+    if (parsed === undefined) return undefined;
+    if (!Array.isArray(parsed)) return parsed;
+    return plainToInstance(cls, parsed);
+  };
+
 /** Indian PAN: 5 letters + 4 digits + 1 letter (e.g. ABCDE1234F). */
 export const INDIAN_PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
@@ -66,16 +81,19 @@ export class VendorCategoryHierarchyDto {
   categoryRefId!: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined && value !== '')
   @IsRefId()
-  subCategoryRefId?: string;
+  subCategoryRefId?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined && value !== '')
   @IsRefId()
-  subSubCategoryRefId?: string;
+  subSubCategoryRefId?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined && value !== '')
   @IsRefId()
-  subSubSubCategoryRefId?: string;
+  subSubSubCategoryRefId?: string | null;
 }
 
 export class VendorWarehouseDto {
@@ -176,7 +194,7 @@ export class RegisterVendorDto {
   @Type(() => StorageFileReferenceDto)
   productExcelSheet?: StorageFileReferenceDto;
 
-  @Transform(parseJsonField)
+  @Transform(parseJsonArrayOf(VendorCategoryHierarchyDto))
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -189,7 +207,7 @@ export class RegisterVendorDto {
   @IsRefId({ each: true })
   brandRefIds!: string[];
 
-  @Transform(parseJsonField)
+  @Transform(parseJsonArrayOf(VendorWarehouseDto))
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -212,7 +230,7 @@ export class UpdateVendorDto extends PartialType(RegisterVendorDto) {
   status?: VendorStatus;
 
   @IsOptional()
-  @Transform(parseJsonField)
+  @Transform(parseJsonArrayOf(VendorCategoryHierarchyDto))
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -227,7 +245,7 @@ export class UpdateVendorDto extends PartialType(RegisterVendorDto) {
   declare brandRefIds?: string[];
 
   @IsOptional()
-  @Transform(parseJsonField)
+  @Transform(parseJsonArrayOf(VendorWarehouseDto))
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
