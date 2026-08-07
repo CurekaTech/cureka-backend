@@ -11,6 +11,7 @@ import { roundMoney } from '@modules/orders/utils/money.util';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
+import { UsersService } from '@modules/users/services/users.service';
 import { DataSource } from 'typeorm';
 import { GokwikCheckOrderExistsDto } from '../dto/gokwik-check-order-exists.dto';
 import { GokwikOrderEntity } from '../entities/gokwik-order.entity';
@@ -36,6 +37,7 @@ export class GokwikOrderService {
     private readonly cartService: CartService,
     private readonly ordersService: OrdersService,
     private readonly userAddressesService: UserAddressesService,
+    private readonly usersService: UsersService,
     private readonly gokwikRepository: GokwikRepository,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
@@ -52,6 +54,18 @@ export class GokwikOrderService {
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
       }
+
+      this.logger.log(
+        `create-order received shipping_address: ${JSON.stringify({
+          first_name: dto.shipping_address?.first_name,
+          last_name: dto.shipping_address?.last_name,
+          email: dto.shipping_address?.email,
+          phone: dto.shipping_address?.phone,
+          pincode: dto.shipping_address?.pincode,
+          city: dto.shipping_address?.city,
+          state: dto.shipping_address?.state,
+        })}`,
+      );
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
@@ -112,9 +126,17 @@ export class GokwikOrderService {
             },
             updatedBy: 'gokwik',
           });
+          await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+            shippingAddress: dto.shipping_address,
+            order: refreshedOrder,
+          });
           return { status: 'success', order_id: refreshedOrder.orderNumber };
         }
         this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
+        await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+          shippingAddress: dto.shipping_address,
+          order: existing.order,
+        });
         return { status: 'success', order_id: existing.order.orderNumber };
       }
 
@@ -160,11 +182,19 @@ export class GokwikOrderService {
       } catch (error) {
         const concurrent = await this.gokwikRepository.findOrderByCartId(cartId);
         if (concurrent?.order) {
+          await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+            shippingAddress: dto.shipping_address,
+            order: concurrent.order,
+          });
           return { status: 'success', order_id: concurrent.order.orderNumber };
         }
         throw error;
       }
 
+      await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+        shippingAddress: dto.shipping_address,
+        order,
+      });
       return {
         status: 'success',
         order_id: order.orderNumber,
@@ -184,6 +214,11 @@ export class GokwikOrderService {
         const completed = await this.gokwikRepository.findOrderByCartId(cartId);
         const completedOrderId = String(dto.order_id ?? '').trim();
         if (completed?.order && (!completedOrderId || completed.order.orderNumber === completedOrderId)) {
+          await this.syncUnregisteredUserAfterSuccessfulOrder(completed.order.userId, {
+            shippingAddress: dto.shipping_address ?? dto.billing_address,
+            userDetails: dto.user_details,
+            order: completed.order,
+          });
           return {
             status: 'success',
             order_id: completed.order.orderNumber,
@@ -247,6 +282,26 @@ export class GokwikOrderService {
         notes: dto.order_note?.trim() || null,
       });
 
+      if (dto.shipping_address || dto.billing_address) {
+        this.logger.log(
+          `place-order received shipping_address: ${JSON.stringify({
+            first_name: (dto.shipping_address ?? dto.billing_address)?.first_name,
+            last_name: (dto.shipping_address ?? dto.billing_address)?.last_name,
+            email: (dto.shipping_address ?? dto.billing_address)?.email,
+            phone: (dto.shipping_address ?? dto.billing_address)?.phone,
+            pincode: (dto.shipping_address ?? dto.billing_address)?.pincode,
+            city: (dto.shipping_address ?? dto.billing_address)?.city,
+            state: (dto.shipping_address ?? dto.billing_address)?.state,
+          })}`,
+        );
+      }
+
+      await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+        shippingAddress: dto.shipping_address ?? dto.billing_address,
+        userDetails: dto.user_details,
+        order,
+      });
+
       return {
         status: 'success',
         order_id: order.orderNumber,
@@ -304,6 +359,101 @@ export class GokwikOrderService {
       order_id: order.orderNumber,
       message: 'Order exists.',
     };
+  }
+
+  /**
+   * After a successful GoKwik create-order / place-order:
+   * mark UNREGISTERED users as registered and upsert HOME/default address.
+   * Non-blocking — never fails the order callback.
+   */
+  private async syncUnregisteredUserAfterSuccessfulOrder(
+    userId: string,
+    params: {
+      shippingAddress?: GokwikAddressDto;
+      userDetails?: { first_name?: string; last_name?: string; email?: string; phone?: string };
+      order?: {
+        recipientName: string;
+        phoneNumber: string;
+        pincode: string;
+        addressLine1: string;
+        city: string;
+        state: string;
+      };
+    },
+  ): Promise<void> {
+    try {
+      const fromDto = params.shippingAddress;
+      let firstName = fromDto?.first_name?.trim() || params.userDetails?.first_name?.trim() || '';
+      let lastName = fromDto?.last_name?.trim() || params.userDetails?.last_name?.trim() || '';
+      const email = fromDto?.email?.trim() || params.userDetails?.email?.trim() || null;
+
+      let phoneNumber: string | undefined;
+      let pincode: string | undefined;
+      let addressLine1: string | undefined;
+      let city: string | undefined;
+      let state: string | undefined;
+
+      if (fromDto) {
+        phoneNumber = parseIndianMobileNumber(fromDto.phone);
+        pincode = fromDto.pincode.trim();
+        addressLine1 = fromDto.address.trim();
+        city = fromDto.city.trim();
+        state = fromDto.state.trim();
+      } else if (params.order) {
+        const parts = params.order.recipientName.trim().split(/\s+/);
+        if (!firstName) {
+          firstName = parts[0] ?? 'Customer';
+        }
+        if (!lastName) {
+          lastName = parts.slice(1).join(' ') || firstName;
+        }
+        phoneNumber = parseIndianMobileNumber(
+          params.userDetails?.phone || params.order.phoneNumber,
+        );
+        pincode = params.order.pincode;
+        addressLine1 = params.order.addressLine1;
+        city = params.order.city;
+        state = params.order.state;
+      }
+
+      if (!firstName || !lastName || !phoneNumber || !pincode || !addressLine1 || !city || !state) {
+        this.logger.warn(
+          `[GoKwik] skip profile sync — incomplete shipping data for userId=${userId}`,
+        );
+        return;
+      }
+
+      const result = await this.usersService.syncUnregisteredProfileFromGokwik(userId, {
+        firstName,
+        lastName,
+        email,
+        phoneNumber,
+        pincode,
+        addressLine1,
+        city,
+        state,
+      });
+
+      if (result.synced) {
+        this.logger.log(
+          `[GoKwik] syncing unregistered user userId=${userId} reason=${result.reason}`,
+        );
+      } else if (result.reason === 'already_registered') {
+        this.logger.log(`[GoKwik] skip already registered userId=${userId}`);
+      } else {
+        this.logger.warn(
+          `[GoKwik] profile sync skipped userId=${userId} reason=${result.reason}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        {
+          userId,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        '[GoKwik] profile sync failed (non-blocking)',
+      );
+    }
   }
 
   private mapShippingAddress(address: GokwikAddressDto) {
