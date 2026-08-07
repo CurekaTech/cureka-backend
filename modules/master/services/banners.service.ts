@@ -268,6 +268,37 @@ export class BannersService {
     return this.enrichHomepageBanners(await this.getHomepageBannerReferences());
   }
 
+  /**
+   * Cached PDP banner references (placement = pdp). Signed URLs enriched per request.
+   */
+  async getPdpBannerReferences(): Promise<IStorefrontBannerItem[]> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.pdpBanners(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadPdpBannersUncached(),
+    });
+  }
+
+  async getPdpBanners(): Promise<IStorefrontBannerItem[]> {
+    const items = await this.getPdpBannerReferences();
+    const enriched = await this.storageUrlEnricher.enrichManyFields(items, ['imageUrl']);
+    // Ensure placement is always present even if an older cache entry is read.
+    return enriched.map((item, index) => ({
+      ...item,
+      placement: item.placement ?? items[index]?.placement ?? BannerPlacement.PDP,
+    }));
+  }
+
+  async loadPdpBannersUncached(): Promise<IStorefrontBannerItem[]> {
+    const banners = await this.bannersRepository.findActiveByPlacement(BannerPlacement.PDP);
+    return Promise.all(
+      banners.map(async (banner) => {
+        const ctaHref = await this.resolveCtaHref(banner);
+        return mapBannerToStorefrontItem(banner, ctaHref);
+      }),
+    );
+  }
+
   /** PostgreSQL source of truth for homepage banner bundle. */
   async loadHomepageBannersUncached(): Promise<IHomepageBannersBundle> {
     const banners = await this.bannersRepository.findActiveForStorefront();

@@ -20,6 +20,7 @@ export class BannersCacheSyncService {
 
   async invalidateHomepageBanners(): Promise<void> {
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.bannersPattern());
+    await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.pdpBannersPattern());
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.sectionsPattern());
   }
 
@@ -28,6 +29,11 @@ export class BannersCacheSyncService {
     await this.cacheInvalidation.refreshCache({
       key: CacheKeys.homepage.banners(),
       loader: () => this.bannersService.loadHomepageBannersUncached(),
+      ttlSeconds: this.cacheTtl.forModule(CacheModuleName.HOMEPAGE),
+    });
+    await this.cacheInvalidation.refreshCache({
+      key: CacheKeys.homepage.pdpBanners(),
+      loader: () => this.bannersService.loadPdpBannersUncached(),
       ttlSeconds: this.cacheTtl.forModule(CacheModuleName.HOMEPAGE),
     });
   }

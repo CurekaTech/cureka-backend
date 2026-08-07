@@ -14,6 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationQueryDto } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
@@ -277,4 +278,70 @@ export class CreateAdminCustomerDto {
   @ValidateNested({ each: true })
   @Type(() => CreateUserAddressDto)
   addresses?: CreateUserAddressDto[];
+}
+
+/**
+ * Storefront PATCH user — register / complete profile after OTP login.
+ * Auth: session cookie or Bearer token from verify-otp.
+ * If mobile is missing in DB (or user not registered), registers the account.
+ */
+export class PatchUserDto {
+  @Transform(normalizeMobileField)
+  @IsNotEmpty({ message: 'Mobile number is required.' })
+  @IsString()
+  @Matches(INDIAN_MOBILE_REGEX, { message: INDIAN_MOBILE_VALIDATION_MESSAGE })
+  mobileNumber!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  firstName!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  lastName!: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(255)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  profileImageUrl?: string;
+
+  @IsOptional()
+  @IsEnum(UserGender)
+  gender?: UserGender;
+
+  @IsOptional()
+  @IsEnum(UserMaritalStatus)
+  maritalStatus?: UserMaritalStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === '' || value === undefined) return undefined;
+    return value;
+  })
+  @IsDateString({}, { message: 'dateOfBirth must be a valid ISO 8601 date string (e.g. 1990-06-15)' })
+  dateOfBirth?: string;
+
+  /**
+   * Optional delivery addresses.
+   * Omit entirely (or send null / []) to skip address changes.
+   * When provided with items: omit refId to create; include refId to update.
+   */
+  @ApiPropertyOptional({ type: [AdminCustomerAddressDto] })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '') return undefined;
+    if (Array.isArray(value) && value.length === 0) return undefined;
+    return value;
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminCustomerAddressDto)
+  addresses?: AdminCustomerAddressDto[];
 }

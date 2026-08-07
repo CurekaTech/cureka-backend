@@ -1,10 +1,11 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -21,9 +22,21 @@ import { BannerPlacement } from '../enums/banner-placement.enum';
 import { BannerSlot } from '../enums/banner-slot.enum';
 import { BannerResourceType } from '../enums/banner-resource-type.enum';
 
+/** Explicit allow-list so multipart validation always accepts `pdp`. */
+export const BANNER_PLACEMENT_VALUES = [
+  BannerPlacement.HERO_PRIMARY,
+  BannerPlacement.HERO_SECONDARY,
+  BannerPlacement.MAIN_PROMO,
+  BannerPlacement.BRAND_WISE,
+  BannerPlacement.PDP,
+] as const;
+
 export class CreateBannerDto {
   @IsNotEmpty()
-  @IsEnum(BannerPlacement)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsIn(BANNER_PLACEMENT_VALUES, {
+    message: `placement must be one of the following values: ${BANNER_PLACEMENT_VALUES.join(', ')}`,
+  })
   placement!: BannerPlacement;
 
   @IsOptional()
@@ -67,7 +80,18 @@ export class CreateBannerDto {
   endsAt?: string;
 }
 
-export class UpdateBannerDto extends PartialType(CreateBannerDto) {}
+export class UpdateBannerDto extends PartialType(CreateBannerDto) {
+  /**
+   * Re-declare so multipart edit validation always inherits the `pdp` allow-list
+   * (PartialType can miss custom `@IsIn` / `@Transform` metadata in some builds).
+   */
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsIn(BANNER_PLACEMENT_VALUES, {
+    message: `placement must be one of the following values: ${BANNER_PLACEMENT_VALUES.join(', ')}`,
+  })
+  declare placement?: BannerPlacement;
+}
 
 export class UpdateBannerStatusDto {
   @IsNotEmpty()
@@ -77,7 +101,10 @@ export class UpdateBannerStatusDto {
 
 export class BannerQueryDto extends PaginationQueryDto {
   @IsOptional()
-  @IsEnum(BannerPlacement)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsIn(BANNER_PLACEMENT_VALUES, {
+    message: `placement must be one of the following values: ${BANNER_PLACEMENT_VALUES.join(', ')}`,
+  })
   placement?: BannerPlacement;
 
   @IsOptional()

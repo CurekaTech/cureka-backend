@@ -10,9 +10,14 @@ import { IUserSessionContext } from '@modules/auth/interfaces/session.interface'
 import { UploadsService } from '@modules/uploads/services/uploads.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { UsersService } from '../services/users.service';
-import { UpdateUserProfileDto, UpdateUserStatusDto, UserListQueryDto } from '../dto/user.dto';
+import {
+  PatchUserDto,
+  UpdateUserProfileDto,
+  UpdateUserStatusDto,
+  UserListQueryDto,
+} from '../dto/user.dto';
 import { CreateUserAddressDto } from '../dto/user-address.dto';
-import { IUser } from '../interfaces/user.interface';
+import { ICustomerDetail, IUser } from '../interfaces/user.interface';
 
 /**
  * Website user endpoints and admin user management.
@@ -34,6 +39,7 @@ export class UsersController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
   findAll(@Query() query: UserListQueryDto) {
+    // Storefront customers only — vendors/staff use separate admin APIs.
     return this.usersService.findAll(query);
   }
 
@@ -47,6 +53,23 @@ export class UsersController {
   @Get('customers')
   findCustomers(@Query() query: UserListQueryDto) {
     return this.usersService.findCustomers(query);
+  }
+
+  /**
+   * PATCH /api/v1/users/profile
+   * Register / update the authenticated user after OTP login.
+   * Uses session cookie or Bearer token from verify-otp.
+   * Accepts mobileNumber + profile fields + optional multiple addresses.
+   * Allowed for unregistered users (SessionCookieGuard only).
+   */
+  @ResponseMessage('User registered successfully')
+  @UseGuards(SessionCookieGuard)
+  @Patch('profile')
+  registerOrUpdateProfile(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Body() dto: PatchUserDto,
+  ): Promise<ICustomerDetail> {
+    return this.usersService.registerOrUpdateUser(user.sub, dto);
   }
 
   /**

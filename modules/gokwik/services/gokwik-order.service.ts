@@ -5,13 +5,13 @@ import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.e
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
-import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { CartService } from '@modules/orders/services/cart.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import { roundMoney } from '@modules/orders/utils/money.util';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
+import { UsersService } from '@modules/users/services/users.service';
 import { DataSource } from 'typeorm';
 import { GokwikCheckOrderExistsDto } from '../dto/gokwik-check-order-exists.dto';
 import { GokwikOrderEntity } from '../entities/gokwik-order.entity';
@@ -37,10 +37,10 @@ export class GokwikOrderService {
     private readonly cartService: CartService,
     private readonly ordersService: OrdersService,
     private readonly userAddressesService: UserAddressesService,
+    private readonly usersService: UsersService,
     private readonly gokwikRepository: GokwikRepository,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
-    private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
   ) {}
 
   async createOrder(dto: GokwikCreateOrderDto): Promise<GokwikCreateOrderResponse> {
@@ -54,6 +54,18 @@ export class GokwikOrderService {
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
       }
+
+      this.logger.log(
+        `create-order received shipping_address: ${JSON.stringify({
+          first_name: dto.shipping_address?.first_name,
+          last_name: dto.shipping_address?.last_name,
+          email: dto.shipping_address?.email,
+          phone: dto.shipping_address?.phone,
+          pincode: dto.shipping_address?.pincode,
+          city: dto.shipping_address?.city,
+          state: dto.shipping_address?.state,
+        })}`,
+      );
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       await this.applyGokwikDiscount(cart.userId, cart.coupon?.code ?? null, dto.meta_data);
@@ -98,7 +110,7 @@ export class GokwikOrderService {
           await this.gokwikRepository.updateOrderLink(existing.id, {
             orderId: refreshedOrder.id,
             gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
-            paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+            paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
             gatewayTransactionId: this.normalizeOptionalIdentifier(
               dto.payment_details.pg_payment_trnx_id,
             ),
@@ -110,34 +122,26 @@ export class GokwikOrderService {
             metadata: {
               ...(existing.metadata ?? {}),
               rto_risk_flag: dto.meta_data?.rto_risk_flag,
+              ...this.codPaymentMetadata(dto.payment_details),
             },
             updatedBy: 'gokwik',
+          });
+          await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+            shippingAddress: dto.shipping_address,
+            order: refreshedOrder,
           });
           return { status: 'success', order_id: refreshedOrder.orderNumber };
         }
         this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
+        await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+          shippingAddress: dto.shipping_address,
+          order: existing.order,
+        });
         return { status: 'success', order_id: existing.order.orderNumber };
       }
 
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
       this.assertDiscountTotal(dto.meta_data, pricedCart.discountAmount);
-      if (isCodPayment) {
-        const payable = roundMoney(pricedCart.subtotal - pricedCart.discountAmount);
-        const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-        this.logger.log(
-          {
-            cartId,
-            payable,
-            codMinOrderAmount: this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(amounts),
-            codMaxOrderAmount: this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(amounts),
-            paymentAmount: dto.payment_details.payment_amount,
-            cartGrandTotal: pricedCart.grandTotal,
-            codCharge: pricedCart.codCharge,
-          },
-          '[GoKwik] COD create-order eligibility check',
-        );
-        this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
-      }
       const shippingAddress = this.mapShippingAddress(dto.shipping_address);
       const address = await this.findOrCreateAddress(cart.userId, shippingAddress);
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
@@ -161,7 +165,7 @@ export class GokwikOrderService {
           orderId: order.id,
           cartId,
           gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
-          paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+          paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
           gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
           paymentMethod: dto.payment_details.payment_method,
           paymentAmount: dto.payment_details.payment_amount.toFixed(2),
@@ -170,6 +174,7 @@ export class GokwikOrderService {
           customerPhone,
           metadata: {
             rto_risk_flag: dto.meta_data?.rto_risk_flag,
+            ...this.codPaymentMetadata(dto.payment_details),
           },
           createdBy: 'gokwik',
           updatedBy: 'gokwik',
@@ -177,11 +182,19 @@ export class GokwikOrderService {
       } catch (error) {
         const concurrent = await this.gokwikRepository.findOrderByCartId(cartId);
         if (concurrent?.order) {
+          await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+            shippingAddress: dto.shipping_address,
+            order: concurrent.order,
+          });
           return { status: 'success', order_id: concurrent.order.orderNumber };
         }
         throw error;
       }
 
+      await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+        shippingAddress: dto.shipping_address,
+        order,
+      });
       return {
         status: 'success',
         order_id: order.orderNumber,
@@ -201,6 +214,11 @@ export class GokwikOrderService {
         const completed = await this.gokwikRepository.findOrderByCartId(cartId);
         const completedOrderId = String(dto.order_id ?? '').trim();
         if (completed?.order && (!completedOrderId || completed.order.orderNumber === completedOrderId)) {
+          await this.syncUnregisteredUserAfterSuccessfulOrder(completed.order.userId, {
+            shippingAddress: dto.shipping_address ?? dto.billing_address,
+            userDetails: dto.user_details,
+            order: completed.order,
+          });
           return {
             status: 'success',
             order_id: completed.order.orderNumber,
@@ -232,10 +250,7 @@ export class GokwikOrderService {
             orderTotal,
             currentCartTotal: pricedCart.grandTotal,
           },
-          'Place-order rejected due to stale GoKwik order amount',
-        );
-        throw new BadRequestException(
-          'Stale GoKwik checkout session. Please refresh checkout and create-order again.',
+          '[GoKwik] Place-order amount drift (ignored — not blocking)',
         );
       }
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, orderTotal);
@@ -243,7 +258,7 @@ export class GokwikOrderService {
 
       await this.gokwikRepository.updateOrderLink(link.id, {
         gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || link.gokwikOrderId,
-        paymentId: this.normalizeOptionalIdentifier(dto.payment_details.payment_id),
+        paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
         gatewayTransactionId: this.normalizeOptionalIdentifier(dto.payment_details.pg_payment_trnx_id),
         paymentMethod: dto.payment_details.payment_method,
         paymentAmount: dto.payment_details.payment_amount.toFixed(2),
@@ -254,6 +269,7 @@ export class GokwikOrderService {
           ...link.metadata,
           rto_risk_flag: dto.meta_data?.rto_risk_flag,
           utm_details: dto.utm_details,
+          ...this.codPaymentMetadata(dto.payment_details),
         },
         updatedBy: 'gokwik',
       });
@@ -264,6 +280,26 @@ export class GokwikOrderService {
         paymentMethod,
         paymentStatus,
         notes: dto.order_note?.trim() || null,
+      });
+
+      if (dto.shipping_address || dto.billing_address) {
+        this.logger.log(
+          `place-order received shipping_address: ${JSON.stringify({
+            first_name: (dto.shipping_address ?? dto.billing_address)?.first_name,
+            last_name: (dto.shipping_address ?? dto.billing_address)?.last_name,
+            email: (dto.shipping_address ?? dto.billing_address)?.email,
+            phone: (dto.shipping_address ?? dto.billing_address)?.phone,
+            pincode: (dto.shipping_address ?? dto.billing_address)?.pincode,
+            city: (dto.shipping_address ?? dto.billing_address)?.city,
+            state: (dto.shipping_address ?? dto.billing_address)?.state,
+          })}`,
+        );
+      }
+
+      await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
+        shippingAddress: dto.shipping_address ?? dto.billing_address,
+        userDetails: dto.user_details,
+        order,
       });
 
       return {
@@ -323,6 +359,99 @@ export class GokwikOrderService {
       order_id: order.orderNumber,
       message: 'Order exists.',
     };
+  }
+
+  /**
+   * After a successful GoKwik create-order / place-order:
+   * mark UNREGISTERED users as registered and upsert HOME/default address.
+   * Non-blocking — never fails the order callback.
+   */
+  private async syncUnregisteredUserAfterSuccessfulOrder(
+    userId: string,
+    params: {
+      shippingAddress?: GokwikAddressDto;
+      userDetails?: { first_name?: string; last_name?: string; email?: string; phone?: string };
+      order?: {
+        recipientName: string;
+        phoneNumber: string;
+        pincode: string;
+        addressLine1: string;
+        city: string;
+        state: string;
+      };
+    },
+  ): Promise<void> {
+    try {
+      const fromDto = params.shippingAddress;
+      let firstName = fromDto?.first_name?.trim() || params.userDetails?.first_name?.trim() || '';
+      let lastName = fromDto?.last_name?.trim() || params.userDetails?.last_name?.trim() || '';
+      const email = fromDto?.email?.trim() || params.userDetails?.email?.trim() || null;
+
+      let phoneNumber: string | undefined;
+      let pincode: string | undefined;
+      let addressLine1: string | undefined;
+      let city: string | undefined;
+      let state: string | undefined;
+
+      if (fromDto) {
+        phoneNumber = parseIndianMobileNumber(fromDto.phone);
+        pincode = fromDto.pincode.trim();
+        addressLine1 = fromDto.address.trim();
+        city = fromDto.city.trim();
+        state = fromDto.state.trim();
+      } else if (params.order) {
+        const parts = params.order.recipientName.trim().split(/\s+/);
+        if (!firstName) {
+          firstName = parts[0] ?? 'Customer';
+        }
+        if (!lastName) {
+          lastName = parts.slice(1).join(' ') || firstName;
+        }
+        phoneNumber = parseIndianMobileNumber(
+          params.userDetails?.phone || params.order.phoneNumber,
+        );
+        pincode = params.order.pincode;
+        addressLine1 = params.order.addressLine1;
+        city = params.order.city;
+        state = params.order.state;
+      }
+
+      if (!firstName || !lastName || !phoneNumber || !pincode || !addressLine1 || !city || !state) {
+        this.logger.warn(
+          `[GoKwik] skip profile sync — incomplete shipping data for userId=${userId}`,
+        );
+        return;
+      }
+
+      const result = await this.usersService.syncUnregisteredProfileFromGokwik(userId, {
+        firstName,
+        lastName,
+        email,
+        phoneNumber,
+        pincode,
+        addressLine1,
+        city,
+        state,
+      });
+
+      if (result.synced) {
+        this.logger.log(
+          `[GoKwik] profile/address sync userId=${userId} reason=${result.reason}`,
+        );
+      } else {
+        this.logger.warn(
+          `[GoKwik] profile sync skipped userId=${userId} reason=${result.reason}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        {
+          userId,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        '[GoKwik] profile sync failed (non-blocking)',
+      );
+    }
   }
 
   private mapShippingAddress(address: GokwikAddressDto) {
@@ -418,7 +547,15 @@ export class GokwikOrderService {
       const prepaid = meta?.ppcod?.prepaid_amount;
       const payable = meta?.ppcod?.payable_on_delivery;
       if (prepaid == null || payable == null) {
-        throw new BadRequestException('ppcod split is required for Partial COD');
+        this.logger.warn(
+          {
+            paymentMethod: payment.payment_method,
+            prepaid,
+            payable,
+          },
+          '[GoKwik] ppcod split missing (ignored — not blocking create/place-order)',
+        );
+        return;
       }
       const splitTotal = prepaid + payable;
       if (!equalsMoney(splitTotal, payableTotal)) {
@@ -462,19 +599,58 @@ export class GokwikOrderService {
     meta: GokwikCreateOrderMetaDataDto | undefined,
   ): Promise<void> {
     const discounts = (meta?.discounts ?? []).filter((discount) => discount.amount > 0);
-    if (discounts.length > 1) {
-      throw new BadRequestException('Only one cart coupon can be applied to a Cureka order');
-    }
-    const discount = discounts[0];
-    if (!discount) {
+    if (!discounts.length) {
       return;
     }
-    const code = discount.code?.trim();
-    if (!code) {
-      throw new BadRequestException('GoKwik discount code is required for hybrid validation');
+
+    // GoKwik may send prepaid/promo + cart coupon together — never block create-order.
+    if (discounts.length > 1) {
+      this.logger.warn(
+        {
+          discountCount: discounts.length,
+          discounts: discounts.map((discount) => ({
+            code: discount.code ?? null,
+            type: discount.type,
+            amount: discount.amount,
+          })),
+        },
+        '[GoKwik] Multiple discounts reported — applying first coded coupon only (not blocking)',
+      );
     }
-    if (currentCouponCode !== code) {
+
+    const discountWithCode =
+      discounts.find((discount) => Boolean(discount.code?.trim())) ?? discounts[0];
+    const code = discountWithCode?.code?.trim();
+    if (!code) {
+      this.logger.warn(
+        {
+          discounts: discounts.map((discount) => ({
+            type: discount.type,
+            amount: discount.amount,
+          })),
+        },
+        '[GoKwik] Discount without coupon code — skipping cart coupon sync (not blocking)',
+      );
+      return;
+    }
+
+    if (currentCouponCode === code) {
+      return;
+    }
+
+    try {
       await this.cartService.applyCoupon(userId, { couponCode: code });
+    } catch (error) {
+      this.logger.warn(
+        {
+          code,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : { message: String(error) },
+        },
+        '[GoKwik] Coupon apply failed — continuing create-order without blocking',
+      );
     }
   }
 
@@ -483,13 +659,72 @@ export class GokwikOrderService {
     return normalized || null;
   }
 
+  /**
+   * GoKwik reuses `KWIKDUMMYTRANSACTIONID` (and similar) for every COD order.
+   * `gokwik_orders.payment_id` is UNIQUE — store null for COD dummies and keep
+   * the raw value in metadata so create-order / place-order can accept them.
+   */
+  private resolveStoredPaymentId(
+    payment: GokwikPaymentDetailsDto,
+    cartId: string,
+  ): string | null {
+    const normalized = this.normalizeOptionalIdentifier(payment.payment_id);
+    if (!normalized) {
+      return null;
+    }
+
+    if (payment.payment_method === 'cod' && this.isCodDummyPaymentId(normalized)) {
+      this.logger.log(
+        {
+          cartId,
+          paymentMethod: payment.payment_method,
+          paymentId: normalized,
+          storedPaymentId: null,
+        },
+        '[GoKwik] COD dummy payment_id accepted (not stored under unique payment_id)',
+      );
+      return null;
+    }
+
+    return normalized;
+  }
+
+  private isCodDummyPaymentId(value: string): boolean {
+    const upper = value.trim().toUpperCase();
+    return (
+      upper === 'KWIKDUMMYTRANSACTIONID' ||
+      upper === 'KWIKDUMMYPAYMENTID' ||
+      upper.startsWith('KWIKDUMMY')
+    );
+  }
+
+  private codPaymentMetadata(
+    payment: GokwikPaymentDetailsDto,
+  ): Record<string, string> {
+    if (payment.payment_method !== 'cod') {
+      return {};
+    }
+    const rawPaymentId = this.normalizeOptionalIdentifier(payment.payment_id);
+    if (!rawPaymentId || !this.isCodDummyPaymentId(rawPaymentId)) {
+      return {};
+    }
+    return { gokwik_cod_payment_id: rawPaymentId };
+  }
+
   private assertDiscountTotal(
     meta: GokwikCreateOrderMetaDataDto | undefined,
     expectedDiscount: number,
   ): void {
     const reported = (meta?.discounts ?? []).reduce((sum, discount) => sum + discount.amount, 0);
     if (Math.abs(Math.round(reported * 100) - Math.round(expectedDiscount * 100)) > 1) {
-      throw new BadRequestException('GoKwik discount does not match Cureka coupon calculation');
+      this.logger.warn(
+        {
+          reportedDiscount: reported,
+          expectedDiscount,
+          discounts: meta?.discounts ?? [],
+        },
+        '[GoKwik] Discount mismatch (ignored — not blocking create/place-order)',
+      );
     }
   }
 

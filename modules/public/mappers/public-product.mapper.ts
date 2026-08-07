@@ -465,6 +465,11 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       sku: variant.sku,
       slug: variant.slug,
       ...mapVariantEntityToDetailFields(variant),
+      returnAllowed: variant.returnAllowed ?? false,
+      returnPolicy: variant.returnPolicy ?? null,
+      returnWindowDays: variant.returnWindowDays ?? null,
+      replaceAllowed: variant.replaceAllowed ?? false,
+      replaceWindowDays: variant.replaceWindowDays ?? null,
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
@@ -517,6 +522,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     childProductSlug: item.childProduct?.slug ?? '',
     quantity: item.quantity,
   })),
+  // Loaded live in PublicProductsService.enrichDetail (not cached with product).
+  banners: [],
   } as unknown as IPublicProductDetail;
 };
 

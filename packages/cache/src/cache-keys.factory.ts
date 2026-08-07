@@ -52,6 +52,8 @@ export const CacheKeys = {
   homepage: {
     banners: () => 'homepage:banners',
     bannersPattern: () => 'homepage:banners*',
+    pdpBanners: () => 'homepage:pdp-banners:v2',
+    pdpBannersPattern: () => 'homepage:pdp-banners*',
     config: () => 'homepage:config',
     configPattern: () => 'homepage:config*',
     categoryHeader: () => 'homepage:category:header',

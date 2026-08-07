@@ -16,6 +16,7 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
+import { BannersService } from '@modules/master/services/banners.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -74,6 +75,7 @@ export class PublicProductsService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
+    private readonly bannersService: BannersService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -693,11 +695,13 @@ export class PublicProductsService {
     });
 
     const isFreeDelivery = await this.resolveIsFreeDelivery(merged);
+    const banners = await this.bannersService.getPdpBanners();
 
     // Re-apply live master order after variant merge (variant payload may replace product info).
     return {
       ...merged,
       isFreeDelivery,
+      banners,
       productInformation: enrichProductInformation(
         merged.productInformation,
         labelSortOrders,

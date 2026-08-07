@@ -312,6 +312,27 @@ export const MENU_HIERARCHY: MenuItem[] = [
     ],
   },
   {
+    name: 'Vendors',
+    key: 'vendors',
+    icon: 'CirclePile',
+    subItems: [
+      {
+        name: 'Add Vendor',
+        key: 'add-vendor',
+        icon: 'Plus',
+        href: '/vendors/add',
+        requiredPermissions: ['vendors.create'],
+      },
+      {
+        name: 'Vendor List',
+        key: 'vendor-list',
+        icon: 'LayoutGrid',
+        href: '/vendors',
+        requiredPermissions: ['vendors.read'],
+      }
+    ]
+  },
+  {
     name: 'Products',
     key: 'products',
     icon: 'Package',

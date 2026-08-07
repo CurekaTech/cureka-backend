@@ -3,6 +3,7 @@ export { StorageService } from './storage.service';
 export {
   ALLOWED_IMAGE_MIME_TYPES,
   ALLOWED_VIDEO_MIME_TYPES,
+  ALLOWED_SPREADSHEET_MIME_TYPES,
   ALLOWED_UPLOAD_MIME_TYPES,
 } from './storage.constants';
 export {

@@ -22,13 +22,22 @@ export const ALLOWED_VIDEO_MIME_TYPES = [
   'video/x-flv',
 ] as const;
 
+/** Spreadsheet / product-sheet uploads (.xlsx and .csv, plus common browser MIME aliases). */
+export const ALLOWED_SPREADSHEET_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel', // some browsers / Excel for csv or legacy sheets
+  'text/csv',
+  'application/csv',
+  'text/comma-separated-values',
+] as const;
+
 export const ALLOWED_UPLOAD_MIME_TYPES = [
   ...ALLOWED_IMAGE_MIME_TYPES,
   ...ALLOWED_VIDEO_MIME_TYPES,
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/csv',
+  ...ALLOWED_SPREADSHEET_MIME_TYPES,
 ] as const;
 
 export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
 export type AllowedVideoMimeType = (typeof ALLOWED_VIDEO_MIME_TYPES)[number];
+export type AllowedSpreadsheetMimeType = (typeof ALLOWED_SPREADSHEET_MIME_TYPES)[number];
 export type AllowedUploadMimeType = (typeof ALLOWED_UPLOAD_MIME_TYPES)[number];
