@@ -39,6 +39,7 @@ export class UsersController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
   findAll(@Query() query: UserListQueryDto) {
+    // Storefront customers only — vendors/staff use separate admin APIs.
     return this.usersService.findAll(query);
   }
 

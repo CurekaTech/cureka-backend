@@ -120,7 +120,8 @@ export class UsersRepository {
   async findAllPaginated(
     options: UserListOptions,
   ): Promise<{ data: UserEntity[]; total: number }> {
-    return this.findUsersPaginated(options);
+    // Admin "users" list = storefront customers only (vendors/staff excluded).
+    return this.findUsersPaginated(options, { role: UserRole.CUSTOMER });
   }
 
   async findCustomersPaginated(

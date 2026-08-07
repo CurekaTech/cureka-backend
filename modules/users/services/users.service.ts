@@ -511,11 +511,12 @@ export class UsersService {
   // ── Admin-facing CRUD methods ────────────────────────────────────────────────
 
   /**
-   * Admin users list — paginated profile rows with totalOrders / totalSpend.
+   * Admin users list — storefront customers only (excludes vendors / staff roles).
+   * Paginated profile rows with totalOrders / totalSpend.
    */
   async findAll(query: UserListQueryDto): Promise<PaginatedResult<IAdminUserListItem>> {
     const paginationOptions = buildPaginationOptions(query);
-    const { data, total } = await this.usersRepository.findAllPaginated({
+    const { data, total } = await this.usersRepository.findCustomersPaginated({
       ...paginationOptions,
       status: query.status,
       isGuest: resolveAdminUserIsGuestFilter(query),
