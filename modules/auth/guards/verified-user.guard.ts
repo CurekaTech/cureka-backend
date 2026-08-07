@@ -54,7 +54,10 @@ export class VerifiedUserGuard implements CanActivate {
 
   /**
    * Allow pre-registration (mobile-only) users only when GoKwik checkout is active.
-   * Covers address list/CRUD (FE may call these) and checkout start endpoints.
+   * Covers:
+   * - address list/CRUD (FE may call these)
+   * - checkout start endpoints
+   * - GoKwik merchant cart/order callbacks (get-cart, create-order, etc.)
    */
   private async isAllowedForUnregistered(request: FastifyRequest): Promise<boolean> {
     const method = String(request.method ?? '').toUpperCase();
@@ -67,8 +70,9 @@ export class VerifiedUserGuard implements CanActivate {
       (path === '/api/v1/orders/checkout' ||
         path === '/api/v1/payment-requests/checkout' ||
         path === '/api/v1/payment-requests/checkout/modal');
+    const isGokwikMerchantRoute = path.startsWith('/api/v1/gokwik/');
 
-    if (!isAddressRoute && !isCheckoutStartRoute) {
+    if (!isAddressRoute && !isCheckoutStartRoute && !isGokwikMerchantRoute) {
       return false;
     }
 
