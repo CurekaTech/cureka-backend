@@ -38,6 +38,7 @@ import {
 } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
+import { UserAddressType } from '../enums/user-address-type.enum';
 import { SessionCacheService } from '@modules/auth/services/session-cache.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { RolesRepository } from '@modules/roles/repositories/roles.repository';
@@ -215,6 +216,92 @@ export class UsersService {
     }
 
     return this.enrichUser(mapUserEntityToResponse(updated));
+  }
+
+  /**
+   * GoKwik checkout callback sync — UNREGISTERED users only.
+   * Copies name/email from shipping_address and upserts a default HOME address.
+   * Registered users are left unchanged. Safe to call from order callbacks.
+   */
+  async syncUnregisteredProfileFromGokwik(
+    userId: string,
+    shipping: {
+      firstName: string;
+      lastName: string;
+      email?: string | null;
+      phoneNumber: string;
+      pincode: string;
+      addressLine1: string;
+      city: string;
+      state: string;
+    },
+  ): Promise<{ synced: boolean; reason: string }> {
+    const user = await this.usersRepository.findById(userId);
+    if (!user) {
+      return { synced: false, reason: 'user_not_found' };
+    }
+
+    if (user.isRegistered) {
+      return { synced: false, reason: 'already_registered' };
+    }
+
+    let email = shipping.email?.trim() || undefined;
+    if (email) {
+      const emailTaken = await this.usersRepository.isEmailTakenByOther(email, userId);
+      if (emailTaken) {
+        email = undefined;
+      }
+    }
+
+    const updated = await this.usersRepository.update(userId, {
+      firstName: shipping.firstName.trim(),
+      lastName: shipping.lastName.trim(),
+      ...(email ? { email } : {}),
+      ...(shipping.phoneNumber && !user.mobileNumber
+        ? { mobileNumber: shipping.phoneNumber }
+        : {}),
+      isGuest: false,
+      isRegistered: true,
+      updatedBy: 'gokwik',
+    });
+
+    if (!updated) {
+      return { synced: false, reason: 'user_update_failed' };
+    }
+
+    const recipientName = `${shipping.firstName} ${shipping.lastName}`.trim();
+    const existingAddresses = await this.userAddressesService.findAll(userId);
+    const matching = existingAddresses.find(
+      (address) =>
+        address.recipientName === recipientName &&
+        address.phoneNumber === shipping.phoneNumber &&
+        address.pincode === shipping.pincode &&
+        address.addressLine1 === shipping.addressLine1 &&
+        address.city === shipping.city &&
+        address.state === shipping.state,
+    );
+
+    if (matching) {
+      await this.userAddressesService.update(userId, matching.id, {
+        addressType: UserAddressType.HOME,
+        isDefault: true,
+      });
+    } else {
+      await this.userAddressesService.create(userId, {
+        recipientName,
+        phoneNumber: shipping.phoneNumber,
+        pincode: shipping.pincode,
+        addressLine1: shipping.addressLine1,
+        city: shipping.city,
+        state: shipping.state,
+        addressType: UserAddressType.HOME,
+        isDefault: true,
+      });
+    }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
+
+    return { synced: true, reason: 'registered_from_gokwik_shipping' };
   }
 
   async updateProfile(userId: string, dto: UpdateUserProfileDto): Promise<IUser> {
