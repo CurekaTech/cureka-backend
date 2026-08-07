@@ -175,15 +175,21 @@ export class UsersService {
       throw new ConflictException('Mobile number is already associated with another account');
     }
 
+    // OTP only attaches mobile + clears guest flag.
+    // Guest refId (GUE…) is replaced later when we have a real name
+    // (complete-registration or GoKwik shipping sync).
     const updated = await this.usersRepository.update(userId, {
       mobileNumber,
       isGuest: false,
       lastLoginAt: new Date(),
+      updatedBy: mobileNumber,
     });
 
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
 
     return this.enrichUser(mapUserEntityToResponse(updated));
   }
@@ -196,32 +202,48 @@ export class UsersService {
     userId: string,
     data: { firstName: string; lastName: string; email?: string },
   ): Promise<IUser> {
+    const current = await this.usersRepository.findById(userId);
+    if (!current) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
     if (data.email) {
       const emailTaken = await this.usersRepository.existsByEmail(data.email);
-      const current = await this.usersRepository.findById(userId);
-      if (emailTaken && current?.email !== data.email) {
+      if (emailTaken && current.email !== data.email) {
         throw new ConflictException('Email is already in use');
       }
     }
 
-    const updated = await this.usersRepository.update(userId, {
+    const patch: Partial<UserEntity> = {
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email,
+      isGuest: false,
       isRegistered: true,
-    });
+    };
+
+    if (this.shouldReplaceGuestRefId(current.refId)) {
+      patch.refId = await generateUniqueRefId(data.firstName, (id) =>
+        this.usersRepository.existsByRefId(id),
+      );
+    }
+
+    const updated = await this.usersRepository.update(userId, patch);
 
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
 
     return this.enrichUser(mapUserEntityToResponse(updated));
   }
 
   /**
    * GoKwik checkout success sync.
-   * - Guest (`isGuest`) or unregistered (`!isRegistered`) → write name/email and mark registered.
-   * - Registered non-guest → fill empty profile fields only (never overwrite).
+   * - Guest (`isGuest`) or unregistered (`!isRegistered`) → write name/email, mark registered,
+   *   and replace guest `refId` (GUE…) with one derived from the real first name.
+   * - Registered non-guest → fill empty / placeholder ("Guest") profile fields only.
    * - Address: ADD only if this exact shipping address is not already stored.
    *   Existing addresses are never updated or deleted.
    */
@@ -268,14 +290,19 @@ export class UsersService {
       }
       profilePatch.isGuest = false;
       profilePatch.isRegistered = true;
+      if (this.shouldReplaceGuestRefId(user.refId)) {
+        profilePatch.refId = await generateUniqueRefId(firstName, (id) =>
+          this.usersRepository.existsByRefId(id),
+        );
+      }
       profileChanged = true;
     } else {
-      // Registered non-guest: fill blanks only.
-      if (!user.firstName?.trim()) {
+      // Registered non-guest: fill blanks / placeholder "Guest" only.
+      if (this.isPlaceholderName(user.firstName)) {
         profilePatch.firstName = firstName;
         profileChanged = true;
       }
-      if (!user.lastName?.trim()) {
+      if (this.isPlaceholderName(user.lastName)) {
         profilePatch.lastName = lastName;
         profileChanged = true;
       }
@@ -285,6 +312,13 @@ export class UsersService {
       }
       if (!user.mobileNumber && shipping.phoneNumber) {
         profilePatch.mobileNumber = shipping.phoneNumber;
+        profileChanged = true;
+      }
+      if (this.shouldReplaceGuestRefId(user.refId)) {
+        const nameForRef = (profilePatch.firstName ?? user.firstName ?? firstName).trim();
+        profilePatch.refId = await generateUniqueRefId(nameForRef, (id) =>
+          this.usersRepository.existsByRefId(id),
+        );
         profileChanged = true;
       }
     }
@@ -347,6 +381,16 @@ export class UsersService {
       return { synced: true, reason: 'address_added' };
     }
     return { synced: true, reason: 'address_already_present' };
+  }
+
+  /** Guest accounts are created with prefix from name "guest" → refId starts with GUE. */
+  private shouldReplaceGuestRefId(refId?: string | null): boolean {
+    return !!refId && refId.toUpperCase().startsWith('GUE');
+  }
+
+  private isPlaceholderName(name?: string | null): boolean {
+    const trimmed = name?.trim().toLowerCase();
+    return !trimmed || trimmed === 'guest' || trimmed === '.';
   }
 
   async updateProfile(userId: string, dto: UpdateUserProfileDto): Promise<IUser> {
@@ -420,6 +464,13 @@ export class UsersService {
       isGuest: false,
       isRegistered: true,
       updatedBy: userId,
+      ...(this.shouldReplaceGuestRefId(sessionUser.refId)
+        ? {
+            refId: await generateUniqueRefId(dto.firstName, (id) =>
+              this.usersRepository.existsByRefId(id),
+            ),
+          }
+        : {}),
     });
 
     if (!updated) {
