@@ -467,7 +467,7 @@ export class VendorsService {
         throw new NotFoundException(`Category with refId "${item.categoryRefId}" not found`);
       }
 
-      const resolveOptional = (refId: string | undefined, label: string) => {
+      const resolveOptional = (refId: string | null | undefined, label: string) => {
         if (!refId?.trim()) return null;
         const entity = byRefId.get(refId);
         if (!entity) {
