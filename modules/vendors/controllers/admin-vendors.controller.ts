@@ -8,12 +8,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
-import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
@@ -26,6 +27,26 @@ import { VendorsService } from '../services/vendors.service';
 @Controller('admin/vendors')
 export class AdminVendorsController {
   constructor(private readonly vendorsService: VendorsService) {}
+
+  @ApiOperation({
+    summary: 'Download sample product Excel sheet for vendor onboarding',
+    description:
+      'Same XLSX as product bulk upload / public vendor sample. Use for a Download sample sheet button on create/edit.',
+  })
+  @RawResponse()
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('product-sample-sheet')
+  async downloadProductSampleSheet(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.vendorsService.getProductSampleSheet();
+    return reply
+      .code(200)
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
 
   @ApiOperation({ summary: 'Register a vendor from the admin panel (multipart form-data)' })
   @ResponseMessage('Vendor registered successfully')
@@ -45,7 +66,7 @@ export class AdminVendorsController {
     summary: 'List registered vendors',
     description:
       'Supports page, limit, search, status, sortBy, sortOrder. ' +
-      'sortBy: createdAt, updatedAt, companyName, contactPerson, email, mobileNumber, status, source, gstNumber, panNumber, warehousePincode, refId',
+      'sortBy: createdAt, updatedAt, companyName, contactPerson, email, mobileNumber, status, source, gstNumber, panNumber, refId',
   })
   @ResponseMessage('Vendors retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)

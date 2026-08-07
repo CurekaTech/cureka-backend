@@ -42,6 +42,7 @@ import { OrderNotificationsService } from '@modules/notifications/services/order
 import { toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
+import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
 
 @Injectable()
 export class OrdersService {
@@ -66,10 +67,14 @@ export class OrdersService {
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
-    const [summary, checkoutProvider] = await Promise.all([
-      this.checkoutService.validateCheckout(userId, dto),
-      this.checkoutResolver.resolveProvider(),
-    ]);
+    const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    const isAddressOptionalPath =
+      checkoutProvider === 'gokwik' || isPrepaidPaymentMethod(dto.paymentMethod);
+    if (!dto.addressId && !isAddressOptionalPath) {
+      throw new BadRequestException('addressId is required for this checkout path');
+    }
+
+    const summary = await this.checkoutService.validateCheckout(userId, dto);
     return { ...summary, checkoutProvider };
   }
 

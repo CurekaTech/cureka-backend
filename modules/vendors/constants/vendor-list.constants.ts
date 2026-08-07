@@ -10,7 +10,6 @@ export const VENDOR_LIST_SORT_FIELDS = [
   'source',
   'gstNumber',
   'panNumber',
-  'warehousePincode',
   'refId',
 ] as const;
 

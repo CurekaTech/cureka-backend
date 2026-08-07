@@ -7,6 +7,7 @@ import { UserEntity } from '../entities/user.entity';
 import { UsersRepository } from '../repositories/users.repository';
 import {
   CreateAdminCustomerDto,
+  PatchUserDto,
   resolveAdminUserIsGuestFilter,
   UpdateAdminCustomerDto,
   UpdateUserProfileAdminDto,
@@ -14,7 +15,7 @@ import {
   UpdateUserStatusDto,
   UserListQueryDto,
 } from '../dto/user.dto';
-import { CreateUserAddressDto } from '../dto/user-address.dto';
+import { AdminCustomerAddressDto, CreateUserAddressDto } from '../dto/user-address.dto';
 import {
   IAdminUserDetail,
   IAdminUserListItem,
@@ -37,6 +38,7 @@ import {
 } from '@packages/common';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserRole } from '../enums/user-role.enum';
+import { UserAddressType } from '../enums/user-address-type.enum';
 import { SessionCacheService } from '@modules/auth/services/session-cache.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { RolesRepository } from '@modules/roles/repositories/roles.repository';
@@ -173,15 +175,21 @@ export class UsersService {
       throw new ConflictException('Mobile number is already associated with another account');
     }
 
+    // OTP only attaches mobile + clears guest flag.
+    // Guest refId (GUE…) is replaced later when we have a real name
+    // (complete-registration or GoKwik shipping sync).
     const updated = await this.usersRepository.update(userId, {
       mobileNumber,
       isGuest: false,
       lastLoginAt: new Date(),
+      updatedBy: mobileNumber,
     });
 
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
 
     return this.enrichUser(mapUserEntityToResponse(updated));
   }
@@ -194,26 +202,195 @@ export class UsersService {
     userId: string,
     data: { firstName: string; lastName: string; email?: string },
   ): Promise<IUser> {
+    const current = await this.usersRepository.findById(userId);
+    if (!current) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
     if (data.email) {
       const emailTaken = await this.usersRepository.existsByEmail(data.email);
-      const current = await this.usersRepository.findById(userId);
-      if (emailTaken && current?.email !== data.email) {
+      if (emailTaken && current.email !== data.email) {
         throw new ConflictException('Email is already in use');
       }
     }
 
-    const updated = await this.usersRepository.update(userId, {
+    const patch: Partial<UserEntity> = {
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email,
+      isGuest: false,
       isRegistered: true,
-    });
+    };
+
+    if (this.shouldReplaceGuestRefId(current.refId)) {
+      patch.refId = await generateUniqueRefId(data.firstName, (id) =>
+        this.usersRepository.existsByRefId(id),
+      );
+    }
+
+    const updated = await this.usersRepository.update(userId, patch);
 
     if (!updated) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
 
+    await this.sessionCacheService.invalidateAllForUser(userId);
+
     return this.enrichUser(mapUserEntityToResponse(updated));
+  }
+
+  /**
+   * GoKwik checkout success sync.
+   * - Guest (`isGuest`) or unregistered (`!isRegistered`) → write name/email, mark registered,
+   *   and replace guest `refId` (GUE…) with one derived from the real first name.
+   * - Registered non-guest → fill empty / placeholder ("Guest") profile fields only.
+   * - Address: ADD only if this exact shipping address is not already stored.
+   *   Existing addresses are never updated or deleted.
+   */
+  async syncUnregisteredProfileFromGokwik(
+    userId: string,
+    shipping: {
+      firstName: string;
+      lastName: string;
+      email?: string | null;
+      phoneNumber: string;
+      pincode: string;
+      addressLine1: string;
+      city: string;
+      state: string;
+    },
+  ): Promise<{ synced: boolean; reason: string }> {
+    const user = await this.usersRepository.findById(userId);
+    if (!user) {
+      return { synced: false, reason: 'user_not_found' };
+    }
+
+    let email = shipping.email?.trim() || undefined;
+    if (email) {
+      const emailTaken = await this.usersRepository.isEmailTakenByOther(email, userId);
+      if (emailTaken) {
+        email = undefined;
+      }
+    }
+
+    const firstName = shipping.firstName.trim();
+    const lastName = shipping.lastName.trim();
+    const profilePatch: Partial<UserEntity> = {
+      updatedBy: 'gokwik',
+    };
+    let profileChanged = false;
+    const canFullyUpdateProfile = user.isGuest || !user.isRegistered;
+
+    if (canFullyUpdateProfile) {
+      profilePatch.firstName = firstName;
+      profilePatch.lastName = lastName;
+      if (email) profilePatch.email = email;
+      if (shipping.phoneNumber && !user.mobileNumber) {
+        profilePatch.mobileNumber = shipping.phoneNumber;
+      }
+      profilePatch.isGuest = false;
+      profilePatch.isRegistered = true;
+      if (this.shouldReplaceGuestRefId(user.refId)) {
+        profilePatch.refId = await generateUniqueRefId(firstName, (id) =>
+          this.usersRepository.existsByRefId(id),
+        );
+      }
+      profileChanged = true;
+    } else {
+      // Registered non-guest: fill blanks / placeholder "Guest" only.
+      if (this.isPlaceholderName(user.firstName)) {
+        profilePatch.firstName = firstName;
+        profileChanged = true;
+      }
+      if (this.isPlaceholderName(user.lastName)) {
+        profilePatch.lastName = lastName;
+        profileChanged = true;
+      }
+      if (!user.email?.trim() && email) {
+        profilePatch.email = email;
+        profileChanged = true;
+      }
+      if (!user.mobileNumber && shipping.phoneNumber) {
+        profilePatch.mobileNumber = shipping.phoneNumber;
+        profileChanged = true;
+      }
+      if (this.shouldReplaceGuestRefId(user.refId)) {
+        const nameForRef = (profilePatch.firstName ?? user.firstName ?? firstName).trim();
+        profilePatch.refId = await generateUniqueRefId(nameForRef, (id) =>
+          this.usersRepository.existsByRefId(id),
+        );
+        profileChanged = true;
+      }
+    }
+
+    if (profileChanged) {
+      const updated = await this.usersRepository.update(userId, profilePatch);
+      if (!updated) {
+        return { synced: false, reason: 'user_update_failed' };
+      }
+    }
+
+    const recipientName = `${firstName} ${lastName}`.trim();
+    const existingAddresses = await this.userAddressesService.findAll(userId);
+    const alreadyExists = existingAddresses.some(
+      (address) =>
+        address.recipientName === recipientName &&
+        address.phoneNumber === shipping.phoneNumber &&
+        address.pincode === shipping.pincode &&
+        address.addressLine1 === shipping.addressLine1 &&
+        address.city === shipping.city &&
+        address.state === shipping.state,
+    );
+
+    let addressAdded = false;
+    if (!alreadyExists) {
+      // Add only — never update/delete existing rows. Default only if user has no addresses yet
+      // so create() does not clear isDefault on other addresses.
+      await this.userAddressesService.create(userId, {
+        recipientName,
+        phoneNumber: shipping.phoneNumber,
+        pincode: shipping.pincode,
+        addressLine1: shipping.addressLine1,
+        city: shipping.city,
+        state: shipping.state,
+        addressType: UserAddressType.HOME,
+        isDefault: existingAddresses.length === 0,
+      });
+      addressAdded = true;
+    }
+
+    if (profileChanged) {
+      await this.sessionCacheService.invalidateAllForUser(userId);
+    }
+
+    if (canFullyUpdateProfile && profileChanged) {
+      return {
+        synced: true,
+        reason: user.isGuest
+          ? 'guest_registered_from_gokwik_shipping'
+          : 'registered_from_gokwik_shipping',
+      };
+    }
+    if (profileChanged && addressAdded) {
+      return { synced: true, reason: 'filled_missing_fields_and_address_added' };
+    }
+    if (profileChanged) {
+      return { synced: true, reason: 'filled_missing_profile_fields' };
+    }
+    if (addressAdded) {
+      return { synced: true, reason: 'address_added' };
+    }
+    return { synced: true, reason: 'address_already_present' };
+  }
+
+  /** Guest accounts are created with prefix from name "guest" → refId starts with GUE. */
+  private shouldReplaceGuestRefId(refId?: string | null): boolean {
+    return !!refId && refId.toUpperCase().startsWith('GUE');
+  }
+
+  private isPlaceholderName(name?: string | null): boolean {
+    const trimmed = name?.trim().toLowerCase();
+    return !trimmed || trimmed === 'guest' || trimmed === '.';
   }
 
   async updateProfile(userId: string, dto: UpdateUserProfileDto): Promise<IUser> {
@@ -245,6 +422,77 @@ export class UsersService {
     await this.sessionCacheService.invalidateAllForUser(userId);
 
     return this.enrichUser(mapUserEntityToResponse(updated));
+  }
+
+  /**
+   * Storefront register / update after OTP login.
+   * - Uses the authenticated session user (`userId` from token).
+   * - Ensures `mobileNumber` is owned by this user (creates/attaches if missing).
+   * - Marks account registered and upserts profile + optional addresses.
+   */
+  async registerOrUpdateUser(userId: string, dto: PatchUserDto): Promise<ICustomerDetail> {
+    const sessionUser = await this.usersRepository.findById(userId);
+    if (!sessionUser) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
+    const mobileOwner = await this.usersRepository.findByMobileNumber(dto.mobileNumber);
+    if (mobileOwner && mobileOwner.id !== userId) {
+      throw new ConflictException('Mobile number is already associated with another account');
+    }
+
+    if (dto.email) {
+      const emailTaken = await this.usersRepository.isEmailTakenByOther(dto.email, userId);
+      if (emailTaken) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    const profilePatch = this.mapProfileDtoToEntity({
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      profileImageUrl: dto.profileImageUrl,
+      gender: dto.gender,
+      maritalStatus: dto.maritalStatus,
+      dateOfBirth: dto.dateOfBirth,
+    });
+
+    const updated = await this.usersRepository.update(userId, {
+      ...profilePatch,
+      mobileNumber: dto.mobileNumber,
+      isGuest: false,
+      isRegistered: true,
+      updatedBy: userId,
+      ...(this.shouldReplaceGuestRefId(sessionUser.refId)
+        ? {
+            refId: await generateUniqueRefId(dto.firstName, (id) =>
+              this.usersRepository.existsByRefId(id),
+            ),
+          }
+        : {}),
+    });
+
+    if (!updated) {
+      throw new NotFoundException(`User with id ${userId} not found after update`);
+    }
+
+    let addresses: IUserAddress[] = [];
+    if (dto.addresses?.length) {
+      addresses = await this.userAddressesService.syncForUser(
+        userId,
+        dto.addresses as AdminCustomerAddressDto[],
+      );
+    } else {
+      addresses = await this.userAddressesService.findAll(userId);
+    }
+
+    await this.sessionCacheService.invalidateAllForUser(userId);
+
+    return {
+      ...(await this.enrichUser(mapUserEntityToResponse(updated))),
+      addresses,
+    };
   }
 
   async setProfileImageUrl(userId: string, profileImageUrl: string): Promise<IUser> {

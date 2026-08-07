@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
 import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
@@ -7,6 +8,7 @@ import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-
 import { CartService } from '@modules/orders/services/cart.service';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import { roundMoney } from '@modules/orders/utils/money.util';
+import { UsersService } from '@modules/users/services/users.service';
 import {
   GokwikAvailableCouponsResponse,
   GokwikAvailablePaymentMethod,
@@ -18,6 +20,7 @@ import {
 import {
   GokwikDiscountDto,
   GokwikSetShippingAddressDto,
+  GokwikShippingAddressDto,
 } from '../dto/gokwik-cart-actions.dto';
 
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'cash_free', 'pay_you', 'shipway'] as const;
@@ -28,6 +31,7 @@ export class GokwikCartService {
 
   constructor(
     private readonly cartService: CartService,
+    private readonly usersService: UsersService,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly couponsRepository: CouponsRepository,
     private readonly adminSettingsRepository: AdminSettingsRepository,
@@ -70,10 +74,28 @@ export class GokwikCartService {
   async setShippingAddress(
     dto: GokwikSetShippingAddressDto,
   ): Promise<GokwikGetCartSuccessResponse> {
-    const cart = await this.cartService.getCartById(dto.cart_id.trim());
+    const cartEntity = await this.cartService.findActiveCartById(dto.cart_id.trim());
+    if (!cartEntity) {
+      throw new BadRequestException('Invalid cart id');
+    }
+    const cart = await this.cartService.getCartById(cartEntity.id);
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
+
+    this.logger.log(
+      `set-shipping-address received: ${JSON.stringify({
+        first_name: dto.shipping_address.first_name,
+        last_name: dto.shipping_address.last_name,
+        email: dto.shipping_address.email,
+        phone: dto.shipping_address.phone,
+        postal_code: dto.shipping_address.postal_code,
+        city: dto.shipping_address.city,
+        state: dto.shipping_address.state,
+      })}`,
+    );
+    await this.syncUnregisteredUserFromShipping(cartEntity.userId, dto.shipping_address);
+
     return {
       data: {
         cart: mapCartToGokwikCart(cart, {
@@ -82,6 +104,47 @@ export class GokwikCartService {
         }),
       },
     };
+  }
+
+  /**
+   * Non-blocking profile sync for unregistered users only.
+   */
+  private async syncUnregisteredUserFromShipping(
+    userId: string,
+    address: GokwikShippingAddressDto,
+  ): Promise<void> {
+    try {
+      const phoneNumber = parseIndianMobileNumber(address.phone);
+
+      const result = await this.usersService.syncUnregisteredProfileFromGokwik(userId, {
+        firstName: address.first_name,
+        lastName: address.last_name,
+        email: address.email,
+        phoneNumber,
+        pincode: address.postal_code.trim(),
+        addressLine1: address.address.trim(),
+        city: address.city.trim(),
+        state: address.state.trim(),
+      });
+
+      if (result.synced) {
+        this.logger.log(
+          `[GoKwik] profile/address sync userId=${userId} reason=${result.reason}`,
+        );
+      } else {
+        this.logger.warn(
+          `[GoKwik] profile sync skipped userId=${userId} reason=${result.reason}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        {
+          userId,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        '[GoKwik] set-shipping-address profile sync failed (non-blocking)',
+      );
+    }
   }
 
   async getAvailableCoupons(cartId: string): Promise<GokwikAvailableCouponsResponse> {
