@@ -747,9 +747,9 @@ export class OrdersService {
       await this.ordersRepository.updateById(
         id,
         {
-          orderStatus: OrderStatus.CANCELLED,
+      orderStatus: OrderStatus.CANCELLED,
           cancelReason: reason,
-          updatedBy: userId,
+      updatedBy: userId,
         },
         manager,
       );
@@ -793,9 +793,9 @@ export class OrdersService {
             where: { id: params.addressId, userId: params.customerId },
           })
         : await addressRepository.findOne({
-            where: { userId: params.customerId, isDefault: true },
-            order: { updatedAt: 'DESC' },
-          });
+        where: { userId: params.customerId, isDefault: true },
+        order: { updatedAt: 'DESC' },
+      });
       if (!address) {
         throw new BadRequestException(
           params.addressId
