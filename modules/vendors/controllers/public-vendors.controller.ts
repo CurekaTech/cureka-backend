@@ -1,7 +1,7 @@
-import { Controller, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FastifyRequest } from 'fastify';
-import { ResponseMessage } from '@packages/common';
+import { FastifyReply, FastifyRequest } from 'fastify';
+import { RawResponse, ResponseMessage } from '@packages/common';
 import { VendorSource } from '../enums/vendor-source.enum';
 import { VendorsService } from '../services/vendors.service';
 
@@ -9,6 +9,26 @@ import { VendorsService } from '../services/vendors.service';
 @Controller('public/vendors')
 export class PublicVendorsController {
   constructor(private readonly vendorsService: VendorsService) {}
+
+  @ApiOperation({
+    summary: 'Download sample product Excel sheet for vendor onboarding',
+    description:
+      'Returns the same XLSX template used by admin product bulk upload. ' +
+      'Wire a button: GET this URL (or window.location / <a download>).',
+  })
+  @RawResponse()
+  @Get('product-sample-sheet')
+  async downloadProductSampleSheet(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.vendorsService.getProductSampleSheet();
+    return reply
+      .code(200)
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
 
   @ApiOperation({ summary: 'Public vendor onboarding registration (multipart form-data)' })
   @ResponseMessage('Vendor registration submitted successfully')
