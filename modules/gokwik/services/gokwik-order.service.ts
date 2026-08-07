@@ -436,10 +436,8 @@ export class GokwikOrderService {
 
       if (result.synced) {
         this.logger.log(
-          `[GoKwik] syncing unregistered user userId=${userId} reason=${result.reason}`,
+          `[GoKwik] profile/address sync userId=${userId} reason=${result.reason}`,
         );
-      } else if (result.reason === 'already_registered') {
-        this.logger.log(`[GoKwik] skip already registered userId=${userId}`);
       } else {
         this.logger.warn(
           `[GoKwik] profile sync skipped userId=${userId} reason=${result.reason}`,

@@ -219,9 +219,11 @@ export class UsersService {
   }
 
   /**
-   * GoKwik checkout callback sync — UNREGISTERED users only.
-   * Copies name/email from shipping_address and upserts a default HOME address.
-   * Registered users are left unchanged. Safe to call from order callbacks.
+   * GoKwik checkout success sync.
+   * - Guest (`isGuest`) or unregistered (`!isRegistered`) → write name/email and mark registered.
+   * - Registered non-guest → fill empty profile fields only (never overwrite).
+   * - Address: ADD only if this exact shipping address is not already stored.
+   *   Existing addresses are never updated or deleted.
    */
   async syncUnregisteredProfileFromGokwik(
     userId: string,
@@ -241,10 +243,6 @@ export class UsersService {
       return { synced: false, reason: 'user_not_found' };
     }
 
-    if (user.isRegistered) {
-      return { synced: false, reason: 'already_registered' };
-    }
-
     let email = shipping.email?.trim() || undefined;
     if (email) {
       const emailTaken = await this.usersRepository.isEmailTakenByOther(email, userId);
@@ -253,25 +251,54 @@ export class UsersService {
       }
     }
 
-    const updated = await this.usersRepository.update(userId, {
-      firstName: shipping.firstName.trim(),
-      lastName: shipping.lastName.trim(),
-      ...(email ? { email } : {}),
-      ...(shipping.phoneNumber && !user.mobileNumber
-        ? { mobileNumber: shipping.phoneNumber }
-        : {}),
-      isGuest: false,
-      isRegistered: true,
+    const firstName = shipping.firstName.trim();
+    const lastName = shipping.lastName.trim();
+    const profilePatch: Partial<UserEntity> = {
       updatedBy: 'gokwik',
-    });
+    };
+    let profileChanged = false;
+    const canFullyUpdateProfile = user.isGuest || !user.isRegistered;
 
-    if (!updated) {
-      return { synced: false, reason: 'user_update_failed' };
+    if (canFullyUpdateProfile) {
+      profilePatch.firstName = firstName;
+      profilePatch.lastName = lastName;
+      if (email) profilePatch.email = email;
+      if (shipping.phoneNumber && !user.mobileNumber) {
+        profilePatch.mobileNumber = shipping.phoneNumber;
+      }
+      profilePatch.isGuest = false;
+      profilePatch.isRegistered = true;
+      profileChanged = true;
+    } else {
+      // Registered non-guest: fill blanks only.
+      if (!user.firstName?.trim()) {
+        profilePatch.firstName = firstName;
+        profileChanged = true;
+      }
+      if (!user.lastName?.trim()) {
+        profilePatch.lastName = lastName;
+        profileChanged = true;
+      }
+      if (!user.email?.trim() && email) {
+        profilePatch.email = email;
+        profileChanged = true;
+      }
+      if (!user.mobileNumber && shipping.phoneNumber) {
+        profilePatch.mobileNumber = shipping.phoneNumber;
+        profileChanged = true;
+      }
     }
 
-    const recipientName = `${shipping.firstName} ${shipping.lastName}`.trim();
+    if (profileChanged) {
+      const updated = await this.usersRepository.update(userId, profilePatch);
+      if (!updated) {
+        return { synced: false, reason: 'user_update_failed' };
+      }
+    }
+
+    const recipientName = `${firstName} ${lastName}`.trim();
     const existingAddresses = await this.userAddressesService.findAll(userId);
-    const matching = existingAddresses.find(
+    const alreadyExists = existingAddresses.some(
       (address) =>
         address.recipientName === recipientName &&
         address.phoneNumber === shipping.phoneNumber &&
@@ -281,12 +308,10 @@ export class UsersService {
         address.state === shipping.state,
     );
 
-    if (matching) {
-      await this.userAddressesService.update(userId, matching.id, {
-        addressType: UserAddressType.HOME,
-        isDefault: true,
-      });
-    } else {
+    let addressAdded = false;
+    if (!alreadyExists) {
+      // Add only — never update/delete existing rows. Default only if user has no addresses yet
+      // so create() does not clear isDefault on other addresses.
       await this.userAddressesService.create(userId, {
         recipientName,
         phoneNumber: shipping.phoneNumber,
@@ -295,13 +320,33 @@ export class UsersService {
         city: shipping.city,
         state: shipping.state,
         addressType: UserAddressType.HOME,
-        isDefault: true,
+        isDefault: existingAddresses.length === 0,
       });
+      addressAdded = true;
     }
 
-    await this.sessionCacheService.invalidateAllForUser(userId);
+    if (profileChanged) {
+      await this.sessionCacheService.invalidateAllForUser(userId);
+    }
 
-    return { synced: true, reason: 'registered_from_gokwik_shipping' };
+    if (canFullyUpdateProfile && profileChanged) {
+      return {
+        synced: true,
+        reason: user.isGuest
+          ? 'guest_registered_from_gokwik_shipping'
+          : 'registered_from_gokwik_shipping',
+      };
+    }
+    if (profileChanged && addressAdded) {
+      return { synced: true, reason: 'filled_missing_fields_and_address_added' };
+    }
+    if (profileChanged) {
+      return { synced: true, reason: 'filled_missing_profile_fields' };
+    }
+    if (addressAdded) {
+      return { synced: true, reason: 'address_added' };
+    }
+    return { synced: true, reason: 'address_already_present' };
   }
 
   async updateProfile(userId: string, dto: UpdateUserProfileDto): Promise<IUser> {
