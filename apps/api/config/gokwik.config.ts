@@ -6,8 +6,25 @@ function sanitizePlaceholder(value: string | undefined): string {
   return v.startsWith('<') || v === '' ? '' : v;
 }
 
+/**
+ * Normalize outbound GoKwik API host.
+ * Paths in code already include `/v3/...` (product/collection/orders).
+ * If env has `https://gkx.gokwik.co/v3`, strip the trailing `/v3` to avoid
+ * `.../v3/v3/product/update-product-details`.
+ * Keep sandbox prefixes like `https://api-gw-v4.dev.gokwik.io/sandbox`.
+ */
+function normalizeGokwikBaseUrl(value: string | undefined): string {
+  let base = (value ?? '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+  // Only strip a trailing /v3 segment (production host style), not /sandbox.
+  if (/\/v3$/i.test(base)) {
+    base = base.replace(/\/v3$/i, '');
+  }
+  return base;
+}
+
 export const gokwikConfig = registerAs('gokwik', () => ({
-  baseUrl: (process.env['GOKWIK_BASE_URL'] ?? '').replace(/\/+$/, ''),
+  baseUrl: normalizeGokwikBaseUrl(process.env['GOKWIK_BASE_URL']),
   appId: process.env['GOKWIK_APP_ID'] ?? '',
   appSecret: process.env['GOKWIK_APP_SECRET'] ?? '',
   merchantId: process.env['GOKWIK_MERCHANT_ID'] ?? '',
