@@ -53,7 +53,7 @@ export class OrderNotificationsService {
 
   /**
    * Fire-and-forget safe wrapper — never throws to the order flow.
-   * Sends WhatsApp + MSG91 thank-you SMS independently.
+   * Sends WhatsApp (Bonb) + MSG91 thank-you SMS independently.
    */
   async notifyOrderPlacedSafely(input: IOrderPlacedNotifyInput): Promise<void> {
     await Promise.all([
