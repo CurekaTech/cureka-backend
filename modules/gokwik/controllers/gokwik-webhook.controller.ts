@@ -24,15 +24,27 @@ export class GokwikWebhookController {
     this.logger.log(
       {
         requestId: req.id,
+        path: '/api/v1/gokwik/webhooks/transaction',
         event: dto.event,
         paymentId: dto.data?.paymentId,
+        amount: dto.data?.amount,
+        currency: dto.data?.currency,
+        merchantId: dto.data?.merchantId,
+        merchantReferenceId: dto.data?.merchantReferenceId,
+        method: dto.data?.method,
+        provider: dto.data?.provider,
       },
-      'GoKwik transaction webhook received',
+      '[GoKwik-Webhook] transaction hit',
     );
     const result = await this.webhookService.receiveTransaction(dto);
     this.logger.log(
-      { requestId: req.id, event: dto.event, result },
-      'GoKwik transaction webhook accepted',
+      {
+        requestId: req.id,
+        event: dto.event,
+        paymentId: dto.data?.paymentId,
+        ...result,
+      },
+      '[GoKwik-Webhook] transaction accepted',
     );
     return result;
   }
@@ -44,15 +56,27 @@ export class GokwikWebhookController {
     this.logger.log(
       {
         requestId: req.id,
+        path: '/api/v1/gokwik/webhooks/refund',
         event: dto.event,
         refundId: dto.data?.refundId,
+        paymentId: dto.data?.paymentId,
+        amount: dto.data?.amount,
+        auto: dto.data?.auto,
+        merchantId: dto.data?.merchantId,
+        merchantReferenceId: dto.data?.merchantReferenceId,
+        provider: dto.data?.provider,
       },
-      'GoKwik refund webhook received',
+      '[GoKwik-Webhook] refund hit',
     );
     const result = await this.webhookService.receiveRefund(dto);
     this.logger.log(
-      { requestId: req.id, event: dto.event, result },
-      'GoKwik refund webhook accepted',
+      {
+        requestId: req.id,
+        event: dto.event,
+        refundId: dto.data?.refundId,
+        ...result,
+      },
+      '[GoKwik-Webhook] refund accepted',
     );
     return result;
   }
@@ -64,17 +88,24 @@ export class GokwikWebhookController {
     @Req() req: FastifyRequest,
     @Body() dto: GokwikAbandonedCartWebhookDto,
   ) {
+    const carts = dto.carts ?? [];
     this.logger.log(
       {
         requestId: req.id,
-        cartCount: dto.carts?.length ?? 0,
+        path: '/api/v1/gokwik/webhooks/abandoned-carts',
+        request_id: dto.request_id,
+        cartCount: carts.length,
+        sampleCartIds: carts.slice(0, 5).map((cart) => ({
+          cart_id: cart.cart_id,
+          merchant_cart_id: cart.merchant_cart_id,
+        })),
       },
-      'GoKwik abandoned-carts webhook received',
+      '[GoKwik-Webhook] abandoned-carts hit',
     );
     const result = await this.webhookService.receiveAbandonedCarts(dto);
     this.logger.log(
       { requestId: req.id, received: result.received },
-      'GoKwik abandoned-carts webhook processed',
+      '[GoKwik-Webhook] abandoned-carts processed',
     );
     return result;
   }

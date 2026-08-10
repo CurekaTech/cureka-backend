@@ -24,10 +24,29 @@ export class GokwikWebhookService {
   ) {}
 
   receiveTransaction(payload: GokwikTransactionWebhookDto) {
+    this.logger.log(
+      {
+        event: payload.event,
+        paymentId: payload.data?.paymentId,
+        amount: payload.data?.amount,
+        hasBodyHmac: Boolean(payload.data?.hmac),
+      },
+      '[GoKwik-Webhook] transaction event received (persist + queue)',
+    );
     return this.receiveEvent('transaction', payload.event, payload.data.paymentId, payload);
   }
 
   receiveRefund(payload: GokwikRefundWebhookDto) {
+    this.logger.log(
+      {
+        event: payload.event,
+        refundId: payload.data?.refundId,
+        paymentId: payload.data?.paymentId,
+        amount: payload.data?.amount,
+        hasBodyHmac: Boolean(payload.data?.hmac),
+      },
+      '[GoKwik-Webhook] refund event received (persist + queue)',
+    );
     return this.receiveEvent('refund', payload.event, payload.data.refundId, payload);
   }
 
@@ -41,6 +60,13 @@ export class GokwikWebhookService {
         receivedAt: new Date(),
       });
     }
+    this.logger.log(
+      {
+        request_id: payload.request_id,
+        received: payload.carts.length,
+      },
+      '[GoKwik-Webhook] abandoned-carts upserted',
+    );
     return { received: payload.carts.length };
   }
 
@@ -49,14 +75,20 @@ export class GokwikWebhookService {
     if (!event || event.status === 'processed' || event.status === 'ignored') {
       this.logger.log(
         { eventId, status: event?.status ?? 'missing' },
-        'GoKwik webhook process skipped',
+        '[GoKwik-Webhook] process skipped',
       );
       return;
     }
 
     this.logger.log(
-      { eventId, entity: event.entity, event: event.event },
-      'GoKwik webhook process started',
+      {
+        eventId,
+        entity: event.entity,
+        event: event.event,
+        providerReferenceId: event.providerReferenceId,
+        status: event.status,
+      },
+      '[GoKwik-Webhook] process started',
     );
 
     try {
@@ -66,15 +98,24 @@ export class GokwikWebhookService {
         await this.processRefund(event.payload as unknown as GokwikRefundWebhookDto);
       } else {
         await this.repository.markWebhookEvent(event.id, 'ignored');
-        this.logger.log({ eventId, entity: event.entity }, 'GoKwik webhook ignored');
+        this.logger.warn(
+          { eventId, entity: event.entity },
+          '[GoKwik-Webhook] process ignored — unknown entity',
+        );
         return;
       }
       await this.repository.markWebhookEvent(event.id, 'processed');
-      this.logger.log({ eventId, entity: event.entity }, 'GoKwik webhook processed');
+      this.logger.log(
+        { eventId, entity: event.entity, event: event.event },
+        '[GoKwik-Webhook] process completed',
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown GoKwik webhook error';
       await this.repository.markWebhookEvent(event.id, 'failed', message);
-      this.logger.error({ eventId, entity: event.entity, error: message }, 'GoKwik webhook failed');
+      this.logger.error(
+        { eventId, entity: event.entity, event: event.event, error: message },
+        '[GoKwik-Webhook] process failed',
+      );
       throw error;
     }
   }
@@ -128,8 +169,14 @@ export class GokwikWebhookService {
     const existing = await this.repository.findWebhookEvent(eventKey);
     if (existing) {
       this.logger.log(
-        { entity, event: eventName, providerReferenceId, duplicate: true },
-        'GoKwik webhook duplicate',
+        {
+          entity,
+          event: eventName,
+          providerReferenceId,
+          existingEventId: existing.id,
+          duplicate: true,
+        },
+        '[GoKwik-Webhook] duplicate ignored',
       );
       return { received: true, duplicate: true };
     }
@@ -144,16 +191,28 @@ export class GokwikWebhookService {
       });
       await this.queueService.enqueueWebhook(event.id);
       this.logger.log(
-        { entity, event: eventName, providerReferenceId, eventId: event.id, duplicate: false },
-        'GoKwik webhook enqueued',
+        {
+          entity,
+          event: eventName,
+          providerReferenceId,
+          eventId: event.id,
+          duplicate: false,
+        },
+        '[GoKwik-Webhook] event persisted and enqueued',
       );
       return { received: true, duplicate: false };
     } catch (error) {
       const concurrent = await this.repository.findWebhookEvent(eventKey);
       if (concurrent) {
         this.logger.log(
-          { entity, event: eventName, providerReferenceId, duplicate: true },
-          'GoKwik webhook duplicate after race',
+          {
+            entity,
+            event: eventName,
+            providerReferenceId,
+            existingEventId: concurrent.id,
+            duplicate: true,
+          },
+          '[GoKwik-Webhook] duplicate after race',
         );
         return { received: true, duplicate: true };
       }
@@ -165,15 +224,29 @@ export class GokwikWebhookService {
     const data = payload.data;
     const link = await this.repository.findOrderByPaymentId(data.paymentId);
     if (!link?.order) {
+      this.logger.error(
+        { paymentId: data.paymentId, event: payload.event, amount: data.amount },
+        '[GoKwik-Webhook] transaction — no order linked to paymentId',
+      );
       throw new NotFoundException('GoKwik payment is not linked to an order');
     }
     if (
       Math.abs(Math.round(data.amount * 100) - Math.round(Number(link.paymentAmount) * 100)) > 1
     ) {
+      this.logger.error(
+        {
+          paymentId: data.paymentId,
+          orderNumber: link.order.orderNumber,
+          webhookAmount: data.amount,
+          linkedPaymentAmount: link.paymentAmount,
+        },
+        '[GoKwik-Webhook] transaction — amount mismatch',
+      );
       throw new BadRequestException('Transaction amount does not match the checkout amount');
     }
 
     const status = payload.event.toLowerCase();
+    const previousPaymentStatus = link.order.paymentStatus;
     let paymentStatus: OrderPaymentStatus;
     if (status.includes('success') || status === 'paid') {
       paymentStatus =
@@ -189,12 +262,33 @@ export class GokwikWebhookService {
     }
 
     await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, { paymentStatus });
+    this.logger.log(
+      {
+        paymentId: data.paymentId,
+        orderId: link.orderId,
+        orderNumber: link.order.orderNumber,
+        event: payload.event,
+        amount: data.amount,
+        previousPaymentStatus,
+        nextPaymentStatus: paymentStatus,
+      },
+      '[GoKwik-Webhook] transaction applied',
+    );
   }
 
   private async processRefund(payload: GokwikRefundWebhookDto): Promise<void> {
     const data = payload.data;
     const link = await this.repository.findOrderByPaymentId(data.paymentId);
     if (!link?.order) {
+      this.logger.error(
+        {
+          paymentId: data.paymentId,
+          refundId: data.refundId,
+          event: payload.event,
+          amount: data.amount,
+        },
+        '[GoKwik-Webhook] refund — no order linked to paymentId',
+      );
       throw new NotFoundException('GoKwik payment is not linked to an order');
     }
     const priorRefunded = await this.repository.sumSuccessfulOrPendingRefunds(
@@ -202,6 +296,17 @@ export class GokwikWebhookService {
       data.refundId,
     );
     if (priorRefunded + data.amount > Number(link.order.grandTotal)) {
+      this.logger.error(
+        {
+          paymentId: data.paymentId,
+          refundId: data.refundId,
+          orderNumber: link.order.orderNumber,
+          refundAmount: data.amount,
+          priorRefunded,
+          grandTotal: link.order.grandTotal,
+        },
+        '[GoKwik-Webhook] refund — amount exceeds order total',
+      );
       throw new BadRequestException('Refund amount exceeds the order total');
     }
 
@@ -217,6 +322,7 @@ export class GokwikWebhookService {
     });
 
     const normalized = payload.event.toLowerCase();
+    const previousPaymentStatus = link.order.paymentStatus;
     const totalRefunded = await this.repository.sumSuccessfulOrPendingRefunds(link.orderId);
     const paymentStatus = normalized.includes('success')
       ? totalRefunded >= Number(link.order.grandTotal)
@@ -228,6 +334,21 @@ export class GokwikWebhookService {
     await this.dataSource
       .getRepository(OrderEntity)
       .update({ id: link.orderId }, { paymentStatus });
+    this.logger.log(
+      {
+        paymentId: data.paymentId,
+        refundId: data.refundId,
+        orderId: link.orderId,
+        orderNumber: link.order.orderNumber,
+        event: payload.event,
+        amount: data.amount,
+        auto: data.auto,
+        totalRefunded,
+        previousPaymentStatus,
+        nextPaymentStatus: paymentStatus,
+      },
+      '[GoKwik-Webhook] refund applied',
+    );
   }
 
   private stableJson(value: unknown): string {
