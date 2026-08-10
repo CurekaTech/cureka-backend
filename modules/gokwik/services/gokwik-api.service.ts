@@ -198,6 +198,8 @@ export class GokwikApiService {
 
     const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 
+    this.logger.debug({ method, url }, 'GoKwik outbound request');
+
     try {
       const response = await firstValueFrom(
         this.httpService.request<T>({
