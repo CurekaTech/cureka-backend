@@ -336,7 +336,7 @@ export class BlogPostsService {
     if (product.categoryId) {
       const done = append(
         await this.postsRepo.findPublishedByLinkedProductCategory({
-          categoryColumn: 'category_id',
+          categoryColumn: 'categoryId',
           categoryId: product.categoryId,
           excludeBlogIds: [...seen],
           excludeProductRefId: product.refId,
@@ -349,7 +349,7 @@ export class BlogPostsService {
     if (product.subCategoryId) {
       const done = append(
         await this.postsRepo.findPublishedByLinkedProductCategory({
-          categoryColumn: 'sub_category_id',
+          categoryColumn: 'subCategoryId',
           categoryId: product.subCategoryId,
           excludeBlogIds: [...seen],
           excludeProductRefId: product.refId,
@@ -362,7 +362,7 @@ export class BlogPostsService {
     if (product.subSubCategoryId) {
       append(
         await this.postsRepo.findPublishedByLinkedProductCategory({
-          categoryColumn: 'sub_sub_category_id',
+          categoryColumn: 'subSubCategoryId',
           categoryId: product.subSubCategoryId,
           excludeBlogIds: [...seen],
           excludeProductRefId: product.refId,

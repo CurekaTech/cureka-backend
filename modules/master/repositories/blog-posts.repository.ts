@@ -3,8 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { BlogPostEntity } from '../entities/blog-post.entity';
+import { BlogPostProductEntity } from '../entities/blog-post-product.entity';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 
@@ -187,15 +189,15 @@ export class BlogPostsRepository {
     return this.repo
       .createQueryBuilder('post')
       .innerJoin(
-        'blog_post_products',
+        BlogPostProductEntity,
         'link',
-        'link.blog_post_id = post.id AND link.deleted_at IS NULL',
+        'link.blogPostId = post.id AND link.deletedAt IS NULL',
       )
-      .where('link.product_ref_id = :productRefId', { productRefId })
+      .where('link.productRefId = :productRefId', { productRefId })
       .andWhere('post.status = :status', { status: BlogPostStatus.PUBLISHED })
       .andWhere('post.visibility = :visibility', { visibility: BlogPostVisibility.PUBLIC })
-      .orderBy('post.published_at', 'DESC', 'NULLS LAST')
-      .addOrderBy('post.created_at', 'DESC')
+      .orderBy('post.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('post.createdAt', 'DESC')
       .take(limit)
       .getMany();
   }
@@ -205,7 +207,7 @@ export class BlogPostsRepository {
    * Used as fallback after direct product→blog mappings.
    */
   async findPublishedByLinkedProductCategory(params: {
-    categoryColumn: 'category_id' | 'sub_category_id' | 'sub_sub_category_id';
+    categoryColumn: 'categoryId' | 'subCategoryId' | 'subSubCategoryId';
     categoryId: string;
     excludeBlogIds: string[];
     excludeProductRefId?: string;
@@ -220,28 +222,28 @@ export class BlogPostsRepository {
     const qb = this.repo
       .createQueryBuilder('post')
       .innerJoin(
-        'blog_post_products',
+        BlogPostProductEntity,
         'link',
-        'link.blog_post_id = post.id AND link.deleted_at IS NULL',
+        'link.blogPostId = post.id AND link.deletedAt IS NULL',
       )
       .innerJoin(
-        'products',
+        ProductEntity,
         'product',
-        'product.ref_id = link.product_ref_id AND product.deleted_at IS NULL',
+        'product.refId = link.productRefId AND product.deletedAt IS NULL',
       )
       .where(`product.${categoryColumn} = :categoryId`, { categoryId })
       .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
       .andWhere('post.status = :status', { status: BlogPostStatus.PUBLISHED })
       .andWhere('post.visibility = :visibility', { visibility: BlogPostVisibility.PUBLIC })
-      .orderBy('post.published_at', 'DESC', 'NULLS LAST')
-      .addOrderBy('post.created_at', 'DESC')
+      .orderBy('post.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('post.createdAt', 'DESC')
       .take(fetchLimit);
 
     if (excludeBlogIds.length) {
       qb.andWhere('post.id NOT IN (:...excludeBlogIds)', { excludeBlogIds });
     }
     if (excludeProductRefId) {
-      qb.andWhere('link.product_ref_id != :excludeProductRefId', { excludeProductRefId });
+      qb.andWhere('link.productRefId != :excludeProductRefId', { excludeProductRefId });
     }
 
     const rows = await qb.getMany();
