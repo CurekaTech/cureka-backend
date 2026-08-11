@@ -93,7 +93,12 @@ export class AdminDashboardController {
     return this.dashboardService.getTopProducts(query);
   }
 
-  @ApiOperation({ summary: 'Customer analytics & retention metrics' })
+  @ApiOperation({
+    summary: 'Customer analytics & retention metrics',
+    description:
+      'Returns bifurcated metrics: `customers` (isGuest=false) and `guests` (isGuest=true). ' +
+      'Each side has new / repeat / retention / repeat-purchase cards.',
+  })
   @ResponseMessage('Customer analytics fetched successfully')
   @RequirePermissions('dashboard.read')
   @Get('customer-analytics')
