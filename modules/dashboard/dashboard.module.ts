@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
@@ -17,6 +18,7 @@ import { AdminDashboardService } from './services/admin-dashboard.service';
   imports: [
     RolesModule,
     TypeOrmModule.forFeature([
+      AdminUserEntity,
       OrderEntity,
       OrderItemEntity,
       CouponUsageEntity,
