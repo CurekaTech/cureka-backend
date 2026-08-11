@@ -26,6 +26,11 @@ import {
   compactBulkUploadImageSequence,
 } from '../utils/bulk-upload-image.util';
 import {
+  formatRelatedGroupFailureReason,
+  humanizeBulkUploadColumn,
+  humanizeImageResolveError,
+} from '../utils/bulk-upload-error-message.util';
+import {
   buildImagesFromLookupUrls,
   loadImageUrlsByProductId,
   loadManufacturerAddressByProductId,
@@ -165,11 +170,15 @@ export class BulkUploadProcessor extends WorkerHost {
       return {
         rowNumber: row.rowNumber,
         sku: isPrimary ? primarySku : row.sku,
-        column: primary.column,
+        column: humanizeBulkUploadColumn(primary.column),
         invalidValue: primary.invalidValue,
         reason: isPrimary
           ? primary.reason
-          : `This spreadsheet row was not imported because its product group failed. Related error (row ${primaryRowNumber}, ${primary.column}): ${primary.reason}`,
+          : formatRelatedGroupFailureReason({
+              primaryRowNumber,
+              primaryColumn: primary.column,
+              primaryReason: primary.reason,
+            }),
         suggestedFix: primary.suggestedFix,
       };
     });
@@ -993,39 +1002,37 @@ export class BulkUploadProcessor extends WorkerHost {
                 (processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0) +
                 processedCommonMedia.length;
               if (lookupProductId && lookupImageUrls?.length && resolvedImageCount === 0) {
+                const firstLookupUrl = lookupImageUrls[0] ?? '';
                 return {
                   ok: false as const,
                   sheetRows: countSheetRowsForProductGroup(group),
                   variantSlots: countVariantSlotsForProductGroup(group),
                   errors: this.buildGroupFailureErrors(group, {
-                    column: 'Product ID (String)',
-                    invalidValue: lookupProductId,
-                    reason: `Product ID ${lookupProductId} has ${lookupImageUrls.length} lookup image URL(s), but none could be downloaded/stored.`,
+                    column: 'Product images',
+                    invalidValue: firstLookupUrl || lookupProductId,
+                    reason:
+                      `No product images could be downloaded for Product ID ${lookupProductId} ` +
+                      `(${lookupImageUrls.length} image link(s) from the Product ID lookup). ` +
+                      'The image links look broken or unreachable.',
                     suggestedFix:
-                      'Check that the WC image URLs are reachable, or put Primary Image URL / common_media URLs directly in the sheet.',
+                      'Open each image link in a browser. Replace broken links, or add working Primary Image URL / product image URLs directly in the sheet, then re-upload.',
                   }),
                 };
               }
 
               if (unresolvedCommonMedia.length) {
+                const failed = unresolvedCommonMedia[0];
+                const failedUrl = failed?.url || failed?.filename || '';
+                const humanized = humanizeImageResolveError(failed?.resolveError, failedUrl);
                 return {
                   ok: false as const,
                   sheetRows: countSheetRowsForProductGroup(group),
                   variantSlots: countVariantSlotsForProductGroup(group),
                   errors: this.buildGroupFailureErrors(group, {
-                    column: 'common_media',
-                    invalidValue:
-                      unresolvedCommonMedia[0]?.filename ||
-                      unresolvedCommonMedia[0]?.url ||
-                      '',
-                    reason: unresolvedCommonMedia[0]?.resolveError
-                      ? `Common media URL could not be stored: ${unresolvedCommonMedia[0].resolveError}`
-                      : 'Common media URL could not be downloaded or resolved to a storage path.',
-                    suggestedFix: unresolvedCommonMedia[0]?.resolveError
-                      ?.toLowerCase()
-                      .includes('maximum allowed size')
-                      ? 'Reduce the image file size, or raise UPLOAD_MAX_IMAGE_FILE_SIZE (default 5 MB).'
-                      : 'Provide a reachable public image URL (or images/… storage key) in common_media_N_url. Filename/name is optional.',
+                    column: 'Product images',
+                    invalidValue: failedUrl,
+                    reason: humanized.reason,
+                    suggestedFix: humanized.suggestedFix,
                   }),
                 };
               }

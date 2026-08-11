@@ -1,9 +1,25 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard, RolesGuard, Roles } from '@packages/auth';
+import {
+  CurrentAdminUser,
+  IAdminJwtPayload,
+  JwtAuthGuard,
+  Roles,
+  RolesGuard,
+} from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { AdminOrderQueryDto } from '../dto/order.dto';
+import { AdminOrderQueryDto, CancelOrderDto } from '../dto/order.dto';
 import { OrdersService } from '../services/orders.service';
 
 @ApiTags('Admin Orders')
@@ -23,6 +39,25 @@ export class AdminOrdersController {
   @Get()
   findAll(@Query() query: AdminOrderQueryDto) {
     return this.ordersService.findAllForAdmin(query);
+  }
+
+  @ApiOperation({
+    summary: 'Cancel an order (super admin)',
+    description:
+      'Cancels an order before shipping (PENDING / CONFIRMED / PROCESSING). ' +
+      'Accepts order UUID (`id`) or business refId. Same stock/coupon rollback as customer cancel. ' +
+      'GoKwik-linked orders are notified via Update Order (Cancelled + refund when applicable).',
+  })
+  @ResponseMessage('Order cancelled successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Patch(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @Param('id') id: string,
+    @Body() dto: CancelOrderDto,
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.cancelForAdmin(id, dto, admin.sub);
   }
 
   @ApiOperation({

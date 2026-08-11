@@ -13,8 +13,21 @@ export const MSG91_STATIC = {
   /** MSG91 Flow / template ID for order thank-you SMS. */
   orderThankYouTemplateId: '66ab3a0ad6fc0541637a4a34',
 
-  /** DLT content template ID mapped on the MSG91 Flow above. */
+  /**
+   * MSG91 Flow / template ID for order cancelled SMS.
+   * Set to the Flow ID from MSG91 panel when the cancel template is approved.
+   * Empty = skip cancel SMS until configured.
+   */
+  orderCancelledTemplateId: '',
+
+  /** DLT content template ID mapped on the MSG91 Flow above (thank-you). */
   dltTemplateId: '1207163584541815417',
+
+  /**
+   * DLT content template ID for cancel SMS (if different from thank-you).
+   * Leave empty to reuse `dltTemplateId` for logging only (Flow panel mapping still required).
+   */
+  orderCancelledDltTemplateId: '',
 
   /** DLT Principal Entity ID — mapped on MSG91 Sender ID (CUREKA). Jio DLT (prefix 120). */
   peId: '1201159828129607743',
@@ -37,8 +50,17 @@ export const MSG91_STATIC = {
   orderThankYouTemplateText:
     'Thank you for ordering on Cureka.com. Your Order ##var1## is under ##var2## and the shipment tracking id will be shared soon. Contact 9655928004 for any queries.',
 
+  /**
+   * LOCAL LOG PREVIEW ONLY for cancel SMS — sync with MSG91 Flow text when available.
+   */
+  orderCancelledTemplateText:
+    'Dear customer, your Cureka order ##var1## has been cancelled. Reason: ##var2##. For help call 9655928004.',
+
   /** templateVar:orderField pairs (MSG91 vars are case-sensitive). */
   orderThankYouVars: ['var1:orderNumber', 'var2:orderStatus'] as const,
+
+  /** Cancel SMS vars — keep under DLT 40-char limit per variable. */
+  orderCancelledVars: ['var1:orderNumber', 'var2:cancelReason'] as const,
 
   shortUrl: '0' as const,
   baseUrl: 'https://control.msg91.com/api/v5',
