@@ -45,6 +45,7 @@ import { ShippingModule } from '@modules/shipping/shipping.module';
 import { GokwikModule } from '@modules/gokwik/gokwik.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { VendorsModule } from '@modules/vendors/vendors.module';
+import { DashboardModule } from '@modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -110,6 +111,7 @@ import { VendorsModule } from '@modules/vendors/vendors.module';
     GokwikModule,
     NotificationsModule,
     VendorsModule,
+    DashboardModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }
