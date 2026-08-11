@@ -18,11 +18,8 @@ export const WHATSAPP_STATIC = {
   },
 
   orderCancelled: {
-    /**
-     * Approved cancel template name — update when Meta/Bonb template is ready.
-     * Leave empty string to skip WhatsApp cancel sends.
-     */
-    templateName: 'order_cancellation_v1',
-    bodyVars: ['customerName', 'orderNumber', 'cancelReason'] as const,
+    /** Approved Bonb/Meta template: Hi {{1}}, We have cancelled your order {{2}} as per your request... */
+    templateName: 'cancel_v1',
+    bodyVars: ['customerName', 'orderNumber'] as const,
   },
 } as const;

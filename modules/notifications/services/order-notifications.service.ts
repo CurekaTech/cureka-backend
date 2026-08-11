@@ -51,7 +51,6 @@ export class OrderNotificationsService {
         bodyVars: (this.configService.get<string[]>('whatsapp.orderCancelledBodyVars') ?? [
           'customerName',
           'orderNumber',
-          'cancelReason',
         ]) as WhatsAppBodyVariable[],
       },
     };
