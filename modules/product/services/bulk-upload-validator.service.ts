@@ -38,6 +38,10 @@ import {
   formatLengthOverflowReason,
   formatLengthOverflowSuggestedFix,
 } from '../utils/bulk-upload-db-error.util';
+import {
+  formatRelatedGroupFailureReason,
+  humanizeBulkUploadColumn,
+} from '../utils/bulk-upload-error-message.util';
 
 type CachedCategoryFilter = {
   refId: string;
@@ -1003,11 +1007,13 @@ export class BulkUploadValidatorService {
       coverageErrors.push({
         rowNumber: row.rowNumber,
         sku: row.sku,
-        column: 'Product',
+        column: humanizeBulkUploadColumn(primary.column),
         invalidValue: group.name || '',
-        reason:
-          `This spreadsheet row was not imported because its product group failed validation. ` +
-          `Related error (row ${primary.rowNumber}, ${primary.column}): ${primary.reason}`,
+        reason: formatRelatedGroupFailureReason({
+          primaryRowNumber: primary.rowNumber,
+          primaryColumn: primary.column,
+          primaryReason: primary.reason,
+        }),
         suggestedFix: primary.suggestedFix,
       });
     }
