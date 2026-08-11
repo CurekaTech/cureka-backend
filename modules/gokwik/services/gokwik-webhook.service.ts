@@ -262,6 +262,23 @@ export class GokwikWebhookService {
     }
 
     await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, { paymentStatus });
+    if (status.includes('success') || status === 'paid') {
+      await this.apiService.updateOrder({
+        merchant_order_id: link.order.orderNumber,
+        order_status: 'Confirmed',
+      });
+      this.logger.log(
+        {
+          paymentId: data.paymentId,
+          orderId: link.orderId,
+          orderNumber: link.order.orderNumber,
+          event: payload.event,
+          orderStatusPushed: 'Confirmed',
+        },
+        '[GoKwik-Webhook] updateOrder pushed from transaction success',
+      );
+    }
+
     this.logger.log(
       {
         paymentId: data.paymentId,
