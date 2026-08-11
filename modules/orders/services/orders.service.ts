@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager } from 'typeorm';
 import {
   buildPaginatedResult,
@@ -6,6 +7,7 @@ import {
   generateUniqueRefId,
   STOCK_VALIDATION_ENABLED,
 } from '@packages/common';
+import { EVENTS, OrderCancelledEvent } from '@packages/events';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
@@ -64,6 +66,7 @@ export class OrdersService {
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
     private readonly orderNotificationsService: OrderNotificationsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -754,7 +757,13 @@ export class OrdersService {
         manager,
       );
     });
-    return this.findOne(userId, id);
+
+    const order = await this.findOne(userId, id);
+    await this.eventEmitter.emitAsync(
+      EVENTS.ORDER_CANCELLED,
+      new OrderCancelledEvent(id, order.orderNumber, reason),
+    );
+    return order;
   }
 
   async createOrderFromPaymentRequest(params: {
@@ -793,9 +802,9 @@ export class OrdersService {
             where: { id: params.addressId, userId: params.customerId },
           })
         : await addressRepository.findOne({
-            where: { userId: params.customerId, isDefault: true },
-            order: { updatedAt: 'DESC' },
-          });
+        where: { userId: params.customerId, isDefault: true },
+        order: { updatedAt: 'DESC' },
+      });
       if (!address) {
         throw new BadRequestException(
           params.addressId

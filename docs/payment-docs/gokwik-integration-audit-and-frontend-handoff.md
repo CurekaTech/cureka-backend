@@ -65,6 +65,9 @@ The existing cart checkout/payment-request entry point returns this shape when t
 No secret values belong in source control.
 
 ```dotenv
+# Host only — do NOT include trailing /v3 (code already calls /v3/product/..., /v3/collection/...).
+# Prod:  https://gkx.gokwik.co
+# Sandbox example: https://api-gw-v4.dev.gokwik.io/sandbox
 GOKWIK_BASE_URL=
 GOKWIK_APP_ID=
 GOKWIK_APP_SECRET=

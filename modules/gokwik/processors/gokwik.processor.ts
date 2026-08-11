@@ -38,15 +38,25 @@ export class GokwikProcessor extends WorkerHost {
       orderId: data['orderId'],
     });
 
-    logger.log({ attempt: job.attemptsMade + 1 }, 'Processing GoKwik job');
+    logger.log(
+      {
+        attempt: job.attemptsMade + 1,
+        jobName: job.name,
+      },
+      'Processing GoKwik job',
+    );
 
     try {
       switch (job.name) {
-        case GOKWIK_JOB_NAMES.PROCESS_WEBHOOK:
-          await this.webhookService.processEvent(
-            (job.data as ProcessGokwikWebhookJobData).eventId,
+        case GOKWIK_JOB_NAMES.PROCESS_WEBHOOK: {
+          const webhookData = job.data as ProcessGokwikWebhookJobData;
+          logger.log(
+            { eventId: webhookData.eventId },
+            '[GoKwik-Webhook] worker picked up process-webhook job',
           );
+          await this.webhookService.processEvent(webhookData.eventId);
           break;
+        }
         case GOKWIK_JOB_NAMES.SYNC_PRODUCT:
           await this.catalogSyncService.syncProduct(
             (job.data as SyncGokwikResourceJobData).resourceId,
