@@ -720,6 +720,7 @@ export class OrdersService {
       EVENTS.ORDER_CANCELLED,
       new OrderCancelledEvent(id, order.orderNumber, reason),
     );
+    await this.notifyOrderCancelledSafely(order, reason, 'website-cancel');
     return order;
   }
 
@@ -745,6 +746,7 @@ export class OrdersService {
       EVENTS.ORDER_CANCELLED,
       new OrderCancelledEvent(existing.id, order.orderNumber, reason),
     );
+    await this.notifyOrderCancelledSafely(order, reason, 'admin-cancel');
     return order;
   }
 
@@ -1203,6 +1205,63 @@ export class OrdersService {
               : { message: String(error) },
         },
         '[OrderNotify] Order-placed notification dispatch crashed (non-blocking)',
+      );
+    }
+  }
+
+  private async notifyOrderCancelledSafely(
+    order: {
+      id: string;
+      orderNumber: string;
+      phoneNumber: string;
+      recipientName: string;
+      grandTotal: string;
+      paymentMethod: string;
+      orderStatus: string;
+    },
+    cancelReason: string,
+    source: string,
+  ): Promise<void> {
+    const phone = String(order.phoneNumber ?? '').trim();
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        source,
+        hasPhone: Boolean(phone),
+        phone: phone ? `${phone.slice(0, 2)}******${phone.slice(-2)}` : null,
+        cancelReason,
+      },
+      '[OrderNotify] Dispatching order-cancelled notifications (WhatsApp + MSG91 SMS)',
+    );
+
+    try {
+      await this.orderNotificationsService.notifyOrderCancelledSafely({
+        phoneNumber: order.phoneNumber,
+        customerName: order.recipientName,
+        orderNumber: order.orderNumber,
+        grandTotal: String(order.grandTotal ?? ''),
+        paymentMethod: String(order.paymentMethod ?? ''),
+        orderStatus: String(order.orderStatus ?? OrderStatus.CANCELLED),
+        cancelReason,
+        source,
+      });
+      this.logger.log(
+        { orderId: order.id, orderNumber: order.orderNumber, source },
+        '[OrderNotify] Order-cancelled notification dispatch finished',
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          source,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : { message: String(error) },
+        },
+        '[OrderNotify] Order-cancelled notification dispatch crashed (non-blocking)',
       );
     }
   }
