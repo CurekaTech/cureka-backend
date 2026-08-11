@@ -712,20 +712,71 @@ export class OrdersService {
   }
 
   async cancel(userId: string, id: string, dto: CancelOrderDto) {
+    const reason = this.requireCancelReason(dto);
+    await this.executeCancel({ orderId: id, reason, updatedBy: userId, ownerUserId: userId });
+
+    const order = await this.findOne(userId, id);
+    await this.eventEmitter.emitAsync(
+      EVENTS.ORDER_CANCELLED,
+      new OrderCancelledEvent(id, order.orderNumber, reason),
+    );
+    return order;
+  }
+
+  /**
+   * Admin cancel — same pre-shipping rules as customer cancel.
+   * Accepts order UUID or business `refId`. Emits ORDER_CANCELLED for GoKwik notify.
+   */
+  async cancelForAdmin(idOrRefId: string, dto: CancelOrderDto, adminUserId: string) {
+    const reason = this.requireCancelReason(dto);
+    const existing = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (!existing) {
+      throw new NotFoundException(`Order ${idOrRefId} not found`);
+    }
+
+    await this.executeCancel({
+      orderId: existing.id,
+      reason,
+      updatedBy: adminUserId,
+    });
+
+    const order = await this.findOneForAdmin(existing.id);
+    await this.eventEmitter.emitAsync(
+      EVENTS.ORDER_CANCELLED,
+      new OrderCancelledEvent(existing.id, order.orderNumber, reason),
+    );
+    return order;
+  }
+
+  private requireCancelReason(dto: CancelOrderDto): string {
     const reason = dto.reason.trim();
     if (!reason) {
       throw new BadRequestException('Cancellation reason is required');
     }
+    return reason;
+  }
+
+  private async executeCancel(params: {
+    orderId: string;
+    reason: string;
+    updatedBy: string;
+    /** When set, order must belong to this customer (website cancel). */
+    ownerUserId?: string;
+  }): Promise<void> {
+    const { orderId, reason, updatedBy, ownerUserId } = params;
 
     await this.dataSource.transaction(async (manager) => {
-      const locked = await manager
+      const qb = manager
         .getRepository(OrderEntity)
         .createQueryBuilder('order')
         .setLock('pessimistic_write')
-        .where('order.id = :id', { id })
-        .andWhere('order.userId = :userId', { userId })
-        .getOne();
-      if (!locked) throw new NotFoundException(`Order ${id} not found`);
+        .where('order.id = :id', { id: orderId });
+      if (ownerUserId) {
+        qb.andWhere('order.userId = :userId', { userId: ownerUserId });
+      }
+
+      const locked = await qb.getOne();
+      if (!locked) throw new NotFoundException(`Order ${orderId} not found`);
       if (!isOrderCancellable(locked.orderStatus)) {
         throw new BadRequestException('Orders can only be cancelled before shipping');
       }
@@ -734,7 +785,9 @@ export class OrdersService {
         locked.orderStatus === OrderStatus.CONFIRMED ||
         locked.orderStatus === OrderStatus.PROCESSING
       ) {
-        const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId: id } });
+        const items = await manager.getRepository(OrderItemEntity).find({
+          where: { orderId },
+        });
         for (const item of items) {
           await manager
             .getRepository(ProductVariantEntity)
@@ -744,26 +797,19 @@ export class OrdersService {
             .where('id = :variantId', { variantId: item.variantId })
             .execute();
         }
-        await manager.getRepository(CouponUsageEntity).delete({ orderId: id });
+        await manager.getRepository(CouponUsageEntity).delete({ orderId });
       }
 
       await this.ordersRepository.updateById(
-        id,
+        orderId,
         {
           orderStatus: OrderStatus.CANCELLED,
           cancelReason: reason,
-          updatedBy: userId,
+          updatedBy,
         },
         manager,
       );
     });
-
-    const order = await this.findOne(userId, id);
-    await this.eventEmitter.emitAsync(
-      EVENTS.ORDER_CANCELLED,
-      new OrderCancelledEvent(id, order.orderNumber, reason),
-    );
-    return order;
   }
 
   async createOrderFromPaymentRequest(params: {
