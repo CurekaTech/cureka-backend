@@ -76,6 +76,19 @@ export class PublicProductsController {
     return result;
   }
 
+  /**
+   * Related blogs on product details — priority:
+   * direct product links → same category → sub-category → sub-sub-category (max 4).
+   *
+   * GET /public/products/:productId/related-blogs
+   * `productId` may be product UUID or product refId.
+   */
+  @ResponseMessage('Related blogs retrieved successfully')
+  @Get(':productId/related-blogs')
+  getRelatedBlogs(@Param('productId') productId: string) {
+    return this.publicProductsService.getRelatedBlogs(productId);
+  }
+
   @ResponseMessage('Product retrieved successfully')
   @Get(':slug')
   async findBySlug(@Param('slug') slug: string) {

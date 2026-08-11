@@ -283,6 +283,137 @@ export class BlogPostsService {
     );
   }
 
+  /**
+   * Related blogs for a product details page (max 4, unique, published+public).
+   *
+   * Priority:
+   * 1. Direct blog ↔ product links (`blog_post_products`)
+   * 2. Blogs linked to other products in the same category
+   * 3. Same sub-category
+   * 4. Same sub-sub-category
+   *
+   * Note: blog “categories” (`blog_categories`) are a separate taxonomy from shop
+   * categories — shop hierarchy is reached via products that share category IDs.
+   */
+  async findRelatedBlogsForProduct(
+    product: {
+      id: string;
+      refId: string;
+      categoryId: string;
+      subCategoryId: string | null;
+      subSubCategoryId: string | null;
+    },
+    limit = 4,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string;
+      slug: string;
+      thumbnail: string | null;
+      excerpt: string | null;
+      publishedAt: Date | null;
+    }>
+  > {
+    const selected: BlogPostEntity[] = [];
+    const seen = new Set<string>();
+
+    const append = (posts: BlogPostEntity[]): boolean => {
+      for (const post of posts) {
+        if (seen.has(post.id)) continue;
+        seen.add(post.id);
+        selected.push(post);
+        if (selected.length >= limit) return true;
+      }
+      return false;
+    };
+
+    const remaining = () => limit - selected.length;
+
+    if (append(await this.postsRepo.findPublishedByProductRefId(product.refId, limit))) {
+      return this.mapRelatedBlogCards(selected);
+    }
+
+    if (product.categoryId) {
+      const done = append(
+        await this.postsRepo.findPublishedByLinkedProductCategory({
+          categoryColumn: 'category_id',
+          categoryId: product.categoryId,
+          excludeBlogIds: [...seen],
+          excludeProductRefId: product.refId,
+          limit: remaining(),
+        }),
+      );
+      if (done) return this.mapRelatedBlogCards(selected);
+    }
+
+    if (product.subCategoryId) {
+      const done = append(
+        await this.postsRepo.findPublishedByLinkedProductCategory({
+          categoryColumn: 'sub_category_id',
+          categoryId: product.subCategoryId,
+          excludeBlogIds: [...seen],
+          excludeProductRefId: product.refId,
+          limit: remaining(),
+        }),
+      );
+      if (done) return this.mapRelatedBlogCards(selected);
+    }
+
+    if (product.subSubCategoryId) {
+      append(
+        await this.postsRepo.findPublishedByLinkedProductCategory({
+          categoryColumn: 'sub_sub_category_id',
+          categoryId: product.subSubCategoryId,
+          excludeBlogIds: [...seen],
+          excludeProductRefId: product.refId,
+          limit: remaining(),
+        }),
+      );
+    }
+
+    return this.mapRelatedBlogCards(selected);
+  }
+
+  private async mapRelatedBlogCards(posts: BlogPostEntity[]): Promise<
+    Array<{
+      id: string;
+      title: string;
+      slug: string;
+      thumbnail: string | null;
+      excerpt: string | null;
+      publishedAt: Date | null;
+    }>
+  > {
+    return Promise.all(
+      posts.map(async (post) => {
+        const enriched = await this.storageUrlEnricher.enrichFields(
+          { featuredImage: post.featuredImage },
+          ['featuredImage'],
+        );
+        const image = enriched.featuredImage as
+          | { url?: string }
+          | string
+          | null
+          | undefined;
+        const thumbnail =
+          typeof image === 'string'
+            ? image
+            : typeof image?.url === 'string'
+              ? image.url
+              : null;
+
+        return {
+          id: post.id,
+          title: post.title,
+          slug: post.slug,
+          thumbnail,
+          excerpt: post.excerpt ?? null,
+          publishedAt: post.publishedAt ?? null,
+        };
+      }),
+    );
+  }
+
   async findAuditLogs(refId: string) {
     const entity = await this.postsRepo.findByRefId(refId);
     if (!entity) throw new NotFoundException('Blog post not found');
