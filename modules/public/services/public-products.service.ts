@@ -17,6 +17,7 @@ import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { BannersService } from '@modules/master/services/banners.service';
+import { BlogPostsService } from '@modules/master/services/blog-posts.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -76,6 +77,7 @@ export class PublicProductsService {
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly bannersService: BannersService,
+    private readonly blogPostsService: BlogPostsService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -110,6 +112,7 @@ export class PublicProductsService {
       sortBy: paginationOptions.sortBy,
       sortOrder: paginationOptions.sortOrder,
       productType: query.productType,
+      prioritizeInStock: true,
     });
 
     const tDb = Date.now();
@@ -203,6 +206,7 @@ export class PublicProductsService {
       sortBy: paginationOptions.sortBy,
       sortOrder: paginationOptions.sortOrder,
       productType: query.productType,
+      prioritizeInStock: true,
     });
 
     const tDb = Date.now();
@@ -243,6 +247,54 @@ export class PublicProductsService {
       `[PERF] searchVariants | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
     return result;
+  }
+
+  /**
+   * Related blogs for the product details page (max 4).
+   * Accepts product UUID or product refId.
+   */
+  async getRelatedBlogs(productIdOrRefId: string): Promise<{
+    productId: string;
+    blogs: Array<{
+      id: string;
+      title: string;
+      slug: string;
+      thumbnail: string | null;
+      excerpt: string | null;
+      publishedAt: Date | null;
+    }>;
+  }> {
+    const key = String(productIdOrRefId ?? '').trim();
+    if (!key) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key);
+
+    const product = isUuid
+      ? await this.productsRepository.findPublishedById(key)
+      : await this.productsRepository.findPublishedByRefId(key);
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const blogs = await this.blogPostsService.findRelatedBlogsForProduct(
+      {
+        id: product.id,
+        refId: product.refId,
+        categoryId: product.categoryId,
+        subCategoryId: product.subCategoryId,
+        subSubCategoryId: product.subSubCategoryId,
+      },
+      4,
+    );
+
+    return {
+      productId: product.id,
+      blogs,
+    };
   }
 
   async findBySlug(slugOrPath: string): Promise<IPublicProductDetail> {
