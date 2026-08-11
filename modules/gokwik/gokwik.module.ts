@@ -21,11 +21,13 @@ import { GokwikWebhookEventEntity } from './entities/gokwik-webhook-event.entity
 import { GokwikCallbackGuard } from './guards/gokwik-callback.guard';
 import { GokwikCartOwnerGuard } from './guards/gokwik-cart-owner.guard';
 import { GokwikWebhookGuard } from './guards/gokwik-webhook.guard';
+import { GokwikCancelListener } from './listeners/gokwik-cancel.listener';
 import { GokwikCatalogListener } from './listeners/gokwik-catalog.listener';
 import { GokwikFulfillmentListener } from './listeners/gokwik-fulfillment.listener';
 import { GokwikProcessor } from './processors/gokwik.processor';
 import { GokwikRepository } from './repositories/gokwik.repository';
 import { GokwikApiService } from './services/gokwik-api.service';
+import { GokwikCancelService } from './services/gokwik-cancel.service';
 import { GokwikCartService } from './services/gokwik-cart.service';
 import { GokwikOrderService } from './services/gokwik-order.service';
 import { GokwikQueueService } from './services/gokwik-queue.service';
@@ -77,6 +79,8 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
     GokwikCatalogListener,
     GokwikFulfillmentService,
     GokwikFulfillmentListener,
+    GokwikCancelService,
+    GokwikCancelListener,
     GokwikProcessor,
   ],
   exports: [GokwikApiService, GokwikRepository, GokwikQueueService, GokwikWebhookService],
