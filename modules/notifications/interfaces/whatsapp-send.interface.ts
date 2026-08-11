@@ -3,7 +3,8 @@ export type WhatsAppBodyVariable =
   | 'orderNumber'
   | 'grandTotal'
   | 'paymentMethod'
-  | 'orderStatus';
+  | 'orderStatus'
+  | 'cancelReason';
 
 export interface IWhatsAppTemplateBodyPart {
   type: 'text';
@@ -18,7 +19,8 @@ export interface IWhatsAppTemplateSendPayload {
   body: IWhatsAppTemplateBodyPart[];
 }
 
-export interface IOrderPlacedNotifyInput {
+/** Shared fields for order transactional notifications (placed / cancelled / …). */
+export interface IOrderNotifyInput {
   phoneNumber: string;
   customerName: string;
   orderNumber: string;
@@ -26,4 +28,8 @@ export interface IOrderPlacedNotifyInput {
   paymentMethod: string;
   orderStatus: string;
   source: string;
+  cancelReason?: string;
 }
+
+/** @deprecated Prefer IOrderNotifyInput — alias kept for existing call sites. */
+export type IOrderPlacedNotifyInput = IOrderNotifyInput;

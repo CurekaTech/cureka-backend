@@ -112,6 +112,8 @@ export class Msg91SmsService {
     variables: Record<string, string>;
     /** Optional correlation fields for logs (order number, source, etc.). */
     context?: Record<string, string | number | boolean | null | undefined>;
+    /** Optional template text for local log preview only (never sent to MSG91). */
+    templateTextPreview?: string;
   }): Promise<IMsg91FlowSendResult> {
     if (!this.isConfigured()) {
       this.logger.warn(
@@ -146,8 +148,9 @@ export class Msg91SmsService {
     const flowId = params.templateId.trim();
     const sender = this.senderId;
     const dltVariableChecks = checkDltVariableLengths(params.variables);
-    const renderedSmsPreview = this.orderThankYouTemplateText
-      ? renderMsg91TemplatePreview(this.orderThankYouTemplateText, params.variables)
+    const previewText = params.templateTextPreview?.trim() || this.orderThankYouTemplateText;
+    const renderedSmsPreview = previewText
+      ? renderMsg91TemplatePreview(previewText, params.variables)
       : null;
     const oversizedVars = dltVariableChecks.filter((check) => !check.withinLimit);
 

@@ -3,7 +3,8 @@ export type Msg91OrderField =
   | 'orderNumber'
   | 'grandTotal'
   | 'paymentMethod'
-  | 'orderStatus';
+  | 'orderStatus'
+  | 'cancelReason';
 
 export interface IMsg91FlowRecipient {
   mobiles: string;
