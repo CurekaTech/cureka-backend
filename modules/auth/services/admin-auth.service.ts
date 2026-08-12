@@ -760,24 +760,10 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['reports.read'],
       },
       {
-        name: 'Vendor Performance',
-        key: 'reports-vendor-performance',
-        icon: 'FileChartColumn',
-        href: '/reports/vendor-performance',
-        requiredPermissions: ['reports.read'],
-      },
-      {
         name: 'Customers',
         key: 'reports-customers',
         icon: 'FileChartColumn',
         href: '/reports/customers',
-        requiredPermissions: ['reports.read'],
-      },
-      {
-        name: 'Consultations',
-        key: 'reports-consultations',
-        icon: 'FileChartColumn',
-        href: '/reports/consultations',
         requiredPermissions: ['reports.read'],
       },
       {

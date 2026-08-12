@@ -97,18 +97,8 @@ export class PermissionsService {
             permissions: getPerms('reports'),
           },
           {
-            name: 'Vendor Performance',
-            key: 'reports-vendor-performance',
-            permissions: getPerms('reports'),
-          },
-          {
             name: 'Customers',
             key: 'reports-customers',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Consultations',
-            key: 'reports-consultations',
             permissions: getPerms('reports'),
           },
           {
