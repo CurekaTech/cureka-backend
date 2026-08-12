@@ -89,7 +89,7 @@ function expandLines(items: OrderItemEntity[]): ExpandedLine[] {
  *   For prepaid: totalPrepaidAmount MUST equal that amount, and
  *   Σ item.prepaidAmount + shipping (order-level) − … should not exceed it.
  *
- * Order-level discount is allocated across item prepaid amounts so
+ * Order-level discount is allocated across item `discount` + prepaid amounts so
  * Σ prepaidAmount + totalShippingCharges (+ COD if any) − 0 = totalPrepaidAmount.
  */
 function buildSaleOrderItems(
@@ -101,21 +101,23 @@ function buildSaleOrderItems(
   const itemsSubtotal = roundMoney(lines.reduce((sum, line) => sum + line.sellingPrice, 0));
   const discount = Math.min(Math.max(0, roundMoney(totalDiscount)), itemsSubtotal);
 
-  // Allocate discount across units (last unit absorbs rounding residue).
+  const lineDiscounts: number[] = [];
   const prepaidAfterDiscount: number[] = [];
-  if (isCod || itemsSubtotal <= 0) {
-    for (const _ of lines) prepaidAfterDiscount.push(0);
-  } else {
-    let allocatedDiscount = 0;
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      const isLast = i === lines.length - 1;
-      const share = isLast
-        ? roundMoney(discount - allocatedDiscount)
-        : roundMoney((line.sellingPrice / itemsSubtotal) * discount);
-      if (!isLast) allocatedDiscount = roundMoney(allocatedDiscount + share);
-      prepaidAfterDiscount.push(roundMoney(Math.max(0, line.sellingPrice - share)));
+  let allocatedDiscount = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const isLast = i === lines.length - 1;
+    const share =
+      discount <= 0
+        ? 0
+        : isLast
+          ? roundMoney(discount - allocatedDiscount)
+          : roundMoney((line.sellingPrice / itemsSubtotal) * discount);
+    if (!isLast && discount > 0) {
+      allocatedDiscount = roundMoney(allocatedDiscount + share);
     }
+    lineDiscounts.push(share);
+    prepaidAfterDiscount.push(isCod ? 0 : roundMoney(Math.max(0, line.sellingPrice - share)));
   }
 
   return lines.map((line, index) => ({
@@ -126,10 +128,37 @@ function buildSaleOrderItems(
     giftWrap: false,
     totalPrice: toMoneyString(line.sellingPrice),
     sellingPrice: toMoneyString(line.sellingPrice),
-    prepaidAmount: toMoneyString(isCod ? 0 : prepaidAfterDiscount[index]),
-    discount: '0.00',
+    prepaidAmount: toMoneyString(prepaidAfterDiscount[index]),
+    discount: toMoneyString(lineDiscounts[index]),
     shippingCharges: '0.00',
   }));
+}
+
+function buildAdditionalInfo(order: OrderEntity): string | undefined {
+  const parts: string[] = [];
+
+  if (order.couponCode?.trim()) {
+    parts.push(`Coupon: ${order.couponCode.trim()}`);
+  }
+  if (order.couponTitle?.trim() && order.couponTitle.trim() !== order.couponCode?.trim()) {
+    parts.push(`Title: ${order.couponTitle.trim()}`);
+  }
+
+  const couponDiscount = toNumber(order.discountAmount);
+  const prepaidDiscount = toNumber(order.prepaidDiscount);
+  if (couponDiscount > 0) {
+    parts.push(`Coupon discount: ${toMoneyString(couponDiscount)}`);
+  }
+  if (prepaidDiscount > 0) {
+    parts.push(`Prepaid discount: ${toMoneyString(prepaidDiscount)}`);
+  }
+
+  if (order.notes?.trim()) {
+    parts.push(`Notes: ${order.notes.trim()}`);
+  }
+
+  if (!parts.length) return undefined;
+  return parts.join(' | ').slice(0, 500);
 }
 
 export function mapOrderToUnicommercePayload(
@@ -169,6 +198,7 @@ export function mapOrderToUnicommercePayload(
   // Prepaid must match UC-calculated order amount — NOT raw grandTotal (can include COD
   // charge or drift). Mismatched prepaid is a common reason orders land in Failed Orders.
   const totalPrepaidAmount = isCod ? 0 : Math.max(0, ucOrderAmount);
+  const additionalInfo = buildAdditionalInfo(order);
 
   return {
     saleOrder: {
@@ -184,6 +214,7 @@ export function mapOrderToUnicommercePayload(
       // and often blocks prepaid processing on custom channels.
       thirdPartyShipping: false,
       verificationRequired: false,
+      ...(additionalInfo ? { additionalInfo } : {}),
       addresses: [address],
       billingAddress: { referenceId: 'shipping' },
       shippingAddress: { referenceId: 'shipping' },
