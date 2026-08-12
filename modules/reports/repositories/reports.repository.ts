@@ -70,10 +70,10 @@ export class ReportsRepository {
       })
       .select(`TO_CHAR(DATE_TRUNC('day', COALESCE(o.placedAt, o.createdAt)), 'DD-Mon-YYYY')`, 'date')
       .addSelect('COUNT(o.id)::int', 'orders')
-      .addSelect('COALESCE(SUM(o.subtotal::numeric), 0)::float', 'grossSales')
-      .addSelect('COALESCE(SUM(o.discountAmount::numeric), 0)::float', 'discounts')
-      .addSelect('COALESCE(SUM(o.shippingAmount::numeric), 0)::float', 'shipping')
-      .addSelect('COALESCE(SUM(o.grandTotal::numeric), 0)::float', 'netSales')
+      .addSelect('COALESCE(SUM(o.subtotal), 0)', 'grossSales')
+      .addSelect('COALESCE(SUM(o.discountAmount), 0)', 'discounts')
+      .addSelect('COALESCE(SUM(o.shippingAmount), 0)', 'shipping')
+      .addSelect('COALESCE(SUM(o.grandTotal), 0)', 'netSales')
       .groupBy(`DATE_TRUNC('day', COALESCE(o.placedAt, o.createdAt))`)
       .orderBy(`DATE_TRUNC('day', COALESCE(o.placedAt, o.createdAt))`, 'DESC');
 
@@ -126,7 +126,7 @@ export class ReportsRepository {
 
     const rows = (await qb
       .select(`TO_CHAR(DATE_TRUNC('day', COALESCE(o.placed_at, o.created_at)), 'DD-Mon-YYYY')`, 'date')
-      .addSelect('COALESCE(SUM(gr.amount::numeric), 0)::float', 'amount')
+      .addSelect('COALESCE(SUM(gr.amount), 0)', 'amount')
       .groupBy(`DATE_TRUNC('day', COALESCE(o.placed_at, o.created_at))`)
       .getRawMany()) as Array<{ date: string; amount: number }>;
 
@@ -187,4 +187,3 @@ export class ReportsRepository {
     }));
   }
 }
-

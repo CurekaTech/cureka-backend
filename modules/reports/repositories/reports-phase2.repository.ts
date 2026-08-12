@@ -41,23 +41,23 @@ export class ReportsPhase2Repository {
     const qb = this.dataSource
       .getRepository(OrderItemEntity)
       .createQueryBuilder('item')
-      .innerJoin('item.order', 'order')
+      .innerJoin('item.order', 'ord')
       .innerJoin(ProductEntity, 'product', 'product.id = item.productId')
       .select('product.id', 'productId')
       .addSelect('product.refId', 'productRefId')
       .addSelect('MAX(product.name)', 'productName')
       .addSelect('MAX(item.sku)', 'sku')
       .addSelect('COALESCE(SUM(item.quantity), 0)', 'unitsSold')
-      .addSelect('COUNT(DISTINCT order.id)', 'ordersCount')
-      .addSelect('COALESCE(SUM(item.totalPrice::numeric), 0)', 'revenue')
-      .where('COALESCE(order.placedAt, order.createdAt) BETWEEN :start AND :end', {
+      .addSelect('COUNT(DISTINCT ord.id)', 'ordersCount')
+      .addSelect('COALESCE(SUM(item.totalPrice), 0)', 'revenue')
+      .where('COALESCE(ord.placedAt, ord.createdAt) BETWEEN :start AND :end', {
         start: range.start,
         end: range.end,
       })
-      .andWhere('order.paymentStatus IN (:...paidStatuses)', {
+      .andWhere('ord.paymentStatus IN (:...paidStatuses)', {
         paidStatuses: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
       })
-      .andWhere('order.orderStatus NOT IN (:...excludedStatuses)', {
+      .andWhere('ord.orderStatus NOT IN (:...excludedStatuses)', {
         excludedStatuses: REVENUE_EXCLUDED_STATUSES,
       });
 
@@ -259,37 +259,38 @@ export class ReportsPhase2Repository {
       lastOrderAt: Date | null;
     }>
   > {
-    const qb = this.dataSource
-      .getRepository(UserEntity)
-      .createQueryBuilder('user')
-      .innerJoin(OrderEntity, 'order', 'order.userId = user.id')
-      .select('user.id', 'userId')
-      .addSelect('user.refId', 'userRefId')
-      .addSelect(`TRIM(CONCAT(COALESCE(user.firstName, ''), ' ', COALESCE(user.lastName, '')))`, 'name')
-      .addSelect('user.email', 'email')
-      .addSelect('user.mobileNumber', 'phone')
-      .addSelect('user.isGuest', 'isGuest')
-      .addSelect('COUNT(order.id)', 'totalOrders')
-      .addSelect('COALESCE(SUM(order.grandTotal::numeric), 0)', 'totalSpend')
-      .addSelect('MAX(COALESCE(order.placedAt, order.createdAt))', 'lastOrderAt')
-      .where('user.deletedAt IS NULL')
-      .andWhere('order.deletedAt IS NULL')
-      .andWhere('COALESCE(order.placedAt, order.createdAt) BETWEEN :start AND :end', {
-        start: range.start,
-        end: range.end,
-      })
-      .groupBy('user.id')
-      .addGroupBy('user.refId')
-      .addGroupBy('user.firstName')
-      .addGroupBy('user.lastName')
-      .addGroupBy('user.email')
-      .addGroupBy('user.mobileNumber')
-      .addGroupBy('user.isGuest')
-      .orderBy('totalSpend', 'DESC');
-
     if (query.type === 'consultation') {
       return [];
     }
+
+    const qb = this.dataSource
+      .getRepository(UserEntity)
+      .createQueryBuilder('u')
+      .innerJoin(OrderEntity, 'ord', 'ord.userId = u.id')
+      .select('u.id', 'userId')
+      .addSelect('u.refId', 'userRefId')
+      .addSelect(`TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, '')))`, 'name')
+      .addSelect('u.email', 'email')
+      .addSelect('u.mobileNumber', 'phone')
+      .addSelect('u.isGuest', 'isGuest')
+      .addSelect('COUNT(ord.id)', 'totalOrders')
+      .addSelect('COALESCE(SUM(ord.grandTotal), 0)', 'totalSpend')
+      .addSelect('MAX(COALESCE(ord.placedAt, ord.createdAt))', 'lastOrderAt')
+      .where('u.deletedAt IS NULL')
+      .andWhere('u.isGuest = false')
+      .andWhere('ord.deletedAt IS NULL')
+      .andWhere('COALESCE(ord.placedAt, ord.createdAt) BETWEEN :start AND :end', {
+        start: range.start,
+        end: range.end,
+      })
+      .groupBy('u.id')
+      .addGroupBy('u.refId')
+      .addGroupBy('u.firstName')
+      .addGroupBy('u.lastName')
+      .addGroupBy('u.email')
+      .addGroupBy('u.mobileNumber')
+      .addGroupBy('u.isGuest')
+      .orderBy('totalSpend', 'DESC');
 
     const rows = await qb.getRawMany();
     return rows.map((row) => ({
@@ -316,10 +317,10 @@ export class ReportsPhase2Repository {
     const [newCustomersRow, returningRow, registrationsRow, activeRow] = await Promise.all([
       this.dataSource
         .getRepository(UserEntity)
-        .createQueryBuilder('user')
-        .where('user.deletedAt IS NULL')
-        .andWhere('user.isGuest = false')
-        .andWhere('user.createdAt BETWEEN :start AND :end', range)
+        .createQueryBuilder('u')
+        .where('u.deletedAt IS NULL')
+        .andWhere('u.isGuest = false')
+        .andWhere('u.createdAt BETWEEN :start AND :end', range)
         .getCount(),
       this.dataSource.query(
         `
@@ -327,6 +328,7 @@ export class ReportsPhase2Repository {
         FROM (
           SELECT o.user_id
           FROM orders o
+          INNER JOIN users u ON u.id = o.user_id AND u.deleted_at IS NULL AND u.is_guest = false
           WHERE o.deleted_at IS NULL
             AND COALESCE(o.placed_at, o.created_at) BETWEEN $1 AND $2
           GROUP BY o.user_id
@@ -338,18 +340,20 @@ export class ReportsPhase2Repository {
       ),
       this.dataSource
         .getRepository(UserEntity)
-        .createQueryBuilder('user')
-        .where('user.deletedAt IS NULL')
-        .andWhere('user.createdAt BETWEEN :start AND :end', range)
+        .createQueryBuilder('u')
+        .where('u.deletedAt IS NULL')
+        .andWhere('u.isGuest = false')
+        .andWhere('u.createdAt BETWEEN :start AND :end', range)
         .getCount(),
       this.dataSource
         .getRepository(OrderEntity)
-        .createQueryBuilder('order')
-        .select('COUNT(DISTINCT order.userId)', 'activeCustomers')
-        .addSelect('COUNT(order.id)', 'totalOrders')
-        .addSelect('COALESCE(SUM(order.grandTotal::numeric), 0)', 'totalSpend')
-        .where('order.deletedAt IS NULL')
-        .andWhere('COALESCE(order.placedAt, order.createdAt) BETWEEN :start AND :end', range)
+        .createQueryBuilder('ord')
+        .innerJoin(UserEntity, 'u', 'u.id = ord.userId AND u.deletedAt IS NULL AND u.isGuest = false')
+        .select('COUNT(DISTINCT ord.userId)', 'activeCustomers')
+        .addSelect('COUNT(ord.id)', 'totalOrders')
+        .addSelect('COALESCE(SUM(ord.grandTotal), 0)', 'totalSpend')
+        .where('ord.deletedAt IS NULL')
+        .andWhere('COALESCE(ord.placedAt, ord.createdAt) BETWEEN :start AND :end', range)
         .getRawOne(),
     ]);
 
@@ -399,19 +403,19 @@ export class ReportsPhase2Repository {
         'refunded',
       )
       .addSelect(
-        `COALESCE(SUM(CASE WHEN o.paymentStatus IN ('${OrderPaymentStatus.PAID}', '${OrderPaymentStatus.PARTIALLY_PAID}') THEN o.grandTotal::numeric ELSE 0 END), 0)`,
+        `COALESCE(SUM(CASE WHEN o.paymentStatus IN ('${OrderPaymentStatus.PAID}', '${OrderPaymentStatus.PARTIALLY_PAID}') THEN o.grandTotal ELSE 0 END), 0)`,
         'successfulAmount',
       )
       .addSelect(
-        `COALESCE(SUM(CASE WHEN o.paymentStatus = '${OrderPaymentStatus.FAILED}' THEN o.grandTotal::numeric ELSE 0 END), 0)`,
+        `COALESCE(SUM(CASE WHEN o.paymentStatus = '${OrderPaymentStatus.FAILED}' THEN o.grandTotal ELSE 0 END), 0)`,
         'failedAmount',
       )
       .addSelect(
-        `COALESCE(SUM(CASE WHEN o.paymentStatus = '${OrderPaymentStatus.PENDING}' THEN o.grandTotal::numeric ELSE 0 END), 0)`,
+        `COALESCE(SUM(CASE WHEN o.paymentStatus = '${OrderPaymentStatus.PENDING}' THEN o.grandTotal ELSE 0 END), 0)`,
         'pendingAmount',
       )
       .addSelect(
-        `COALESCE(SUM(CASE WHEN o.paymentStatus IN ('${OrderPaymentStatus.REFUND_PENDING}', '${OrderPaymentStatus.PARTIALLY_REFUNDED}', '${OrderPaymentStatus.REFUNDED}') THEN o.grandTotal::numeric ELSE 0 END), 0)`,
+        `COALESCE(SUM(CASE WHEN o.paymentStatus IN ('${OrderPaymentStatus.REFUND_PENDING}', '${OrderPaymentStatus.PARTIALLY_REFUNDED}', '${OrderPaymentStatus.REFUNDED}') THEN o.grandTotal ELSE 0 END), 0)`,
         'refundedAmount',
       )
       .groupBy('o.paymentMethod')
@@ -514,13 +518,13 @@ export class ReportsPhase2Repository {
       .getRepository(CouponUsageEntity)
       .createQueryBuilder('usage')
       .leftJoin('usage.coupon', 'coupon')
-      .leftJoin(OrderEntity, 'order', 'order.id = usage.orderId')
+      .leftJoin(OrderEntity, 'ord', 'ord.id = usage.orderId')
       .select('usage.couponId', 'couponId')
       .addSelect('MAX(coupon.code)', 'couponCode')
       .addSelect('MAX(coupon.title)', 'couponTitle')
       .addSelect('COUNT(*)', 'usages')
-      .addSelect('COALESCE(SUM(usage.discountAmount::numeric), 0)', 'discountAmount')
-      .addSelect('COALESCE(SUM(order.grandTotal::numeric), 0)', 'revenue')
+      .addSelect('COALESCE(SUM(usage.discountAmount), 0)', 'discountAmount')
+      .addSelect('COALESCE(SUM(ord.grandTotal), 0)', 'revenue')
       .where('usage.usedAt BETWEEN :start AND :end', range)
       .groupBy('usage.couponId')
       .orderBy('revenue', 'DESC')
@@ -539,9 +543,9 @@ export class ReportsPhase2Repository {
   async countTotalOrdersInRange(range: ReportDateRange): Promise<number> {
     return this.dataSource
       .getRepository(OrderEntity)
-      .createQueryBuilder('order')
-      .where('order.deletedAt IS NULL')
-      .andWhere('COALESCE(order.placedAt, order.createdAt) BETWEEN :start AND :end', range)
+      .createQueryBuilder('ord')
+      .where('ord.deletedAt IS NULL')
+      .andWhere('COALESCE(ord.placedAt, ord.createdAt) BETWEEN :start AND :end', range)
       .getCount();
   }
 

@@ -13,12 +13,12 @@ The admin menu includes **Reports** above **Audit Logs** with icon `FileChartCol
 | Orders | `/reports/orders` |
 | Product Performance | `/reports/product-performance` |
 | Inventory & Stock | `/reports/inventory-stock` |
-| Vendor Performance | `/reports/vendor-performance` |
 | Customers | `/reports/customers` |
-| Consultations | `/reports/consultations` |
 | Payments | `/reports/payments` |
 | Returns & Refunds | `/reports/returns-refunds` |
 | Coupons & Promotions | `/reports/coupons` |
+
+> **Hidden for now:** Vendor Performance and Consultations are removed from the admin menu (API routes still exist).
 
 ## Shared query params
 
@@ -98,7 +98,7 @@ Rows: variant-level stock with `stockStatus` (`in_stock` | `low_stock` | `out_of
 
 Export: `GET /inventory-stock/export`
 
-### 5) Vendor Performance — `GET /vendor-performance`
+### 5) Vendor Performance — `GET /vendor-performance` (hidden from menu)
 
 Summary: `totalVendors`, `totalOrders`, `totalRevenue`, `avgFulfillmentRate`, `avgCancellationRate`, `avgReturnRate`.
 
@@ -112,11 +112,11 @@ Export: `GET /vendor-performance/export`
 
 Summary: `newCustomers`, `returningCustomers`, `totalRegistrations`, `activeCustomers`, `avgOrderFrequency`, `avgCustomerLifetimeValue`.
 
-Rows: customer name, email, phone, `isGuest`, `totalOrders`, `totalSpend`, `avgOrderValue`, `customerLifetimeValue`, `lastOrderAt`.
+Rows: registered customers only (`isGuest = false`) — guest checkout users are excluded. Fields: name, email, phone, `isGuest`, `totalOrders`, `totalSpend`, `avgOrderValue`, `customerLifetimeValue`, `lastOrderAt`.
 
 Export: `GET /customers/export`
 
-### 7) Consultations — `GET /consultations`
+### 7) Consultations — `GET /consultations` (hidden from menu)
 
 **Placeholder only** — consultation module not implemented. Returns zero summary and empty rows with:
 
