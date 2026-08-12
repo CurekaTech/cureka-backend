@@ -9,6 +9,7 @@ import {
   ProcessGokwikWebhookJobData,
   SyncGokwikResourceJobData,
   PushGokwikFulfillmentJobData,
+  PushGokwikOrderStatusJobData,
 } from '../constants/gokwik-queue.constants';
 import { GokwikCatalogSyncService } from '../services/gokwik-catalog-sync.service';
 import { GokwikWebhookService } from '../services/gokwik-webhook.service';
@@ -72,6 +73,11 @@ export class GokwikProcessor extends WorkerHost {
             (job.data as PushGokwikFulfillmentJobData).orderId,
           );
           break;
+        case GOKWIK_JOB_NAMES.PUSH_ORDER_STATUS: {
+          const statusData = job.data as PushGokwikOrderStatusJobData;
+          await this.webhookService.pushOrderStatus(statusData.orderId, statusData.orderStatus);
+          break;
+        }
         default:
           throw new Error(`Unsupported GoKwik job: ${job.name}`);
       }

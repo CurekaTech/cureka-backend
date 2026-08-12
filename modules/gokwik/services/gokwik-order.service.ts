@@ -28,6 +28,7 @@ import {
   GokwikCreateOrderResponse,
   GokwikPlaceOrderResponse,
 } from '../interfaces/gokwik-order.interface';
+import { GokwikQueueService } from './gokwik-queue.service';
 import { GokwikRepository } from '../repositories/gokwik.repository';
 import {
   buildGokwikFinancialSnapshot,
@@ -44,6 +45,7 @@ export class GokwikOrderService {
     private readonly userAddressesService: UserAddressesService,
     private readonly usersService: UsersService,
     private readonly gokwikRepository: GokwikRepository,
+    private readonly gokwikQueueService: GokwikQueueService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {}
@@ -381,6 +383,10 @@ export class GokwikOrderService {
         userDetails: dto.user_details,
         order,
       });
+
+      // GoKwik stores merchant_order_id only after this place-order response.
+      // Push Confirmed on a short delay so Platform Order Status actually updates.
+      await this.gokwikQueueService.enqueueOrderStatus(order.id, 'Confirmed');
 
       return {
         status: 'success',

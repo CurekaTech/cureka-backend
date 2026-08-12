@@ -36,6 +36,9 @@ export class GokwikFulfillmentService {
         awb_number: shipment.awbNumber ?? undefined,
         awb_status: shipment.shipmentStatus,
         shipping_provider: shipment.courierName ?? undefined,
+        order_note: shipment.courierName
+          ? `Shipment updated via ${shipment.courierName}`
+          : 'Shipment updated',
       });
       return;
     }

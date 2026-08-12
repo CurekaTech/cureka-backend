@@ -6,6 +6,7 @@ import {
   GOKWIK_JOB_NAMES,
   ProcessGokwikWebhookJobData,
   PushGokwikFulfillmentJobData,
+  PushGokwikOrderStatusJobData,
   SyncGokwikResourceJobData,
 } from '../constants/gokwik-queue.constants';
 
@@ -66,6 +67,31 @@ export class GokwikQueueService {
       ...DEFAULT_OPTIONS,
       jobId: `gokwik-fulfillment-${orderId}`,
     });
+  }
+
+  /**
+   * Push merchant order_status after GoKwik has stored merchant_order_id.
+   * Delayed because transaction webhooks often arrive during / before place-order,
+   * when Update Order is a no-op on GoKwik's side.
+   */
+  async enqueueOrderStatus(
+    orderId: string,
+    orderStatus: PushGokwikOrderStatusJobData['orderStatus'] = 'Confirmed',
+    delayMs = 5_000,
+  ): Promise<void> {
+    const data: PushGokwikOrderStatusJobData = { orderId, orderStatus };
+    const jobId = `gokwik-order-status-${orderId}-${orderStatus}`;
+    const shouldEnqueue = await this.prepareReusableJobId(jobId);
+    if (!shouldEnqueue) return;
+    await this.queue.add(GOKWIK_JOB_NAMES.PUSH_ORDER_STATUS, data, {
+      ...DEFAULT_OPTIONS,
+      jobId,
+      delay: delayMs,
+    });
+    this.logger.log(
+      { orderId, orderStatus, delayMs, jobId },
+      '[GoKwik] Enqueued delayed Update Order status push',
+    );
   }
 
   /**
