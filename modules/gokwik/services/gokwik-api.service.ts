@@ -51,23 +51,25 @@ export class GokwikApiService {
 
     const body: GokwikUpdateOrderRequest = {
       merchant_order_id: payload.merchant_order_id.trim(),
+      order_note: this.resolveOrderNote(payload),
       ...(payload.order_status !== undefined ? { order_status: payload.order_status } : {}),
       ...(payload.awb_number !== undefined ? { awb_number: payload.awb_number } : {}),
       ...(payload.awb_status !== undefined ? { awb_status: payload.awb_status } : {}),
       ...(payload.shipping_provider !== undefined
         ? { shipping_provider: payload.shipping_provider }
         : {}),
-      ...(payload.order_note !== undefined ? { order_note: payload.order_note } : {}),
       ...(payload.refund_amount !== undefined ? { refund_amount: payload.refund_amount } : {}),
     };
 
     this.logger.log(
       {
+        url: `${this.baseUrl}/v3/orders/update`,
         merchant_order_id: body.merchant_order_id,
         order_status: body.order_status,
         awb_number: body.awb_number,
         shipping_provider: body.shipping_provider,
         has_refund_amount: body.refund_amount !== undefined,
+        payload: body,
       },
       'Calling GoKwik Update Order',
     );
@@ -81,6 +83,7 @@ export class GokwikApiService {
           merchant_order_id: body.merchant_order_id,
           status_code: response.status_code,
           error: message,
+          response,
         },
         'GoKwik Update Order returned success=false',
       );
@@ -92,6 +95,7 @@ export class GokwikApiService {
         merchant_order_id: body.merchant_order_id,
         status_code: response?.status_code,
         success: response?.success,
+        response,
       },
       'GoKwik Update Order succeeded',
     );
@@ -158,6 +162,30 @@ export class GokwikApiService {
     }
 
     return response;
+  }
+
+  /** GoKwik requires order_note on Update Order — never send an empty body field. */
+  private resolveOrderNote(payload: GokwikUpdateOrderRequest): string {
+    const orderId = payload.merchant_order_id.trim();
+    let note = payload.order_note?.trim() ?? '';
+
+    if (!note) {
+      if (payload.order_status === 'Confirmed') note = 'Order confirmed';
+      else if (payload.order_status === 'Cancelled') note = 'Order cancelled';
+      else if (payload.order_status === 'Failed') note = 'Order failed';
+      else if (payload.order_status === 'Pending') note = 'Order pending';
+      else if (payload.awb_number) {
+        note = payload.shipping_provider
+          ? `Shipment updated via ${payload.shipping_provider}`
+          : 'Shipment updated';
+      } else if (payload.refund_amount != null) note = 'Refund initiated';
+      else note = 'Order updated';
+    }
+
+    if (orderId && !note.includes(orderId)) {
+      note = `${note} | order_id=${orderId}`;
+    }
+    return note;
   }
 
   private assertConfigured(): void {

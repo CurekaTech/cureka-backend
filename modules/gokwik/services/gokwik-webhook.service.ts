@@ -70,6 +70,40 @@ export class GokwikWebhookService {
     return { received: payload.carts.length };
   }
 
+  /**
+   * Outbound Update Order — Platform Order Status. Safe to call after place-order
+   * has returned merchant_order_id to GoKwik.
+   */
+  async pushOrderStatus(
+    orderId: string,
+    orderStatus: 'Confirmed' | 'Pending' | 'Failed' | 'Cancelled' = 'Confirmed',
+  ): Promise<void> {
+    const link = await this.repository.findOrderByOrderId(orderId);
+    if (!link?.order) {
+      this.logger.warn({ orderId, orderStatus }, '[GoKwik] skip status push — no GoKwik order link');
+      return;
+    }
+
+    const merchantOrderId = link.order.orderNumber;
+    this.logger.log(
+      {
+        orderId,
+        merchant_order_id: merchantOrderId,
+        order_status: orderStatus,
+      },
+      '[GoKwik] Pushing Update Order status',
+    );
+
+    await this.apiService.updateOrder({
+      merchant_order_id: merchantOrderId,
+      order_status: orderStatus,
+      order_note:
+        orderStatus === 'Confirmed'
+          ? `Order confirmed after payment | order_id=${merchantOrderId}`
+          : `Order status updated to ${orderStatus} | order_id=${merchantOrderId}`,
+    });
+  }
+
   async processEvent(eventId: string): Promise<void> {
     const event = await this.repository.findWebhookEventById(eventId);
     if (!event || event.status === 'processed' || event.status === 'ignored') {
@@ -263,10 +297,9 @@ export class GokwikWebhookService {
 
     await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, { paymentStatus });
     if (status.includes('success') || status === 'paid') {
-      await this.apiService.updateOrder({
-        merchant_order_id: link.order.orderNumber,
-        order_status: 'Confirmed',
-      });
+      // Do not call Update Order inline — GoKwik often has not stored
+      // merchant_order_id yet (webhook races place-order). Delayed job retries.
+      await this.queueService.enqueueOrderStatus(link.orderId, 'Confirmed');
       this.logger.log(
         {
           paymentId: data.paymentId,
@@ -275,7 +308,7 @@ export class GokwikWebhookService {
           event: payload.event,
           orderStatusPushed: 'Confirmed',
         },
-        '[GoKwik-Webhook] updateOrder pushed from transaction success',
+        '[GoKwik-Webhook] queued delayed updateOrder from transaction success',
       );
     }
 
