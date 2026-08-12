@@ -110,6 +110,33 @@ function buildSaleOrderItems(
   }));
 }
 
+function buildAdditionalInfo(order: OrderEntity): string | undefined {
+  const parts: string[] = [];
+
+  if (order.couponCode?.trim()) {
+    parts.push(`Coupon: ${order.couponCode.trim()}`);
+  }
+  if (order.couponTitle?.trim() && order.couponTitle.trim() !== order.couponCode?.trim()) {
+    parts.push(`Title: ${order.couponTitle.trim()}`);
+  }
+
+  const couponDiscount = toNumber(order.discountAmount);
+  const prepaidDiscount = toNumber(order.prepaidDiscount);
+  if (couponDiscount > 0) {
+    parts.push(`Coupon discount: ${toMoneyString(couponDiscount)}`);
+  }
+  if (prepaidDiscount > 0) {
+    parts.push(`Prepaid discount: ${toMoneyString(prepaidDiscount)}`);
+  }
+
+  if (order.notes?.trim()) {
+    parts.push(`Notes: ${order.notes.trim()}`);
+  }
+
+  if (!parts.length) return undefined;
+  return parts.join(' | ').slice(0, 500);
+}
+
 export function mapOrderToUnicommercePayload(
   order: OrderEntity,
   options: UnicommerceOrderMapperOptions = {},
@@ -147,6 +174,7 @@ export function mapOrderToUnicommercePayload(
   // Prepaid must match UC-calculated order amount — NOT raw grandTotal (can include COD
   // charge or drift). Mismatched prepaid is a common reason orders land in Failed Orders.
   const totalPrepaidAmount = isCod ? 0 : Math.max(0, ucOrderAmount);
+  const additionalInfo = buildAdditionalInfo(order);
 
   return {
     saleOrder: {
@@ -162,6 +190,7 @@ export function mapOrderToUnicommercePayload(
       // and often blocks prepaid processing on custom channels.
       thirdPartyShipping: false,
       verificationRequired: false,
+      ...(additionalInfo ? { additionalInfo } : {}),
       addresses: [address],
       billingAddress: { referenceId: 'shipping' },
       shippingAddress: { referenceId: 'shipping' },
