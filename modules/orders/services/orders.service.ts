@@ -805,7 +805,7 @@ export class OrdersService {
       await this.ordersRepository.updateById(
         orderId,
         {
-          orderStatus: OrderStatus.CANCELLED,
+      orderStatus: OrderStatus.CANCELLED,
           cancelReason: reason,
           updatedBy,
         },

@@ -1,9 +1,68 @@
 import { PaginatedResult } from '@packages/common';
-import { IReportKpi } from './sales-revenue-report.interface';
+
+export interface IReportKpi {
+  value: number;
+  previousValue: number;
+  changePercent: number;
+}
 
 export interface IReportRange {
   startDate: string;
   endDate: string;
+}
+
+export interface ISalesRevenueRow {
+  date: string;
+  type: 'product';
+  orders: number;
+  grossSales: number;
+  discounts: number;
+  tax: number;
+  shipping: number;
+  refunds: number;
+  netSales: number;
+  aov: number;
+}
+
+export interface ISalesRevenueReportResponse {
+  range: IReportRange;
+  summary: {
+    totalOrders: IReportKpi;
+    grossSales: IReportKpi;
+    netSales: IReportKpi;
+    taxCollected: IReportKpi;
+    discounts: IReportKpi;
+    refunds: IReportKpi;
+    aov: IReportKpi;
+  };
+  rows: PaginatedResult<ISalesRevenueRow>;
+}
+
+export interface IOrderReportRow {
+  date: string;
+  totalOrders: number;
+  pending: number;
+  confirmed: number;
+  shipped: number;
+  delivered: number;
+  cancelled: number;
+  returned: number;
+  refunded: number;
+}
+
+export interface IOrderReportResponse {
+  range: IReportRange;
+  summary: {
+    total: IReportKpi;
+    pending: IReportKpi;
+    confirmed: IReportKpi;
+    shipped: IReportKpi;
+    delivered: IReportKpi;
+    cancelled: IReportKpi;
+    returned: IReportKpi;
+    refunded: IReportKpi;
+  };
+  rows: PaginatedResult<IOrderReportRow>;
 }
 
 export interface IProductPerformanceRow {

@@ -7,10 +7,8 @@ import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ReportQueryDto } from '../dto/report-query.dto';
-import { OrderReportService } from '../services/order-report.service';
-import { Phase2ReportsService } from '../services/phase2-reports.service';
 import { ReportExportService } from '../services/report-export.service';
-import { SalesRevenueReportService } from '../services/sales-revenue-report.service';
+import { ReportsService } from '../services/reports.service';
 
 @ApiTags('Admin Reports')
 @ApiBearerAuth()
@@ -19,9 +17,7 @@ import { SalesRevenueReportService } from '../services/sales-revenue-report.serv
 @Controller('admin/reports')
 export class AdminReportsController {
   constructor(
-    private readonly salesRevenueReportService: SalesRevenueReportService,
-    private readonly orderReportService: OrderReportService,
-    private readonly phase2ReportsService: Phase2ReportsService,
+    private readonly reportsService: ReportsService,
     private readonly reportExportService: ReportExportService,
   ) {}
 
@@ -30,7 +26,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('sales-revenue')
   getSalesRevenue(@Query() query: ReportQueryDto) {
-    return this.salesRevenueReportService.getReport(query);
+    return this.reportsService.getSalesRevenue(query);
   }
 
   @ApiOperation({ summary: 'Order report (status summary + daily rows)' })
@@ -38,7 +34,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('orders')
   getOrders(@Query() query: ReportQueryDto) {
-    return this.orderReportService.getReport(query);
+    return this.reportsService.getOrders(query);
   }
 
   @ApiOperation({ summary: 'Product performance report' })
@@ -46,7 +42,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('product-performance')
   getProductPerformance(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getProductPerformance(query);
+    return this.reportsService.getProductPerformance(query);
   }
 
   @ApiOperation({ summary: 'Inventory & stock report' })
@@ -54,7 +50,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('inventory-stock')
   getInventoryStock(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getInventoryStock(query);
+    return this.reportsService.getInventoryStock(query);
   }
 
   @ApiOperation({ summary: 'Vendor performance report' })
@@ -62,7 +58,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('vendor-performance')
   getVendorPerformance(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getVendorPerformance(query);
+    return this.reportsService.getVendorPerformance(query);
   }
 
   @ApiOperation({ summary: 'Customer report' })
@@ -70,7 +66,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('customers')
   getCustomers(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getCustomers(query);
+    return this.reportsService.getCustomers(query);
   }
 
   @ApiOperation({ summary: 'Doctor consultation report (placeholder)' })
@@ -78,7 +74,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('consultations')
   getConsultations(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getConsultations(query);
+    return this.reportsService.getConsultations(query);
   }
 
   @ApiOperation({ summary: 'Payment report' })
@@ -86,7 +82,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('payments')
   getPayments(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getPayments(query);
+    return this.reportsService.getPayments(query);
   }
 
   @ApiOperation({ summary: 'Return, refund & replacement report' })
@@ -94,7 +90,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('returns-refunds')
   getReturnsRefunds(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getReturnsRefunds(query);
+    return this.reportsService.getReturnsRefunds(query);
   }
 
   @ApiOperation({ summary: 'Coupon & promotion report' })
@@ -102,7 +98,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.read')
   @Get('coupons')
   getCoupons(@Query() query: ReportQueryDto) {
-    return this.phase2ReportsService.getCoupons(query);
+    return this.reportsService.getCoupons(query);
   }
 
   @ApiOperation({ summary: 'Download sales & revenue report as XLSX' })
@@ -110,7 +106,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('sales-revenue/export')
   async exportSalesRevenue(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.salesRevenueReportService.getExportRows(query);
+    const rows = await this.reportsService.getSalesRevenueExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildSalesRevenueWorkbook(
       rows,
       query.startDate,
@@ -124,7 +120,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('orders/export')
   async exportOrders(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.orderReportService.getExportRows(query);
+    const rows = await this.reportsService.getOrdersExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildOrderWorkbook(
       rows,
       query.startDate,
@@ -138,7 +134,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('product-performance/export')
   async exportProductPerformance(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getProductPerformanceExportRows(query);
+    const rows = await this.reportsService.getProductPerformanceExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildProductPerformanceWorkbook(
       rows,
       query.startDate,
@@ -152,7 +148,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('inventory-stock/export')
   async exportInventoryStock(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getInventoryExportRows(query);
+    const rows = await this.reportsService.getInventoryExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildInventoryWorkbook(rows);
     return this.sendWorkbook(reply, fileName, fileBuffer);
   }
@@ -162,7 +158,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('vendor-performance/export')
   async exportVendorPerformance(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getVendorPerformanceExportRows(query);
+    const rows = await this.reportsService.getVendorPerformanceExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildVendorPerformanceWorkbook(
       rows,
       query.startDate,
@@ -176,7 +172,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('customers/export')
   async exportCustomers(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getCustomerExportRows(query);
+    const rows = await this.reportsService.getCustomerExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildCustomerWorkbook(
       rows,
       query.startDate,
@@ -190,7 +186,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('payments/export')
   async exportPayments(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getPaymentExportRows(query);
+    const rows = await this.reportsService.getPaymentExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildPaymentWorkbook(
       rows,
       query.startDate,
@@ -204,7 +200,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('returns-refunds/export')
   async exportReturnsRefunds(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getReturnRefundExportRows(query);
+    const rows = await this.reportsService.getReturnRefundExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildReturnRefundWorkbook(
       rows,
       query.startDate,
@@ -218,7 +214,7 @@ export class AdminReportsController {
   @RequirePermissions('reports.export')
   @Get('coupons/export')
   async exportCoupons(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
-    const rows = await this.phase2ReportsService.getCouponExportRows(query);
+    const rows = await this.reportsService.getCouponExportRows(query);
     const { fileName, fileBuffer } = await this.reportExportService.buildCouponWorkbook(
       rows,
       query.startDate,

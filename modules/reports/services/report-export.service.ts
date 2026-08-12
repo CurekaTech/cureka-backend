@@ -4,13 +4,13 @@ import {
   ICouponReportRow,
   ICustomerReportRow,
   IInventoryStockRow,
+  IOrderReportRow,
   IPaymentReportRow,
   IProductPerformanceRow,
   IReturnRefundRow,
+  ISalesRevenueRow,
   IVendorPerformanceRow,
-} from '../interfaces/phase2-reports.interface';
-import { IOrderReportRow } from '../interfaces/order-report.interface';
-import { ISalesRevenueRow } from '../interfaces/sales-revenue-report.interface';
+} from '../reports.interface';
 
 @Injectable()
 export class ReportExportService {
