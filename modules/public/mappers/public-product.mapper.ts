@@ -18,6 +18,7 @@ import {
   IPublicProductCard,
   IPublicProductDetail,
   IPublicProductMedia,
+  IPublicProductListPricing,
   IPublicProductPriceSummary,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
@@ -91,6 +92,28 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
     inStock: activeVariants.some((variant) => !variant.outOfStock),
+  };
+};
+
+/** Pricing for list cards — matches the displayed list variant, not the full product range. */
+export const buildListVariantPricing = (
+  variant: ProductVariantEntity | null,
+): IPublicProductListPricing => {
+  if (!variant) {
+    return {
+      mrp: 0,
+      sellingPrice: 0,
+      discount: null,
+      inStock: false,
+    };
+  }
+
+  const outOfStock = variant.outOfStock ?? false;
+  return {
+    mrp: toNumber(variant.mrp) ?? 0,
+    sellingPrice: toNumber(variant.sellingPrice) ?? 0,
+    discount: toNumber(variant.discountPercentage),
+    inStock: !outOfStock,
   };
 };
 
@@ -336,7 +359,6 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
   const productPageUrl = listVariant?.productPageUrl ?? null;
-  const pricing = buildPriceSummary(entity);
   const outOfStock = listVariant?.outOfStock ?? false;
   return {
   id: entity.id,
@@ -358,11 +380,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   productNatureRefId: entity.productNature?.refId ?? null,
   productNatureName: entity.productNature?.name ?? null,
   primaryImageUrl: getPrimaryImageUrl(entity),
-  pricing: {
-    ...pricing,
-    // List UI shows one variant per card — availability matches that variant.
-    inStock: !outOfStock,
-  },
+  pricing: buildListVariantPricing(listVariant),
   outOfStock,
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
