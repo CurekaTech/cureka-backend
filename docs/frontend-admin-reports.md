@@ -72,7 +72,10 @@ Export: `GET /sales-revenue/export`
 
 Summary buckets: `total`, `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`, `returned`, `refunded`.
 
-**Scope:** registered users only (`isGuest = false`). Guest checkout orders are excluded.
+Rows: **per-order details** with user + order fields:
+`orderId`, `orderNumber`, `date`, `placedAt`, `userId`, `userRefId`, `customerName`, `email`, `phone`, `isGuest`, `orderStatus`, `paymentStatus`, `paymentMethod`, `orderSource`, `itemsCount`, `subtotal`, `discountAmount`, `shippingAmount`, `grandTotal`, `city`, `state`.
+
+Customer name/phone fall back to order recipient fields when profile fields are empty.
 
 Export: `GET /orders/export`
 
