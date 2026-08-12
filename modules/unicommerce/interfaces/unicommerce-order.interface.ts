@@ -63,6 +63,8 @@ export interface IUnicommerceSaleOrderPayload {
     totalGiftWrapCharges?: number;
     totalStoreCredit?: number;
     fulfillmentTat?: string;
+    /** Coupon / notes text shown on the Uniware order (max 500 chars). */
+    additionalInfo?: string;
   };
 }
 

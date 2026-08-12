@@ -102,12 +102,34 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(so.saleOrderItems[0].totalPrice).toBe('499.00');
     // Discount ₹50 allocated across 2 units → each prepaid = 499 − 25 = 474
     expect(so.saleOrderItems[0].prepaidAmount).toBe('474.00');
+    expect(so.saleOrderItems[0].discount).toBe('25.00');
     expect(so.saleOrderItems[0].giftWrap).toBe(false);
 
     expect(so.saleOrderItems[1].code).toBe('ORD123456780001-2');
     expect(so.saleOrderItems[1].sellingPrice).toBe('499.00');
     expect(so.saleOrderItems[1].totalPrice).toBe('499.00');
     expect(so.saleOrderItems[1].prepaidAmount).toBe('474.00');
+    expect(so.saleOrderItems[1].discount).toBe('25.00');
+  });
+
+  it('sends GoKwik/Cureka coupon details in additionalInfo', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        couponCode: 'GOKWIK20',
+        couponTitle: 'GoKwik promo',
+        discountAmount: '20.00',
+        prepaidDiscount: '10.00',
+      }),
+    );
+    const so = payload.saleOrder;
+
+    expect(so.totalDiscount).toBe(30);
+    expect(so.additionalInfo).toContain('Coupon: GOKWIK20');
+    expect(so.additionalInfo).toContain('Title: GoKwik promo');
+    expect(so.additionalInfo).toContain('Coupon discount: 20.00');
+    expect(so.additionalInfo).toContain('Prepaid discount: 10.00');
+    expect(so.saleOrderItems[0].discount).toBe('15.00');
+    expect(so.saleOrderItems[1].discount).toBe('15.00');
   });
 
   it('maps prepaid + 2% prepaidDiscount so UC prepaid equals order amount', () => {
