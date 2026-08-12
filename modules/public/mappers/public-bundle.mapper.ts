@@ -9,6 +9,7 @@ import {
   IPublicBundleDetail,
 } from '../interfaces/public-bundle.interface';
 import {
+  buildListVariantPricing,
   mapProductEntityToPublicDetail,
   pickPreferredPublicVariant,
 } from './public-product.mapper';
@@ -52,10 +53,11 @@ export const mapProductEntityToPublicBundleCard = (entity: ProductEntity): IPubl
     brand: mapBundleBrand(entity),
     curatedBy: entity.curatedBy ?? null,
     curatedFor: entity.curatedFor ?? null,
-    pricing: {
-      ...detail.pricing,
-      inStock: listVariant ? !listVariant.outOfStock : false,
-    },
+    pricing: buildListVariantPricing(
+      listVariant
+        ? (entity.variants ?? []).find((variant) => variant.id === listVariant.id) ?? null
+        : null,
+    ),
     outOfStock: listVariant?.outOfStock ?? true,
     publishedAt: entity.publishedAt,
     permalink: productPageUrl || buildProductPermalink(categorySlugPath, entity.slug),

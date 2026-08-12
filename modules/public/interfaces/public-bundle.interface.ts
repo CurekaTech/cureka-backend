@@ -1,6 +1,6 @@
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
-import { IPublicProductPriceSummary } from './public-product.interface';
+import { IPublicProductListPricing } from './public-product.interface';
 
 export interface IPublicBundleBrand {
   refId: string;
@@ -26,7 +26,7 @@ export interface IPublicBundleCard {
   brand: IPublicBundleBrand | null;
   curatedBy: string | null;
   curatedFor: string | null;
-  pricing: IPublicProductPriceSummary;
+  pricing: IPublicProductListPricing;
   outOfStock: boolean;
   publishedAt: Date | null;
   permalink: string;

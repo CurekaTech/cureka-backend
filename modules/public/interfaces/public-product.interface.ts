@@ -35,12 +35,21 @@ export interface IPublicImporterSummary extends Omit<IPublicPartySummary, 'descr
   iec: string | null;
 }
 
+/** Product-level price range — used on PDP where all variants are shown. */
 export interface IPublicProductPriceSummary {
   minSellingPrice: number;
   maxSellingPrice: number;
   minMrp: number;
   maxDiscountPercentage: number | null;
   inStock: boolean;
+}
+
+/** Single-variant pricing on list cards (one row per displayed variant). */
+export interface IPublicProductListPricing {
+  mrp: number;
+  sellingPrice: number;
+  inStock: boolean;
+  discount: number | null;
 }
 
 export interface IPublicCategorySummary {
@@ -109,7 +118,7 @@ export interface IPublicProductCard {
   productNatureRefId: string | null;
   productNatureName: string | null;
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
-  pricing: IPublicProductPriceSummary;
+  pricing: IPublicProductListPricing;
   /**
    * OOS flag for the displayed list variant (`variantId` / `defaultVariantId`).
    * True when that variant is marked out of stock by admin.
