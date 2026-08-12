@@ -39,15 +39,27 @@ export interface ISalesRevenueReportResponse {
 }
 
 export interface IOrderReportRow {
+  orderId: string;
+  orderNumber: string;
   date: string;
-  totalOrders: number;
-  pending: number;
-  confirmed: number;
-  shipped: number;
-  delivered: number;
-  cancelled: number;
-  returned: number;
-  refunded: number;
+  placedAt: string;
+  userId: string;
+  userRefId: string;
+  customerName: string;
+  email: string | null;
+  phone: string | null;
+  isGuest: boolean;
+  orderStatus: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  orderSource: string;
+  itemsCount: number;
+  subtotal: number;
+  discountAmount: number;
+  shippingAmount: number;
+  grandTotal: number;
+  city: string;
+  state: string;
 }
 
 export interface IOrderReportResponse {

@@ -110,12 +110,18 @@ export class ReportsService {
 
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
-    const [rows, prevRows] = await Promise.all([
+    const [detailRows, statusRows, prevStatusRows] = await Promise.all([
+      this.reportsRepository.fetchOrderDetailRows(query, range),
       this.reportsRepository.fetchOrderStatusRows(query, range),
       this.reportsRepository.fetchOrderStatusRows(query, prevRange),
     ]);
 
-    const sortedRows = this.sortOrderRows(rows, query);
+    const mappedRows: IOrderReportRow[] = detailRows.map((row) => ({
+      ...row,
+      placedAt: row.placedAt.toISOString(),
+    }));
+
+    const sortedRows = this.sortOrderRows(mappedRows, query);
     const paginationOptions = buildPaginationOptions(query);
     const total = sortedRows.length;
     const start = (paginationOptions.page - 1) * paginationOptions.limit;
@@ -126,14 +132,18 @@ export class ReportsService {
         startDate: range.start.toISOString(),
         endDate: range.end.toISOString(),
       },
-      summary: this.buildOrdersSummary(rows, prevRows),
+      summary: this.buildOrdersSummary(statusRows, prevStatusRows),
       rows: buildPaginatedResult(pagedRows, total, paginationOptions),
     };
   }
 
   async getOrdersExportRows(query: ReportQueryDto): Promise<IOrderReportRow[]> {
     const range = resolveReportRange(query);
-    return this.reportsRepository.fetchOrderStatusRows(query, range);
+    const rows = await this.reportsRepository.fetchOrderDetailRows(query, range);
+    return rows.map((row) => ({
+      ...row,
+      placedAt: row.placedAt.toISOString(),
+    }));
   }
 
   async getProductPerformance(query: ReportQueryDto): Promise<IProductPerformanceReportResponse> {
@@ -463,10 +473,28 @@ export class ReportsService {
   }
 
   private buildOrdersSummary(
-    rows: IOrderReportRow[],
-    prevRows: IOrderReportRow[],
+    rows: Array<{
+      totalOrders: number;
+      pending: number;
+      confirmed: number;
+      shipped: number;
+      delivered: number;
+      cancelled: number;
+      returned: number;
+      refunded: number;
+    }>,
+    prevRows: Array<{
+      totalOrders: number;
+      pending: number;
+      confirmed: number;
+      shipped: number;
+      delivered: number;
+      cancelled: number;
+      returned: number;
+      refunded: number;
+    }>,
   ): IOrderReportResponse['summary'] {
-    const sum = (list: IOrderReportRow[], key: keyof IOrderReportRow) =>
+    const sum = <T extends Record<string, number>>(list: T[], key: keyof T) =>
       list.reduce((acc, row) => acc + Number(row[key] || 0), 0);
 
     return {
@@ -506,7 +534,7 @@ export class ReportsService {
     const sortOrder = query.sortOrder ?? 'DESC';
     const direction = sortOrder === 'ASC' ? 1 : -1;
     return [...rows].sort(
-      (a, b) => direction * (new Date(a.date).getTime() - new Date(b.date).getTime()),
+      (a, b) => direction * (new Date(a.placedAt).getTime() - new Date(b.placedAt).getTime()),
     );
   }
 

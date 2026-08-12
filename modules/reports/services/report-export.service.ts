@@ -48,17 +48,25 @@ export class ReportExportService {
     endDate?: string,
   ): Promise<{ fileName: string; fileBuffer: Buffer }> {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Daily Breakdown');
+    const sheet = workbook.addWorksheet('Orders');
     sheet.columns = [
-      { header: 'Date', key: 'date', width: 16 },
-      { header: 'Total Orders', key: 'totalOrders', width: 14 },
-      { header: 'Pending', key: 'pending', width: 12 },
-      { header: 'Confirmed', key: 'confirmed', width: 12 },
-      { header: 'Shipped', key: 'shipped', width: 12 },
-      { header: 'Delivered', key: 'delivered', width: 12 },
-      { header: 'Cancelled', key: 'cancelled', width: 12 },
-      { header: 'Returned', key: 'returned', width: 12 },
-      { header: 'Refunded', key: 'refunded', width: 12 },
+      { header: 'Date', key: 'date', width: 14 },
+      { header: 'Order Number', key: 'orderNumber', width: 18 },
+      { header: 'Customer', key: 'customerName', width: 22 },
+      { header: 'Email', key: 'email', width: 24 },
+      { header: 'Phone', key: 'phone', width: 14 },
+      { header: 'Guest', key: 'isGuest', width: 8 },
+      { header: 'Status', key: 'orderStatus', width: 14 },
+      { header: 'Payment Status', key: 'paymentStatus', width: 16 },
+      { header: 'Payment Method', key: 'paymentMethod', width: 14 },
+      { header: 'Source', key: 'orderSource', width: 12 },
+      { header: 'Items', key: 'itemsCount', width: 8 },
+      { header: 'Subtotal', key: 'subtotal', width: 12 },
+      { header: 'Discount', key: 'discountAmount', width: 12 },
+      { header: 'Shipping', key: 'shippingAmount', width: 12 },
+      { header: 'Grand Total', key: 'grandTotal', width: 12 },
+      { header: 'City', key: 'city', width: 14 },
+      { header: 'State', key: 'state', width: 14 },
     ];
 
     rows.forEach((row) => sheet.addRow(row));

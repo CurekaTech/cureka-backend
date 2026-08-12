@@ -24,7 +24,7 @@ export class ReportsRepository {
     const qb = this.dataSource
       .getRepository(OrderEntity)
       .createQueryBuilder('o')
-      .innerJoin(UserEntity, 'u', 'u.id = o.userId AND u.deletedAt IS NULL AND u.isGuest = false')
+      .innerJoin(UserEntity, 'u', 'u.id = o.userId AND u.deletedAt IS NULL')
       .where('o.deletedAt IS NULL')
       .andWhere('COALESCE(o.placedAt, o.createdAt) BETWEEN :start AND :end', {
         start: range.start,
@@ -103,7 +103,7 @@ export class ReportsRepository {
       .createQueryBuilder()
       .from('gokwik_refunds', 'gr')
       .innerJoin('orders', 'o', 'o.id = gr.order_id')
-      .innerJoin('users', 'u', 'u.id = o.user_id AND u.deleted_at IS NULL AND u.is_guest = false')
+      .innerJoin('users', 'u', 'u.id = o.user_id AND u.deleted_at IS NULL')
       .where('o.deleted_at IS NULL')
       .andWhere('COALESCE(o.placed_at, o.created_at) BETWEEN :start AND :end', {
         start: range.start,
@@ -198,6 +198,118 @@ export class ReportsRepository {
     }));
   }
 
+  async fetchOrderDetailRows(
+    query: ReportQueryDto,
+    range: ReportDateRange,
+  ): Promise<
+    Array<{
+      orderId: string;
+      orderNumber: string;
+      date: string;
+      placedAt: Date;
+      userId: string;
+      userRefId: string;
+      customerName: string;
+      email: string | null;
+      phone: string | null;
+      isGuest: boolean;
+      orderStatus: string;
+      paymentStatus: string;
+      paymentMethod: string;
+      orderSource: string;
+      itemsCount: number;
+      subtotal: number;
+      discountAmount: number;
+      shippingAmount: number;
+      grandTotal: number;
+      city: string;
+      state: string;
+    }>
+  > {
+    const qb = this.buildOrdersBaseQuery(query, range)
+      .leftJoin(OrderItemEntity, 'oi', 'oi.orderId = o.id')
+      .select('o.id', 'orderId')
+      .addSelect('o.orderNumber', 'orderNumber')
+      .addSelect(`TO_CHAR(COALESCE(o.placedAt, o.createdAt), 'DD-Mon-YYYY')`, 'date')
+      .addSelect('COALESCE(o.placedAt, o.createdAt)', 'placedAt')
+      .addSelect('u.id', 'userId')
+      .addSelect('u.refId', 'userRefId')
+      .addSelect(
+        `COALESCE(
+          NULLIF(TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, ''))), ''),
+          o.recipientName,
+          u.mobileNumber,
+          o.phoneNumber,
+          u.email,
+          'Customer'
+        )`,
+        'customerName',
+      )
+      .addSelect('u.email', 'email')
+      .addSelect('COALESCE(u.mobileNumber, o.phoneNumber)', 'phone')
+      .addSelect('u.isGuest', 'isGuest')
+      .addSelect('o.orderStatus', 'orderStatus')
+      .addSelect('o.paymentStatus', 'paymentStatus')
+      .addSelect('o.paymentMethod', 'paymentMethod')
+      .addSelect('o.orderSource', 'orderSource')
+      .addSelect('COUNT(oi.id)::int', 'itemsCount')
+      .addSelect('o.subtotal', 'subtotal')
+      .addSelect('o.discountAmount', 'discountAmount')
+      .addSelect('o.shippingAmount', 'shippingAmount')
+      .addSelect('o.grandTotal', 'grandTotal')
+      .addSelect('o.city', 'city')
+      .addSelect('o.state', 'state')
+      .groupBy('o.id')
+      .addGroupBy('o.orderNumber')
+      .addGroupBy('o.placedAt')
+      .addGroupBy('o.createdAt')
+      .addGroupBy('u.id')
+      .addGroupBy('u.refId')
+      .addGroupBy('u.firstName')
+      .addGroupBy('u.lastName')
+      .addGroupBy('u.email')
+      .addGroupBy('u.mobileNumber')
+      .addGroupBy('u.isGuest')
+      .addGroupBy('o.recipientName')
+      .addGroupBy('o.phoneNumber')
+      .addGroupBy('o.orderStatus')
+      .addGroupBy('o.paymentStatus')
+      .addGroupBy('o.paymentMethod')
+      .addGroupBy('o.orderSource')
+      .addGroupBy('o.subtotal')
+      .addGroupBy('o.discountAmount')
+      .addGroupBy('o.shippingAmount')
+      .addGroupBy('o.grandTotal')
+      .addGroupBy('o.city')
+      .addGroupBy('o.state')
+      .orderBy('COALESCE(o.placedAt, o.createdAt)', 'DESC');
+
+    const rows = await qb.getRawMany();
+    return rows.map((row) => ({
+      orderId: String(row.orderId),
+      orderNumber: String(row.orderNumber),
+      date: String(row.date),
+      placedAt: new Date(row.placedAt),
+      userId: String(row.userId),
+      userRefId: String(row.userRefId),
+      customerName: String(row.customerName ?? 'Customer'),
+      email: row.email ? String(row.email) : null,
+      phone: row.phone ? String(row.phone) : null,
+      isGuest: Boolean(row.isGuest),
+      orderStatus: String(row.orderStatus),
+      paymentStatus: String(row.paymentStatus),
+      paymentMethod: String(row.paymentMethod),
+      orderSource: String(row.orderSource),
+      itemsCount: Number(row.itemsCount || 0),
+      subtotal: Number(row.subtotal || 0),
+      discountAmount: Number(row.discountAmount || 0),
+      shippingAmount: Number(row.shippingAmount || 0),
+      grandTotal: Number(row.grandTotal || 0),
+      city: String(row.city ?? ''),
+      state: String(row.state ?? ''),
+    }));
+  }
+
   async fetchProductPerformanceRows(
     query: ReportQueryDto,
     range: ReportDateRange,
@@ -218,7 +330,7 @@ export class ReportsRepository {
       .getRepository(OrderItemEntity)
       .createQueryBuilder('item')
       .innerJoin('item.order', 'ord')
-      .innerJoin(UserEntity, 'u', 'u.id = ord.userId AND u.deletedAt IS NULL AND u.isGuest = false')
+      .innerJoin(UserEntity, 'u', 'u.id = ord.userId AND u.deletedAt IS NULL')
       .innerJoin(ProductEntity, 'product', 'product.id = item.productId')
       .select('product.id', 'productId')
       .addSelect('product.refId', 'productRefId')
