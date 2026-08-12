@@ -151,6 +151,12 @@ export class AdminDashboardService {
         current: current.customers,
         previous: prev.customers,
       }),
+      totalGuests: buildKpiMetric({
+        valueFormatted: formatCount(current.guests),
+        rawValue: current.guests,
+        current: current.guests,
+        previous: prev.guests,
+      }),
       consultations: buildKpiMetric({
         valueFormatted: formatCount(0),
         rawValue: 0,
@@ -161,7 +167,7 @@ export class AdminDashboardService {
         conversionRateAvailable: false,
         consultationsAvailable: false,
         note:
-          'conversionRate and consultations are placeholders until session analytics and doctor-consultation modules exist.',
+          'totalCustomers counts registered (non-guest) users only. totalGuests is guest checkout accounts. conversionRate and consultations are placeholders until session analytics and doctor-consultation modules exist.',
       },
     };
   }
@@ -254,6 +260,7 @@ export class AdminDashboardService {
         .getRepository(UserEntity)
         .createQueryBuilder('user')
         .where('user.role = :role', { role: UserRole.CUSTOMER })
+        .andWhere('user.isGuest = :isGuest', { isGuest: false })
         .orderBy('user.createdAt', 'DESC')
         .take(limit)
         .getMany(),
@@ -262,15 +269,16 @@ export class AdminDashboardService {
     const activities = [
       ...orders.map((order) => {
         const ts = order.placedAt ?? order.createdAt;
+        const isGuest = Boolean(order.user?.isGuest);
         const name =
           [order.user?.firstName, order.user?.lastName].filter(Boolean).join(' ').trim() ||
           order.recipientName ||
-          'Customer';
+          (isGuest ? 'Guest' : 'Customer');
         return {
           id: `order_${order.id}`,
           type: 'ORDER_PLACED' as const,
           title: `Order #${order.orderNumber}`,
-          subtitle: `placed by ${name}`,
+          subtitle: `placed by ${name}${isGuest ? ' (guest)' : ''}`,
           timestamp: ts.toISOString(),
           relativeTime: relativeTime(ts, now),
           color: '#3b82f6',
@@ -369,52 +377,98 @@ export class AdminDashboardService {
     const range = this.resolveRange(query);
     const previous = previousPeriodRange(range.start, range.end);
 
-    const [current, prev] = await Promise.all([
-      this.customerMetrics(range),
-      this.customerMetrics(previous),
+    const [currentCustomers, prevCustomers, currentGuests, prevGuests] = await Promise.all([
+      this.customerMetrics(range, false),
+      this.customerMetrics(previous, false),
+      this.customerMetrics(range, true),
+      this.customerMetrics(previous, true),
     ]);
-    const sparkline = await this.customerDailySparkline(range.end);
+    const [customerSparkline, guestSparkline] = await Promise.all([
+      this.customerDailySparkline(range.end, false),
+      this.customerDailySparkline(range.end, true),
+    ]);
+
+    return {
+      customers: this.buildAudienceAnalyticsCards({
+        audience: 'customer',
+        current: currentCustomers,
+        previous: prevCustomers,
+        sparkline: customerSparkline,
+      }),
+      guests: this.buildAudienceAnalyticsCards({
+        audience: 'guest',
+        current: currentGuests,
+        previous: prevGuests,
+        sparkline: guestSparkline,
+      }),
+    };
+  }
+
+  private buildAudienceAnalyticsCards(params: {
+    audience: 'customer' | 'guest';
+    current: {
+      newUsers: number;
+      repeatUsers: number;
+      retentionRate: number;
+      repeatPurchaseRate: number;
+    };
+    previous: {
+      newUsers: number;
+      repeatUsers: number;
+      retentionRate: number;
+      repeatPurchaseRate: number;
+    };
+    sparkline: {
+      newUsers: number[];
+      repeatUsers: number[];
+      retentionRate: number[];
+      repeatPurchaseRate: number[];
+    };
+  }) {
+    const isGuest = params.audience === 'guest';
+    const noun = isGuest ? 'Guests' : 'Customers';
+    const prefix = isGuest ? 'guest' : 'customer';
 
     return [
       {
-        metric: 'new_customers',
-        title: 'New Customers',
-        value: formatCount(current.newCustomers),
+        metric: `new_${prefix}s`,
+        title: `New ${noun}`,
+        value: formatCount(params.current.newUsers),
         change: formatSignedPercent(
-          changePercentage(current.newCustomers, prev.newCustomers),
+          changePercentage(params.current.newUsers, params.previous.newUsers),
         ),
         color: '#3b82f6',
-        sparkline: sparkline.newCustomers,
+        sparkline: params.sparkline.newUsers,
       },
       {
-        metric: 'repeat_customers',
-        title: 'Repeat Customers',
-        value: formatCount(current.repeatCustomers),
+        metric: `repeat_${prefix}s`,
+        title: `Repeat ${noun}`,
+        value: formatCount(params.current.repeatUsers),
         change: formatSignedPercent(
-          changePercentage(current.repeatCustomers, prev.repeatCustomers),
+          changePercentage(params.current.repeatUsers, params.previous.repeatUsers),
         ),
         color: '#22c55e',
-        sparkline: sparkline.repeatCustomers,
+        sparkline: params.sparkline.repeatUsers,
       },
       {
-        metric: 'retention_rate',
-        title: 'Retention Rate',
-        value: formatPercent(current.retentionRate),
+        metric: `${prefix}_retention_rate`,
+        title: isGuest ? 'Guest Retention Rate' : 'Retention Rate',
+        value: formatPercent(params.current.retentionRate),
         change: formatSignedPercent(
-          changePercentage(current.retentionRate, prev.retentionRate),
+          changePercentage(params.current.retentionRate, params.previous.retentionRate),
         ),
         color: '#8b5cf6',
-        sparkline: sparkline.retentionRate,
+        sparkline: params.sparkline.retentionRate,
       },
       {
-        metric: 'repeat_purchase_rate',
-        title: 'Repeat Purchase Rate',
-        value: formatPercent(current.repeatPurchaseRate),
+        metric: `${prefix}_repeat_purchase_rate`,
+        title: isGuest ? 'Guest Repeat Purchase Rate' : 'Repeat Purchase Rate',
+        value: formatPercent(params.current.repeatPurchaseRate),
         change: formatSignedPercent(
-          changePercentage(current.repeatPurchaseRate, prev.repeatPurchaseRate),
+          changePercentage(params.current.repeatPurchaseRate, params.previous.repeatPurchaseRate),
         ),
         color: '#f97316',
-        sparkline: sparkline.repeatPurchaseRate,
+        sparkline: params.sparkline.repeatPurchaseRate,
       },
     ];
   }
@@ -831,6 +885,7 @@ export class AdminDashboardService {
         .getRepository(UserEntity)
         .createQueryBuilder('user')
         .where('user.role = :role', { role: UserRole.CUSTOMER })
+        .andWhere('user.isGuest = :isGuest', { isGuest: false })
         .orderBy('user.createdAt', 'DESC')
         .take(fetchSize)
         .getMany(),
@@ -839,15 +894,16 @@ export class AdminDashboardService {
     const activities = [
       ...orders.map((order) => {
         const ts = order.placedAt ?? order.createdAt;
+        const isGuest = Boolean(order.user?.isGuest);
         const name =
           [order.user?.firstName, order.user?.lastName].filter(Boolean).join(' ').trim() ||
           order.recipientName ||
-          'Customer';
+          (isGuest ? 'Guest' : 'Customer');
         return {
           id: `order_${order.id}`,
           type: 'ORDER_PLACED' as const,
           title: `Order #${order.orderNumber}`,
-          subtitle: `placed by ${name}`,
+          subtitle: `placed by ${name}${isGuest ? ' (guest)' : ''}`,
           timestamp: ts.toISOString(),
           relativeTime: relativeTime(ts, now),
           color: '#3b82f6',
@@ -988,7 +1044,13 @@ export class AdminDashboardService {
   private async computeKpiSnapshot(
     range: DateRange,
     sources: OrderSource[] | null,
-  ): Promise<{ revenue: number; orders: number; aov: number; customers: number }> {
+  ): Promise<{
+    revenue: number;
+    orders: number;
+    aov: number;
+    customers: number;
+    guests: number;
+  }> {
     const revenueRow = await this.revenueOrdersQb(range, sources)
       .select('COALESCE(SUM(order.grandTotal), 0)', 'revenue')
       .addSelect('COUNT(*)', 'paidOrders')
@@ -999,14 +1061,31 @@ export class AdminDashboardService {
     const paidOrders = toNumber(revenueRow?.paidOrders);
     const aov = paidOrders > 0 ? round2(revenue / paidOrders) : 0;
 
-    const customers = await this.dataSource
+    const [customers, guests] = await Promise.all([
+      this.countAudienceUsers({ isGuest: false, createdAtTo: range.end }),
+      this.countAudienceUsers({ isGuest: true, createdAtTo: range.end }),
+    ]);
+
+    return { revenue, orders, aov, customers, guests };
+  }
+
+  private async countAudienceUsers(params: {
+    isGuest: boolean;
+    createdAtFrom?: Date;
+    createdAtTo: Date;
+  }): Promise<number> {
+    const qb = this.dataSource
       .getRepository(UserEntity)
       .createQueryBuilder('user')
       .where('user.role = :role', { role: UserRole.CUSTOMER })
-      .andWhere('user.createdAt <= :end', { end: range.end })
-      .getCount();
+      .andWhere('user.isGuest = :isGuest', { isGuest: params.isGuest })
+      .andWhere('user.createdAt <= :end', { end: params.createdAtTo });
 
-    return { revenue, orders, aov, customers };
+    if (params.createdAtFrom) {
+      qb.andWhere('user.createdAt >= :start', { start: params.createdAtFrom });
+    }
+
+    return qb.getCount();
   }
 
   private async revenueSeries(
@@ -1108,25 +1187,25 @@ export class AdminDashboardService {
     return map;
   }
 
-  private async customerMetrics(range: DateRange): Promise<{
-    newCustomers: number;
-    repeatCustomers: number;
+  private async customerMetrics(
+    range: DateRange,
+    isGuest: boolean,
+  ): Promise<{
+    newUsers: number;
+    repeatUsers: number;
     retentionRate: number;
     repeatPurchaseRate: number;
   }> {
-    const newCustomers = await this.dataSource
-      .getRepository(UserEntity)
-      .createQueryBuilder('user')
-      .where('user.role = :role', { role: UserRole.CUSTOMER })
-      .andWhere('user.createdAt BETWEEN :start AND :end', {
-        start: range.start,
-        end: range.end,
-      })
-      .getCount();
+    const newUsers = await this.countAudienceUsers({
+      isGuest,
+      createdAtFrom: range.start,
+      createdAtTo: range.end,
+    });
 
     const buyerRows = await this.dataSource
       .getRepository(OrderEntity)
       .createQueryBuilder('order')
+      .innerJoin(UserEntity, 'user', 'user.id = order.userId')
       .select('order.userId', 'userId')
       .addSelect('COUNT(*)', 'orderCount')
       .where('COALESCE(order.placedAt, order.createdAt) BETWEEN :start AND :end', {
@@ -1136,20 +1215,25 @@ export class AdminDashboardService {
       .andWhere('order.orderStatus NOT IN (:...cancelled)', {
         cancelled: [OrderStatus.CANCELLED],
       })
+      .andWhere('user.role = :role', { role: UserRole.CUSTOMER })
+      .andWhere('user.isGuest = :isGuest', { isGuest })
       .groupBy('order.userId')
       .getRawMany<{ userId: string; orderCount: string }>();
 
     const buyers = buyerRows.length;
-    const repeatCustomers = buyerRows.filter((row) => toNumber(row.orderCount) > 1).length;
-    const retentionRate = buyers > 0 ? round2((repeatCustomers / buyers) * 100) : 0;
-    const repeatPurchaseRate = buyers > 0 ? round2((repeatCustomers / buyers) * 100) : 0;
+    const repeatUsers = buyerRows.filter((row) => toNumber(row.orderCount) > 1).length;
+    const retentionRate = buyers > 0 ? round2((repeatUsers / buyers) * 100) : 0;
+    const repeatPurchaseRate = buyers > 0 ? round2((repeatUsers / buyers) * 100) : 0;
 
-    return { newCustomers, repeatCustomers, retentionRate, repeatPurchaseRate };
+    return { newUsers, repeatUsers, retentionRate, repeatPurchaseRate };
   }
 
-  private async customerDailySparkline(end: Date): Promise<{
-    newCustomers: number[];
-    repeatCustomers: number[];
+  private async customerDailySparkline(
+    end: Date,
+    isGuest: boolean,
+  ): Promise<{
+    newUsers: number[];
+    repeatUsers: number[];
     retentionRate: number[];
     repeatPurchaseRate: number[];
   }> {
@@ -1164,6 +1248,7 @@ export class AdminDashboardService {
       .select(`TO_CHAR(user.createdAt AT TIME ZONE 'UTC', 'YYYY-MM-DD')`, 'day')
       .addSelect('COUNT(*)', 'count')
       .where('user.role = :role', { role: UserRole.CUSTOMER })
+      .andWhere('user.isGuest = :isGuest', { isGuest })
       .andWhere('user.createdAt BETWEEN :start AND :end', {
         start,
         end: endOfDay(end),
@@ -1174,6 +1259,7 @@ export class AdminDashboardService {
     const orderRows = await this.dataSource
       .getRepository(OrderEntity)
       .createQueryBuilder('order')
+      .innerJoin(UserEntity, 'user', 'user.id = order.userId')
       .select(
         `TO_CHAR(COALESCE(order.placedAt, order.createdAt) AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
         'day',
@@ -1187,16 +1273,18 @@ export class AdminDashboardService {
       .andWhere('order.orderStatus NOT IN (:...cancelled)', {
         cancelled: [OrderStatus.CANCELLED],
       })
+      .andWhere('user.role = :role', { role: UserRole.CUSTOMER })
+      .andWhere('user.isGuest = :isGuest', { isGuest })
       .groupBy('day')
       .addGroupBy('order.userId')
       .getRawMany<{ day: string; userId: string; orderCount: string }>();
 
-    const newCustomers = dayKeys.map((day) => {
+    const newUsers = dayKeys.map((day) => {
       const row = newRows.find((item) => item.day === day);
       return toNumber(row?.count);
     });
 
-    const repeatCustomers: number[] = [];
+    const repeatUsers: number[] = [];
     const retentionRate: number[] = [];
     const repeatPurchaseRate: number[] = [];
 
@@ -1205,12 +1293,12 @@ export class AdminDashboardService {
       const buyers = dayBuyers.length;
       const repeats = dayBuyers.filter((row) => toNumber(row.orderCount) > 1).length;
       const rate = buyers > 0 ? round2((repeats / buyers) * 100) : 0;
-      repeatCustomers.push(repeats);
+      repeatUsers.push(repeats);
       retentionRate.push(rate);
       repeatPurchaseRate.push(rate);
     }
 
-    return { newCustomers, repeatCustomers, retentionRate, repeatPurchaseRate };
+    return { newUsers, repeatUsers, retentionRate, repeatPurchaseRate };
   }
 
   private last7DayLabels(end: Date): string[] {
