@@ -208,13 +208,13 @@ export class ReportExportService {
   private async buildWorkbook(params: {
     sheetName: string;
     columns: Array<{ header: string; key: string; width: number }>;
-    rows: Record<string, unknown>[];
+    rows: object[];
     fileName: string;
   }): Promise<{ fileName: string; fileBuffer: Buffer }> {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(params.sheetName);
     sheet.columns = params.columns;
-    params.rows.forEach((row) => sheet.addRow(row));
+    params.rows.forEach((row) => sheet.addRow(row as ExcelJS.RowValues));
     this.styleHeader(sheet);
     const fileBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return { fileName: params.fileName, fileBuffer };
