@@ -10,7 +10,7 @@ import {
   startOfDay,
 } from '@modules/dashboard/utils/dashboard-format.util';
 import { ReportQueryDto } from '../dto/report-query.dto';
-import { IReportKpi } from '../interfaces/sales-revenue-report.interface';
+import { IReportKpi } from '../reports.interface';
 import { ReportDateRange } from '../repositories/reports.repository';
 
 export function resolveReportRange(query: ReportQueryDto): ReportDateRange {

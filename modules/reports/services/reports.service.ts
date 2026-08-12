@@ -1,17 +1,30 @@
 import { Injectable } from '@nestjs/common';
-import { previousPeriodRange, round2 } from '@modules/dashboard/utils/dashboard-format.util';
+import {
+  buildPaginatedResult,
+  buildPaginationOptions,
+} from '@packages/common';
+import {
+  changePercentage,
+  previousPeriodRange,
+  round2,
+} from '@modules/dashboard/utils/dashboard-format.util';
 import { ReportQueryDto } from '../dto/report-query.dto';
 import {
   IConsultationReportResponse,
   ICouponReportResponse,
   ICustomerReportResponse,
   IInventoryStockReportResponse,
+  IOrderReportResponse,
+  IOrderReportRow,
   IPaymentReportResponse,
   IProductPerformanceReportResponse,
+  IReportKpi,
   IReturnRefundReportResponse,
+  ISalesRevenueReportResponse,
+  ISalesRevenueRow,
   IVendorPerformanceReportResponse,
-} from '../interfaces/phase2-reports.interface';
-import { ReportsPhase2Repository } from '../repositories/reports-phase2.repository';
+} from '../reports.interface';
+import { ReportsRepository } from '../repositories/reports.repository';
 import {
   buildEmptyPaginatedResult,
   buildReportKpi,
@@ -20,16 +33,116 @@ import {
 } from '../utils/report-base.util';
 
 @Injectable()
-export class Phase2ReportsService {
-  constructor(private readonly phase2Repository: ReportsPhase2Repository) {}
+export class ReportsService {
+  constructor(private readonly reportsRepository: ReportsRepository) {}
+
+  async getSalesRevenue(query: ReportQueryDto): Promise<ISalesRevenueReportResponse> {
+    if (query.type === 'consultation') {
+      return this.buildEmptySalesResponse(query);
+    }
+
+    const range = resolveReportRange(query);
+    const prevRange = previousPeriodRange(range.start, range.end);
+    const [currentRows, previousRows] = await Promise.all([
+      this.reportsRepository.fetchSalesSummaryRows(query, range),
+      this.reportsRepository.fetchSalesSummaryRows(query, prevRange),
+    ]);
+
+    const refundMap = await this.reportsRepository.fetchRefundsByDay(query, range);
+    const rowsWithRefunds: ISalesRevenueRow[] = currentRows.map((row) => {
+      const refunds = refundMap.get(row.date) ?? 0;
+      return {
+        date: row.date,
+        type: 'product',
+        orders: row.orders,
+        grossSales: round2(row.grossSales),
+        discounts: round2(row.discounts),
+        tax: 0,
+        shipping: round2(row.shipping),
+        refunds: round2(refunds),
+        netSales: round2(row.netSales),
+        aov: row.orders > 0 ? round2(row.netSales / row.orders) : 0,
+      };
+    });
+
+    const sortedRows = this.sortSalesRows(rowsWithRefunds, query);
+    const paginationOptions = buildPaginationOptions(query);
+    const total = sortedRows.length;
+    const start = (paginationOptions.page - 1) * paginationOptions.limit;
+    const pagedRows = sortedRows.slice(start, start + paginationOptions.limit);
+
+    return {
+      range: {
+        startDate: range.start.toISOString(),
+        endDate: range.end.toISOString(),
+      },
+      summary: this.buildSalesSummary(rowsWithRefunds, previousRows),
+      rows: buildPaginatedResult<ISalesRevenueRow>(pagedRows, total, paginationOptions),
+    };
+  }
+
+  async getSalesRevenueExportRows(query: ReportQueryDto): Promise<ISalesRevenueRow[]> {
+    const range = resolveReportRange(query);
+    const rows = await this.reportsRepository.fetchSalesSummaryRows(query, range);
+    const refundMap = await this.reportsRepository.fetchRefundsByDay(query, range);
+
+    return rows.map((row) => {
+      const refunds = refundMap.get(row.date) ?? 0;
+      return {
+        date: row.date,
+        type: 'product',
+        orders: row.orders,
+        grossSales: round2(row.grossSales),
+        discounts: round2(row.discounts),
+        tax: 0,
+        shipping: round2(row.shipping),
+        refunds: round2(refunds),
+        netSales: round2(row.netSales),
+        aov: row.orders > 0 ? round2(row.netSales / row.orders) : 0,
+      };
+    });
+  }
+
+  async getOrders(query: ReportQueryDto): Promise<IOrderReportResponse> {
+    if (query.type === 'consultation') {
+      return this.buildEmptyOrdersResponse(query);
+    }
+
+    const range = resolveReportRange(query);
+    const prevRange = previousPeriodRange(range.start, range.end);
+    const [rows, prevRows] = await Promise.all([
+      this.reportsRepository.fetchOrderStatusRows(query, range),
+      this.reportsRepository.fetchOrderStatusRows(query, prevRange),
+    ]);
+
+    const sortedRows = this.sortOrderRows(rows, query);
+    const paginationOptions = buildPaginationOptions(query);
+    const total = sortedRows.length;
+    const start = (paginationOptions.page - 1) * paginationOptions.limit;
+    const pagedRows = sortedRows.slice(start, start + paginationOptions.limit);
+
+    return {
+      range: {
+        startDate: range.start.toISOString(),
+        endDate: range.end.toISOString(),
+      },
+      summary: this.buildOrdersSummary(rows, prevRows),
+      rows: buildPaginatedResult(pagedRows, total, paginationOptions),
+    };
+  }
+
+  async getOrdersExportRows(query: ReportQueryDto): Promise<IOrderReportRow[]> {
+    const range = resolveReportRange(query);
+    return this.reportsRepository.fetchOrderStatusRows(query, range);
+  }
 
   async getProductPerformance(query: ReportQueryDto): Promise<IProductPerformanceReportResponse> {
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
     const [rows, prevRows, outOfStockProducts] = await Promise.all([
-      this.phase2Repository.fetchProductPerformanceRows(query, range),
-      this.phase2Repository.fetchProductPerformanceRows(query, prevRange),
-      this.phase2Repository.countOutOfStockProducts(),
+      this.reportsRepository.fetchProductPerformanceRows(query, range),
+      this.reportsRepository.fetchProductPerformanceRows(query, prevRange),
+      this.reportsRepository.countOutOfStockProducts(),
     ]);
 
     const current = this.summarizeProductRows(rows);
@@ -48,7 +161,7 @@ export class Phase2ReportsService {
   }
 
   async getInventoryStock(query: ReportQueryDto): Promise<IInventoryStockReportResponse> {
-    const rows = await this.phase2Repository.fetchInventoryRows(query);
+    const rows = await this.reportsRepository.fetchInventoryRows(query);
     const summary = {
       totalSkus: rows.length,
       inStockSkus: rows.filter((row) => row.stockStatus === 'in_stock').length,
@@ -73,8 +186,8 @@ export class Phase2ReportsService {
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
     const [rows, prevRows] = await Promise.all([
-      this.phase2Repository.fetchVendorPerformanceRows(query, range),
-      this.phase2Repository.fetchVendorPerformanceRows(query, prevRange),
+      this.reportsRepository.fetchVendorPerformanceRows(query, range),
+      this.reportsRepository.fetchVendorPerformanceRows(query, prevRange),
     ]);
 
     const enrichedRows = rows.map((row) => this.enrichVendorRow(row));
@@ -99,9 +212,9 @@ export class Phase2ReportsService {
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
     const [rows, currentMetrics, prevMetrics] = await Promise.all([
-      this.phase2Repository.fetchCustomerRows(query, range),
-      this.phase2Repository.fetchCustomerSummaryMetrics(range),
-      this.phase2Repository.fetchCustomerSummaryMetrics(prevRange),
+      this.reportsRepository.fetchCustomerRows(query, range),
+      this.reportsRepository.fetchCustomerSummaryMetrics(range),
+      this.reportsRepository.fetchCustomerSummaryMetrics(prevRange),
     ]);
 
     const mappedRows = rows.map((row) => ({
@@ -171,8 +284,8 @@ export class Phase2ReportsService {
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
     const [rows, prevRows] = await Promise.all([
-      this.phase2Repository.fetchPaymentRows(query, range),
-      this.phase2Repository.fetchPaymentRows(query, prevRange),
+      this.reportsRepository.fetchPaymentRows(query, range),
+      this.reportsRepository.fetchPaymentRows(query, prevRange),
     ]);
 
     const current = this.summarizePaymentRows(rows);
@@ -199,10 +312,10 @@ export class Phase2ReportsService {
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
     const [rows, prevRows, totalOrders, prevTotalOrders] = await Promise.all([
-      this.phase2Repository.fetchReturnRefundRows(query, range),
-      this.phase2Repository.fetchReturnRefundRows(query, prevRange),
-      this.phase2Repository.countTotalOrdersInRange(range),
-      this.phase2Repository.countTotalOrdersInRange(prevRange),
+      this.reportsRepository.fetchReturnRefundRows(query, range),
+      this.reportsRepository.fetchReturnRefundRows(query, prevRange),
+      this.reportsRepository.countTotalOrdersInRange(range),
+      this.reportsRepository.countTotalOrdersInRange(prevRange),
     ]);
 
     const current = this.summarizeReturnRefundRows(rows);
@@ -232,10 +345,10 @@ export class Phase2ReportsService {
     const range = resolveReportRange(query);
     const prevRange = previousPeriodRange(range.start, range.end);
     const [rows, prevRows, totalOrders, prevTotalOrders] = await Promise.all([
-      this.phase2Repository.fetchCouponRows(query, range),
-      this.phase2Repository.fetchCouponRows(query, prevRange),
-      this.phase2Repository.countTotalOrdersInRange(range),
-      this.phase2Repository.countTotalOrdersInRange(prevRange),
+      this.reportsRepository.fetchCouponRows(query, range),
+      this.reportsRepository.fetchCouponRows(query, prevRange),
+      this.reportsRepository.countTotalOrdersInRange(range),
+      this.reportsRepository.countTotalOrdersInRange(prevRange),
     ]);
 
     const current = this.summarizeCouponRows(rows, totalOrders);
@@ -243,8 +356,7 @@ export class Phase2ReportsService {
 
     const mappedRows = rows.map((row) => ({
       ...row,
-      redemptionRate:
-        totalOrders > 0 ? round2((row.usages / totalOrders) * 100) : 0,
+      redemptionRate: totalOrders > 0 ? round2((row.usages / totalOrders) * 100) : 0,
     }));
 
     return {
@@ -262,23 +374,23 @@ export class Phase2ReportsService {
 
   getProductPerformanceExportRows(query: ReportQueryDto) {
     const range = resolveReportRange(query);
-    return this.phase2Repository.fetchProductPerformanceRows(query, range);
+    return this.reportsRepository.fetchProductPerformanceRows(query, range);
   }
 
   getInventoryExportRows(query: ReportQueryDto) {
-    return this.phase2Repository.fetchInventoryRows(query);
+    return this.reportsRepository.fetchInventoryRows(query);
   }
 
   getVendorPerformanceExportRows(query: ReportQueryDto) {
     const range = resolveReportRange(query);
-    return this.phase2Repository.fetchVendorPerformanceRows(query, range).then((rows) =>
+    return this.reportsRepository.fetchVendorPerformanceRows(query, range).then((rows) =>
       rows.map((row) => this.enrichVendorRow(row)),
     );
   }
 
   getCustomerExportRows(query: ReportQueryDto) {
     const range = resolveReportRange(query);
-    return this.phase2Repository.fetchCustomerRows(query, range).then((rows) =>
+    return this.reportsRepository.fetchCustomerRows(query, range).then((rows) =>
       rows.map((row) => ({
         ...row,
         avgOrderValue: row.totalOrders > 0 ? round2(row.totalSpend / row.totalOrders) : 0,
@@ -290,25 +402,153 @@ export class Phase2ReportsService {
 
   getPaymentExportRows(query: ReportQueryDto) {
     const range = resolveReportRange(query);
-    return this.phase2Repository.fetchPaymentRows(query, range);
+    return this.reportsRepository.fetchPaymentRows(query, range);
   }
 
   getReturnRefundExportRows(query: ReportQueryDto) {
     const range = resolveReportRange(query);
-    return this.phase2Repository.fetchReturnRefundRows(query, range);
+    return this.reportsRepository.fetchReturnRefundRows(query, range);
   }
 
   getCouponExportRows(query: ReportQueryDto) {
     const range = resolveReportRange(query);
     return Promise.all([
-      this.phase2Repository.fetchCouponRows(query, range),
-      this.phase2Repository.countTotalOrdersInRange(range),
+      this.reportsRepository.fetchCouponRows(query, range),
+      this.reportsRepository.countTotalOrdersInRange(range),
     ]).then(([rows, totalOrders]) =>
       rows.map((row) => ({
         ...row,
         redemptionRate: totalOrders > 0 ? round2((row.usages / totalOrders) * 100) : 0,
       })),
     );
+  }
+
+  private buildSalesSummary(
+    rows: ISalesRevenueRow[],
+    previousRows: Array<{
+      orders: number;
+      grossSales: number;
+      discounts: number;
+      shipping: number;
+      netSales: number;
+    }>,
+  ): ISalesRevenueReportResponse['summary'] {
+    const current = {
+      orders: rows.reduce((sum, row) => sum + row.orders, 0),
+      grossSales: rows.reduce((sum, row) => sum + row.grossSales, 0),
+      discounts: rows.reduce((sum, row) => sum + row.discounts, 0),
+      netSales: rows.reduce((sum, row) => sum + row.netSales, 0),
+      refunds: rows.reduce((sum, row) => sum + row.refunds, 0),
+    };
+    const previous = {
+      orders: previousRows.reduce((sum, row) => sum + row.orders, 0),
+      grossSales: previousRows.reduce((sum, row) => sum + row.grossSales, 0),
+      discounts: previousRows.reduce((sum, row) => sum + row.discounts, 0),
+      netSales: previousRows.reduce((sum, row) => sum + row.netSales, 0),
+      refunds: 0,
+    };
+
+    const currentAov = current.orders > 0 ? current.netSales / current.orders : 0;
+    const prevAov = previous.orders > 0 ? previous.netSales / previous.orders : 0;
+
+    return {
+      totalOrders: this.kpi(current.orders, previous.orders),
+      grossSales: this.kpi(current.grossSales, previous.grossSales),
+      netSales: this.kpi(current.netSales, previous.netSales),
+      taxCollected: this.kpi(0, 0),
+      discounts: this.kpi(current.discounts, previous.discounts),
+      refunds: this.kpi(current.refunds, previous.refunds),
+      aov: this.kpi(currentAov, prevAov),
+    };
+  }
+
+  private buildOrdersSummary(
+    rows: IOrderReportRow[],
+    prevRows: IOrderReportRow[],
+  ): IOrderReportResponse['summary'] {
+    const sum = (list: IOrderReportRow[], key: keyof IOrderReportRow) =>
+      list.reduce((acc, row) => acc + Number(row[key] || 0), 0);
+
+    return {
+      total: this.kpi(sum(rows, 'totalOrders'), sum(prevRows, 'totalOrders')),
+      pending: this.kpi(sum(rows, 'pending'), sum(prevRows, 'pending')),
+      confirmed: this.kpi(sum(rows, 'confirmed'), sum(prevRows, 'confirmed')),
+      shipped: this.kpi(sum(rows, 'shipped'), sum(prevRows, 'shipped')),
+      delivered: this.kpi(sum(rows, 'delivered'), sum(prevRows, 'delivered')),
+      cancelled: this.kpi(sum(rows, 'cancelled'), sum(prevRows, 'cancelled')),
+      returned: this.kpi(sum(rows, 'returned'), sum(prevRows, 'returned')),
+      refunded: this.kpi(sum(rows, 'refunded'), sum(prevRows, 'refunded')),
+    };
+  }
+
+  private kpi(value: number, previousValue: number): IReportKpi {
+    return {
+      value: round2(value),
+      previousValue: round2(previousValue),
+      changePercent: changePercentage(value, previousValue),
+    };
+  }
+
+  private sortSalesRows(rows: ISalesRevenueRow[], query: ReportQueryDto): ISalesRevenueRow[] {
+    const sortBy = query.sortBy ?? 'date';
+    const sortOrder = query.sortOrder ?? 'DESC';
+    const direction = sortOrder === 'ASC' ? 1 : -1;
+
+    return [...rows].sort((a, b) => {
+      if (sortBy === 'date') {
+        return direction * (new Date(a.date).getTime() - new Date(b.date).getTime());
+      }
+      return direction * ((a[sortBy as keyof ISalesRevenueRow] as number) - (b[sortBy as keyof ISalesRevenueRow] as number));
+    });
+  }
+
+  private sortOrderRows(rows: IOrderReportRow[], query: ReportQueryDto): IOrderReportRow[] {
+    const sortOrder = query.sortOrder ?? 'DESC';
+    const direction = sortOrder === 'ASC' ? 1 : -1;
+    return [...rows].sort(
+      (a, b) => direction * (new Date(a.date).getTime() - new Date(b.date).getTime()),
+    );
+  }
+
+  private buildEmptySalesResponse(query: ReportQueryDto): ISalesRevenueReportResponse {
+    const paginationOptions = buildPaginationOptions(query);
+    return {
+      range: {
+        startDate: query.startDate ?? new Date().toISOString(),
+        endDate: query.endDate ?? new Date().toISOString(),
+      },
+      summary: {
+        totalOrders: this.kpi(0, 0),
+        grossSales: this.kpi(0, 0),
+        netSales: this.kpi(0, 0),
+        taxCollected: this.kpi(0, 0),
+        discounts: this.kpi(0, 0),
+        refunds: this.kpi(0, 0),
+        aov: this.kpi(0, 0),
+      },
+      rows: buildPaginatedResult([], 0, paginationOptions),
+    };
+  }
+
+  private buildEmptyOrdersResponse(query: ReportQueryDto): IOrderReportResponse {
+    const paginationOptions = buildPaginationOptions(query);
+    return {
+      range: {
+        startDate: query.startDate ?? new Date().toISOString(),
+        endDate: query.endDate ?? new Date().toISOString(),
+      },
+      summary: {
+        total: this.kpi(0, 0),
+        pending: this.kpi(0, 0),
+        confirmed: this.kpi(0, 0),
+        shipped: this.kpi(0, 0),
+        delivered: this.kpi(0, 0),
+        cancelled: this.kpi(0, 0),
+        returned: this.kpi(0, 0),
+        refunded: this.kpi(0, 0),
+      },
+      rows: buildPaginatedResult([], 0, paginationOptions),
+    };
   }
 
   private summarizeProductRows(
@@ -386,9 +626,7 @@ export class Phase2ReportsService {
     };
   }
 
-  private summarizeReturnRefundRows(
-    rows: Array<{ type: 'return' | 'refund'; amount: number }>,
-  ) {
+  private summarizeReturnRefundRows(rows: Array<{ type: 'return' | 'refund'; amount: number }>) {
     const returns = rows.filter((row) => row.type === 'return').length;
     const refunds = rows.filter((row) => row.type === 'refund').length;
     const refundAmount = rows

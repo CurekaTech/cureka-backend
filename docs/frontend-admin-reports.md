@@ -72,6 +72,8 @@ Export: `GET /sales-revenue/export`
 
 Summary buckets: `total`, `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`, `returned`, `refunded`.
 
+**Scope:** registered users only (`isGuest = false`). Guest checkout orders are excluded.
+
 Export: `GET /orders/export`
 
 ---
@@ -112,7 +114,7 @@ Export: `GET /vendor-performance/export`
 
 Summary: `newCustomers`, `returningCustomers`, `totalRegistrations`, `activeCustomers`, `avgOrderFrequency`, `avgCustomerLifetimeValue`.
 
-Rows: registered customers only (`isGuest = false`) — guest checkout users are excluded. Fields: name, email, phone, `isGuest`, `totalOrders`, `totalSpend`, `avgOrderValue`, `customerLifetimeValue`, `lastOrderAt`.
+Rows: all customers who placed orders in the range (registered + guest). Name/phone fall back to order recipient fields when profile fields are empty. Fields: name, email, phone, `isGuest`, `totalOrders`, `totalSpend`, `avgOrderValue`, `customerLifetimeValue`, `lastOrderAt`.
 
 Export: `GET /customers/export`
 
