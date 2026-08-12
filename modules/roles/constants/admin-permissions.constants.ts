@@ -48,6 +48,18 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     module: 'dashboard',
     action: PermissionAction.READ,
   },
+  {
+    name: 'View Reports',
+    code: 'reports.read',
+    module: 'reports',
+    action: PermissionAction.READ,
+  },
+  {
+    name: 'Download Reports',
+    code: 'reports.export',
+    module: 'reports',
+    action: PermissionAction.READ,
+  },
   ...buildCrudPermissions('users', 'Users'),
   ...buildCrudPermissions('vendors', 'Vendors'),
   ...buildCrudPermissions('orders', 'Orders'),
