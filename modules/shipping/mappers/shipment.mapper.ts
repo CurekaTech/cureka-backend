@@ -2,6 +2,7 @@ import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { ShipmentEntity } from '../entities/shipment.entity';
 import { ShipmentEventEntity } from '../entities/shipment-event.entity';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
+import { HIDDEN_SHIPWAY_SCAN_STATUSES } from '../constants/shipway-status.constants';
 
 export type ShipmentEventResponse = {
   status: string;
@@ -52,9 +53,11 @@ function mapShipmentEventToResponse(event: ShipmentEventEntity): ShipmentEventRe
   };
 }
 
-const HIDDEN_SCAN_STATUSES = new Set([
-  'manifest uploaded',
-]);
+function isHiddenScanEvent(event: ShipmentEventEntity): boolean {
+  const status = (event.status ?? '').trim().toLowerCase();
+  const description = (event.description ?? '').trim().toLowerCase();
+  return HIDDEN_SHIPWAY_SCAN_STATUSES.has(status) || HIDDEN_SHIPWAY_SCAN_STATUSES.has(description);
+}
 
 function eventDedupeKey(event: ShipmentEventEntity): string {
   const happenedAt = event.happenedAt?.getTime() ?? 0;
@@ -64,12 +67,6 @@ function eventDedupeKey(event: ShipmentEventEntity): string {
     String(happenedAt),
     (event.description ?? '').trim().toLowerCase(),
   ].join('|');
-}
-
-function isHiddenScanEvent(event: ShipmentEventEntity): boolean {
-  const status = (event.status ?? '').trim().toLowerCase();
-  const description = (event.description ?? '').trim().toLowerCase();
-  return HIDDEN_SCAN_STATUSES.has(status) || HIDDEN_SCAN_STATUSES.has(description);
 }
 
 function uniqueVisibleEvents(events: ShipmentEventEntity[]): ShipmentEventEntity[] {

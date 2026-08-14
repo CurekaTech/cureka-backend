@@ -81,9 +81,21 @@ export interface IUserProductSubscription {
   billingCycleSequence: number;
   configId: string | null;
   paymentLink?: string | null;
+  razorpayOrderId?: string | null;
+  keyId?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  paymentSessionId?: string | null;
+  environment?: 'sandbox' | 'production' | null;
+  customer?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  } | null;
   user?: ISubscriptionUserSummary | null;
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;
+  productName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -100,6 +112,7 @@ export interface ISubscriptionPayment {
   gatewayOrderId: string | null;
   gatewayPaymentId: string | null;
   paymentLink: string | null;
+  paymentSessionId?: string | null;
   status: string;
   billingDate: string;
   paidAt: string | null;

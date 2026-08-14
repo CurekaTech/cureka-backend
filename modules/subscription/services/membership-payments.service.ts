@@ -78,7 +78,7 @@ export class MembershipPaymentsService {
   async attachPaymentLink(
     paymentId: string,
     data: {
-      paymentLink: string;
+      paymentLink: string | null;
       gatewayOrderId: string;
       paymentGateway: string;
       actor: string;

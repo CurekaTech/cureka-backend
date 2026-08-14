@@ -20,6 +20,7 @@ import {
   mapMembershipPlanToResponse,
   mapUserMembershipToResponse,
 } from '../mappers/membership.mapper';
+import { checkoutExtrasFromLink } from '../utils/checkout-extras.util';
 import { UserMembershipsRepository } from '../repositories/user-memberships.repository';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
 import { getNextMembershipBillingDate } from '../utils/next-billing-date.util';
@@ -111,7 +112,7 @@ export class MembershipsService {
     });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: userId,
@@ -124,13 +125,13 @@ export class MembershipsService {
     this.notificationsService.notifyPaymentLinkCreated({
       userId,
       kind: 'membership',
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       amount,
       refId: membership.refId,
     });
 
     return mapUserMembershipToResponse(membership, {
-      paymentLink: link.paymentLink,
+      ...checkoutExtrasFromLink(link),
       plan: mapMembershipPlanToResponse(plan),
     });
   }
@@ -218,7 +219,7 @@ export class MembershipsService {
     });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: userId,
@@ -231,13 +232,13 @@ export class MembershipsService {
     this.notificationsService.notifyPaymentLinkCreated({
       userId,
       kind: 'membership',
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       amount,
       refId: membership.refId,
     });
 
     return mapUserMembershipToResponse(membership, {
-      paymentLink: link.paymentLink,
+      ...checkoutExtrasFromLink(link),
       plan: mapMembershipPlanToResponse(plan),
     });
   }
@@ -295,7 +296,7 @@ export class MembershipsService {
     });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: userId,
@@ -305,7 +306,7 @@ export class MembershipsService {
     // (handled in handlePaymentSuccess via metadata on payment if present)
 
     return mapUserMembershipToResponse(membership, {
-      paymentLink: link.paymentLink,
+      ...checkoutExtrasFromLink(link),
       plan: mapMembershipPlanToResponse(newPlan),
     });
   }
@@ -473,7 +474,7 @@ export class MembershipsService {
         });
 
         await this.paymentsService.attachPaymentLink(payment.id, {
-          paymentLink: link.paymentLink,
+          paymentLink: link.paymentLink ?? '',
           gatewayOrderId: link.gatewayOrderId,
           paymentGateway: link.paymentGateway,
           actor: 'scheduler',
@@ -487,7 +488,7 @@ export class MembershipsService {
         this.notificationsService.notifyRenewalDue({
           userId: membership.userId,
           kind: 'membership',
-          paymentLink: link.paymentLink,
+          paymentLink: link.paymentLink ?? '',
           amount,
           refId: membership.refId,
         });

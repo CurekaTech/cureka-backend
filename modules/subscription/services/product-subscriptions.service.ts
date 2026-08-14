@@ -23,10 +23,12 @@ import {
   ProductSubscriptionConfigQueryDto,
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
+import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
 import { SubscriptionMissedPaymentAction } from '../enums/subscription-missed-payment-action.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '../constants/subscription-payment-purpose.constants';
 import { mapUserProductSubscriptionToResponse } from '../mappers/product-subscription.mapper';
+import { checkoutExtrasFromLink } from '../utils/checkout-extras.util';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
 import { getNextProductBillingDate } from '../utils/next-billing-date.util';
@@ -66,7 +68,7 @@ export class ProductSubscriptionsService {
       query.productVariantId ?? null,
     );
     if (!config || !config.enabled) {
-      throw new NotFoundException('Subscription is not available for this product');
+      return null;
     }
     return config;
   }
@@ -172,7 +174,7 @@ export class ProductSubscriptionsService {
     });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: userId,
@@ -185,15 +187,13 @@ export class ProductSubscriptionsService {
     this.notificationsService.notifyPaymentLinkCreated({
       userId,
       kind: 'product_subscription',
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       amount: pricing.finalAmount,
       refId: subscription.refId,
     });
 
     const refreshed = await this.subscriptionsRepository.findById(subscription.id);
-    return mapUserProductSubscriptionToResponse(refreshed ?? subscription, {
-      paymentLink: link.paymentLink,
-    });
+    return this.mapOwned(refreshed ?? subscription, checkoutExtrasFromLink(link));
   }
 
   async listMine(userId: string) {
@@ -331,7 +331,7 @@ export class ProductSubscriptionsService {
     });
 
     if (payment.status === SubscriptionPaymentStatus.PAID) {
-      return mapUserProductSubscriptionToResponse(sub);
+      return this.mapOwned(sub);
     }
 
     const user = await this.usersRepository.findById(userId);
@@ -355,7 +355,7 @@ export class ProductSubscriptionsService {
     });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: userId,
@@ -364,12 +364,12 @@ export class ProductSubscriptionsService {
     this.notificationsService.notifyPaymentLinkCreated({
       userId,
       kind: 'product_subscription',
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       amount,
       refId: sub.refId,
     });
 
-    return mapUserProductSubscriptionToResponse(sub, { paymentLink: link.paymentLink });
+    return this.mapOwned(sub, checkoutExtrasFromLink(link));
   }
 
   async listPayments(userId: string, subscriptionId: string) {
@@ -404,7 +404,10 @@ export class ProductSubscriptionsService {
 
   private async mapSubscriptionsWithRelations(
     rows: Awaited<ReturnType<UserProductSubscriptionsRepository['findByUserId']>>,
-    options?: { includeUser?: boolean },
+    options?: {
+      includeUser?: boolean;
+      extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1];
+    },
   ) {
     const [users, products, variants] = await Promise.all([
       options?.includeUser
@@ -416,6 +419,7 @@ export class ProductSubscriptionsService {
 
     return rows.map((row) =>
       mapUserProductSubscriptionToResponse(row, {
+        ...options?.extras,
         user: options?.includeUser ? users.get(row.userId) ?? null : null,
         product: products.get(row.productId) ?? null,
         variant: variants.get(row.productVariantId) ?? null,
@@ -652,7 +656,7 @@ export class ProductSubscriptionsService {
     });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: 'scheduler',
@@ -666,7 +670,7 @@ export class ProductSubscriptionsService {
     this.notificationsService.notifyRenewalDue({
       userId: sub.userId,
       kind: 'product_subscription',
-      paymentLink: link.paymentLink,
+      paymentLink: link.paymentLink ?? '',
       amount,
       refId: sub.refId,
     });
@@ -708,5 +712,13 @@ export class ProductSubscriptionsService {
   private mapGatewayToPaymentMethod(gateway: string | null): OrderPaymentMethod {
     if (gateway?.toUpperCase() === 'CASHFREE') return OrderPaymentMethod.CASHFREE;
     return OrderPaymentMethod.RAZORPAY;
+  }
+
+  private async mapOwned(
+    entity: UserProductSubscriptionEntity,
+    extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1],
+  ) {
+    const [mapped] = await this.mapSubscriptionsWithRelations([entity], { extras });
+    return mapped;
   }
 }

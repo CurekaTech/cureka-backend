@@ -120,6 +120,12 @@ export const SHIPMENT_TO_ORDER_STATUS_MAP: Partial<Record<ShipmentStatus, OrderS
   [ShipmentStatus.RTO]: OrderStatus.RTO,
 };
 
+/** Courier-internal scans we do not show on the customer timeline. */
+export const HIDDEN_SHIPWAY_SCAN_STATUSES = new Set([
+  'manifest uploaded',
+  'weight captured',
+]);
+
 export function normalizeShipwayStatusKey(shipwayStatus: string): string {
   const trimmed = shipwayStatus.trim();
   if (!trimmed) return trimmed;

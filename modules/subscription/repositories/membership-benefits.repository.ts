@@ -36,6 +36,8 @@ export class MembershipBenefitsRepository {
     });
   }
 
+  //membership benefits by membership plan id and benefit type
+
   async updateById(
     id: string,
     data: Partial<MembershipBenefitEntity>,

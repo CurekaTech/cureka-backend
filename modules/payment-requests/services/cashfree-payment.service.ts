@@ -69,6 +69,7 @@ export class CashfreePaymentService {
       name?: string;
     };
     returnUrl: string;
+    orderTags?: Record<string, string>;
   }): Promise<Record<string, any>> {
     this.logger.log(
       {
@@ -104,6 +105,9 @@ export class CashfreePaymentService {
       order_meta: {
         return_url: payload.returnUrl,
       },
+      ...(payload.orderTags && Object.keys(payload.orderTags).length
+        ? { order_tags: payload.orderTags }
+        : {}),
     };
 
     const url = `${this.baseUrl}/orders`;
