@@ -48,6 +48,15 @@ export class ShipmentsRepository {
     return repository.findOne({ where: { shipwayOrderId }, relations: { events: true } });
   }
 
+  findByOrderIds(orderIds: string[]): Promise<ShipmentEntity[]> {
+    if (orderIds.length === 0) return Promise.resolve([]);
+    return this.repo
+      .createQueryBuilder('shipment')
+      .where('shipment.orderId IN (:...orderIds)', { orderIds })
+      .andWhere("shipment.groupKey = 'default'")
+      .getMany();
+  }
+
   async updateStatus(
     id: string,
     data: {
