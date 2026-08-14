@@ -8,6 +8,7 @@ import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductModule } from '@modules/product/product.module';
 import { UsersModule } from '@modules/users/users.module';
+import { UploadsModule } from '@modules/uploads/uploads.module';
 import { QueueModule } from '@packages/queue';
 import { SUBSCRIPTION_QUEUE } from './constants/subscription-queue.constants';
 import { AdminMembershipPlansController } from './controllers/admin-membership-plans.controller';
@@ -62,6 +63,7 @@ import { SubscriptionRelationLoaderService } from './services/subscription-relat
       ProductVariantEntity,
     ]),
     UsersModule,
+    UploadsModule,
     NotificationsModule,
     forwardRef(() => ProductModule),
     forwardRef(() => OrdersModule),
