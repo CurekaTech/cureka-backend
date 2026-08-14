@@ -101,7 +101,7 @@ export class AdminOrderQueryDto extends PaginationQueryDto {
 
 export class CancelOrderDto {
   @IsString()
-  @Min(3)
+  @MinLength(3)
   @MaxLength(500)
   reason!: string;
 }
