@@ -9,6 +9,7 @@ import {
   IShipwayNdrResponse,
   IShipwayPushOrderPayload,
   IShipwayPushOrderResponse,
+  IShipwayTrackingEvent,
   IShipwayTrackingResponse,
   IShipwayWebhookEvent,
 } from '../interfaces/shipway-api.interface';
@@ -66,7 +67,8 @@ export class ShipwayService {
   ): Promise<IShipwayTrackingResponse> {
     const startedAt = Date.now();
     const knownAwb = options?.awbNumber?.trim() || null;
-    const attempts: Array<{ source: string; ok: boolean; detail?: string }> = [];
+    const attempts: Array<{ source: string; ok: boolean; eventCount?: number; detail?: string }> = [];
+    let merged: IShipwayTrackingResponse = { order_id: orderId };
 
     this.logger.log(
       {
@@ -79,37 +81,15 @@ export class ShipwayService {
       '[Shipway] getShipmentDetails — starting multi-host lookup',
     );
 
-    // 1) Classic order tracking (shipway.in)
     try {
       const classic = await this.fetchClassicOrderShipmentDetails(orderId);
       attempts.push({
         source: 'classic_getOrderShipmentDetails',
-        ok: Boolean(classic.current_status),
-        detail: classic.current_status ?? classic.message ?? undefined,
+        ok: Boolean(classic.current_status || this.scanCount(classic)),
+        eventCount: this.scanCount(classic),
+        detail: classic.current_status ?? classic.current_status_code ?? classic.message ?? undefined,
       });
-      if (classic.current_status) {
-        this.logger.log(
-          {
-            shipwayOrderId: orderId,
-            source: 'classic_getOrderShipmentDetails',
-            elapsedMs: Date.now() - startedAt,
-            current_status: classic.current_status,
-            awb_number: classic.awb_number ?? null,
-            attempts,
-          },
-          '[Shipway] getShipmentDetails — resolved via classic API',
-        );
-        return classic;
-      }
-      this.logger.warn(
-        {
-          shipwayOrderId: orderId,
-          source: 'classic_getOrderShipmentDetails',
-          message: classic.message ?? null,
-          success: classic.success,
-        },
-        '[Shipway] Classic API returned no current_status — trying OMS fallbacks',
-      );
+      merged = this.mergeTracking(merged, classic);
     } catch (error) {
       attempts.push({
         source: 'classic_getOrderShipmentDetails',
@@ -127,31 +107,24 @@ export class ShipwayService {
       );
     }
 
-    // 2) OMS getorders by orderid
     let awbFromOrders: string | null = null;
+    let carrierId: string | number | undefined;
     try {
       const fromOrders = await this.fetchOmsOrderByOrderId(orderId);
       attempts.push({
         source: 'oms_getorders',
         ok: Boolean(fromOrders?.current_status),
+        eventCount: fromOrders ? this.scanCount(fromOrders) : 0,
         detail: fromOrders?.current_status ?? fromOrders?.message ?? undefined,
       });
       if (fromOrders?.awb_number) {
         awbFromOrders = fromOrders.awb_number;
       }
-      if (fromOrders?.current_status) {
-        this.logger.log(
-          {
-            shipwayOrderId: orderId,
-            source: 'oms_getorders',
-            elapsedMs: Date.now() - startedAt,
-            current_status: fromOrders.current_status,
-            awb_number: fromOrders.awb_number ?? null,
-            attempts,
-          },
-          '[Shipway] getShipmentDetails — resolved via OMS getorders',
-        );
-        return fromOrders;
+      if (fromOrders?.courier_id) {
+        carrierId = fromOrders.courier_id;
+      }
+      if (fromOrders) {
+        merged = this.mergeTracking(merged, fromOrders);
       }
     } catch (error) {
       attempts.push({
@@ -169,30 +142,17 @@ export class ShipwayService {
       );
     }
 
-    // 3) OMS tracking by AWB
-    const awb = knownAwb ?? awbFromOrders;
+    const awb = knownAwb ?? awbFromOrders ?? merged.awb_number ?? null;
     if (awb) {
       try {
         const byAwb = await this.fetchOmsTrackingByAwb(awb);
         attempts.push({
           source: 'oms_tracking_by_awb',
-          ok: Boolean(byAwb.current_status),
+          ok: Boolean(byAwb.current_status || this.scanCount(byAwb)),
+          eventCount: this.scanCount(byAwb),
           detail: byAwb.current_status ?? byAwb.message ?? undefined,
         });
-        if (byAwb.current_status) {
-          this.logger.log(
-            {
-              shipwayOrderId: orderId,
-              source: 'oms_tracking_by_awb',
-              awb,
-              elapsedMs: Date.now() - startedAt,
-              current_status: byAwb.current_status,
-              attempts,
-            },
-            '[Shipway] getShipmentDetails — resolved via OMS tracking',
-          );
-          return { ...byAwb, order_id: byAwb.order_id ?? orderId };
-        }
+        merged = this.mergeTracking(merged, { ...byAwb, order_id: byAwb.order_id ?? orderId });
       } catch (error) {
         attempts.push({
           source: 'oms_tracking_by_awb',
@@ -209,33 +169,74 @@ export class ShipwayService {
           '[Shipway] OMS tracking by AWB failed',
         );
       }
+
+      if (this.scanCount(merged) === 0) {
+        try {
+          const classicTrack = await this.fetchClassicTrackByAwb(awb, carrierId ?? merged.courier_id);
+          attempts.push({
+            source: 'classic_track_by_awb',
+            ok: Boolean(classicTrack.current_status || this.scanCount(classicTrack)),
+            eventCount: this.scanCount(classicTrack),
+            detail: classicTrack.current_status ?? classicTrack.message ?? undefined,
+          });
+          merged = this.mergeTracking(merged, classicTrack);
+        } catch (error) {
+          attempts.push({
+            source: 'classic_track_by_awb',
+            ok: false,
+            detail: error instanceof Error ? error.message : String(error),
+          });
+          this.logger.warn(
+            {
+              shipwayOrderId: orderId,
+              awb,
+              error: this.serializeError(error),
+            },
+            '[Shipway] Classic /api/track failed',
+          );
+        }
+      }
     } else {
       attempts.push({
         source: 'oms_tracking_by_awb',
         ok: false,
         detail: 'skipped_no_awb',
       });
-      this.logger.log(
-        { shipwayOrderId: orderId, knownAwb, awbFromOrders },
-        '[Shipway] Skipping OMS /api/tracking — no AWB available',
-      );
     }
 
-    this.logger.warn(
+    if (!merged.tracking_url && awb) {
+      merged.tracking_url = `https://track.shipway.com/t/${awb}`;
+    }
+
+    const hasStatus = Boolean(
+      merged.current_status || merged.current_status_code || merged.shipway_status,
+    );
+    this.logger.log(
       {
         shipwayOrderId: orderId,
         elapsedMs: Date.now() - startedAt,
         attempts,
-        shipwayStatus: false,
+        hasStatus,
+        current_status: merged.current_status ?? null,
+        current_status_code: merged.current_status_code ?? null,
+        shipway_status: merged.shipway_status ?? null,
+        awb_number: merged.awb_number ?? null,
+        eventCount: this.scanCount(merged),
       },
-      '[Shipway] getShipmentDetails — all lookups exhausted, no live status',
+      hasStatus
+        ? '[Shipway] getShipmentDetails — merged lookup complete'
+        : '[Shipway] getShipmentDetails — all lookups exhausted, no live status',
     );
 
-    return {
-      success: false,
-      message: 'No Shipway shipment details found for this order',
-      order_id: orderId,
-    };
+    if (!hasStatus) {
+      return {
+        success: false,
+        message: 'No Shipway shipment details found for this order',
+        order_id: orderId,
+      };
+    }
+
+    return { ...merged, success: true, order_id: orderId };
   }
 
   private async fetchClassicOrderShipmentDetails(orderId: string): Promise<IShipwayTrackingResponse> {
@@ -320,17 +321,42 @@ export class ShipwayService {
       'new_shipment_status',
       'status',
     ]);
+    const statusCode = this.firstString(match, [
+      'current_status_code',
+      'shipway_status',
+      'shipment_status_code',
+    ]);
     const courier = this.firstString(match, ['courier_name', 'carrier_name', 'carrier']);
+    const courierId = this.firstString(match, ['carrier_id', 'courier_id']);
     const trackingUrl = this.firstString(match, ['tracking_url', 'track_url']);
+    const scans = this.extractScanArray(match);
+
+    this.logger.log(
+      {
+        shipwayOrderId: orderId,
+        awb,
+        currentStatus,
+        statusCode,
+        courier,
+        courierId,
+        scanCount: scans.length,
+      },
+      '[Shipway] OMS getorders — parsed order row',
+    );
 
     return {
-      success: Boolean(currentStatus),
+      success: Boolean(currentStatus || statusCode),
       order_id: orderId,
       awb_number: awb ?? undefined,
       current_status: currentStatus ?? undefined,
+      current_status_code: statusCode ?? undefined,
+      shipway_status: statusCode ?? undefined,
       courier_name: courier ?? undefined,
+      courier_id: courierId ?? undefined,
       tracking_url: trackingUrl ?? undefined,
-      message: currentStatus ? undefined : 'OMS order found but no shipment status',
+      events: scans,
+      scans,
+      message: currentStatus || statusCode ? undefined : 'OMS order found but no shipment status',
     };
   }
 
@@ -367,36 +393,47 @@ export class ShipwayService {
       this.firstString(trackingDetails, ['shipment_status', 'current_status', 'status']) ??
       this.firstString(first, ['shipment_status', 'current_status', 'status', 'error']);
 
-    const activities =
-      (trackingDetails['shipment_track_activities'] as Array<Record<string, unknown>> | undefined) ??
-      (trackingDetails['tracking_history'] as Array<Record<string, unknown>> | undefined) ??
-      [];
-
-    const events = activities.map((event) => ({
-      status: String(event['activity'] ?? event['status'] ?? event['status_detail'] ?? ''),
-      status_date: [event['date'], event['time']].filter(Boolean).join(' ').trim() || String(event['status_date'] ?? ''),
-      location: event['location'] != null ? String(event['location']) : undefined,
-      message: event['activity'] != null ? String(event['activity']) : undefined,
-      activity: event['activity'] != null ? String(event['activity']) : undefined,
-    }));
+    const activities = this.extractScanArray(trackingDetails)
+      .concat(this.extractScanArray(first))
+      .concat(this.extractScanArray(raw));
+    const statusCode =
+      this.firstString(trackingDetails, ['current_status_code', 'shipway_status']) ??
+      this.firstString(first, ['current_status_code', 'shipway_status']);
 
     const awb =
       this.firstString(first, ['awb', 'awb_number']) ??
       awbNumber;
 
+    this.logger.log(
+      {
+        awbNumber: awb,
+        currentStatus,
+        statusCode,
+        scanCount: activities.length,
+        scans: activities.map((event) => ({
+          status: event.status,
+          location: event.location,
+          status_date: event.status_date,
+        })),
+      },
+      '[Shipway] OMS tracking — parsed scan history',
+    );
+
     return {
-      success: Boolean(currentStatus) && !String(first['error'] ?? '').trim(),
+      success: Boolean(currentStatus || statusCode || activities.length) && !String(first['error'] ?? '').trim(),
       message: this.firstString(first, ['error', 'message']) ?? undefined,
       awb_number: awb ?? undefined,
       current_status: currentStatus && !first['error'] ? currentStatus : undefined,
+      current_status_code: statusCode ?? undefined,
+      shipway_status: statusCode ?? undefined,
       courier_name:
         this.firstString(shipmentDetails ?? {}, ['courier_name', 'carrier_name']) ??
         this.firstString(trackingDetails, ['courier_name', 'carrier_name']) ??
         undefined,
       tracking_url: this.firstString(trackingDetails, ['track_url', 'tracking_url']) ?? undefined,
       order_id: this.firstString(shipmentDetails ?? {}, ['order_id']) ?? undefined,
-      events,
-      scans: events,
+      events: activities,
+      scans: activities,
     };
   }
 
@@ -427,23 +464,193 @@ export class ShipwayService {
     return { message: String(error) };
   }
 
+  private scanCount(tracking?: IShipwayTrackingResponse | null): number {
+    if (!tracking) return 0;
+    return tracking.events?.length || tracking.scans?.length || tracking.scan?.length || 0;
+  }
+
+  private mergeTracking(
+    base: IShipwayTrackingResponse,
+    extra: IShipwayTrackingResponse,
+  ): IShipwayTrackingResponse {
+    const extraScans = extra.events ?? extra.scans ?? extra.scan ?? [];
+    const baseScans = base.events ?? base.scans ?? base.scan ?? [];
+    const scans = extraScans.length > 0 ? extraScans : baseScans;
+
+    return {
+      ...base,
+      ...extra,
+      current_status: extra.current_status || base.current_status,
+      current_status_code: extra.current_status_code || base.current_status_code,
+      shipway_status: extra.shipway_status || base.shipway_status,
+      awb_number: extra.awb_number || base.awb_number,
+      courier_name: extra.courier_name || base.courier_name,
+      courier_id: extra.courier_id ?? base.courier_id,
+      tracking_url: extra.tracking_url || base.tracking_url,
+      events: scans,
+      scans,
+    };
+  }
+
+  private extractScanArray(source: unknown): IShipwayTrackingEvent[] {
+    if (!source || typeof source !== 'object') return [];
+
+    const obj = source as Record<string, unknown>;
+    const buckets: unknown[] = [
+      obj['events'],
+      obj['scans'],
+      obj['scan'],
+      obj['tracking_history'],
+      obj['shipment_track_activities'],
+      obj['track_history'],
+    ];
+
+    if (obj['track_result'] && typeof obj['track_result'] === 'object') {
+      buckets.push(...this.extractScanArray(obj['track_result']).map((event) => event));
+      const nested = obj['track_result'] as Record<string, unknown>;
+      buckets.push(nested['scan'], nested['scans'], nested['events']);
+    }
+    if (obj['response'] && typeof obj['response'] === 'object') {
+      buckets.push(
+        (obj['response'] as Record<string, unknown>)['scan'],
+        (obj['response'] as Record<string, unknown>)['scans'],
+        (obj['response'] as Record<string, unknown>)['events'],
+      );
+    }
+    if (obj['tracking_details'] && typeof obj['tracking_details'] === 'object') {
+      const details = obj['tracking_details'] as Record<string, unknown>;
+      buckets.push(
+        details['shipment_track_activities'],
+        details['tracking_history'],
+        details['scan'],
+        details['scans'],
+      );
+    }
+
+    const rows: IShipwayTrackingEvent[] = [];
+    for (const bucket of buckets) {
+      if (!Array.isArray(bucket)) continue;
+      for (const item of bucket) {
+        if (!item || typeof item !== 'object') continue;
+        const event = item as Record<string, unknown>;
+        const detail = this.firstString(event, ['status_detail', 'details', 'message', 'activity', 'status']);
+        const location = this.firstString(event, ['location', 'city', 'hub']);
+        const time = this.firstString(event, ['status_date', 'time', 'date', 'datetime', 'created_at']);
+        if (!detail && !location && !time) continue;
+        rows.push({
+          status: detail ?? '',
+          status_date: time ?? '',
+          location: location ?? undefined,
+          message: detail ?? undefined,
+          activity: this.firstString(event, ['activity']) ?? undefined,
+          status_detail: this.firstString(event, ['status_detail', 'details']) ?? undefined,
+        });
+      }
+    }
+    return rows;
+  }
+
+  private async fetchClassicTrackByAwb(
+    awb: string,
+    carrierId?: string | number,
+  ): Promise<IShipwayTrackingResponse> {
+    this.logger.log(
+      {
+        awb,
+        carrierId: carrierId ?? null,
+        baseUrl: this.trackingBaseUrl,
+        endpoint: '/api/track',
+      },
+      '[Shipway] Classic /api/track — connecting',
+    );
+
+    const body: Record<string, unknown> = {
+      username: this.email,
+      password: this.licenseKey,
+      awb,
+    };
+    if (carrierId != null && String(carrierId).trim()) {
+      body.carrier_id = carrierId;
+    }
+
+    const raw = await this.request<Record<string, unknown>>(
+      '/api/track',
+      { method: 'POST', body: JSON.stringify(body) },
+      this.trackingBaseUrl,
+    );
+
+    const trackResult =
+      raw['track_result'] && typeof raw['track_result'] === 'object'
+        ? (raw['track_result'] as Record<string, unknown>)
+        : raw;
+    const scans = this.extractScanArray(raw);
+    const currentStatus =
+      this.firstString(trackResult, ['current_status', 'status']) ??
+      this.firstString(raw, ['current_status']);
+    const statusCode = this.firstString(trackResult, ['shipway_status', 'current_status_code']);
+
+    this.logger.log(
+      {
+        awb,
+        currentStatus,
+        statusCode,
+        scanCount: scans.length,
+        scans: scans.map((event) => ({
+          status: event.status,
+          location: event.location,
+          status_date: event.status_date,
+        })),
+        rawBody: raw,
+      },
+      '[Shipway] Classic /api/track — parsed',
+    );
+
+    return {
+      success: Boolean(currentStatus || statusCode || scans.length),
+      current_status: currentStatus ?? undefined,
+      current_status_code: statusCode ?? undefined,
+      shipway_status: statusCode ?? undefined,
+      awb_number: this.firstString(trackResult, ['awb_no', 'awb_number', 'awb']) ?? awb,
+      courier_name: this.firstString(
+        (trackResult['couriers'] as Record<string, unknown> | undefined) ?? {},
+        ['courier_name', 'name'],
+      ) ?? undefined,
+      events: scans,
+      scans,
+    };
+  }
+
   /** Flatten classic `{ status, response: {...} }` and scan aliases into our tracking shape. */
   private normalizeTrackingResponse(
     raw: IShipwayTrackingResponse & { msg?: string },
     orderId: string,
   ): IShipwayTrackingResponse {
     const nested = raw.response ?? {};
-    const scans = raw.events ?? raw.scans ?? raw.scan ?? nested.events ?? nested.scans ?? nested.scan ?? [];
-    // Never treat envelope status ("Success"/"Error"/"Failed") as the shipment status.
-    const currentStatus = raw.current_status ?? nested.current_status ?? undefined;
+    const rawRecord = raw as unknown as Record<string, unknown>;
+    const nestedRecord = nested as unknown as Record<string, unknown>;
+    const scans = this.extractScanArray(rawRecord);
+    const currentStatus =
+      raw.current_status ??
+      nested.current_status ??
+      this.firstString(rawRecord, ['current_status']) ??
+      this.firstString(nestedRecord, ['current_status']) ??
+      undefined;
+    const statusCode =
+      raw.current_status_code ??
+      nested.current_status_code ??
+      raw.shipway_status ??
+      nested.shipway_status ??
+      this.firstString(rawRecord, ['current_status_code', 'shipway_status']) ??
+      this.firstString(nestedRecord, ['current_status_code', 'shipway_status']) ??
+      undefined;
     const envelopeStatus = String(raw.status ?? '').toLowerCase();
     const envelopeOk = raw.success === true || envelopeStatus === 'success';
-    const success = envelopeOk || Boolean(currentStatus);
+    const success = envelopeOk || Boolean(currentStatus || statusCode);
 
     const mappedScans = scans.map((scan) => {
       const detail = scan.status_detail ?? scan.details ?? scan.message ?? scan.activity ?? '';
       return {
-        status: scan.status ?? detail,
+        status: scan.status || detail,
         status_date: scan.status_date ?? scan.time ?? '',
         location: scan.location,
         message: detail || undefined,
@@ -453,6 +660,21 @@ export class ShipwayService {
       };
     });
 
+    this.logger.log(
+      {
+        shipwayOrderId: orderId,
+        currentStatus,
+        statusCode,
+        scanCount: mappedScans.length,
+        scans: mappedScans.map((scan) => ({
+          status: scan.status,
+          location: scan.location,
+          status_date: scan.status_date,
+        })),
+      },
+      '[Shipway] Classic tracking — normalized scans',
+    );
+
     return {
       ...nested,
       ...raw,
@@ -460,9 +682,10 @@ export class ShipwayService {
       message: raw.message ?? raw.msg,
       order_id: raw.order_id ?? nested.order_id ?? orderId,
       current_status: currentStatus,
-      // Keep envelope status separate; shipping.service prefers current_status.
+      current_status_code: statusCode,
+      shipway_status: statusCode,
       status: currentStatus ?? (envelopeOk ? undefined : raw.status),
-      awb_number: raw.awb_number ?? nested.awb_number,
+      awb_number: raw.awb_number ?? nested.awb_number ?? this.firstString(rawRecord, ['awb_number', 'awb', 'awb_no']) ?? this.firstString(nestedRecord, ['awb_number', 'awb', 'awb_no']) ?? undefined,
       courier_name: raw.courier_name ?? nested.courier_name,
       courier_id: raw.courier_id ?? nested.courier_id,
       tracking_url: raw.tracking_url ?? nested.tracking_url,
@@ -470,7 +693,6 @@ export class ShipwayService {
       invoice_url: raw.invoice_url ?? nested.invoice_url,
       shipment_id: raw.shipment_id ?? nested.shipment_id,
       pickup_id: raw.pickup_id ?? nested.pickup_id,
-      current_status_code: raw.current_status_code ?? nested.current_status_code,
       scans: mappedScans,
       events: mappedScans,
       response: undefined,

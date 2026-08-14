@@ -197,7 +197,7 @@ export class ShippingService {
     }
 
     const tracking = await this.shipwayService.getShipmentDetails(shipment.shipwayOrderId);
-    const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+    const resolved = this.resolveLiveTracking(tracking);
     const rawStatus = resolved.rawStatus || shipment.shipwayRawStatus || 'Unknown';
     const shipmentStatus =
       resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
@@ -381,7 +381,7 @@ export class ShippingService {
       const tracking = await this.shipwayService.getShipmentDetails(shipwayOrderId, {
         awbNumber: local?.awbNumber ?? null,
       });
-      const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+      const resolved = this.resolveLiveTracking(tracking);
       const rawStatus = resolved.rawStatus || undefined;
       const events = tracking.events ?? tracking.scans ?? [];
 
@@ -419,8 +419,24 @@ export class ShippingService {
           })),
           fullTrackingResponse: tracking,
         },
-        '[Shipway] Received normalized tracking from getOrderShipmentDetails',
+        events.length === 0
+          ? '[Shipway] Tracking status received but scan history is empty'
+          : '[Shipway] Received normalized tracking from getOrderShipmentDetails',
       );
+
+      if (resolved.shipmentStatus === ShipmentStatus.UNKNOWN && rawStatus) {
+        this.logger.warn(
+          {
+            orderId,
+            orderNumber,
+            rawStatus,
+            current_status: tracking.current_status ?? null,
+            current_status_code: tracking.current_status_code ?? null,
+            shipway_status: tracking.shipway_status ?? null,
+          },
+          '[Shipway] Unmapped status code — add it to SHIPWAY_TO_SHIPMENT_STATUS_MAP',
+        );
+      }
 
       if (!rawStatus) {
         this.logger.warn(
@@ -512,7 +528,7 @@ export class ShippingService {
     tracking: IShipwayTrackingResponse,
     rawStatus: string,
   ): Promise<ShipmentEntity> {
-    const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+    const resolved = this.resolveLiveTracking(tracking);
     const shipmentStatus =
       resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
         ? resolved.shipmentStatus
@@ -563,7 +579,7 @@ export class ShippingService {
     rawStatus: string,
   ): ShipmentEntity {
     const now = new Date();
-    const resolved = ShipwayStatusMapper.resolveFromTracking(tracking);
+    const resolved = this.resolveLiveTracking(tracking);
     const shipmentStatus =
       resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
         ? resolved.shipmentStatus
@@ -805,11 +821,24 @@ export class ShippingService {
     }
   }
 
+  private resolveLiveTracking(tracking: IShipwayTrackingResponse) {
+    const events = tracking.events ?? tracking.scans ?? tracking.scan ?? [];
+    const latest = events[0];
+    return ShipwayStatusMapper.resolveFromTracking({
+      current_status: tracking.current_status,
+      status: tracking.status,
+      current_status_code: tracking.current_status_code,
+      shipway_status: tracking.shipway_status,
+      latest_scan_status:
+        latest?.status_detail ?? latest?.status ?? latest?.message ?? latest?.details ?? null,
+    });
+  }
+
   private overlayLiveTrackingEvents(
     shipment: ShipmentEntity,
     tracking: IShipwayTrackingResponse,
   ): ShipmentEntity {
-    const scans = tracking.events ?? tracking.scans ?? [];
+    const scans = this.uniqueVisibleTrackingEvents(tracking.events ?? tracking.scans ?? []);
     if (scans.length === 0) {
       return shipment;
     }
@@ -818,6 +847,32 @@ export class ShippingService {
       this.toLiveShipmentEvent(shipment.id, event, index),
     );
     return shipment;
+  }
+
+  private uniqueVisibleTrackingEvents(events: IShipwayTrackingEvent[]): IShipwayTrackingEvent[] {
+    const seen = new Set<string>();
+    const unique: IShipwayTrackingEvent[] = [];
+
+    for (const event of events) {
+      const status = (event.status || event.status_detail || event.message || event.details || '')
+        .trim()
+        .toLowerCase();
+      if (status === 'manifest uploaded') {
+        continue;
+      }
+
+      const happenedAt = this.parseEventDate(event.status_date ?? event.time);
+      const key = [
+        status,
+        (event.location ?? '').trim().toLowerCase(),
+        happenedAt?.toISOString() ?? '',
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(event);
+    }
+
+    return unique;
   }
 
   private toLiveShipmentEvent(
@@ -866,7 +921,7 @@ export class ShippingService {
       ),
     );
 
-    for (const event of events) {
+    for (const event of this.uniqueVisibleTrackingEvents(events)) {
       const description =
         event.message ?? event.status_detail ?? event.details ?? event.activity ?? null;
       const status = (event.status || description || 'Update').trim() || 'Update';
