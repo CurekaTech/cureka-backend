@@ -10,6 +10,7 @@ import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { ShipwayStatusMapper } from '../mappers/shipway-status.mapper';
+import { HIDDEN_SHIPWAY_SCAN_STATUSES } from '../constants/shipway-status.constants';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
 import {
   IShipwayPushOrderPayload,
@@ -857,7 +858,7 @@ export class ShippingService {
       const status = (event.status || event.status_detail || event.message || event.details || '')
         .trim()
         .toLowerCase();
-      if (status === 'manifest uploaded') {
+      if (HIDDEN_SHIPWAY_SCAN_STATUSES.has(status)) {
         continue;
       }
 
