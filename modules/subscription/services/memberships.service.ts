@@ -30,6 +30,7 @@ import { MembershipPlansService } from './membership-plans.service';
 import { MembershipPricingService } from './membership-pricing.service';
 import { SubscriptionNotificationsService } from './subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './subscription-payment-link.service';
+import { SubscriptionRelationLoaderService } from './subscription-relation-loader.service';
 
 @Injectable()
 export class MembershipsService {
@@ -43,6 +44,7 @@ export class MembershipsService {
     private readonly paymentLinkService: SubscriptionPaymentLinkService,
     private readonly notificationsService: SubscriptionNotificationsService,
     private readonly usersRepository: UsersRepository,
+    private readonly relationLoader: SubscriptionRelationLoaderService,
   ) {}
 
   listPlans() {
@@ -323,16 +325,18 @@ export class MembershipsService {
       status: query.status,
       userId: query.userId,
     });
-    const mapped = await Promise.all(
+    const users = await this.relationLoader.loadUsersByIds(data.map((row) => row.userId));
+    const items = await Promise.all(
       data.map(async (row) => {
         const plan = await this.plansService.findEntityById(row.membershipPlanId);
         return mapUserMembershipToResponse(row, {
           plan: plan ? mapMembershipPlanToResponse(plan) : null,
+          user: users.get(row.userId) ?? null,
         });
       }),
     );
     return {
-      data: mapped,
+      items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }

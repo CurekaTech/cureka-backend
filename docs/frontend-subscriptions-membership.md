@@ -11,6 +11,17 @@ Two storefront domains:
 
 **Do not send prices from the frontend.** Backend calculates amounts.
 
+### Nested display objects (GET / list)
+
+| Domain | Nested fields |
+|--------|----------------|
+| Product subscriptions | `product`, `variant` (`user` is `null` on customer APIs) |
+| Memberships | `plan` (+ `benefits`) |
+| Product subscription payments | `product`, `variant`, `subscription` summary |
+| Membership payments | `plan` |
+
+Admin list endpoints use `data.items` + `data.meta`. Customer list endpoints return `data` as a plain array.
+
 ---
 
 ## Enums
@@ -136,7 +147,42 @@ After payment, webhook activates subscription and creates the first order. Poll 
 GET /api/v1/subscriptions/products
 ```
 
-No query params. Returns array of `IUserProductSubscription`.
+No query params. `data` is an **array**. Each item includes nested `product` and `variant` (and `user` is null on customer APIs).
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "refId": "UPS...",
+      "status": "ACTIVE",
+      "frequency": "MONTHLY",
+      "finalAmount": "450.00",
+      "product": {
+        "id": "uuid",
+        "refId": "PRD...",
+        "name": "Contact Lens Pack",
+        "slug": "contact-lens-pack",
+        "status": "PUBLISHED"
+      },
+      "variant": {
+        "id": "uuid",
+        "productId": "uuid",
+        "sku": "CL-001",
+        "slug": "cl-001",
+        "displayName": "Power -1.25",
+        "sellingPrice": "500.00",
+        "mrp": "599.00",
+        "status": "ACTIVE"
+      },
+      "user": null
+    }
+  ],
+  "message": "Subscriptions fetched successfully",
+  "timestamp": "..."
+}
+```
 
 ---
 
@@ -150,6 +196,8 @@ GET /api/v1/subscriptions/products/:id
 |------|------|----------|
 | `id` | UUID | **Yes** |
 
+Same object shape as one list item (includes `product` + `variant`).
+
 ---
 
 ### 5. List payments for a subscription
@@ -162,7 +210,7 @@ GET /api/v1/subscriptions/products/:id/payments
 |------|------|----------|
 | `id` | UUID | **Yes** |
 
-Returns array of payment rows (`paymentLink`, `status`, `amount`, `billingCycleRef`, …).
+Returns array of payment rows (`paymentLink`, `status`, `amount`, `billingCycleRef`, …) plus nested `product`, `variant`, and `subscription` summary for UI.
 
 ---
 
@@ -339,7 +387,33 @@ Membership payment success does **not** create a product order.
 GET /api/v1/memberships/me
 ```
 
-No query. Active / in-grace membership, or null/empty per API behavior.
+No query. Active / in-grace membership, or `null`. Includes nested `plan` (with `benefits`).
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "refId": "UME...",
+    "status": "ACTIVE",
+    "membershipPlanId": "uuid",
+    "startDate": "...",
+    "endDate": "...",
+    "nextBillingDate": "...",
+    "plan": {
+      "id": "uuid",
+      "refId": "MPL...",
+      "name": "Gold",
+      "price": "999.00",
+      "billingCycle": "YEARLY",
+      "benefits": []
+    },
+    "user": null
+  },
+  "message": "...",
+  "timestamp": "..."
+}
+```
 
 ---
 
@@ -349,6 +423,8 @@ No query. Active / in-grace membership, or null/empty per API behavior.
 GET /api/v1/memberships/history
 ```
 
+`data` is an **array** of memberships (all statuses). Each item includes nested `plan`.
+
 ---
 
 ### 6. My membership payments
@@ -356,6 +432,8 @@ GET /api/v1/memberships/history
 ```http
 GET /api/v1/memberships/payments
 ```
+
+`data` is an **array**. Each payment includes nested `plan` for display.
 
 ---
 

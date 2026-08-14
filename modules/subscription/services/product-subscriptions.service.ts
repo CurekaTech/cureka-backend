@@ -39,6 +39,7 @@ import { ProductSubscriptionPaymentsService } from './product-subscription-payme
 import { ProductSubscriptionPricingService } from './product-subscription-pricing.service';
 import { SubscriptionNotificationsService } from './subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './subscription-payment-link.service';
+import { SubscriptionRelationLoaderService } from './subscription-relation-loader.service';
 
 @Injectable()
 export class ProductSubscriptionsService {
@@ -56,6 +57,7 @@ export class ProductSubscriptionsService {
     private readonly variantsRepository: ProductVariantsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly addressesRepository: UserAddressesRepository,
+    private readonly relationLoader: SubscriptionRelationLoaderService,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
   ) {}
@@ -196,13 +198,14 @@ export class ProductSubscriptionsService {
 
   async listMine(userId: string) {
     const rows = await this.subscriptionsRepository.findByUserId(userId);
-    return this.mapOwnedMany(rows);
+    return this.mapSubscriptionsWithRelations(rows);
   }
 
   async getMine(userId: string, id: string) {
     const sub = await this.subscriptionsRepository.findByIdAndUserId(id, userId);
     if (!sub) throw new NotFoundException('Subscription not found');
-    return this.mapOwned(sub);
+    const [mapped] = await this.mapSubscriptionsWithRelations([sub]);
+    return mapped;
   }
 
   async pause(userId: string, id: string, reason?: string) {
@@ -385,8 +388,9 @@ export class ProductSubscriptionsService {
       status: query.status,
       userId: query.userId,
     });
+    const items = await this.mapSubscriptionsWithRelations(data, { includeUser: true });
     return {
-      data: data.map((row) => mapUserProductSubscriptionToResponse(row)),
+      items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }
@@ -394,7 +398,33 @@ export class ProductSubscriptionsService {
   async getAdmin(id: string) {
     const sub = await this.subscriptionsRepository.findById(id);
     if (!sub) throw new NotFoundException('Subscription not found');
-    return mapUserProductSubscriptionToResponse(sub);
+    const [mapped] = await this.mapSubscriptionsWithRelations([sub], { includeUser: true });
+    return mapped;
+  }
+
+  private async mapSubscriptionsWithRelations(
+    rows: Awaited<ReturnType<UserProductSubscriptionsRepository['findByUserId']>>,
+    options?: {
+      includeUser?: boolean;
+      extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1];
+    },
+  ) {
+    const [users, products, variants] = await Promise.all([
+      options?.includeUser
+        ? this.relationLoader.loadUsersByIds(rows.map((r) => r.userId))
+        : Promise.resolve(new Map()),
+      this.relationLoader.loadProductsByIds(rows.map((r) => r.productId)),
+      this.relationLoader.loadVariantsByIds(rows.map((r) => r.productVariantId)),
+    ]);
+
+    return rows.map((row) =>
+      mapUserProductSubscriptionToResponse(row, {
+        ...options?.extras,
+        user: options?.includeUser ? users.get(row.userId) ?? null : null,
+        product: products.get(row.productId) ?? null,
+        variant: variants.get(row.productVariantId) ?? null,
+      }),
+    );
   }
 
   async handlePaymentSuccess(params: {
@@ -688,41 +718,7 @@ export class ProductSubscriptionsService {
     entity: UserProductSubscriptionEntity,
     extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1],
   ) {
-    const [mapped] = await this.mapOwnedMany([entity], extras);
+    const [mapped] = await this.mapSubscriptionsWithRelations([entity], { extras });
     return mapped;
-  }
-
-  private async mapOwnedMany(
-    rows: UserProductSubscriptionEntity[],
-    extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1],
-  ) {
-    const products = await this.productsRepository.findPublishedListByIds([
-      ...new Set(rows.map((row) => row.productId)),
-    ]);
-    const byId = new Map(products.map((product) => [product.id, product]));
-    return rows.map((row) =>
-      mapUserProductSubscriptionToResponse(row, {
-        ...extras,
-        product: this.toProductSummary(byId.get(row.productId)),
-      }),
-    );
-  }
-
-  private toProductSummary(product?: { id: string; name: string; slug: string; media?: Array<{ isPrimary: boolean; url: unknown }> }) {
-    if (!product) return null;
-    const media = (product.media ?? []).find((item) => item.isPrimary) ?? product.media?.[0];
-    const raw = media?.url;
-    const imageUrl =
-      typeof raw === 'string'
-        ? raw
-        : raw && typeof raw === 'object' && 'url' in raw && typeof (raw as { url?: unknown }).url === 'string'
-          ? (raw as { url: string }).url
-          : null;
-    return {
-      id: product.id,
-      name: product.name,
-      slug: product.slug,
-      imageUrl,
-    };
   }
 }

@@ -39,16 +39,13 @@ export const mapProductSubscriptionConfigToResponse = (
   updatedAt: entity.updatedAt.toISOString(),
 });
 
-export type ProductSummaryExtras = {
-  id: string;
-  name: string;
-  slug?: string;
-  imageUrl?: string | null;
-};
-
 export const mapUserProductSubscriptionToResponse = (
   entity: UserProductSubscriptionEntity,
-  extras?: SubscriptionCheckoutExtras & { product?: ProductSummaryExtras | null },
+  extras?: SubscriptionCheckoutExtras & {
+    user?: IUserProductSubscription['user'];
+    product?: IUserProductSubscription['product'];
+    variant?: IUserProductSubscription['variant'];
+  },
 ): IUserProductSubscription => ({
   id: entity.id,
   refId: entity.refId,
@@ -82,15 +79,22 @@ export const mapUserProductSubscriptionToResponse = (
   paymentSessionId: extras?.paymentSessionId ?? null,
   environment: extras?.environment ?? null,
   customer: extras?.customer ?? null,
+  user: extras?.user ?? null,
   product: extras?.product ?? null,
+  variant: extras?.variant ?? null,
   productName: extras?.product?.name ?? null,
-  productImageUrl: extras?.product?.imageUrl ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });
 
 export const mapSubscriptionPaymentToResponse = (
   entity: SubscriptionPaymentEntity,
+  extras?: {
+    user?: ISubscriptionPayment['user'];
+    product?: ISubscriptionPayment['product'];
+    variant?: ISubscriptionPayment['variant'];
+    subscription?: ISubscriptionPayment['subscription'];
+  },
 ): ISubscriptionPayment => ({
   id: entity.id,
   refId: entity.refId,
@@ -109,6 +113,10 @@ export const mapSubscriptionPaymentToResponse = (
   paidAt: toIso(entity.paidAt),
   failureReason: entity.failureReason,
   retryCount: entity.retryCount,
+  user: extras?.user ?? null,
+  product: extras?.product ?? null,
+  variant: extras?.variant ?? null,
+  subscription: extras?.subscription ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });
