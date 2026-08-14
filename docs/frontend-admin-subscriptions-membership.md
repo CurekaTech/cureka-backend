@@ -297,6 +297,7 @@ Content-Type: application/json
 |-------|------|----------|--------|
 | `benefitType` | enum | **Yes** | |
 | `valueType` | enum | **Yes** | Use `NONE` for flag benefits like `FREE_SHIPPING` |
+| `value` | number \| null | No | Omit / `null` when `valueType` is `NONE`; required conceptually for `PERCENTAGE` / `FLAT` |
 | `value` | number ≥ 0 | No | For `MEMBER_DISCOUNT` |
 | `metadata` | object | No | e.g. `{ "freeCount": 2 }` for consultations |
 | `status` | enum | No | default `ACTIVE` |
