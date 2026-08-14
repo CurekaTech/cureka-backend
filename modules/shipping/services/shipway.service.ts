@@ -440,13 +440,18 @@ export class ShipwayService {
     const envelopeOk = raw.success === true || envelopeStatus === 'success';
     const success = envelopeOk || Boolean(currentStatus);
 
-    const mappedScans = scans.map((scan) => ({
-      status: scan.status ?? scan.status_detail ?? '',
-      status_date: scan.status_date ?? scan.time ?? '',
-      location: scan.location,
-      message: scan.message ?? scan.status_detail,
-      activity: scan.activity,
-    }));
+    const mappedScans = scans.map((scan) => {
+      const detail = scan.status_detail ?? scan.details ?? scan.message ?? scan.activity ?? '';
+      return {
+        status: scan.status ?? detail,
+        status_date: scan.status_date ?? scan.time ?? '',
+        location: scan.location,
+        message: detail || undefined,
+        activity: scan.activity,
+        status_detail: scan.status_detail ?? scan.details,
+        details: scan.details,
+      };
+    });
 
     return {
       ...nested,
