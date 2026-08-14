@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
@@ -53,6 +54,7 @@ import { SubscriptionPaymentLinkService } from './services/subscription-payment-
       MembershipBenefitEntity,
       UserMembershipEntity,
       MembershipPaymentEntity,
+      AdminUserEntity,
     ]),
     UsersModule,
     NotificationsModule,
