@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
@@ -21,6 +23,7 @@ import {
 } from '@packages/cache';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
+import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkUpdateVariantOosDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
@@ -86,6 +89,8 @@ export class ProductsService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productMultipartService: ProductMultipartService,
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
+    @Inject(forwardRef(() => ProductSubscriptionConfigService))
+    private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -392,6 +397,8 @@ export class ProductsService {
 
     await this.emitProductUpdated(product.refId, 'created');
 
+    await this.syncSubscriptionConfig(product.id, normalizedDto, createdBy);
+
     if (options?.skipDetailEnrichment) {
       return mapProductEntityToResponse(loaded);
     }
@@ -523,10 +530,11 @@ export class ProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichProductDetail(raw);
+    const withConfig = await this.attachSubscriptionConfig(result);
     this.logger.log(
       `[PERF] findOne refId="${refId}" | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    return result;
+    return withConfig;
   }
 
   async update(
@@ -926,6 +934,7 @@ export class ProductsService {
       throw new NotFoundException(`Product with refId ${refId} not found after update`);
     }
     await this.emitProductUpdated(refId, 'updated');
+    await this.syncSubscriptionConfig(updated.id, dto, updatedBy);
     if (options?.skipDetailEnrichment) {
       return mapProductEntityToResponse(updated);
     }
@@ -1492,6 +1501,35 @@ export class ProductsService {
     action: 'created' | 'updated' | 'deleted' | 'status_updated',
   ): Promise<void> {
     await this.eventEmitter.emitAsync(EVENTS.PRODUCT_UPDATED, new ProductUpdatedEvent(refId, action));
+  }
+
+  private async syncSubscriptionConfig(
+    productId: string,
+    dto: CreateProductDto | UpdateProductDto,
+    actor: string,
+  ): Promise<void> {
+    if (dto.subscriptionEnabled === false) {
+      await this.productSubscriptionConfigService.disableForProduct(productId, actor);
+      return;
+    }
+    if (dto.subscriptionEnabled === true && dto.subscriptionConfig) {
+      await this.productSubscriptionConfigService.upsertForProduct(
+        productId,
+        dto.subscriptionConfig.productVariantId ?? null,
+        dto.subscriptionConfig,
+        actor,
+      );
+    }
+  }
+
+  private async attachSubscriptionConfig<T extends IProduct>(product: T): Promise<T> {
+    try {
+      const configs = await this.productSubscriptionConfigService.getByProductId(product.id);
+      const primary = configs.find((c) => c.productVariantId == null) ?? configs[0] ?? null;
+      return { ...product, subscriptionConfig: primary };
+    } catch {
+      return { ...product, subscriptionConfig: null };
+    }
   }
 
   /** Published storefront products for cross-module consumers (wishlist, etc.). */

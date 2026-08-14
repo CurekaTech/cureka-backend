@@ -1,0 +1,8 @@
+export enum MembershipPaymentStatus {
+  PENDING = 'PENDING',
+  LINK_GENERATED = 'LINK_GENERATED',
+  PAID = 'PAID',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+}
