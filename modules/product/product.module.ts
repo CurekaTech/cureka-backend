@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UsersModule } from '@modules/users/users.module';
+import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { GalleryModule } from '../gallery/gallery.module';
@@ -111,6 +112,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     // OrdersModule and UsersModule are needed by ProductReviewsService
     OrdersModule,
     UsersModule,
+    forwardRef(() => SubscriptionModule),
     QueueModule.registerQueue('bulk-upload'),
     QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
     TypeOrmModule.forFeature([

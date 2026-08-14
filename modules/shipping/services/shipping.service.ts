@@ -838,7 +838,7 @@ export class ShippingService {
     shipment: ShipmentEntity,
     tracking: IShipwayTrackingResponse,
   ): ShipmentEntity {
-    const scans = tracking.events ?? tracking.scans ?? [];
+    const scans = this.uniqueVisibleTrackingEvents(tracking.events ?? tracking.scans ?? []);
     if (scans.length === 0) {
       return shipment;
     }
@@ -847,6 +847,32 @@ export class ShippingService {
       this.toLiveShipmentEvent(shipment.id, event, index),
     );
     return shipment;
+  }
+
+  private uniqueVisibleTrackingEvents(events: IShipwayTrackingEvent[]): IShipwayTrackingEvent[] {
+    const seen = new Set<string>();
+    const unique: IShipwayTrackingEvent[] = [];
+
+    for (const event of events) {
+      const status = (event.status || event.status_detail || event.message || event.details || '')
+        .trim()
+        .toLowerCase();
+      if (status === 'manifest uploaded') {
+        continue;
+      }
+
+      const happenedAt = this.parseEventDate(event.status_date ?? event.time);
+      const key = [
+        status,
+        (event.location ?? '').trim().toLowerCase(),
+        happenedAt?.toISOString() ?? '',
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(event);
+    }
+
+    return unique;
   }
 
   private toLiveShipmentEvent(
@@ -895,7 +921,7 @@ export class ShippingService {
       ),
     );
 
-    for (const event of events) {
+    for (const event of this.uniqueVisibleTrackingEvents(events)) {
       const description =
         event.message ?? event.status_detail ?? event.details ?? event.activity ?? null;
       const status = (event.status || description || 'Update').trim() || 'Update';

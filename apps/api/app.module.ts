@@ -47,6 +47,7 @@ import { NotificationsModule } from '@modules/notifications/notifications.module
 import { VendorsModule } from '@modules/vendors/vendors.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { ReportsModule } from '@modules/reports/reports.module';
+import { SubscriptionModule } from '@modules/subscription/subscription.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { ReportsModule } from '@modules/reports/reports.module';
     VendorsModule,
     DashboardModule,
     ReportsModule,
+    SubscriptionModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

@@ -52,6 +52,41 @@ function mapShipmentEventToResponse(event: ShipmentEventEntity): ShipmentEventRe
   };
 }
 
+const HIDDEN_SCAN_STATUSES = new Set([
+  'manifest uploaded',
+]);
+
+function eventDedupeKey(event: ShipmentEventEntity): string {
+  const happenedAt = event.happenedAt?.getTime() ?? 0;
+  return [
+    (event.status ?? '').trim().toLowerCase(),
+    (event.location ?? '').trim().toLowerCase(),
+    String(happenedAt),
+    (event.description ?? '').trim().toLowerCase(),
+  ].join('|');
+}
+
+function isHiddenScanEvent(event: ShipmentEventEntity): boolean {
+  const status = (event.status ?? '').trim().toLowerCase();
+  const description = (event.description ?? '').trim().toLowerCase();
+  return HIDDEN_SCAN_STATUSES.has(status) || HIDDEN_SCAN_STATUSES.has(description);
+}
+
+function uniqueVisibleEvents(events: ShipmentEventEntity[]): ShipmentEventEntity[] {
+  const seen = new Set<string>();
+  const unique: ShipmentEventEntity[] = [];
+
+  for (const event of sortEvents(events)) {
+    if (isHiddenScanEvent(event)) continue;
+    const key = eventDedupeKey(event);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(event);
+  }
+
+  return unique;
+}
+
 function sortEvents(events: ShipmentEventEntity[]): ShipmentEventEntity[] {
   return [...events].sort((a, b) => {
     const aTime = a.happenedAt?.getTime() ?? 0;
@@ -350,7 +385,7 @@ export function mapShipmentToResponse(
     shipwayStatus: false,
   },
 ): ShipmentResponse {
-  const events = sortEvents(shipment.events ?? []);
+  const events = uniqueVisibleEvents(shipment.events ?? []);
   const mappedEvents = events.map(mapShipmentEventToResponse);
   const shipwayStatus = options.shipwayStatus;
 
