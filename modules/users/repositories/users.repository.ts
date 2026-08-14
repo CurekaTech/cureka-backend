@@ -53,6 +53,13 @@ export class UsersRepository {
     return this.repo.findOne({ where: { id }, relations: { roleRecord: true } });
   }
 
+  async findByIds(ids: string[]): Promise<UserEntity[]> {
+    if (!ids.length) return [];
+    return this.repo.find({
+      where: { id: In([...new Set(ids)]) },
+    });
+  }
+
   async findByRefId(refId: string): Promise<UserEntity | null> {
     return this.repo.findOne({ where: { refId }, relations: { roleRecord: true } });
   }

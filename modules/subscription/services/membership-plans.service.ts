@@ -87,7 +87,7 @@ export class MembershipPlansService {
       status: query.status,
     });
     return {
-      data: data.map(mapMembershipPlanToResponse),
+      items: data.map(mapMembershipPlanToResponse),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }

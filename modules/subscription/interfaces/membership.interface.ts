@@ -4,6 +4,12 @@ import { MembershipBenefitValueType } from '../enums/membership-benefit-value-ty
 import { MembershipPlanStatus } from '../enums/membership-plan-status.enum';
 import { MembershipStatus } from '../enums/membership-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
+import {
+  ISubscriptionListResponse,
+  ISubscriptionUserSummary,
+} from './product-subscription.interface';
+
+export type { ISubscriptionListResponse, ISubscriptionUserSummary };
 
 export interface IMembershipBenefit {
   id: string;
@@ -55,6 +61,7 @@ export interface IUserMembership {
   termsAcceptedAt: string | null;
   paymentLink?: string | null;
   plan?: IMembershipPlan | null;
+  user?: ISubscriptionUserSummary | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -77,6 +84,12 @@ export interface IMembershipPayment {
   paidAt: string | null;
   failureReason: string | null;
   retryCount: number;
+  user?: ISubscriptionUserSummary | null;
+  plan?: IMembershipPlan | null;
+  membership?: Pick<
+    IUserMembership,
+    'id' | 'refId' | 'status' | 'startDate' | 'endDate' | 'nextBillingDate'
+  > | null;
   createdAt: string;
   updatedAt: string;
 }
