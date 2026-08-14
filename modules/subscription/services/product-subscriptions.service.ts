@@ -19,6 +19,7 @@ import { UsersRepository } from '@modules/users/repositories/users.repository';
 import {
   AdminProductSubscriptionQueryDto,
   ChangeProductSubscriptionFrequencyDto,
+  ActivateProductSubscriptionFromPaidOrderDto,
   CreateProductSubscriptionDto,
   ProductSubscriptionConfigQueryDto,
 } from '../dto/product-subscription.dto';
@@ -196,6 +197,166 @@ export class ProductSubscriptionsService {
     return this.mapOwned(refreshed ?? subscription, checkoutExtrasFromLink(link));
   }
 
+  /**
+   * Cart/checkout already charged and created an order. Create or activate the
+   * product subscription against that paid order — do not charge again or
+   * create a second order.
+   */
+  async activateFromPaidOrder(
+    userId: string,
+    dto: ActivateProductSubscriptionFromPaidOrderDto,
+  ) {
+    const order = await this.ordersService.findPaidOrderForSubscriptionAttach({
+      userId,
+      productId: dto.productId,
+      productVariantId: dto.productVariantId,
+      orderRef: dto.orderRef,
+    });
+    if (!order) {
+      throw new BadRequestException(
+        'Paid order not found for this product. Wait a moment and try again from Subscriptions.',
+      );
+    }
+
+    const product = await this.productsRepository.findPublishedById(dto.productId);
+    if (!product || product.status !== ProductStatus.PUBLISHED) {
+      throw new BadRequestException('Product is not available for subscription');
+    }
+    if (!product.subscriptionEnabled) {
+      throw new BadRequestException('Subscription is not enabled for this product');
+    }
+
+    const variant = await this.variantsRepository.findById(dto.productVariantId);
+    if (
+      !variant ||
+      variant.productId !== dto.productId ||
+      variant.status !== VariantStatus.ACTIVE
+    ) {
+      throw new BadRequestException('Product variant is not available for subscription');
+    }
+
+    const configEntity = await this.configService.findEntityForProductVariant(
+      dto.productId,
+      dto.productVariantId,
+    );
+    if (!configEntity || !configEntity.enabled) {
+      throw new BadRequestException('Subscription config is not enabled');
+    }
+    if (!configEntity.frequencies.includes(dto.frequency)) {
+      throw new BadRequestException('Selected frequency is not allowed for this product');
+    }
+
+    const address = await this.addressesRepository.findByIdAndUserId(dto.addressId, userId);
+    if (!address) {
+      throw new BadRequestException('Delivery address not found');
+    }
+
+    const existing = (await this.subscriptionsRepository.findByUserId(userId)).filter(
+      (row) => row.productId === dto.productId && row.productVariantId === dto.productVariantId,
+    );
+    const alreadyActive = existing.find(
+      (row) =>
+        row.status === ProductSubscriptionStatus.ACTIVE ||
+        row.status === ProductSubscriptionStatus.PAUSED,
+    );
+    if (alreadyActive) {
+      if (!order.subscriptionId) {
+        await this.ordersService.attachSubscriptionIdToOrder(
+          order.id,
+          alreadyActive.id,
+          userId,
+        );
+      }
+      return this.getMine(userId, alreadyActive.id);
+    }
+
+    const pending = existing.find(
+      (row) => row.status === ProductSubscriptionStatus.PENDING_PAYMENT,
+    );
+
+    const memberDiscount = await this.membershipBenefits.getMemberDiscount(userId);
+    const pricing = this.pricingService.calculate(
+      variant.sellingPrice,
+      dto.quantity,
+      configEntity.discountType,
+      configEntity.discountValue,
+      memberDiscount,
+    );
+
+    const now = new Date();
+    const nextBilling = getNextProductBillingDate(now, dto.frequency);
+
+    let subscriptionId: string;
+    if (pending) {
+      await this.subscriptionsRepository.updateById(pending.id, {
+        addressId: dto.addressId,
+        quantity: dto.quantity,
+        frequency: dto.frequency,
+        subscriptionPrice: pricing.subscriptionPrice,
+        discountValue: configEntity.discountValue,
+        finalAmount: pricing.finalAmount,
+        discountType: configEntity.discountType,
+        status: ProductSubscriptionStatus.ACTIVE,
+        startDate: pending.startDate ?? now,
+        nextBillingDate: nextBilling,
+        nextDeliveryDate: nextBilling,
+        billingCycleSequence: Math.max(1, pending.billingCycleSequence ?? 0),
+        updatedBy: userId,
+      });
+      subscriptionId = pending.id;
+      const payments = await this.paymentsService.findBySubscriptionId(pending.id);
+      const unpaid = payments.find(
+        (p) =>
+          p.status === SubscriptionPaymentStatus.PENDING ||
+          p.status === SubscriptionPaymentStatus.LINK_GENERATED,
+      );
+      if (unpaid) {
+        await this.paymentsService.markPaidIdempotent(unpaid.id, { actor: userId });
+      }
+    } else {
+      const refId = await generateUniqueRefId('ups', (c) =>
+        this.subscriptionsRepository.existsByRefId(c),
+      );
+      const subscription = await this.subscriptionsRepository.create({
+        refId,
+        userId,
+        productId: dto.productId,
+        productVariantId: dto.productVariantId,
+        addressId: dto.addressId,
+        quantity: dto.quantity,
+        frequency: dto.frequency,
+        subscriptionPrice: pricing.subscriptionPrice,
+        discountValue: configEntity.discountValue,
+        finalAmount: pricing.finalAmount,
+        discountType: configEntity.discountType,
+        status: ProductSubscriptionStatus.ACTIVE,
+        startDate: now,
+        nextBillingDate: nextBilling,
+        nextDeliveryDate: nextBilling,
+        renewalMethod: configEntity.renewalMethod,
+        configId: configEntity.id,
+        billingCycleSequence: 1,
+        createdBy: userId,
+        updatedBy: userId,
+      });
+      subscriptionId = subscription.id;
+
+      const billingCycleRef = buildBillingCycleRef(now);
+      const payment = await this.paymentsService.upsertPendingCycle({
+        subscriptionId: subscription.id,
+        userId,
+        billingCycleRef,
+        amount: pricing.finalAmount,
+        billingDate: now,
+        actor: userId,
+      });
+      await this.paymentsService.markPaidIdempotent(payment.id, { actor: userId });
+    }
+
+    await this.ordersService.attachSubscriptionIdToOrder(order.id, subscriptionId, userId);
+    return this.getMine(userId, subscriptionId);
+  }
+
   async listMine(userId: string) {
     const rows = await this.subscriptionsRepository.findByUserId(userId);
     return this.mapSubscriptionsWithRelations(rows);
@@ -370,6 +531,52 @@ export class ProductSubscriptionsService {
     });
 
     return this.mapOwned(sub, checkoutExtrasFromLink(link));
+  }
+
+  async verifyRazorpayPayment(
+    userId: string,
+    subscriptionId: string,
+    dto: VerifyProductSubscriptionPaymentDto,
+  ) {
+    this.paymentLinkService.verifyRazorpaySignature(
+      dto.razorpay_order_id,
+      dto.razorpay_payment_id,
+      dto.razorpay_signature,
+    );
+
+    const sub = await this.subscriptionsRepository.findByIdAndUserId(subscriptionId, userId);
+    if (!sub) throw new NotFoundException('Subscription not found');
+
+    const payment = await this.paymentsService.findByGatewayOrderId(dto.razorpay_order_id);
+    if (!payment || payment.subscriptionId !== subscriptionId || payment.userId !== userId) {
+      throw new BadRequestException('Payment does not match this subscription');
+    }
+
+    await this.handlePaymentSuccess({
+      paymentId: payment.id,
+      gatewayOrderId: dto.razorpay_order_id,
+      gatewayPaymentId: dto.razorpay_payment_id,
+      actor: userId,
+    });
+
+    return this.getMine(userId, subscriptionId);
+  }
+
+  async tryHandlePaidByGatewayOrderId(
+    gatewayOrderId?: string,
+    gatewayPaymentId?: string,
+    actor?: string,
+  ): Promise<boolean> {
+    if (!gatewayOrderId) return false;
+    const payment = await this.paymentsService.findByGatewayOrderId(gatewayOrderId);
+    if (!payment) return false;
+    await this.handlePaymentSuccess({
+      paymentId: payment.id,
+      gatewayOrderId,
+      gatewayPaymentId,
+      actor,
+    });
+    return true;
   }
 
   async listPayments(userId: string, subscriptionId: string) {

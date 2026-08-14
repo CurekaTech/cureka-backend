@@ -20,10 +20,12 @@ import { ResponseMessage } from '@packages/common';
 import {
   CancelProductSubscriptionDto,
   ChangeProductSubscriptionFrequencyDto,
+  ActivateProductSubscriptionFromPaidOrderDto,
   CreateProductSubscriptionDto,
   PauseProductSubscriptionDto,
   ProductSubscriptionConfigQueryDto,
   UpdateProductSubscriptionAddressDto,
+  VerifyProductSubscriptionPaymentDto,
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionsService } from '../services/product-subscriptions.service';
 
@@ -51,6 +53,20 @@ export class ProductSubscriptionsController {
     @Body() dto: CreateProductSubscriptionDto,
   ) {
     return this.productSubscriptionsService.create(user.sub, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Activate product subscription from an already-paid checkout order (no second charge)',
+  })
+  @ResponseMessage('Subscription activated successfully')
+  @Post('from-paid-order')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  activateFromPaidOrder(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Body() dto: ActivateProductSubscriptionFromPaidOrderDto,
+  ) {
+    return this.productSubscriptionsService.activateFromPaidOrder(user.sub, dto);
   }
 
   @ApiOperation({ summary: 'List my product subscriptions' })

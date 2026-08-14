@@ -70,6 +70,55 @@ export class ChangeProductSubscriptionFrequencyDto {
   frequency!: ProductSubscriptionFrequency;
 }
 
+export class ActivateProductSubscriptionFromPaidOrderDto {
+  @ApiPropertyOptional({
+    description: 'Order number, order id, order refId, or payment-request refId',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  orderRef?: string;
+
+  @ApiProperty()
+  @IsUUID()
+  productId!: string;
+
+  @ApiProperty()
+  @IsUUID()
+  productVariantId!: string;
+
+  @ApiProperty({ enum: ProductSubscriptionFrequency })
+  @IsEnum(ProductSubscriptionFrequency)
+  frequency!: ProductSubscriptionFrequency;
+
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @ApiProperty()
+  @IsUUID()
+  addressId!: string;
+}
+
+export class VerifyProductSubscriptionPaymentDto {
+  @ApiProperty()
+  @IsString()
+  @MaxLength(100)
+  razorpay_order_id!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MaxLength(100)
+  razorpay_payment_id!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MaxLength(255)
+  razorpay_signature!: string;
+}
+
 export class UpdateProductSubscriptionAddressDto {
   @ApiProperty()
   @IsUUID()
