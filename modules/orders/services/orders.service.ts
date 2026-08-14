@@ -826,6 +826,140 @@ export class OrdersService {
     });
   }
 
+  async createOrderFromSubscription(params: {
+    customerId: string;
+    addressId: string;
+    subscriptionId: string;
+    subscriptionRefId: string;
+    subtotal: string;
+    discountAmount: string;
+    shippingAmount: string;
+    handlingAmount?: string;
+    prepaidDiscount?: string;
+    grandTotal: string;
+    notes: string | null;
+    paymentMethod?: OrderPaymentMethod;
+    orderSource?: OrderSource;
+    createdBy?: string;
+    platformFee?: string;
+    items: Array<{
+      productId: string;
+      variantId: string;
+      quantity: number;
+      unitPrice: string;
+      totalPrice: string;
+    }>;
+  }) {
+    const order = await this.dataSource.transaction(async (manager) => {
+      const addressRepository = manager.getRepository(UserAddressEntity);
+      const address = await addressRepository.findOne({
+        where: { id: params.addressId, userId: params.customerId },
+      });
+      if (!address) {
+        throw new BadRequestException('Selected subscription address was not found');
+      }
+
+      const orderRefId = await generateUniqueRefId('order', (candidate) =>
+        this.ordersRepository.existsByRefId(candidate),
+      );
+      const orderNumber = await this.generateOrderNumber();
+
+      const createdOrder = await this.ordersRepository.create(
+        {
+          refId: orderRefId,
+          orderNumber,
+          userId: params.customerId,
+          subtotal: params.subtotal,
+          discountAmount: params.discountAmount,
+          shippingAmount: params.shippingAmount,
+          handlingAmount: params.handlingAmount ?? '0.00',
+          platformFee: params.platformFee ?? '0.00',
+          codCharge: '0.00',
+          prepaidDiscount: params.prepaidDiscount ?? '0.00',
+          grandTotal: params.grandTotal,
+          paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
+          paymentStatus: OrderPaymentStatus.PAID,
+          orderStatus: OrderStatus.CONFIRMED,
+          orderSource: params.orderSource ?? OrderSource.WEBSITE,
+          subscriptionId: params.subscriptionId,
+          recipientName: address.recipientName,
+          phoneNumber: address.phoneNumber,
+          pincode: address.pincode,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2 ?? null,
+          landmark: address.landmark ?? null,
+          city: address.city,
+          state: address.state,
+          notes:
+            params.notes ??
+            `Generated from product subscription ${params.subscriptionRefId}`,
+          placedAt: new Date(),
+          createdBy: params.createdBy ?? 'subscription-webhook',
+          updatedBy: params.createdBy ?? 'subscription-webhook',
+        },
+        manager,
+      );
+
+      const orderItemsPayload = [];
+      for (const item of params.items) {
+        const variant = await manager.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+          relations: { product: true, attributeValues: true },
+        });
+        if (!variant) throw new BadRequestException('Variant not found while creating order');
+        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
+          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+        }
+        await manager
+          .getRepository(ProductVariantEntity)
+          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
+        const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
+          this.orderItemsRepository.existsByRefId(candidate),
+        );
+        orderItemsPayload.push({
+          refId: orderItemRefId,
+          orderId: createdOrder.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          sku: variant.sku,
+          productName: variant.product?.name ?? '',
+          variantName: variant.attributeValues?.length
+            ? variant.attributeValues.map((value) => value.value).join(' / ')
+            : null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          createdBy: params.createdBy ?? 'subscription-webhook',
+          updatedBy: params.createdBy ?? 'subscription-webhook',
+        });
+      }
+
+      await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+
+      const order = await this.ordersRepository.findByIdAndUserId(
+        createdOrder.id,
+        params.customerId,
+        manager,
+      );
+      if (!order) throw new NotFoundException('Order not found after creation');
+      this.logger.log(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          subscriptionId: params.subscriptionId,
+          customerId: params.customerId,
+        },
+        'Subscription order creation transaction completed',
+      );
+      return order;
+    });
+
+    await this.notifyOrderPlacedSafely(order, 'subscription-order');
+    await this.kickoffFulfillment(order.id, order.orderNumber, 'subscription-order');
+
+    return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
+  }
+
   async createOrderFromPaymentRequest(params: {
     customerId: string;
     addressId?: string | null;

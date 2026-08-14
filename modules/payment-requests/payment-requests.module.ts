@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UsersModule } from '@modules/users/users.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { CheckoutModule } from '@modules/checkout/checkout.module';
+import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { PaymentRequestEntity } from './entities/payment-request.entity';
 import { PaymentRequestItemEntity } from './entities/payment-request-item.entity';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
@@ -24,6 +25,7 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     OrdersModule,
     AdminSettingsModule,
     CheckoutModule,
+    forwardRef(() => SubscriptionModule),
   ],
   providers: [
     PaymentRequestsRepository,
@@ -37,6 +39,11 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     AdminPaymentRequestsController,
     CustomerPaymentRequestsController,
     PaymentsWebhookController,
+  ],
+  exports: [
+    RazorpayPaymentLinksService,
+    CashfreePaymentService,
+    PaymentGatewayResolverService,
   ],
 })
 export class PaymentRequestsModule {}
