@@ -187,8 +187,6 @@ export interface IProduct {
   productInformation: IProductInformationItem[];
   expiresInMonths: number | null;
   subscriptionEnabled: boolean;
-  /** Present on admin product responses when subscription config exists. */
-  subscriptionConfig?: import('@modules/subscription/interfaces/product-subscription.interface').IProductSubscriptionConfig | null;
   codAvailable: boolean;
   emiAvailable: boolean;
   replaceAllowed: boolean;

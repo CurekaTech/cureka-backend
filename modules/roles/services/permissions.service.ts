@@ -279,42 +279,6 @@ export class PermissionsService {
         ],
       },
       {
-        name: 'Subscription & Membership',
-        key: 'subscriptions',
-        subItems: [
-          {
-            name: 'Membership Plans',
-            key: 'subscriptions-membership-plans',
-            permissions: getPerms('membership_plans'),
-          },
-          {
-            name: 'User Memberships',
-            key: 'subscriptions-user-memberships',
-            permissions: getPerms('user_memberships', ['read']),
-          },
-          {
-            name: 'Membership Payments',
-            key: 'subscriptions-membership-payments',
-            permissions: getPerms('membership_payments', ['read']),
-          },
-          {
-            name: 'Product Subscriptions',
-            key: 'subscriptions-product-subscriptions',
-            permissions: getPerms('user_product_subscriptions', ['read']),
-          },
-          {
-            name: 'Subscription Payments',
-            key: 'subscriptions-product-payments',
-            permissions: getPerms('subscription_payments', ['read']),
-          },
-          {
-            name: 'Failed Renewals',
-            key: 'subscriptions-failed-renewals',
-            permissions: getPerms('subscription_payments', ['read']),
-          },
-        ],
-      },
-      {
         name: 'CMS',
         key: 'cms',
         subItems: [

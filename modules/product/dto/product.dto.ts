@@ -36,7 +36,6 @@ import {
   AdminProductListSortField,
 } from '../constants/admin-product-list-sort.constants';
 import { normalizeExpiryDateInput } from '../utils/expiry-date.util';
-import { ProductSubscriptionConfigDto } from '@modules/subscription/dto/product-subscription-config.dto';
 
 export class ProductPackMetadataDto {
   @ApiProperty({ example: 1 })
@@ -354,16 +353,6 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   subscriptionEnabled?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Required when subscriptionEnabled is true — nested product subscription settings',
-    type: () => ProductSubscriptionConfigDto,
-  })
-  @ValidateIf((o: CreateProductDto) => o.subscriptionEnabled === true)
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => ProductSubscriptionConfigDto)
-  subscriptionConfig?: ProductSubscriptionConfigDto;
 
   @ApiPropertyOptional({ default: false })
   @IsOptional()

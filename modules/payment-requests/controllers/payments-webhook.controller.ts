@@ -1,9 +1,6 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Inject, Logger, Post, Req, forwardRef } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, HttpStatus, Logger, Post, Req } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
-import { SUBSCRIPTION_PAYMENT_PURPOSE } from '@modules/subscription/constants/subscription-payment-purpose.constants';
-import { MembershipsService } from '@modules/subscription/services/memberships.service';
-import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { PaymentRequestsService } from '../services/payment-requests.service';
 import { RazorpayPaymentLinksService } from '../services/razorpay-payment-links.service';
 import { CashfreePaymentService } from '../services/cashfree-payment.service';
@@ -19,10 +16,6 @@ export class PaymentsWebhookController {
     private readonly paymentRequestsService: PaymentRequestsService,
     private readonly cashfreeService: CashfreePaymentService,
     private readonly shiprocketCheckoutService: ShiprocketCheckoutService,
-    @Inject(forwardRef(() => ProductSubscriptionsService))
-    private readonly productSubscriptionsService: ProductSubscriptionsService,
-    @Inject(forwardRef(() => MembershipsService))
-    private readonly membershipsService: MembershipsService,
   ) { }
 
   @Post('webhook/shiprocket-checkout')
@@ -78,35 +71,18 @@ export class PaymentsWebhookController {
     const paymentData = data?.['payment'] as Record<string, any> | undefined;
     const orderId = orderData?.['order_id'];
     const cfPaymentId = paymentData?.['cf_payment_id'];
-    const orderTags = (orderData?.['order_tags'] ?? orderData?.['order_meta'] ?? {}) as Record<
-      string,
-      unknown
-    >;
-    const paymentPurpose = String(
-      orderTags['paymentPurpose'] ?? paymentData?.['payment_tags']?.['paymentPurpose'] ?? '',
-    );
 
     this.logger.log(
-      { eventType, orderId, cfPaymentId, paymentPurpose, requestId: req.id },
+      { eventType, orderId, cfPaymentId, requestId: req.id },
       'Cashfree webhook received',
     );
 
     if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' && paymentData?.['payment_status'] === 'SUCCESS') {
       if (orderId) {
-        const routed = await this.routeSubscriptionPaid({
-          paymentPurpose,
-          gatewayOrderId: String(orderId),
-          gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
-          subscriptionPaymentId: String(orderTags['subscriptionPaymentId'] ?? ''),
-          membershipPaymentId: String(orderTags['membershipPaymentId'] ?? ''),
-          actor: 'cashfree-webhook',
-        });
-        if (!routed) {
-          await this.paymentRequestsService.handleCashfreePaymentSuccess(
-            orderId,
-            cfPaymentId ? String(cfPaymentId) : undefined,
-          );
-        }
+        await this.paymentRequestsService.handleCashfreePaymentSuccess(
+          orderId,
+          cfPaymentId ? String(cfPaymentId) : undefined,
+        );
         this.logger.log(
           { orderId, cfPaymentId, requestId: req.id },
           'Cashfree webhook handled payment success',
@@ -171,7 +147,7 @@ export class PaymentsWebhookController {
 
     const payloadData = payload['payload'] as Record<string, unknown> | undefined;
     const linkEntity = payloadData?.['payment_link'] as
-      | { entity?: { id?: string; notes?: Record<string, unknown> } }
+      | { entity?: { id?: string } }
       | undefined;
     const paymentEntity = payloadData?.['payment'] as
       | { entity?: { id?: string; order_id?: string; error_description?: string; notes?: Record<string, unknown> } }
@@ -182,12 +158,8 @@ export class PaymentsWebhookController {
 
     const linkId = linkEntity?.entity?.id;
     const orderId = orderEntity?.entity?.id ?? paymentEntity?.entity?.order_id;
-    const notes = {
-      ...(linkEntity?.entity?.notes ?? {}),
-      ...(paymentEntity?.entity?.notes ?? {}),
-    } as Record<string, unknown>;
+    const notes = paymentEntity?.entity?.notes;
     const paymentRequestId = notes?.paymentRequestId as string | undefined;
-    const paymentPurpose = String(notes?.paymentPurpose ?? '');
 
     this.logger.log(
       {
@@ -195,7 +167,6 @@ export class PaymentsWebhookController {
         linkId,
         orderId,
         paymentRequestId,
-        paymentPurpose,
         paymentId: paymentEntity?.entity?.id,
         requestId: req.id,
       },
@@ -203,38 +174,18 @@ export class PaymentsWebhookController {
     );
 
     if (event === 'payment_link.paid' && linkId) {
-      const routed = await this.routeSubscriptionPaid({
-        paymentPurpose,
-        gatewayOrderId: linkId,
-        gatewayPaymentId: paymentEntity?.entity?.id,
-        subscriptionPaymentId: String(notes['subscriptionPaymentId'] ?? ''),
-        membershipPaymentId: String(notes['membershipPaymentId'] ?? ''),
-        actor: 'razorpay-webhook',
-      });
-      if (!routed) {
-        await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
-      }
+      await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
     } else if (event === 'payment_link.cancelled' && linkId) {
       await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
     } else if (event === 'payment_link.expired' && linkId) {
       await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
     } else if (event === 'payment.authorized' || event === 'payment.captured' || event === 'order.paid') {
-      const routed = await this.routeSubscriptionPaid({
-        paymentPurpose,
-        gatewayOrderId: orderId ?? linkId,
-        gatewayPaymentId: paymentEntity?.entity?.id,
-        subscriptionPaymentId: String(notes['subscriptionPaymentId'] ?? ''),
-        membershipPaymentId: String(notes['membershipPaymentId'] ?? ''),
-        actor: 'razorpay-webhook',
-      });
-      if (!routed) {
-        if (paymentRequestId) {
-          await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
-        } else if (orderId) {
-          await this.paymentRequestsService.handlePaymentLinkPaid(orderId, paymentEntity?.entity?.id);
-        } else if (linkId) {
-          await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
-        }
+      if (paymentRequestId) {
+        await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
+      } else if (orderId) {
+        await this.paymentRequestsService.handlePaymentLinkPaid(orderId, paymentEntity?.entity?.id);
+      } else if (linkId) {
+        await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
       }
     } else if (event === 'payment.failed') {
       if (paymentRequestId) {
@@ -252,34 +203,5 @@ export class PaymentsWebhookController {
     }
 
     return { received: true, event, requestId: req.id };
-  }
-
-  private async routeSubscriptionPaid(params: {
-    paymentPurpose: string;
-    gatewayOrderId?: string;
-    gatewayPaymentId?: string;
-    subscriptionPaymentId?: string;
-    membershipPaymentId?: string;
-    actor: string;
-  }): Promise<boolean> {
-    if (params.paymentPurpose === SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION) {
-      await this.productSubscriptionsService.handlePaymentSuccess({
-        paymentId: params.subscriptionPaymentId || undefined,
-        gatewayOrderId: params.gatewayOrderId,
-        gatewayPaymentId: params.gatewayPaymentId,
-        actor: params.actor,
-      });
-      return true;
-    }
-    if (params.paymentPurpose === SUBSCRIPTION_PAYMENT_PURPOSE.MEMBERSHIP) {
-      await this.membershipsService.handlePaymentSuccess({
-        paymentId: params.membershipPaymentId || undefined,
-        gatewayOrderId: params.gatewayOrderId,
-        gatewayPaymentId: params.gatewayPaymentId,
-        actor: params.actor,
-      });
-      return true;
-    }
-    return false;
   }
 }

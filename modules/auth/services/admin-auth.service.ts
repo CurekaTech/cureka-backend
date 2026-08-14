@@ -508,55 +508,6 @@ export const MENU_HIERARCHY: MenuItem[] = [
 
     ],
   },
-  {
-    name: 'Subscription & Membership',
-    key: 'subscriptions',
-    icon: 'Repeat',
-    subItems: [
-      {
-        name: 'Membership Plans',
-        key: 'subscriptions-membership-plans',
-        icon: 'Crown',
-        href: '/memberships/plans',
-        requiredPermissions: ['membership_plans.read'],
-      },
-      {
-        name: 'User Memberships',
-        key: 'subscriptions-user-memberships',
-        icon: 'Users',
-        href: '/memberships/users',
-        requiredPermissions: ['user_memberships.read'],
-      },
-      {
-        name: 'Membership Payments',
-        key: 'subscriptions-membership-payments',
-        icon: 'CreditCard',
-        href: '/memberships/payments',
-        requiredPermissions: ['membership_payments.read'],
-      },
-      {
-        name: 'Product Subscriptions',
-        key: 'subscriptions-product-subscriptions',
-        icon: 'Package',
-        href: '/subscriptions/products',
-        requiredPermissions: ['user_product_subscriptions.read'],
-      },
-      {
-        name: 'Subscription Payments',
-        key: 'subscriptions-product-payments',
-        icon: 'CreditCard',
-        href: '/subscriptions/payments',
-        requiredPermissions: ['subscription_payments.read'],
-      },
-      {
-        name: 'Failed Renewals',
-        key: 'subscriptions-failed-renewals',
-        icon: 'AlertTriangle',
-        href: '/subscriptions/payments?status=FAILED',
-        requiredPermissions: ['subscription_payments.read'],
-      },
-    ],
-  },
   // {
   //   name: 'Order Management',
   //   key: 'orders',

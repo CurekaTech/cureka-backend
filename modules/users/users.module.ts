@@ -19,12 +19,6 @@ import { AdminCustomersController } from './controllers/admin-customers.controll
   controllers: [UsersController, UserAddressesController, StaffUsersController, AdminCustomersController],
   providers: [UsersService, UsersRepository, UserAddressesService, UserAddressesRepository, StaffUsersService],
   // Export UsersRepository so PaymentRequestsModule can inject it directly for entity-level queries.
-  exports: [
-    UsersService,
-    UserAddressesService,
-    StaffUsersService,
-    UsersRepository,
-    UserAddressesRepository,
-  ],
+  exports: [UsersService, UserAddressesService, StaffUsersService, UsersRepository],
 })
 export class UsersModule {}

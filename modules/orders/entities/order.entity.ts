@@ -126,10 +126,6 @@ export class OrderEntity extends BaseEntity {
   @Column({ name: 'placed_at', type: 'timestamptz', nullable: true })
   placedAt!: Date | null;
 
-  @Index()
-  @Column({ name: 'subscription_id', type: 'uuid', nullable: true })
-  subscriptionId!: string | null;
-
   @ManyToOne(() => UserEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'user_id' })
   user?: UserEntity;

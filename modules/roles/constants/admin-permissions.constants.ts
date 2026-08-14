@@ -89,12 +89,6 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('packers', 'Packers'),
   ...buildCrudPermissions('importers', 'Importers'),
   ...buildCrudPermissions('subscription_frequencies', 'Subscription Frequencies'),
-  ...buildCrudPermissions('membership_plans', 'Membership Plans'),
-  ...buildCrudPermissions('membership_benefits', 'Membership Benefits'),
-  ...buildCrudPermissions('user_memberships', 'User Memberships'),
-  ...buildCrudPermissions('membership_payments', 'Membership Payments'),
-  ...buildCrudPermissions('user_product_subscriptions', 'User Product Subscriptions'),
-  ...buildCrudPermissions('subscription_payments', 'Subscription Payments'),
   ...buildCrudPermissions('products', 'Products'),
   {
     name: 'Approve Products',
