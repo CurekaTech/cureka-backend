@@ -1,0 +1,96 @@
+import { MembershipBenefitEntity } from '../entities/membership-benefit.entity';
+import { MembershipPaymentEntity } from '../entities/membership-payment.entity';
+import { MembershipPlanEntity } from '../entities/membership-plan.entity';
+import { UserMembershipEntity } from '../entities/user-membership.entity';
+import {
+  IMembershipBenefit,
+  IMembershipPayment,
+  IMembershipPlan,
+  IUserMembership,
+} from '../interfaces/membership.interface';
+
+const toIso = (value: Date | null | undefined): string | null =>
+  value ? value.toISOString() : null;
+
+export const mapMembershipBenefitToResponse = (
+  entity: MembershipBenefitEntity,
+): IMembershipBenefit => ({
+  id: entity.id,
+  refId: entity.refId,
+  membershipPlanId: entity.membershipPlanId,
+  benefitType: entity.benefitType,
+  valueType: entity.valueType,
+  value: entity.value,
+  metadata: entity.metadata,
+  status: entity.status,
+  sortOrder: entity.sortOrder,
+  createdAt: entity.createdAt.toISOString(),
+  updatedAt: entity.updatedAt.toISOString(),
+});
+
+export const mapMembershipPlanToResponse = (entity: MembershipPlanEntity): IMembershipPlan => ({
+  id: entity.id,
+  refId: entity.refId,
+  name: entity.name,
+  description: entity.description,
+  price: entity.price,
+  currency: entity.currency,
+  billingCycle: entity.billingCycle,
+  validityDays: entity.validityDays,
+  renewalEnabled: entity.renewalEnabled,
+  gracePeriodDays: entity.gracePeriodDays,
+  status: entity.status,
+  sortOrder: entity.sortOrder,
+  renewalMethod: entity.renewalMethod,
+  benefits: entity.benefits?.map(mapMembershipBenefitToResponse),
+  createdAt: entity.createdAt.toISOString(),
+  updatedAt: entity.updatedAt.toISOString(),
+});
+
+export const mapUserMembershipToResponse = (
+  entity: UserMembershipEntity,
+  extras?: { paymentLink?: string | null; plan?: IMembershipPlan | null },
+): IUserMembership => ({
+  id: entity.id,
+  refId: entity.refId,
+  userId: entity.userId,
+  membershipPlanId: entity.membershipPlanId,
+  status: entity.status,
+  startDate: toIso(entity.startDate),
+  endDate: toIso(entity.endDate),
+  nextBillingDate: toIso(entity.nextBillingDate),
+  renewalMethod: entity.renewalMethod,
+  paymentGateway: entity.paymentGateway,
+  cancellationDate: toIso(entity.cancellationDate),
+  cancellationReason: entity.cancellationReason,
+  pausedAt: toIso(entity.pausedAt),
+  termsAcceptedAt: toIso(entity.termsAcceptedAt),
+  paymentLink: extras?.paymentLink ?? null,
+  plan: extras?.plan ?? null,
+  createdAt: entity.createdAt.toISOString(),
+  updatedAt: entity.updatedAt.toISOString(),
+});
+
+export const mapMembershipPaymentToResponse = (
+  entity: MembershipPaymentEntity,
+): IMembershipPayment => ({
+  id: entity.id,
+  refId: entity.refId,
+  userMembershipId: entity.userMembershipId,
+  userId: entity.userId,
+  membershipPlanId: entity.membershipPlanId,
+  amount: entity.amount,
+  currency: entity.currency,
+  billingCycleRef: entity.billingCycleRef,
+  paymentGateway: entity.paymentGateway,
+  gatewayOrderId: entity.gatewayOrderId,
+  gatewayPaymentId: entity.gatewayPaymentId,
+  paymentLink: entity.paymentLink,
+  status: entity.status,
+  billingDate: entity.billingDate.toISOString(),
+  paidAt: toIso(entity.paidAt),
+  failureReason: entity.failureReason,
+  retryCount: entity.retryCount,
+  createdAt: entity.createdAt.toISOString(),
+  updatedAt: entity.updatedAt.toISOString(),
+});
