@@ -1294,11 +1294,94 @@ export class ProductsRepository {
     }
   }
 
+  private applyPublicListSort(
+    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
+    sortBy: string | undefined,
+    sortOrder: 'ASC' | 'DESC',
+    options?: Pick<PublicProductListOptions, 'tagSlug' | 'prioritizeBestsellers'>,
+  ): void {
+    // Storefront: always show in-stock products before fully out-of-stock ones.
+    qb.setParameter('oosVariantStatus', VariantStatus.ACTIVE);
+    qb.addSelect(
+      `(CASE WHEN EXISTS (
+          SELECT 1 FROM product_variants pv_oos
+          WHERE pv_oos.product_id = product.id
+            AND pv_oos.deleted_at IS NULL
+            AND pv_oos.status = :oosVariantStatus
+            AND pv_oos.out_of_stock = false
+        ) THEN 0 ELSE 1 END)`,
+      'oos_rank',
+    );
+    qb.orderBy('oos_rank', 'ASC');
+
+    const bestsellerTagSlug = options?.prioritizeBestsellers
+      ? 'bestsellers'
+      : sortBy === 'bestsellerIndex'
+        ? options?.tagSlug
+        : undefined;
+
+    if (bestsellerTagSlug) {
+      qb.setParameter('bestsellerSortTagSlug', bestsellerTagSlug);
+      qb.addSelect(
+        `(CASE WHEN EXISTS (
+            SELECT 1 FROM product_tag_mappings ptm_bs
+            INNER JOIN product_tags t_bs ON t_bs.id = ptm_bs.tag_id
+            WHERE ptm_bs.product_id = product.id AND t_bs.slug = :bestsellerSortTagSlug
+          ) THEN 0 ELSE 1 END)`,
+        'bestseller_rank',
+      );
+      qb.addSelect(
+        `(SELECT ptm.sort_order FROM product_tag_mappings ptm
+          INNER JOIN product_tags t ON t.id = ptm.tag_id
+          WHERE ptm.product_id = product.id AND t.slug = :bestsellerSortTagSlug
+          LIMIT 1)`,
+        'bestseller_sort_order',
+      );
+      qb.addOrderBy('bestseller_rank', 'ASC');
+      qb.addOrderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
+    }
+
+    if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {
+      // Bestsellers-only listing: index already applied above; tie-break by publishedAt.
+      qb.addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST');
+      return;
+    }
+
+    if (sortBy === 'price') {
+      qb.setParameter('variantStatus', VariantStatus.ACTIVE);
+      qb.addSelect(
+        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
+        'min_price',
+      );
+      qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
+      return;
+    }
+
+    const SORTABLE: Record<string, string> = {
+      name: 'product.name',
+      publishedAt: 'product.publishedAt',
+    };
+    const sortColumn =
+      sortBy === 'bestsellerIndex'
+        ? 'product.publishedAt'
+        : (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
+    const secondaryOrder = sortBy === 'bestsellerIndex' ? 'DESC' : sortOrder;
+
+    qb.addOrderBy(sortColumn, secondaryOrder, 'NULLS LAST');
+  }
+
   private applyPublicVariantSearchSort(
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
   ): void {
+    // In-stock variants (outOfStock=false) first, then OOS.
+    qb.addSelect(
+      `(CASE WHEN variant.out_of_stock = false THEN 0 ELSE 1 END)`,
+      'oos_rank',
+    );
+    qb.orderBy('oos_rank', 'ASC');
+
     const SORTABLE: Record<string, string> = {
       name: 'product.name',
       publishedAt: 'product.publishedAt',
@@ -1306,7 +1389,7 @@ export class ProductsRepository {
       variantSlug: 'variant.slug',
     };
     const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
-    qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    qb.addOrderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
 
   private async attachVariantSearchRelations(variants: ProductVariantEntity[]): Promise<void> {
@@ -1481,77 +1564,6 @@ export class ProductsRepository {
     qb.andWhere(
       `EXISTS (SELECT 1 FROM product_variants pv WHERE ${conditions.join(' AND ')})`,
     );
-  }
-
-  private applyPublicListSort(
-    qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
-    sortBy: string | undefined,
-    sortOrder: 'ASC' | 'DESC',
-    options?: Pick<PublicProductListOptions, 'tagSlug' | 'prioritizeBestsellers'>,
-  ): void {
-    const bestsellerTagSlug = options?.prioritizeBestsellers
-      ? 'bestsellers'
-      : sortBy === 'bestsellerIndex'
-        ? options?.tagSlug
-        : undefined;
-
-    if (bestsellerTagSlug) {
-      qb.setParameter('bestsellerSortTagSlug', bestsellerTagSlug);
-      qb.addSelect(
-        `(CASE WHEN EXISTS (
-            SELECT 1 FROM product_tag_mappings ptm_bs
-            INNER JOIN product_tags t_bs ON t_bs.id = ptm_bs.tag_id
-            WHERE ptm_bs.product_id = product.id AND t_bs.slug = :bestsellerSortTagSlug
-          ) THEN 0 ELSE 1 END)`,
-        'bestseller_rank',
-      );
-      qb.addSelect(
-        `(SELECT ptm.sort_order FROM product_tag_mappings ptm
-          INNER JOIN product_tags t ON t.id = ptm.tag_id
-          WHERE ptm.product_id = product.id AND t.slug = :bestsellerSortTagSlug
-          LIMIT 1)`,
-        'bestseller_sort_order',
-      );
-      qb.orderBy('bestseller_rank', 'ASC');
-      qb.addOrderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
-    }
-
-    if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {
-      // Bestsellers-only listing: index already applied above; tie-break by publishedAt.
-      qb.addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST');
-      return;
-    }
-
-    if (sortBy === 'price') {
-      qb.setParameter('variantStatus', VariantStatus.ACTIVE);
-      qb.addSelect(
-        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
-        'min_price',
-      );
-      if (options?.prioritizeBestsellers) {
-        qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
-      } else {
-      qb.orderBy('min_price', sortOrder, 'NULLS LAST');
-      }
-      return;
-    }
-
-    const SORTABLE: Record<string, string> = {
-      name: 'product.name',
-      publishedAt: 'product.publishedAt',
-    };
-    const sortColumn =
-      sortBy === 'bestsellerIndex'
-        ? 'product.publishedAt'
-        : (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
-    const secondaryOrder = sortBy === 'bestsellerIndex' ? 'DESC' : sortOrder;
-
-    if (options?.prioritizeBestsellers || (sortBy === 'bestsellerIndex' && options?.tagSlug)) {
-      qb.addOrderBy(sortColumn, secondaryOrder, 'NULLS LAST');
-      return;
-    }
-
-    qb.orderBy(sortColumn, secondaryOrder, 'NULLS LAST');
   }
 
   /**

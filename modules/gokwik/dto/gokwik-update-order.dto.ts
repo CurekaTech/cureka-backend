@@ -6,7 +6,7 @@ export type GokwikUpdateOrderStatus = 'Confirmed' | 'Pending' | 'Failed' | 'Canc
 
 /**
  * Request body for GoKwik Update Order API.
- * Only `merchant_order_id` is strictly required; other fields are sent when available.
+ * `merchant_order_id` and `order_note` are required by GoKwik.
  */
 export type GokwikUpdateOrderRequest = {
   merchant_order_id: string;
@@ -14,6 +14,7 @@ export type GokwikUpdateOrderRequest = {
   awb_number?: string;
   awb_status?: string;
   shipping_provider?: string;
+  /** Required by GoKwik Update Order. Auto-filled from status when omitted. */
   order_note?: string;
   /** When set, GoKwik auto-initiates a refund for this amount. */
   refund_amount?: number;

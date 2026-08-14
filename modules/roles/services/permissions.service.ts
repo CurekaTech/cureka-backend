@@ -73,6 +73,52 @@ export class PermissionsService {
         permissions: getPerms('dashboard'),
       },
       {
+        name: 'Reports',
+        key: 'reports',
+        subItems: [
+          {
+            name: 'Sales & Revenue',
+            key: 'reports-sales-revenue',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Orders',
+            key: 'reports-orders',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Product Performance',
+            key: 'reports-product-performance',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Inventory & Stock',
+            key: 'reports-inventory-stock',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Customers',
+            key: 'reports-customers',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Payments',
+            key: 'reports-payments',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Returns & Refunds',
+            key: 'reports-returns-refunds',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Coupons & Promotions',
+            key: 'reports-coupons',
+            permissions: getPerms('reports'),
+          },
+        ],
+      },
+      {
         name: 'Masters',
         key: 'masters',
         subItems: [

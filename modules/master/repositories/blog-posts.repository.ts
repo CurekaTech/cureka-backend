@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { BlogPostEntity } from '../entities/blog-post.entity';
+import { BlogPostProductEntity } from '../entities/blog-post-product.entity';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 
@@ -171,5 +174,87 @@ export class BlogPostsRepository {
       order: { publishedAt: 'DESC', createdAt: 'DESC' },
       take: limit,
     });
+  }
+
+  /**
+   * Published + public blogs directly linked to a product via `blog_post_products`.
+   * Sorted by publishedAt DESC.
+   */
+  async findPublishedByProductRefId(
+    productRefId: string,
+    limit: number,
+  ): Promise<BlogPostEntity[]> {
+    if (!productRefId || limit <= 0) return [];
+
+    return this.repo
+      .createQueryBuilder('post')
+      .innerJoin(
+        BlogPostProductEntity,
+        'link',
+        'link.blogPostId = post.id AND link.deletedAt IS NULL',
+      )
+      .where('link.productRefId = :productRefId', { productRefId })
+      .andWhere('post.status = :status', { status: BlogPostStatus.PUBLISHED })
+      .andWhere('post.visibility = :visibility', { visibility: BlogPostVisibility.PUBLIC })
+      .orderBy('post.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('post.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
+  }
+
+  /**
+   * Published blogs linked to other published products that share a shop category level.
+   * Used as fallback after direct product→blog mappings.
+   */
+  async findPublishedByLinkedProductCategory(params: {
+    categoryColumn: 'categoryId' | 'subCategoryId' | 'subSubCategoryId';
+    categoryId: string;
+    excludeBlogIds: string[];
+    excludeProductRefId?: string;
+    limit: number;
+  }): Promise<BlogPostEntity[]> {
+    const { categoryColumn, categoryId, excludeBlogIds, excludeProductRefId, limit } = params;
+    if (!categoryId || limit <= 0) return [];
+
+    // Over-fetch then dedupe: a blog linked to many products in the same category
+    // can appear multiple times from the join before LIMIT.
+    const fetchLimit = Math.max(limit * 8, limit);
+    const qb = this.repo
+      .createQueryBuilder('post')
+      .innerJoin(
+        BlogPostProductEntity,
+        'link',
+        'link.blogPostId = post.id AND link.deletedAt IS NULL',
+      )
+      .innerJoin(
+        ProductEntity,
+        'product',
+        'product.refId = link.productRefId AND product.deletedAt IS NULL',
+      )
+      .where(`product.${categoryColumn} = :categoryId`, { categoryId })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere('post.status = :status', { status: BlogPostStatus.PUBLISHED })
+      .andWhere('post.visibility = :visibility', { visibility: BlogPostVisibility.PUBLIC })
+      .orderBy('post.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('post.createdAt', 'DESC')
+      .take(fetchLimit);
+
+    if (excludeBlogIds.length) {
+      qb.andWhere('post.id NOT IN (:...excludeBlogIds)', { excludeBlogIds });
+    }
+    if (excludeProductRefId) {
+      qb.andWhere('link.productRefId != :excludeProductRefId', { excludeProductRefId });
+    }
+
+    const rows = await qb.getMany();
+    const unique: BlogPostEntity[] = [];
+    const seen = new Set<string>();
+    for (const post of rows) {
+      if (seen.has(post.id)) continue;
+      seen.add(post.id);
+      unique.push(post);
+      if (unique.length >= limit) break;
+    }
+    return unique;
   }
 }

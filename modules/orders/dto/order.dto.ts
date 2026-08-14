@@ -1,8 +1,9 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -100,6 +101,8 @@ export class AdminOrderQueryDto extends PaginationQueryDto {
 }
 
 export class CancelOrderDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
   @IsString()
   @MinLength(3)
   @MaxLength(500)

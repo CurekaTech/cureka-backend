@@ -1,13 +1,14 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
+import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { CartService } from '@modules/orders/services/cart.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
-import { roundMoney } from '@modules/orders/utils/money.util';
+import { roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -27,7 +28,12 @@ import {
   GokwikCreateOrderResponse,
   GokwikPlaceOrderResponse,
 } from '../interfaces/gokwik-order.interface';
+import { GokwikQueueService } from './gokwik-queue.service';
 import { GokwikRepository } from '../repositories/gokwik.repository';
+import {
+  buildGokwikFinancialSnapshot,
+  GokwikFinancialSnapshot,
+} from '../utils/gokwik-financial-snapshot.util';
 
 @Injectable()
 export class GokwikOrderService {
@@ -39,6 +45,7 @@ export class GokwikOrderService {
     private readonly userAddressesService: UserAddressesService,
     private readonly usersService: UsersService,
     private readonly gokwikRepository: GokwikRepository,
+    private readonly gokwikQueueService: GokwikQueueService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {}
@@ -78,9 +85,11 @@ export class GokwikOrderService {
       const existing = await this.gokwikRepository.findOrderByCartId(cartId);
       if (existing?.order) {
         const existingOrderTotal = Number(existing.order.grandTotal);
+        const gokwikPayable = Number(dto.payment_details.payment_amount);
         const hasStaleOrderAmount =
           Math.abs(Math.round(existingOrderTotal * 100) - Math.round(pricedCart.grandTotal * 100)) >
-          1;
+            1 ||
+          Math.abs(Math.round(existingOrderTotal * 100) - Math.round(gokwikPayable * 100)) > 1;
         if (hasStaleOrderAmount) {
           this.logger.warn(
             {
@@ -105,10 +114,21 @@ export class GokwikOrderService {
             // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
             ignorePaymentMethodPricing: !isCodPayment,
           });
-          this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(refreshedOrder.grandTotal));
-          this.assertDiscountTotal(dto.meta_data, Number(refreshedOrder.discountAmount));
+          const { order: snapshotOrder, snapshot: refreshedSnapshot } =
+            await this.applyGokwikFinancialSnapshot(
+              refreshedOrder,
+              dto.payment_details,
+              dto.meta_data,
+            );
+          this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(snapshotOrder.grandTotal));
+          this.assertDiscountTotal(
+            dto.meta_data,
+            roundMoney(
+              Number(snapshotOrder.discountAmount) + Number(snapshotOrder.prepaidDiscount),
+            ),
+          );
           await this.gokwikRepository.updateOrderLink(existing.id, {
-            orderId: refreshedOrder.id,
+            orderId: snapshotOrder.id,
             gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
             paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
             gatewayTransactionId: this.normalizeOptionalIdentifier(
@@ -123,21 +143,55 @@ export class GokwikOrderService {
               ...(existing.metadata ?? {}),
               rto_risk_flag: dto.meta_data?.rto_risk_flag,
               ...this.codPaymentMetadata(dto.payment_details),
+              financial_snapshot: this.toFinancialSnapshotMetadata(
+                refreshedSnapshot,
+                dto.payment_details,
+                dto.meta_data,
+              ),
             },
             updatedBy: 'gokwik',
           });
           await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
             shippingAddress: dto.shipping_address,
-            order: refreshedOrder,
+            order: snapshotOrder,
           });
-          return { status: 'success', order_id: refreshedOrder.orderNumber };
+          return { status: 'success', order_id: snapshotOrder.orderNumber };
         }
-        this.assertPaymentTotal(dto.payment_details, dto.meta_data, existingOrderTotal);
+        const { order: snapshotOrder, snapshot: existingSnapshot } =
+          await this.applyGokwikFinancialSnapshot(
+            existing.order,
+            dto.payment_details,
+            dto.meta_data,
+          );
+        this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(snapshotOrder.grandTotal));
+        await this.gokwikRepository.updateOrderLink(existing.id, {
+          gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || existing.gokwikOrderId,
+          paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
+          gatewayTransactionId: this.normalizeOptionalIdentifier(
+            dto.payment_details.pg_payment_trnx_id,
+          ),
+          paymentMethod: dto.payment_details.payment_method,
+          paymentAmount: dto.payment_details.payment_amount.toFixed(2),
+          prepaidAmount: (dto.meta_data?.ppcod?.prepaid_amount ?? 0).toFixed(2),
+          payableOnDelivery: (dto.meta_data?.ppcod?.payable_on_delivery ?? 0).toFixed(2),
+          customerPhone,
+          metadata: {
+            ...(existing.metadata ?? {}),
+            rto_risk_flag: dto.meta_data?.rto_risk_flag,
+            ...this.codPaymentMetadata(dto.payment_details),
+            financial_snapshot: this.toFinancialSnapshotMetadata(
+              existingSnapshot,
+              dto.payment_details,
+              dto.meta_data,
+            ),
+          },
+          updatedBy: 'gokwik',
+        });
         await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
           shippingAddress: dto.shipping_address,
-          order: existing.order,
+          order: snapshotOrder,
         });
-        return { status: 'success', order_id: existing.order.orderNumber };
+        return { status: 'success', order_id: snapshotOrder.orderNumber };
       }
 
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, pricedCart.grandTotal);
@@ -157,12 +211,17 @@ export class GokwikOrderService {
         ignorePaymentMethodPricing: !isCodPayment,
       });
 
-      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(order.grandTotal));
-      this.assertDiscountTotal(dto.meta_data, Number(order.discountAmount));
+      const { order: snapshotOrder, snapshot: createdSnapshot } =
+        await this.applyGokwikFinancialSnapshot(order, dto.payment_details, dto.meta_data);
+      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(snapshotOrder.grandTotal));
+      this.assertDiscountTotal(
+        dto.meta_data,
+        roundMoney(Number(snapshotOrder.discountAmount) + Number(snapshotOrder.prepaidDiscount)),
+      );
 
       try {
         await this.gokwikRepository.createOrderLink({
-          orderId: order.id,
+          orderId: snapshotOrder.id,
           cartId,
           gokwikOrderId: dto.meta_data?.gokwik_order_id?.trim() || null,
           paymentId: this.resolveStoredPaymentId(dto.payment_details, cartId),
@@ -175,6 +234,11 @@ export class GokwikOrderService {
           metadata: {
             rto_risk_flag: dto.meta_data?.rto_risk_flag,
             ...this.codPaymentMetadata(dto.payment_details),
+            financial_snapshot: this.toFinancialSnapshotMetadata(
+              createdSnapshot,
+              dto.payment_details,
+              dto.meta_data,
+            ),
           },
           createdBy: 'gokwik',
           updatedBy: 'gokwik',
@@ -182,22 +246,27 @@ export class GokwikOrderService {
       } catch (error) {
         const concurrent = await this.gokwikRepository.findOrderByCartId(cartId);
         if (concurrent?.order) {
+          const { order: concurrentSnapshot } = await this.applyGokwikFinancialSnapshot(
+            concurrent.order,
+            dto.payment_details,
+            dto.meta_data,
+          );
           await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
             shippingAddress: dto.shipping_address,
-            order: concurrent.order,
+            order: concurrentSnapshot,
           });
-          return { status: 'success', order_id: concurrent.order.orderNumber };
+          return { status: 'success', order_id: concurrentSnapshot.orderNumber };
         }
         throw error;
       }
 
       await this.syncUnregisteredUserAfterSuccessfulOrder(cart.userId, {
         shippingAddress: dto.shipping_address,
-        order,
+        order: snapshotOrder,
       });
       return {
         status: 'success',
-        order_id: order.orderNumber,
+        order_id: snapshotOrder.orderNumber,
       };
     });
   }
@@ -253,7 +322,15 @@ export class GokwikOrderService {
           '[GoKwik] Place-order amount drift (ignored — not blocking)',
         );
       }
-      this.assertPaymentTotal(dto.payment_details, dto.meta_data, orderTotal);
+
+      // Lock GoKwik payable totals onto the draft before confirm → Shipway/UC.
+      const { order: snapshotOrder, snapshot: placeSnapshot } =
+        await this.applyGokwikFinancialSnapshot(
+          link.order,
+          dto.payment_details,
+          dto.meta_data,
+        );
+      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(snapshotOrder.grandTotal));
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
 
       await this.gokwikRepository.updateOrderLink(link.id, {
@@ -270,12 +347,17 @@ export class GokwikOrderService {
           rto_risk_flag: dto.meta_data?.rto_risk_flag,
           utm_details: dto.utm_details,
           ...this.codPaymentMetadata(dto.payment_details),
+          financial_snapshot: this.toFinancialSnapshotMetadata(
+            placeSnapshot,
+            dto.payment_details,
+            dto.meta_data,
+          ),
         },
         updatedBy: 'gokwik',
       });
 
       const order = await this.ordersService.confirmDraftOrder(cart.userId, {
-        orderNumber: link.order.orderNumber,
+        orderNumber: snapshotOrder.orderNumber,
         cartId,
         paymentMethod,
         paymentStatus,
@@ -301,6 +383,10 @@ export class GokwikOrderService {
         userDetails: dto.user_details,
         order,
       });
+
+      // GoKwik stores merchant_order_id only after this place-order response.
+      // Push Confirmed on a short delay so Platform Order Status actually updates.
+      await this.gokwikQueueService.enqueueOrderStatus(order.id, 'Confirmed');
 
       return {
         status: 'success',
@@ -452,6 +538,88 @@ export class GokwikOrderService {
         '[GoKwik] profile sync failed (non-blocking)',
       );
     }
+  }
+
+  /**
+   * Overwrite draft order money with GoKwik's payable snapshot (coupons / fees /
+   * payment_amount). Line-item catalog prices stay from the cart; commercial
+   * totals must match what GoKwik charged so UniCommerce/Shipway see the same.
+   */
+  private async applyGokwikFinancialSnapshot(
+    order: OrderEntity,
+    payment: GokwikPaymentDetailsDto,
+    meta: GokwikCreateOrderMetaDataDto | undefined,
+  ): Promise<{ order: OrderEntity; snapshot: GokwikFinancialSnapshot }> {
+    const snapshot = buildGokwikFinancialSnapshot({ order, payment, meta });
+    const previous = {
+      discountAmount: order.discountAmount,
+      prepaidDiscount: order.prepaidDiscount,
+      shippingAmount: order.shippingAmount,
+      handlingAmount: order.handlingAmount,
+      platformFee: order.platformFee,
+      codCharge: order.codCharge,
+      grandTotal: order.grandTotal,
+      couponCode: order.couponCode,
+    };
+
+    await this.dataSource.getRepository(OrderEntity).update(
+      { id: order.id },
+      {
+        discountAmount: toMoneyString(snapshot.discountAmount),
+        prepaidDiscount: toMoneyString(snapshot.prepaidDiscount),
+        shippingAmount: toMoneyString(snapshot.shippingAmount),
+        handlingAmount: toMoneyString(snapshot.handlingAmount),
+        platformFee: toMoneyString(snapshot.platformFee),
+        codCharge: toMoneyString(snapshot.codCharge),
+        grandTotal: toMoneyString(snapshot.grandTotal),
+        couponCode: snapshot.couponCode,
+        couponTitle: snapshot.couponTitle,
+        updatedBy: 'gokwik',
+      },
+    );
+
+    order.discountAmount = toMoneyString(snapshot.discountAmount);
+    order.prepaidDiscount = toMoneyString(snapshot.prepaidDiscount);
+    order.shippingAmount = toMoneyString(snapshot.shippingAmount);
+    order.handlingAmount = toMoneyString(snapshot.handlingAmount);
+    order.platformFee = toMoneyString(snapshot.platformFee);
+    order.codCharge = toMoneyString(snapshot.codCharge);
+    order.grandTotal = toMoneyString(snapshot.grandTotal);
+    order.couponCode = snapshot.couponCode;
+    order.couponTitle = snapshot.couponTitle;
+
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        paymentAmount: payment.payment_amount,
+        paymentMethod: payment.payment_method,
+        previous,
+        snapshot,
+        discounts: meta?.discounts ?? [],
+        otherCharges: meta?.other_charges ?? [],
+        rewardsAmount: snapshot.rewardsAmount,
+      },
+      '[GoKwik] Applied financial snapshot from GoKwik payload onto order',
+    );
+
+    return { order, snapshot };
+  }
+
+  private toFinancialSnapshotMetadata(
+    snapshot: GokwikFinancialSnapshot,
+    payment: GokwikPaymentDetailsDto,
+    meta: GokwikCreateOrderMetaDataDto | undefined,
+  ): Record<string, unknown> {
+    return {
+      ...snapshot,
+      payment_amount: payment.payment_amount,
+      discounts: meta?.discounts ?? [],
+      other_charges: meta?.other_charges ?? [],
+      rewards_info: meta?.rewards_info ?? null,
+      ppcod: meta?.ppcod ?? null,
+      applied_at: new Date().toISOString(),
+    };
   }
 
   private mapShippingAddress(address: GokwikAddressDto) {
@@ -715,13 +883,18 @@ export class GokwikOrderService {
     meta: GokwikCreateOrderMetaDataDto | undefined,
     expectedDiscount: number,
   ): void {
-    const reported = (meta?.discounts ?? []).reduce((sum, discount) => sum + discount.amount, 0);
+    const reportedDiscounts = (meta?.discounts ?? []).reduce(
+      (sum, discount) => sum + discount.amount,
+      0,
+    );
+    const reported = roundMoney(reportedDiscounts + this.resolveRewardsAmount(meta));
     if (Math.abs(Math.round(reported * 100) - Math.round(expectedDiscount * 100)) > 1) {
       this.logger.warn(
         {
           reportedDiscount: reported,
           expectedDiscount,
           discounts: meta?.discounts ?? [],
+          rewardsAmount: this.resolveRewardsAmount(meta),
         },
         '[GoKwik] Discount mismatch (ignored — not blocking create/place-order)',
       );
