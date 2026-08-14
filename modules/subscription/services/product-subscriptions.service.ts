@@ -22,6 +22,7 @@ import {
   ActivateProductSubscriptionFromPaidOrderDto,
   CreateProductSubscriptionDto,
   ProductSubscriptionConfigQueryDto,
+  VerifyProductSubscriptionPaymentDto,
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
