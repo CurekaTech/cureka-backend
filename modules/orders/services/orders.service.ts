@@ -610,8 +610,20 @@ export class OrdersService {
       page,
       limit,
     });
+    const shipments = await this.shipmentsRepository.findByOrderIds(data.map((order) => order.id));
+    const shipmentByOrderId = new Map(shipments.map((shipment) => [shipment.orderId, shipment]));
     const mapped = await Promise.all(
-      data.map((order) => mapOrderToResponse(order, this.storageUrlEnricher)),
+      data.map((order) => {
+        const shipment = shipmentByOrderId.get(order.id) ?? null;
+        return mapOrderToResponse(
+          {
+            ...order,
+            shipment,
+            shipwayStatus: Boolean(shipment?.shipwayRawStatus || shipment?.awbNumber),
+          },
+          this.storageUrlEnricher,
+        );
+      }),
     );
     return buildPaginatedResult(mapped, total, { page, limit, sortOrder: 'DESC' });
   }
