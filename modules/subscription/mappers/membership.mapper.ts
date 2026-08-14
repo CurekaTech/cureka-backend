@@ -49,7 +49,11 @@ export const mapMembershipPlanToResponse = (entity: MembershipPlanEntity): IMemb
 
 export const mapUserMembershipToResponse = (
   entity: UserMembershipEntity,
-  extras?: { paymentLink?: string | null; plan?: IMembershipPlan | null },
+  extras?: {
+    paymentLink?: string | null;
+    plan?: IMembershipPlan | null;
+    user?: IUserMembership['user'];
+  },
 ): IUserMembership => ({
   id: entity.id,
   refId: entity.refId,
@@ -67,12 +71,18 @@ export const mapUserMembershipToResponse = (
   termsAcceptedAt: toIso(entity.termsAcceptedAt),
   paymentLink: extras?.paymentLink ?? null,
   plan: extras?.plan ?? null,
+  user: extras?.user ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });
 
 export const mapMembershipPaymentToResponse = (
   entity: MembershipPaymentEntity,
+  extras?: {
+    user?: IMembershipPayment['user'];
+    plan?: IMembershipPayment['plan'];
+    membership?: IMembershipPayment['membership'];
+  },
 ): IMembershipPayment => ({
   id: entity.id,
   refId: entity.refId,
@@ -91,6 +101,9 @@ export const mapMembershipPaymentToResponse = (
   paidAt: toIso(entity.paidAt),
   failureReason: entity.failureReason,
   retryCount: entity.retryCount,
+  user: extras?.user ?? null,
+  plan: extras?.plan ?? null,
+  membership: extras?.membership ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });

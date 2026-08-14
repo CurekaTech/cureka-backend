@@ -37,6 +37,7 @@ import { ProductSubscriptionPaymentsService } from './product-subscription-payme
 import { ProductSubscriptionPricingService } from './product-subscription-pricing.service';
 import { SubscriptionNotificationsService } from './subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './subscription-payment-link.service';
+import { SubscriptionRelationLoaderService } from './subscription-relation-loader.service';
 
 @Injectable()
 export class ProductSubscriptionsService {
@@ -54,6 +55,7 @@ export class ProductSubscriptionsService {
     private readonly variantsRepository: ProductVariantsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly addressesRepository: UserAddressesRepository,
+    private readonly relationLoader: SubscriptionRelationLoaderService,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
   ) {}
@@ -196,13 +198,14 @@ export class ProductSubscriptionsService {
 
   async listMine(userId: string) {
     const rows = await this.subscriptionsRepository.findByUserId(userId);
-    return rows.map((row) => mapUserProductSubscriptionToResponse(row));
+    return this.mapSubscriptionsWithRelations(rows);
   }
 
   async getMine(userId: string, id: string) {
     const sub = await this.subscriptionsRepository.findByIdAndUserId(id, userId);
     if (!sub) throw new NotFoundException('Subscription not found');
-    return mapUserProductSubscriptionToResponse(sub);
+    const [mapped] = await this.mapSubscriptionsWithRelations([sub]);
+    return mapped;
   }
 
   async pause(userId: string, id: string, reason?: string) {
@@ -385,8 +388,9 @@ export class ProductSubscriptionsService {
       status: query.status,
       userId: query.userId,
     });
+    const items = await this.mapSubscriptionsWithRelations(data, { includeUser: true });
     return {
-      data: data.map((row) => mapUserProductSubscriptionToResponse(row)),
+      items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }
@@ -394,7 +398,29 @@ export class ProductSubscriptionsService {
   async getAdmin(id: string) {
     const sub = await this.subscriptionsRepository.findById(id);
     if (!sub) throw new NotFoundException('Subscription not found');
-    return mapUserProductSubscriptionToResponse(sub);
+    const [mapped] = await this.mapSubscriptionsWithRelations([sub], { includeUser: true });
+    return mapped;
+  }
+
+  private async mapSubscriptionsWithRelations(
+    rows: Awaited<ReturnType<UserProductSubscriptionsRepository['findByUserId']>>,
+    options?: { includeUser?: boolean },
+  ) {
+    const [users, products, variants] = await Promise.all([
+      options?.includeUser
+        ? this.relationLoader.loadUsersByIds(rows.map((r) => r.userId))
+        : Promise.resolve(new Map()),
+      this.relationLoader.loadProductsByIds(rows.map((r) => r.productId)),
+      this.relationLoader.loadVariantsByIds(rows.map((r) => r.productVariantId)),
+    ]);
+
+    return rows.map((row) =>
+      mapUserProductSubscriptionToResponse(row, {
+        user: options?.includeUser ? users.get(row.userId) ?? null : null,
+        product: products.get(row.productId) ?? null,
+        variant: variants.get(row.productVariantId) ?? null,
+      }),
+    );
   }
 
   async handlePaymentSuccess(params: {

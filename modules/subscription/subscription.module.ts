@@ -4,6 +4,8 @@ import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductModule } from '@modules/product/product.module';
 import { UsersModule } from '@modules/users/users.module';
 import { QueueModule } from '@packages/queue';
@@ -43,6 +45,7 @@ import { ProductSubscriptionPricingService } from './services/product-subscripti
 import { ProductSubscriptionsService } from './services/product-subscriptions.service';
 import { SubscriptionNotificationsService } from './services/subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './services/subscription-payment-link.service';
+import { SubscriptionRelationLoaderService } from './services/subscription-relation-loader.service';
 
 @Module({
   imports: [
@@ -55,6 +58,8 @@ import { SubscriptionPaymentLinkService } from './services/subscription-payment-
       UserMembershipEntity,
       MembershipPaymentEntity,
       AdminUserEntity,
+      ProductEntity,
+      ProductVariantEntity,
     ]),
     UsersModule,
     NotificationsModule,
@@ -95,6 +100,7 @@ import { SubscriptionPaymentLinkService } from './services/subscription-payment-
     MembershipBenefitsApplicationService,
     SubscriptionPaymentLinkService,
     SubscriptionNotificationsService,
+    SubscriptionRelationLoaderService,
     ProductSubscriptionRenewalProcessor,
     ProductSubscriptionReminderProcessor,
     MembershipRenewalProcessor,

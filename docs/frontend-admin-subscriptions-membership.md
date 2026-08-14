@@ -29,7 +29,30 @@ Masters → **Subscription Frequency** is unrelated master data.
 
 ---
 
-## Shared pagination query (admin lists)
+## Shared pagination response (admin lists)
+
+All admin list endpoints return:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ /* rows */ ],
+    "meta": {
+      "page": 1,
+      "limit": 20,
+      "total": 3,
+      "totalPages": 1
+    }
+  },
+  "message": "...",
+  "timestamp": "..."
+}
+```
+
+Use `data.items` (not `data.data`).
+
+### Shared pagination query
 
 All list endpoints below accept:
 
@@ -40,6 +63,51 @@ All list endpoints below accept:
 | `search` | string ≤ 100 | No | — | When supported by endpoint |
 | `sortBy` | string | No | — | When supported |
 | `sortOrder` | `ASC` \| `DESC` | No | — | When supported |
+
+---
+
+## Nested display objects (enriched)
+
+Admin membership / subscription rows include nested objects for UI:
+
+**`user`**
+```json
+{
+  "id": "uuid",
+  "refId": "string",
+  "firstName": "string|null",
+  "lastName": "string|null",
+  "email": "string|null",
+  "mobileNumber": "string|null"
+}
+```
+
+**`plan`** (membership) — full plan + `benefits[]`
+
+**`product`**
+```json
+{
+  "id": "uuid",
+  "refId": "string",
+  "name": "string",
+  "slug": "string",
+  "status": "PUBLISHED"
+}
+```
+
+**`variant`**
+```json
+{
+  "id": "uuid",
+  "productId": "uuid",
+  "sku": "string",
+  "slug": "string",
+  "displayName": "string|null",
+  "sellingPrice": "499.00",
+  "mrp": "599.00",
+  "status": "ACTIVE"
+}
+```
 
 ---
 
@@ -291,6 +359,47 @@ GET /api/v1/admin/memberships?page=1&limit=20&status=ACTIVE&userId={uuid}&search
 **Permission:** `user_memberships.read`  
 **FE route:** `/memberships/users`
 
+Each item includes:
+- membership fields
+- `user` — customer summary
+- `plan` — membership plan + benefits
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "refId": "UME...",
+        "userId": "uuid",
+        "membershipPlanId": "uuid",
+        "status": "PENDING_PAYMENT",
+        "user": {
+          "id": "uuid",
+          "refId": "USR...",
+          "firstName": "Asha",
+          "lastName": "Patel",
+          "email": "asha@example.com",
+          "mobileNumber": "9876543210"
+        },
+        "plan": {
+          "id": "uuid",
+          "refId": "MPL...",
+          "name": "Gold",
+          "price": "999.00",
+          "billingCycle": "YEARLY",
+          "benefits": []
+        }
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "message": "User memberships fetched successfully",
+  "timestamp": "..."
+}
+```
+
 ---
 
 ## Monitoring — membership payments
@@ -309,6 +418,8 @@ GET /api/v1/admin/memberships/payments?page=1&limit=20&status=PAID&userId={uuid}
 **Permission:** `membership_payments.read`  
 **FE route:** `/memberships/payments`
 
+Each item includes `user`, `plan`, and `membership` summary (`id`, `refId`, `status`, `startDate`, `endDate`, `nextBillingDate`).
+
 ---
 
 ## Monitoring — product subscriptions
@@ -326,6 +437,53 @@ GET /api/v1/admin/subscriptions/products?page=1&limit=20&status=ACTIVE&userId={u
 **Permission:** `user_product_subscriptions.read`  
 **FE route:** `/subscriptions/products`
 
+Each item includes `user`, `product`, and `variant`.
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "refId": "UPS...",
+        "status": "ACTIVE",
+        "frequency": "MONTHLY",
+        "finalAmount": "450.00",
+        "user": {
+          "id": "uuid",
+          "firstName": "Asha",
+          "lastName": "Patel",
+          "mobileNumber": "9876543210",
+          "email": "asha@example.com",
+          "refId": "USR..."
+        },
+        "product": {
+          "id": "uuid",
+          "refId": "PRD...",
+          "name": "Contact Lens Pack",
+          "slug": "contact-lens-pack",
+          "status": "PUBLISHED"
+        },
+        "variant": {
+          "id": "uuid",
+          "productId": "uuid",
+          "sku": "CL-001",
+          "slug": "cl-001",
+          "displayName": "Power -1.25",
+          "sellingPrice": "500.00",
+          "mrp": "599.00",
+          "status": "ACTIVE"
+        }
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  },
+  "message": "Product subscriptions fetched successfully",
+  "timestamp": "..."
+}
+```
+
 ---
 
 ### Get one product subscription
@@ -337,6 +495,8 @@ GET /api/v1/admin/subscriptions/products/:id
 | Path | Type | Required |
 |------|------|----------|
 | `id` | UUID | **Yes** |
+
+Returns one enriched subscription object (`user` + `product` + `variant`) inside `data`.
 
 ---
 
@@ -357,6 +517,8 @@ GET /api/v1/admin/subscriptions/products/payments?page=1&limit=20&status=FAILED&
 **FE routes:**  
 - All payments → `/subscriptions/payments`  
 - Failed → `/subscriptions/payments?status=FAILED`
+
+Each item includes `user`, `product`, `variant`, and `subscription` summary (`id`, `refId`, `status`, `frequency`, `quantity`, `finalAmount`).
 
 ---
 
