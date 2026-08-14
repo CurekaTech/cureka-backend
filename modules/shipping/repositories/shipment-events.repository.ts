@@ -18,4 +18,12 @@ export class ShipmentEventsRepository {
   existsByRefId(refId: string): Promise<boolean> {
     return this.repo.exists({ where: { refId } });
   }
+
+  findByShipmentId(
+    shipmentId: string,
+    manager?: EntityManager,
+  ): Promise<ShipmentEventEntity[]> {
+    const repository = manager ? manager.getRepository(ShipmentEventEntity) : this.repo;
+    return repository.find({ where: { shipmentId } });
+  }
 }
