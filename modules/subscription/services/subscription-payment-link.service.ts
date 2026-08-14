@@ -109,14 +109,12 @@ export class SubscriptionPaymentLinkService {
     amount: number,
     currency: string,
   ): Promise<CreateSubscriptionPaymentLinkResult> {
+    // Same return-URL resolution as PaymentRequestsService checkout (Cashfree requires return_url).
     const returnUrl =
       this.configService.get<string>('CASHFREE_RETURN_URL')?.trim() ||
+      this.buildStorefrontReturnUrl() ||
       this.configService.get<string>('RAZORPAY_CALLBACK_URL')?.trim() ||
-      '';
-
-    if (!returnUrl) {
-      throw new BadRequestException('Cashfree return URL is not configured');
-    }
+      'https://cureka.com/thankyou';
 
     const order = await this.cashfreeService.createOrder({
       orderId: input.referenceId.slice(0, 45),
@@ -131,33 +129,30 @@ export class SubscriptionPaymentLinkService {
       returnUrl,
     });
 
-    const paymentLink = String(
-      order['payment_session_id']
-        ? (order['payment_link'] ??
-            order['payments']?.['url'] ??
-            order['order_meta']?.['payment_link'] ??
-            '')
-        : (order['payment_link'] ?? ''),
-    );
+    const paymentSessionId = String(order['payment_session_id'] ?? '');
+    const gatewayOrderId = String(order['order_id'] ?? order['cf_order_id'] ?? input.referenceId);
 
-    // Cashfree checkout often returns payment_session_id; store order_id as gateway ref
-    const gatewayOrderId = String(order['order_id'] ?? input.referenceId);
-    const sessionId = order['payment_session_id'] ? String(order['payment_session_id']) : '';
-    const resolvedLink =
-      paymentLink ||
-      (sessionId
-        ? `${this.configService.get<string>('CASHFREE_CHECKOUT_BASE_URL') ?? 'https://payments.cashfree.com/forms'}/${sessionId}`
-        : '');
-
-    if (!resolvedLink) {
-      this.logger.error({ order }, 'Cashfree order response missing payment link/session');
+    if (!paymentSessionId) {
+      this.logger.error({ order }, 'Cashfree order response missing payment_session_id');
       throw new BadRequestException('Failed to generate Cashfree payment session');
     }
 
+    // Match existing checkout link format used by PaymentRequestsService.
+    const paymentLink = `https://payments.cashfree.com/order/${paymentSessionId}`;
+
     return {
-      paymentLink: resolvedLink,
+      paymentLink,
       gatewayOrderId,
       paymentGateway: 'CASHFREE',
     };
+  }
+
+  private buildStorefrontReturnUrl(): string | undefined {
+    const storefrontUrl = this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '');
+    if (!storefrontUrl) {
+      return undefined;
+    }
+    // Cashfree substitutes {order_id} after payment.
+    return `${storefrontUrl}/cart?order_id={order_id}`;
   }
 }
