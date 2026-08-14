@@ -19,6 +19,8 @@ export interface ISubscriptionProductSummary {
   name: string;
   slug: string;
   status: string;
+  imageUrl?: string | null;
+  thumbnailUrl?: string | null;
 }
 
 export interface ISubscriptionVariantSummary {
@@ -96,6 +98,7 @@ export interface IUserProductSubscription {
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;
   productName?: string | null;
+  productImageUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }

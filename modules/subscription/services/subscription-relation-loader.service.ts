@@ -4,6 +4,8 @@ import { In, Repository } from 'typeorm';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { resolvePrimaryProductImageRef } from '@modules/orders/utils/resolve-primary-product-image.util';
 import {
   ISubscriptionProductSummary,
   ISubscriptionUserSummary,
@@ -19,6 +21,7 @@ export class SubscriptionRelationLoaderService {
     private readonly productsRepo: Repository<ProductEntity>,
     @InjectRepository(ProductVariantEntity)
     private readonly variantsRepo: Repository<ProductVariantEntity>,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async loadUsersByIds(userIds: string[]): Promise<Map<string, ISubscriptionUserSummary>> {
@@ -32,22 +35,53 @@ export class SubscriptionRelationLoaderService {
     return map;
   }
 
-  async loadProductsByIds(productIds: string[]): Promise<Map<string, ISubscriptionProductSummary>> {
+  async loadProductEntitiesByIds(productIds: string[]): Promise<Map<string, ProductEntity>> {
     const unique = [...new Set(productIds.filter(Boolean))];
-    const map = new Map<string, ISubscriptionProductSummary>();
+    const map = new Map<string, ProductEntity>();
     if (!unique.length) return map;
     const products = await this.productsRepo.find({
       where: { id: In(unique) },
-      select: ['id', 'refId', 'name', 'slug', 'status'],
+      relations: { media: true },
     });
     for (const product of products) {
-      map.set(product.id, {
-        id: product.id,
-        refId: product.refId,
-        name: product.name,
-        slug: product.slug,
-        status: product.status,
-      });
+      map.set(product.id, product);
+    }
+    return map;
+  }
+
+  async resolveProductImageUrl(
+    product: ProductEntity | undefined,
+    variantId?: string | null,
+  ): Promise<string | null> {
+    const imageRef = resolvePrimaryProductImageRef(product, variantId ?? '');
+    if (!imageRef) return null;
+    const primary = await this.storageUrlEnricher.toReference(imageRef);
+    return primary?.url ?? null;
+  }
+
+  async mapProductSummary(
+    product: ProductEntity | undefined,
+    variantId?: string | null,
+  ): Promise<ISubscriptionProductSummary | null> {
+    if (!product) return null;
+    const imageUrl = await this.resolveProductImageUrl(product, variantId);
+    return {
+      id: product.id,
+      refId: product.refId,
+      name: product.name,
+      slug: product.slug,
+      status: product.status,
+      imageUrl,
+      thumbnailUrl: imageUrl,
+    };
+  }
+
+  async loadProductsByIds(productIds: string[]): Promise<Map<string, ISubscriptionProductSummary>> {
+    const entities = await this.loadProductEntitiesByIds(productIds);
+    const map = new Map<string, ISubscriptionProductSummary>();
+    for (const product of entities.values()) {
+      const summary = await this.mapProductSummary(product);
+      if (summary) map.set(product.id, summary);
     }
     return map;
   }

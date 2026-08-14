@@ -83,6 +83,7 @@ export const mapUserProductSubscriptionToResponse = (
   product: extras?.product ?? null,
   variant: extras?.variant ?? null,
   productName: extras?.product?.name ?? null,
+  productImageUrl: extras?.product?.imageUrl ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });

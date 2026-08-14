@@ -617,21 +617,26 @@ export class ProductSubscriptionsService {
       extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1];
     },
   ) {
-    const [users, products, variants] = await Promise.all([
+    const [users, productEntities, variants] = await Promise.all([
       options?.includeUser
         ? this.relationLoader.loadUsersByIds(rows.map((r) => r.userId))
         : Promise.resolve(new Map()),
-      this.relationLoader.loadProductsByIds(rows.map((r) => r.productId)),
+      this.relationLoader.loadProductEntitiesByIds(rows.map((r) => r.productId)),
       this.relationLoader.loadVariantsByIds(rows.map((r) => r.productVariantId)),
     ]);
 
-    return rows.map((row) =>
-      mapUserProductSubscriptionToResponse(row, {
-        ...options?.extras,
-        user: options?.includeUser ? users.get(row.userId) ?? null : null,
-        product: products.get(row.productId) ?? null,
-        variant: variants.get(row.productVariantId) ?? null,
-      }),
+    return Promise.all(
+      rows.map(async (row) =>
+        mapUserProductSubscriptionToResponse(row, {
+          ...options?.extras,
+          user: options?.includeUser ? users.get(row.userId) ?? null : null,
+          product: await this.relationLoader.mapProductSummary(
+            productEntities.get(row.productId),
+            row.productVariantId,
+          ),
+          variant: variants.get(row.productVariantId) ?? null,
+        }),
+      ),
     );
   }
 
