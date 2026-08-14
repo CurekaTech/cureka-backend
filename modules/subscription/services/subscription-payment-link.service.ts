@@ -19,9 +19,20 @@ export type CreateSubscriptionPaymentLinkInput = {
 };
 
 export type CreateSubscriptionPaymentLinkResult = {
-  paymentLink: string;
+  paymentLink: string | null;
   gatewayOrderId: string;
   paymentGateway: string;
+  razorpayOrderId?: string | null;
+  keyId?: string | null;
+  amount?: number | null;
+  currency: string;
+  paymentSessionId?: string | null;
+  environment?: 'sandbox' | 'production';
+  customer: {
+    name: string;
+    email: string;
+    contact: string;
+  };
 };
 
 @Injectable()
@@ -54,53 +65,47 @@ export class SubscriptionPaymentLinkService {
     }
 
     if (gateway === 'razorpay') {
-      return this.createRazorpayLink(input, amount, currency);
+      return this.createRazorpayCheckoutOrder(input, amount, currency);
     }
 
     throw new BadRequestException(`Payment gateway "${gateway}" is not supported for subscriptions`);
   }
 
-  private async createRazorpayLink(
+  private customerPayload(input: CreateSubscriptionPaymentLinkInput) {
+    return {
+      name: input.customer.name || input.customer.phone,
+      email: input.customer.email ?? '',
+      contact: input.customer.phone,
+    };
+  }
+
+  private async createRazorpayCheckoutOrder(
     input: CreateSubscriptionPaymentLinkInput,
     amount: number,
     currency: string,
   ): Promise<CreateSubscriptionPaymentLinkResult> {
     const amountPaise = Math.round(amount * 100);
-    const expireBy = this.razorpayService.getLinkExpiryTimestamp();
-    const callbackUrl =
-      this.configService.get<string>('RAZORPAY_CALLBACK_URL')?.trim() ||
-      this.razorpayService.getCallbackUrl();
-
-    const payload: Record<string, unknown> = {
+    const razorpayOrder = await this.razorpayService.createOrder({
       amount: amountPaise,
       currency,
-      reference_id: input.referenceId.slice(0, 40),
-      expire_by: expireBy,
-      description: input.description ?? 'Subscription payment',
-      customer: {
-        name: input.customer.name || input.customer.phone,
-        contact: input.customer.phone,
-        email: input.customer.email ?? undefined,
-      },
+      receipt: input.referenceId.slice(0, 40),
       notes: input.notes,
-      ...(callbackUrl ? { callback_url: callbackUrl, callback_method: 'get' } : {}),
-    };
-
-    const link = await this.razorpayService.createPaymentLink(payload);
-    const paymentLink = String(
-      (link['short_url'] as string | undefined) ?? (link['url'] as string | undefined) ?? '',
-    );
-    const gatewayOrderId = String(link['id'] ?? '');
-
-    if (!paymentLink || !gatewayOrderId) {
-      this.logger.error({ link }, 'Razorpay payment link response missing url/id');
-      throw new BadRequestException('Failed to generate payment link');
+    });
+    const razorpayOrderId = String(razorpayOrder['id'] ?? '');
+    if (!razorpayOrderId) {
+      this.logger.error({ razorpayOrder }, 'Razorpay order response missing id');
+      throw new BadRequestException('Failed to create Razorpay checkout order');
     }
 
     return {
-      paymentLink,
-      gatewayOrderId,
+      paymentLink: null,
+      gatewayOrderId: razorpayOrderId,
       paymentGateway: 'RAZORPAY',
+      razorpayOrderId,
+      keyId: this.razorpayService.getKeyId(),
+      amount: Number(razorpayOrder['amount'] ?? amountPaise),
+      currency: String(razorpayOrder['currency'] ?? currency),
+      customer: this.customerPayload(input),
     };
   }
 
@@ -109,12 +114,22 @@ export class SubscriptionPaymentLinkService {
     amount: number,
     currency: string,
   ): Promise<CreateSubscriptionPaymentLinkResult> {
-    // Same return-URL resolution as PaymentRequestsService checkout (Cashfree requires return_url).
     const returnUrl =
       this.configService.get<string>('CASHFREE_RETURN_URL')?.trim() ||
       this.buildStorefrontReturnUrl() ||
       this.configService.get<string>('RAZORPAY_CALLBACK_URL')?.trim() ||
-      'https://cureka.com/thankyou';
+      'https://cureka.com/account/subscriptions';
+
+    const orderTags: Record<string, string> = {};
+    for (const key of [
+      'paymentPurpose',
+      'subscriptionPaymentId',
+      'membershipPaymentId',
+      'subscriptionId',
+      'userMembershipId',
+    ]) {
+      if (input.notes[key]) orderTags[key] = input.notes[key];
+    }
 
     const order = await this.cashfreeService.createOrder({
       orderId: input.referenceId.slice(0, 45),
@@ -127,6 +142,7 @@ export class SubscriptionPaymentLinkService {
         name: input.customer.name,
       },
       returnUrl,
+      orderTags,
     });
 
     const paymentSessionId = String(order['payment_session_id'] ?? '');
@@ -137,13 +153,20 @@ export class SubscriptionPaymentLinkService {
       throw new BadRequestException('Failed to generate Cashfree payment session');
     }
 
-    // Match existing checkout link format used by PaymentRequestsService.
-    const paymentLink = `https://payments.cashfree.com/order/${paymentSessionId}`;
+    const environment = this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox';
+    const paymentLink =
+      environment === 'production'
+        ? `https://payments.cashfree.com/order/${paymentSessionId}`
+        : `https://sandbox.cashfree.com/pg/view/checkout?payment_session_id=${paymentSessionId}`;
 
     return {
       paymentLink,
       gatewayOrderId,
       paymentGateway: 'CASHFREE',
+      paymentSessionId,
+      environment,
+      currency,
+      customer: this.customerPayload(input),
     };
   }
 
@@ -152,7 +175,6 @@ export class SubscriptionPaymentLinkService {
     if (!storefrontUrl) {
       return undefined;
     }
-    // Cashfree substitutes {order_id} after payment.
-    return `${storefrontUrl}/cart?order_id={order_id}`;
+    return `${storefrontUrl}/account/subscriptions?order_id={order_id}`;
   }
 }

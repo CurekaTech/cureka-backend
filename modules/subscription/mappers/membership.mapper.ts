@@ -8,6 +8,10 @@ import {
   IMembershipPlan,
   IUserMembership,
 } from '../interfaces/membership.interface';
+import {
+  paymentSessionIdFromLink,
+  type SubscriptionCheckoutExtras,
+} from '../utils/checkout-extras.util';
 
 const toIso = (value: Date | null | undefined): string | null =>
   value ? value.toISOString() : null;
@@ -49,7 +53,7 @@ export const mapMembershipPlanToResponse = (entity: MembershipPlanEntity): IMemb
 
 export const mapUserMembershipToResponse = (
   entity: UserMembershipEntity,
-  extras?: { paymentLink?: string | null; plan?: IMembershipPlan | null },
+  extras?: SubscriptionCheckoutExtras & { plan?: IMembershipPlan | null },
 ): IUserMembership => ({
   id: entity.id,
   refId: entity.refId,
@@ -66,6 +70,13 @@ export const mapUserMembershipToResponse = (
   pausedAt: toIso(entity.pausedAt),
   termsAcceptedAt: toIso(entity.termsAcceptedAt),
   paymentLink: extras?.paymentLink ?? null,
+  razorpayOrderId: extras?.razorpayOrderId ?? null,
+  keyId: extras?.keyId ?? null,
+  amount: extras?.amount ?? null,
+  currency: extras?.currency ?? null,
+  paymentSessionId: extras?.paymentSessionId ?? null,
+  environment: extras?.environment ?? null,
+  customer: extras?.customer ?? null,
   plan: extras?.plan ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
@@ -86,6 +97,7 @@ export const mapMembershipPaymentToResponse = (
   gatewayOrderId: entity.gatewayOrderId,
   gatewayPaymentId: entity.gatewayPaymentId,
   paymentLink: entity.paymentLink,
+  paymentSessionId: paymentSessionIdFromLink(entity.paymentLink),
   status: entity.status,
   billingDate: entity.billingDate.toISOString(),
   paidAt: toIso(entity.paidAt),

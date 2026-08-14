@@ -54,6 +54,17 @@ export interface IUserMembership {
   pausedAt: string | null;
   termsAcceptedAt: string | null;
   paymentLink?: string | null;
+  razorpayOrderId?: string | null;
+  keyId?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  paymentSessionId?: string | null;
+  environment?: 'sandbox' | 'production' | null;
+  customer?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  } | null;
   plan?: IMembershipPlan | null;
   createdAt: string;
   updatedAt: string;
@@ -72,6 +83,7 @@ export interface IMembershipPayment {
   gatewayOrderId: string | null;
   gatewayPaymentId: string | null;
   paymentLink: string | null;
+  paymentSessionId?: string | null;
   status: string;
   billingDate: string;
   paidAt: string | null;

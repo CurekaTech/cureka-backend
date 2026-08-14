@@ -177,13 +177,14 @@ export class PaymentsWebhookController {
       | { entity?: { id?: string; order_id?: string; error_description?: string; notes?: Record<string, unknown> } }
       | undefined;
     const orderEntity = payloadData?.['order'] as
-      | { entity?: { id?: string } }
+      | { entity?: { id?: string; notes?: Record<string, unknown> } }
       | undefined;
 
     const linkId = linkEntity?.entity?.id;
     const orderId = orderEntity?.entity?.id ?? paymentEntity?.entity?.order_id;
     const notes = {
       ...(linkEntity?.entity?.notes ?? {}),
+      ...(orderEntity?.entity?.notes ?? {}),
       ...(paymentEntity?.entity?.notes ?? {}),
     } as Record<string, unknown>;
     const paymentRequestId = notes?.paymentRequestId as string | undefined;

@@ -29,12 +29,11 @@ import { ProductSubscriptionsService } from '../services/product-subscriptions.s
 
 @ApiTags('Product Subscriptions')
 @ApiBearerAuth()
-@UseGuards(SessionCookieGuard, VerifiedUserGuard)
 @Controller('subscriptions/products')
 export class ProductSubscriptionsController {
   constructor(private readonly productSubscriptionsService: ProductSubscriptionsService) {}
 
-  @ApiOperation({ summary: 'Get subscription config for a product/variant' })
+  @ApiOperation({ summary: 'Get subscription config for a product/variant (public PDP)' })
   @ResponseMessage('Subscription config fetched successfully')
   @Get('config')
   @HttpCode(HttpStatus.OK)
@@ -42,10 +41,11 @@ export class ProductSubscriptionsController {
     return this.productSubscriptionsService.getConfig(query);
   }
 
-  @ApiOperation({ summary: 'Create product subscription (returns payment link)' })
+  @ApiOperation({ summary: 'Create product subscription (returns checkout modal payload)' })
   @ResponseMessage('Subscription created successfully')
   @Post()
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   create(
     @CurrentSessionUser() user: IUserSessionContext,
     @Body() dto: CreateProductSubscriptionDto,
@@ -57,6 +57,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Subscriptions fetched successfully')
   @Get()
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   listMine(@CurrentSessionUser() user: IUserSessionContext) {
     return this.productSubscriptionsService.listMine(user.sub);
   }
@@ -65,6 +66,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Subscription fetched successfully')
   @Get(':id')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   getMine(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -76,6 +78,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Subscription payments fetched successfully')
   @Get(':id/payments')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   listPayments(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -87,6 +90,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Subscription paused successfully')
   @Post(':id/pause')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   pause(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -99,6 +103,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Subscription resumed successfully')
   @Post(':id/resume')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   resume(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -110,6 +115,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Subscription cancelled successfully')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   cancel(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -122,6 +128,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Next delivery skipped successfully')
   @Post(':id/skip-next')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   skipNext(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -130,9 +137,10 @@ export class ProductSubscriptionsController {
   }
 
   @ApiOperation({ summary: 'Retry pending payment' })
-  @ResponseMessage('Payment link regenerated successfully')
+  @ResponseMessage('Checkout session regenerated successfully')
   @Post(':id/retry-payment')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   retryPayment(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -144,6 +152,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Frequency updated successfully')
   @Patch(':id/frequency')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   changeFrequency(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -156,6 +165,7 @@ export class ProductSubscriptionsController {
   @ResponseMessage('Address updated successfully')
   @Patch(':id/address')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
   updateAddress(
     @CurrentSessionUser() user: IUserSessionContext,
     @Param('id', ParseUUIDPipe) id: string,
