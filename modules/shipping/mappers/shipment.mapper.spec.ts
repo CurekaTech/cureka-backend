@@ -128,6 +128,13 @@ describe('ShipmentMapper', () => {
           location: 'Madurai_Avaniyapuram_H (Tamil Nadu)',
           happenedAt,
         },
+        {
+          id: 'e4',
+          status: 'weight captured',
+          description: 'weight captured',
+          location: 'Madurai_Avaniyapuram_H (Tamil Nadu)',
+          happenedAt: new Date('2026-08-13T03:59:00.000Z'),
+        },
       ],
     } as ShipmentEntity;
 
@@ -136,5 +143,8 @@ describe('ShipmentMapper', () => {
     expect(response.events).toHaveLength(1);
     expect(response.events[0].status).toBe('Out for delivery');
     expect(response.events.some((event) => event.status === 'Manifest uploaded')).toBe(false);
+    expect(response.events.some((event) => event.status.toLowerCase() === 'weight captured')).toBe(
+      false,
+    );
   });
 });
