@@ -19,6 +19,7 @@ import {
   IShipwayWebhookEvent,
 } from '../interfaces/shipway-api.interface';
 import { ShipmentEntity } from '../entities/shipment.entity';
+import { ShipmentEventEntity } from '../entities/shipment-event.entity';
 import { ShipmentsRepository } from '../repositories/shipments.repository';
 import { ShipmentEventsRepository } from '../repositories/shipment-events.repository';
 import { ShipwayService } from './shipway.service';
@@ -449,7 +450,10 @@ export class ShippingService {
           },
           '[Shipway] Status found — persisting sync onto local shipment',
         );
-        const synced = await this.persistTrackingUpdate(local, tracking, rawStatus);
+        const synced = this.overlayLiveTrackingEvents(
+          await this.persistTrackingUpdate(local, tracking, rawStatus),
+          tracking,
+        );
         this.logger.log(
           {
             orderId,
@@ -480,7 +484,10 @@ export class ShippingService {
         '[Shipway] Status found without local shipment row — building ephemeral response, shipwayStatus=true',
       );
       return {
-        shipment: this.buildEphemeralShipmentFromTracking(orderId, orderNumber, tracking, rawStatus),
+        shipment: this.overlayLiveTrackingEvents(
+          this.buildEphemeralShipmentFromTracking(orderId, orderNumber, tracking, rawStatus),
+          tracking,
+        ),
         shipwayStatus: true,
       };
     } catch (error) {
@@ -798,14 +805,84 @@ export class ShippingService {
     }
   }
 
+  private overlayLiveTrackingEvents(
+    shipment: ShipmentEntity,
+    tracking: IShipwayTrackingResponse,
+  ): ShipmentEntity {
+    const scans = tracking.events ?? tracking.scans ?? [];
+    if (scans.length === 0) {
+      return shipment;
+    }
+
+    shipment.events = scans.map((event, index) =>
+      this.toLiveShipmentEvent(shipment.id, event, index),
+    );
+    return shipment;
+  }
+
+  private toLiveShipmentEvent(
+    shipmentId: string,
+    event: IShipwayTrackingEvent,
+    index: number,
+  ): ShipmentEventEntity {
+    const happenedAt = this.parseEventDate(event.status_date ?? event.time);
+    const description =
+      event.message ?? event.status_detail ?? event.details ?? event.activity ?? null;
+    const status = (event.status || description || 'Update').trim() || 'Update';
+
+    return {
+      id: `${shipmentId}-live-${index}`,
+      refId: `live-${index}`,
+      shipmentId,
+      status,
+      description,
+      location: event.location?.trim() || null,
+      happenedAt,
+      source: 'polling',
+      createdAt: happenedAt ?? new Date(),
+      updatedAt: happenedAt ?? new Date(),
+      createdBy: 'shipway-live',
+      updatedBy: 'shipway-live',
+    } as ShipmentEventEntity;
+  }
+
+  private parseEventDate(value?: string | null): Date | null {
+    if (!value?.trim()) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   private async recordTrackingEvents(
     shipmentId: string,
     events: IShipwayTrackingEvent[],
     source: string,
     manager: Parameters<ShipmentEventsRepository['create']>[1],
   ) {
+    const existing = await this.shipmentEventsRepository.findByShipmentId(shipmentId, manager);
+    const seen = new Set(
+      existing.map(
+        (event) =>
+          `${event.status}|${event.happenedAt?.toISOString() ?? ''}|${event.location ?? ''}|${event.description ?? ''}`,
+      ),
+    );
+
     for (const event of events) {
-      await this.recordShipmentEvent(shipmentId, event, source, manager);
+      const description =
+        event.message ?? event.status_detail ?? event.details ?? event.activity ?? null;
+      const status = (event.status || description || 'Update').trim() || 'Update';
+      const happenedAt = this.parseEventDate(event.status_date ?? event.time);
+      const location = event.location?.trim() || null;
+      const key = `${status}|${happenedAt?.toISOString() ?? ''}|${location ?? ''}|${description ?? ''}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      await this.recordShipmentEvent(
+        shipmentId,
+        { ...event, status, message: description ?? undefined, location: location ?? undefined },
+        source,
+        manager,
+      );
     }
   }
 
@@ -822,9 +899,9 @@ export class ShippingService {
         ),
         shipmentId,
         status: event.status,
-        description: event.message ?? event.activity ?? null,
+        description: event.message ?? event.activity ?? event.status_detail ?? event.details ?? null,
         location: event.location ?? null,
-        happenedAt: event.status_date ? new Date(event.status_date) : null,
+        happenedAt: this.parseEventDate(event.status_date ?? event.time),
         source,
         createdBy: source,
         updatedBy: source,

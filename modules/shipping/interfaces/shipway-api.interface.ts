@@ -96,6 +96,7 @@ export interface IShipwayTrackingEvent {
   /** Classic Shipway scan field aliases */
   time?: string;
   status_detail?: string;
+  details?: string;
 }
 
 export interface IShipwayTrackingResponse {
