@@ -278,7 +278,7 @@ export class CreateSubscriptionTables1785950000000 implements MigrationInterface
         "membership_plan_id"  uuid                                              NOT NULL,
         "benefit_type"        "public"."membership_benefit_type_enum"           NOT NULL,
         "value_type"          "public"."membership_benefit_value_type_enum"     NOT NULL,
-        "value"               numeric(12,2)                                     NOT NULL DEFAULT 0,
+        "value"               numeric(12,2)                                     DEFAULT 0,
         "metadata"            jsonb,
         "status"              "public"."membership_plan_status_enum"            NOT NULL DEFAULT 'ACTIVE',
         "sort_order"          integer                                           NOT NULL DEFAULT 0,
