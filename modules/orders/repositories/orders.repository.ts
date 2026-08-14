@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, FindOptionsWhere, Repository } from 'typeorm';
+import { EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
@@ -234,6 +234,63 @@ export class OrdersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async findPaidForSubscriptionAttach(params: {
+    userId: string;
+    productId: string;
+    productVariantId: string;
+    orderRef?: string;
+  }): Promise<OrderEntity | null> {
+    const { userId, productId, productVariantId, orderRef } = params;
+    const candidates: OrderEntity[] = [];
+
+    if (orderRef?.trim()) {
+      const ref = orderRef.trim();
+      const byNumber = await this.findByOrderNumberAndUserId(ref, userId);
+      if (byNumber) candidates.push(byNumber);
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRe.test(ref)) {
+        const byId = await this.findByIdAndUserId(ref, userId);
+        if (byId) candidates.push(byId);
+      }
+      const byRefId = await this.repo.findOne({
+        where: { userId, refId: ref },
+        relations: { items: true },
+      });
+      if (byRefId) candidates.push(byRefId);
+      const escaped = ref.replace(/[%_]/g, '');
+      if (escaped) {
+        const byNotes = await this.repo.findOne({
+          where: { userId, notes: ILike(`%${escaped}%`) },
+          relations: { items: true },
+          order: { placedAt: 'DESC' },
+        });
+        if (byNotes) candidates.push(byNotes);
+      }
+    }
+
+    const recent = await this.repo.find({
+      where: { userId, paymentStatus: OrderPaymentStatus.PAID },
+      relations: { items: true },
+      order: { placedAt: 'DESC' },
+      take: 20,
+    });
+    candidates.push(...recent);
+
+    const seen = new Set<string>();
+    for (const order of candidates) {
+      if (!order || seen.has(order.id)) continue;
+      seen.add(order.id);
+      if (order.paymentStatus !== OrderPaymentStatus.PAID) continue;
+      const hasItem = order.items?.some(
+        (item) => item.productId === productId && item.variantId === productVariantId,
+      );
+      if (hasItem) return order;
+    }
+
+    return null;
   }
 
   updateById(id: string, data: Partial<OrderEntity>, manager?: EntityManager): Promise<void> {

@@ -1464,6 +1464,26 @@ export class OrdersService {
     return { message: String(error) };
   }
 
+  findPaidOrderForSubscriptionAttach(params: {
+    userId: string;
+    productId: string;
+    productVariantId: string;
+    orderRef?: string;
+  }): Promise<OrderEntity | null> {
+    return this.ordersRepository.findPaidForSubscriptionAttach(params);
+  }
+
+  async attachSubscriptionIdToOrder(
+    orderId: string,
+    subscriptionId: string,
+    actor: string,
+  ): Promise<void> {
+    await this.ordersRepository.updateById(orderId, {
+      subscriptionId,
+      updatedBy: actor,
+    });
+  }
+
   private async generateOrderNumber(): Promise<string> {
     for (let i = 0; i < 20; i += 1) {
       const stamp = Date.now().toString().slice(-8);

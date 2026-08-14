@@ -1436,7 +1436,7 @@ export class PaymentRequestsService {
       this.logger.warn('STOREFRONT_URL is not set; Razorpay payment link will not redirect back to the storefront.');
       return undefined;
     }
-    return `${storefrontUrl}/cart`;
+    return `${storefrontUrl}/thankyou`;
   }
 
   async handleCashfreePaymentSuccess(
