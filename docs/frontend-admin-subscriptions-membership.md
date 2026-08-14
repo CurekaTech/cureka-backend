@@ -256,14 +256,14 @@ GET /api/v1/admin/memberships/plans?page=1&limit=20&status=ACTIVE&search=Gold
 ### 3. Get / update / delete plan
 
 ```http
-GET    /api/v1/admin/memberships/plans/:id
-PATCH  /api/v1/admin/memberships/plans/:id
-DELETE /api/v1/admin/memberships/plans/:id
+GET    /api/v1/admin/memberships/plans/:idOrRefId
+PATCH  /api/v1/admin/memberships/plans/:idOrRefId
+DELETE /api/v1/admin/memberships/plans/:idOrRefId
 ```
 
 | Path | Type | Required |
 |------|------|----------|
-| `id` | UUID | **Yes** |
+| `idOrRefId` | UUID **or** `refId` (e.g. `MPL2026851144`) | **Yes** |
 
 **PATCH body:** any subset of create fields (all optional on update).
 
@@ -279,17 +279,17 @@ DELETE /api/v1/admin/memberships/plans/:id
 ### 4. List benefits for a plan
 
 ```http
-GET /api/v1/admin/memberships/plans/:id/benefits
+GET /api/v1/admin/memberships/plans/:idOrRefId/benefits
 ```
 
-No query. `:id` = plan UUID (**required**).
+No query. `:idOrRefId` = plan UUID **or** `refId`.
 
 ---
 
 ### 5. Add benefit
 
 ```http
-POST /api/v1/admin/memberships/plans/:id/benefits
+POST /api/v1/admin/memberships/plans/:idOrRefId/benefits
 Content-Type: application/json
 ```
 
@@ -530,8 +530,8 @@ Each item includes `user`, `product`, `variant`, and `subscription` summary (`id
 | Product create/edit (subscription section) | POST/PATCH/GET | `/api/v1/products` … |
 | Membership Plans list | GET | `/api/v1/admin/memberships/plans` |
 | Create plan | POST | `/api/v1/admin/memberships/plans` |
-| Edit plan | PATCH | `/api/v1/admin/memberships/plans/:id` |
-| Plan benefits | GET/POST | `/api/v1/admin/memberships/plans/:id/benefits` |
+| Edit plan | PATCH | `/api/v1/admin/memberships/plans/:idOrRefId` |
+| Plan benefits | GET/POST | `/api/v1/admin/memberships/plans/:idOrRefId/benefits` |
 | Edit/delete benefit | PATCH/DELETE | `/api/v1/admin/memberships/plans/benefits/:benefitId` |
 | User Memberships | GET | `/api/v1/admin/memberships` |
 | Membership Payments | GET | `/api/v1/admin/memberships/payments` |
