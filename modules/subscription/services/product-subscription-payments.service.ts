@@ -130,12 +130,14 @@ export class ProductSubscriptionPaymentsService {
     if (!sub) {
       return rows.map((row) => mapSubscriptionPaymentToResponse(row));
     }
-    const [products, variants] = await Promise.all([
+    const [users, products, variants] = await Promise.all([
+      this.relationLoader.loadUsersByIds([sub.userId]),
       this.relationLoader.loadProductsByIds([sub.productId]),
       this.relationLoader.loadVariantsByIds([sub.productVariantId]),
     ]);
     return rows.map((row) =>
       mapSubscriptionPaymentToResponse(row, {
+        user: users.get(row.userId) ?? null,
         product: products.get(sub.productId) ?? null,
         variant: variants.get(sub.productVariantId) ?? null,
         subscription: {

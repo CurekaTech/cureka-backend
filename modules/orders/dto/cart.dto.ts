@@ -1,5 +1,17 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 
 export class AddCartItemDto {
   @IsNotEmpty()
@@ -14,6 +26,14 @@ export class AddCartItemDto {
   @IsInt()
   @Min(1)
   quantity!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isSubscription?: boolean;
+
+  @ValidateIf((o: AddCartItemDto) => !!o.isSubscription)
+  @IsEnum(ProductSubscriptionFrequency)
+  frequency?: ProductSubscriptionFrequency;
 }
 
 export class UpdateCartItemDto {

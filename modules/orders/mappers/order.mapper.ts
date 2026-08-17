@@ -23,6 +23,9 @@ export type OrderItemResponse = {
   quantity: number;
   unitPrice: string;
   totalPrice: string;
+  isSubscription: boolean;
+  frequency: string | null;
+  subscriptionId: string | null;
   createdAt: Date;
   updatedAt: Date;
   primaryImageUrl: IStorageFileReferenceResponse | null;
@@ -83,6 +86,9 @@ async function mapOrderItemToResponse(
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     totalPrice: item.totalPrice,
+    isSubscription: !!item.isSubscription,
+    frequency: item.frequency ?? null,
+    subscriptionId: item.subscriptionId ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     primaryImageUrl,
