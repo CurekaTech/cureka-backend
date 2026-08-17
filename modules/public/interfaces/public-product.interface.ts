@@ -8,6 +8,7 @@ import { IProductPackMetadataItem } from '@modules/product/interfaces/product-pa
 import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
+import { IPublicBrandProductListingContext } from './public-brand.interface';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
 import { IPublicBrandProductListingContext } from './public-brand.interface';
 
