@@ -96,6 +96,7 @@ export interface IShipwayTrackingEvent {
   /** Classic Shipway scan field aliases */
   time?: string;
   status_detail?: string;
+  details?: string;
 }
 
 export interface IShipwayTrackingResponse {
@@ -109,6 +110,8 @@ export interface IShipwayTrackingResponse {
   courier_id?: string | number;
   current_status?: string;
   current_status_code?: string;
+  /** Classic Shipway short code, e.g. RAD / INT / DEL */
+  shipway_status?: string;
   current_status_date?: string;
   tracking_url?: string;
   label_url?: string;
