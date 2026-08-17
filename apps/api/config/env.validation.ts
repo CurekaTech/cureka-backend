@@ -121,6 +121,7 @@ export const envValidationSchema = Joi.object({
   SHIPWAY_RETURN_WAREHOUSE_ID: Joi.string().allow('').optional(),
   SHIPWAY_CARRIER_ID: Joi.number().integer().positive().allow('').optional(),
   SHIPWAY_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  SHIPWAY_WEBHOOK_FRESH_MS: Joi.number().integer().min(0).max(86400000).default(900000),
   SHIPWAY_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
   SHIPWAY_DEFAULT_WEIGHT_GRAMS: Joi.number().positive().default(500),
   SHIPWAY_DEFAULT_LENGTH_CM: Joi.number().positive().default(10),

@@ -156,7 +156,19 @@ export interface IShipwayCarriersResponse {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Webhook Event
+// Classic docs (shipway.in): { hash, status_feed: [{ order_id, current_status }] }
+// Single-event / OMS-style: { order_id, status, event_id?, ... }
 // ──────────────────────────────────────────────────────────────────────────────
+
+export interface IShipwayStatusFeedItem {
+  order_id: string;
+  current_status: string;
+}
+
+export interface IShipwayStatusFeedWebhook {
+  hash: string;
+  status_feed: IShipwayStatusFeedItem[];
+}
 
 export interface IShipwayWebhookEvent {
   event_id?: string;
@@ -173,6 +185,8 @@ export interface IShipwayWebhookEvent {
   invoice_url?: string;
   pickup_id?: string | number;
   shipment_id?: string | number;
+  status_code?: string;
+  current_status_code?: string;
   [key: string]: unknown;
 }
 
