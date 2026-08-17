@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { PaginationQueryDto } from '@packages/common';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -13,6 +14,7 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { MembershipBillingCycle } from '../enums/membership-billing-cycle.enum';
 import { MembershipBenefitType } from '../enums/membership-benefit-type.enum';
@@ -21,6 +23,62 @@ import { MembershipPaymentStatus } from '../enums/membership-payment-status.enum
 import { MembershipPlanStatus } from '../enums/membership-plan-status.enum';
 import { MembershipStatus } from '../enums/membership-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
+
+export class CreateMembershipBenefitDto {
+  @ApiProperty({ enum: MembershipBenefitType })
+  @IsEnum(MembershipBenefitType)
+  benefitType!: MembershipBenefitType;
+
+  @ApiProperty({ enum: MembershipBenefitValueType })
+  @IsEnum(MembershipBenefitValueType)
+  valueType!: MembershipBenefitValueType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  value?: number | null;
+
+  @ApiPropertyOptional({
+    example: 499,
+    description: 'For FREE_SHIPPING — free shipping applies only when order total ≥ this amount',
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  minOrderValue?: number | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ enum: MembershipPlanStatus })
+  @IsOptional()
+  @IsEnum(MembershipPlanStatus)
+  status?: MembershipPlanStatus;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
+
+/** Include `id` to update an existing benefit; omit `id` to create. */
+export class UpsertMembershipBenefitDto extends CreateMembershipBenefitDto {
+  @ApiPropertyOptional({ description: 'Existing benefit UUID — omit to create' })
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+}
+
+export class SyncMembershipBenefitsDto {
+  @ApiProperty({ type: [UpsertMembershipBenefitDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpsertMembershipBenefitDto)
+  benefits!: UpsertMembershipBenefitDto[];
+}
 
 export class CreateMembershipPlanDto {
   @ApiProperty({ example: 'Gold' })
@@ -78,40 +136,19 @@ export class CreateMembershipPlanDto {
   @IsOptional()
   @IsEnum(SubscriptionRenewalMethod)
   renewalMethod?: SubscriptionRenewalMethod;
+
+  @ApiPropertyOptional({
+    type: [UpsertMembershipBenefitDto],
+    description: 'Optional benefits created with the plan',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpsertMembershipBenefitDto)
+  benefits?: UpsertMembershipBenefitDto[];
 }
 
 export class UpdateMembershipPlanDto extends PartialType(CreateMembershipPlanDto) {}
-
-export class CreateMembershipBenefitDto {
-  @ApiProperty({ enum: MembershipBenefitType })
-  @IsEnum(MembershipBenefitType)
-  benefitType!: MembershipBenefitType;
-
-  @ApiProperty({ enum: MembershipBenefitValueType })
-  @IsEnum(MembershipBenefitValueType)
-  valueType!: MembershipBenefitValueType;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  value?: number | null;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown> | null;
-
-  @ApiPropertyOptional({ enum: MembershipPlanStatus })
-  @IsOptional()
-  @IsEnum(MembershipPlanStatus)
-  status?: MembershipPlanStatus;
-
-  @ApiPropertyOptional({ default: 0 })
-  @IsOptional()
-  @IsInt()
-  sortOrder?: number;
-}
 
 export class UpdateMembershipBenefitDto extends PartialType(CreateMembershipBenefitDto) {}
 

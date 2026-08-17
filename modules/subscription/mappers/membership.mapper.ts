@@ -16,6 +16,15 @@ import {
 const toIso = (value: Date | null | undefined): string | null =>
   value ? value.toISOString() : null;
 
+const readMinOrderValue = (
+  metadata: Record<string, unknown> | null | undefined,
+): string | null => {
+  const raw = metadata?.['minOrderValue'];
+  if (raw === null || raw === undefined || raw === '') return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num.toFixed(2) : null;
+};
+
 export const mapMembershipBenefitToResponse = (
   entity: MembershipBenefitEntity,
 ): IMembershipBenefit => ({
@@ -25,6 +34,7 @@ export const mapMembershipBenefitToResponse = (
   benefitType: entity.benefitType,
   valueType: entity.valueType,
   value: entity.value,
+  minOrderValue: readMinOrderValue(entity.metadata),
   metadata: entity.metadata,
   status: entity.status,
   sortOrder: entity.sortOrder,

@@ -18,6 +18,8 @@ export interface IMembershipBenefit {
   benefitType: MembershipBenefitType;
   valueType: MembershipBenefitValueType;
   value: string | null;
+  /** Present for FREE_SHIPPING — cart/order must be ≥ this to get free shipping */
+  minOrderValue: string | null;
   metadata: Record<string, unknown> | null;
   status: MembershipPlanStatus;
   sortOrder: number;
