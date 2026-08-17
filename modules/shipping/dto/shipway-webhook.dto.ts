@@ -8,26 +8,7 @@ import {
   MaxLength,
   ValidateIf,
   ValidateNested,
-  ValidationArguments,
-  ValidatorConstraint,
-  ValidatorConstraintInterface,
-  Validate,
 } from 'class-validator';
-
-@ValidatorConstraint({ name: 'shipwayWebhookShape', async: false })
-class ShipwayWebhookShapeConstraint implements ValidatorConstraintInterface {
-  validate(_: unknown, args: ValidationArguments): boolean {
-    const body = args.object as ShipwayWebhookDto;
-    if (Array.isArray(body.status_feed) && body.status_feed.length > 0) {
-      return Boolean(body.hash?.trim());
-    }
-    return Boolean(body.order_id?.trim() && body.status?.trim());
-  }
-
-  defaultMessage(): string {
-    return 'Webhook must include status_feed+hash (classic Shipway) or order_id+status (single event)';
-  }
-}
 
 export class ShipwayWebhookStatusFeedItemDto {
   @IsString()
@@ -45,7 +26,6 @@ export class ShipwayWebhookStatusFeedItemDto {
  * Accepts both documented classic Shipway webhooks (`hash` + `status_feed`)
  * and the single-event shape already used by Cureka (`order_id` + `status`).
  */
-@Validate(ShipwayWebhookShapeConstraint)
 export class ShipwayWebhookDto {
   /** Classic Shipway: md5(username:licence_key). */
   @ValidateIf((o: ShipwayWebhookDto) => Array.isArray(o.status_feed) && o.status_feed.length > 0)
