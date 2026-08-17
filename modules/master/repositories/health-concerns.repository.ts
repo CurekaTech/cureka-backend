@@ -136,7 +136,13 @@ export class HealthConcernsRepository {
   }
 
   async existsBySlug(slug: string): Promise<boolean> {
-    return (await this.repo.count({ where: { slug } })) > 0;
+    return (
+      (await this.repo
+        .createQueryBuilder('healthConcern')
+        .where('healthConcern.slug = :slug', { slug })
+        .andWhere('healthConcern.deletedAt IS NULL')
+        .getCount()) > 0
+    );
   }
 
   async existsBySlugExcluding(slug: string, excludeId: string): Promise<boolean> {
@@ -145,6 +151,7 @@ export class HealthConcernsRepository {
         .createQueryBuilder('healthConcern')
         .where('healthConcern.slug = :slug', { slug })
         .andWhere('healthConcern.id != :excludeId', { excludeId })
+        .andWhere('healthConcern.deletedAt IS NULL')
         .getCount()) > 0
     );
   }

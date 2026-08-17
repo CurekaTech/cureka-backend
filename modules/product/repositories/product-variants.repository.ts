@@ -298,7 +298,10 @@ export class ProductVariantsRepository {
   }
 
   async existsBySlug(slug: string, excludeId?: string): Promise<boolean> {
-    const qb = this.repo.createQueryBuilder('variant').where('variant.slug = :slug', { slug });
+    const qb = this.repo
+      .createQueryBuilder('variant')
+      .where('variant.slug = :slug', { slug })
+      .andWhere('variant.deletedAt IS NULL');
     if (excludeId) {
       qb.andWhere('variant.id != :excludeId', { excludeId });
     }
