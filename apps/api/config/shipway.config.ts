@@ -36,10 +36,18 @@ export const shipwayConfig = registerAs('shipway', () => ({
   carrierId: process.env['SHIPWAY_CARRIER_ID'] ? parseInt(process.env['SHIPWAY_CARRIER_ID'], 10) : undefined,
 
   /**
-   * Webhook secret provided by Shipway for signature verification.
-   * If empty, signature validation is skipped (not recommended for production).
+   * Optional HMAC secret for single-event webhooks (`x-webhook-signature` /
+   * `x-shipway-signature`). Classic Shipway `status_feed` auth uses
+   * md5(SHIPWAY_EMAIL:SHIPWAY_LICENSE_KEY) in the body `hash` instead.
+   * In production, webhook auth is fail-closed (HMAC secret and/or credentials required).
    */
   webhookSecret: process.env['SHIPWAY_WEBHOOK_SECRET'] ?? '',
+
+  /**
+   * Prefer local DB shipment details when last webhook/sync is newer than this
+   * many milliseconds. Live Shipway GET remains the fallback.
+   */
+  webhookFreshMs: parseInt(process.env['SHIPWAY_WEBHOOK_FRESH_MS'] ?? String(15 * 60 * 1000), 10),
 
   /** HTTP request timeout in milliseconds for all Shipway API calls. */
   timeoutMs: parseInt(process.env['SHIPWAY_TIMEOUT_MS'] ?? '15000', 10),
