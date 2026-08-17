@@ -41,6 +41,8 @@ export enum ShipwayStatus {
   CODE_SCH = 'SCH', // Shipment Booked
   CODE_INT = 'INT', // In Transit
   CODE_OOD = 'OOD', // Out for Delivery
+  CODE_OFD = 'OFD', // Out for Delivery
+  CODE_RAD = 'RAD', // Reached at Destination / Out for Delivery
   CODE_DEL = 'DEL', // Delivered
   CODE_PKP = 'PKP', // Picked Up
   CODE_PKF = 'PKF', // Pickup Failed

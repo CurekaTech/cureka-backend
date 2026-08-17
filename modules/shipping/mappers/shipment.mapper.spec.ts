@@ -105,4 +105,46 @@ describe('ShipmentMapper', () => {
     expect(response.currentStatusLabel).toBe('Cancelled');
     expect(response.statusFlow.map((s) => s.key)).toEqual(['confirmed', 'cancelled']);
   });
+
+  it('drops duplicate scans and Manifest uploaded events', () => {
+    const happenedAt = new Date('2026-08-12T13:19:44.000Z');
+    const twin = {
+      id: 'e1',
+      status: 'Out for delivery',
+      description: 'Out for delivery',
+      location: 'Tirunelveli_BalabgyaNgr_D (Tamil Nadu)',
+      happenedAt: new Date('2026-08-14T13:04:32.000Z'),
+    };
+    const shipment = {
+      ...baseShipment,
+      shipmentStatus: ShipmentStatus.OUT_FOR_DELIVERY,
+      events: [
+        twin,
+        { ...twin, id: 'e2' },
+        {
+          id: 'e3',
+          status: 'Manifest uploaded',
+          description: 'Manifest uploaded',
+          location: 'Madurai_Avaniyapuram_H (Tamil Nadu)',
+          happenedAt,
+        },
+        {
+          id: 'e4',
+          status: 'weight captured',
+          description: 'weight captured',
+          location: 'Madurai_Avaniyapuram_H (Tamil Nadu)',
+          happenedAt: new Date('2026-08-13T03:59:00.000Z'),
+        },
+      ],
+    } as ShipmentEntity;
+
+    const response = mapShipmentToResponse(shipment, { shipwayStatus: true });
+
+    expect(response.events).toHaveLength(1);
+    expect(response.events[0].status).toBe('Out for delivery');
+    expect(response.events.some((event) => event.status === 'Manifest uploaded')).toBe(false);
+    expect(response.events.some((event) => event.status.toLowerCase() === 'weight captured')).toBe(
+      false,
+    );
+  });
 });
