@@ -30,6 +30,61 @@ const toOptionalNumber = ({ value }: { value: unknown }): unknown => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : value;
 };
+export class CreateMembershipBenefitDto {
+  @ApiProperty({ enum: MembershipBenefitType })
+  @IsEnum(MembershipBenefitType)
+  benefitType!: MembershipBenefitType;
+
+  @ApiProperty({ enum: MembershipBenefitValueType })
+  @IsEnum(MembershipBenefitValueType)
+  valueType!: MembershipBenefitValueType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  value?: number | null;
+
+  @ApiPropertyOptional({
+    example: 499,
+    description: 'For FREE_SHIPPING — free shipping applies only when order total ≥ this amount',
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  minOrderValue?: number | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ enum: MembershipPlanStatus })
+  @IsOptional()
+  @IsEnum(MembershipPlanStatus)
+  status?: MembershipPlanStatus;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
+
+/** Include `id` to update an existing benefit; omit `id` to create. */
+export class UpsertMembershipBenefitDto extends CreateMembershipBenefitDto {
+  @ApiPropertyOptional({ description: 'Existing benefit UUID — omit to create' })
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+}
+
+export class SyncMembershipBenefitsDto {
+  @ApiProperty({ type: [UpsertMembershipBenefitDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpsertMembershipBenefitDto)
+  benefits!: UpsertMembershipBenefitDto[];
+}
 
 export class CreateMembershipPlanDto {
   @ApiProperty({ example: 'Gold' })
@@ -92,6 +147,8 @@ export class CreateMembershipPlanDto {
   @ApiPropertyOptional({
     type: () => [UpsertMembershipBenefitDto],
     description: 'Optional benefits created/synced with the plan',
+    type: [UpsertMembershipBenefitDto],
+    description: 'Optional benefits created with the plan',
   })
   @IsOptional()
   @IsArray()

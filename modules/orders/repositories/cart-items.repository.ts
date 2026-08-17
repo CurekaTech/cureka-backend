@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { CartItemEntity } from '../entities/cart-item.entity';
 
 @Injectable()
@@ -14,9 +15,22 @@ export class CartItemsRepository {
     cartId: string,
     variantId: string,
     manager?: EntityManager,
+    options?: {
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
+    },
   ): Promise<CartItemEntity | null> {
     const repository = manager ? manager.getRepository(CartItemEntity) : this.repo;
-    return repository.findOne({ where: { cartId, variantId } });
+    const isSubscription = options?.isSubscription ?? false;
+    const frequency = options?.frequency ?? null;
+    return repository.findOne({
+      where: {
+        cartId,
+        variantId,
+        isSubscription,
+        frequency: frequency === null ? IsNull() : frequency,
+      },
+    });
   }
 
   create(data: Partial<CartItemEntity>, manager?: EntityManager): Promise<CartItemEntity> {

@@ -28,6 +28,9 @@ export type CartLineItem = {
   subSubCategoryId: string | null;
   subSubSubCategoryId: string | null;
   brandId: string | null;
+  isSubscription: boolean;
+  frequency: string | null;
+  lineType: 'SUBSCRIPTION' | 'ONE_TIME';
 };
 
 export type CartCouponSummary = {
@@ -81,6 +84,8 @@ export type CheckoutLineItem = {
   subSubCategoryId: string | null;
   subSubSubCategoryId: string | null;
   brandId: string | null;
+  isSubscription: boolean;
+  frequency: string | null;
 };
 
 export type CheckoutSummary = {

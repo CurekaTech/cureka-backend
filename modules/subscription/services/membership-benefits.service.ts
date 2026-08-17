@@ -70,6 +70,7 @@ export class MembershipBenefitsService {
       dto.metadata !== undefined || dto.minOrderValue !== undefined;
 
     await this.benefitsRepository.updateById(existing.id, {
+    await this.benefitsRepository.updateById(benefitId, {
       ...(dto.benefitType !== undefined ? { benefitType: dto.benefitType } : {}),
       ...(dto.valueType !== undefined ? { valueType: dto.valueType } : {}),
       ...(dto.value !== undefined
@@ -100,6 +101,8 @@ export class MembershipBenefitsService {
    * Full sync for a plan:
    * - items with `id` or `refId` → update (must belong to plan)
    * - items without either → create
+   * - items with `id` → update (must belong to plan)
+   * - items without `id` → create
    * - existing benefits missing from the array → soft-delete
    */
   async sync(planId: string, items: UpsertMembershipBenefitDto[], actor: string) {
@@ -129,11 +132,27 @@ export class MembershipBenefitsService {
           valueType: item.valueType,
           value: item.value != null ? Number(item.value).toFixed(2) : null,
           metadata: buildBenefitMetadata(item, current.metadata),
+    const keptIds = new Set<string>();
+
+    for (const [index, item] of items.entries()) {
+      if (item.id) {
+        const current = existingById.get(item.id);
+        if (!current) {
+          throw new BadRequestException(
+            `benefits[${index}].id does not belong to this membership plan`,
+          );
+        }
+        await this.benefitsRepository.updateById(item.id, {
+          benefitType: item.benefitType,
+          valueType: item.valueType,
+          value: item.value != null ? Number(item.value).toFixed(2) : null,
+          metadata: buildBenefitMetadata(item),
           status: item.status ?? MembershipPlanStatus.ACTIVE,
           sortOrder: item.sortOrder ?? index,
           updatedBy: actor,
         });
         keptIds.add(current.id);
+        keptIds.add(item.id);
         continue;
       }
 

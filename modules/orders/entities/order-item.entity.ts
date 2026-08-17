@@ -1,6 +1,7 @@
 import { BaseEntity } from '@packages/database';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { OrderEntity } from './order.entity';
 
@@ -35,6 +36,21 @@ export class OrderItemEntity extends BaseEntity {
 
   @Column({ name: 'total_price', type: 'decimal', precision: 12, scale: 2 })
   totalPrice!: string;
+
+  @Column({ name: 'is_subscription', type: 'boolean', default: false })
+  isSubscription!: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: ProductSubscriptionFrequency,
+    enumName: 'product_subscription_frequency_enum',
+    nullable: true,
+  })
+  frequency!: ProductSubscriptionFrequency | null;
+
+  @Index()
+  @Column({ name: 'subscription_id', type: 'uuid', nullable: true })
+  subscriptionId!: string | null;
 
   @ManyToOne(() => OrderEntity, (order) => order.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'order_id' })
