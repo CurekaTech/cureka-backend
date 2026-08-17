@@ -76,6 +76,7 @@ export class CategoriesRepository {
       .leftJoinAndSelect('category.attributes', 'attribute')
       .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.slug = :slug', { slug })
+      .andWhere('category.deletedAt IS NULL')
       .getOne();
   }
 
@@ -87,6 +88,7 @@ export class CategoriesRepository {
       .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.slug = :slug', { slug })
       .andWhere('category.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('category.deletedAt IS NULL')
       .getOne();
   }
 
@@ -197,6 +199,7 @@ export class CategoriesRepository {
       (await this.repo
         .createQueryBuilder('category')
         .where('category.slug = :slug', { slug })
+        .andWhere('category.deletedAt IS NULL')
         .getCount()) > 0
     );
   }
@@ -207,6 +210,7 @@ export class CategoriesRepository {
         .createQueryBuilder('category')
         .where('category.slug = :slug', { slug })
         .andWhere('category.refId != :excludeRefId', { excludeRefId })
+        .andWhere('category.deletedAt IS NULL')
         .getCount()) > 0
     );
   }
