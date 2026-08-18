@@ -197,7 +197,7 @@ export class OrdersService {
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
           isSubscription: item.isSubscription,
-          frequency: item.frequency ?? null,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -402,7 +402,7 @@ export class OrdersService {
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
           isSubscription: item.isSubscription,
-          frequency: item.frequency ?? null,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -943,7 +943,9 @@ export class OrdersService {
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
           isSubscription: !!item.isSubscription,
-          frequency: item.isSubscription ? item.frequency ?? null : null,
+          frequency: item.isSubscription
+            ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
+            : null,
           subscriptionId: params.subscriptionId,
           createdBy: params.createdBy ?? 'subscription-webhook',
           updatedBy: params.createdBy ?? 'subscription-webhook',
@@ -1097,7 +1099,9 @@ export class OrdersService {
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
           isSubscription: !!item.isSubscription,
-          frequency: item.isSubscription ? item.frequency ?? null : null,
+          frequency: item.isSubscription
+            ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
+            : null,
           createdBy: 'razorpay-webhook',
           updatedBy: 'razorpay-webhook',
         });

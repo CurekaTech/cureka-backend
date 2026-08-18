@@ -12,6 +12,7 @@ import { buildPaginatedResult, generateUniqueRefId, getSalableStockQuantity, isV
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -752,7 +753,7 @@ export class PaymentRequestsService {
           tax: item.tax,
           total: item.total,
           isSubscription: item.isSubscription,
-          frequency: item.frequency,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
           updatedBy: userId,
         })),
@@ -1414,7 +1415,7 @@ export class PaymentRequestsService {
           unitPrice: item.unitPrice,
           totalPrice: item.total,
           isSubscription: item.isSubscription,
-          frequency: item.frequency ?? null,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
         })),
       });
       this.logger.log(
