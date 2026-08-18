@@ -1,16 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { BrandsRepository } from '@modules/master/repositories/brands.repository';
+import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
+import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import {
   SEARCH_ENTITY_TYPES,
   SearchEntityType,
 } from '../constants/search-entity-type.constant';
 import {
   SEARCH_ENTITY_FETCH_LIMIT,
+  SEARCH_NATIVE_FALLBACK_MIN_CHARS,
   SEARCH_RESPONSE_CACHE_MAX_ENTRIES,
   SEARCH_RESPONSE_CACHE_TTL_MS,
   TYPESENSE_FAST_SEARCH_PARAMS,
 } from '../constants/typesense-search-performance.constant';
 import { PRODUCT_POPULAR_SORT_FIELD } from '../constants/typesense-product.schema';
 import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
+import {
+  mapBrandToSearchResult,
+  mapCategoryToSearchResult,
+  mapHealthConcernToSearchResult,
+  mapVariantToSearchResult,
+} from '../mappers/public-search-result.mapper';
 import { mapTypesenseHitsToSearchResults, filterDistinctMatchingProductVariants } from '../mappers/typesense-search-result.mapper';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
@@ -35,16 +46,21 @@ const DROPDOWN_ENTITY_ORDER: SearchEntityType[] = [
 
 @Injectable()
 export class PublicSearchService {
+  private readonly logger = new Logger(PublicSearchService.name);
   private readonly searchCache = new Map<string, SearchCacheEntry>();
 
   constructor(
     private readonly typesenseClient: TypesenseClientService,
     private readonly collectionService: TypesenseCollectionService,
+    private readonly productsRepository: ProductsRepository,
+    private readonly brandsRepository: BrandsRepository,
+    private readonly categoriesRepository: CategoriesRepository,
+    private readonly healthConcernsRepository: HealthConcernsRepository,
   ) {}
 
   async search(query: string, perPage = 10): Promise<IPublicSearchResult[]> {
     const trimmed = query.trim();
-    if (!trimmed || !this.typesenseClient.isEnabled()) {
+    if (!trimmed) {
       return [];
     }
 
@@ -54,48 +70,29 @@ export class PublicSearchService {
       return cached;
     }
 
-    const config = await this.collectionService.getSearchRuntimeConfig();
-    const collectionName = this.typesenseClient.getCollectionName();
-    const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
-    const searches = DROPDOWN_ENTITY_ORDER.flatMap((entityType) => {
-      if (!config.hasEntityType && entityType !== SEARCH_ENTITY_TYPES.PRODUCT) {
-        return [];
+    if (this.typesenseClient.isEnabled()) {
+      try {
+        const merged = await this.searchWithTypesense(trimmed, perPage);
+        this.writeCache(cacheKey, merged);
+        return merged;
+      } catch (error) {
+        this.logger.warn(
+          {
+            query: trimmed,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          '[Search] Typesense dropdown failed — using native search fallback',
+        );
       }
+    }
 
-      const filterBy = config.entityTypeFilters[entityType];
-      const isProduct = entityType === SEARCH_ENTITY_TYPES.PRODUCT;
+    if (trimmed.length < SEARCH_NATIVE_FALLBACK_MIN_CHARS) {
+      return [];
+    }
 
-      return [
-        {
-          collection: collectionName,
-          q: trimmed,
-          query_by: isProduct ? config.productQueryBy : config.entityQueryBy,
-          // Fetch extra product hits — index is variant-level; we keep distinct matching titles.
-          per_page: isProduct ? Math.min(perPage * 3, 30) : entityLimit,
-          ...TYPESENSE_FAST_SEARCH_PARAMS,
-          ...(filterBy ? { filter_by: filterBy } : {}),
-        },
-      ];
-    });
-
-    const multiResult = (await this.typesenseClient
-      .getSearchClient()
-      .multiSearch.perform({ searches })) as MultiSearchResponse;
-
-    const grouped = this.groupMultiSearchResults(multiResult, config.hasEntityType);
-    const merged = this.mergeSearchResults(
-      grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
-      filterDistinctMatchingProductVariants(
-        grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [],
-        trimmed,
-      ),
-      perPage,
-    );
-
-    this.writeCache(cacheKey, merged);
-    return merged;
+    const fallback = await this.searchWithNative(trimmed, perPage);
+    this.writeCache(cacheKey, fallback);
+    return fallback;
   }
 
   async getPopular(perPage = 4): Promise<IPublicSearchResult[]> {
@@ -129,6 +126,75 @@ export class PublicSearchService {
         (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
       ),
     ).slice(0, perPage);
+  }
+
+  private async searchWithTypesense(trimmed: string, perPage: number): Promise<IPublicSearchResult[]> {
+    const config = await this.collectionService.getSearchRuntimeConfig();
+    const collectionName = this.typesenseClient.getCollectionName();
+    const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
+    const searches = DROPDOWN_ENTITY_ORDER.flatMap((entityType) => {
+      if (!config.hasEntityType && entityType !== SEARCH_ENTITY_TYPES.PRODUCT) {
+        return [];
+      }
+
+      const filterBy = config.entityTypeFilters[entityType];
+      const isProduct = entityType === SEARCH_ENTITY_TYPES.PRODUCT;
+
+      return [
+        {
+          collection: collectionName,
+          q: trimmed,
+          query_by: isProduct ? config.productQueryBy : config.entityQueryBy,
+          per_page: isProduct ? Math.min(perPage * 3, 30) : entityLimit,
+          ...TYPESENSE_FAST_SEARCH_PARAMS,
+          ...(filterBy ? { filter_by: filterBy } : {}),
+        },
+      ];
+    });
+
+    const multiResult = (await this.typesenseClient
+      .getSearchClient()
+      .multiSearch.perform({ searches })) as MultiSearchResponse;
+
+    const grouped = this.groupMultiSearchResults(multiResult, config.hasEntityType);
+    return this.mergeSearchResults(
+      grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
+      grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
+      grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
+      filterDistinctMatchingProductVariants(
+        grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [],
+        trimmed,
+      ),
+      perPage,
+    );
+  }
+
+  private async searchWithNative(trimmed: string, perPage: number): Promise<IPublicSearchResult[]> {
+    const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
+    const productLimit = Math.min(perPage * 3, 30);
+    const pagination = { page: 1, limit: entityLimit, search: trimmed, sortBy: 'name', sortOrder: 'ASC' as const };
+
+    const [categories, brands, healthConcerns, variants] = await Promise.all([
+      this.categoriesRepository.findPublicPaginated(pagination),
+      this.brandsRepository.findPublicPaginated(pagination),
+      this.healthConcernsRepository.findPublicPaginated(pagination),
+      this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit),
+    ]);
+
+    const products = filterDistinctMatchingProductVariants(
+      variants
+        .map((variant) => mapVariantToSearchResult(variant))
+        .filter((result): result is IPublicSearchResult => Boolean(result)),
+      trimmed,
+    );
+
+    return this.mergeSearchResults(
+      categories.data.map(mapCategoryToSearchResult),
+      brands.data.map(mapBrandToSearchResult),
+      healthConcerns.data.map(mapHealthConcernToSearchResult),
+      products,
+      perPage,
+    );
   }
 
   private groupMultiSearchResults(
