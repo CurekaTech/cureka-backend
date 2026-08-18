@@ -47,6 +47,7 @@ import { ProductSubscriptionsService } from './services/product-subscriptions.se
 import { SubscriptionNotificationsService } from './services/subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './services/subscription-payment-link.service';
 import { SubscriptionRelationLoaderService } from './services/subscription-relation-loader.service';
+import { OrderConfirmedSubscriptionListener } from './listeners/order-confirmed.listener';
 
 @Module({
   imports: [
@@ -107,6 +108,7 @@ import { SubscriptionRelationLoaderService } from './services/subscription-relat
     ProductSubscriptionReminderProcessor,
     MembershipRenewalProcessor,
     MembershipReminderProcessor,
+    OrderConfirmedSubscriptionListener,
   ],
   exports: [
     ProductSubscriptionConfigService,
