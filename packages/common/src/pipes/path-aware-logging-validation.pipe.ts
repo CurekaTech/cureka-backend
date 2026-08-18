@@ -7,6 +7,7 @@ import { LoggingValidationPipe } from './logging-validation.pipe';
 const UNICOMMERCE_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/unicommerce/`;
 const GOKWIK_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/gokwik/`;
 const BOB_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/bob`;
+const SHIPWAY_WEBHOOK_PATH = `/${APP_CONSTANTS.API_PREFIX}/shipments/webhook`;
 
 @Injectable({ scope: Scope.REQUEST })
 export class PathAwareLoggingValidationPipe extends LoggingValidationPipe {
@@ -16,6 +17,8 @@ export class PathAwareLoggingValidationPipe extends LoggingValidationPipe {
       path.startsWith(UNICOMMERCE_PREFIX) ||
       path.startsWith(GOKWIK_PREFIX) ||
       path.startsWith(BOB_PREFIX);
+      path === SHIPWAY_WEBHOOK_PATH ||
+      path.startsWith(`${SHIPWAY_WEBHOOK_PATH}/`);
 
     const options: ValidationPipeOptions = {
       whitelist: true,
