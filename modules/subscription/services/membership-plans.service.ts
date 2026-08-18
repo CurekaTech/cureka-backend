@@ -10,13 +10,17 @@ import { MembershipPlanStatus } from '../enums/membership-plan-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
 import { mapMembershipPlanToResponse } from '../mappers/membership.mapper';
 import { MembershipPlansRepository } from '../repositories/membership-plans.repository';
+import { MembershipBenefitsService } from './membership-benefits.service';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class MembershipPlansService {
-  constructor(private readonly plansRepository: MembershipPlansRepository) {}
+  constructor(
+    private readonly plansRepository: MembershipPlansRepository,
+    private readonly benefitsService: MembershipBenefitsService,
+  ) {}
 
   async create(dto: CreateMembershipPlanDto, actor: string) {
     const refId = await generateUniqueRefId('mplan', (c) => this.plansRepository.existsByRefId(c));
@@ -36,6 +40,11 @@ export class MembershipPlansService {
       createdBy: actor,
       updatedBy: actor,
     });
+
+    if (dto.benefits?.length) {
+      await this.benefitsService.sync(created.id, dto.benefits, actor);
+    }
+
     const full = await this.plansRepository.findById(created.id);
     return mapMembershipPlanToResponse(full ?? created);
   }
@@ -56,6 +65,10 @@ export class MembershipPlansService {
       ...(dto.renewalMethod !== undefined ? { renewalMethod: dto.renewalMethod } : {}),
       updatedBy: actor,
     });
+
+    if (dto.benefits !== undefined) {
+      await this.benefitsService.sync(existing.id, dto.benefits, actor);
+    }
 
     const updated = await this.plansRepository.findById(existing.id);
     if (!updated) throw new NotFoundException('Membership plan not found after update');

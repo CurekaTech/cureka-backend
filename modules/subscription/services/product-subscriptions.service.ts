@@ -603,8 +603,8 @@ export class ProductSubscriptionsService {
     };
   }
 
-  async getAdmin(id: string) {
-    const sub = await this.subscriptionsRepository.findById(id);
+  async getAdmin(idOrRefId: string) {
+    const sub = await this.subscriptionsRepository.findByIdOrRefId(idOrRefId);
     if (!sub) throw new NotFoundException('Subscription not found');
     const [mapped] = await this.mapSubscriptionsWithRelations([sub], { includeUser: true });
     return mapped;

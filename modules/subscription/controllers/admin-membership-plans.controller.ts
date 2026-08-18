@@ -6,9 +6,9 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -22,6 +22,7 @@ import {
   AdminMembershipPlanQueryDto,
   CreateMembershipBenefitDto,
   CreateMembershipPlanDto,
+  SyncMembershipBenefitsDto,
   UpdateMembershipBenefitDto,
   UpdateMembershipPlanDto,
 } from '../dto/membership.dto';
@@ -58,32 +59,32 @@ export class AdminMembershipPlansController {
     return this.plansService.listAdmin(query);
   }
 
-  // Static `benefits/:benefitId` routes must be registered before `:idOrRefId`
-  @ApiOperation({ summary: 'Update membership benefit' })
+  // Static `benefits/:idOrRefId` routes must be registered before `:idOrRefId`
+  @ApiOperation({ summary: 'Update membership benefit by id or refId' })
   @ResponseMessage('Membership benefit updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('membership_benefits.update')
-  @Patch('benefits/:benefitId')
+  @Patch('benefits/:idOrRefId')
   @HttpCode(HttpStatus.OK)
   updateBenefit(
-    @Param('benefitId', ParseUUIDPipe) benefitId: string,
+    @Param('idOrRefId') idOrRefId: string,
     @Body() dto: UpdateMembershipBenefitDto,
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
-    return this.benefitsService.update(benefitId, dto, user.email);
+    return this.benefitsService.update(idOrRefId, dto, user.email);
   }
 
-  @ApiOperation({ summary: 'Delete membership benefit' })
+  @ApiOperation({ summary: 'Delete membership benefit by id or refId' })
   @ResponseMessage('Membership benefit deleted successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('membership_benefits.delete')
-  @Delete('benefits/:benefitId')
+  @Delete('benefits/:idOrRefId')
   @HttpCode(HttpStatus.OK)
   removeBenefit(
-    @Param('benefitId', ParseUUIDPipe) benefitId: string,
+    @Param('idOrRefId') idOrRefId: string,
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
-    return this.benefitsService.softDelete(benefitId, user.email);
+    return this.benefitsService.softDelete(idOrRefId, user.email);
   }
 
   @ApiOperation({ summary: 'List benefits for a plan by id or refId' })
@@ -97,7 +98,7 @@ export class AdminMembershipPlansController {
     return this.benefitsService.listByPlan(planId);
   }
 
-  @ApiOperation({ summary: 'Add benefit to plan by id or refId' })
+  @ApiOperation({ summary: 'Add a single benefit to plan by id or refId' })
   @ResponseMessage('Membership benefit created successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('membership_benefits.create')
@@ -110,6 +111,23 @@ export class AdminMembershipPlansController {
   ) {
     const planId = await this.plansService.resolveId(idOrRefId);
     return this.benefitsService.create(planId, dto, user.email);
+  }
+
+  @ApiOperation({
+    summary: 'Sync benefits array for a plan (create / update / remove missing)',
+  })
+  @ResponseMessage('Membership benefits synced successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('membership_benefits.update')
+  @Put(':idOrRefId/benefits')
+  @HttpCode(HttpStatus.OK)
+  async syncBenefits(
+    @Param('idOrRefId') idOrRefId: string,
+    @Body() dto: SyncMembershipBenefitsDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    const planId = await this.plansService.resolveId(idOrRefId);
+    return this.benefitsService.sync(planId, dto.benefits, user.email);
   }
 
   @ApiOperation({ summary: 'Get membership plan by id or refId' })
