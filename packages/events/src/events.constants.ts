@@ -10,6 +10,7 @@ export const EVENTS = {
 
   // Placeholder — extend as modules are added
   ORDER_CREATED: 'order.created',
+  ORDER_CONFIRMED: 'order.confirmed',
   ORDER_UPDATED: 'order.updated',
   ORDER_CANCELLED: 'order.cancelled',
   SHIPMENT_UPDATED: 'shipment.updated',

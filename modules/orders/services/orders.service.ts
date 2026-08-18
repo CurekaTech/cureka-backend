@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager } from 'typeorm';
 import {
@@ -14,6 +14,7 @@ import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
+import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -68,6 +69,8 @@ export class OrdersService {
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
     private readonly orderNotificationsService: OrderNotificationsService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => ProductSubscriptionsService))
+    private readonly productSubscriptionsService: ProductSubscriptionsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -287,6 +290,7 @@ export class OrdersService {
 
     await this.notifyOrderPlacedSafely(order, 'place-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
+    await this.activateSubscriptionsForConfirmedOrder(order, dto.addressId, 'place-order');
     return this.findOne(userId, order.id);
   }
 
@@ -607,6 +611,7 @@ export class OrdersService {
     if (shouldPushFulfillment) {
       await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
       await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
+      await this.activateSubscriptionsForConfirmedOrder(order, null, 'gokwik-place-order');
     }
 
     return order;
@@ -1355,6 +1360,11 @@ export class OrdersService {
 
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
+    await this.activateSubscriptionsForConfirmedOrder(
+      order,
+      params.addressId ?? null,
+      'payment-request-order',
+    );
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -1595,6 +1605,93 @@ export class OrdersService {
         },
         '[OrderNotify] Order-placed notification dispatch crashed (non-blocking)',
       );
+    }
+  }
+
+  private async activateSubscriptionsForConfirmedOrder(
+    order: OrderEntity,
+    addressId: string | null,
+    source: string,
+  ): Promise<void> {
+    const items = order.items ?? [];
+    const subscriptionItems = items
+      .filter((item) => item.isSubscription && item.frequency)
+      .map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        frequency: item.frequency as ProductSubscriptionFrequency,
+      }));
+
+    if (subscriptionItems.length === 0) return;
+
+    let resolvedAddressId = addressId;
+    if (!resolvedAddressId) {
+      const addresses = await this.userAddressesService.findAll(order.userId);
+      const defaultAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
+      resolvedAddressId = defaultAddress?.id ?? null;
+    }
+
+    if (!resolvedAddressId) {
+      this.logger.warn(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          source,
+          subscriptionItemCount: subscriptionItems.length,
+        },
+        '[OrderSubscription] Skipping subscription activation because no address was found',
+      );
+      return;
+    }
+
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        source,
+        subscriptionItemCount: subscriptionItems.length,
+      },
+      '[OrderSubscription] Activating subscriptions for confirmed order',
+    );
+
+    for (const item of subscriptionItems) {
+      try {
+        await this.productSubscriptionsService.activateFromPaidOrder(order.userId, {
+          orderRef: order.orderNumber,
+          productId: item.productId,
+          productVariantId: item.variantId,
+          frequency: item.frequency,
+          quantity: item.quantity,
+          addressId: resolvedAddressId,
+        });
+        this.logger.log(
+          {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            source,
+            productId: item.productId,
+            variantId: item.variantId,
+            frequency: item.frequency,
+          },
+          '[OrderSubscription] Subscription activated successfully',
+        );
+      } catch (error) {
+        this.logger.error(
+          {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            source,
+            productId: item.productId,
+            variantId: item.variantId,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : { message: String(error) },
+          },
+          '[OrderSubscription] Subscription activation failed (non-blocking)',
+        );
+      }
     }
   }
 
