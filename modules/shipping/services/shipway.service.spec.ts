@@ -56,14 +56,14 @@ describe('ShipwayService webhook auth', () => {
     );
   });
 
-  it('fails closed in production when HMAC secret is missing for single-event webhooks', () => {
+  it('accepts the Shipway panel sample payload without hash or HMAC', () => {
     process.env['NODE_ENV'] = 'production';
     const service = buildService({ 'shipway.webhookSecret': '' });
-    const payload = { order_id: 'ORD1', status: 'INT' } as ShipwayWebhookDto;
+    const payload = { order_id: '99999999', current_status: 'DEL' } as ShipwayWebhookDto;
 
-    expect(() => service.verifyWebhookAuth(payload, '{"order_id":"ORD1","status":"INT"}')).toThrow(
-      ServiceUnavailableException,
-    );
+    expect(() =>
+      service.verifyWebhookAuth(payload, '{"current_status":"DEL","order_id":"99999999"}'),
+    ).not.toThrow();
   });
 
   it('accepts a valid HMAC signature for single-event webhooks', () => {
@@ -76,14 +76,24 @@ describe('ShipwayService webhook auth', () => {
     expect(() => service.verifyWebhookAuth(payload, rawBody, signature)).not.toThrow();
   });
 
-  it('rejects a missing HMAC signature when secret is configured', () => {
+  it('fails closed in production when an HMAC header is sent but secret is missing', () => {
+    process.env['NODE_ENV'] = 'production';
+    const service = buildService({ 'shipway.webhookSecret': '' });
+    const payload = { order_id: 'ORD1', status: 'INT' } as ShipwayWebhookDto;
+
+    expect(() =>
+      service.verifyWebhookAuth(payload, '{"order_id":"ORD1","status":"INT"}', 'abc123'),
+    ).toThrow(ServiceUnavailableException);
+  });
+
+  it('rejects an invalid HMAC signature when secret is configured', () => {
     process.env['NODE_ENV'] = 'production';
     const service = buildService();
     const payload = { order_id: 'ORD1', status: 'INT' } as ShipwayWebhookDto;
 
-    expect(() => service.verifyWebhookAuth(payload, '{"order_id":"ORD1","status":"INT"}')).toThrow(
-      UnauthorizedException,
-    );
+    expect(() =>
+      service.verifyWebhookAuth(payload, '{"order_id":"ORD1","status":"INT"}', 'deadbeef'),
+    ).toThrow(UnauthorizedException);
   });
 
   it('accepts an empty status_feed sample ping without HMAC', () => {

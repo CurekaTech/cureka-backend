@@ -878,9 +878,9 @@ export class ShipwayService {
 
   /**
    * Authenticate Shipway webhooks.
-   * - Classic `status_feed`: body `hash` must equal md5(email:licenseKey)
-   * - Single-event: HMAC-SHA256 hex of raw body via `x-webhook-signature` / `x-shipway-signature`
-   * Production is fail-closed when the required secret/credentials are missing.
+   * Live panel (observed on beta Send Sample): `{ order_id, current_status }` with no hash and no HMAC.
+   * Classic docs: `status_feed` + body `hash` = md5(email:licenseKey).
+   * HMAC is verified only when Shipway actually sends a signature header.
    */
   verifyWebhookAuth(
     payload: ShipwayWebhookDto,
@@ -892,7 +892,7 @@ export class ShipwayService {
     const isStatusFeed = Array.isArray(statusFeed);
 
     if (isStatusFeed) {
-      // Empty feed is Shipway "Send Sample Webhook" / connectivity ping.
+      // Empty feed is a connectivity ping.
       if (statusFeed.length === 0) {
         if (payload.hash?.trim()) {
           this.verifyStatusFeedHash(payload.hash, isProduction);
@@ -903,7 +903,25 @@ export class ShipwayService {
       return;
     }
 
-    this.verifyWebhookSignature(rawBody, signature, isProduction);
+    if (payload.hash?.trim()) {
+      this.verifyStatusFeedHash(payload.hash, isProduction);
+      return;
+    }
+
+    if (signature?.trim()) {
+      this.verifyWebhookSignature(rawBody, signature, isProduction);
+      return;
+    }
+
+    this.logger.warn(
+      {
+        orderId: payload.order_id ?? null,
+        currentStatus: payload.current_status ?? payload.status ?? null,
+        hashPresent: false,
+        signaturePresent: false,
+      },
+      '[Shipway] Unsigned webhook (panel sample / live status push) — accepted',
+    );
   }
 
   verifyStatusFeedHash(hash?: string, isProduction: boolean = process.env['NODE_ENV'] === 'production'): void {
