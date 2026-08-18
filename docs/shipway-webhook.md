@@ -14,8 +14,18 @@ Ask Shipway support (`contact@shipway.in`) to register this callback URL if it i
 
 ## Supported payload shapes
 
-Shipway's documented webhook (API Version 1.1.2) is **not** `{ order_id, status }`.
-It POSTs JSON:
+Shipway panel **Send Sample Webhook** (captured on beta, `User-Agent: Shipway`) is:
+
+```json
+{
+  "order_id": "99999999",
+  "current_status": "DEL"
+}
+```
+
+No `hash`, no HMAC header. Dummy `order_id` `99999999` is acknowledged with HTTP 200 (`notFound`).
+
+Classic docs (API Version 1.1.2) may still POST:
 
 ```json
 {
@@ -29,12 +39,8 @@ It POSTs JSON:
 - `order_id` must match `shipments.shipway_order_id` (Cureka order number).
 - `current_status` is a Shipway code (`INT`, `OOD`, `DEL`, …) mapped via `ShipwayStatusMapper`.
 - Extra keys on the body or feed items (AWB, courier, scans, …) are ignored, not rejected.
-- Auth: body `hash` = `md5(email:license_key)` using the same credentials as API calls.
-- Empty `status_feed` (Send Sample / connectivity ping) is acknowledged with HTTP 200.
-- Unknown sample `order_id` values are acknowledged with HTTP 200 (`notFound`), not 404.
-
-A single-event body is also accepted if it uses the same field names
-(`order_id` + `current_status` / `current_status_code` / `status`).
+- Auth: verify `hash` when present; verify HMAC only when `x-webhook-signature` / `x-shipway-signature` is sent.
+- Unsigned `{ order_id, current_status }` from the Shipway panel is accepted.
 
 ## Environment variables
 
@@ -45,11 +51,11 @@ A single-event body is also accepted if it uses the same field names
 | `SHIPWAY_WEBHOOK_SECRET` | HMAC secret for single-event webhooks |
 | `SHIPWAY_WEBHOOK_FRESH_MS` | Prefer local DB over live GET when last sync is fresher than this (default `900000` = 15m) |
 
-### Production (fail-closed)
+### Auth
 
-- Classic `status_feed`: `SHIPWAY_EMAIL` + `SHIPWAY_LICENSE_KEY` **required** (misconfigured → 503).
-- Single-event HMAC: `SHIPWAY_WEBHOOK_SECRET` **required** (misconfigured → 503).
-- Non-production may skip verification when secrets are empty (logged warning only).
+- `status_feed` + `hash`: `md5(SHIPWAY_EMAIL:SHIPWAY_LICENSE_KEY)` required.
+- HMAC header present: `SHIPWAY_WEBHOOK_SECRET` required (misconfigured → 503).
+- Panel sample `{ order_id, current_status }` with no hash/HMAC: accepted.
 
 ## Behaviour notes
 
