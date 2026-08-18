@@ -1,8 +1,10 @@
 import {
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { OtpService } from './otp.service';
@@ -37,6 +39,7 @@ export class AuthService {
     private readonly sessionCacheService: SessionCacheService,
     private readonly configService: ConfigService,
     private readonly otpRateLimitService: OtpRateLimitService,
+    @Inject(forwardRef(() => CartService))
     private readonly cartService: CartService,
   ) {}
 
