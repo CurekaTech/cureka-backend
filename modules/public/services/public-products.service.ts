@@ -12,6 +12,7 @@ import {
   CacheModuleName,
   CacheStrategyService,
 } from '@packages/cache';
+import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -47,6 +48,7 @@ import {
   IPublicProductListResponse,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
+import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicCategoryProductListingContext } from '../interfaces/public-category.interface';
 import {
   mapProductEntitiesToPublicCards,
@@ -153,11 +155,14 @@ export class PublicProductsService {
     const category = filters.category
       ? await this.buildCategoryListingContext(filters.category)
       : null;
+    const brand = filters.brand
+      ? await this.buildBrandListingContext(filters.brand)
+      : null;
     const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
     this.logger.log(
       `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    return { ...result, category };
+    return { ...result, category, brand };
   }
 
   /**
@@ -441,14 +446,49 @@ export class PublicProductsService {
 
   private async resolveBrandFilters(
     query: PublicProductQueryDto,
-  ): Promise<{ brandId?: string; brandIds?: string[] }> {
+  ): Promise<{ brandId?: string; brandIds?: string[]; brand?: BrandEntity | null }> {
     if (query.brandRefId) {
       const brand = await this.brandsRepository.findByRefId(query.brandRefId);
       if (!brand) {
         throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
       }
-      return { brandId: brand.id };
+      return { brandId: brand.id, brand };
     }
+
+    if (!query.brandSlug?.trim()) {
+      return {};
+    }
+
+    const slugs = [
+      ...new Set(
+        query.brandSlug
+          .split(',')
+          .map((slug) => slug.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (slugs.length === 0) {
+      return {};
+    }
+
+    if (slugs.length === 1) {
+      const brand = await this.brandsRepository.findBySlug(slugs[0]);
+      if (!brand) {
+        throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
+      }
+      return { brandId: brand.id, brand };
+    }
+
+    const brands = await this.brandsRepository.findBySlugs(slugs);
+    const foundSlugs = new Set(brands.map((brand) => brand.slug));
+    const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
+    if (missingSlugs.length > 0) {
+      throw new NotFoundException(`Brand with slug "${missingSlugs.join('", "')}" not found`);
+    }
+
+    return { brandIds: brands.map((brand) => brand.id) };
+  }
 
     if (!query.brandSlug?.trim()) {
       return {};
@@ -536,6 +576,7 @@ export class PublicProductsService {
       wellnessGoalId: wellnessGoal?.id,
       categoryFilterCriteria,
       category,
+      brand: brandFilters.brand ?? null,
     };
   }
 
@@ -616,6 +657,24 @@ export class PublicProductsService {
     };
 
     return this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+  }
+
+  private async buildBrandListingContext(
+    brand: BrandEntity,
+  ): Promise<IPublicBrandProductListingContext> {
+    const context: IPublicBrandProductListingContext = {
+      refId: brand.refId,
+      name: brand.name,
+      slug: brand.slug,
+      logo: brand.logo,
+      banner: brand.banner,
+      description: brand.description,
+      metaTitle: brand.metaTitle,
+      metaDescription: brand.metaDescription,
+      metaKeywords: brand.metaKeywords,
+    };
+
+    return this.storageUrlEnricher.enrichFields(context, ['logo', 'banner']);
   }
 
   private async enrichPaginatedVariantSearch(

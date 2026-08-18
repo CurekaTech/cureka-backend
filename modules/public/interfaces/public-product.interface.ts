@@ -9,6 +9,7 @@ import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interfa
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
+import { IPublicBrandProductListingContext } from './public-brand.interface';
 
 /** Cached/stored shape — logo is enriched to include a signed url on API responses. */
 export interface IPublicPartySummary {
@@ -309,4 +310,6 @@ export interface IPublicProductDetail {
 export interface IPublicProductListResponse extends PaginatedResult<IPublicProductCard> {
   /** Present when the listing is filtered by categorySlug or categoryRefId. */
   category?: IPublicCategoryProductListingContext | null;
+  /** Present when the listing is filtered by a single brandSlug or brandRefId. */
+  brand?: IPublicBrandProductListingContext | null;
 }

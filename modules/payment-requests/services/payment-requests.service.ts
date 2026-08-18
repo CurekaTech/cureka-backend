@@ -636,6 +636,8 @@ export class PaymentRequestsService {
           discount: '0.00',
           tax: '0.00',
           total,
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
         };
       }),
     );
@@ -749,6 +751,8 @@ export class PaymentRequestsService {
           discount: item.discount,
           tax: item.tax,
           total: item.total,
+          isSubscription: item.isSubscription,
+          frequency: item.frequency,
           createdBy: userId,
           updatedBy: userId,
         })),
@@ -1409,6 +1413,8 @@ export class PaymentRequestsService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.total,
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
         })),
       });
       this.logger.log(
