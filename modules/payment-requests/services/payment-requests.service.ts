@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, In } from 'typeorm';
@@ -58,8 +60,11 @@ export class PaymentRequestsService {
     private readonly usersRepository: UsersRepository,
     private readonly usersService: UsersService,
     private readonly userAddressesService: UserAddressesService,
+    @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    @Inject(forwardRef(() => CheckoutService))
     private readonly checkoutService: CheckoutService,
+    @Inject(forwardRef(() => CartService))
     private readonly cartService: CartService,
     private readonly paymentRequestsRepository: PaymentRequestsRepository,
     private readonly paymentRequestItemsRepository: PaymentRequestItemsRepository,
