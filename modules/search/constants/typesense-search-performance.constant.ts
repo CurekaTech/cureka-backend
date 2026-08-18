@@ -13,3 +13,6 @@ export const SEARCH_RESPONSE_CACHE_MAX_ENTRIES = 128;
 
 /** Max hits fetched per entity bucket (dropdown merges into per_page total). */
 export const SEARCH_ENTITY_FETCH_LIMIT = 4;
+
+/** Native Postgres fallback only runs once the shopper has typed this many characters. */
+export const SEARCH_NATIVE_FALLBACK_MIN_CHARS = 3;
