@@ -12,6 +12,8 @@ import { MembershipPlansRepository } from '../repositories/membership-plans.repo
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 const buildBenefitMetadata = (
   dto: {
@@ -65,18 +67,20 @@ export class MembershipBenefitsService {
 
   async update(idOrRefId: string, dto: UpdateMembershipBenefitDto, actor: string) {
     const existing = await this.resolveEntity(idOrRefId);
+    const patchMetadata = dto.metadata !== undefined || dto.minOrderValue !== undefined;
 
     const shouldPatchMetadata =
       dto.metadata !== undefined || dto.minOrderValue !== undefined;
 
     await this.benefitsRepository.updateById(existing.id, {
     await this.benefitsRepository.updateById(benefitId, {
+    await this.benefitsRepository.updateById(existing.id, {
       ...(dto.benefitType !== undefined ? { benefitType: dto.benefitType } : {}),
       ...(dto.valueType !== undefined ? { valueType: dto.valueType } : {}),
       ...(dto.value !== undefined
         ? { value: dto.value != null ? Number(dto.value).toFixed(2) : null }
         : {}),
-      ...(shouldPatchMetadata
+      ...(patchMetadata
         ? {
             metadata: buildBenefitMetadata(
               {
@@ -135,18 +139,23 @@ export class MembershipBenefitsService {
     const keptIds = new Set<string>();
 
     for (const [index, item] of items.entries()) {
-      if (item.id) {
-        const current = existingById.get(item.id);
+      const current = item.id
+        ? existingById.get(item.id)
+        : item.refId
+          ? existingByRefId.get(item.refId)
+          : undefined;
+
+      if (item.id || item.refId) {
         if (!current) {
           throw new BadRequestException(
-            `benefits[${index}].id does not belong to this membership plan`,
+            `benefits[${index}].${item.id ? 'id' : 'refId'} does not belong to this membership plan`,
           );
         }
-        await this.benefitsRepository.updateById(item.id, {
+        await this.benefitsRepository.updateById(current.id, {
           benefitType: item.benefitType,
           valueType: item.valueType,
           value: item.value != null ? Number(item.value).toFixed(2) : null,
-          metadata: buildBenefitMetadata(item),
+          metadata: buildBenefitMetadata(item, current.metadata),
           status: item.status ?? MembershipPlanStatus.ACTIVE,
           sortOrder: item.sortOrder ?? index,
           updatedBy: actor,
@@ -197,7 +206,7 @@ export class MembershipBenefitsService {
   }
 
   private async resolveEntity(idOrRefId: string) {
-    const existing = UUID_REGEX.test(idOrRefId)
+    const existing = isUuid(idOrRefId)
       ? await this.benefitsRepository.findById(idOrRefId)
       : await this.benefitsRepository.findByRefId(idOrRefId);
     if (!existing) throw new NotFoundException('Membership benefit not found');

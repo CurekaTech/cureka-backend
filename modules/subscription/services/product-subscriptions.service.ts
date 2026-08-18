@@ -24,7 +24,6 @@ import {
   ProductSubscriptionConfigQueryDto,
   VerifyProductSubscriptionPaymentDto,
 } from '../dto/product-subscription.dto';
-import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
 import { SubscriptionMissedPaymentAction } from '../enums/subscription-missed-payment-action.enum';
@@ -73,273 +72,131 @@ export class ProductSubscriptionsService {
     if (!config || !config.enabled) {
       return null;
     }
-    const [productEntities, variants] = await Promise.all([
-      this.relationLoader.loadProductEntitiesByIds([query.productId]),
-      query.productVariantId
-        ? this.relationLoader.loadVariantsByIds([query.productVariantId])
-        : Promise.resolve(new Map()),
-    ]);
-    return {
-      ...config,
-      product: await this.relationLoader.mapProductSummary(
-        productEntities.get(query.productId),
-        query.productVariantId,
-      ),
-      variant: query.productVariantId
-        ? variants.get(query.productVariantId) ?? null
-        : null,
-    };
+    return config;
   }
 
-  async create(_userId: string, _dto: CreateProductSubscriptionDto) {
-    throw new BadRequestException(
-      'First purchase must go through cart. POST /cart/items with isSubscription=true and frequency, then checkout.',
-    );
-  }
-
-  /**
-   * After a cart checkout order is created/paid: activate one product subscription
-   * per subscribed order line. Idempotent on orderItem.subscriptionId.
-   */
-  async activateSubscriptionsFromPaidOrder(params: {
-    userId: string;
-    orderId: string;
-    addressId?: string | null;
-  }): Promise<void> {
-    const order = await this.ordersService.findOrderEntityByIdAndUserId(
-      params.orderId,
-      params.userId,
-    );
-    if (!order) {
-      this.logger.warn(params, 'Order not found while activating cart subscriptions');
-      return;
+  async create(userId: string, dto: CreateProductSubscriptionDto) {
+    const product = await this.productsRepository.findPublishedById(dto.productId);
+    if (!product || product.status !== ProductStatus.PUBLISHED) {
+      throw new BadRequestException('Product is not available for subscription');
+    }
+    if (!product.subscriptionEnabled) {
+      throw new BadRequestException('Subscription is not enabled for this product');
     }
 
-    const items = (order.items ?? []).filter((item) => item.isSubscription);
-    if (!items.length) return;
-
-    const addressId = await this.resolveDeliveryAddressId(
-      params.userId,
-      params.addressId ?? null,
-      order,
-    );
-
-    const activatedIds: string[] = [];
-    for (const item of items) {
-      const subscriptionId = await this.activateSubscriptionFromOrderItem({
-        userId: params.userId,
-        addressId,
-        orderId: order.id,
-        item,
-      });
-      if (subscriptionId) activatedIds.push(subscriptionId);
-    }
-
-    if (activatedIds.length === 1 && !order.subscriptionId) {
-      await this.ordersService.attachSubscriptionIdToOrder(
-        order.id,
-        activatedIds[0],
-        params.userId,
-      );
-    }
-  }
-
-  private async activateSubscriptionFromOrderItem(params: {
-    userId: string;
-    addressId: string;
-    orderId: string;
-    item: {
-      id: string;
-      productId: string;
-      variantId: string;
-      quantity: number;
-      totalPrice: string;
-      frequency: ProductSubscriptionFrequency | null;
-      subscriptionId?: string | null;
-    };
-  }): Promise<string | null> {
-    const { userId, addressId, item } = params;
-    if (item.subscriptionId) return item.subscriptionId;
-
-    const frequency = item.frequency;
-    if (!frequency) {
-      this.logger.warn(
-        { orderItemId: item.id, orderId: params.orderId },
-        'Subscription order item missing frequency — skipped',
-      );
-      return null;
-    }
-
-    const existingRows = (await this.subscriptionsRepository.findByUserId(userId)).filter(
-      (row) =>
-        row.productId === item.productId &&
-        row.productVariantId === item.variantId &&
-        row.frequency === frequency,
-    );
-    const alreadyActive = existingRows.find((row) =>
-      [
-        ProductSubscriptionStatus.ACTIVE,
-        ProductSubscriptionStatus.PAUSED,
-        ProductSubscriptionStatus.RENEWAL_PAYMENT_PENDING,
-        ProductSubscriptionStatus.PAST_DUE,
-      ].includes(row.status),
-    );
-    if (alreadyActive) {
-      await this.ordersService.attachSubscriptionIdToOrderItem(
-        item.id,
-        alreadyActive.id,
-        userId,
-      );
-      return alreadyActive.id;
-    }
-
-    const product = await this.productsRepository.findPublishedById(item.productId);
-    if (!product || product.status !== ProductStatus.PUBLISHED || !product.subscriptionEnabled) {
-      this.logger.warn(
-        { orderItemId: item.id, productId: item.productId },
-        'Product not available for subscription — skipped',
-      );
-      return null;
-    }
-
-    const variant = await this.variantsRepository.findById(item.variantId);
+    const variant = await this.variantsRepository.findById(dto.productVariantId);
     if (
       !variant ||
-      variant.productId !== item.productId ||
+      variant.productId !== dto.productId ||
       variant.status !== VariantStatus.ACTIVE
     ) {
-      this.logger.warn(
-        { orderItemId: item.id, variantId: item.variantId },
-        'Variant not available for subscription — skipped',
-      );
-      return null;
+      throw new BadRequestException('Product variant is not available for subscription');
     }
 
     const configEntity = await this.configService.findEntityForProductVariant(
-      item.productId,
-      item.variantId,
+      dto.productId,
+      dto.productVariantId,
     );
-    if (!configEntity || !configEntity.enabled || !configEntity.frequencies.includes(frequency)) {
-      this.logger.warn(
-        { orderItemId: item.id, productId: item.productId, frequency },
-        'Subscription config missing or frequency not allowed — skipped',
-      );
-      return null;
+    if (!configEntity || !configEntity.enabled) {
+      throw new BadRequestException('Subscription config is not enabled');
+    }
+    if (!configEntity.frequencies.includes(dto.frequency)) {
+      throw new BadRequestException('Selected frequency is not allowed for this product');
+    }
+
+    const address = await this.addressesRepository.findByIdAndUserId(dto.addressId, userId);
+    if (!address) {
+      throw new BadRequestException('Delivery address not found');
     }
 
     const memberDiscount = await this.membershipBenefits.getMemberDiscount(userId);
     const pricing = this.pricingService.calculate(
       variant.sellingPrice,
-      item.quantity,
+      dto.quantity,
       configEntity.discountType,
       configEntity.discountValue,
       memberDiscount,
     );
-    const paidAmount = Number(item.totalPrice);
-    const finalAmount = Number.isFinite(paidAmount) && paidAmount > 0
-      ? Number(paidAmount).toFixed(2)
-      : pricing.finalAmount;
 
-    const now = new Date();
-    const nextBilling = getNextProductBillingDate(now, frequency);
-    const pending = existingRows.find(
-      (row) => row.status === ProductSubscriptionStatus.PENDING_PAYMENT,
+    const refId = await generateUniqueRefId('ups', (c) =>
+      this.subscriptionsRepository.existsByRefId(c),
     );
 
-    let subscriptionId: string;
-    if (pending) {
-      await this.subscriptionsRepository.updateById(pending.id, {
-        addressId,
-        quantity: item.quantity,
-        frequency,
-        subscriptionPrice: pricing.subscriptionPrice,
-        discountValue: configEntity.discountValue,
-        finalAmount,
-        discountType: configEntity.discountType,
-        status: ProductSubscriptionStatus.ACTIVE,
-        startDate: pending.startDate ?? now,
-        nextBillingDate: nextBilling,
-        nextDeliveryDate: nextBilling,
-        billingCycleSequence: Math.max(1, pending.billingCycleSequence ?? 0),
-        updatedBy: userId,
-      });
-      subscriptionId = pending.id;
-      const payments = await this.paymentsService.findBySubscriptionId(pending.id);
-      const unpaid = payments.find(
-        (p) =>
-          p.status === SubscriptionPaymentStatus.PENDING ||
-          p.status === SubscriptionPaymentStatus.LINK_GENERATED,
-      );
-      if (unpaid) {
-        await this.paymentsService.markPaidIdempotent(unpaid.id, { actor: userId });
-      }
-    } else {
-      const refId = await generateUniqueRefId('ups', (c) =>
-        this.subscriptionsRepository.existsByRefId(c),
-      );
-      const subscription = await this.subscriptionsRepository.create({
-        refId,
-        userId,
-        productId: item.productId,
-        productVariantId: item.variantId,
-        addressId,
-        quantity: item.quantity,
-        frequency,
-        subscriptionPrice: pricing.subscriptionPrice,
-        discountValue: configEntity.discountValue,
-        finalAmount,
-        discountType: configEntity.discountType,
-        status: ProductSubscriptionStatus.ACTIVE,
-        startDate: now,
-        nextBillingDate: nextBilling,
-        nextDeliveryDate: nextBilling,
-        renewalMethod: configEntity.renewalMethod,
-        configId: configEntity.id,
-        billingCycleSequence: 1,
-        createdBy: userId,
-        updatedBy: userId,
-      });
-      subscriptionId = subscription.id;
+    const subscription = await this.subscriptionsRepository.create({
+      refId,
+      userId,
+      productId: dto.productId,
+      productVariantId: dto.productVariantId,
+      addressId: dto.addressId,
+      quantity: dto.quantity,
+      frequency: dto.frequency,
+      subscriptionPrice: pricing.subscriptionPrice,
+      discountValue: configEntity.discountValue,
+      finalAmount: pricing.finalAmount,
+      discountType: configEntity.discountType,
+      status: ProductSubscriptionStatus.PENDING_PAYMENT,
+      renewalMethod: configEntity.renewalMethod,
+      configId: configEntity.id,
+      billingCycleSequence: 0,
+      createdBy: userId,
+      updatedBy: userId,
+    });
 
-      const billingCycleRef = buildBillingCycleRef(now);
-      const payment = await this.paymentsService.upsertPendingCycle({
-        subscriptionId: subscription.id,
-        userId,
+    const billingDate = new Date();
+    const billingCycleRef = buildBillingCycleRef(billingDate);
+    const payment = await this.paymentsService.upsertPendingCycle({
+      subscriptionId: subscription.id,
+      userId,
+      billingCycleRef,
+      amount: pricing.finalAmount,
+      billingDate,
+      actor: userId,
+    });
+
+    const user = await this.usersRepository.findById(userId);
+    const link = await this.paymentLinkService.createPaymentLink({
+      amount: pricing.finalAmount,
+      currency: 'INR',
+      referenceId: payment.refId,
+      customer: {
+        id: userId,
+        name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
+        email: user?.email,
+        phone: user?.mobileNumber ?? '',
+      },
+      notes: buildSubscriptionGatewayNotes({
+        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
         billingCycleRef,
-        amount: finalAmount,
-        billingDate: now,
-        actor: userId,
-      });
-      await this.paymentsService.markPaidIdempotent(payment.id, { actor: userId });
-    }
+        subscriptionId: subscription.id,
+        subscriptionPaymentId: payment.id,
+        userId,
+        productId: dto.productId,
+      }),
+      description: `Product subscription ${subscription.refId}`,
+    });
 
-    await this.ordersService.attachSubscriptionIdToOrderItem(item.id, subscriptionId, userId);
-    return subscriptionId;
+    await this.paymentsService.attachPaymentLink(payment.id, {
+      paymentLink: link.paymentLink ?? '',
+      gatewayOrderId: link.gatewayOrderId,
+      paymentGateway: link.paymentGateway,
+      actor: userId,
+    });
+    await this.subscriptionsRepository.updateById(subscription.id, {
+      paymentGateway: link.paymentGateway,
+      updatedBy: userId,
+    });
+
+    this.notificationsService.notifyPaymentLinkCreated({
+      userId,
+      kind: 'product_subscription',
+      paymentLink: link.paymentLink ?? '',
+      amount: pricing.finalAmount,
+      refId: subscription.refId,
+    });
+
+    const refreshed = await this.subscriptionsRepository.findById(subscription.id);
+    return this.mapOwned(refreshed ?? subscription, checkoutExtrasFromLink(link));
   }
-
-  private async resolveDeliveryAddressId(
-    userId: string,
-    addressId: string | null,
-    order: { pincode: string; addressLine1: string },
-  ): Promise<string> {
-    if (addressId) {
-      const owned = await this.addressesRepository.findByIdAndUserId(addressId, userId);
-      if (owned) return owned.id;
-    }
-
-    const addresses = await this.addressesRepository.findAllByUserId(userId);
-    const matched = addresses.find(
-      (row) => row.pincode === order.pincode && row.addressLine1 === order.addressLine1,
-    );
-    if (matched) return matched.id;
-
-    const fallback = addresses.find((row) => row.isDefault) ?? addresses[0];
-    if (!fallback) {
-      throw new BadRequestException('A delivery address is required to activate the subscription');
-    }
-    return fallback.id;
-  }
-
 
   /**
    * Cart/checkout already charged and created an order. Create or activate the
@@ -503,13 +360,13 @@ export class ProductSubscriptionsService {
 
   async listMine(userId: string) {
     const rows = await this.subscriptionsRepository.findByUserId(userId);
-    return this.mapSubscriptionsWithRelations(rows, { includeUser: true });
+    return this.mapSubscriptionsWithRelations(rows);
   }
 
   async getMine(userId: string, id: string) {
     const sub = await this.subscriptionsRepository.findByIdAndUserId(id, userId);
     if (!sub) throw new NotFoundException('Subscription not found');
-    const [mapped] = await this.mapSubscriptionsWithRelations([sub], { includeUser: true });
+    const [mapped] = await this.mapSubscriptionsWithRelations([sub]);
     return mapped;
   }
 

@@ -110,7 +110,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     UploadsModule,
     GalleryModule,
     // OrdersModule and UsersModule are needed by ProductReviewsService
-    forwardRef(() => OrdersModule),
+    OrdersModule,
     UsersModule,
     forwardRef(() => SubscriptionModule),
     QueueModule.registerQueue('bulk-upload'),

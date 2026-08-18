@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager } from 'typeorm';
 import {
@@ -14,7 +14,6 @@ import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
-import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
@@ -68,8 +67,6 @@ export class OrdersService {
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
     private readonly orderNotificationsService: OrderNotificationsService,
     private readonly eventEmitter: EventEmitter2,
-    @Inject(forwardRef(() => ProductSubscriptionsService))
-    private readonly productSubscriptionsService: ProductSubscriptionsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -198,8 +195,6 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
-          isSubscription: !!item.isSubscription,
-          frequency: (item.frequency as any) ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -232,9 +227,6 @@ export class OrdersService {
             subSubCategoryId: item.subSubCategoryId,
             subSubSubCategoryId: item.subSubSubCategoryId,
             brandId: item.brandId,
-            isSubscription: !!item.isSubscription,
-            frequency: item.frequency ?? null,
-            lineType: item.isSubscription ? ('SUBSCRIPTION' as const) : ('ONE_TIME' as const),
           })),
           manager,
         });
@@ -289,7 +281,6 @@ export class OrdersService {
 
     await this.notifyOrderPlacedSafely(order, 'place-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
-    await this.activateCartSubscriptionsSafely(order.id, userId, dto.addressId);
     return this.findOne(userId, order.id);
   }
 
@@ -404,8 +395,6 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
-          isSubscription: !!item.isSubscription,
-          frequency: (item.frequency as any) ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -536,9 +525,6 @@ export class OrdersService {
             subSubCategoryId: item.product?.subSubCategoryId ?? null,
             subSubSubCategoryId: item.product?.subSubSubCategoryId ?? null,
             brandId: item.product?.brandId ?? null,
-            isSubscription: !!item.isSubscription,
-            frequency: item.frequency ?? null,
-            lineType: item.isSubscription ? ('SUBSCRIPTION' as const) : ('ONE_TIME' as const),
           })),
           manager,
         });
@@ -612,7 +598,6 @@ export class OrdersService {
       await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
     }
 
-    await this.activateCartSubscriptionsSafely(order.id, userId, null);
     return order;
   }
 
@@ -953,8 +938,6 @@ export class OrdersService {
         variantId: item.variantId,
         quantity: item.quantity,
         productName: item.productName,
-        isSubscription: !!item.isSubscription,
-        frequency: item.frequency ?? null,
       })),
     );
   }
@@ -1223,8 +1206,6 @@ export class OrdersService {
       quantity: number;
       unitPrice: string;
       totalPrice: string;
-      isSubscription?: boolean;
-      frequency?: string | null;
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
@@ -1316,8 +1297,6 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
-          isSubscription: !!item.isSubscription,
-          frequency: (item.frequency as any) ?? null,
           createdBy: 'razorpay-webhook',
           updatedBy: 'razorpay-webhook',
         });
@@ -1352,36 +1331,8 @@ export class OrdersService {
 
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
-    await this.activateCartSubscriptionsSafely(
-      order.id,
-      params.customerId,
-      params.addressId ?? null,
-    );
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
-  }
-
-  private async activateCartSubscriptionsSafely(
-    orderId: string,
-    userId: string,
-    addressId: string | null,
-  ): Promise<void> {
-    try {
-      await this.productSubscriptionsService.activateSubscriptionsFromPaidOrder({
-        userId,
-        orderId,
-        addressId,
-      });
-    } catch (error) {
-      this.logger.error(
-        {
-          orderId,
-          userId,
-          err: error instanceof Error ? error.message : String(error),
-        },
-        'Failed to activate product subscriptions from cart order',
-      );
-    }
   }
 
   /**
@@ -1741,27 +1692,12 @@ export class OrdersService {
     return this.ordersRepository.findPaidForSubscriptionAttach(params);
   }
 
-  findOrderEntityByIdAndUserId(orderId: string, userId: string): Promise<OrderEntity | null> {
-    return this.ordersRepository.findByIdAndUserId(orderId, userId);
-  }
-
   async attachSubscriptionIdToOrder(
     orderId: string,
     subscriptionId: string,
     actor: string,
   ): Promise<void> {
     await this.ordersRepository.updateById(orderId, {
-      subscriptionId,
-      updatedBy: actor,
-    });
-  }
-
-  async attachSubscriptionIdToOrderItem(
-    orderItemId: string,
-    subscriptionId: string,
-    actor: string,
-  ): Promise<void> {
-    await this.orderItemsRepository.updateById(orderItemId, {
       subscriptionId,
       updatedBy: actor,
     });

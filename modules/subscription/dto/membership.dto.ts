@@ -84,6 +84,10 @@ export class SyncMembershipBenefitsDto {
   @ValidateNested({ each: true })
   @Type(() => UpsertMembershipBenefitDto)
   benefits!: UpsertMembershipBenefitDto[];
+function toOptionalNumber({ value }: { value: unknown }): unknown {
+  if (value === undefined || value === null || value === '') return value === '' ? null : value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : value;
 }
 
 export class CreateMembershipPlanDto {

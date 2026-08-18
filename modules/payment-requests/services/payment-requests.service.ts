@@ -631,8 +631,6 @@ export class PaymentRequestsService {
           discount: '0.00',
           tax: '0.00',
           total,
-          isSubscription: !!item.isSubscription,
-          frequency: (item.frequency as any) ?? null,
         };
       }),
     );
@@ -1406,8 +1404,6 @@ export class PaymentRequestsService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.total,
-          isSubscription: !!item.isSubscription,
-          frequency: item.frequency ?? null,
         })),
       });
       this.logger.log(
@@ -1899,9 +1895,6 @@ export class PaymentRequestsService {
           subSubCategoryId: variant?.product?.subSubCategoryId ?? null,
           subSubSubCategoryId: variant?.product?.subSubSubCategoryId ?? null,
           brandId: variant?.product?.brandId ?? null,
-          isSubscription: !!item.isSubscription,
-          frequency: item.frequency ?? null,
-          lineType: item.isSubscription ? ('SUBSCRIPTION' as const) : ('ONE_TIME' as const),
         };
       }),
     );
