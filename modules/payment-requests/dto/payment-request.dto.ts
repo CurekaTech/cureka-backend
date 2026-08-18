@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsDecimal,
   IsEmail,
@@ -14,6 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
 
 export class PaymentRequestItemInputDto {
@@ -38,6 +40,14 @@ export class PaymentRequestItemInputDto {
   @IsOptional()
   @IsDecimal()
   tax?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isSubscription?: boolean;
+
+  @IsOptional()
+  @IsEnum(ProductSubscriptionFrequency)
+  frequency?: ProductSubscriptionFrequency | null;
 }
 
 export class CreatePaymentRequestDto {

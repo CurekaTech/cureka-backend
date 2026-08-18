@@ -10,9 +10,6 @@ import { mapMembershipBenefitToResponse } from '../mappers/membership.mapper';
 import { MembershipBenefitsRepository } from '../repositories/membership-benefits.repository';
 import { MembershipPlansRepository } from '../repositories/membership-plans.repository';
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 const buildBenefitMetadata = (
   dto: {
     metadata?: Record<string, unknown> | null;
@@ -69,7 +66,10 @@ export class MembershipBenefitsService {
     const shouldPatchMetadata =
       dto.metadata !== undefined || dto.minOrderValue !== undefined;
 
-    await this.benefitsRepository.updateById(existing.id, {
+    const shouldPatchMetadata =
+      dto.metadata !== undefined || dto.minOrderValue !== undefined;
+
+    await this.benefitsRepository.updateById(benefitId, {
       ...(dto.benefitType !== undefined ? { benefitType: dto.benefitType } : {}),
       ...(dto.valueType !== undefined ? { valueType: dto.valueType } : {}),
       ...(dto.value !== undefined
@@ -98,8 +98,8 @@ export class MembershipBenefitsService {
 
   /**
    * Full sync for a plan:
-   * - items with `id` or `refId` → update (must belong to plan)
-   * - items without either → create
+   * - items with `id` → update (must belong to plan)
+   * - items without `id` → create
    * - existing benefits missing from the array → soft-delete
    */
   async sync(planId: string, items: UpsertMembershipBenefitDto[], actor: string) {
@@ -108,32 +108,26 @@ export class MembershipBenefitsService {
 
     const existing = await this.benefitsRepository.findByPlanId(planId);
     const existingById = new Map(existing.map((row) => [row.id, row]));
-    const existingByRefId = new Map(existing.map((row) => [row.refId, row]));
     const keptIds = new Set<string>();
 
     for (const [index, item] of items.entries()) {
-      const current = item.id
-        ? existingById.get(item.id)
-        : item.refId
-          ? existingByRefId.get(item.refId)
-          : undefined;
-
-      if (item.id || item.refId) {
+      if (item.id) {
+        const current = existingById.get(item.id);
         if (!current) {
           throw new BadRequestException(
-            `benefits[${index}].${item.id ? 'id' : 'refId'} does not belong to this membership plan`,
+            `benefits[${index}].id does not belong to this membership plan`,
           );
         }
-        await this.benefitsRepository.updateById(current.id, {
+        await this.benefitsRepository.updateById(item.id, {
           benefitType: item.benefitType,
           valueType: item.valueType,
           value: item.value != null ? Number(item.value).toFixed(2) : null,
-          metadata: buildBenefitMetadata(item, current.metadata),
+          metadata: buildBenefitMetadata(item),
           status: item.status ?? MembershipPlanStatus.ACTIVE,
           sortOrder: item.sortOrder ?? index,
           updatedBy: actor,
         });
-        keptIds.add(current.id);
+        keptIds.add(item.id);
         continue;
       }
 

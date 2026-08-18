@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { CheckoutModule } from '@modules/checkout/checkout.module';
@@ -6,6 +6,7 @@ import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
+import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
 import { CartEntity } from './entities/cart.entity';
@@ -45,6 +46,7 @@ import { OrdersService } from './services/orders.service';
     ShippingModule,
     UnicommerceOrderModule,
     NotificationsModule,
+    forwardRef(() => SubscriptionModule),
   ],
   controllers: [CartController, OrdersController, AdminOrdersController],
   providers: [

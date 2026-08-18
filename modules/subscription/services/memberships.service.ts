@@ -139,19 +139,26 @@ export class MembershipsService {
   async me(userId: string) {
     const membership = await this.membershipsRepository.findActiveByUserId(userId);
     if (!membership) return null;
-    const plan = await this.plansService.findEntityById(membership.membershipPlanId);
+    const [plan, users] = await Promise.all([
+      this.plansService.findEntityById(membership.membershipPlanId),
+      this.relationLoader.loadUsersByIds([userId]),
+    ]);
     return mapUserMembershipToResponse(membership, {
       plan: plan ? mapMembershipPlanToResponse(plan) : null,
+      user: users.get(userId) ?? null,
     });
   }
 
   async history(userId: string) {
     const rows = await this.membershipsRepository.findByUserId(userId);
+    const users = await this.relationLoader.loadUsersByIds([userId]);
+    const user = users.get(userId) ?? null;
     return Promise.all(
       rows.map(async (row) => {
         const plan = await this.plansService.findEntityById(row.membershipPlanId);
         return mapUserMembershipToResponse(row, {
           plan: plan ? mapMembershipPlanToResponse(plan) : null,
+          user,
         });
       }),
     );

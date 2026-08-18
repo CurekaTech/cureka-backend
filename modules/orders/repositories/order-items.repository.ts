@@ -15,6 +15,15 @@ export class OrderItemsRepository {
     return repository.save(repository.create(data));
   }
 
+  async updateById(
+    id: string,
+    data: Partial<OrderItemEntity>,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = manager ? manager.getRepository(OrderItemEntity) : this.repo;
+    await repository.update({ id }, data as any);
+  }
+
   existsByRefId(refId: string): Promise<boolean> {
     return this.repo.exists({ where: { refId } });
   }

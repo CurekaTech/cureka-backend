@@ -43,8 +43,10 @@ export class ProductSubscriptionsController {
     return this.productSubscriptionsService.getConfig(query);
   }
 
-  @ApiOperation({ summary: 'Create product subscription (returns checkout modal payload)' })
-  @ResponseMessage('Subscription created successfully')
+  @ApiOperation({
+    summary: 'Deprecated — first purchase must go through cart checkout',
+  })
+  @ResponseMessage('Use cart checkout for first purchase')
   @Post()
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionCookieGuard, VerifiedUserGuard)
