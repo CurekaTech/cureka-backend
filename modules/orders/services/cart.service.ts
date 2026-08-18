@@ -8,10 +8,6 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
-import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
-import { MembershipBenefitsApplicationService } from '@modules/subscription/services/membership-benefits-application.service';
-import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
-import { ProductSubscriptionPricingService } from '@modules/subscription/services/product-subscription-pricing.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
@@ -48,9 +44,6 @@ export class CartService {
     private readonly cartPricingService: CartPricingService,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
-    private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
-    private readonly productSubscriptionPricingService: ProductSubscriptionPricingService,
-    private readonly membershipBenefits: MembershipBenefitsApplicationService,
   ) { }
 
   private async buildEmptyCartResponse(): Promise<CartResponse> {
@@ -82,14 +75,7 @@ export class CartService {
    */
   async addItems(
     userId: string,
-    items: Array<{
-      productId: string;
-      variantId: string;
-      quantity: number;
-      productName?: string;
-      isSubscription?: boolean;
-      frequency?: ProductSubscriptionFrequency | null;
-    }>,
+    items: Array<{ productId: string; variantId: string; quantity: number; productName?: string }>,
   ): Promise<{
     cart: CartResponse;
     addedItems: number;
@@ -112,18 +98,7 @@ export class CartService {
 
       for (const item of items) {
         try {
-          await this.addOrIncrementItem(
-            userId,
-            cart.id,
-            {
-              productId: item.productId,
-              variantId: item.variantId,
-              quantity: item.quantity,
-              isSubscription: item.isSubscription,
-              frequency: item.frequency ?? undefined,
-            },
-            manager,
-          );
+          await this.addOrIncrementItem(userId, cart.id, item, manager);
           addedItems += 1;
         } catch (error) {
           if (error instanceof BadRequestException) {
@@ -352,13 +327,10 @@ export class CartService {
 
       for (const item of guestCart.items) {
         const variant = await this.getValidVariant(item.productId, item.variantId, manager);
-        const isSubscription = !!item.isSubscription;
-        const frequency = item.frequency ?? null;
         const existing = await this.cartItemsRepository.findByCartAndVariant(
           targetCart.id,
           item.variantId,
           manager,
-          { isSubscription, frequency },
         );
 
         if (existing) {
@@ -380,8 +352,6 @@ export class CartService {
               productId: item.productId,
               variantId: item.variantId,
               quantity: item.quantity,
-              isSubscription,
-              frequency,
               createdBy: toUserId,
               updatedBy: toUserId,
             },
@@ -450,34 +420,11 @@ export class CartService {
   }
 
   private async buildLineItems(cart: CartEntity): Promise<CartLineItem[]> {
-    const userId = cart.userId;
-    const memberDiscount = await this.membershipBenefits.getMemberDiscount(userId);
-
     return Promise.all(
       (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
         const variant = item.variant as ProductVariantEntity | undefined;
         const product = item.product as ProductEntity | undefined;
-        const isSubscription = !!item.isSubscription;
-        const frequency = item.frequency ?? null;
-
-        let unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
-        if (isSubscription && variant) {
-          const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
-            item.productId,
-            item.variantId,
-          );
-          if (config?.enabled) {
-            const pricing = this.productSubscriptionPricingService.calculate(
-              variant.sellingPrice,
-              item.quantity,
-              config.discountType,
-              config.discountValue,
-              memberDiscount,
-            );
-            unitPrice = Number(pricing.finalAmount) / Math.max(1, item.quantity);
-          }
-        }
-
+        const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
         const mrpRaw = variant?.mrp != null ? parseFloat(String(variant.mrp)) : NaN;
         const mrp = Number.isFinite(mrpRaw) ? mrpRaw : null;
         const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
@@ -510,9 +457,6 @@ export class CartService {
           subSubCategoryId: product?.subSubCategoryId ?? null,
           subSubSubCategoryId: product?.subSubSubCategoryId ?? null,
           brandId: product?.brandId ?? null,
-          isSubscription,
-          frequency,
-          lineType: isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
         };
       }),
     );
@@ -521,32 +465,11 @@ export class CartService {
   private async addOrIncrementItem(
     userId: string,
     cartId: string,
-    dto: {
-      productId: string;
-      variantId: string;
-      quantity: number;
-      isSubscription?: boolean;
-      frequency?: ProductSubscriptionFrequency;
-    },
+    dto: { productId: string; variantId: string; quantity: number },
     manager = this.dataSource.manager,
   ): Promise<void> {
-    const isSubscription = !!dto.isSubscription;
-    const frequency = isSubscription ? (dto.frequency ?? null) : null;
-
-    if (isSubscription) {
-      if (!frequency) {
-        throw new BadRequestException('frequency is required for subscription cart items');
-      }
-      await this.assertSubscriptionAllowed(dto.productId, dto.variantId, frequency);
-    }
-
     const variant = await this.getValidVariant(dto.productId, dto.variantId, manager);
-    const existing = await this.cartItemsRepository.findByCartAndVariant(
-      cartId,
-      dto.variantId,
-      manager,
-      { isSubscription, frequency },
-    );
+    const existing = await this.cartItemsRepository.findByCartAndVariant(cartId, dto.variantId, manager);
 
     if (existing) {
       const nextQty = existing.quantity + dto.quantity;
@@ -570,38 +493,11 @@ export class CartService {
         productId: dto.productId,
         variantId: dto.variantId,
         quantity: dto.quantity,
-        isSubscription,
-        frequency,
         createdBy: userId,
         updatedBy: userId,
       },
       manager,
     );
-  }
-
-  private async assertSubscriptionAllowed(
-    productId: string,
-    variantId: string,
-    frequency: ProductSubscriptionFrequency,
-  ): Promise<void> {
-    const productRepo = this.dataSource.getRepository(ProductEntity);
-    const product = await productRepo.findOne({ where: { id: productId } });
-    if (!product || product.status !== ProductStatus.PUBLISHED) {
-      throw new BadRequestException('Product is not available for subscription');
-    }
-    if (!product.subscriptionEnabled) {
-      throw new BadRequestException('Subscription is not enabled for this product');
-    }
-    const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
-      productId,
-      variantId,
-    );
-    if (!config || !config.enabled) {
-      throw new BadRequestException('Subscription config is not enabled for this product');
-    }
-    if (!config.frequencies.includes(frequency)) {
-      throw new BadRequestException('Selected frequency is not allowed for this product');
-    }
   }
 
   private async getValidVariant(

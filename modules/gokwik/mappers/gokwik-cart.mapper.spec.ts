@@ -42,9 +42,6 @@ describe('mapCartToGokwikCart', () => {
           subSubCategoryId: null,
           subSubSubCategoryId: null,
           brandId: 'brand-1',
-          isSubscription: false,
-          frequency: null,
-          lineType: 'ONE_TIME',
         },
       ],
     };
@@ -159,9 +156,6 @@ describe('mapCartToGokwikCart', () => {
           subSubCategoryId: null,
           subSubSubCategoryId: null,
           brandId: null,
-          isSubscription: false,
-          frequency: null,
-          lineType: 'ONE_TIME',
         },
       ],
     };
@@ -212,9 +206,6 @@ describe('mapCartToGokwikCart', () => {
           subSubCategoryId: null,
           subSubSubCategoryId: null,
           brandId: null,
-          isSubscription: false,
-          frequency: null,
-          lineType: 'ONE_TIME',
         },
       ],
     };
@@ -268,9 +259,6 @@ describe('mapCartToGokwikCart', () => {
           subSubCategoryId: null,
           subSubSubCategoryId: null,
           brandId: 'brand-1',
-          isSubscription: false,
-          frequency: null,
-          lineType: 'ONE_TIME',
         },
       ],
     };
