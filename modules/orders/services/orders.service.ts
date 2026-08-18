@@ -14,6 +14,7 @@ import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
@@ -195,6 +196,8 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -398,6 +401,8 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -854,6 +859,8 @@ export class OrdersService {
       quantity: number;
       unitPrice: string;
       totalPrice: string;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
@@ -935,6 +942,9 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          isSubscription: !!item.isSubscription,
+          frequency: item.isSubscription ? item.frequency ?? null : null,
+          subscriptionId: params.subscriptionId,
           createdBy: params.createdBy ?? 'subscription-webhook',
           updatedBy: params.createdBy ?? 'subscription-webhook',
         });
@@ -993,6 +1003,8 @@ export class OrdersService {
       quantity: number;
       unitPrice: string;
       totalPrice: string;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
@@ -1084,6 +1096,8 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          isSubscription: !!item.isSubscription,
+          frequency: item.isSubscription ? item.frequency ?? null : null,
           createdBy: 'razorpay-webhook',
           updatedBy: 'razorpay-webhook',
         });

@@ -8,6 +8,8 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { ProductSubscriptionConfigEntity } from '@modules/subscription/entities/product-subscription-config.entity';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
@@ -75,7 +77,14 @@ export class CartService {
    */
   async addItems(
     userId: string,
-    items: Array<{ productId: string; variantId: string; quantity: number; productName?: string }>,
+    items: Array<{
+      productId: string;
+      variantId: string;
+      quantity: number;
+      productName?: string;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
+    }>,
   ): Promise<{
     cart: CartResponse;
     addedItems: number;
@@ -331,6 +340,10 @@ export class CartService {
           targetCart.id,
           item.variantId,
           manager,
+          {
+            isSubscription: item.isSubscription,
+            frequency: item.isSubscription ? item.frequency ?? null : null,
+          },
         );
 
         if (existing) {
@@ -352,6 +365,8 @@ export class CartService {
               productId: item.productId,
               variantId: item.variantId,
               quantity: item.quantity,
+              isSubscription: !!item.isSubscription,
+              frequency: item.isSubscription ? item.frequency ?? null : null,
               createdBy: toUserId,
               updatedBy: toUserId,
             },
@@ -435,7 +450,6 @@ export class CartService {
           product?.status === ProductStatus.PUBLISHED;
         const rawStock = variant?.stock ?? 0;
         const stock = getSalableStockQuantity(rawStock, item.quantity);
-        const isSubscription = !!item.isSubscription;
 
         return {
           id: item.id,
@@ -458,9 +472,9 @@ export class CartService {
           subSubCategoryId: product?.subSubCategoryId ?? null,
           subSubSubCategoryId: product?.subSubSubCategoryId ?? null,
           brandId: product?.brandId ?? null,
-          isSubscription,
+          isSubscription: !!item.isSubscription,
           frequency: item.frequency ?? null,
-          lineType: isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
+          lineType: item.isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
         };
       }),
     );
@@ -469,11 +483,32 @@ export class CartService {
   private async addOrIncrementItem(
     userId: string,
     cartId: string,
-    dto: { productId: string; variantId: string; quantity: number },
+    dto: {
+      productId: string;
+      variantId: string;
+      quantity: number;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
+    },
     manager = this.dataSource.manager,
   ): Promise<void> {
     const variant = await this.getValidVariant(dto.productId, dto.variantId, manager);
-    const existing = await this.cartItemsRepository.findByCartAndVariant(cartId, dto.variantId, manager);
+    const isSubscription = !!dto.isSubscription;
+    const frequency = isSubscription ? dto.frequency ?? null : null;
+
+    if (isSubscription) {
+      if (!frequency) {
+        throw new BadRequestException('frequency is required for subscription cart items');
+      }
+      await this.assertSubscriptionAllowed(dto.productId, dto.variantId, frequency);
+    }
+
+    const existing = await this.cartItemsRepository.findByCartAndVariant(
+      cartId,
+      dto.variantId,
+      manager,
+      { isSubscription, frequency },
+    );
 
     if (existing) {
       const nextQty = existing.quantity + dto.quantity;
@@ -497,11 +532,39 @@ export class CartService {
         productId: dto.productId,
         variantId: dto.variantId,
         quantity: dto.quantity,
+        isSubscription,
+        frequency,
         createdBy: userId,
         updatedBy: userId,
       },
       manager,
     );
+  }
+
+  private async assertSubscriptionAllowed(
+    productId: string,
+    variantId: string,
+    frequency: ProductSubscriptionFrequency,
+  ): Promise<void> {
+    const config = await this.dataSource.manager
+      .getRepository(ProductSubscriptionConfigEntity)
+      .createQueryBuilder('config')
+      .where('config.enabled = true')
+      .andWhere('config.productId = :productId', { productId })
+      .andWhere('(config.productVariantId = :variantId OR config.productVariantId IS NULL)', {
+        variantId,
+      })
+      .orderBy('CASE WHEN config.productVariantId = :variantId THEN 0 ELSE 1 END', 'ASC')
+      .setParameter('variantId', variantId)
+      .getOne();
+
+    if (!config) {
+      throw new BadRequestException('Subscription is not enabled for this product');
+    }
+
+    if (!config.frequencies.includes(frequency)) {
+      throw new BadRequestException('Selected frequency is not allowed for this product');
+    }
   }
 
   private async getValidVariant(
