@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppCacheModule } from '@packages/cache';
 import { AuthModule as CoreAuthModule } from '@packages/auth';
@@ -33,7 +33,7 @@ import { KwikpassService } from './services/kwikpass.service';
     AdminUsersModule,
     CheckoutModule,
     UsersModule,
-    OrdersModule,
+    forwardRef(() => OrdersModule),
     UploadsModule,
     TypeOrmModule.forFeature([OtpEntity, UserSessionEntity]),
   ],
