@@ -435,6 +435,7 @@ export class CartService {
           product?.status === ProductStatus.PUBLISHED;
         const rawStock = variant?.stock ?? 0;
         const stock = getSalableStockQuantity(rawStock, item.quantity);
+        const isSubscription = !!item.isSubscription;
 
         return {
           id: item.id,
@@ -457,6 +458,9 @@ export class CartService {
           subSubCategoryId: product?.subSubCategoryId ?? null,
           subSubSubCategoryId: product?.subSubSubCategoryId ?? null,
           brandId: product?.brandId ?? null,
+          isSubscription,
+          frequency: item.frequency ?? null,
+          lineType: isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
         };
       }),
     );

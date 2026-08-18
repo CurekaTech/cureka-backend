@@ -1895,6 +1895,9 @@ export class PaymentRequestsService {
           subSubCategoryId: variant?.product?.subSubCategoryId ?? null,
           subSubSubCategoryId: variant?.product?.subSubSubCategoryId ?? null,
           brandId: variant?.product?.brandId ?? null,
+          isSubscription: false,
+          frequency: null,
+          lineType: 'ONE_TIME' as const,
         };
       }),
     );

@@ -227,6 +227,9 @@ export class OrdersService {
             subSubCategoryId: item.subSubCategoryId,
             subSubSubCategoryId: item.subSubSubCategoryId,
             brandId: item.brandId,
+            isSubscription: item.isSubscription,
+            frequency: item.frequency,
+            lineType: item.isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
           })),
           manager,
         });
@@ -525,6 +528,9 @@ export class OrdersService {
             subSubCategoryId: item.product?.subSubCategoryId ?? null,
             subSubSubCategoryId: item.product?.subSubSubCategoryId ?? null,
             brandId: item.product?.brandId ?? null,
+            isSubscription: item.isSubscription,
+            frequency: item.frequency ?? null,
+            lineType: item.isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
           })),
           manager,
         });
