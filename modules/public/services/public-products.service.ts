@@ -490,41 +490,6 @@ export class PublicProductsService {
     return { brandIds: brands.map((brand) => brand.id) };
   }
 
-    if (!query.brandSlug?.trim()) {
-      return {};
-    }
-
-    const slugs = [
-      ...new Set(
-        query.brandSlug
-          .split(',')
-          .map((slug) => slug.trim())
-          .filter(Boolean),
-      ),
-    ];
-
-    if (slugs.length === 0) {
-      return {};
-    }
-
-    if (slugs.length === 1) {
-      const brand = await this.brandsRepository.findBySlug(slugs[0]);
-      if (!brand) {
-        throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
-      }
-      return { brandId: brand.id };
-    }
-
-    const brands = await this.brandsRepository.findBySlugs(slugs);
-    const foundSlugs = new Set(brands.map((brand) => brand.slug));
-    const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
-    if (missingSlugs.length > 0) {
-      throw new NotFoundException(`Brand with slug "${missingSlugs.join('", "')}" not found`);
-    }
-
-    return { brandIds: brands.map((brand) => brand.id) };
-  }
-
   private async resolveListFilters(query: PublicProductQueryDto) {
     const queryBindings = parseCategoryFilterQueryBindings(query);
     const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
