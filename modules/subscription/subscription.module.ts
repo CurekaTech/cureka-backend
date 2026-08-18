@@ -110,6 +110,7 @@ import { SubscriptionRelationLoaderService } from './services/subscription-relat
   ],
   exports: [
     ProductSubscriptionConfigService,
+    ProductSubscriptionPricingService,
     ProductSubscriptionsService,
     MembershipsService,
     MembershipBenefitsApplicationService,
