@@ -8,6 +8,7 @@ import { IProductPackMetadataItem } from '@modules/product/interfaces/product-pa
 import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
+import { IPublicBrandProductListingContext } from './public-brand.interface';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
 
 /** Cached/stored shape — logo is enriched to include a signed url on API responses. */
@@ -309,4 +310,6 @@ export interface IPublicProductDetail {
 export interface IPublicProductListResponse extends PaginatedResult<IPublicProductCard> {
   /** Present when the listing is filtered by categorySlug or categoryRefId. */
   category?: IPublicCategoryProductListingContext | null;
+  /** Present when the listing is filtered by a single brandSlug or brandRefId. */
+  brand?: IPublicBrandProductListingContext | null;
 }

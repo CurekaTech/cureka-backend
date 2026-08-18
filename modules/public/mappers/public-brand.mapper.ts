@@ -1,4 +1,5 @@
 import { BrandEntity } from '@modules/master/entities/brand.entity';
+import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicBrandListItem } from '../interfaces/public-master.interface';
 
 export const mapBrandEntityToPublicListItem = (entity: BrandEntity): IPublicBrandListItem => ({
@@ -11,3 +12,17 @@ export const mapBrandEntityToPublicListItem = (entity: BrandEntity): IPublicBran
 export const mapBrandEntitiesToPublicListItems = (
   entities: BrandEntity[],
 ): IPublicBrandListItem[] => entities.map(mapBrandEntityToPublicListItem);
+
+export const mapBrandEntityToListingContext = (
+  entity: BrandEntity,
+): IPublicBrandProductListingContext => ({
+  refId: entity.refId,
+  name: entity.name,
+  slug: entity.slug,
+  logo: entity.logo,
+  banner: entity.banner,
+  description: entity.description,
+  metaTitle: entity.metaTitle,
+  metaDescription: entity.metaDescription,
+  metaKeywords: entity.metaKeywords,
+});

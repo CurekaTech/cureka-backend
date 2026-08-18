@@ -7,3 +7,16 @@ export interface IPublicBrandCard {
   slug: string;
   logo: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
+
+/** Brand metadata returned when the product list is scoped by a single brandSlug/brandRefId. */
+export interface IPublicBrandProductListingContext {
+  refId: string;
+  name: string;
+  slug: string;
+  logo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  description: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  metaKeywords: string[] | null;
+}
