@@ -14,7 +14,8 @@ Ask Shipway support (`contact@shipway.in`) to register this callback URL if it i
 
 ## Supported payload shapes
 
-### 1. Classic Shipway (`status_feed`) — documented on shipway.in
+Shipway's documented webhook (API Version 1.1.2) is **not** `{ order_id, status }`.
+It POSTs JSON:
 
 ```json
 {
@@ -27,23 +28,13 @@ Ask Shipway support (`contact@shipway.in`) to register this callback URL if it i
 
 - `order_id` must match `shipments.shipway_order_id` (Cureka order number).
 - `current_status` is a Shipway code (`INT`, `OOD`, `DEL`, …) mapped via `ShipwayStatusMapper`.
+- Extra keys on the body or feed items (AWB, courier, scans, …) are ignored, not rejected.
 - Auth: body `hash` = `md5(email:license_key)` using the same credentials as API calls.
+- Empty `status_feed` (Send Sample / connectivity ping) is acknowledged with HTTP 200.
+- Unknown sample `order_id` values are acknowledged with HTTP 200 (`notFound`), not 404.
 
-### 2. Single-event (HMAC)
-
-```json
-{
-  "event_id": "optional-unique-id",
-  "order_id": "CUR12345",
-  "status": "Out for Delivery",
-  "status_date": "2026-08-17T10:00:00.000Z",
-  "awb_number": "…",
-  "message": "…"
-}
-```
-
-- Auth: HMAC-SHA256 hex of the **raw body**, sent as `x-webhook-signature` or `x-shipway-signature`.
-- Secret: `SHIPWAY_WEBHOOK_SECRET`.
+A single-event body is also accepted if it uses the same field names
+(`order_id` + `current_status` / `current_status_code` / `status`).
 
 ## Environment variables
 

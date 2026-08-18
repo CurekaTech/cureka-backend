@@ -72,4 +72,17 @@ describe('PathAwareLoggingValidationPipe', () => {
       pipe.transform({ id: '1', extra: 'nope' }, { type: 'body', metatype: StrictDto }),
     ).rejects.toThrow('property extra should not exist');
   });
+
+  it('allows extra fields on the Shipway webhook route', async () => {
+    const pipe = new PathAwareLoggingValidationPipe({
+      url: '/api/v1/shipments/webhook',
+    } as never);
+
+    await expect(
+      pipe.transform(
+        { id: '1', scans: [], courier_name: 'Delhivery' },
+        { type: 'body', metatype: StrictDto },
+      ),
+    ).resolves.toEqual({ id: '1' });
+  });
 });
