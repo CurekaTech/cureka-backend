@@ -165,7 +165,12 @@ export interface IShipwayCarriersResponse {
 
 export interface IShipwayStatusFeedItem {
   order_id: string;
-  current_status: string;
+  current_status?: string;
+  status?: string;
+  current_status_code?: string;
+  awb?: string;
+  awb_number?: string;
+  awb_no?: string;
 }
 
 export interface IShipwayStatusFeedWebhook {

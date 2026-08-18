@@ -85,4 +85,12 @@ describe('ShipwayService webhook auth', () => {
       UnauthorizedException,
     );
   });
+
+  it('accepts an empty status_feed sample ping without HMAC', () => {
+    process.env['NODE_ENV'] = 'production';
+    const service = buildService();
+    const payload = { hash: undefined, status_feed: [] } as ShipwayWebhookDto;
+
+    expect(() => service.verifyWebhookAuth(payload, JSON.stringify(payload))).not.toThrow();
+  });
 });

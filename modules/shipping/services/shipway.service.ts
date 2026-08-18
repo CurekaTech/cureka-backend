@@ -888,9 +888,17 @@ export class ShipwayService {
     signature?: string,
   ): void {
     const isProduction = process.env['NODE_ENV'] === 'production';
-    const isStatusFeed = Array.isArray(payload.status_feed) && payload.status_feed.length > 0;
+    const statusFeed = payload.status_feed;
+    const isStatusFeed = Array.isArray(statusFeed);
 
     if (isStatusFeed) {
+      // Empty feed is Shipway "Send Sample Webhook" / connectivity ping.
+      if (statusFeed.length === 0) {
+        if (payload.hash?.trim()) {
+          this.verifyStatusFeedHash(payload.hash, isProduction);
+        }
+        return;
+      }
       this.verifyStatusFeedHash(payload.hash, isProduction);
       return;
     }
