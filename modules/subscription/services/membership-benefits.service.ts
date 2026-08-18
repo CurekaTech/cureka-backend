@@ -60,9 +60,11 @@ export class MembershipBenefitsService {
     return mapMembershipBenefitToResponse(created);
   }
 
-  async update(benefitId: string, dto: UpdateMembershipBenefitDto, actor: string) {
-    const existing = await this.benefitsRepository.findById(benefitId);
-    if (!existing) throw new NotFoundException('Membership benefit not found');
+  async update(idOrRefId: string, dto: UpdateMembershipBenefitDto, actor: string) {
+    const existing = await this.resolveEntity(idOrRefId);
+
+    const shouldPatchMetadata =
+      dto.metadata !== undefined || dto.minOrderValue !== undefined;
 
     const shouldPatchMetadata =
       dto.metadata !== undefined || dto.minOrderValue !== undefined;
@@ -89,7 +91,7 @@ export class MembershipBenefitsService {
       updatedBy: actor,
     });
 
-    const updated = await this.benefitsRepository.findById(benefitId);
+    const updated = await this.benefitsRepository.findById(existing.id);
     if (!updated) throw new NotFoundException('Membership benefit not found after update');
     return mapMembershipBenefitToResponse(updated);
   }
@@ -163,10 +165,17 @@ export class MembershipBenefitsService {
     return benefits.map(mapMembershipBenefitToResponse);
   }
 
-  async softDelete(benefitId: string, actor: string) {
-    const existing = await this.benefitsRepository.findById(benefitId);
+  async softDelete(idOrRefId: string, actor: string) {
+    const existing = await this.resolveEntity(idOrRefId);
+    await this.benefitsRepository.softDeleteById(existing.id, actor);
+    return { id: existing.id, refId: existing.refId };
+  }
+
+  private async resolveEntity(idOrRefId: string) {
+    const existing = UUID_REGEX.test(idOrRefId)
+      ? await this.benefitsRepository.findById(idOrRefId)
+      : await this.benefitsRepository.findByRefId(idOrRefId);
     if (!existing) throw new NotFoundException('Membership benefit not found');
-    await this.benefitsRepository.softDeleteById(benefitId, actor);
-    return { id: benefitId };
+    return existing;
   }
 }

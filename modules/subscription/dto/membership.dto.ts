@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { PaginationQueryDto } from '@packages/common';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -92,6 +92,7 @@ export class CreateMembershipPlanDto {
   description?: string | null;
 
   @ApiProperty({ example: 999 })
+  @Transform(toOptionalNumber)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   price!: number;
