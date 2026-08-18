@@ -53,8 +53,6 @@ export interface IProductSubscriptionConfig {
   missedPaymentAction: SubscriptionMissedPaymentAction;
   renewalMethod: SubscriptionRenewalMethod;
   reminderOffsetsJson: number[];
-  product?: ISubscriptionProductSummary | null;
-  variant?: ISubscriptionVariantSummary | null;
   createdAt: string;
   updatedAt: string;
 }

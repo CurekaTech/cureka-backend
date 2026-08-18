@@ -22,7 +22,7 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
   imports: [
     TypeOrmModule.forFeature([PaymentRequestEntity, PaymentRequestItemEntity, AdminUserEntity]),
     UsersModule,
-    forwardRef(() => OrdersModule),
+    OrdersModule,
     AdminSettingsModule,
     CheckoutModule,
     forwardRef(() => SubscriptionModule),

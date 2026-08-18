@@ -1,10 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
-  Inject,
   Injectable,
   NotFoundException,
-  forwardRef,
 } from '@nestjs/common';
 import {
   buildPaginatedResult,
@@ -43,7 +41,6 @@ export class ProductReviewsService {
     private readonly productsRepository: ProductsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
-    @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
   ) {}
 
