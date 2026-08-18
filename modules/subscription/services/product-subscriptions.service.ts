@@ -705,6 +705,8 @@ export class ProductSubscriptionsService {
               Number(paidPayment.amount) / Math.max(1, sub.quantity)
             ).toFixed(2),
             totalPrice: paidPayment.amount,
+            isSubscription: true,
+            frequency: sub.frequency,
           },
         ],
       });
