@@ -36,6 +36,15 @@ export class CreateHealthConcernDto {
   description?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  metaTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  metaDescription?: string;
+
+  @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
 

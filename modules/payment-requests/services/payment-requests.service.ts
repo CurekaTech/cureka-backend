@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, In } from 'typeorm';
@@ -10,6 +12,7 @@ import { buildPaginatedResult, generateUniqueRefId, getSalableStockQuantity, isV
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
@@ -58,8 +61,11 @@ export class PaymentRequestsService {
     private readonly usersRepository: UsersRepository,
     private readonly usersService: UsersService,
     private readonly userAddressesService: UserAddressesService,
+    @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    @Inject(forwardRef(() => CheckoutService))
     private readonly checkoutService: CheckoutService,
+    @Inject(forwardRef(() => CartService))
     private readonly cartService: CartService,
     private readonly paymentRequestsRepository: PaymentRequestsRepository,
     private readonly paymentRequestItemsRepository: PaymentRequestItemsRepository,
@@ -631,6 +637,8 @@ export class PaymentRequestsService {
           discount: '0.00',
           tax: '0.00',
           total,
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
         };
       }),
     );
@@ -744,6 +752,8 @@ export class PaymentRequestsService {
           discount: item.discount,
           tax: item.tax,
           total: item.total,
+          isSubscription: item.isSubscription,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
           updatedBy: userId,
         })),
@@ -1404,6 +1414,8 @@ export class PaymentRequestsService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.total,
+          isSubscription: item.isSubscription,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
         })),
       });
       this.logger.log(
@@ -1436,7 +1448,7 @@ export class PaymentRequestsService {
       this.logger.warn('STOREFRONT_URL is not set; Razorpay payment link will not redirect back to the storefront.');
       return undefined;
     }
-    return `${storefrontUrl}/cart`;
+    return `${storefrontUrl}/thankyou`;
   }
 
   async handleCashfreePaymentSuccess(
@@ -1895,6 +1907,9 @@ export class PaymentRequestsService {
           subSubCategoryId: variant?.product?.subSubCategoryId ?? null,
           subSubSubCategoryId: variant?.product?.subSubSubCategoryId ?? null,
           brandId: variant?.product?.brandId ?? null,
+          isSubscription: false,
+          frequency: null,
+          lineType: 'ONE_TIME' as const,
         };
       }),
     );

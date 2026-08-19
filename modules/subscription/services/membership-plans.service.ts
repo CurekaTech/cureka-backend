@@ -5,14 +5,22 @@ import {
   UpdateMembershipPlanDto,
   AdminMembershipPlanQueryDto,
 } from '../dto/membership.dto';
+import { MembershipPlanEntity } from '../entities/membership-plan.entity';
 import { MembershipPlanStatus } from '../enums/membership-plan-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
 import { mapMembershipPlanToResponse } from '../mappers/membership.mapper';
 import { MembershipPlansRepository } from '../repositories/membership-plans.repository';
+import { MembershipBenefitsService } from './membership-benefits.service';
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class MembershipPlansService {
-  constructor(private readonly plansRepository: MembershipPlansRepository) {}
+  constructor(
+    private readonly plansRepository: MembershipPlansRepository,
+    private readonly benefitsService: MembershipBenefitsService,
+  ) {}
 
   async create(dto: CreateMembershipPlanDto, actor: string) {
     const refId = await generateUniqueRefId('mplan', (c) => this.plansRepository.existsByRefId(c));
@@ -32,15 +40,18 @@ export class MembershipPlansService {
       createdBy: actor,
       updatedBy: actor,
     });
+
+    if (dto.benefits?.length) {
+      await this.benefitsService.sync(created.id, dto.benefits, actor);
+    }
+
     const full = await this.plansRepository.findById(created.id);
     return mapMembershipPlanToResponse(full ?? created);
   }
 
-  async update(id: string, dto: UpdateMembershipPlanDto, actor: string) {
-    const existing = await this.plansRepository.findById(id);
-    if (!existing) throw new NotFoundException('Membership plan not found');
-
-    await this.plansRepository.updateById(id, {
+  async update(idOrRefId: string, dto: UpdateMembershipPlanDto, actor: string) {
+    const existing = await this.resolveEntity(idOrRefId);
+    await this.plansRepository.updateById(existing.id, {
       ...(dto.name !== undefined ? { name: dto.name } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.price !== undefined ? { price: Number(dto.price).toFixed(2) } : {}),
@@ -55,7 +66,11 @@ export class MembershipPlansService {
       updatedBy: actor,
     });
 
-    const updated = await this.plansRepository.findById(id);
+    if (dto.benefits !== undefined) {
+      await this.benefitsService.sync(existing.id, dto.benefits, actor);
+    }
+
+    const updated = await this.plansRepository.findById(existing.id);
     if (!updated) throw new NotFoundException('Membership plan not found after update');
     return mapMembershipPlanToResponse(updated);
   }
@@ -70,6 +85,10 @@ export class MembershipPlansService {
     const plan = await this.plansRepository.findByRefId(refId);
     if (!plan) throw new NotFoundException('Membership plan not found');
     return mapMembershipPlanToResponse(plan);
+  }
+
+  async findByIdOrRefId(idOrRefId: string) {
+    return mapMembershipPlanToResponse(await this.resolveEntity(idOrRefId));
   }
 
   async listActive() {
@@ -87,16 +106,15 @@ export class MembershipPlansService {
       status: query.status,
     });
     return {
-      data: data.map(mapMembershipPlanToResponse),
+      items: data.map(mapMembershipPlanToResponse),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }
 
-  async softDelete(id: string, actor: string) {
-    const existing = await this.plansRepository.findById(id);
-    if (!existing) throw new NotFoundException('Membership plan not found');
-    await this.plansRepository.softDeleteById(id, actor);
-    return { id };
+  async softDelete(idOrRefId: string, actor: string) {
+    const existing = await this.resolveEntity(idOrRefId);
+    await this.plansRepository.softDeleteById(existing.id, actor);
+    return { id: existing.id, refId: existing.refId };
   }
 
   findEntityById(id: string) {
@@ -105,5 +123,17 @@ export class MembershipPlansService {
 
   findEntityByRefId(refId: string) {
     return this.plansRepository.findByRefId(refId);
+  }
+
+  async resolveEntity(idOrRefId: string): Promise<MembershipPlanEntity> {
+    const plan = UUID_REGEX.test(idOrRefId)
+      ? await this.plansRepository.findById(idOrRefId)
+      : await this.plansRepository.findByRefId(idOrRefId);
+    if (!plan) throw new NotFoundException('Membership plan not found');
+    return plan;
+  }
+
+  async resolveId(idOrRefId: string): Promise<string> {
+    return (await this.resolveEntity(idOrRefId)).id;
   }
 }

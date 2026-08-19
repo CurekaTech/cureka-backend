@@ -195,19 +195,50 @@ export class StorageService {
   }
 
   async delete(relativePath: string): Promise<void> {
-    const key = normalizeStorageKey(relativePath);
-    if (!key || key.includes('..')) {
-      throw new BadRequestException('Invalid file path');
-    }
+    const key = this.assertSafeKey(relativePath);
     await this.provider.delete(key);
   }
 
   async createReadStream(relativePath: string): Promise<Readable> {
+    const key = this.assertSafeKey(relativePath);
+    return this.provider.createReadStream(key);
+  }
+
+  async uploadAtPath(input: {
+    relativePath: string;
+    stream: Readable;
+    mimetype: string;
+  }): Promise<IUploadFileResult> {
+    const relativePath = this.assertSafeKey(input.relativePath);
+    return this.provider.uploadAtPath({
+      relativePath,
+      stream: input.stream,
+      mimetype: input.mimetype,
+    });
+  }
+
+  async exists(relativePath: string): Promise<boolean> {
+    const key = this.assertSafeKey(relativePath);
+    return this.provider.exists(key);
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    const key = this.assertSafeKey(prefix);
+    return this.provider.list(key);
+  }
+
+  async copy(fromRelativePath: string, toRelativePath: string): Promise<void> {
+    const from = this.assertSafeKey(fromRelativePath);
+    const to = this.assertSafeKey(toRelativePath);
+    await this.provider.copy(from, to);
+  }
+
+  private assertSafeKey(relativePath: string): string {
     const key = normalizeStorageKey(relativePath);
     if (!key || key.includes('..')) {
       throw new BadRequestException('Invalid file path');
     }
-    return this.provider.createReadStream(key);
+    return key;
   }
 
   private assertAllowedMimeType(mimetype: string): void {

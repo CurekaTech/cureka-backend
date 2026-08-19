@@ -11,7 +11,9 @@ import {
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
+import { BlogPostUpdatedEvent, EVENTS } from '@packages/events';
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { AuditService } from '@modules/master/services/audit.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
@@ -55,6 +57,7 @@ export class BlogPostsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createFromJson(dto: CreateBlogPostDto, actor: string) {
@@ -141,6 +144,7 @@ export class BlogPostsService {
     });
 
     await this.invalidateHomepageHealthReadsCache();
+    await this.emitBlogPostUpdated(entity.refId, 'created');
 
     return this.enrichPost(await this.mapWithProducts(entity));
   }
@@ -534,6 +538,7 @@ export class BlogPostsService {
     }
 
     await this.invalidateHomepageHealthReadsCache();
+    await this.emitBlogPostUpdated(refId, 'updated');
 
     return this.enrichPost(await this.mapWithProducts(updated as BlogPostEntity));
   }
@@ -575,6 +580,7 @@ export class BlogPostsService {
     await this.logAudit(existing.id, refId, BlogAuditAction.DELETED, actor, { refId });
     await this.postsRepo.softDeleteByRefId(refId);
     await this.invalidateHomepageHealthReadsCache();
+    await this.emitBlogPostUpdated(refId, 'deleted');
   }
 
   private resolvePublishedAt(
@@ -660,6 +666,16 @@ export class BlogPostsService {
       performedBy,
       details: details ?? null,
     });
+  }
+
+  private async emitBlogPostUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.BLOG_POST_UPDATED,
+      new BlogPostUpdatedEvent(refId, action),
+    );
   }
 
   private async invalidateHomepageHealthReadsCache(): Promise<void> {

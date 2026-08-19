@@ -6,13 +6,19 @@ import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.
 import { mapSubscriptionPaymentToResponse } from '../mappers/product-subscription.mapper';
 import { ISubscriptionPayment } from '../interfaces/product-subscription.interface';
 import { SubscriptionPaymentsRepository } from '../repositories/subscription-payments.repository';
+import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { AdminSubscriptionPaymentQueryDto } from '../dto/product-subscription.dto';
+import { SubscriptionRelationLoaderService } from './subscription-relation-loader.service';
 
 @Injectable()
 export class ProductSubscriptionPaymentsService {
   private readonly logger = new Logger(ProductSubscriptionPaymentsService.name);
 
-  constructor(private readonly paymentsRepository: SubscriptionPaymentsRepository) {}
+  constructor(
+    private readonly paymentsRepository: SubscriptionPaymentsRepository,
+    private readonly subscriptionsRepository: UserProductSubscriptionsRepository,
+    private readonly relationLoader: SubscriptionRelationLoaderService,
+  ) {}
 
   async upsertPendingCycle(params: {
     subscriptionId: string;
@@ -68,7 +74,7 @@ export class ProductSubscriptionPaymentsService {
   async attachPaymentLink(
     paymentId: string,
     data: {
-      paymentLink: string;
+      paymentLink: string | null;
       gatewayOrderId: string;
       paymentGateway: string;
       actor: string;
@@ -118,10 +124,30 @@ export class ProductSubscriptionPaymentsService {
     return this.paymentsRepository.findById(id);
   }
 
-  findBySubscriptionId(subscriptionId: string): Promise<ISubscriptionPayment[]> {
-    return this.paymentsRepository
-      .findBySubscriptionId(subscriptionId)
-      .then((rows) => rows.map(mapSubscriptionPaymentToResponse));
+  async findBySubscriptionId(subscriptionId: string): Promise<ISubscriptionPayment[]> {
+    const rows = await this.paymentsRepository.findBySubscriptionId(subscriptionId);
+    const sub = await this.subscriptionsRepository.findById(subscriptionId);
+    if (!sub) {
+      return rows.map((row) => mapSubscriptionPaymentToResponse(row));
+    }
+    const [products, variants] = await Promise.all([
+      this.relationLoader.loadProductsByIds([sub.productId]),
+      this.relationLoader.loadVariantsByIds([sub.productVariantId]),
+    ]);
+    return rows.map((row) =>
+      mapSubscriptionPaymentToResponse(row, {
+        product: products.get(sub.productId) ?? null,
+        variant: variants.get(sub.productVariantId) ?? null,
+        subscription: {
+          id: sub.id,
+          refId: sub.refId,
+          status: sub.status,
+          frequency: sub.frequency,
+          quantity: sub.quantity,
+          finalAmount: sub.finalAmount,
+        },
+      }),
+    );
   }
 
   async listAdmin(query: AdminSubscriptionPaymentQueryDto) {
@@ -135,8 +161,45 @@ export class ProductSubscriptionPaymentsService {
       subscriptionId: query.subscriptionId,
       userId: query.userId,
     });
+
+    const subscriptionIds = [...new Set(data.map((row) => row.subscriptionId))];
+    const subscriptions = await Promise.all(
+      subscriptionIds.map(async (id) => {
+        const sub = await this.subscriptionsRepository.findById(id);
+        return [id, sub] as const;
+      }),
+    );
+    const subscriptionMap = new Map(subscriptions.filter(([, sub]) => !!sub));
+
+    const [users, products, variants] = await Promise.all([
+      this.relationLoader.loadUsersByIds(data.map((row) => row.userId)),
+      this.relationLoader.loadProductsByIds(
+        [...subscriptionMap.values()].map((sub) => sub!.productId),
+      ),
+      this.relationLoader.loadVariantsByIds(
+        [...subscriptionMap.values()].map((sub) => sub!.productVariantId),
+      ),
+    ]);
+
     return {
-      data: data.map(mapSubscriptionPaymentToResponse),
+      items: data.map((row) => {
+        const sub = subscriptionMap.get(row.subscriptionId) ?? null;
+        return mapSubscriptionPaymentToResponse(row, {
+          user: users.get(row.userId) ?? null,
+          product: sub ? products.get(sub.productId) ?? null : null,
+          variant: sub ? variants.get(sub.productVariantId) ?? null : null,
+          subscription: sub
+            ? {
+                id: sub.id,
+                refId: sub.refId,
+                status: sub.status,
+                frequency: sub.frequency,
+                quantity: sub.quantity,
+                finalAmount: sub.finalAmount,
+              }
+            : null,
+        });
+      }),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }

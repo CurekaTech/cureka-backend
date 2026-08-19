@@ -333,6 +333,8 @@ export class HomepageService {
       icon: this.storageUrlEnricher.persist(concern.icon),
       banner: this.storageUrlEnricher.persist(concern.banner),
       sortIndex: concern.sortIndex,
+      metaTitle: concern.metaTitle,
+      metaDescription: concern.metaDescription,
     }));
   }
 
@@ -405,6 +407,8 @@ export class HomepageService {
       icon: this.storageUrlEnricher.persist(concern.icon),
       banner: this.storageUrlEnricher.persist(concern.banner),
       sortIndex: concern.sortIndex,
+      metaTitle: concern.metaTitle,
+      metaDescription: concern.metaDescription,
     }));
     const enriched = await this.storageUrlEnricher.enrichDeep(cards);
     return buildPaginatedResult(enriched, total, options);

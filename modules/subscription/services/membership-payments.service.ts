@@ -4,14 +4,25 @@ import { EntityManager } from 'typeorm';
 import { AdminMembershipPaymentQueryDto } from '../dto/membership.dto';
 import { MembershipPaymentEntity } from '../entities/membership-payment.entity';
 import { MembershipPaymentStatus } from '../enums/membership-payment-status.enum';
-import { mapMembershipPaymentToResponse } from '../mappers/membership.mapper';
+import {
+  mapMembershipPaymentToResponse,
+  mapMembershipPlanToResponse,
+} from '../mappers/membership.mapper';
 import { MembershipPaymentsRepository } from '../repositories/membership-payments.repository';
+import { MembershipPlansRepository } from '../repositories/membership-plans.repository';
+import { UserMembershipsRepository } from '../repositories/user-memberships.repository';
+import { SubscriptionRelationLoaderService } from './subscription-relation-loader.service';
 
 @Injectable()
 export class MembershipPaymentsService {
   private readonly logger = new Logger(MembershipPaymentsService.name);
 
-  constructor(private readonly paymentsRepository: MembershipPaymentsRepository) {}
+  constructor(
+    private readonly paymentsRepository: MembershipPaymentsRepository,
+    private readonly membershipsRepository: UserMembershipsRepository,
+    private readonly plansRepository: MembershipPlansRepository,
+    private readonly relationLoader: SubscriptionRelationLoaderService,
+  ) {}
 
   async upsertPendingCycle(params: {
     userMembershipId: string;
@@ -67,7 +78,7 @@ export class MembershipPaymentsService {
   async attachPaymentLink(
     paymentId: string,
     data: {
-      paymentLink: string;
+      paymentLink: string | null;
       gatewayOrderId: string;
       paymentGateway: string;
       actor: string;
@@ -115,10 +126,20 @@ export class MembershipPaymentsService {
     return this.paymentsRepository.findById(id);
   }
 
-  findByUserId(userId: string) {
-    return this.paymentsRepository
-      .findByUserId(userId)
-      .then((rows) => rows.map(mapMembershipPaymentToResponse));
+  async findByUserId(userId: string) {
+    const rows = await this.paymentsRepository.findByUserId(userId);
+    const plans = await Promise.all(
+      [...new Set(rows.map((row) => row.membershipPlanId))].map(async (planId) => {
+        const plan = await this.plansRepository.findById(planId);
+        return [planId, plan ? mapMembershipPlanToResponse(plan) : null] as const;
+      }),
+    );
+    const planMap = new Map(plans);
+    return rows.map((row) =>
+      mapMembershipPaymentToResponse(row, {
+        plan: planMap.get(row.membershipPlanId) ?? null,
+      }),
+    );
   }
 
   async listAdmin(query: AdminMembershipPaymentQueryDto) {
@@ -132,8 +153,46 @@ export class MembershipPaymentsService {
       userId: query.userId,
       userMembershipId: query.userMembershipId,
     });
+
+    const [users, plans, memberships] = await Promise.all([
+      this.relationLoader.loadUsersByIds(data.map((row) => row.userId)),
+      Promise.all(
+        [...new Set(data.map((row) => row.membershipPlanId))].map(async (planId) => {
+          const plan = await this.plansRepository.findById(planId);
+          return [planId, plan ? mapMembershipPlanToResponse(plan) : null] as const;
+        }),
+      ),
+      Promise.all(
+        [...new Set(data.map((row) => row.userMembershipId))].map(async (membershipId) => {
+          const membership = await this.membershipsRepository.findById(membershipId);
+          return [
+            membershipId,
+            membership
+              ? {
+                  id: membership.id,
+                  refId: membership.refId,
+                  status: membership.status,
+                  startDate: membership.startDate?.toISOString() ?? null,
+                  endDate: membership.endDate?.toISOString() ?? null,
+                  nextBillingDate: membership.nextBillingDate?.toISOString() ?? null,
+                }
+              : null,
+          ] as const;
+        }),
+      ),
+    ]);
+
+    const planMap = new Map(plans);
+    const membershipMap = new Map(memberships);
+
     return {
-      data: data.map(mapMembershipPaymentToResponse),
+      items: data.map((row) =>
+        mapMembershipPaymentToResponse(row, {
+          user: users.get(row.userId) ?? null,
+          plan: planMap.get(row.membershipPlanId) ?? null,
+          membership: membershipMap.get(row.userMembershipId) ?? null,
+        }),
+      ),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }

@@ -1760,6 +1760,35 @@ export class ProductsRepository {
     return data.filter((product) => product.variants.length > 0);
   }
 
+  /** Lightweight native dropdown suggestions (Typesense fallback). */
+  async findPublishedDropdownSuggestions(
+    search: string,
+    limit: number,
+  ): Promise<ProductVariantEntity[]> {
+    const term = search.trim();
+    if (!term || limit <= 0) {
+      return [];
+    }
+
+    return this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `(product.name ILIKE :search OR product.slug ILIKE :search
+          OR variant.slug ILIKE :search OR variant.sku ILIKE :search
+          OR variant.displayName ILIKE :search)`,
+        { search: `%${term}%` },
+      )
+      .orderBy('product.name', 'ASC')
+      .addOrderBy('variant.displayName', 'ASC')
+      .take(limit)
+      .getMany();
+  }
+
   async findPublishedByRefIds(refIds: string[]): Promise<ProductEntity[]> {
     if (!refIds.length) {
       return [];

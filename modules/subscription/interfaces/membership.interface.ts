@@ -4,6 +4,12 @@ import { MembershipBenefitValueType } from '../enums/membership-benefit-value-ty
 import { MembershipPlanStatus } from '../enums/membership-plan-status.enum';
 import { MembershipStatus } from '../enums/membership-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
+import {
+  ISubscriptionListResponse,
+  ISubscriptionUserSummary,
+} from './product-subscription.interface';
+
+export type { ISubscriptionListResponse, ISubscriptionUserSummary };
 
 export interface IMembershipBenefit {
   id: string;
@@ -12,6 +18,8 @@ export interface IMembershipBenefit {
   benefitType: MembershipBenefitType;
   valueType: MembershipBenefitValueType;
   value: string | null;
+  /** Present for FREE_SHIPPING — cart/order must be ≥ this to get free shipping */
+  minOrderValue: string | null;
   metadata: Record<string, unknown> | null;
   status: MembershipPlanStatus;
   sortOrder: number;
@@ -54,7 +62,19 @@ export interface IUserMembership {
   pausedAt: string | null;
   termsAcceptedAt: string | null;
   paymentLink?: string | null;
+  razorpayOrderId?: string | null;
+  keyId?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  paymentSessionId?: string | null;
+  environment?: 'sandbox' | 'production' | null;
+  customer?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  } | null;
   plan?: IMembershipPlan | null;
+  user?: ISubscriptionUserSummary | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,11 +92,18 @@ export interface IMembershipPayment {
   gatewayOrderId: string | null;
   gatewayPaymentId: string | null;
   paymentLink: string | null;
+  paymentSessionId?: string | null;
   status: string;
   billingDate: string;
   paidAt: string | null;
   failureReason: string | null;
   retryCount: number;
+  user?: ISubscriptionUserSummary | null;
+  plan?: IMembershipPlan | null;
+  membership?: Pick<
+    IUserMembership,
+    'id' | 'refId' | 'status' | 'startDate' | 'endDate' | 'nextBillingDate'
+  > | null;
   createdAt: string;
   updatedAt: string;
 }

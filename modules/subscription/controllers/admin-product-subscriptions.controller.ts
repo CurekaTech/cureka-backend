@@ -4,7 +4,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -51,13 +50,13 @@ export class AdminProductSubscriptionsController {
     return this.paymentsService.listAdmin(query);
   }
 
-  @ApiOperation({ summary: 'Get product subscription by id' })
+  @ApiOperation({ summary: 'Get product subscription by id or refId' })
   @ResponseMessage('Product subscription fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('user_product_subscriptions.read')
-  @Get(':id')
+  @Get(':idOrRefId')
   @HttpCode(HttpStatus.OK)
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.productSubscriptionsService.getAdmin(id);
+  getOne(@Param('idOrRefId') idOrRefId: string) {
+    return this.productSubscriptionsService.getAdmin(idOrRefId);
   }
 }

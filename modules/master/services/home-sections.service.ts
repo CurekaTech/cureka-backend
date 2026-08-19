@@ -5,12 +5,14 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { generateUniqueRefId } from '@packages/common';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { HomeSectionUpdatedEvent, EVENTS } from '@packages/events';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '../repositories/categories.repository';
 import {
@@ -98,6 +100,7 @@ export class HomeSectionsService implements OnModuleInit {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productsRepository: ProductsRepository,
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -223,6 +226,7 @@ export class HomeSectionsService implements OnModuleInit {
     });
 
     await this.invalidateHomeSectionsCache();
+    await this.emitHomeSectionUpdated(entity.refId, 'created');
     const [enriched] = await this.enrichSections([mapHomeSectionEntityToResponse(entity)]);
     return enriched!;
   }
@@ -279,6 +283,7 @@ export class HomeSectionsService implements OnModuleInit {
     }
 
     await this.invalidateHomeSectionsCache();
+    await this.emitHomeSectionUpdated(refId, 'updated');
     const [enriched] = await this.enrichSections([mapHomeSectionEntityToResponse(updated)]);
     return enriched!;
   }
@@ -303,6 +308,7 @@ export class HomeSectionsService implements OnModuleInit {
     }
 
     await this.invalidateHomeSectionsCache();
+    await this.emitHomeSectionUpdated(refId, 'status_updated');
     const [enriched] = await this.enrichSections([mapHomeSectionEntityToResponse(updated)]);
     return enriched!;
   }
@@ -318,6 +324,7 @@ export class HomeSectionsService implements OnModuleInit {
 
     await this.homeSectionsRepository.softDeleteByRefId(refId);
     await this.invalidateHomeSectionsCache();
+    await this.emitHomeSectionUpdated(refId, 'deleted');
   }
 
   async reorder(dto: ReorderHomeSectionsDto, updatedBy: string): Promise<IHomeSectionListResponse> {
@@ -574,6 +581,16 @@ export class HomeSectionsService implements OnModuleInit {
       .trim()
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-');
+  }
+
+  private async emitHomeSectionUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.HOME_SECTION_UPDATED,
+      new HomeSectionUpdatedEvent(refId, action),
+    );
   }
 
   private async invalidateHomeSectionsCache(): Promise<void> {

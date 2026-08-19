@@ -6,6 +6,10 @@ import {
   ISubscriptionPayment,
   IUserProductSubscription,
 } from '../interfaces/product-subscription.interface';
+import {
+  paymentSessionIdFromLink,
+  type SubscriptionCheckoutExtras,
+} from '../utils/checkout-extras.util';
 
 const toIso = (value: Date | null | undefined): string | null =>
   value ? value.toISOString() : null;
@@ -37,7 +41,11 @@ export const mapProductSubscriptionConfigToResponse = (
 
 export const mapUserProductSubscriptionToResponse = (
   entity: UserProductSubscriptionEntity,
-  extras?: { paymentLink?: string | null },
+  extras?: SubscriptionCheckoutExtras & {
+    user?: IUserProductSubscription['user'];
+    product?: IUserProductSubscription['product'];
+    variant?: IUserProductSubscription['variant'];
+  },
 ): IUserProductSubscription => ({
   id: entity.id,
   refId: entity.refId,
@@ -64,12 +72,30 @@ export const mapUserProductSubscriptionToResponse = (
   billingCycleSequence: entity.billingCycleSequence,
   configId: entity.configId,
   paymentLink: extras?.paymentLink ?? null,
+  razorpayOrderId: extras?.razorpayOrderId ?? null,
+  keyId: extras?.keyId ?? null,
+  amount: extras?.amount ?? null,
+  currency: extras?.currency ?? 'INR',
+  paymentSessionId: extras?.paymentSessionId ?? null,
+  environment: extras?.environment ?? null,
+  customer: extras?.customer ?? null,
+  user: extras?.user ?? null,
+  product: extras?.product ?? null,
+  variant: extras?.variant ?? null,
+  productName: extras?.product?.name ?? null,
+  productImageUrl: extras?.product?.imageUrl ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });
 
 export const mapSubscriptionPaymentToResponse = (
   entity: SubscriptionPaymentEntity,
+  extras?: {
+    user?: ISubscriptionPayment['user'];
+    product?: ISubscriptionPayment['product'];
+    variant?: ISubscriptionPayment['variant'];
+    subscription?: ISubscriptionPayment['subscription'];
+  },
 ): ISubscriptionPayment => ({
   id: entity.id,
   refId: entity.refId,
@@ -82,11 +108,16 @@ export const mapSubscriptionPaymentToResponse = (
   gatewayOrderId: entity.gatewayOrderId,
   gatewayPaymentId: entity.gatewayPaymentId,
   paymentLink: entity.paymentLink,
+  paymentSessionId: paymentSessionIdFromLink(entity.paymentLink),
   status: entity.status,
   billingDate: entity.billingDate.toISOString(),
   paidAt: toIso(entity.paidAt),
   failureReason: entity.failureReason,
   retryCount: entity.retryCount,
+  user: extras?.user ?? null,
+  product: extras?.product ?? null,
+  variant: extras?.variant ?? null,
+  subscription: extras?.subscription ?? null,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
 });

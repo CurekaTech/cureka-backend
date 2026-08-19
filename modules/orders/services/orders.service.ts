@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager } from 'typeorm';
 import {
@@ -14,6 +14,8 @@ import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
+import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
@@ -67,6 +69,8 @@ export class OrdersService {
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
     private readonly orderNotificationsService: OrderNotificationsService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => ProductSubscriptionsService))
+    private readonly productSubscriptionsService: ProductSubscriptionsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -195,6 +199,8 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
+          isSubscription: item.isSubscription,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -227,6 +233,9 @@ export class OrdersService {
             subSubCategoryId: item.subSubCategoryId,
             subSubSubCategoryId: item.subSubSubCategoryId,
             brandId: item.brandId,
+            isSubscription: item.isSubscription,
+            frequency: item.frequency,
+            lineType: item.isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
           })),
           manager,
         });
@@ -281,6 +290,7 @@ export class OrdersService {
 
     await this.notifyOrderPlacedSafely(order, 'place-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
+    await this.activateSubscriptionsForConfirmedOrder(order, dto.addressId, 'place-order');
     return this.findOne(userId, order.id);
   }
 
@@ -395,6 +405,8 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
+          isSubscription: item.isSubscription,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
           updatedBy: userId,
         });
@@ -451,7 +463,10 @@ export class OrdersService {
         throw new BadRequestException('Order is cancelled');
       }
 
-      if (existing.orderStatus === OrderStatus.CONFIRMED) {
+      if (
+        existing.orderStatus === OrderStatus.CONFIRMED ||
+        existing.orderStatus === OrderStatus.PROCESSING
+      ) {
         shouldPushFulfillment = false;
         return existing;
       }
@@ -525,6 +540,9 @@ export class OrdersService {
             subSubCategoryId: item.product?.subSubCategoryId ?? null,
             subSubSubCategoryId: item.product?.subSubSubCategoryId ?? null,
             brandId: item.product?.brandId ?? null,
+            isSubscription: item.isSubscription,
+            frequency: item.frequency ?? null,
+            lineType: item.isSubscription ? 'SUBSCRIPTION' : 'ONE_TIME',
           })),
           manager,
         });
@@ -549,12 +567,18 @@ export class OrdersService {
         );
       }
 
+      const nextOrderStatus =
+        params.paymentStatus === OrderPaymentStatus.PAID ||
+        params.paymentStatus === OrderPaymentStatus.PARTIALLY_PAID
+          ? OrderStatus.CONFIRMED
+          : OrderStatus.PROCESSING;
+
       await this.ordersRepository.updateById(
         existing.id,
         {
           paymentMethod: params.paymentMethod,
           paymentStatus: params.paymentStatus,
-          orderStatus: OrderStatus.CONFIRMED,
+          orderStatus: nextOrderStatus,
           notes: params.notes ?? existing.notes,
           placedAt: new Date(),
           updatedBy: userId,
@@ -596,6 +620,7 @@ export class OrdersService {
     if (shouldPushFulfillment) {
       await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
       await this.kickoffFulfillment(order.id, order.orderNumber, 'gokwik-place-order');
+      await this.activateSubscriptionsForConfirmedOrder(order, null, 'gokwik-place-order');
     }
 
     return order;
@@ -848,6 +873,8 @@ export class OrdersService {
       quantity: number;
       unitPrice: string;
       totalPrice: string;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
@@ -929,6 +956,11 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          isSubscription: !!item.isSubscription,
+          frequency: item.isSubscription
+            ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
+            : null,
+          subscriptionId: params.subscriptionId,
           createdBy: params.createdBy ?? 'subscription-webhook',
           updatedBy: params.createdBy ?? 'subscription-webhook',
         });
@@ -987,6 +1019,8 @@ export class OrdersService {
       quantity: number;
       unitPrice: string;
       totalPrice: string;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
@@ -1078,6 +1112,10 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          isSubscription: !!item.isSubscription,
+          frequency: item.isSubscription
+            ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
+            : null,
           createdBy: 'razorpay-webhook',
           updatedBy: 'razorpay-webhook',
         });
@@ -1112,6 +1150,11 @@ export class OrdersService {
 
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
+    await this.activateSubscriptionsForConfirmedOrder(
+      order,
+      params.addressId ?? null,
+      'payment-request-order',
+    );
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -1355,6 +1398,93 @@ export class OrdersService {
     }
   }
 
+  private async activateSubscriptionsForConfirmedOrder(
+    order: OrderEntity,
+    addressId: string | null,
+    source: string,
+  ): Promise<void> {
+    const items = order.items ?? [];
+    const subscriptionItems = items
+      .filter((item) => item.isSubscription && item.frequency)
+      .map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        frequency: item.frequency as ProductSubscriptionFrequency,
+      }));
+
+    if (subscriptionItems.length === 0) return;
+
+    let resolvedAddressId = addressId;
+    if (!resolvedAddressId) {
+      const addresses = await this.userAddressesService.findAll(order.userId);
+      const defaultAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
+      resolvedAddressId = defaultAddress?.id ?? null;
+    }
+
+    if (!resolvedAddressId) {
+      this.logger.warn(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          source,
+          subscriptionItemCount: subscriptionItems.length,
+        },
+        '[OrderSubscription] Skipping subscription activation because no address was found',
+      );
+      return;
+    }
+
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        source,
+        subscriptionItemCount: subscriptionItems.length,
+      },
+      '[OrderSubscription] Activating subscriptions for confirmed order',
+    );
+
+    for (const item of subscriptionItems) {
+      try {
+        await this.productSubscriptionsService.activateFromPaidOrder(order.userId, {
+          orderRef: order.orderNumber,
+          productId: item.productId,
+          productVariantId: item.variantId,
+          frequency: item.frequency,
+          quantity: item.quantity,
+          addressId: resolvedAddressId,
+        });
+        this.logger.log(
+          {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            source,
+            productId: item.productId,
+            variantId: item.variantId,
+            frequency: item.frequency,
+          },
+          '[OrderSubscription] Subscription activated successfully',
+        );
+      } catch (error) {
+        this.logger.error(
+          {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            source,
+            productId: item.productId,
+            variantId: item.variantId,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : { message: String(error) },
+          },
+          '[OrderSubscription] Subscription activation failed (non-blocking)',
+        );
+      }
+    }
+  }
+
   private async notifyOrderCancelledSafely(
     order: {
       id: string;
@@ -1462,6 +1592,26 @@ export class OrdersService {
     }
 
     return { message: String(error) };
+  }
+
+  findPaidOrderForSubscriptionAttach(params: {
+    userId: string;
+    productId: string;
+    productVariantId: string;
+    orderRef?: string;
+  }): Promise<OrderEntity | null> {
+    return this.ordersRepository.findPaidForSubscriptionAttach(params);
+  }
+
+  async attachSubscriptionIdToOrder(
+    orderId: string,
+    subscriptionId: string,
+    actor: string,
+  ): Promise<void> {
+    await this.ordersRepository.updateById(orderId, {
+      subscriptionId,
+      updatedBy: actor,
+    });
   }
 
   private async generateOrderNumber(): Promise<string> {

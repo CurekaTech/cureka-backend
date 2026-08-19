@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -29,6 +30,7 @@ import {
   mapCmsPageEntityToResponse,
   mapCmsPageToPublicResponse,
 } from '../mappers/cms-page.mapper';
+import { CmsPageUpdatedEvent, EVENTS } from '@packages/events';
 import {
   CmsPagesRepository,
   PREDEFINED_CMS_PAGES,
@@ -36,7 +38,10 @@ import {
 
 @Injectable()
 export class CmsPagesService {
-  constructor(private readonly cmsPagesRepository: CmsPagesRepository) {}
+  constructor(
+    private readonly cmsPagesRepository: CmsPagesRepository,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async findAll(query: CmsPageQueryDto): Promise<PaginatedResult<ICmsPage>> {
     const options = buildPaginationOptions(query);
@@ -115,6 +120,7 @@ export class CmsPagesService {
       updatedBy: createdBy,
     });
 
+    await this.emitCmsPageUpdated(entity.refId, 'created');
     return mapCmsPageEntityToResponse(entity);
   }
 
@@ -156,6 +162,7 @@ export class CmsPagesService {
     }
 
     const updated = await this.cmsPagesRepository.updateByRefId(refId, updateData);
+    await this.emitCmsPageUpdated(refId, 'updated');
     return mapCmsPageEntityToResponse(updated!);
   }
 
@@ -169,6 +176,7 @@ export class CmsPagesService {
       status: dto.status,
       updatedBy,
     });
+    await this.emitCmsPageUpdated(refId, 'status_updated');
     return mapCmsPageEntityToResponse(updated!);
   }
 
@@ -178,6 +186,17 @@ export class CmsPagesService {
       throw new BadRequestException('Predefined CMS pages cannot be deleted');
     }
     await this.cmsPagesRepository.softDeleteByRefId(refId);
+    await this.emitCmsPageUpdated(refId, 'deleted');
+  }
+
+  private async emitCmsPageUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.CMS_PAGE_UPDATED,
+      new CmsPageUpdatedEvent(refId, action),
+    );
   }
 
   private async requireByRefId(refId: string): Promise<CmsPageEntity> {

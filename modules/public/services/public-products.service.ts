@@ -608,6 +608,14 @@ export class PublicProductsService {
         isChildFilter && matchedCategory.belowTheFold?.trim()
           ? matchedCategory.belowTheFold
           : rootCategory.belowTheFold,
+      metaTitle:
+        isChildFilter && matchedCategory.metaTitle?.trim()
+          ? matchedCategory.metaTitle
+          : rootCategory.metaTitle,
+      metaDescription:
+        isChildFilter && matchedCategory.metaDescription?.trim()
+          ? matchedCategory.metaDescription
+          : rootCategory.metaDescription,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         const masterValues = (filter.values ?? [])
@@ -632,6 +640,24 @@ export class PublicProductsService {
     };
 
     return this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+  }
+
+  private async buildBrandListingContext(
+    brand: BrandEntity,
+  ): Promise<IPublicBrandProductListingContext> {
+    const context: IPublicBrandProductListingContext = {
+      refId: brand.refId,
+      name: brand.name,
+      slug: brand.slug,
+      logo: brand.logo,
+      banner: brand.banner,
+      description: brand.description,
+      metaTitle: brand.metaTitle,
+      metaDescription: brand.metaDescription,
+      metaKeywords: brand.metaKeywords,
+    };
+
+    return this.storageUrlEnricher.enrichFields(context, ['logo', 'banner']);
   }
 
   private async enrichPaginatedVariantSearch(

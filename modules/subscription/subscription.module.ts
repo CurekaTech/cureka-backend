@@ -4,8 +4,11 @@ import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductModule } from '@modules/product/product.module';
 import { UsersModule } from '@modules/users/users.module';
+import { UploadsModule } from '@modules/uploads/uploads.module';
 import { QueueModule } from '@packages/queue';
 import { SUBSCRIPTION_QUEUE } from './constants/subscription-queue.constants';
 import { AdminMembershipPlansController } from './controllers/admin-membership-plans.controller';
@@ -43,6 +46,8 @@ import { ProductSubscriptionPricingService } from './services/product-subscripti
 import { ProductSubscriptionsService } from './services/product-subscriptions.service';
 import { SubscriptionNotificationsService } from './services/subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './services/subscription-payment-link.service';
+import { SubscriptionRelationLoaderService } from './services/subscription-relation-loader.service';
+import { OrderConfirmedSubscriptionListener } from './listeners/order-confirmed.listener';
 
 @Module({
   imports: [
@@ -55,8 +60,11 @@ import { SubscriptionPaymentLinkService } from './services/subscription-payment-
       UserMembershipEntity,
       MembershipPaymentEntity,
       AdminUserEntity,
+      ProductEntity,
+      ProductVariantEntity,
     ]),
     UsersModule,
+    UploadsModule,
     NotificationsModule,
     forwardRef(() => ProductModule),
     forwardRef(() => OrdersModule),
@@ -95,13 +103,16 @@ import { SubscriptionPaymentLinkService } from './services/subscription-payment-
     MembershipBenefitsApplicationService,
     SubscriptionPaymentLinkService,
     SubscriptionNotificationsService,
+    SubscriptionRelationLoaderService,
     ProductSubscriptionRenewalProcessor,
     ProductSubscriptionReminderProcessor,
     MembershipRenewalProcessor,
     MembershipReminderProcessor,
+    OrderConfirmedSubscriptionListener,
   ],
   exports: [
     ProductSubscriptionConfigService,
+    ProductSubscriptionPricingService,
     ProductSubscriptionsService,
     MembershipsService,
     MembershipBenefitsApplicationService,

@@ -30,6 +30,15 @@ export class UserProductSubscriptionsRepository {
     return repository.findOne({ where: { refId }, relations: { config: true } });
   }
 
+  findByIdOrRefId(
+    idOrRefId: string,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    return isUuid ? this.findById(idOrRefId, manager) : this.findByRefId(idOrRefId, manager);
+  }
+
   findByIdAndUserId(
     id: string,
     userId: string,

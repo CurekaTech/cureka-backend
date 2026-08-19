@@ -1,6 +1,7 @@
 import { BaseEntity } from '@packages/database';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { CartEntity } from './cart.entity';
 
@@ -20,6 +21,17 @@ export class CartItemEntity extends BaseEntity {
 
   @Column({ type: 'int' })
   quantity!: number;
+
+  @Column({ name: 'is_subscription', type: 'boolean', default: false })
+  isSubscription!: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: ProductSubscriptionFrequency,
+    enumName: 'product_subscription_frequency_enum',
+    nullable: true,
+  })
+  frequency!: ProductSubscriptionFrequency | null;
 
   @ManyToOne(() => CartEntity, (cart) => cart.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'cart_id' })

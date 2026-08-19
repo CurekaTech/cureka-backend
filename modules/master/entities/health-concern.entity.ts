@@ -18,6 +18,12 @@ export class HealthConcernEntity extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  @Column({ name: 'meta_title', type: 'varchar', length: 255, nullable: true })
+  metaTitle!: string | null;
+
+  @Column({ name: 'meta_description', type: 'text', nullable: true })
+  metaDescription!: string | null;
+
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 

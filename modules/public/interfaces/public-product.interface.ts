@@ -10,6 +10,7 @@ import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/
 import { PaginatedResult } from '@packages/common';
 import { IPublicBrandProductListingContext } from './public-brand.interface';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
+import { IPublicBrandProductListingContext } from './public-brand.interface';
 
 /** Cached/stored shape — logo is enriched to include a signed url on API responses. */
 export interface IPublicPartySummary {
