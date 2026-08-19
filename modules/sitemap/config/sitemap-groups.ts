@@ -46,3 +46,16 @@ export const sitemapGroupLegacyLivePath = (group: SitemapGroup): string | null =
   if (group === 'static' || group === 'products') return null;
   return `${group}/${group}.xml`;
 };
+
+/** Map a live object key (relative to sitemaps/) to the public storefront path. */
+export const liveKeyToPublicPath = (relativePath: string): string | null => {
+  const path = relativePath.replace(/^\/+/, '');
+  if (!path.endsWith('.xml') || path === 'sitemap.xml' || path.includes('.staging')) return null;
+  const product = path.match(/^products\/products-(\d+)\.xml$/);
+  if (product) return `/sitemaps/products/products-${product[1]}.xml`;
+  if (path === 'static.xml') return '/sitemaps/static.xml';
+  const nested = path.match(/^([a-z0-9-]+)\/\1\.xml$/i);
+  if (nested) return `/sitemaps/${nested[1]}.xml`;
+  if (/^[a-z0-9-]+\.xml$/i.test(path)) return `/sitemaps/${path}`;
+  return null;
+};
