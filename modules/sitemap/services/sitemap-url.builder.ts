@@ -12,10 +12,12 @@ export interface SitemapUrlEntry {
 export const slugifyForUrl = (value: string): string =>
   value
     .toLowerCase()
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
 export const toStorefrontPath = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
@@ -43,25 +45,44 @@ export const absoluteSitemapUrl = (baseUrl: string, locPath: string): string => 
   return `${origin}${path}`;
 };
 
-export const buildProductLocPath = (input: {
+export interface ProductLocInput {
   slug?: string | null;
   productPageUrl?: string | null;
   singleProductUrl?: string | null;
   categorySlugPath: string[];
-}): string | null => {
-  const fromPageUrl = toStorefrontPath(input.productPageUrl);
-  if (fromPageUrl && fromPageUrl !== '/') return fromPageUrl;
+}
 
-  const fromSingle = toStorefrontPath(input.singleProductUrl);
-  if (fromSingle && fromSingle !== '/') return fromSingle;
-
+const slugPermalink = (input: ProductLocInput): string | null => {
   const slug = input.slug?.trim();
-  if (slug) {
-    return buildProductPermalink(input.categorySlugPath, slug);
-  }
-
-  return null;
+  if (!slug) return null;
+  return buildProductPermalink(input.categorySlugPath, slug);
 };
+
+/**
+ * Unique public locs for one product.
+ * - `product_page_url` when present (legacy/canonical storefront path)
+ * - `/shop/{category-path}/{slug}` when slug is present
+ * Many products have no product_page_url; those emit the slug permalink only.
+ */
+export const buildProductLocPaths = (input: ProductLocInput): string[] => {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const add = (path: string | null | undefined): void => {
+    if (!path || path === '/' || seen.has(path)) return;
+    seen.add(path);
+    paths.push(path);
+  };
+
+  add(toStorefrontPath(input.productPageUrl));
+  add(slugPermalink(input));
+  if (!paths.length) {
+    add(toStorefrontPath(input.singleProductUrl));
+  }
+  return paths;
+};
+
+export const buildProductLocPath = (input: ProductLocInput): string | null =>
+  buildProductLocPaths(input)[0] ?? null;
 
 export const buildCategoryLocPath = (slugPath: string[]): string | null => {
   const cleaned = slugPath.map((slug) => slug.trim()).filter(Boolean);
