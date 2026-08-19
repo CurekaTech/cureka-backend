@@ -138,7 +138,7 @@ export class GcsStorageProvider implements IStorageProviderWithAccessibleUrl {
   }
 
   async createReadStream(relativePath: string): Promise<Readable> {
-    return this.storage.bucket(this.bucketName).file(relativePath).createReadStream();
+    return this.storage.bucket(this.bucketName).file(this.normalizeKey(relativePath)).createReadStream();
   }
 
   private resolveCredentialsPath(pathValue: string): string {
