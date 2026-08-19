@@ -47,11 +47,19 @@ export class ProductSubscriptionConfigsRepository {
     productVariantId: string | null,
     manager?: EntityManager,
   ): Promise<ProductSubscriptionConfigEntity | null> {
-    if (productVariantId) {
-      const variantSpecific = await this.findByProductAndVariant(productId, productVariantId, manager);
-      if (variantSpecific) return variantSpecific;
-    }
-    return this.findByProductAndVariant(productId, null, manager);
+    const variantSpecific = productVariantId
+      ? await this.findByProductAndVariant(productId, productVariantId, manager)
+      : null;
+    if (variantSpecific?.enabled) return variantSpecific;
+
+    const productLevel = await this.findByProductAndVariant(productId, null, manager);
+    if (productLevel?.enabled) return productLevel;
+
+    const configs = await this.findByProductId(productId, manager);
+    const enabled = configs.find((config) => config.enabled);
+    if (enabled) return enabled;
+
+    return variantSpecific ?? productLevel;
   }
 
   findByProductId(productId: string, manager?: EntityManager): Promise<ProductSubscriptionConfigEntity[]> {

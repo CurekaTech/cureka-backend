@@ -31,6 +31,7 @@ import { enrichProductInformation } from '@modules/product/utils/product-informa
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { resolvePublicExpiryDate } from '@modules/product/utils/expiry-date.util';
 import {
   buildCategoryPermalink,
@@ -81,6 +82,7 @@ export class PublicProductsService {
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly bannersService: BannersService,
     private readonly blogPostsService: BlogPostsService,
+    private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -781,12 +783,28 @@ export class PublicProductsService {
 
     const isFreeDelivery = await this.resolveIsFreeDelivery(merged);
     const banners = await this.bannersService.getPdpBanners();
+    const subscriptionConfig =
+      await this.productSubscriptionConfigService.findForProductVariant(
+        merged.id,
+        merged.selectedVariantId ?? null,
+      );
+    const sharedSubscriptionConfig =
+      subscriptionConfig?.enabled === true ? subscriptionConfig : null;
+    const subscriptionEnabled =
+      merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig);
 
     // Re-apply live master order after variant merge (variant payload may replace product info).
     return {
       ...merged,
       isFreeDelivery,
       banners,
+      subscriptionEnabled,
+      subscriptionConfig: sharedSubscriptionConfig,
+      variants: merged.variants.map((variant) => ({
+        ...variant,
+        subscriptionEnabled,
+        subscriptionConfig: sharedSubscriptionConfig,
+      })),
       productInformation: enrichProductInformation(
         merged.productInformation,
         labelSortOrders,
