@@ -913,6 +913,6 @@ export class GokwikOrderService {
     if (!storefrontUrl) {
       throw new ServiceUnavailableException('STOREFRONT_URL is required for GoKwik checkout');
     }
-    return `${storefrontUrl}/order/confirmation?order_id=${encodeURIComponent(orderNumber)}`;
+    return `${storefrontUrl}/thankyou?order_id=${encodeURIComponent(orderNumber)}`;
   }
 }

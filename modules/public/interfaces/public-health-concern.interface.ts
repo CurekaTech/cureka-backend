@@ -25,6 +25,8 @@ export interface IPublicHomePageHealthConcern {
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   /** Homepage display order. Lower = first; null = unordered (sorted after indexed items). */
   sortIndex: number | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
 }
 
 /** Active health concern for public view-all listing (not limited to inHomePage). */

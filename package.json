@@ -29,6 +29,8 @@
     "product:oos-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-oos-update.runner.ts",
     "product:price-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-price-update.runner.ts",
     "product:meta-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-meta-update.runner.ts",
+    "listing:meta-update": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/listing-meta-update.runner.ts",
+    "listing:meta-sql": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/listing-meta-update.runner.ts --sql-out=docs/Master-Data-Sheets/listing-meta-update.sql",
     "product:sku-fix": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-fix.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product:backfill-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-backfill.runner.ts",

@@ -8,6 +8,8 @@ export interface IHealthConcern {
   icon: IStorageFileReferenceResponse | null;
   slug: string;
   description: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
   banner: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   inHomePage: boolean;

@@ -102,6 +102,8 @@ export class HealthConcernsService {
       icon: this.storageUrlEnricher.persist(media.icon),
       banner: this.storageUrlEnricher.persist(media.banner),
       description: dto.description ?? null,
+      metaTitle: dto.metaTitle ?? null,
+      metaDescription: dto.metaDescription ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
       refId: await generateUniqueRefId(dto.name, (refId) =>
