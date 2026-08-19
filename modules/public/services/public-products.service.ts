@@ -642,24 +642,6 @@ export class PublicProductsService {
     return this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
   }
 
-  private async buildBrandListingContext(
-    brand: BrandEntity,
-  ): Promise<IPublicBrandProductListingContext> {
-    const context: IPublicBrandProductListingContext = {
-      refId: brand.refId,
-      name: brand.name,
-      slug: brand.slug,
-      logo: brand.logo,
-      banner: brand.banner,
-      description: brand.description,
-      metaTitle: brand.metaTitle,
-      metaDescription: brand.metaDescription,
-      metaKeywords: brand.metaKeywords,
-    };
-
-    return this.storageUrlEnricher.enrichFields(context, ['logo', 'banner']);
-  }
-
   private async enrichPaginatedVariantSearch(
     result: PaginatedResult<IPublicProductVariantSearchItem>,
   ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {
