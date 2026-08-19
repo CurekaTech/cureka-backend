@@ -4,6 +4,8 @@ import { randomUUID } from 'crypto';
 import {
   SITEMAP_GROUPS,
   SitemapGroup,
+  isSitemapGroup,
+  liveKeyToPublicPath,
   sitemapGroupLegacyLivePath,
   sitemapGroupLivePath,
   sitemapGroupPublicPath,
@@ -223,37 +225,31 @@ export class SitemapGeneratorService {
     stagedPublicPaths: string[],
     lastmod: Date,
   ): Promise<SitemapIndexEntry[]> {
-    const regenerated = new Set(regeneratedGroups);
     const entries: SitemapIndexEntry[] = stagedPublicPaths.map((locPath) => ({ locPath, lastmod }));
 
-    for (const group of SITEMAP_GROUPS) {
-      if (regenerated.has(group)) continue;
-      if (group === 'products') {
-        const live = (await this.storageService.listLive('products/')).filter((path) =>
-          /^products\/products-\d+\.xml$/.test(path),
-        );
-        live.sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
-        for (const path of live) {
-          const match = path.match(/products-(\d+)\.xml$/);
-          const shard = match ? Number(match[1]) : 1;
-          entries.push({ locPath: sitemapGroupPublicPath('products', shard), lastmod });
-        }
-        continue;
-      }
-
-      const livePath = sitemapGroupLivePath(group);
-      const legacyPath = sitemapGroupLegacyLivePath(group);
-      if (
-        (await this.storageService.existsLive(livePath)) ||
-        (legacyPath ? await this.storageService.existsLive(legacyPath) : false)
-      ) {
-        entries.push({ locPath: sitemapGroupPublicPath(group), lastmod });
-      }
+    const live = await this.storageService.listLive('');
+    for (const path of live) {
+      const locPath = liveKeyToPublicPath(path);
+      if (!locPath) continue;
+      entries.push({ locPath, lastmod });
     }
 
     const unique = new Map<string, SitemapIndexEntry>();
     for (const entry of entries) unique.set(entry.locPath, entry);
-    return [...unique.values()];
+
+    const groupRank = (locPath: string): number => {
+      if (locPath.includes('/sitemaps/products/')) return SITEMAP_GROUPS.indexOf('products');
+      const file = locPath.match(/^\/sitemaps\/([^/]+)\.xml$/);
+      const group = file?.[1];
+      if (group && isSitemapGroup(group)) return SITEMAP_GROUPS.indexOf(group);
+      return 999;
+    };
+
+    return [...unique.values()].sort((left, right) => {
+      const rank = groupRank(left.locPath) - groupRank(right.locPath);
+      if (rank !== 0) return rank;
+      return left.locPath.localeCompare(right.locPath, undefined, { numeric: true });
+    });
   }
 
   private async collectObsoleteLivePaths(
