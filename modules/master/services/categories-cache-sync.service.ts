@@ -53,4 +53,12 @@ export class CategoriesCacheSyncService {
       CacheKeys.homepage.sectionsPattern(),
     );
   }
+
+  async invalidatePublicProductCaches(): Promise<void> {
+    await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.listPattern());
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.publicProducts.variantSearchPattern(),
+    );
+    await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.detailPattern());
+  }
 }
