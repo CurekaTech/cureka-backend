@@ -37,6 +37,81 @@ const toNumber = (value: string | number | null | undefined): number | null => {
 const getActiveVariants = (entity: ProductEntity) =>
   (entity.variants ?? []).filter((variant) => variant.status === VariantStatus.ACTIVE);
 
+type CommerceFlagSource = {
+  subscriptionEnabled?: boolean | null;
+  codAvailable?: boolean | null;
+  emiAvailable?: boolean | null;
+  returnAllowed?: boolean | null;
+  returnPolicy?: string | null;
+  returnWindowDays?: number | null;
+  replaceAllowed?: boolean | null;
+  replaceWindowDays?: number | null;
+};
+
+export type SharedCommerceFlags = {
+  subscriptionEnabled: boolean;
+  codAvailable: boolean;
+  emiAvailable: boolean;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
+  returnWindowDays: number | null;
+  replaceAllowed: boolean;
+  replaceWindowDays: number | null;
+};
+
+const isFlagEnabled = (value: boolean | null | undefined): boolean => value === true;
+
+const pickEnabledDetail = <T>(
+  sources: CommerceFlagSource[],
+  isEnabled: (source: CommerceFlagSource) => boolean,
+  read: (source: CommerceFlagSource) => T | null | undefined,
+): T | null => {
+  for (const source of sources) {
+    if (!isEnabled(source)) continue;
+    const value = read(source);
+    if (value !== null && value !== undefined) return value;
+  }
+  return null;
+};
+
+/** If product or any variant enables a flag, apply it (and matching details) to all. */
+export const resolveSharedCommerceFlags = (
+  product: CommerceFlagSource,
+  variants: CommerceFlagSource[],
+): SharedCommerceFlags => {
+  const sources = [product, ...variants];
+  const subscriptionEnabled = sources.some((source) => isFlagEnabled(source.subscriptionEnabled));
+  const codAvailable = sources.some((source) => isFlagEnabled(source.codAvailable));
+  const emiAvailable = sources.some((source) => isFlagEnabled(source.emiAvailable));
+  const returnAllowed = sources.some((source) => isFlagEnabled(source.returnAllowed));
+  const replaceAllowed = sources.some((source) => isFlagEnabled(source.replaceAllowed));
+
+  return {
+    subscriptionEnabled,
+    codAvailable,
+    emiAvailable,
+    returnAllowed,
+    returnPolicy: returnAllowed
+      ? pickEnabledDetail(sources, (source) => isFlagEnabled(source.returnAllowed), (source) => source.returnPolicy)
+      : (product.returnPolicy ?? null),
+    returnWindowDays: returnAllowed
+      ? pickEnabledDetail(
+          sources,
+          (source) => isFlagEnabled(source.returnAllowed),
+          (source) => source.returnWindowDays,
+        )
+      : (product.returnWindowDays ?? null),
+    replaceAllowed,
+    replaceWindowDays: replaceAllowed
+      ? pickEnabledDetail(
+          sources,
+          (source) => isFlagEnabled(source.replaceAllowed),
+          (source) => source.replaceWindowDays,
+        )
+      : (product.replaceWindowDays ?? null),
+  };
+};
+
 const sortVariantsBySellingPrice = (
   variants: ProductVariantEntity[],
 ): ProductVariantEntity[] =>
@@ -360,6 +435,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const listVariant = resolveListVariant(entity);
   const productPageUrl = listVariant?.productPageUrl ?? null;
   const outOfStock = listVariant?.outOfStock ?? false;
+  const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   return {
   id: entity.id,
   refId: entity.refId,
@@ -386,8 +462,8 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     (mapping) => mapping.tag?.slug === 'bestsellers',
   ),
   variantId: listVariant?.id ?? null,
-  subscriptionEnabled: entity.subscriptionEnabled,
-  codAvailable: entity.codAvailable,
+  subscriptionEnabled: commerceFlags.subscriptionEnabled,
+  codAvailable: commerceFlags.codAvailable,
   publishedAt: entity.publishedAt,
   tags: (entity.tagMappings ?? []).map((mapping) => ({
     refId: mapping.tag?.refId ?? '',
@@ -402,6 +478,8 @@ export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPub
 
 export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
+  const activeVariants = getActiveVariants(entity);
+  const commerceFlags = resolveSharedCommerceFlags(entity, activeVariants);
   return {
   id: entity.id,
   refId: entity.refId,
@@ -455,14 +533,14 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   countryOfOriginName: entity.countryOfOrigin?.name ?? null,
   productInformation: entity.productInformation ?? [],
   expiresInMonths: entity.expiresInMonths,
-  subscriptionEnabled: entity.subscriptionEnabled,
-  codAvailable: entity.codAvailable,
-  emiAvailable: entity.emiAvailable,
-  replaceAllowed: entity.replaceAllowed,
-  replaceWindowDays: entity.replaceWindowDays,
-  returnAllowed: entity.returnAllowed,
-  returnPolicy: entity.returnPolicy,
-  returnWindowDays: entity.returnWindowDays,
+  subscriptionEnabled: commerceFlags.subscriptionEnabled,
+  codAvailable: commerceFlags.codAvailable,
+  emiAvailable: commerceFlags.emiAvailable,
+  replaceAllowed: commerceFlags.replaceAllowed,
+  replaceWindowDays: commerceFlags.replaceWindowDays,
+  returnAllowed: commerceFlags.returnAllowed,
+  returnPolicy: commerceFlags.returnPolicy,
+  returnWindowDays: commerceFlags.returnWindowDays,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
@@ -478,16 +556,19 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   variants: (() => {
     const commonMedia =
       entity.productType === ProductType.VARIABLE ? getCommonPublicMedia(entity) : [];
-    return getActiveVariants(entity).map((variant) => ({
+    return activeVariants.map((variant) => ({
       id: variant.id,
       sku: variant.sku,
       slug: variant.slug,
       ...mapVariantEntityToDetailFields(variant),
-      returnAllowed: variant.returnAllowed ?? false,
-      returnPolicy: variant.returnPolicy ?? null,
-      returnWindowDays: variant.returnWindowDays ?? null,
-      replaceAllowed: variant.replaceAllowed ?? false,
-      replaceWindowDays: variant.replaceWindowDays ?? null,
+      subscriptionEnabled: commerceFlags.subscriptionEnabled,
+      codAvailable: commerceFlags.codAvailable,
+      emiAvailable: commerceFlags.emiAvailable,
+      returnAllowed: commerceFlags.returnAllowed,
+      returnPolicy: commerceFlags.returnPolicy,
+      returnWindowDays: commerceFlags.returnWindowDays,
+      replaceAllowed: commerceFlags.replaceAllowed,
+      replaceWindowDays: commerceFlags.replaceWindowDays,
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
@@ -575,14 +656,6 @@ export const applySelectedVariantDetailToPublicProduct = (
       ? selectedVariant.productInformation
       : detail.productInformation,
     expiresInMonths: selectedVariant.expiresInMonths ?? detail.expiresInMonths,
-    subscriptionEnabled: selectedVariant.subscriptionEnabled ?? detail.subscriptionEnabled,
-    codAvailable: selectedVariant.codAvailable ?? detail.codAvailable,
-    emiAvailable: selectedVariant.emiAvailable ?? detail.emiAvailable,
-    replaceAllowed: selectedVariant.replaceAllowed ?? detail.replaceAllowed,
-    replaceWindowDays: selectedVariant.replaceWindowDays ?? detail.replaceWindowDays,
-    returnAllowed: selectedVariant.returnAllowed ?? detail.returnAllowed,
-    returnPolicy: selectedVariant.returnPolicy ?? detail.returnPolicy,
-    returnWindowDays: selectedVariant.returnWindowDays ?? detail.returnWindowDays,
     metaTitle: selectedVariant.metaTitle ?? detail.metaTitle,
     metaDescription: selectedVariant.metaDescription ?? detail.metaDescription,
     metaKeywords: selectedVariant.metaKeywords ?? detail.metaKeywords,

@@ -5,6 +5,7 @@ import { IProductInformationItem } from '@modules/product/interfaces/product-inf
 import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IVariantInlineFaq } from '@modules/product/interfaces/variant-details.interface';
 import { IProductPackMetadataItem } from '@modules/product/interfaces/product-pack-metadata.interface';
+import { IProductSubscriptionConfig } from '@modules/subscription/interfaces/product-subscription.interface';
 import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
@@ -175,6 +176,7 @@ export interface IPublicProductVariant {
   tagNames?: string[];
   categoryFilters?: IProductCategoryFilterBinding[];
   packMetadata?: IProductPackMetadataItem[];
+  subscriptionConfig?: IProductSubscriptionConfig | null;
   mrp: number;
   sellingPrice: number;
   discountPercentage: number | null;
@@ -271,6 +273,7 @@ export interface IPublicProductDetail {
   returnAllowed: boolean;
   returnPolicy: string | null;
   returnWindowDays: number | null;
+  subscriptionConfig?: IProductSubscriptionConfig | null;
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;

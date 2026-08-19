@@ -80,9 +80,6 @@ export class ProductSubscriptionsService {
     if (!product || product.status !== ProductStatus.PUBLISHED) {
       throw new BadRequestException('Product is not available for subscription');
     }
-    if (!product.subscriptionEnabled) {
-      throw new BadRequestException('Subscription is not enabled for this product');
-    }
 
     const variant = await this.variantsRepository.findById(dto.productVariantId);
     if (
@@ -222,9 +219,6 @@ export class ProductSubscriptionsService {
     const product = await this.productsRepository.findPublishedById(dto.productId);
     if (!product || product.status !== ProductStatus.PUBLISHED) {
       throw new BadRequestException('Product is not available for subscription');
-    }
-    if (!product.subscriptionEnabled) {
-      throw new BadRequestException('Subscription is not enabled for this product');
     }
 
     const variant = await this.variantsRepository.findById(dto.productVariantId);
