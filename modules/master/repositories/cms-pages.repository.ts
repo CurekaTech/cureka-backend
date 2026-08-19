@@ -45,7 +45,8 @@ export class CmsPagesRepository {
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
     const qb = this.repo
       .createQueryBuilder('page')
-      .where('page.slug = :slug', { slug });
+      .where('page.slug = :slug', { slug })
+      .andWhere('page.deletedAt IS NULL');
     if (excludeRefId) {
       qb.andWhere('page.refId != :excludeRefId', { excludeRefId });
     }

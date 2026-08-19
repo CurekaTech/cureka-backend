@@ -44,7 +44,10 @@ export class BlogPostsRepository {
   }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
-    const qb = this.repo.createQueryBuilder('p').where('p.slug = :slug', { slug });
+    const qb = this.repo
+      .createQueryBuilder('p')
+      .where('p.slug = :slug', { slug })
+      .andWhere('p.deletedAt IS NULL');
     if (excludeRefId) {
       qb.andWhere('p.ref_id != :excludeRefId', { excludeRefId });
     }

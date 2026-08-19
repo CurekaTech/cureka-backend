@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import {
   IShipwayCancelPayload,
   IShipwayCancelResponse,
@@ -11,8 +16,8 @@ import {
   IShipwayPushOrderResponse,
   IShipwayTrackingEvent,
   IShipwayTrackingResponse,
-  IShipwayWebhookEvent,
 } from '../interfaces/shipway-api.interface';
+import { ShipwayWebhookDto } from '../dto/shipway-webhook.dto';
 
 @Injectable()
 export class ShipwayService {
@@ -871,28 +876,120 @@ export class ShipwayService {
     }
   }
 
-  verifyWebhookSignature(rawBody: string, signature?: string): void {
-    if (!this.webhookSecret) {
+  /**
+   * Authenticate Shipway webhooks.
+   * Live panel (observed on beta Send Sample): `{ order_id, current_status }` with no hash and no HMAC.
+   * Classic docs: `status_feed` + body `hash` = md5(email:licenseKey).
+   * HMAC is verified only when Shipway actually sends a signature header.
+   */
+  verifyWebhookAuth(
+    payload: ShipwayWebhookDto,
+    rawBody: string,
+    signature?: string,
+  ): void {
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    const statusFeed = payload.status_feed;
+    const isStatusFeed = Array.isArray(statusFeed);
+
+    if (isStatusFeed) {
+      // Empty feed is a connectivity ping.
+      if (statusFeed.length === 0) {
+        if (payload.hash?.trim()) {
+          this.verifyStatusFeedHash(payload.hash, isProduction);
+        }
+        return;
+      }
+      this.verifyStatusFeedHash(payload.hash, isProduction);
       return;
     }
 
-    if (!signature) {
-      throw new BadRequestException('Missing Shipway webhook signature');
+    if (payload.hash?.trim()) {
+      this.verifyStatusFeedHash(payload.hash, isProduction);
+      return;
+    }
+
+    if (signature?.trim()) {
+      this.verifyWebhookSignature(rawBody, signature, isProduction);
+      return;
+    }
+
+    this.logger.warn(
+      {
+        orderId: payload.order_id ?? null,
+        currentStatus: payload.current_status ?? payload.status ?? null,
+        hashPresent: false,
+        signaturePresent: false,
+      },
+      '[Shipway] Unsigned webhook (panel sample / live status push) — accepted',
+    );
+  }
+
+  verifyStatusFeedHash(hash?: string, isProduction: boolean = process.env['NODE_ENV'] === 'production'): void {
+    if (!this.email || !this.licenseKey) {
+      if (isProduction) {
+        throw new ServiceUnavailableException(
+          'Shipway webhook credentials are not configured (SHIPWAY_EMAIL / SHIPWAY_LICENSE_KEY)',
+        );
+      }
+      this.logger.warn(
+        '[Shipway] Skipping status_feed hash verification — credentials not configured (non-production)',
+      );
+      return;
+    }
+
+    if (!hash?.trim()) {
+      throw new UnauthorizedException('Missing Shipway webhook hash');
+    }
+
+    const expectedDigest = createHash('md5')
+      .update(`${this.email}:${this.licenseKey}`)
+      .digest('hex');
+
+    if (!this.timingSafeEqualString(hash.trim(), expectedDigest)) {
+      throw new UnauthorizedException('Invalid Shipway webhook hash');
+    }
+  }
+
+  verifyWebhookSignature(
+    rawBody: string,
+    signature?: string,
+    isProduction: boolean = process.env['NODE_ENV'] === 'production',
+  ): void {
+    if (!this.webhookSecret) {
+      if (isProduction) {
+        throw new ServiceUnavailableException(
+          'Shipway webhook secret is not configured (SHIPWAY_WEBHOOK_SECRET)',
+        );
+      }
+      this.logger.warn(
+        '[Shipway] Skipping HMAC signature verification — SHIPWAY_WEBHOOK_SECRET not configured (non-production)',
+      );
+      return;
+    }
+
+    if (!signature?.trim()) {
+      throw new UnauthorizedException('Missing Shipway webhook signature');
     }
 
     const expectedDigest = createHmac('sha256', this.webhookSecret)
       .update(rawBody)
       .digest('hex');
 
-    const signatureBuffer = Buffer.from(signature, 'utf8');
-    const expectedBuffer = Buffer.from(expectedDigest, 'utf8');
-
-    if (
-      signatureBuffer.length !== expectedBuffer.length ||
-      !timingSafeEqual(signatureBuffer, expectedBuffer)
-    ) {
-      throw new BadRequestException('Invalid Shipway webhook signature');
+    if (!this.timingSafeEqualString(signature.trim(), expectedDigest)) {
+      throw new UnauthorizedException('Invalid Shipway webhook signature');
     }
+  }
+
+  private timingSafeEqualString(provided: string, expectedHex: string): boolean {
+    const normalizedProvided = provided.toLowerCase().startsWith('sha256=')
+      ? provided.slice('sha256='.length)
+      : provided;
+    const providedBuffer = Buffer.from(normalizedProvided, 'utf8');
+    const expectedBuffer = Buffer.from(expectedHex, 'utf8');
+    return (
+      providedBuffer.length === expectedBuffer.length &&
+      timingSafeEqual(providedBuffer, expectedBuffer)
+    );
   }
 
   private buildAuthHeader(): string {

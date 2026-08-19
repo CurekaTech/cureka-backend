@@ -50,6 +50,7 @@ import {
 } from '../interfaces/public-product.interface';
 import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicCategoryProductListingContext } from '../interfaces/public-category.interface';
+import { mapBrandEntityToListingContext } from '../mappers/public-brand.mapper';
 import {
   mapProductEntitiesToPublicCards,
   mapProductEntityToPublicDetail,
@@ -152,12 +153,10 @@ export class PublicProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichPaginatedCards(raw);
-    const category = filters.category
-      ? await this.buildCategoryListingContext(filters.category)
-      : null;
-    const brand = filters.brand
-      ? await this.buildBrandListingContext(filters.brand)
-      : null;
+    const [category, brand] = await Promise.all([
+      filters.category ? this.buildCategoryListingContext(filters.category) : Promise.resolve(null),
+      filters.brand ? this.buildBrandListingContext(filters.brand) : Promise.resolve(null),
+    ]);
     const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
     this.logger.log(
       `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
@@ -444,9 +443,11 @@ export class PublicProductsService {
     return '(unrecognized)';
   }
 
-  private async resolveBrandFilters(
-    query: PublicProductQueryDto,
-  ): Promise<{ brandId?: string; brandIds?: string[]; brand?: BrandEntity | null }> {
+  private async resolveBrandFilters(query: PublicProductQueryDto): Promise<{
+    brandId?: string;
+    brandIds?: string[];
+    brand?: BrandEntity | null;
+  }> {
     if (query.brandRefId) {
       const brand = await this.brandsRepository.findByRefId(query.brandRefId);
       if (!brand) {
@@ -543,6 +544,15 @@ export class PublicProductsService {
       category,
       brand: brandFilters.brand ?? null,
     };
+  }
+
+  private async buildBrandListingContext(
+    brand: BrandEntity,
+  ): Promise<IPublicBrandProductListingContext> {
+    return this.storageUrlEnricher.enrichFields(mapBrandEntityToListingContext(brand), [
+      'logo',
+      'banner',
+    ]);
   }
 
   private async buildCategoryListingContext(

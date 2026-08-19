@@ -441,7 +441,8 @@ export class ProductsRepository {
   ): Promise<boolean> {
     const productQb = this.repo
       .createQueryBuilder('product')
-      .where('product.slug = :slug', { slug });
+      .where('product.slug = :slug', { slug })
+      .andWhere('product.deletedAt IS NULL');
     if (exclude?.productRefId) {
       productQb.andWhere('product.refId != :productRefId', {
         productRefId: exclude.productRefId,
@@ -453,7 +454,8 @@ export class ProductsRepository {
 
     const variantQb = this.repo.manager
       .createQueryBuilder(ProductVariantEntity, 'variant')
-      .where('variant.slug = :slug', { slug });
+      .where('variant.slug = :slug', { slug })
+      .andWhere('variant.deletedAt IS NULL');
     if (exclude?.variantId) {
       variantQb.andWhere('variant.id != :variantId', { variantId: exclude.variantId });
     }
@@ -766,7 +768,10 @@ export class ProductsRepository {
   }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
-    const qb = this.repo.createQueryBuilder('product').where('product.slug = :slug', { slug });
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .where('product.slug = :slug', { slug })
+      .andWhere('product.deletedAt IS NULL');
     if (excludeRefId) {
       qb.andWhere('product.refId != :excludeRefId', { excludeRefId });
     }
