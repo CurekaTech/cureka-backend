@@ -20,7 +20,7 @@ export const isSitemapGroup = (value: string): value is SitemapGroup =>
 export const sitemapGroupLivePrefix = (group: SitemapGroup): string => {
   if (group === 'static') return 'static.xml';
   if (group === 'products') return 'products/';
-  return `${group}/${group}.xml`;
+  return `${group}.xml`;
 };
 
 export const sitemapGroupPublicPath = (group: SitemapGroup, shardIndex?: number): string => {
@@ -29,7 +29,7 @@ export const sitemapGroupPublicPath = (group: SitemapGroup, shardIndex?: number)
     const shard = shardIndex ?? 1;
     return `/sitemaps/products/products-${shard}.xml`;
   }
-  return `/sitemaps/${group}/${group}.xml`;
+  return `/sitemaps/${group}.xml`;
 };
 
 export const sitemapGroupLivePath = (group: SitemapGroup, shardIndex?: number): string => {
@@ -38,5 +38,11 @@ export const sitemapGroupLivePath = (group: SitemapGroup, shardIndex?: number): 
     const shard = shardIndex ?? 1;
     return `products/products-${shard}.xml`;
   }
+  return `${group}.xml`;
+};
+
+/** Nested keys from the first publish shape, still served if present. */
+export const sitemapGroupLegacyLivePath = (group: SitemapGroup): string | null => {
+  if (group === 'static' || group === 'products') return null;
   return `${group}/${group}.xml`;
 };
