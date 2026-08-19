@@ -24,6 +24,8 @@ export interface IPublicCategoryProductListingContext {
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   aboveTheFold: string | null;
   belowTheFold: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
   categoryFilters: IPublicCategoryFilterFacet[];
   /** Set when the listing is filtered by a child category (non-root). */
   selectedCategory?: {

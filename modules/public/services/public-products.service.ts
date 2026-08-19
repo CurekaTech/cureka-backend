@@ -598,6 +598,14 @@ export class PublicProductsService {
         isChildFilter && matchedCategory.belowTheFold?.trim()
           ? matchedCategory.belowTheFold
           : rootCategory.belowTheFold,
+      metaTitle:
+        isChildFilter && matchedCategory.metaTitle?.trim()
+          ? matchedCategory.metaTitle
+          : rootCategory.metaTitle,
+      metaDescription:
+        isChildFilter && matchedCategory.metaDescription?.trim()
+          ? matchedCategory.metaDescription
+          : rootCategory.metaDescription,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         const masterValues = (filter.values ?? [])
