@@ -6,7 +6,11 @@ import { isAbsolute, join } from 'path';
 import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
-import { IUploadFileInput, IUploadFileResult } from './storage.provider.interface';
+import {
+  IUploadAtPathInput,
+  IUploadFileInput,
+  IUploadFileResult,
+} from './storage.provider.interface';
 import { IStorageProviderWithAccessibleUrl } from './storage-accessible-url.interface';
 import { resolveUploadExtension } from './mime-extension.util';
 
@@ -62,6 +66,57 @@ export class GcsStorageProvider implements IStorageProviderWithAccessibleUrl {
     };
   }
 
+  async uploadAtPath(input: IUploadAtPathInput): Promise<IUploadFileResult> {
+    const relativePath = this.normalizeKey(input.relativePath);
+    const file = this.storage.bucket(this.bucketName).file(relativePath);
+
+    await pipeline(
+      input.stream,
+      file.createWriteStream({
+        metadata: {
+          contentType: input.mimetype,
+          cacheControl: 'private, max-age=0, no-transform',
+        },
+        resumable: false,
+      }),
+    );
+
+    const [metadata] = await file.getMetadata();
+    const filename = relativePath.split('/').pop() ?? relativePath;
+
+    return {
+      path: relativePath,
+      url: '',
+      filename,
+      mimetype: input.mimetype,
+      size: Number(metadata.size ?? 0),
+    };
+  }
+
+  async exists(relativePath: string): Promise<boolean> {
+    const [exists] = await this.storage
+      .bucket(this.bucketName)
+      .file(this.normalizeKey(relativePath))
+      .exists();
+    return exists;
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    const normalized = this.normalizeKey(prefix);
+    const [files] = await this.storage.bucket(this.bucketName).getFiles({
+      prefix: normalized,
+    });
+    return files
+      .map((file) => file.name)
+      .filter((name) => Boolean(name) && !name.endsWith('/'));
+  }
+
+  async copy(fromRelativePath: string, toRelativePath: string): Promise<void> {
+    const source = this.storage.bucket(this.bucketName).file(this.normalizeKey(fromRelativePath));
+    const destination = this.storage.bucket(this.bucketName).file(this.normalizeKey(toRelativePath));
+    await source.copy(destination);
+  }
+
   async getAccessibleUrl(relativePath: string): Promise<string> {
     const [signedUrl] = await this.storage
       .bucket(this.bucketName)
@@ -88,5 +143,9 @@ export class GcsStorageProvider implements IStorageProviderWithAccessibleUrl {
 
   private resolveCredentialsPath(pathValue: string): string {
     return isAbsolute(pathValue) ? pathValue : join(process.cwd(), pathValue);
+  }
+
+  private normalizeKey(relativePath: string): string {
+    return relativePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
   }
 }

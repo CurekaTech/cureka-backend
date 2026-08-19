@@ -135,6 +135,14 @@ export const envValidationSchema = Joi.object({
   SHIPROCKET_CHECKOUT_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
   STOREFRONT_URL: Joi.string().uri().optional(),
+  SITEMAP_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  SITEMAP_BASE_URL: Joi.string().uri().optional(),
+  SITEMAP_BATCH_SIZE: Joi.number().integer().min(100).max(50000).default(10000),
+  SITEMAP_MAX_URLS_PER_FILE: Joi.number().integer().min(1).max(50000).default(50000),
+  SITEMAP_DEBOUNCE_MS: Joi.number().integer().min(0).max(3600000).default(60000),
+  SITEMAP_REGENERATION_INTERVAL: Joi.number().integer().min(60).max(86400).default(3600),
+  SITEMAP_STORAGE_PATH: Joi.string().default('sitemaps'),
+  SITEMAP_FORCE_FULL_REBUILD: Joi.string().valid('true', 'false').default('false'),
 
   CASHFREE_APP_ID: Joi.string().optional(),
   CASHFREE_SECRET_KEY: Joi.string().optional(),
