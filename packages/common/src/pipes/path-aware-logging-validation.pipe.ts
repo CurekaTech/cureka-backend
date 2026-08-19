@@ -6,13 +6,16 @@ import { LoggingValidationPipe } from './logging-validation.pipe';
 
 const UNICOMMERCE_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/unicommerce/`;
 const GOKWIK_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/gokwik/`;
+const BOB_PREFIX = `/${APP_CONSTANTS.API_PREFIX}/bob`;
 
 @Injectable({ scope: Scope.REQUEST })
 export class PathAwareLoggingValidationPipe extends LoggingValidationPipe {
   constructor(@Inject(REQUEST) request: FastifyRequest) {
     const path = request.url.split('?')[0] ?? request.url;
     const allowExtraFields =
-      path.startsWith(UNICOMMERCE_PREFIX) || path.startsWith(GOKWIK_PREFIX);
+      path.startsWith(UNICOMMERCE_PREFIX) ||
+      path.startsWith(GOKWIK_PREFIX) ||
+      path.startsWith(BOB_PREFIX);
 
     const options: ValidationPipeOptions = {
       whitelist: true,

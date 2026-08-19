@@ -1796,6 +1796,23 @@ export class ProductsRepository {
     return products[0] ?? null;
   }
 
+  async findIdByUuidOrRefId(idOrRefId: string): Promise<string | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    const row = await this.repo.findOne({
+      where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
+      select: ['id'],
+    });
+    return row?.id ?? null;
+  }
+
+  async findWithTagsById(id: string): Promise<ProductEntity | null> {
+    return this.repo.findOne({
+      where: { id },
+      relations: { tagMappings: { tag: true } },
+    });
+  }
+
   async findPublishedByIds(ids: string[]): Promise<ProductEntity[]> {
     if (!ids.length) {
       return [];

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { EntityManager, FindOptionsWhere, ILike, Not, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
@@ -123,6 +123,38 @@ export class OrdersRepository {
       relations: { user: true, items: { product: { media: true } } },
       order: { items: { createdAt: 'ASC' } },
     });
+  }
+
+  findByOrderNumber(orderNumber: string, manager?: EntityManager): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({
+      where: { orderNumber },
+      relations: { user: true, items: { product: { media: true } } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  findRecentPlacedByUserId(userId: string, limit = 3): Promise<OrderEntity[]> {
+    return this.repo.find({
+      where: { userId, orderStatus: Not(OrderStatus.PENDING) },
+      relations: { user: true, items: { product: { media: true } } },
+      order: { placedAt: 'DESC', createdAt: 'DESC', items: { createdAt: 'ASC' } },
+      take: limit,
+    });
+  }
+
+  async getCustomerOrderStats(userId: string): Promise<{ count: number; totalSpent: string }> {
+    const row = await this.repo
+      .createQueryBuilder('order')
+      .select('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(order.grandTotal), 0)', 'total')
+      .where('order.userId = :userId', { userId })
+      .andWhere('order.orderStatus != :pending', { pending: OrderStatus.PENDING })
+      .getRawOne<{ count: string; total: string }>();
+    return {
+      count: Number(row?.count ?? 0),
+      totalSpent: String(row?.total ?? '0'),
+    };
   }
 
   /** Loads an order with items, their products (for refId), and the customer (for email). */

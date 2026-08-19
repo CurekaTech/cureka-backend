@@ -276,6 +276,11 @@ export class PermissionsService {
             key: 'orders-requests',
             permissions: getPerms('orders'),
           },
+          {
+            name: 'Abandoned Carts',
+            key: 'orders-abandoned-carts',
+            permissions: getPerms('abandoned_carts'),
+          },
         ],
       },
       {

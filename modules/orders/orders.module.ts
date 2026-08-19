@@ -8,6 +8,7 @@ import { NotificationsModule } from '@modules/notifications/notifications.module
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
+import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
 import { CouponUsageEntity } from './entities/coupon-usage.entity';
@@ -16,12 +17,14 @@ import { OrderItemEntity } from './entities/order-item.entity';
 import { CartController } from './controllers/cart.controller';
 import { OrdersController } from './controllers/orders.controller';
 import { AdminOrdersController } from './controllers/admin-orders.controller';
+import { AdminAbandonedCartsController } from './controllers/admin-abandoned-carts.controller';
 import { CartsRepository } from './repositories/carts.repository';
 import { CartItemsRepository } from './repositories/cart-items.repository';
 import { CouponUsagesRepository } from './repositories/coupon-usages.repository';
 import { OrdersRepository } from './repositories/orders.repository';
 import { OrderItemsRepository } from './repositories/order-items.repository';
 import { CartService } from './services/cart.service';
+import { AdminAbandonedCartsService } from './services/admin-abandoned-carts.service';
 import { CartCheckoutAdminSettingsService } from './services/cart-checkout-admin-settings.service';
 import { CartPricingService } from './services/cart-pricing.service';
 import { CheckoutService } from './services/checkout.service';
@@ -36,6 +39,7 @@ import { OrdersService } from './services/orders.service';
       CouponUsageEntity,
       OrderEntity,
       OrderItemEntity,
+      AdminUserEntity,
     ]),
     AdminSettingsModule,
     CheckoutModule,
@@ -46,7 +50,7 @@ import { OrdersService } from './services/orders.service';
     UnicommerceOrderModule,
     NotificationsModule,
   ],
-  controllers: [CartController, OrdersController, AdminOrdersController],
+  controllers: [CartController, OrdersController, AdminOrdersController, AdminAbandonedCartsController],
   providers: [
     CartsRepository,
     CartItemsRepository,
@@ -54,12 +58,13 @@ import { OrdersService } from './services/orders.service';
     OrdersRepository,
     OrderItemsRepository,
     CartService,
+    AdminAbandonedCartsService,
     CartCheckoutAdminSettingsService,
     CartPricingService,
     CouponCheckoutService,
     CheckoutService,
     OrdersService,
   ],
-  exports: [OrdersService, CartService, CheckoutService, CouponCheckoutService, CartCheckoutAdminSettingsService],
+  exports: [OrdersService, OrdersRepository, CartService, CheckoutService, CouponCheckoutService, CartCheckoutAdminSettingsService],
 })
 export class OrdersModule {}

@@ -505,7 +505,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         href: '/order-requests?status=CANCELLED',
         requiredPermissions: ['orders.read'],
       },
-
+      {
+        name: 'Abandoned Carts',
+        key: 'orders-abandoned-carts',
+        icon: 'ShoppingCart',
+        href: '/abandoned-carts',
+        requiredPermissions: ['abandoned_carts.read'],
+      },
     ],
   },
   {

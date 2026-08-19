@@ -16,3 +16,4 @@ export { PackerUpdatedEvent } from './domain/packer-updated.event';
 export { SubscriptionFrequencyUpdatedEvent } from './domain/subscription-frequency-updated.event';
 export { ShipmentUpdatedEvent } from './domain/shipment-updated.event';
 export { OrderCancelledEvent } from './domain/order-cancelled.event';
+export { CheckoutCartAbandonedEvent } from './domain/checkout-cart-abandoned.event';

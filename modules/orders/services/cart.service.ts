@@ -160,6 +160,13 @@ export class CartService {
     });
   }
 
+  /** Cart snapshot for admin views — does not clear an invalid coupon. */
+  async getCartResponseSnapshot(cart: CartEntity): Promise<CartResponse> {
+    return this.toCartResponse(cart, cart.userId, this.dataSource.manager, {
+      clearInvalidCoupon: false,
+    });
+  }
+
   /**
    * Remove unavailable / zero-stock lines and clamp quantities to salable stock.
    * Used by GoKwik remove-out-of-stock-items.

@@ -13,6 +13,7 @@ export const EVENTS = {
   ORDER_UPDATED: 'order.updated',
   ORDER_CANCELLED: 'order.cancelled',
   SHIPMENT_UPDATED: 'shipment.updated',
+  CHECKOUT_CART_ABANDONED: 'checkout.cart.abandoned',
   PAYMENT_COMPLETED: 'payment.completed',
   NOTIFICATION_SEND: 'notification.send',
 

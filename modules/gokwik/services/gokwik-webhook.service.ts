@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CheckoutCartAbandonedEvent, EVENTS } from '@packages/events';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { createHash } from 'crypto';
@@ -21,6 +23,7 @@ export class GokwikWebhookService {
     private readonly queueService: GokwikQueueService,
     private readonly apiService: GokwikApiService,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   receiveTransaction(payload: GokwikTransactionWebhookDto) {
@@ -59,6 +62,14 @@ export class GokwikWebhookService {
         payload: { ...cart },
         receivedAt: new Date(),
       });
+      await this.eventEmitter.emitAsync(
+        EVENTS.CHECKOUT_CART_ABANDONED,
+        new CheckoutCartAbandonedEvent(
+          cart.cart_id.trim(),
+          cart.merchant_cart_id?.trim() || null,
+          { ...cart },
+        ),
+      );
     }
     this.logger.log(
       {
