@@ -463,7 +463,10 @@ export class OrdersService {
         throw new BadRequestException('Order is cancelled');
       }
 
-      if (existing.orderStatus === OrderStatus.CONFIRMED) {
+      if (
+        existing.orderStatus === OrderStatus.CONFIRMED ||
+        existing.orderStatus === OrderStatus.PROCESSING
+      ) {
         shouldPushFulfillment = false;
         return existing;
       }
@@ -564,12 +567,18 @@ export class OrdersService {
         );
       }
 
+      const nextOrderStatus =
+        params.paymentStatus === OrderPaymentStatus.PAID ||
+        params.paymentStatus === OrderPaymentStatus.PARTIALLY_PAID
+          ? OrderStatus.CONFIRMED
+          : OrderStatus.PROCESSING;
+
       await this.ordersRepository.updateById(
         existing.id,
         {
           paymentMethod: params.paymentMethod,
           paymentStatus: params.paymentStatus,
-          orderStatus: OrderStatus.CONFIRMED,
+          orderStatus: nextOrderStatus,
           notes: params.notes ?? existing.notes,
           placedAt: new Date(),
           updatedBy: userId,
