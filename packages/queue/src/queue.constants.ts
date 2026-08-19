@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   PRODUCT_SUBSCRIPTION_REMINDER: 'product-subscription-reminder',
   MEMBERSHIP_RENEWAL: 'membership-renewal',
   MEMBERSHIP_REMINDER: 'membership-reminder',
+  SITEMAP: 'sitemap',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

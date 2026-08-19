@@ -12,7 +12,7 @@ export {
   UploadSizeLimitExceededError,
 } from './upload-size.util';
 export { normalizeStorageKey, extractRelativeStoragePath } from './storage-path.util';
-export type { IUploadFileResult } from './storage.provider.interface';
+export type { IUploadFileResult, IUploadAtPathInput } from './storage.provider.interface';
 export type { IStorageFileReference, IStorageFileReferenceResponse } from './storage-file-reference.interface';
 export { isStorageFileReference } from './storage-file-reference.interface';
 export { storageFileReferenceColumn } from './storage-file-reference.column';
