@@ -90,7 +90,7 @@ Live keys (stable public names):
 sitemaps/sitemap.xml
 sitemaps/static.xml
 sitemaps/products/products-1.xml
-sitemaps/brands/brands.xml
+sitemaps/brands.xml
 ...
 ```
 

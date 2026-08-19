@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import {
   SITEMAP_GROUPS,
   SitemapGroup,
+  sitemapGroupLegacyLivePath,
   sitemapGroupLivePath,
   sitemapGroupPublicPath,
 } from '../config/sitemap-groups';
@@ -241,7 +242,11 @@ export class SitemapGeneratorService {
       }
 
       const livePath = sitemapGroupLivePath(group);
-      if (await this.storageService.existsLive(livePath)) {
+      const legacyPath = sitemapGroupLegacyLivePath(group);
+      if (
+        (await this.storageService.existsLive(livePath)) ||
+        (legacyPath ? await this.storageService.existsLive(legacyPath) : false)
+      ) {
         entries.push({ locPath: sitemapGroupPublicPath(group), lastmod });
       }
     }
@@ -267,6 +272,10 @@ export class SitemapGeneratorService {
       const livePath = sitemapGroupLivePath(group);
       if (!keep.has(livePath) && (await this.storageService.existsLive(livePath))) {
         obsolete.push(livePath);
+      }
+      const legacyPath = sitemapGroupLegacyLivePath(group);
+      if (legacyPath && !keep.has(legacyPath) && (await this.storageService.existsLive(legacyPath))) {
+        obsolete.push(legacyPath);
       }
     }
     return obsolete;
