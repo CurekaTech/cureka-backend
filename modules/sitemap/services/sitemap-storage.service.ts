@@ -75,11 +75,31 @@ export class SitemapStorageService {
   }
 
   async createLiveReadStream(relativePath: string): Promise<Readable> {
-    const exists = await this.existsLive(relativePath);
-    if (!exists) {
+    const resolved = await this.resolveLiveRelativePath(relativePath);
+    if (!resolved) {
       throw new NotFoundException('Sitemap file not found');
     }
-    return this.storageService.createReadStream(this.liveKey(relativePath));
+    return this.storageService.createReadStream(this.liveKey(resolved));
+  }
+
+  /** Accepts `brands.xml` or legacy `brands/brands.xml`. */
+  async resolveLiveRelativePath(relativePath: string): Promise<string | null> {
+    for (const candidate of this.livePathAliases(relativePath)) {
+      if (await this.existsLive(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  private livePathAliases(relativePath: string): string[] {
+    const normalized = relativePath.replace(/^\/+/, '');
+    const aliases = [normalized];
+    const nested = normalized.match(/^([a-z0-9-]+)\/\1\.xml$/i);
+    if (nested) aliases.push(`${nested[1]}.xml`);
+    const flat = normalized.match(/^([a-z0-9-]+)\.xml$/i);
+    if (flat && flat[1] !== 'static' && flat[1] !== 'sitemap') {
+      aliases.push(`${flat[1]}/${flat[1]}.xml`);
+    }
+    return [...new Set(aliases)];
   }
 
   /**
