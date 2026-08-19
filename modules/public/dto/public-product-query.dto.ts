@@ -97,9 +97,10 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   tagSlug?: string;
 
   /**
-   * When true, list keeps the normal filters but pins bestsellers first
-   * (ordered by CMS bestseller index), then remaining products.
-   * Example: `?categorySlug=nutrition&bestSeller=true`
+   * Always pin bestsellers first (same as homepage / `?bestSeller=true`):
+   * CMS `bestsellers` tag, ordered by bestseller index, then the remaining products.
+   * Kept for backward compatibility; the list applies this even when omitted.
+   * Example: `?categorySlug=nutrition`
    */
   @IsOptional()
   @Transform(parseBoolean)
