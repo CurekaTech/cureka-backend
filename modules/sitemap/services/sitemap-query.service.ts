@@ -26,13 +26,21 @@ import {
   buildCmsLocPath,
   buildCollectionLocPath,
   buildHealthConcernLocPath,
-  buildProductLocPath,
+  buildProductLocPaths,
   buildSupportLocPath,
   buildWellnessGoalLocPath,
   dedupeUrlEntries,
 } from './sitemap-url.builder';
 
 type CategoryNode = { id: string; slug: string; parentId: string | null };
+
+const rawString = (row: Record<string, unknown>, ...keys: string[]): string | null => {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
+};
 
 @Injectable()
 export class SitemapQueryService {
@@ -97,14 +105,16 @@ export class SitemapQueryService {
     while (true) {
       const qb = this.productsRepo
         .createQueryBuilder('product')
-        .select('product.id', 'id')
-        .addSelect('product.slug', 'slug')
-        .addSelect('product.updated_at', 'updatedAt')
-        .addSelect('product.category_id', 'categoryId')
-        .addSelect('product.sub_category_id', 'subCategoryId')
-        .addSelect('product.sub_sub_category_id', 'subSubCategoryId')
-        .addSelect('product.sub_sub_sub_category_id', 'subSubSubCategoryId')
-        .addSelect('product.single_product_url', 'singleProductUrl')
+        .select([
+          'product.id',
+          'product.slug',
+          'product.updatedAt',
+          'product.categoryId',
+          'product.subCategoryId',
+          'product.subSubCategoryId',
+          'product.subSubSubCategoryId',
+          'product.singleProductUrl',
+        ])
         .addSelect(
           `(SELECT pv.product_page_url FROM product_variants pv
             WHERE pv.product_id = product.id
@@ -114,7 +124,7 @@ export class SitemapQueryService {
               AND btrim(pv.product_page_url) <> ''
             ORDER BY pv.product_page_url
             LIMIT 1)`,
-          'productPageUrl',
+          'product_page_url',
         )
         .where('product.status = :status', { status: ProductStatus.PUBLISHED })
         .andWhere(
@@ -133,42 +143,33 @@ export class SitemapQueryService {
         qb.andWhere('product.id > :lastId', { lastId });
       }
 
-      const rows = await qb.getRawMany<{
-        id: string;
-        slug: string | null;
-        updatedAt: Date | string;
-        categoryId: string | null;
-        subCategoryId: string | null;
-        subSubCategoryId: string | null;
-        subSubSubCategoryId: string | null;
-        singleProductUrl: string | null;
-        productPageUrl: string | null;
-      }>();
+      const { entities, raw } = await qb.getRawAndEntities();
+      if (!entities.length) break;
 
-      if (!rows.length) break;
-
-      for (const row of rows) {
-        lastId = row.id;
+      for (let index = 0; index < entities.length; index += 1) {
+        const product = entities[index];
+        lastId = product.id;
+        const rawRow = (raw[index] ?? {}) as Record<string, unknown>;
         const deepestCategoryId =
-          row.subSubSubCategoryId ||
-          row.subSubCategoryId ||
-          row.subCategoryId ||
-          row.categoryId;
-        const locPath = buildProductLocPath({
-          slug: row.slug,
-          productPageUrl: row.productPageUrl,
-          singleProductUrl: row.singleProductUrl,
+          product.subSubSubCategoryId ||
+          product.subSubCategoryId ||
+          product.subCategoryId ||
+          product.categoryId;
+        const locPaths = buildProductLocPaths({
+          slug: product.slug,
+          productPageUrl: rawString(rawRow, 'product_page_url', 'productPageUrl', 'productpageurl'),
+          singleProductUrl: product.singleProductUrl,
           categorySlugPath: this.categorySlugPath(nodes, deepestCategoryId),
         });
-        if (!locPath || seenLocs.has(locPath)) continue;
-        seenLocs.add(locPath);
-        yield {
-          locPath,
-          lastmod: row.updatedAt ? new Date(row.updatedAt) : null,
-        };
+        const lastmod = product.updatedAt ?? null;
+        for (const locPath of locPaths) {
+          if (seenLocs.has(locPath)) continue;
+          seenLocs.add(locPath);
+          yield { locPath, lastmod };
+        }
       }
 
-      if (rows.length < batchSize) break;
+      if (entities.length < batchSize) break;
     }
   }
 
