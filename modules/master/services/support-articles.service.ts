@@ -13,6 +13,8 @@ import {
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SupportArticleUpdatedEvent, EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
 import {
   CreateSupportArticleDto,
@@ -36,6 +38,7 @@ export class SupportArticlesService {
     private readonly categoriesService: SupportCategoriesService,
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createFromJson(dto: CreateSupportArticleDto, actor: string) {
@@ -86,6 +89,7 @@ export class SupportArticlesService {
       updatedBy: actor,
     });
 
+    await this.emitSupportArticleUpdated(entity.refId, 'created');
     return this.enrichArticle(mapSupportArticle(entity));
   }
 
@@ -182,6 +186,7 @@ export class SupportArticlesService {
       updatedBy: actor,
     });
 
+    await this.emitSupportArticleUpdated(refId, 'updated');
     return this.enrichArticle(mapSupportArticle(updated as SupportArticleEntity));
   }
 
@@ -193,6 +198,17 @@ export class SupportArticlesService {
     const existing = await this.articlesRepo.findByRefId(refId);
     if (!existing) throw new NotFoundException('Support article not found');
     await this.articlesRepo.softDeleteByRefId(refId);
+    await this.emitSupportArticleUpdated(refId, 'deleted');
+  }
+
+  private async emitSupportArticleUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.SUPPORT_ARTICLE_UPDATED,
+      new SupportArticleUpdatedEvent(refId, action),
+    );
   }
 
   private async enrichArticle<T extends { featuredImage?: unknown }>(article: T): Promise<T> {

@@ -17,6 +17,7 @@ import {
   bobConfig,
   whatsappConfig,
   msg91Config,
+  sitemapConfig,
   envValidationSchema,
 } from './config';
 
@@ -50,6 +51,7 @@ import { VendorsModule } from '@modules/vendors/vendors.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { ReportsModule } from '@modules/reports/reports.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
+import { SitemapModule } from '@modules/sitemap/sitemap.module';
 
 @Module({
   imports: [
@@ -71,6 +73,7 @@ import { SubscriptionModule } from '@modules/subscription/subscription.module';
         bobConfig,
         whatsappConfig,
         msg91Config,
+        sitemapConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
@@ -120,6 +123,7 @@ import { SubscriptionModule } from '@modules/subscription/subscription.module';
     DashboardModule,
     ReportsModule,
     SubscriptionModule,
+    SitemapModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

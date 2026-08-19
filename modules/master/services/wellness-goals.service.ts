@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { WellnessGoalsRepository } from '../repositories/wellness-goals.repository';
 import {
@@ -24,6 +25,7 @@ import { MultipartFormService } from '@modules/uploads/services/multipart-form.s
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { WellnessGoalUpdatedEvent, EVENTS } from '@packages/events';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
 const WELLNESS_GOAL_MEDIA_FIELDS = ['image'] as const;
@@ -40,6 +42,7 @@ export class WellnessGoalsService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IWellnessGoal> {
@@ -88,6 +91,7 @@ export class WellnessGoalsService {
     });
 
     await this.invalidateHomePageCache();
+    await this.emitWellnessGoalUpdated(entity.refId, 'created');
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(entity));
   }
 
@@ -141,6 +145,7 @@ export class WellnessGoalsService {
     }
 
     await this.invalidateHomePageCache();
+    await this.emitWellnessGoalUpdated(refId, 'updated');
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(updated));
   }
 
@@ -164,6 +169,7 @@ export class WellnessGoalsService {
     }
 
     await this.invalidateHomePageCache();
+    await this.emitWellnessGoalUpdated(refId, 'status_updated');
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(updated));
   }
 
@@ -175,6 +181,17 @@ export class WellnessGoalsService {
     await this.deletionGuard.assertWellnessGoalDeletable(existing.id, existing.name);
     await this.wellnessGoalsRepository.softDeleteByRefId(refId);
     await this.invalidateHomePageCache();
+    await this.emitWellnessGoalUpdated(refId, 'deleted');
+  }
+
+  private async emitWellnessGoalUpdated(
+    refId: string,
+    action: 'created' | 'updated' | 'deleted' | 'status_updated',
+  ): Promise<void> {
+    await this.eventEmitter.emitAsync(
+      EVENTS.WELLNESS_GOAL_UPDATED,
+      new WellnessGoalUpdatedEvent(refId, action),
+    );
   }
 
   private async invalidateHomePageCache(): Promise<void> {

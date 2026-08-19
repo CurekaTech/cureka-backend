@@ -31,6 +31,11 @@ export const EVENTS = {
   IMPORTER_UPDATED: 'cache.importer.updated',
   PACKER_UPDATED: 'cache.packer.updated',
   SUBSCRIPTION_FREQUENCY_UPDATED: 'cache.subscription-frequency.updated',
+  WELLNESS_GOAL_UPDATED: 'cache.wellness-goal.updated',
+  HOME_SECTION_UPDATED: 'cache.home-section.updated',
+  BLOG_POST_UPDATED: 'cache.blog-post.updated',
+  CMS_PAGE_UPDATED: 'cache.cms-page.updated',
+  SUPPORT_ARTICLE_UPDATED: 'cache.support-article.updated',
 } as const;
 
 export type AppEvent = (typeof EVENTS)[keyof typeof EVENTS];

@@ -14,4 +14,5 @@ export { whatsappConfig } from './whatsapp.config';
 export { WHATSAPP_STATIC } from './whatsapp.constants';
 export { msg91Config } from './msg91.config';
 export { MSG91_STATIC } from './msg91.constants';
+export { sitemapConfig } from './sitemap.config';
 export { envValidationSchema } from './env.validation';

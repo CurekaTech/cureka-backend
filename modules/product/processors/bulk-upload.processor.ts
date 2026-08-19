@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
-import { HttpException } from '@nestjs/common';
+import { HttpException, Optional } from '@nestjs/common';
+import { SitemapQueueService } from '@modules/sitemap/services/sitemap-queue.service';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job, Queue } from 'bullmq';
@@ -394,6 +395,7 @@ export class BulkUploadProcessor extends WorkerHost {
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
     private readonly exportStreamService: BulkUploadExportStreamService,
+    @Optional() private readonly sitemapQueueService: SitemapQueueService | null,
     @InjectQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS)
     private readonly unicommerceProductQueue: Queue,
   ) {
@@ -1430,6 +1432,14 @@ export class BulkUploadProcessor extends WorkerHost {
         this.logger.log(`Released bypass: triggered single global cache invalidation for job ${uploadRefId}`);
       } catch (cacheErr) {
         this.logger.error('Failed to trigger final bulk cache invalidation:', cacheErr);
+      }
+
+      if (processingSucceeded) {
+        try {
+          await this.sitemapQueueService?.enqueueGroup('products');
+        } catch (sitemapError) {
+          this.logger.error('Failed to enqueue sitemap regeneration after bulk upload:', sitemapError);
+        }
       }
 
       if (lockRenewalTimer) {
