@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CheckoutCartAbandonedEvent, EVENTS } from '@packages/events';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
+import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { createHash } from 'crypto';
 import { DataSource } from 'typeorm';
 import {
@@ -306,7 +307,12 @@ export class GokwikWebhookService {
       paymentStatus = OrderPaymentStatus.PENDING;
     }
 
-    await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, { paymentStatus });
+    const orderUpdate: Partial<OrderEntity> = { paymentStatus };
+    if (status.includes('success') || status === 'paid') {
+      orderUpdate.orderStatus = OrderStatus.CONFIRMED;
+    }
+
+    await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, orderUpdate);
     if (status.includes('success') || status === 'paid') {
       // Do not call Update Order inline — GoKwik often has not stored
       // merchant_order_id yet (webhook races place-order). Delayed job retries.
