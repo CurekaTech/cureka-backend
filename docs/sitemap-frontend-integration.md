@@ -121,7 +121,7 @@ The sitemap includes both:
 - **Static hub pages** (`/`, `/product-brands`, `/blog`, `/support`, …)
 - **Database-driven pages** (products, categories, brands, health concerns, wellness goals, collections, blogs, support articles, CMS/policy pages)
 
-Product URLs are **one per parent product** (`/shop/...` or `productPageUrl`), never per SKU. Facet/sort/`?page=` variants are not included.
+Product URLs come from **`products.slug` and, when set, variant `product_page_url`**. Most products have no `product_page_url`; those use `/shop/{category-path}/{slug}` only. Never per SKU. Facet/sort/`?page=` variants are not included.
 
 ## Google Search Console
 

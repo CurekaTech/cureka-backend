@@ -52,11 +52,11 @@ There is no `apps/worker` app. Processors run in the API process, same as bulk-u
 | Group | Source | Public loc | Indexable when |
 |---|---|---|---|
 | static | `config/static-urls.ts` | `/`, `/categories`, `/product-brands`, … | always |
-| products | `products` + one `product_page_url` | `productPageUrl` else `/shop/{category-path}/{slug}` | `status=published`, not deleted, ≥1 active variant, valid loc. **Not per SKU** |
+| products | `products` + optional variant `product_page_url` | `product_page_url` **and** `/shop/{category-path}/{slug}` (slug-only when page URL is empty; both if they differ). **Not per SKU** | `status=published`, not deleted, ≥1 active variant, valid loc |
 | categories | `categories` | `/product-category/{slugPath}` | `status=active` |
-| brands | `brands` | `/product-brands/{slug}` | `status=active` |
-| health-concerns | `health_concerns` | `/health-concerns/{url-safe-slug}` | `status=active` |
-| wellness-goals | `wellness_goals` | `/wellness-goals/{slugify(name)}` | `status=active` |
+| brands | `brands` | `/product-brands/{slug}` e.g. `/product-brands/la-roche-posay` | `status=active` |
+| health-concerns | `health_concerns` | `/health-concerns/{slug}` | `status=active` |
+| wellness-goals | `wellness_goals` (no slug column) | `/wellness-goals/{slugify(name)}` — `&` → `and` so `Digestion & Gut Health` → `/wellness-goals/digestion-and-gut-health` | `status=active` |
 | collections | `home_sections` `type=productSlider` | `/collections/{slug}` | `status=active` |
 | blogs | `blog_posts` | `/{slug}` | `published` + `visibility=public` |
 | support | `support_articles` | `/support/articles/{slug}` | `status=active` |

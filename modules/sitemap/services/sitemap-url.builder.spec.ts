@@ -6,6 +6,7 @@ import {
   buildCollectionLocPath,
   buildHealthConcernLocPath,
   buildProductLocPath,
+  buildProductLocPaths,
   buildSupportLocPath,
   buildWellnessGoalLocPath,
   dedupeUrlEntries,
@@ -33,6 +34,39 @@ describe('sitemap-url.builder', () => {
           categorySlugPath: ['skin-care', 'bathing-bars'],
         }),
       ).toBe('/shop/skin-care/bathing-bars/zyndet-bar-125gm');
+    });
+
+    it('emits slug permalink and product_page_url when they differ', () => {
+      expect(
+        buildProductLocPaths({
+          slug: 'zyndet-bar-125gm-1',
+          productPageUrl: '/shop/skin-care/bathing-bars/zyndet-bar-125gm',
+          categorySlugPath: ['skin-care', 'bathing-bars'],
+        }),
+      ).toEqual([
+        '/shop/skin-care/bathing-bars/zyndet-bar-125gm',
+        '/shop/skin-care/bathing-bars/zyndet-bar-125gm-1',
+      ]);
+    });
+
+    it('emits only the slug permalink when product_page_url is empty', () => {
+      expect(
+        buildProductLocPaths({
+          slug: 'vitamin-c-serum',
+          productPageUrl: null,
+          categorySlugPath: ['skin-care'],
+        }),
+      ).toEqual(['/shop/skin-care/vitamin-c-serum']);
+    });
+
+    it('emits only product_page_url when slug is missing', () => {
+      expect(
+        buildProductLocPaths({
+          slug: '',
+          productPageUrl: '/shop/vitamin-c/',
+          categorySlugPath: ['skin-care'],
+        }),
+      ).toEqual(['/shop/vitamin-c']);
     });
 
     it('falls back to /shop/{slug} when there is no category path', () => {
@@ -77,9 +111,11 @@ describe('sitemap-url.builder', () => {
 
   it('builds listing and detail loc paths', () => {
     expect(buildCategoryLocPath(['wellness', 'immunity'])).toBe('/product-category/wellness/immunity');
-    expect(buildBrandLocPath('himalaya')).toBe('/product-brands/himalaya');
-    expect(buildHealthConcernLocPath('Blood Sugar')).toBe('/health-concerns/blood-sugar');
-    expect(buildWellnessGoalLocPath('Immune Support')).toBe('/wellness-goals/immune-support');
+    expect(buildBrandLocPath('la-roche-posay')).toBe('/product-brands/la-roche-posay');
+    expect(buildHealthConcernLocPath('blood-sugar')).toBe('/health-concerns/blood-sugar');
+    expect(buildWellnessGoalLocPath('Digestion & Gut Health')).toBe(
+      '/wellness-goals/digestion-and-gut-health',
+    );
     expect(buildCollectionLocPath('bestsellers')).toBe('/collections/bestsellers');
     expect(buildBlogLocPath('how-to-care-for-skin')).toBe('/how-to-care-for-skin');
     expect(buildSupportLocPath('return-policy-help')).toBe('/support/articles/return-policy-help');
@@ -92,8 +128,9 @@ describe('sitemap-url.builder', () => {
     expect(buildCmsLocPath('')).toBeNull();
   });
 
-  it('slugifies like home-section titles', () => {
+  it('slugifies like storefront listing pages (`&` becomes `and`)', () => {
     expect(slugifyForUrl('Immune Support!')).toBe('immune-support');
+    expect(slugifyForUrl('Digestion & Gut Health')).toBe('digestion-and-gut-health');
   });
 
   it('dedupes identical loc paths', () => {
