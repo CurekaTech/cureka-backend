@@ -64,15 +64,19 @@ export class BobBrandService {
     return this.buildPersonalDetails(user.id);
   }
 
-  async cancelOrder(dto: BobCancelOrderDto): Promise<BobPersonalDetails> {
+  async cancelOrder(dto: BobCancelOrderDto): Promise<{ status: 'success'; statusCode: 200 }> {
     const reason = (dto.cancellationReason ?? '').trim();
     const safeReason = reason.length >= 3 ? reason : 'Cancelled via WhatsApp bot';
+    this.logger.log(
+      { id: dto.id, cancelledBy: dto.cancelledBy ?? 'bot' },
+      '[BOB inbound] cancel-order',
+    );
     const existing = await this.findOrder(dto.id.trim());
     if (!existing) {
       throw new NotFoundException('Bad payload!!');
     }
     await this.ordersService.cancelForAdmin(existing.id, { reason: safeReason }, 'bob');
-    return this.buildPersonalDetails(existing.userId);
+    return { status: 'success', statusCode: 200 };
   }
 
   private async buildPersonalDetails(userId: string): Promise<BobPersonalDetails> {

@@ -96,6 +96,15 @@ export class BobOrdersService {
       });
     }
 
+    this.logger.log(
+      {
+        phone: `${phone.slice(0, 2)}******${phone.slice(-2)}`,
+        cartLines: items.length,
+        paymentType: dto.paymentType,
+      },
+      '[BOB inbound] create-order draft',
+    );
+
     const order = await this.ordersService.createBobDraftOrder({
       userId: user.id,
       address: {
@@ -115,6 +124,10 @@ export class BobOrdersService {
       grandTotal: dto.total_amount ? parseMoneyAmount(dto.total_amount) : undefined,
     });
 
+    this.logger.log(
+      { OrderId: order.id, status: 'pending' },
+      '[BOB inbound] create-order draft created (WhatsApp waits for place-order)',
+    );
     return { OrderId: order.id, status: 'pending' };
   }
 
@@ -128,10 +141,20 @@ export class BobOrdersService {
 
     const paymentPending = dto.paymentPending === true;
     const paymentId = dto.paymentId?.trim() || null;
+    this.logger.log(
+      { orderId, paymentPending, hasPaymentId: Boolean(paymentId) },
+      '[BOB inbound] place-order — will notify BOB /orders-create after PROCESSING',
+    );
+
     const order = await this.ordersService.placeBobOrder({
       orderId,
       paymentId: paymentPending ? null : paymentId,
     });
+
+    this.logger.log(
+      { orderId: order.id, orderNumber: order.orderNumber, status: 'processing' },
+      '[BOB inbound] place-order done',
+    );
 
     return {
       id: `#${order.orderNumber}`,

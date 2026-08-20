@@ -10,6 +10,7 @@ import { UsersModule } from '@modules/users/users.module';
 import { BobBrandController } from './controllers/bob-brand.controller';
 import { BobCommerceController } from './controllers/bob-commerce.controller';
 import { BobApiKeyGuard } from './guards/bob-api-key.guard';
+import { BobRequestLogInterceptor } from './interceptors/bob-request-log.interceptor';
 import { BobNotifyListener } from './listeners/bob-notify.listener';
 import { BobBrandService } from './services/bob-brand.service';
 import { BobCatalogService } from './services/bob-catalog.service';
@@ -36,6 +37,7 @@ import { BobOrdersService } from './services/bob-orders.service';
   controllers: [BobCommerceController, BobBrandController],
   providers: [
     BobApiKeyGuard,
+    BobRequestLogInterceptor,
     BobCatalogService,
     BobOrdersService,
     BobBrandService,

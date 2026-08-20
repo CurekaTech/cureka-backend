@@ -120,7 +120,7 @@ export class OrdersRepository {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
     return this.repo.findOne({
       where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
-      relations: { user: true, items: { product: { media: true } } },
+      relations: { user: true, items: { product: { media: true }, variant: true } },
       order: { items: { createdAt: 'ASC' } },
     });
   }
@@ -129,7 +129,7 @@ export class OrdersRepository {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
     return repository.findOne({
       where: { orderNumber },
-      relations: { user: true, items: { product: { media: true } } },
+      relations: { user: true, items: { product: { media: true }, variant: true } },
       order: { items: { createdAt: 'ASC' } },
     });
   }
