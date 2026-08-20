@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
+import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { UnicommerceOrderService } from './unicommerce-order.service';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
@@ -34,6 +35,7 @@ describe('UnicommerceOrderService', () => {
     id: 'order-uuid-1',
     orderNumber: 'ORD123456780001',
     paymentMethod: OrderPaymentMethod.RAZORPAY,
+    paymentStatus: OrderPaymentStatus.PAID,
     orderStatus: OrderStatus.CONFIRMED,
     discountAmount: '0',
     shippingAmount: '0',
@@ -81,6 +83,48 @@ describe('UnicommerceOrderService', () => {
   it('throws when the order is missing', async () => {
     (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue(null);
     await expect(service.pushOrder('missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('skips push for unpaid prepaid orders', async () => {
+    (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
+      ...order,
+      paymentStatus: OrderPaymentStatus.PENDING,
+      orderStatus: OrderStatus.PROCESSING,
+    });
+
+    const result = await service.pushOrder('order-uuid-1');
+
+    expect(result).toBeNull();
+    expect(apiService.createSaleOrder).not.toHaveBeenCalled();
+  });
+
+  it('skips push for pending COD draft orders', async () => {
+    (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
+      ...order,
+      paymentMethod: OrderPaymentMethod.COD,
+      paymentStatus: OrderPaymentStatus.PENDING,
+      orderStatus: OrderStatus.PENDING,
+    });
+
+    const result = await service.pushOrder('order-uuid-1');
+
+    expect(result).toBeNull();
+    expect(apiService.createSaleOrder).not.toHaveBeenCalled();
+  });
+
+  it('pushes COD orders once confirmed/processing', async () => {
+    (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
+      ...order,
+      paymentMethod: OrderPaymentMethod.COD,
+      paymentStatus: OrderPaymentStatus.PENDING,
+      orderStatus: OrderStatus.PROCESSING,
+    });
+    (apiService.createSaleOrder as jest.Mock).mockResolvedValue({ successful: true });
+
+    const result = await service.pushOrder('order-uuid-1');
+
+    expect(apiService.createSaleOrder).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ successful: true });
   });
 
   it('builds the saleOrder payload and posts to Unicommerce', async () => {

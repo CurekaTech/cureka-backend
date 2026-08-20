@@ -50,6 +50,7 @@ import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util'
 import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
+import { canTransitionPaymentRequestStatus } from '../utils/payment-request-status-transition.util';
 
 @Injectable()
 export class PaymentRequestsService {
@@ -1532,7 +1533,17 @@ export class PaymentRequestsService {
 
   async handlePaymentLinkCancelled(providerReferenceId: string): Promise<void> {
     const existing = await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId);
-    if (!existing || existing.status === PaymentRequestStatus.PAID) return;
+    if (!existing) return;
+    if (!canTransitionPaymentRequestStatus(existing.status, PaymentRequestStatus.CANCELLED)) {
+      this.logger.log(
+        {
+          paymentRequestId: existing.id,
+          status: existing.status,
+        },
+        'Ignoring cancel webhook — payment request already paid or terminal',
+      );
+      return;
+    }
     await this.paymentRequestsRepository.updateById(existing.id, {
       status: PaymentRequestStatus.CANCELLED,
       updatedBy: 'razorpay-webhook',
@@ -1541,7 +1552,17 @@ export class PaymentRequestsService {
 
   async handlePaymentLinkExpired(providerReferenceId: string): Promise<void> {
     const existing = await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId);
-    if (!existing || existing.status === PaymentRequestStatus.PAID) return;
+    if (!existing) return;
+    if (!canTransitionPaymentRequestStatus(existing.status, PaymentRequestStatus.EXPIRED)) {
+      this.logger.log(
+        {
+          paymentRequestId: existing.id,
+          status: existing.status,
+        },
+        'Ignoring expire webhook — payment request already paid or terminal',
+      );
+      return;
+    }
     await this.paymentRequestsRepository.updateById(existing.id, {
       status: PaymentRequestStatus.EXPIRED,
       updatedBy: 'razorpay-webhook',

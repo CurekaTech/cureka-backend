@@ -4,6 +4,11 @@ import { CheckoutCartAbandonedEvent, EVENTS } from '@packages/events';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
+import {
+  resolveOrderStatusUpdate,
+  resolvePaymentStatusUpdate,
+} from '@modules/orders/utils/payment-status-transition.util';
+import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { createHash } from 'crypto';
 import { DataSource } from 'typeorm';
 import {
@@ -24,7 +29,7 @@ export class GokwikWebhookService {
     private readonly queueService: GokwikQueueService,
     private readonly apiService: GokwikApiService,
     private readonly dataSource: DataSource,
-    private readonly eventEmitter: EventEmitter2,
+    private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
   ) {}
 
   receiveTransaction(payload: GokwikTransactionWebhookDto) {
@@ -293,30 +298,68 @@ export class GokwikWebhookService {
 
     const status = payload.event.toLowerCase();
     const previousPaymentStatus = link.order.paymentStatus;
-    let paymentStatus: OrderPaymentStatus;
+    let nextPaymentStatus: OrderPaymentStatus;
     if (status.includes('success') || status === 'paid') {
-      paymentStatus =
+      nextPaymentStatus =
         Number(link.payableOnDelivery) > 0
           ? OrderPaymentStatus.PARTIALLY_PAID
           : OrderPaymentStatus.PAID;
     } else if (status.includes('refund')) {
-      paymentStatus = OrderPaymentStatus.REFUNDED;
+      nextPaymentStatus = OrderPaymentStatus.REFUNDED;
     } else if (status.includes('fail')) {
-      paymentStatus = OrderPaymentStatus.FAILED;
+      nextPaymentStatus = OrderPaymentStatus.FAILED;
     } else {
-      paymentStatus = OrderPaymentStatus.PENDING;
+      nextPaymentStatus = OrderPaymentStatus.PENDING;
     }
 
-    const orderUpdate: Partial<OrderEntity> = { paymentStatus };
-    if (status.includes('success') || status === 'paid') {
-      orderUpdate.orderStatus = OrderStatus.CONFIRMED;
+    const paymentTransition = resolvePaymentStatusUpdate(
+      previousPaymentStatus,
+      nextPaymentStatus,
+    );
+    if (paymentTransition.skipped && previousPaymentStatus !== nextPaymentStatus) {
+      this.logger.warn(
+        {
+          paymentId: data.paymentId,
+          orderId: link.orderId,
+          orderNumber: link.order.orderNumber,
+          event: payload.event,
+          previousPaymentStatus,
+          ignoredPaymentStatus: nextPaymentStatus,
+        },
+        '[GoKwik-Webhook] transaction ignored — regressive or out-of-order payment status',
+      );
+      return;
     }
 
-    await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, orderUpdate);
-    if (status.includes('success') || status === 'paid') {
+    const orderUpdate: Partial<OrderEntity> = {};
+    if (paymentTransition.apply) {
+      orderUpdate.paymentStatus = paymentTransition.status;
+    }
+
+    const wantsConfirmed = status.includes('success') || status === 'paid';
+    if (wantsConfirmed) {
+      const orderTransition = resolveOrderStatusUpdate(
+        link.order.orderStatus,
+        OrderStatus.CONFIRMED,
+      );
+      if (orderTransition.apply) {
+        orderUpdate.orderStatus = orderTransition.status;
+      }
+    }
+
+    if (Object.keys(orderUpdate).length > 0) {
+      await this.dataSource.getRepository(OrderEntity).update({ id: link.orderId }, orderUpdate);
+    }
+
+    if (
+      wantsConfirmed &&
+      (paymentTransition.status === OrderPaymentStatus.PAID ||
+        paymentTransition.status === OrderPaymentStatus.PARTIALLY_PAID)
+    ) {
       // Do not call Update Order inline — GoKwik often has not stored
       // merchant_order_id yet (webhook races place-order). Delayed job retries.
       await this.queueService.enqueueOrderStatus(link.orderId, 'Confirmed');
+      await this.unicommerceOrderQueueService.enqueuePushOrder(link.orderId);
       this.logger.log(
         {
           paymentId: data.paymentId,
@@ -325,7 +368,7 @@ export class GokwikWebhookService {
           event: payload.event,
           orderStatusPushed: 'Confirmed',
         },
-        '[GoKwik-Webhook] queued delayed updateOrder from transaction success',
+        '[GoKwik-Webhook] queued delayed updateOrder + UniCommerce push from transaction success',
       );
     }
 
@@ -337,7 +380,8 @@ export class GokwikWebhookService {
         event: payload.event,
         amount: data.amount,
         previousPaymentStatus,
-        nextPaymentStatus: paymentStatus,
+        nextPaymentStatus: paymentTransition.status,
+        paymentStatusApplied: paymentTransition.apply,
       },
       '[GoKwik-Webhook] transaction applied',
     );
@@ -391,16 +435,40 @@ export class GokwikWebhookService {
     const normalized = payload.event.toLowerCase();
     const previousPaymentStatus = link.order.paymentStatus;
     const totalRefunded = await this.repository.sumSuccessfulOrPendingRefunds(link.orderId);
-    const paymentStatus = normalized.includes('success')
+    const nextPaymentStatus = normalized.includes('success')
       ? totalRefunded >= Number(link.order.grandTotal)
         ? OrderPaymentStatus.REFUNDED
         : OrderPaymentStatus.PARTIALLY_REFUNDED
       : normalized.includes('pending') || normalized.includes('initiated')
         ? OrderPaymentStatus.REFUND_PENDING
         : link.order.paymentStatus;
-    await this.dataSource
-      .getRepository(OrderEntity)
-      .update({ id: link.orderId }, { paymentStatus });
+
+    const paymentTransition = resolvePaymentStatusUpdate(
+      previousPaymentStatus,
+      nextPaymentStatus,
+    );
+    if (paymentTransition.skipped && previousPaymentStatus !== nextPaymentStatus) {
+      this.logger.warn(
+        {
+          paymentId: data.paymentId,
+          refundId: data.refundId,
+          orderId: link.orderId,
+          orderNumber: link.order.orderNumber,
+          event: payload.event,
+          previousPaymentStatus,
+          ignoredPaymentStatus: nextPaymentStatus,
+        },
+        '[GoKwik-Webhook] refund ignored — regressive or out-of-order payment status',
+      );
+      return;
+    }
+
+    if (paymentTransition.apply) {
+      await this.dataSource
+        .getRepository(OrderEntity)
+        .update({ id: link.orderId }, { paymentStatus: paymentTransition.status });
+    }
+
     this.logger.log(
       {
         paymentId: data.paymentId,
@@ -412,7 +480,8 @@ export class GokwikWebhookService {
         auto: data.auto,
         totalRefunded,
         previousPaymentStatus,
-        nextPaymentStatus: paymentStatus,
+        nextPaymentStatus: paymentTransition.status,
+        paymentStatusApplied: paymentTransition.apply,
       },
       '[GoKwik-Webhook] refund applied',
     );
