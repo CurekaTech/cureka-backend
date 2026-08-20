@@ -39,6 +39,7 @@ export class BobCatalogService {
 
   async listCategories(): Promise<BobCategory[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
+    this.logger.log({ count: categories.length }, '[BOB inbound] GET /categories');
     return categories.map(mapBobCategory);
   }
 

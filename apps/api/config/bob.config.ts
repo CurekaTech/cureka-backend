@@ -6,7 +6,7 @@ export const bobConfig = registerAs('bob', () => ({
   apiKey: (process.env['BOB_API_KEY'] ?? process.env['BOB_GUEST_ID'] ?? '').trim(),
   authRequired:
     process.env['BOB_AUTH_REQUIRED'] === 'true' || process.env['NODE_ENV'] === 'production',
-  /** BusinessOnBot domain only, e.g. https://xxxx.businessonbot.com — no path. */
+  /** BusinessOnBot notify base, e.g. https://customstore.bonb.io/cureka — no /orders-create suffix. */
   notifyUrl: (process.env['BOB_NOTIFY_URL'] ?? '').trim(),
   timeoutMs: parseInt(process.env['BOB_TIMEOUT_MS'] ?? '15000', 10),
 }));
