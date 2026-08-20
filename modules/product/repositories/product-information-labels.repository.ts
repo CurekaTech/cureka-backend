@@ -161,4 +161,10 @@ export class ProductInformationLabelsRepository {
 
     return qb.getMany();
   }
+
+  transaction<T>(
+    runInTransaction: (manager: import('typeorm').EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.repo.manager.transaction(runInTransaction);
+  }
 }

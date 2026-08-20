@@ -108,6 +108,42 @@ export class ProductsRepository {
     return product;
   }
 
+  async renameProductInformationLabel(
+    oldLabel: string,
+    newLabel: string,
+    updatedBy: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
+    await repository.manager.query(
+      `
+      UPDATE products p
+      SET
+        product_information = (
+          SELECT COALESCE(
+            jsonb_agg(
+              CASE
+                WHEN item->>'label' = $1
+                  THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                ELSE item
+              END
+            ),
+            '[]'::jsonb
+          )
+          FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb)) item
+        ),
+        updated_by = $3,
+        updated_at = NOW()
+      WHERE EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb)) item
+        WHERE item->>'label' = $1
+      )
+      `,
+      [oldLabel, newLabel, updatedBy],
+    );
+  }
+
   /**
    * Lightweight load for create/update mutations (skips media/faqs/tags/etc.).
    * Used by bulk upload to avoid full-detail hydration per row.

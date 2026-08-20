@@ -6,6 +6,7 @@ import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { OrdersModule } from '@modules/orders/orders.module';
+import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
@@ -39,6 +40,7 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
   imports: [
     AdminSettingsModule,
     OrdersModule,
+    UnicommerceOrderModule,
     UsersModule,
     MasterModule,
     UploadsModule,

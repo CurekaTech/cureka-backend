@@ -14,6 +14,10 @@ import { CartItemEntity } from '../entities/cart-item.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { roundMoney } from '../utils/money.util';
+import {
+  assertCurrentProductPrices,
+  ProductPriceLine,
+} from '../utils/product-price-validation.util';
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
@@ -86,6 +90,22 @@ export class CheckoutService {
       items,
       ...pricing,
     };
+  }
+
+  /**
+   * Revalidate catalog product unit/line prices only (not coupons/fees/GoKwik totals).
+   */
+  async assertProductPricesCurrent(
+    userId: string | undefined,
+    lines: ProductPriceLine[],
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<void> {
+    await assertCurrentProductPrices(lines, manager, {
+      userId,
+      subscriptionConfigService: this.productSubscriptionConfigService,
+      subscriptionPricingService: this.productSubscriptionPricingService,
+      membershipBenefits: this.membershipBenefits,
+    });
   }
 
   private async buildCheckoutItems(
