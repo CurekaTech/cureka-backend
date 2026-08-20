@@ -120,7 +120,7 @@ Auth: `x-guest-id`. Responses are **raw** (no Cureka `{ success, data }` envelop
 
 ### 4. Outbound notify — BOB [Notifications API](https://resources.businessonbot.com/categories/api-documentation/notifications-api)
 
-We POST to `{BOB_NOTIFY_URL}` + path with header `x-guest-id`. BOB should answer:
+We POST to `{BOB_NOTIFY_URL}` + path with headers `x-guest-id` **and** `X-API-Key` (same guest key). BOB’s `customstore.bonb.io` gateway returns `401 Missing X-API-Key` if only `x-guest-id` is sent. BOB should answer:
 
 ```json
 { "status": "success", "statusCode": 200 }
