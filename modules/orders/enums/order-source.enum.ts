@@ -3,4 +3,5 @@ export enum OrderSource {
   WEBSITE = 'Website',
   APP = 'App',
   GOKWIK = 'GoKwik',
+  BOB = 'BOB',
 }

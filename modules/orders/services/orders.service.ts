@@ -43,7 +43,7 @@ import { CheckoutResolverService } from '@modules/checkout/services/checkout-res
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
-import { toMoneyString } from '../utils/money.util';
+import { roundMoney, toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
@@ -624,6 +624,225 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  /**
+   * BOB / BusinessOnBot draft: PENDING order that is not treated as a real order.
+   * No stock decrement, cart clear, or fulfillment.
+   */
+  async createBobDraftOrder(params: {
+    userId: string;
+    address: {
+      recipientName: string;
+      phoneNumber: string;
+      pincode: string;
+      addressLine1: string;
+      addressLine2?: string | null;
+      city: string;
+      state: string;
+    };
+    items: Array<{
+      productId: string;
+      variantId: string;
+      sku: string;
+      productName: string;
+      variantName: string | null;
+      quantity: number;
+      unitPrice: number;
+    }>;
+    notes?: string | null;
+    shippingAmount?: number;
+    taxAmount?: number;
+    discountAmount?: number;
+    grandTotal?: number;
+  }): Promise<OrderEntity> {
+    if (!params.items.length) {
+      throw new BadRequestException('At least one item is required');
+    }
+
+    const subtotal = roundMoney(
+      params.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
+    );
+    const shippingAmount = roundMoney(params.shippingAmount ?? 0);
+    const discountAmount = roundMoney(params.discountAmount ?? 0);
+    const taxAmount = roundMoney(params.taxAmount ?? 0);
+    const grandTotal = roundMoney(
+      params.grandTotal ?? Math.max(0, subtotal + shippingAmount + taxAmount - discountAmount),
+    );
+
+    return this.dataSource.transaction(async (manager) => {
+      const orderRefId = await generateUniqueRefId('order', (candidate) =>
+        this.ordersRepository.existsByRefId(candidate),
+      );
+      const orderNumber = await this.generateOrderNumber();
+      const address = params.address;
+
+      const createdOrder = await this.ordersRepository.create(
+        {
+          refId: orderRefId,
+          orderNumber,
+          userId: params.userId,
+          subtotal: toMoneyString(subtotal),
+          discountAmount: toMoneyString(discountAmount),
+          shippingAmount: toMoneyString(shippingAmount),
+          handlingAmount: '0.00',
+          platformFee: '0.00',
+          codCharge: '0.00',
+          prepaidDiscount: '0.00',
+          grandTotal: toMoneyString(grandTotal),
+          paymentMethod: OrderPaymentMethod.COD,
+          paymentStatus: OrderPaymentStatus.PENDING,
+          orderStatus: OrderStatus.PENDING,
+          orderSource: OrderSource.BOB,
+          recipientName: address.recipientName,
+          phoneNumber: address.phoneNumber,
+          pincode: address.pincode,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2 ?? null,
+          landmark: null,
+          city: address.city,
+          state: address.state,
+          notes: params.notes ?? null,
+          placedAt: null,
+          createdBy: params.userId,
+          updatedBy: params.userId,
+        },
+        manager,
+      );
+
+      const orderItemsPayload: Partial<OrderItemEntity>[] = [];
+      for (const item of params.items) {
+        const variant = await manager.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+        });
+        if (!variant) {
+          throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
+        }
+        const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
+          this.orderItemsRepository.existsByRefId(candidate),
+        );
+        orderItemsPayload.push({
+          refId: orderItemRefId,
+          orderId: createdOrder.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          sku: item.sku,
+          productName: item.productName,
+          variantName: item.variantName,
+          quantity: item.quantity,
+          unitPrice: toMoneyString(item.unitPrice),
+          totalPrice: toMoneyString(item.unitPrice * item.quantity),
+        });
+      }
+      await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+      const saved = await this.ordersRepository.findByOrderNumber(createdOrder.orderNumber, manager);
+      if (!saved) throw new NotFoundException('Draft order not found after create');
+      return saved;
+    });
+  }
+
+  /**
+   * BOB / BusinessOnBot place-order: PENDING → PROCESSING.
+   * COD: no paymentId. Prepaid: paymentId stored as paid.
+   */
+  async placeBobOrder(params: {
+    orderId: string;
+    paymentId?: string | null;
+  }): Promise<OrderEntity> {
+    let shouldPushFulfillment = true;
+    const isPrepaid = Boolean(params.paymentId?.trim());
+
+    const order = await this.dataSource.transaction(async (manager) => {
+      const existing =
+        (await this.ordersRepository.findByOrderNumber(params.orderId, manager)) ??
+        (await this.ordersRepository.findByIdOrRefId(params.orderId));
+      if (!existing) {
+        throw new BadRequestException('Invalid order id');
+      }
+
+      if (
+        existing.orderStatus === OrderStatus.PROCESSING ||
+        existing.orderStatus === OrderStatus.CONFIRMED
+      ) {
+        shouldPushFulfillment = false;
+        return existing;
+      }
+
+      if (existing.orderStatus !== OrderStatus.PENDING) {
+        throw new BadRequestException('Order cannot be placed in its current state');
+      }
+
+      const items = existing.items ?? [];
+      if (!items.length) {
+        throw new BadRequestException('Order has no items');
+      }
+
+      for (const item of items) {
+        const variant = await manager.getRepository(ProductVariantEntity).findOne({
+          where: { id: item.variantId },
+        });
+        if (!variant) {
+          throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
+        }
+        const decrementQb = manager
+          .getRepository(ProductVariantEntity)
+          .createQueryBuilder()
+          .update(ProductVariantEntity)
+          .set({ stock: () => `"stock" - ${item.quantity}` })
+          .where('id = :id', { id: item.variantId });
+        if (STOCK_VALIDATION_ENABLED) {
+          decrementQb.andWhere('stock >= :quantity', { quantity: item.quantity });
+        }
+        const decrement = await decrementQb.execute();
+        if (STOCK_VALIDATION_ENABLED && decrement.affected !== 1) {
+          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+        }
+      }
+
+      const paymentMethod = isPrepaid ? OrderPaymentMethod.RAZORPAY : OrderPaymentMethod.COD;
+      const paymentStatus = isPrepaid ? OrderPaymentStatus.PAID : OrderPaymentStatus.PENDING;
+
+      await this.ordersRepository.updateById(
+        existing.id,
+        {
+          paymentMethod,
+          paymentStatus,
+          orderStatus: OrderStatus.PROCESSING,
+          notes: isPrepaid
+            ? [existing.notes, `paymentId=${params.paymentId}`].filter(Boolean).join(' | ')
+            : existing.notes,
+          placedAt: new Date(),
+          updatedBy: existing.userId,
+        },
+        manager,
+      );
+
+      const placed = await this.ordersRepository.findByOrderNumber(existing.orderNumber, manager);
+      if (!placed) throw new NotFoundException('Order not found after place');
+
+      if (!isPrepaid) {
+        await this.createCodPaymentRequestForAdminList(
+          {
+            userId: placed.userId,
+            addressId: null,
+            order: placed,
+            items: placed.items ?? [],
+            orderSource: OrderSource.BOB,
+            couponCode: placed.couponCode,
+          },
+          manager,
+        );
+      }
+
+      return placed;
+    });
+
+    if (shouldPushFulfillment) {
+      await this.notifyOrderPlacedSafely(order, 'bob-place-order');
+      await this.kickoffFulfillment(order.id, order.orderNumber, 'bob-place-order');
+    }
+
+    return (await this.ordersRepository.findByOrderNumber(order.orderNumber)) ?? order;
   }
 
   async findMyOrders(userId: string, query: OrderQueryDto) {
