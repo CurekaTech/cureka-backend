@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { generateUniqueRefId } from '@packages/common';
 import { AdminSettingsRepository } from '../repositories/admin-settings.repository';
 import { UpdateSettingValueDto, ToggleSettingStatusDto, BulkUpdateSettingsDto } from '../dto/admin-setting.dto';
 import { mapAdminSettingEntitiesToResponse, mapAdminSettingEntityToResponse } from '../mappers/admin-setting.mapper';
@@ -399,7 +400,12 @@ export class AdminSettingsService {
       return existing;
     }
 
+    const refId = await generateUniqueRefId('SET', (candidate) =>
+      this.adminSettingsRepository.existsByRefId(candidate),
+    );
+
     return this.adminSettingsRepository.create({
+      refId,
       key: ALLOW_GUEST_LOGIN_KEY,
       value: 'false',
       status: AdminSettingStatus.INACTIVE,
