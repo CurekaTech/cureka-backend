@@ -1,25 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { IOrderNotifyInput } from '../interfaces/order-notify.interface';
 import { Msg91OrderField } from '../interfaces/msg91-sms.interface';
-import {
-  IOrderNotifyInput,
-  WhatsAppBodyVariable,
-} from '../interfaces/whatsapp-send.interface';
 import { mapOrderStatusForSms } from '../utils/order-status-sms.util';
 import { Msg91SmsService } from './msg91-sms.service';
-import { WhatsappService } from './whatsapp.service';
 
 type NotifyEvent = 'orderPlaced' | 'orderCancelled';
 
 @Injectable()
 export class OrderNotificationsService {
   private readonly logger = new Logger(OrderNotificationsService.name);
-  private readonly language: string;
-
-  private readonly whatsappTemplates: Record<
-    NotifyEvent,
-    { templateName: string; bodyVars: WhatsAppBodyVariable[] }
-  >;
 
   private readonly smsTemplates: Record<
     NotifyEvent,
@@ -32,29 +22,8 @@ export class OrderNotificationsService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly whatsappService: WhatsappService,
     private readonly msg91SmsService: Msg91SmsService,
   ) {
-    this.language = this.configService.get<string>('whatsapp.language') ?? 'en_US';
-
-    this.whatsappTemplates = {
-      orderPlaced: {
-        templateName: this.configService.get<string>('whatsapp.orderPlacedTemplateName') ?? '',
-        bodyVars: (this.configService.get<string[]>('whatsapp.orderPlacedBodyVars') ?? [
-          'customerName',
-          'orderNumber',
-          'grandTotal',
-        ]) as WhatsAppBodyVariable[],
-      },
-      orderCancelled: {
-        templateName: this.configService.get<string>('whatsapp.orderCancelledTemplateName') ?? '',
-        bodyVars: (this.configService.get<string[]>('whatsapp.orderCancelledBodyVars') ?? [
-          'customerName',
-          'orderNumber',
-        ]) as WhatsAppBodyVariable[],
-      },
-    };
-
     this.smsTemplates = {
       orderPlaced: {
         templateId: this.configService.get<string>('msg91.orderThankYouTemplateId') ?? '',
@@ -83,65 +52,36 @@ export class OrderNotificationsService {
     this.logger.log(
       {
         smsServiceReady: this.msg91SmsService.isConfigured(),
-        whatsappServiceReady: this.whatsappService.isConfigured(),
         templates: {
-          orderPlaced: {
-            whatsapp: Boolean(this.whatsappTemplates.orderPlaced.templateName.trim()),
-            sms: Boolean(this.smsTemplates.orderPlaced.templateId.trim()),
-          },
-          orderCancelled: {
-            whatsapp: Boolean(this.whatsappTemplates.orderCancelled.templateName.trim()),
-            sms: Boolean(this.smsTemplates.orderCancelled.templateId.trim()),
-          },
+          orderPlaced: Boolean(this.smsTemplates.orderPlaced.templateId.trim()),
+          orderCancelled: Boolean(this.smsTemplates.orderCancelled.templateId.trim()),
         },
-        configSource: {
-          whatsapp: 'apps/api/config/whatsapp.constants.ts',
-          msg91: 'apps/api/config/msg91.constants.ts',
-        },
+        configSource: 'apps/api/config/msg91.constants.ts',
       },
-      '[OrderNotifications] Template config presence check (true/false only)',
+      '[OrderNotifications] SMS template config presence check',
     );
   }
 
   /**
-   * Fire-and-forget safe wrapper — never throws to the order flow.
-   * Order WhatsApp goes through BOB `/orders-create` when BOB_NOTIFY_URL is set
-   * (do not call `/wabiz/send`). MSG91 SMS is still sent from here.
+   * Fire-and-forget — never throws to the order flow.
+   * WhatsApp is BOB `/orders-create` (not this service). This sends MSG91 SMS only.
    */
   async notifyOrderPlacedSafely(input: IOrderNotifyInput): Promise<void> {
-    await this.notifySafely('orderPlaced', input);
+    await this.notifySmsSafely('orderPlaced', input);
   }
 
-  /** Cancel order — WhatsApp + MSG91 SMS (non-blocking). */
   async notifyOrderCancelledSafely(input: IOrderNotifyInput): Promise<void> {
-    await this.notifySafely('orderCancelled', input);
+    await this.notifySmsSafely('orderCancelled', input);
   }
 
-  /** @deprecated use notifyOrderPlacedSafely — kept for callers that expect WhatsApp-only name */
-  async notifyOrderPlaced(input: IOrderNotifyInput): Promise<void> {
-    await this.notifyWhatsApp('orderPlaced', input);
-  }
-
-  private async notifySafely(event: NotifyEvent, input: IOrderNotifyInput): Promise<void> {
+  private async notifySmsSafely(event: NotifyEvent, input: IOrderNotifyInput): Promise<void> {
     const label = event === 'orderPlaced' ? 'order placed' : 'order cancelled';
-    await Promise.all([
-      this.runSafely(`WhatsApp:${event}`, input, label, () => this.notifyWhatsApp(event, input)),
-      this.runSafely(`MSG91-SMS:${event}`, input, label, () => this.notifySms(event, input)),
-    ]);
-  }
-
-  private async runSafely(
-    channel: string,
-    input: IOrderNotifyInput,
-    label: string,
-    fn: () => Promise<void>,
-  ): Promise<void> {
     try {
-      await fn();
+      await this.notifySms(event, input);
     } catch (error) {
       this.logger.error(
         {
-          channel,
+          channel: `MSG91-SMS:${event}`,
           orderNumber: input.orderNumber,
           source: input.source,
           error:
@@ -149,73 +89,9 @@ export class OrderNotificationsService {
               ? { name: error.name, message: error.message }
               : { message: String(error) },
         },
-        `[${channel}] ${label} notification failed (non-blocking)`,
+        `[MSG91-SMS] ${label} notification failed (non-blocking)`,
       );
     }
-  }
-
-  private isBobNotifyConfigured(): boolean {
-    return Boolean(this.configService.get<string>('bob.notifyUrl')?.trim());
-  }
-
-  private async notifyWhatsApp(event: NotifyEvent, input: IOrderNotifyInput): Promise<void> {
-    const label = event === 'orderPlaced' ? 'Order placed' : 'Order cancelled';
-    const { templateName, bodyVars } = this.whatsappTemplates[event];
-
-    if (this.isBobNotifyConfigured()) {
-      this.logger.log(
-        { orderNumber: input.orderNumber, source: input.source, event },
-        `[WhatsApp] ${label} skipped — BOB /orders-create handles WhatsApp (not /wabiz/send)`,
-      );
-      return;
-    }
-
-    if (!this.whatsappService.isConfigured()) {
-      this.logger.log(
-        { orderNumber: input.orderNumber, source: input.source, event },
-        `[WhatsApp] ${label} notify skipped — WhatsApp disabled/unconfigured`,
-      );
-      return;
-    }
-
-    if (!templateName.trim()) {
-      this.logger.warn(
-        { orderNumber: input.orderNumber, event },
-        `[WhatsApp] ${event} templateName is empty in whatsapp.constants.ts — skipping`,
-      );
-      return;
-    }
-
-    if (!input.phoneNumber?.trim()) {
-      this.logger.warn(
-        { orderNumber: input.orderNumber, event },
-        `[WhatsApp] ${label} — order has no phone number — skipping`,
-      );
-      return;
-    }
-
-    const values = this.fieldValues(input, mapOrderStatusForSms(input.orderStatus));
-    const bodyTexts = bodyVars.map((key) => values[key] ?? '');
-
-    this.logger.log(
-      {
-        orderNumber: input.orderNumber,
-        source: input.source,
-        event,
-        templateName,
-        language: this.language,
-        bodyVars,
-        bodyTexts,
-      },
-      `[WhatsApp] Sending ${label.toLowerCase()} notification`,
-    );
-
-    await this.whatsappService.sendTemplate({
-      phone: input.phoneNumber,
-      templateName,
-      language: this.language,
-      bodyTexts,
-    });
   }
 
   private async notifySms(event: NotifyEvent, input: IOrderNotifyInput): Promise<void> {
@@ -268,7 +144,6 @@ export class OrderNotificationsService {
     const values = this.fieldValues(input, smsOrderStatus);
     const variables: Record<string, string> = {};
     for (const pair of varPairs) {
-      // DLT allows max 40 chars per variable — truncate so cancel reason cannot block SMS.
       variables[pair.templateKey] = this.truncateForDlt(values[pair.field] ?? '');
     }
 

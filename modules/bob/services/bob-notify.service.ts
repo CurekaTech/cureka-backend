@@ -37,7 +37,14 @@ export class BobNotifyService {
           },
         }),
       );
-      this.logger.log({ path, url }, '[BOB notify] posted');
+      this.logger.log(
+        {
+          path,
+          url,
+          orderId: 'id' in payload ? String((payload as { id?: string }).id ?? '') : undefined,
+        },
+        '[BOB notify] posted',
+      );
     } catch (error) {
       this.logger.warn(
         {

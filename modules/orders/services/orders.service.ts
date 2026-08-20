@@ -1742,7 +1742,7 @@ export class OrdersService {
         phone: phone ? `${phone.slice(0, 2)}******${phone.slice(-2)}` : null,
         cancelReason,
       },
-      '[OrderNotify] Dispatching order-cancelled notifications (WhatsApp + MSG91 SMS)',
+      '[OrderNotify] Dispatching order-cancelled notifications (BOB /orders-cancelled + MSG91 SMS)',
     );
 
     try {
