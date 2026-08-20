@@ -105,7 +105,8 @@ export class OrderNotificationsService {
 
   /**
    * Fire-and-forget safe wrapper — never throws to the order flow.
-   * Sends WhatsApp (Bonb) + MSG91 thank-you SMS independently.
+   * Order WhatsApp goes through BOB `/orders-create` when BOB_NOTIFY_URL is set
+   * (do not call `/wabiz/send`). MSG91 SMS is still sent from here.
    */
   async notifyOrderPlacedSafely(input: IOrderNotifyInput): Promise<void> {
     await this.notifySafely('orderPlaced', input);
@@ -153,9 +154,21 @@ export class OrderNotificationsService {
     }
   }
 
+  private isBobNotifyConfigured(): boolean {
+    return Boolean(this.configService.get<string>('bob.notifyUrl')?.trim());
+  }
+
   private async notifyWhatsApp(event: NotifyEvent, input: IOrderNotifyInput): Promise<void> {
     const label = event === 'orderPlaced' ? 'Order placed' : 'Order cancelled';
     const { templateName, bodyVars } = this.whatsappTemplates[event];
+
+    if (this.isBobNotifyConfigured()) {
+      this.logger.log(
+        { orderNumber: input.orderNumber, source: input.source, event },
+        `[WhatsApp] ${label} skipped — BOB /orders-create handles WhatsApp (not /wabiz/send)`,
+      );
+      return;
+    }
 
     if (!this.whatsappService.isConfigured()) {
       this.logger.log(

@@ -118,6 +118,7 @@ export function mapBobOrder(order: OrderEntity, shipment?: ShipmentEntity | null
     name: `#${order.orderNumber}`,
     email: order.user?.email ?? '',
     createdAt: (order.placedAt ?? order.createdAt).toISOString(),
+    sendNotification: true,
     fullyPaid: order.paymentStatus === OrderPaymentStatus.PAID,
     cancelReason: cancelled ? order.cancelReason : null,
     cancelledAt: cancelled ? order.updatedAt.toISOString() : null,
