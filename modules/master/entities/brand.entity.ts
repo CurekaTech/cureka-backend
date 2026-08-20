@@ -18,6 +18,15 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  @Column(storageFileReferenceColumn())
+  video!: IStorageFileReference | null;
+
+  @Column(storageFileReferenceColumn({ name: 'featured_banner' }))
+  featuredBanner!: IStorageFileReference | null;
+
+  @Column(storageFileReferenceColumn({ name: 'promotional_banner' }))
+  promotionalBanner!: IStorageFileReference | null;
+
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 

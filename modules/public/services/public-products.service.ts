@@ -554,6 +554,9 @@ export class PublicProductsService {
     return this.storageUrlEnricher.enrichFields(mapBrandEntityToListingContext(brand), [
       'logo',
       'banner',
+      'video',
+      'featuredBanner',
+      'promotionalBanner',
     ]);
   }
 

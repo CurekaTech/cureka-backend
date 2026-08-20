@@ -1252,7 +1252,7 @@ export class ProductsService {
 
   private async enrichProductDetail(product: IProductDetail): Promise<IProductDetail> {
     const enrichedBase = await this.enrichProduct(product);
-    const brandFields = ['logo', 'banner'] as const;
+    const brandFields = ['logo', 'banner', 'video', 'featuredBanner', 'promotionalBanner'] as const;
     const logoFields = ['logo'] as const;
     const healthConcernFields = ['icon', 'banner'] as const;
 
