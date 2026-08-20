@@ -15,6 +15,9 @@ export interface IPublicBrandProductListingContext {
   slug: string;
   logo: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  video: IStorageFileReference | IStorageFileReferenceResponse | null;
+  featuredBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  promotionalBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   description: string | null;
   metaTitle: string | null;
   metaDescription: string | null;

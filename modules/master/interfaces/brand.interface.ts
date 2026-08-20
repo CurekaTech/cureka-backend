@@ -8,6 +8,9 @@ export interface IBrand {
   slug: string;
   logo: IStorageFileReferenceResponse | null;
   banner: IStorageFileReferenceResponse | null;
+  video: IStorageFileReferenceResponse | null;
+  featuredBanner: IStorageFileReferenceResponse | null;
+  promotionalBanner: IStorageFileReferenceResponse | null;
   description: string | null;
   status: MasterStatus;
   inHomePage: boolean;
