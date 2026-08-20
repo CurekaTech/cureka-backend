@@ -27,5 +27,29 @@ describe('canTransitionPaymentRequestStatus', () => {
     expect(
       canTransitionPaymentRequestStatus(PaymentRequestStatus.PAID, PaymentRequestStatus.EXPIRED),
     ).toBe(false);
+    expect(
+      canTransitionPaymentRequestStatus(PaymentRequestStatus.PAID, PaymentRequestStatus.FAILED),
+    ).toBe(false);
+  });
+
+  it('allows pending/link → failed, and failed → paid/link regenerate', () => {
+    expect(
+      canTransitionPaymentRequestStatus(
+        PaymentRequestStatus.LINK_GENERATED,
+        PaymentRequestStatus.FAILED,
+      ),
+    ).toBe(true);
+    expect(
+      canTransitionPaymentRequestStatus(
+        PaymentRequestStatus.FAILED,
+        PaymentRequestStatus.PAID,
+      ),
+    ).toBe(true);
+    expect(
+      canTransitionPaymentRequestStatus(
+        PaymentRequestStatus.FAILED,
+        PaymentRequestStatus.LINK_GENERATED,
+      ),
+    ).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, FindOptionsWhere, ILike, Not, Repository } from 'typeorm';
+import { EntityManager, ILike, Not, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
@@ -134,6 +134,20 @@ export class OrdersRepository {
     });
   }
 
+  /** Idempotency helper for failed payment-request → order materialization. */
+  findFailedByPaymentRequestRef(
+    paymentRequestRefId: string,
+  ): Promise<OrderEntity | null> {
+    return this.repo.findOne({
+      where: {
+        paymentStatus: OrderPaymentStatus.FAILED,
+        notes: ILike(`%payment request ${paymentRequestRefId}%`),
+      },
+      relations: { items: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   findRecentPlacedByUserId(userId: string, limit = 3): Promise<OrderEntity[]> {
     return this.repo.find({
       where: { userId, orderStatus: Not(OrderStatus.PENDING) },
@@ -170,25 +184,79 @@ export class OrdersRepository {
   async findByUserPaginated(options: {
     userId: string;
     status?: OrderStatus;
+    paymentStatus?: OrderPaymentStatus;
+    paymentMethod?: OrderPaymentMethod;
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
     page: number;
     limit: number;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
   }): Promise<{ data: OrderEntity[]; total: number }> {
-    const { userId, status, page, limit } = options;
+    const { userId, page, limit } = options;
     const { skip, take } = buildSkipTake(page, limit);
+    const sortOrder = options.sortOrder ?? 'DESC';
+    const SORTABLE: Record<string, string> = {
+      createdAt: 'order.createdAt',
+      placedAt: 'order.placedAt',
+      orderNumber: 'order.orderNumber',
+      grandTotal: 'order.grandTotal',
+      orderStatus: 'order.orderStatus',
+      paymentStatus: 'order.paymentStatus',
+    };
+    const sortColumn =
+      (options.sortBy && SORTABLE[options.sortBy]) ?? SORTABLE.createdAt;
 
-    const where: FindOptionsWhere<OrderEntity> = { userId };
-    if (status) {
-      where.orderStatus = status;
+    const qb = this.repo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('product.media', 'media')
+      .where('order.userId = :userId', { userId })
+      .orderBy(sortColumn, sortOrder, 'NULLS LAST')
+      .addOrderBy('items.createdAt', 'ASC')
+      .skip(skip)
+      .take(take);
+
+    if (options.status) {
+      qb.andWhere('order.orderStatus = :orderStatus', { orderStatus: options.status });
+    }
+    if (options.paymentStatus) {
+      qb.andWhere('order.paymentStatus = :paymentStatus', {
+        paymentStatus: options.paymentStatus,
+      });
+    }
+    if (options.paymentMethod) {
+      qb.andWhere('order.paymentMethod = :paymentMethod', {
+        paymentMethod: options.paymentMethod,
+      });
+    }
+    if (options.fromDate) {
+      qb.andWhere('order.createdAt >= :fromDate', { fromDate: options.fromDate });
+    }
+    if (options.toDate) {
+      qb.andWhere('order.createdAt <= :toDate', { toDate: options.toDate });
+    }
+    if (options.search?.trim()) {
+      qb.andWhere(
+        `(
+          order.refId ILIKE :search
+          OR order.orderNumber ILIKE :search
+          OR order.recipientName ILIKE :search
+          OR order.phoneNumber ILIKE :search
+          OR product.name ILIKE :search
+          OR items.productName ILIKE :search
+          OR CAST(order.grandTotal AS text) LIKE :searchExact
+        )`,
+        {
+          search: `%${options.search.trim()}%`,
+          searchExact: `${options.search.trim()}%`,
+        },
+      );
     }
 
-    const [data, total] = await this.repo.findAndCount({
-      where,
-      relations: { items: { product: { media: true } } },
-      order: { createdAt: 'DESC', items: { createdAt: 'ASC' } },
-      skip,
-      take,
-    });
-
+    const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 

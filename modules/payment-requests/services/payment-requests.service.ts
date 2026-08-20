@@ -1200,7 +1200,11 @@ export class PaymentRequestsService {
     if (existing.paymentProvider === 'COD') {
       throw new BadRequestException('Payment link cannot be generated for COD orders');
     }
-    if (![PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED].includes(existing.status)) {
+    if (![
+      PaymentRequestStatus.PAYMENT_PENDING,
+      PaymentRequestStatus.LINK_GENERATED,
+      PaymentRequestStatus.FAILED,
+    ].includes(existing.status)) {
       throw new BadRequestException('Payment link can only be generated for pending requests');
     }
     if (!existing.items.length) {
@@ -1519,7 +1523,106 @@ export class PaymentRequestsService {
       this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
       return;
     }
-    this.logger.warn(`Payment failed for payment request ${existing.refId}. Reason: ${reason || 'N/A'}`);
+    await this.markRequestAsFailed(existing, reason, 'razorpay-webhook');
+  }
+
+  async handlePaymentFailedByProviderReference(
+    providerReferenceId: string,
+    reason?: string,
+    updatedBy = 'payment-webhook',
+  ): Promise<void> {
+    const existing =
+      await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId);
+    if (!existing) {
+      this.logger.warn(
+        `Payment request not found for provider reference ${providerReferenceId}`,
+      );
+      return;
+    }
+    await this.markRequestAsFailed(existing, reason, updatedBy);
+  }
+
+  private async markRequestAsFailed(
+    existing: PaymentRequestEntity,
+    reason?: string,
+    updatedBy = 'payment-webhook',
+  ): Promise<void> {
+    if (!canTransitionPaymentRequestStatus(existing.status, PaymentRequestStatus.FAILED)) {
+      this.logger.log(
+        {
+          paymentRequestId: existing.id,
+          status: existing.status,
+          reason: reason || 'N/A',
+        },
+        'Ignoring payment-failed notification — request already paid or terminal',
+      );
+      return;
+    }
+
+    const notesSuffix = reason?.trim()
+      ? `Payment failed: ${reason.trim()}`
+      : 'Payment failed';
+    const notes = existing.notes?.trim()
+      ? `${existing.notes.trim()}\n${notesSuffix}`
+      : notesSuffix;
+
+    await this.paymentRequestsRepository.updateById(existing.id, {
+      status: PaymentRequestStatus.FAILED,
+      notes,
+      updatedBy,
+    });
+
+    this.logger.warn(
+      {
+        paymentRequestId: existing.id,
+        refId: existing.refId,
+        reason: reason || 'N/A',
+      },
+      'Payment request marked as FAILED',
+    );
+
+    // Ensure failed prepaid checkouts appear on GET /admin/orders.
+    try {
+      const paymentMethod = this.mapPaymentProviderToOrderMethod(existing.paymentProvider);
+      await this.ordersService.createFailedOrderFromPaymentRequest({
+        customerId: existing.customerId,
+        addressId: existing.addressId,
+        paymentRequestId: existing.id,
+        paymentRequestRefId: existing.refId,
+        subtotal: existing.subtotal,
+        discountAmount: existing.discount,
+        shippingAmount: existing.shipping ?? '0.00',
+        handlingAmount: existing.handling ?? '0.00',
+        prepaidDiscount: existing.prepaidDiscount ?? '0.00',
+        grandTotal: existing.totalAmount,
+        notes: existing.notes ?? null,
+        failureReason: reason ?? null,
+        paymentMethod,
+        orderSource: existing.orderSource ?? OrderSource.WEBSITE,
+        createdBy: updatedBy,
+        platformFee: existing.platformFee,
+        codCharge: existing.codCharge,
+        items: (existing.items ?? []).map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.total,
+          isSubscription: item.isSubscription,
+          frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
+        })),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        {
+          paymentRequestId: existing.id,
+          refId: existing.refId,
+          error: message,
+        },
+        'Failed order materialization after payment failure (non-blocking)',
+      );
+    }
   }
 
   async handlePaymentPending(paymentRequestId: string): Promise<void> {
