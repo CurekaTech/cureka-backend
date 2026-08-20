@@ -35,6 +35,14 @@ export class AdminSettingsRepository {
     });
   }
 
+  create(
+    data: Partial<AdminSettingEntity>,
+    manager?: EntityManager,
+  ): Promise<AdminSettingEntity> {
+    const repository = manager ? manager.getRepository(AdminSettingEntity) : this.repo;
+    return repository.save(repository.create(data));
+  }
+
   updateByKey(
     key: string,
     data: Partial<AdminSettingEntity>,
