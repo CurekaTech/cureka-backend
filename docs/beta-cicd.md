@@ -33,8 +33,8 @@ No `pull_request`. No `development` branch triggers. No separate CI workflow.
 ```text
 git fetch / reset --hard origin/beta_development
 git clean -fd
-npm ci                 # if package-lock changed
-npm run build          # if sources changed
+npm ci                 # always
+npm run build          # always
 npm run migration:run  # always
 pm2 reload ecosystem.config.js --update-env
 GET /api/v1/health → 200
