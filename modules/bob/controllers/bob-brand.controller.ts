@@ -1,13 +1,24 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RawResponse } from '@packages/common';
 import { BobCancelOrderDto } from '../dto/bob.dto';
 import { BobApiKeyGuard } from '../guards/bob-api-key.guard';
+import { BobRequestLogInterceptor } from '../interceptors/bob-request-log.interceptor';
 import { BobBrandService } from '../services/bob-brand.service';
 
 @ApiTags('BOB / BusinessOnBot notifications')
 @ApiHeader({ name: 'x-guest-id', required: true })
 @UseGuards(BobApiKeyGuard)
+@UseInterceptors(BobRequestLogInterceptor)
 @RawResponse()
 @Controller('bob')
 export class BobBrandController {

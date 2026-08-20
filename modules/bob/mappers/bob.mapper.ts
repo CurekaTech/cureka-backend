@@ -22,6 +22,8 @@ import { IStorageFileReference } from '@packages/storage';
 import {
   BobAbandonedCartPayload,
   BobCategory,
+  BobFulfillmentEventPayload,
+  BobFulfillmentEventStatus,
   BobFulfillmentPayload,
   BobLineItem,
   BobOrderPayload,
@@ -225,6 +227,20 @@ export function mapBobFulfillment(
   };
 }
 
+export function mapBobFulfillmentEvent(
+  order: OrderEntity,
+  shipment: ShipmentEntity,
+): BobFulfillmentEventPayload {
+  return {
+    delivery_id: shipment.id,
+    id: order.id,
+    id_alias: order.orderNumber,
+    fulfillment_id: shipment.id,
+    status: mapBobEventStatus(shipment.shipmentStatus),
+    delivered_at: (shipment.lastSyncedAt ?? shipment.updatedAt).toISOString(),
+  };
+}
+
 export function mapBobAbandonedCart(params: {
   checkoutId: string;
   recoveryUrl: string;
@@ -301,6 +317,13 @@ export function collectImageRefs(product: ProductEntity): IStorageFileReference[
     .filter((url): url is IStorageFileReference => Boolean(url?.key));
 }
 
+function variantWeight(item: OrderItemEntity): string {
+  const weight = item.variant?.weight?.trim();
+  if (!weight) return '';
+  const unit = item.variant?.weightUnit?.trim();
+  return unit ? `${weight} ${unit}` : weight;
+}
+
 function mapBobLineItem(item: OrderItemEntity, imageByKey?: Map<string, string>): BobLineItem {
   const media = item.product?.media?.[0]?.url;
   const key =
@@ -315,7 +338,7 @@ function mapBobLineItem(item: OrderItemEntity, imageByKey?: Map<string, string>)
       id: item.variantId,
       title: item.variantName || 'Default Title',
       price: String(item.unitPrice),
-      weight: '',
+      weight: variantWeight(item),
       sku: item.sku,
     },
     variantTitle: item.variantName ?? '',
@@ -323,9 +346,9 @@ function mapBobLineItem(item: OrderItemEntity, imageByKey?: Map<string, string>)
   };
 }
 
-function mapBobEventStatus(
+export function mapBobEventStatus(
   status: ShipmentStatus | string | null | undefined,
-): 'Delivered' | 'In-transit' | 'Returned' | 'Dispatched' {
+): BobFulfillmentEventStatus {
   switch (status) {
     case ShipmentStatus.DELIVERED:
       return 'Delivered';

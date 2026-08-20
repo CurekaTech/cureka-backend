@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RawResponse } from '@packages/common';
 import {
@@ -7,12 +17,14 @@ import {
   BobUpdateProductTagsDto,
 } from '../dto/bob.dto';
 import { BobApiKeyGuard } from '../guards/bob-api-key.guard';
+import { BobRequestLogInterceptor } from '../interceptors/bob-request-log.interceptor';
 import { BobCatalogService } from '../services/bob-catalog.service';
 import { BobOrdersService } from '../services/bob-orders.service';
 
 @ApiTags('BOB / BusinessOnBot commerce')
 @ApiHeader({ name: 'x-guest-id', required: true })
 @UseGuards(BobApiKeyGuard)
+@UseInterceptors(BobRequestLogInterceptor)
 @RawResponse()
 @Controller('bob')
 export class BobCommerceController {

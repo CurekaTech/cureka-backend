@@ -124,6 +124,9 @@ export type BobFulfillmentPayload = {
     email: string;
     first_name: string;
     last_name: string;
+    orders_count?: number;
+    total_spent?: number;
+    last_order_id?: string;
     phone: string;
   };
   order_details: {
@@ -141,6 +144,17 @@ export type BobFulfillmentPayload = {
   fulfilled_at: string;
 };
 
+export type BobFulfillmentEventStatus = 'Delivered' | 'In-transit' | 'Returned' | 'Dispatched';
+
+export type BobFulfillmentEventPayload = {
+  delivery_id: string;
+  id: string;
+  id_alias: string;
+  fulfillment_id: string;
+  status: BobFulfillmentEventStatus;
+  delivered_at: string;
+};
+
 export type BobAbandonedCartPayload = {
   checkout_id: string;
   cart_recovery_url: string;
@@ -155,6 +169,9 @@ export type BobAbandonedCartPayload = {
     email: string;
     first_name: string;
     last_name: string;
+    orders_count?: number;
+    total_spent?: number;
+    last_order_id?: string;
     phone: string;
   };
   order_details: {

@@ -24,7 +24,8 @@ You (WhatsApp)  →  Cureka WhatsApp number
                       ▼
               BOB_NOTIFY_URL
               /orders-create  /orders-cancelled
-              /fulfillments-create  /abandoned-cart
+              /fulfillments-create  /fulfillments-events-create
+              /abandoned-cart
                       │
                       ▼
               BOB sends WhatsApp templates
@@ -49,7 +50,7 @@ Ask `support@businessonbot.com` for:
 | They give you | Put in env as | Used for |
 |---|---|---|
 | Guest API key | `BOB_GUEST_ID` (same value in `BOB_API_KEY` is fine) | Header `x-guest-id` both directions |
-| Bot / engine domain | `BOB_NOTIFY_URL` | Our outbound notify. **Domain only**, no path. Example: `https://curekanew.private.bobot.in` |
+| Bot / engine domain | `BOB_NOTIFY_URL` | Our outbound notify. Example: `https://customstore.bonb.io/cureka` |
 
 Beta / production `.env`:
 
@@ -57,8 +58,17 @@ Beta / production `.env`:
 BOB_GUEST_ID=<guest key from BOB>
 BOB_API_KEY=<same guest key>
 BOB_AUTH_REQUIRED=true
-BOB_NOTIFY_URL=https://<your-bot>.private.bobot.in
+BOB_NOTIFY_URL=https://customstore.bonb.io/cureka
 BOB_TIMEOUT_MS=15000
+```
+
+**Delete from the server** (old Send-a-Template path — Cureka must not use these):
+
+```bash
+WHATSAPP_ENABLED
+WHATSAPP_SEND_URL
+WHATSAPP_API_KEY
+WHATSAPP_TIMEOUT_MS
 ```
 
 Also tell BOB support our inbound base:
@@ -110,16 +120,23 @@ Auth: `x-guest-id`. Responses are **raw** (no Cureka `{ success, data }` envelop
 
 ### 4. Outbound notify — BOB [Notifications API](https://resources.businessonbot.com/categories/api-documentation/notifications-api)
 
-We POST to `{BOB_NOTIFY_URL}` + path with header `x-guest-id`. This is **not** [Send a Template `/wabiz/send`](https://resources.businessonbot.com/categories/api-documentation/api-documentation/send-a-template-api). BOB sends the WhatsApp after these calls.
+We POST to `{BOB_NOTIFY_URL}` + path with header `x-guest-id`. BOB should answer:
 
-Custom stores: **do not** call `/fulfillments-events-create` (Order Delivery). Use `/fulfillments-create` only.
+```json
+{ "status": "success", "statusCode": 200 }
+```
+
+This is **not** [Send a Template `/wabiz/send`](https://resources.businessonbot.com/categories/api-documentation/api-documentation/send-a-template-api). Delete `WHATSAPP_*` from env. BOB sends the WhatsApp after these calls.
 
 | When | Path | WhatsApp BOB should send |
 |---|---|---|
 | Website / GoKwik / BOB / subscription / payment-request order is placed | `POST /orders-create` | Order confirmation |
 | Order cancelled (website, admin, or bot `/bob/cancel-order`) | `POST /orders-cancelled` | Cancel |
 | Shipment has an AWB | `POST /fulfillments-create` | Shipped / tracking |
+| Shipment becomes In-transit / Delivered / Returned | `POST /fulfillments-events-create` | Delivery status |
 | GoKwik abandoned-cart webhook | `POST /abandoned-cart` | Cart recovery |
+
+`/order/:id`, `/personal-details`, `/get-orders`, `/cancel-order` stay **inbound** (`{{brand_domain_name}}`). BOB calls us for those.
 
 ---
 
@@ -192,7 +209,8 @@ Place a normal website/GoKwik order with a phone that can receive Cureka WhatsAp
 ### E. Tracking / cancel
 
 1. After Shipway assigns AWB, we POST `/fulfillments-create` → shipped WhatsApp (if that notification is on in BOB).
-2. Cancel from admin or WhatsApp → `/orders-cancelled`.
+2. In-transit / delivered / returned → `/fulfillments-events-create`.
+3. Cancel from admin or WhatsApp → `/orders-cancelled`.
 
 ### F. Abandoned cart (optional)
 
@@ -203,10 +221,19 @@ GoKwik abandon webhook → we POST `/abandoned-cart`. Needs `STOREFRONT_URL` for
 ## Logs to grep on our API
 
 ```text
-[BOB auth] rejected
+[BOB notify] config on startup
+[BOB notify] WHATSAPP_* env is ignored
+[BOB inbound] request
+[BOB inbound] create-order
+[BOB inbound] place-order
+[OrderNotify] Dispatching order-placed notifications
+[BOB notify] ORDER_CREATED received
+[BOB notify] posting Notifications API
+[BOB notify] posted — BOB accepted
+[BOB notify] BOB rejected
 [BOB notify] skipped — BOB_NOTIFY_URL is not set
-[BOB notify] posted
-[OrderNotify] Dispatching order-placed notifications (BOB /orders-create + MSG91 SMS)
+[BOB notify] skipped — BOB_GUEST_ID is not set
+[BOB auth] rejected
 ```
 
 On **BOB** New Relic, after a real order you want:
@@ -234,6 +261,5 @@ Send them this:
 ## What we did not build
 
 - No Cureka handler for the text `hello` — that is BOB’s bot script.
-- No `/wabiz/send` client at all (deleted). BOB may still hit that path internally after `/orders-create`.
-- No `/fulfillments-events-create` (custom stores use `/fulfillments-create` only).
+- No `/wabiz/send` client at all. `WHATSAPP_*` env is ignored. BOB may still hit that path internally after `/orders-create`.
 - Chat transcripts / shared inbox live in the BOB panel, not in Cureka admin.
