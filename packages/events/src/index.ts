@@ -24,4 +24,3 @@ export { OrderCancelledEvent } from './domain/order-cancelled.event';
 export { CheckoutCartAbandonedEvent } from './domain/checkout-cart-abandoned.event';
 export { OrderConfirmedEvent } from './domain/order-confirmed.event';
 export type { OrderConfirmedSubscriptionItem } from './domain/order-confirmed.event';
-export { CheckoutCartAbandonedEvent } from './domain/checkout-cart-abandoned.event';

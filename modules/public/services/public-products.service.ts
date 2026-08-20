@@ -155,12 +155,6 @@ export class PublicProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichPaginatedCards(raw);
-    const category = filters.category
-      ? await this.buildCategoryListingContext(filters.category)
-      : null;
-    const brand = filters.brand
-      ? await this.buildBrandListingContext(filters.brand)
-      : null;
     const [category, brand] = await Promise.all([
       filters.category ? this.buildCategoryListingContext(filters.category) : Promise.resolve(null),
       filters.brand ? this.buildBrandListingContext(filters.brand) : Promise.resolve(null),
@@ -451,9 +445,6 @@ export class PublicProductsService {
     return '(unrecognized)';
   }
 
-  private async resolveBrandFilters(
-    query: PublicProductQueryDto,
-  ): Promise<{ brandId?: string; brandIds?: string[]; brand?: BrandEntity | null }> {
   private async resolveBrandFilters(query: PublicProductQueryDto): Promise<{
     brandId?: string;
     brandIds?: string[];
