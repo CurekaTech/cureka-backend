@@ -1,0 +1,89 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
+import {
+  CheckoutCartAbandonedEvent,
+  EVENTS,
+  OrderCancelledEvent,
+  ShipmentUpdatedEvent,
+} from '@packages/events';
+import { OrderEntity } from '@modules/orders/entities/order.entity';
+import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
+import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
+import {
+  mapBobAbandonedCart,
+  mapBobFulfillment,
+  mapBobOrder,
+} from '../mappers/bob.mapper';
+import { BobNotifyService } from '../services/bob-notify.service';
+
+@Injectable()
+export class BobNotifyListener {
+  private readonly logger = new Logger(BobNotifyListener.name);
+
+  constructor(
+    private readonly bobNotifyService: BobNotifyService,
+    private readonly ordersRepository: OrdersRepository,
+    private readonly shipmentsRepository: ShipmentsRepository,
+    private readonly configService: ConfigService,
+  ) {}
+
+  @OnEvent(EVENTS.ORDER_CREATED)
+  async onOrderCreated(order: Pick<OrderEntity, 'id' | 'orderNumber'>): Promise<void> {
+    const full = await this.loadOrder(order.id, order.orderNumber);
+    if (!full) return;
+    const shipment = await this.shipmentsRepository.findByOrderId(full.id);
+    await this.bobNotifyService.post('/orders-create', mapBobOrder(full, shipment));
+  }
+
+  @OnEvent(EVENTS.ORDER_CANCELLED)
+  async onOrderCancelled(event: OrderCancelledEvent): Promise<void> {
+    const full = await this.loadOrder(event.orderId, event.orderNumber);
+    if (!full) return;
+    const shipment = await this.shipmentsRepository.findByOrderId(full.id);
+    await this.bobNotifyService.post('/orders-cancelled', mapBobOrder(full, shipment));
+  }
+
+  /**
+   * Custom stores: BusinessOnBot only uses fulfillments-create (not fulfillments-events-create).
+   * Re-send fulfillments-create on each shipment update so status changes still notify.
+   */
+  @OnEvent(EVENTS.SHIPMENT_UPDATED)
+  async onShipmentUpdated(event: ShipmentUpdatedEvent): Promise<void> {
+    const shipment = await this.shipmentsRepository.findByOrderId(event.orderId);
+    const order = await this.ordersRepository.findByIdOrRefId(event.orderId);
+    if (!shipment || !order) {
+      this.logger.warn(
+        { orderId: event.orderId, shipmentId: event.shipmentId },
+        '[BOB notify] shipment updated but order/shipment missing',
+      );
+      return;
+    }
+    if (!shipment.awbNumber) {
+      return;
+    }
+    await this.bobNotifyService.post('/fulfillments-create', mapBobFulfillment(order, shipment));
+  }
+
+  @OnEvent(EVENTS.CHECKOUT_CART_ABANDONED)
+  async onCartAbandoned(event: CheckoutCartAbandonedEvent): Promise<void> {
+    const storefront =
+      this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ?? '';
+    const recoveryUrl = storefront ? `${storefront}/cart` : '';
+    await this.bobNotifyService.post(
+      '/abandoned-cart',
+      mapBobAbandonedCart({
+        checkoutId: event.checkoutId,
+        recoveryUrl,
+        payload: event.payload,
+      }),
+    );
+  }
+
+  private async loadOrder(id: string, orderNumber: string): Promise<OrderEntity | null> {
+    return (
+      (await this.ordersRepository.findByOrderNumber(orderNumber)) ??
+      (await this.ordersRepository.findByIdOrRefId(id))
+    );
+  }
+}

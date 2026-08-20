@@ -86,6 +86,11 @@ export class UsersService {
     return entity ? this.enrichUser(mapUserEntityToResponse(entity)) : null;
   }
 
+  async findByEmail(email: string): Promise<IUser | null> {
+    const entity = await this.usersRepository.findByEmail(email.trim());
+    return entity ? this.enrichUser(mapUserEntityToResponse(entity)) : null;
+  }
+
   async createFromMobileNumber(mobileNumber: string): Promise<IUser> {
     const refId = await generateUniqueRefId('user', (id) =>
       this.usersRepository.existsByRefId(id),

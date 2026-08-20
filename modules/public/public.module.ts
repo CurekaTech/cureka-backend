@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MasterModule } from '@modules/master/master.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { ProductModule } from '@modules/product/product.module';
+import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { HomepageController } from './controllers/homepage.controller';
 import { PublicCommonController } from './controllers/public-common.controller';
@@ -17,7 +18,7 @@ import { PublicProductsService } from './services/public-products.service';
 import { PublicBundlesService } from './services/public-bundles.service';
 
 @Module({
-  imports: [MasterModule, OrdersModule, ProductModule, UploadsModule],
+  imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule],
   controllers: [
     HomepageController,
     PublicCommonController,

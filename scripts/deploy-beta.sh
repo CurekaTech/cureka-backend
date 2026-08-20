@@ -9,8 +9,8 @@
 #   git fetch
 #   git reset --hard origin/beta_development
 #   git clean -fd
-#   npm ci          (only if package-lock changed)
-#   npm run build   (only if source changed)
+#   npm ci                  (always)
+#   npm run build           (always)
 #   npm run migration:run   (always)
 #   pm2 reload ecosystem.config.js --update-env
 #   health check (GET /api/v1/health → 200)
@@ -178,20 +178,6 @@ PREVIOUS_SHA="$(git rev-parse HEAD)"
 echo "${PREVIOUS_SHA}" > "${PREVIOUS_SHA_FILE}"
 log_info "Recorded PREVIOUS_SHA=${PREVIOUS_SHA}"
 
-LOCK_BEFORE=""
-[[ -f package-lock.json ]] && LOCK_BEFORE="$(sha256sum package-lock.json | awk '{print $1}')"
-
-build_paths=(
-  "apps"
-  "modules"
-  "packages"
-  "nest-cli.json"
-  "tsconfig.json"
-  "tsconfig.build.json"
-  "package.json"
-  "package-lock.json"
-)
-
 # ---------------------------------------------------------------------------
 # Sync to origin/beta_development
 # ---------------------------------------------------------------------------
@@ -208,54 +194,19 @@ TARGET_SHA="$(git rev-parse HEAD)"
 log_ok "Now at ${TARGET_SHA} ($(git rev-parse --short HEAD))"
 
 # ---------------------------------------------------------------------------
-# npm ci only if package-lock changed
+# Always: npm ci → build → migrations (every merge into beta)
 # ---------------------------------------------------------------------------
-LOCK_AFTER=""
-[[ -f package-lock.json ]] && LOCK_AFTER="$(sha256sum package-lock.json | awk '{print $1}')"
-
-need_npm_ci=0
-if [[ "${FORCE_NPM_CI}" == "1" ]]; then
-  need_npm_ci=1
-elif [[ ! -d node_modules ]]; then
-  need_npm_ci=1
-elif [[ "${LOCK_BEFORE}" != "${LOCK_AFTER}" ]]; then
-  need_npm_ci=1
+log_step "npm ci"
+if ! npm ci; then
+  fail_deploy "npm ci failed"
 fi
+DID_NPM_CI=1
 
-if (( need_npm_ci == 1 )); then
-  log_step "npm ci"
-  if ! npm ci; then
-    fail_deploy "npm ci failed"
-  fi
-  DID_NPM_CI=1
-  FORCE_BUILD=1
-else
-  log_info "Skipping npm ci — package-lock.json unchanged"
+log_step "npm run build"
+if ! npm run build; then
+  fail_deploy "npm run build failed"
 fi
-
-# ---------------------------------------------------------------------------
-# build only if source changed
-# ---------------------------------------------------------------------------
-need_build=0
-if [[ "${FORCE_BUILD}" == "1" ]]; then
-  need_build=1
-elif [[ ! -f "${BUILD_ARTIFACT}" ]]; then
-  need_build=1
-elif [[ "${PREVIOUS_SHA}" != "${TARGET_SHA}" ]]; then
-  if ! git diff --quiet "${PREVIOUS_SHA}" "${TARGET_SHA}" -- "${build_paths[@]}"; then
-    need_build=1
-  fi
-fi
-
-if (( need_build == 1 )); then
-  log_step "npm run build"
-  if ! npm run build; then
-    fail_deploy "npm run build failed"
-  fi
-  DID_BUILD=1
-else
-  log_info "Skipping build — no source changes affecting Nest output"
-fi
+DID_BUILD=1
 
 if [[ ! -f "${BUILD_ARTIFACT}" ]]; then
   fail_deploy "Build artifact missing: dist/apps/api/main.js — refusing to reload PM2"

@@ -53,7 +53,7 @@ async function bootstrap(): Promise<void> {
   await (app as any).register(fastifyCors, {
     origin: corsOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
       'Authorization',
@@ -63,6 +63,8 @@ async function bootstrap(): Promise<void> {
       'ngrok-skip-browser-warning',
       'x-request-id',
       'x-correlation-id',
+      'x-guest-id',
+      'x-bob-api-key',
     ],
     exposedHeaders: ['Set-Cookie', 'Content-Disposition', 'Content-Length'],
   });
