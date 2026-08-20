@@ -1453,6 +1453,17 @@ export class ProductsService {
     await this.eventEmitter.emitAsync(EVENTS.PRODUCT_UPDATED, new ProductUpdatedEvent(refId, action));
   }
 
+  async replaceTags(productId: string, tagNames: string[], actor: string): Promise<void> {
+    const product = await this.productsRepository.findWithTagsById(productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      await this.relationsRepository.syncTags(manager, productId, tagNames, actor);
+    });
+    await this.emitProductUpdated(product.refId, 'updated');
+  }
+
   private async syncSubscriptionConfig(
     productId: string,
     dto: CreateProductDto | UpdateProductDto,

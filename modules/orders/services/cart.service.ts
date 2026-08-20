@@ -170,6 +170,27 @@ export class CartService {
     });
   }
 
+  /** Cart snapshot for admin views — does not clear an invalid coupon. */
+  async getCartResponseSnapshot(cart: CartEntity): Promise<CartResponse> {
+    return this.toCartResponse(cart, cart.userId, this.dataSource.manager, {
+      clearInvalidCoupon: false,
+    });
+  }
+
+  /** Same pricing as checkout/detail (grand total), without signing product images. */
+  async getCartGrandTotal(cart: CartEntity): Promise<number> {
+    const items = await this.buildLineItems(cart, { skipImages: true });
+    const pricing = await this.cartPricingService.calculateCartPricing({
+      userId: cart.userId,
+      cartId: cart.id,
+      couponId: cart.couponId,
+      items,
+      manager: this.dataSource.manager,
+      clearInvalidCoupon: false,
+    });
+    return pricing.grandTotal;
+  }
+
   /**
    * Remove unavailable / zero-stock lines and clamp quantities to salable stock.
    * Used by GoKwik remove-out-of-stock-items.
@@ -435,7 +456,10 @@ export class CartService {
     };
   }
 
-  private async buildLineItems(cart: CartEntity): Promise<CartLineItem[]> {
+  private async buildLineItems(
+    cart: CartEntity,
+    options?: { skipImages?: boolean },
+  ): Promise<CartLineItem[]> {
     return Promise.all(
       (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
         const variant = item.variant as ProductVariantEntity | undefined;
@@ -444,7 +468,9 @@ export class CartService {
         const mrpRaw = variant?.mrp != null ? parseFloat(String(variant.mrp)) : NaN;
         const mrp = Number.isFinite(mrpRaw) ? mrpRaw : null;
         const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
-        const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
+        const primaryImageUrl = options?.skipImages
+          ? null
+          : await this.storageUrlEnricher.toReference(imageRef);
 
         const isAvailable =
           variant?.status === VariantStatus.ACTIVE &&

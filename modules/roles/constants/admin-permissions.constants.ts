@@ -64,6 +64,12 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('vendors', 'Vendors'),
   ...buildCrudPermissions('orders', 'Orders'),
   {
+    name: 'View Abandoned Carts',
+    code: 'abandoned_carts.read',
+    module: 'abandoned_carts',
+    action: PermissionAction.READ,
+  },
+  {
     name: 'View Settings',
     code: 'settings.read',
     module: 'settings',

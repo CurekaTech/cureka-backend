@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { ResponseMessage } from '@packages/common';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { UpdateSettingValueDto, ToggleSettingStatusDto, BulkUpdateSettingsDto } from '../dto/admin-setting.dto';
+import { UpdateSettingValueDto, ToggleSettingStatusDto, BulkUpdateSettingsDto, UpdateAllowGuestLoginDto } from '../dto/admin-setting.dto';
 import { AdminSettingsService } from '../services/admin-settings.service';
 
 @ApiTags('Admin Settings')
@@ -54,5 +54,22 @@ export class AdminSettingsController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.adminSettingsService.toggleStatus(key, dto, user.email);
+  }
+
+  @ApiOperation({ summary: 'Get Allow Guest Login setting' })
+  @ResponseMessage('Allow guest login setting retrieved successfully')
+  @Get('allow-guest-login')
+  getAllowGuestLogin() {
+    return this.adminSettingsService.getAllowGuestLogin();
+  }
+
+  @ApiOperation({ summary: 'Update Allow Guest Login setting' })
+  @ResponseMessage('Allow guest login setting updated successfully')
+  @Put('allow-guest-login')
+  updateAllowGuestLogin(
+    @Body() dto: UpdateAllowGuestLoginDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.adminSettingsService.updateAllowGuestLogin(dto.enabled, user.email);
   }
 }

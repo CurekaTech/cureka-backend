@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsString, IsArray, IsOptional, ValidateNested } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsString, IsArray, IsOptional, ValidateNested, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AdminSettingStatus } from '../enums/admin-setting-status.enum';
 
@@ -33,5 +33,10 @@ export class BulkUpdateSettingsDto {
   @ValidateNested({ each: true })
   @Type(() => BulkUpdateSettingItemDto)
   settings!: BulkUpdateSettingItemDto[];
+}
+
+export class UpdateAllowGuestLoginDto {
+  @IsBoolean()
+  enabled!: boolean;
 }
 

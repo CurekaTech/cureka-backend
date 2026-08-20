@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { generateUniqueRefId } from '@packages/common';
 import { AdminSettingsRepository } from '../repositories/admin-settings.repository';
 import { UpdateSettingValueDto, ToggleSettingStatusDto, BulkUpdateSettingsDto } from '../dto/admin-setting.dto';
 import { mapAdminSettingEntitiesToResponse, mapAdminSettingEntityToResponse } from '../mappers/admin-setting.mapper';
@@ -24,6 +25,7 @@ const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY, GOKWIK_CHECKOUT_E
  * (legacy mode) can still process prepaid orders.
  */
 const REQUIRED_NATIVE_PG_KEYS = ['razor_pay', 'cash_free'];
+const ALLOW_GUEST_LOGIN_KEY = 'allowGuestLogin';
 
 @Injectable()
 export class AdminSettingsService {
@@ -68,6 +70,24 @@ export class AdminSettingsService {
     }
 
     return response;
+  }
+
+  async getAllowGuestLogin(): Promise<{ allowGuestLogin: boolean }> {
+    const setting = await this.ensureAllowGuestLoginSetting();
+    return { allowGuestLogin: this.toBoolean(setting.value) };
+  }
+
+  async updateAllowGuestLogin(
+    enabled: boolean,
+    updatedBy: string,
+  ): Promise<{ allowGuestLogin: boolean }> {
+    const setting = await this.ensureAllowGuestLoginSetting();
+    await this.adminSettingsRepository.updateByKey(ALLOW_GUEST_LOGIN_KEY, {
+      value: enabled ? 'true' : 'false',
+      status: enabled ? AdminSettingStatus.ACTIVE : AdminSettingStatus.INACTIVE,
+      updatedBy,
+    });
+    return { allowGuestLogin: enabled };
   }
 
   async bulkUpdate(
@@ -367,5 +387,31 @@ export class AdminSettingsService {
         `Setting "${key}" must be a valid charge-slab JSON array`,
       );
     }
+  }
+
+  private toBoolean(value: string): boolean {
+    const normalized = value.toLowerCase().trim();
+    return ['1', 'true', 'yes', 'on'].includes(normalized);
+  }
+
+  private async ensureAllowGuestLoginSetting(): Promise<AdminSettingEntity> {
+    const existing = await this.adminSettingsRepository.findByKey(ALLOW_GUEST_LOGIN_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const refId = await generateUniqueRefId('SET', (candidate) =>
+      this.adminSettingsRepository.existsByRefId(candidate),
+    );
+
+    return this.adminSettingsRepository.create({
+      refId,
+      key: ALLOW_GUEST_LOGIN_KEY,
+      value: 'false',
+      status: AdminSettingStatus.INACTIVE,
+      description: 'Controls whether guest login is allowed on storefront.',
+      createdBy: 'system',
+      updatedBy: 'system',
+    });
   }
 }

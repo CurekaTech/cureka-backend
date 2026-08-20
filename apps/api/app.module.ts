@@ -14,7 +14,7 @@ import {
   unicommerceOrderConfig,
   unicommerceProductConfig,
   gokwikConfig,
-  whatsappConfig,
+  bobConfig,
   msg91Config,
   sitemapConfig,
   envValidationSchema,
@@ -44,6 +44,7 @@ import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.modu
 import { GalleryModule } from '@modules/gallery/gallery.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { GokwikModule } from '@modules/gokwik/gokwik.module';
+import { BobModule } from '@modules/bob/bob.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { VendorsModule } from '@modules/vendors/vendors.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
@@ -68,7 +69,7 @@ import { SitemapModule } from '@modules/sitemap/sitemap.module';
         unicommerceOrderConfig,
         unicommerceProductConfig,
         gokwikConfig,
-        whatsappConfig,
+        bobConfig,
         msg91Config,
         sitemapConfig,
       ],
@@ -114,6 +115,7 @@ import { SitemapModule } from '@modules/sitemap/sitemap.module';
     GalleryModule,
     ShippingModule,
     GokwikModule,
+    BobModule,
     NotificationsModule,
     VendorsModule,
     DashboardModule,
