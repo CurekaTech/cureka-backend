@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 # Deploy only — runs on push/merge to beta_development.
 # Does not touch the development branch.
-# Migrations run every deploy via scripts/deploy-beta.sh (npm run migration:run).
+# Every deploy always runs: npm ci, npm run build, npm run migration:run.
 #
 # Required secrets:
 #   BETA_SSH_HOST
@@ -26,12 +26,12 @@ on:
   workflow_dispatch:
     inputs:
       force_npm_ci:
-        description: 'Force npm ci even if package-lock.json unchanged'
+        description: 'Unused — npm ci always runs'
         required: false
         type: boolean
         default: false
       force_build:
-        description: 'Force nest build even if sources unchanged'
+        description: 'Unused — nest build always runs'
         required: false
         type: boolean
         default: false
@@ -47,7 +47,7 @@ jobs:
   deploy:
     name: Deploy to Beta VM
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -105,7 +105,7 @@ jobs:
           key: ${{ secrets.BETA_SSH_PRIVATE_KEY }}
           port: ${{ secrets.BETA_SSH_PORT }}
           script_stop: true
-          command_timeout: 14m
+          command_timeout: 24m
           envs: DEPLOY_PATH,HEALTH_CHECK_URL,EXTRA_FLAGS,GH_ACTOR,GH_SHA,GH_RUN_URL
           script: |
             set -euo pipefail
@@ -164,6 +164,8 @@ jobs:
             echo "| Deploy path | \`${DEPLOY_PATH}\` |"
             echo "| Host | \`${{ secrets.BETA_SSH_HOST }}\` |"
             echo ""
+            echo "- \`npm ci\` every deploy"
+            echo "- \`npm run build\` every deploy"
             echo "- \`npm run migration:run\` every deploy"
             echo "- \`pm2 reload ecosystem.config.js --update-env\` (near-zero downtime)"
             echo "- Health: \`GET /api/v1/health\` → HTTP 200"
