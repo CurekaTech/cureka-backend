@@ -165,7 +165,7 @@ Same as other admin lists (`data.data`, not `rows` / `items`):
     isGuest: boolean;
   };
   itemCount: number;
-  totalAmount: number;        // merchandise subtotal, number not string
+  totalAmount: number;        // grand total (same as detail cart.grandTotal)
   lastActivityAt: string;     // ISO
   createdAt: string;
   updatedAt: string;
@@ -291,7 +291,7 @@ type CartLine = {
 3. **Products** — image (`primaryImageUrl.url`), name, SKU, variant, qty, MRP, unit price, line total, availability.
 4. **Totals** — subtotal, coupon (`code` / `title` / `discountAmount`), shipping, handling, platform fee, COD charge, prepaid discount, **grand total**.
 
-`totalAmount` on the **list** is product subtotal. **Detail** `cart.grandTotal` includes shipping / fees / coupon. Do not treat them as the same number.
+List `totalAmount` is the same number as detail `cart.grandTotal` (subtotal + shipping + handling + platform fee − coupon / prepaid). Min/max amount filters still use merchandise subtotal.
 
 ---
 

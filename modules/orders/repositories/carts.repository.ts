@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, ILike, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, ILike, In, Repository, SelectQueryBuilder } from 'typeorm';
 import { CartEntity } from '../entities/cart.entity';
 import {
   AbandonedCartListOptions,
@@ -76,6 +76,15 @@ export class CartsRepository {
     const normalized = refId.trim().toUpperCase();
     return repository.findOne({
       where: { refId: ILike(normalized), isActive: true },
+      relations: this.activeCartRelations,
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  findActiveByIds(ids: string[]): Promise<CartEntity[]> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.repo.find({
+      where: { id: In([...new Set(ids)]), isActive: true },
       relations: this.activeCartRelations,
       order: { items: { createdAt: 'ASC' } },
     });
