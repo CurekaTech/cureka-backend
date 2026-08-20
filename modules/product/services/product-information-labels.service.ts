@@ -1,4 +1,4 @@
-import { ConflictException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -6,6 +6,7 @@ import {
   PaginatedResult,
   PaginationQueryDto,
 } from '@packages/common';
+import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import {
   CreateProductInformationLabelDto,
@@ -24,10 +25,13 @@ import { ProductVariantsRepository } from '../repositories/product-variants.repo
 
 @Injectable()
 export class ProductInformationLabelsService {
+  private readonly logger = new Logger(ProductInformationLabelsService.name);
+
   constructor(
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly productVariantsRepository: ProductVariantsRepository,
+    private readonly cacheStrategy: CacheStrategyService,
   ) {}
 
   async create(
@@ -50,6 +54,7 @@ export class ProductInformationLabelsService {
       createdBy,
     });
 
+    await this.invalidatePublicProductCaches('created', entity.refId);
     return mapProductInformationLabelEntityToResponse(entity);
   }
 
@@ -128,6 +133,7 @@ export class ProductInformationLabelsService {
       return updatedLabel;
     });
 
+    await this.invalidatePublicProductCaches('updated', refId);
     return mapProductInformationLabelEntityToResponse(updated);
   }
 
@@ -152,6 +158,7 @@ export class ProductInformationLabelsService {
       );
     }
 
+    await this.invalidatePublicProductCaches('status_updated', refId);
     return mapProductInformationLabelEntityToResponse(updated);
   }
 
@@ -179,6 +186,7 @@ export class ProductInformationLabelsService {
       await this.productInformationLabelsRepository.updateByRefId(item.refId, { updatedBy });
     }
 
+    await this.invalidatePublicProductCaches('reordered');
     return mapProductInformationLabelEntitiesToResponse(updated);
   }
 
@@ -188,5 +196,32 @@ export class ProductInformationLabelsService {
       throw new NotFoundException(`Product information label with refId ${refId} not found`);
     }
     await this.productInformationLabelsRepository.softDeleteByRefId(refId);
+    await this.invalidatePublicProductCaches('deleted', refId);
+  }
+
+  /**
+   * Public PDP caches enriched `productInformation` (labels + sort). Master label
+   * changes rewrite DB JSON but must also bust those caches.
+   */
+  private async invalidatePublicProductCaches(
+    action: string,
+    refId?: string,
+  ): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.products.listPattern(),
+        CacheKeys.products.detailPattern(),
+        CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicProducts.variantSearchPattern(),
+        CacheKeys.publicProducts.detailPattern(),
+        CacheKeys.publicBundles.listPattern(),
+        CacheKeys.publicBundles.detailPattern(),
+        CacheKeys.homepage.bestSellersPattern(),
+        CacheKeys.homepage.sectionsPattern(),
+      ],
+    });
+    this.logger.log(
+      `Product information label cache invalidated (${action})${refId ? ` refId=${refId}` : ''}`,
+    );
   }
 }
