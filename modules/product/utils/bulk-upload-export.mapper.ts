@@ -155,6 +155,7 @@ const applyVariantFields = (
   if (variant.hsnCode) values.set('HSN Code', variant.hsnCode);
   if (variant.batchNumber) values.set('Batch Number', variant.batchNumber);
   if (variant.expiryDate) values.set('Expiry Date', variant.expiryDate);
+  if (variant.productPageUrl) values.set('Product Page URL', variant.productPageUrl);
   if (variant.taxClass) values.set('Tax Class', variant.taxClass);
 
   const mrp = toNumber(variant.mrp);
