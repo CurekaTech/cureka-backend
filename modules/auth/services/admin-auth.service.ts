@@ -872,6 +872,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['settings.read'],
       },
       {
+        name: 'Store Configuration',
+        key: 'store-configuration-view',
+        icon: 'SlidersHorizontal',
+        href: '/settings/store-configuration',
+        requiredPermissions: ['settings.read'],
+      },
+      {
         name: 'Logistic Partners',
         key: 'logistic-partners-view',
         icon: 'Truck',

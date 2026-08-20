@@ -41,6 +41,7 @@ import {
 } from '../utils/auth-cookie.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { KwikpassService } from '../services/kwikpass.service';
+import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
 
 /**
  * Ecommerce user auth — opaque session token (not JWT).
@@ -55,6 +56,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly kwikpassService: KwikpassService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly adminSettingsService: AdminSettingsService,
   ) {}
 
   @ResponseMessage('OTP sent successfully')
@@ -195,6 +197,12 @@ export class AuthController {
       user: result.user,
       token: result.sessionToken,
     };
+  }
+
+  @ResponseMessage('Guest login setting retrieved successfully')
+  @Get('guest-login/config')
+  async getGuestLoginConfig(): Promise<{ allowGuestLogin: boolean }> {
+    return this.adminSettingsService.getAllowGuestLogin();
   }
 
   @ResponseMessage('Registration completed successfully')
