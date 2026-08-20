@@ -31,6 +31,10 @@ describe('GokwikWebhookService', () => {
     enqueuePushOrder: jest.fn(),
   } as unknown as UnicommerceOrderQueueService;
 
+  const eventEmitter = {
+    emitAsync: jest.fn(),
+  };
+
   const dataSource = {
     getRepository: jest.fn().mockReturnValue({ update }),
   } as unknown as DataSource;
@@ -41,6 +45,7 @@ describe('GokwikWebhookService', () => {
     apiService,
     dataSource,
     unicommerceOrderQueueService,
+    eventEmitter as any,
   );
 
   const successPayload = {

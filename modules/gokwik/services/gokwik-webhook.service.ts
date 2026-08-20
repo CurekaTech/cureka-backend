@@ -30,6 +30,7 @@ export class GokwikWebhookService {
     private readonly apiService: GokwikApiService,
     private readonly dataSource: DataSource,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   receiveTransaction(payload: GokwikTransactionWebhookDto) {
