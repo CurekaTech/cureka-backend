@@ -46,7 +46,7 @@ import { ProductMasterResolverService } from './product-master-resolver.service'
 import { ProductStrategyFactory } from '../strategies/product-strategies';
 import { mapProductEntityToDetailResponse, mapProductEntityToResponse, mapProductEntityToVariantListItem } from '../mappers/product.mapper';
 import { IProductDetail } from '../interfaces/product-detail.interface';
-import { generateProductSlug, assertProductUrlSlugLength, generateTagSlug } from '../utils/product-slug.util';
+import { generateProductSlug, assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
@@ -59,9 +59,6 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
 import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
-
-/** Max products in a single category that may share the same tag (e.g. "bestSeller"). */
-const MAX_PRODUCTS_PER_CATEGORY_TAG = 10;
 
 export interface ProductMutationOptions {
   /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
@@ -300,8 +297,6 @@ export class ProductsService {
       }
     }
 
-    await this.assertTagUsageWithinCategoryLimit(masters.categoryId, normalizedDto.tagNames ?? [], null);
-
     const refId = await generateUniqueRefId(normalizedDto.name, (candidate) =>
       this.productsRepository.existsByRefId(candidate),
     );
@@ -404,43 +399,6 @@ export class ProductsService {
     }
 
     return this.enrichProduct(mapProductEntityToResponse(loaded));
-  }
-
-  /**
-   * Enforces that a category does not exceed {@link MAX_PRODUCTS_PER_CATEGORY_TAG}
-   * products sharing the same tag. Runs before tags are persisted.
-   */
-  private async assertTagUsageWithinCategoryLimit(
-    categoryId: string | null | undefined,
-    tagNames: string[],
-    excludeProductId: string | null,
-  ): Promise<void> {
-    if (!categoryId || !tagNames.length) return;
-
-    const normalizedNames = [
-      ...new Set(tagNames.map((name) => name.trim()).filter((name) => name.length > 0)),
-    ];
-    if (!normalizedNames.length) return;
-
-    const slugByName = new Map(normalizedNames.map((name) => [name, generateTagSlug(name)]));
-    const uniqueSlugs = [...new Set(slugByName.values())];
-
-    const counts = await this.productsRepository.countProductsPerTagSlugInCategory(
-      categoryId,
-      uniqueSlugs,
-      excludeProductId,
-    );
-
-    const exceeded = normalizedNames.filter((name) => {
-      const existing = counts.get(slugByName.get(name)!) ?? 0;
-      return existing + 1 > MAX_PRODUCTS_PER_CATEGORY_TAG;
-    });
-
-    if (exceeded.length) {
-      throw new BadRequestException(
-        `This category already has the maximum of ${MAX_PRODUCTS_PER_CATEGORY_TAG} products for tag(s): ${exceeded.join(', ')}`,
-      );
-    }
   }
 
   private logProductCreateFailure(source: 'json' | 'multipart', error: unknown): void {
@@ -740,14 +698,6 @@ export class ProductsService {
       dto.categoryFilters !== undefined
         ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
         : null;
-
-    if (hasTagNamesInput) {
-      await this.assertTagUsageWithinCategoryLimit(
-        masters?.categoryId ?? existing.categoryId,
-        dto.tagNames ?? [],
-        existing.id,
-      );
-    }
 
     await this.dataSource.transaction(async (manager) => {
       await this.productsRepository.updateByRefId(refId, payload, manager);
