@@ -98,15 +98,17 @@ export class ProductInformationLabelsService {
     }
 
     const oldName = existing.name;
-    const nextName = dto.name;
+    const nextName = dto.name?.trim();
 
     const updated = await this.productInformationLabelsRepository.transaction(async (manager) => {
       const updatedLabel = await this.productInformationLabelsRepository.updateByRefId(
         refId,
         {
           ...dto,
+          ...(nextName !== undefined ? { name: nextName } : {}),
           updatedBy,
         },
+        manager,
       );
 
       if (!updatedLabel) {
@@ -116,17 +118,21 @@ export class ProductInformationLabelsService {
       }
 
       if (nextName !== undefined && nextName !== oldName) {
-        await this.productsRepository.renameProductInformationLabel(
+        const productsUpdated = await this.productsRepository.renameProductInformationLabel(
           oldName,
           nextName,
           updatedBy,
           manager,
         );
-        await this.productVariantsRepository.renameProductInformationLabel(
+        const variantsUpdated = await this.productVariantsRepository.renameProductInformationLabel(
           oldName,
           nextName,
           updatedBy,
           manager,
+        );
+        this.logger.log(
+          `Renamed product information label "${oldName}" → "${nextName}" ` +
+            `(products=${productsUpdated}, variants=${variantsUpdated})`,
         );
       }
 
