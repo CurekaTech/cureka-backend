@@ -187,12 +187,6 @@ export const envValidationSchema = Joi.object({
   TYPESENSE_SEARCH_API_KEY: Joi.string().allow('').optional(),
   TYPESENSE_COLLECTION: Joi.string().default('products'),
 
-  // WhatsApp (Bonb) — connection only; templates → apps/api/config/whatsapp.constants.ts
-  WHATSAPP_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  WHATSAPP_SEND_URL: Joi.string().uri().allow('').optional(),
-  WHATSAPP_API_KEY: Joi.string().allow('').optional(),
-  WHATSAPP_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
-
   // MSG91 SMS — env: enabled + auth key only; templates/flow/DLT → apps/api/config/msg91.constants.ts
   MSG91_ENABLED: Joi.string().valid('true', 'false').default('false'),
   MSG91_AUTH_KEY: Joi.string().allow('').optional(),

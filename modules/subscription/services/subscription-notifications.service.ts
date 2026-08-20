@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Msg91SmsService } from '@modules/notifications/services/msg91-sms.service';
-import { WhatsappService } from '@modules/notifications/services/whatsapp.service';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 
 @Injectable()
@@ -9,7 +8,6 @@ export class SubscriptionNotificationsService {
 
   constructor(
     private readonly msg91SmsService: Msg91SmsService,
-    private readonly whatsappService: WhatsappService,
     private readonly usersRepository: UsersRepository,
   ) {}
 
@@ -136,25 +134,6 @@ export class SubscriptionNotificationsService {
         { phoneSuffix: phone.slice(-4), ...payload },
         'Subscription SMS template not configured — logged only',
       );
-    }
-
-    if (this.whatsappService.isConfigured() && payload.paymentLink) {
-      try {
-        await this.whatsappService.sendTemplate({
-          phone,
-          templateName: 'subscription_payment_link',
-          language: 'en',
-          bodyTexts: [payload.amount ?? '', payload.paymentLink],
-        });
-      } catch (error) {
-        this.logger.warn(
-          {
-            error: error instanceof Error ? error.message : String(error),
-            phoneSuffix: phone.slice(-4),
-          },
-          'WhatsApp subscription template send failed (non-blocking)',
-        );
-      }
     }
   }
 }

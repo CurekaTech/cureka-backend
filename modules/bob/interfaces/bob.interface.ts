@@ -78,8 +78,6 @@ export type BobOrderPayload = {
   name: string;
   email: string;
   createdAt: string;
-  /** BOB sends the WhatsApp order confirmation when this is true. */
-  sendNotification: true;
   fullyPaid: boolean;
   cancelReason: string | null;
   cancelledAt: string | null;
