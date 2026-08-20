@@ -514,9 +514,6 @@ export const MENU_HIERARCHY: MenuItem[] = [
       },
     ],
   },
-
-    ],
-  },
   // {
   //   name: 'Subscription & Membership',
   //   key: 'subscriptions',
