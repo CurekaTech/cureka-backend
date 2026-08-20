@@ -66,7 +66,7 @@ export class ProductVariantsRepository {
   async renameProductInformationLabel(
     oldLabel: string,
     newLabel: string,
-    updatedBy: string,
+    _updatedBy: string,
     manager?: EntityManager,
   ): Promise<void> {
     const repository = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
@@ -87,7 +87,6 @@ export class ProductVariantsRepository {
           )
           FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb)) item
         ),
-        updated_by = $3,
         updated_at = NOW()
       WHERE EXISTS (
         SELECT 1
@@ -95,7 +94,7 @@ export class ProductVariantsRepository {
         WHERE item->>'label' = $1
       )
       `,
-      [oldLabel, newLabel, updatedBy],
+      [oldLabel, newLabel],
     );
   }
 
