@@ -69,6 +69,7 @@ export class BobNotifyService implements OnModuleInit {
         url,
         timeoutMs: timeout,
         payloadKeys: Object.keys(payload),
+        authHeaders: ['x-guest-id', 'x-api-key'],
         wabizSendUsed: false,
         ...summary,
       },
@@ -81,7 +82,10 @@ export class BobNotifyService implements OnModuleInit {
           timeout,
           headers: {
             'content-type': 'application/json',
+            // Docs: x-guest-id. customstore.bonb.io gateway also requires X-API-Key.
             'x-guest-id': guestId,
+            'x-api-key': guestId,
+            'X-API-Key': guestId,
           },
           validateStatus: () => true,
         }),
