@@ -68,34 +68,41 @@ export class ProductVariantsRepository {
     newLabel: string,
     _updatedBy: string,
     manager?: EntityManager,
-  ): Promise<void> {
-    const repository = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
-    await repository.manager.query(
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
       `
-      UPDATE product_variants v
-      SET
-        product_information = (
-          SELECT COALESCE(
-            jsonb_agg(
-              CASE
-                WHEN item->>'label' = $1
-                  THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
-                ELSE item
-              END
-            ),
-            '[]'::jsonb
-          )
+      WITH updated AS (
+        UPDATE product_variants v
+        SET
+          product_information = (
+            SELECT COALESCE(
+              jsonb_agg(
+                CASE
+                  WHEN lower(trim(item->>'label')) = lower(trim($1::text))
+                    THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                  ELSE item
+                END
+                ORDER BY ordinality
+              ),
+              '[]'::jsonb
+            )
+            FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb))
+              WITH ORDINALITY AS t(item, ordinality)
+          ),
+          updated_at = NOW()
+        WHERE EXISTS (
+          SELECT 1
           FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb)) item
-        ),
-        updated_at = NOW()
-      WHERE EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb)) item
-        WHERE item->>'label' = $1
+          WHERE lower(trim(item->>'label')) = lower(trim($1::text))
+        )
+        RETURNING v.id
       )
+      SELECT COUNT(*)::int AS count FROM updated
       `,
       [oldLabel, newLabel],
-    );
+    )) as Array<{ count: number }>;
+    return Number(rows?.[0]?.count ?? 0);
   }
 
   /**
