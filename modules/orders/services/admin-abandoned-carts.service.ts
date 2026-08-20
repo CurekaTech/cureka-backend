@@ -38,8 +38,8 @@ export class AdminAbandonedCartsService {
     return buildPaginatedResult(data.map(mapAbandonedCartListRow), total, paginationOptions);
   }
 
-  async findOne(idOrRefId: string): Promise<IAbandonedCartDetail> {
-    const cart = await this.cartsRepository.findActiveByIdOrRefId(idOrRefId);
+  async findOne(refId: string): Promise<IAbandonedCartDetail> {
+    const cart = await this.cartsRepository.findActiveByRefId(refId);
     if (!cart || !(cart.items?.length)) {
       throw new NotFoundException('Abandoned cart not found');
     }

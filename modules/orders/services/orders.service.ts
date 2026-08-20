@@ -1584,8 +1584,23 @@ export class OrdersService {
         orderStatus: order.orderStatus,
         grandTotal: order.grandTotal,
       },
-      '[OrderNotify] Dispatching order-placed notifications (WhatsApp + MSG91 SMS)',
+      '[OrderNotify] Dispatching order-placed notifications (BOB /orders-create + MSG91 SMS)',
     );
+
+    await this.eventEmitter.emitAsync(EVENTS.ORDER_CREATED, {
+      id: order.id,
+      orderNumber: order.orderNumber,
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          source,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        '[OrderNotify] BOB /orders-create emit failed (non-blocking)',
+      );
+    });
 
     try {
       await this.orderNotificationsService.notifyOrderPlacedSafely({

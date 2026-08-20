@@ -28,15 +28,21 @@ export class BobNotifyListener {
     private readonly configService: ConfigService,
   ) {}
 
-  @OnEvent(EVENTS.ORDER_CREATED)
+  @OnEvent(EVENTS.ORDER_CREATED, { async: true })
   async onOrderCreated(order: Pick<OrderEntity, 'id' | 'orderNumber'>): Promise<void> {
     const full = await this.loadOrder(order.id, order.orderNumber);
-    if (!full) return;
+    if (!full) {
+      this.logger.warn(
+        { orderId: order.id, orderNumber: order.orderNumber },
+        '[BOB notify] order created but order missing — /orders-create skipped',
+      );
+      return;
+    }
     const shipment = await this.shipmentsRepository.findByOrderId(full.id);
     await this.bobNotifyService.post('/orders-create', mapBobOrder(full, shipment));
   }
 
-  @OnEvent(EVENTS.ORDER_CANCELLED)
+  @OnEvent(EVENTS.ORDER_CANCELLED, { async: true })
   async onOrderCancelled(event: OrderCancelledEvent): Promise<void> {
     const full = await this.loadOrder(event.orderId, event.orderNumber);
     if (!full) return;
