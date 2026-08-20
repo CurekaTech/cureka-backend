@@ -35,11 +35,24 @@ export class AdminAbandonedCartsService {
       sortOrder: paginationOptions.sortOrder,
     });
 
-    return buildPaginatedResult(data.map(mapAbandonedCartListRow), total, paginationOptions);
+    const carts = await this.cartsRepository.findActiveByIds(data.map((row) => row.id));
+    const cartById = new Map(carts.map((cart) => [cart.id, cart]));
+    const items = await Promise.all(
+      data.map(async (row) => {
+        const mapped = mapAbandonedCartListRow(row);
+        const cart = cartById.get(row.id);
+        if (cart?.items?.length) {
+          mapped.totalAmount = await this.cartService.getCartGrandTotal(cart);
+        }
+        return mapped;
+      }),
+    );
+
+    return buildPaginatedResult(items, total, paginationOptions);
   }
 
-  async findOne(idOrRefId: string): Promise<IAbandonedCartDetail> {
-    const cart = await this.cartsRepository.findActiveByIdOrRefId(idOrRefId);
+  async findOne(refId: string): Promise<IAbandonedCartDetail> {
+    const cart = await this.cartsRepository.findActiveByRefId(refId);
     if (!cart || !(cart.items?.length)) {
       throw new NotFoundException('Abandoned cart not found');
     }

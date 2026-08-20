@@ -19,11 +19,15 @@ import {
   mapProductInformationLabelEntityToResponse,
 } from '../mappers/product-information-label.mapper';
 import { ProductInformationLabelsRepository } from '../repositories/product-information-labels.repository';
+import { ProductsRepository } from '../repositories/products.repository';
+import { ProductVariantsRepository } from '../repositories/product-variants.repository';
 
 @Injectable()
 export class ProductInformationLabelsService {
   constructor(
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
+    private readonly productsRepository: ProductsRepository,
+    private readonly productVariantsRepository: ProductVariantsRepository,
   ) {}
 
   async create(
@@ -88,16 +92,41 @@ export class ProductInformationLabelsService {
       }
     }
 
-    const updated = await this.productInformationLabelsRepository.updateByRefId(refId, {
-      ...dto,
-      updatedBy,
-    });
+    const oldName = existing.name;
+    const nextName = dto.name;
 
-    if (!updated) {
-      throw new NotFoundException(
-        `Product information label with refId ${refId} not found after update`,
+    const updated = await this.productInformationLabelsRepository.transaction(async (manager) => {
+      const updatedLabel = await this.productInformationLabelsRepository.updateByRefId(
+        refId,
+        {
+          ...dto,
+          updatedBy,
+        },
       );
-    }
+
+      if (!updatedLabel) {
+        throw new NotFoundException(
+          `Product information label with refId ${refId} not found after update`,
+        );
+      }
+
+      if (nextName !== undefined && nextName !== oldName) {
+        await this.productsRepository.renameProductInformationLabel(
+          oldName,
+          nextName,
+          updatedBy,
+          manager,
+        );
+        await this.productVariantsRepository.renameProductInformationLabel(
+          oldName,
+          nextName,
+          updatedBy,
+          manager,
+        );
+      }
+
+      return updatedLabel;
+    });
 
     return mapProductInformationLabelEntityToResponse(updated);
   }

@@ -63,6 +63,42 @@ export class ProductVariantsRepository {
     return (await qb.getCount()) > 0;
   }
 
+  async renameProductInformationLabel(
+    oldLabel: string,
+    newLabel: string,
+    updatedBy: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    await repository.manager.query(
+      `
+      UPDATE product_variants v
+      SET
+        product_information = (
+          SELECT COALESCE(
+            jsonb_agg(
+              CASE
+                WHEN item->>'label' = $1
+                  THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                ELSE item
+              END
+            ),
+            '[]'::jsonb
+          )
+          FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb)) item
+        ),
+        updated_by = $3,
+        updated_at = NOW()
+      WHERE EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb)) item
+        WHERE item->>'label' = $1
+      )
+      `,
+      [oldLabel, newLabel, updatedBy],
+    );
+  }
+
   /**
    * Next SKU in format CAT/BRA/NNN (first 3 letters of category + brand + sequence).
    * Same format as bulk-upload auto SKUs.

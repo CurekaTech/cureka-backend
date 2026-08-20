@@ -16,6 +16,7 @@ export class BobNotifyService {
     const base = this.notifyBase();
     const guestId = this.guestId();
     if (!base) {
+      this.logger.warn({ path }, '[BOB notify] skipped — BOB_NOTIFY_URL is not set');
       return;
     }
     if (!guestId) {
@@ -36,10 +37,19 @@ export class BobNotifyService {
           },
         }),
       );
+      this.logger.log(
+        {
+          path,
+          url,
+          orderId: 'id' in payload ? String((payload as { id?: string }).id ?? '') : undefined,
+        },
+        '[BOB notify] posted',
+      );
     } catch (error) {
       this.logger.warn(
         {
           path,
+          url,
           error: error instanceof Error ? error.message : String(error),
         },
         '[BOB notify] failed (non-blocking)',

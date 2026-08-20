@@ -154,7 +154,11 @@ export class OrdersService {
           couponDiscountType: appliedCoupon?.discountType ?? null,
           paymentMethod: dto.paymentMethod,
           paymentStatus: OrderPaymentStatus.PENDING,
-          orderStatus: OrderStatus.PENDING,
+          // COD: order is accepted immediately; cash remains unpaid until delivery.
+          orderStatus:
+            dto.paymentMethod === OrderPaymentMethod.COD
+              ? OrderStatus.CONFIRMED
+              : OrderStatus.PENDING,
           orderSource: dto.orderSource ?? OrderSource.WEBSITE,
           recipientName: address.recipientName,
           phoneNumber: address.phoneNumber,
@@ -486,6 +490,21 @@ export class OrdersService {
         throw new BadRequestException('Order has no items');
       }
 
+      await this.checkoutService.assertProductPricesCurrent(
+        userId,
+        items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: parseFloat(item.unitPrice),
+          totalPrice: parseFloat(item.totalPrice),
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
+          sku: item.sku,
+        })),
+        manager,
+      );
+
       for (const item of items) {
         const variant = await manager.getRepository(ProductVariantEntity).findOne({
           where: { id: item.variantId },
@@ -567,9 +586,11 @@ export class OrdersService {
         );
       }
 
+      // Prepaid / partial-COD: CONFIRMED when paid. Full COD: CONFIRMED with payment still PENDING.
       const nextOrderStatus =
         params.paymentStatus === OrderPaymentStatus.PAID ||
-        params.paymentStatus === OrderPaymentStatus.PARTIALLY_PAID
+        params.paymentStatus === OrderPaymentStatus.PARTIALLY_PAID ||
+        params.paymentMethod === OrderPaymentMethod.COD
           ? OrderStatus.CONFIRMED
           : OrderStatus.PROCESSING;
 
@@ -1243,6 +1264,20 @@ export class OrdersService {
     }>;
   }) {
     const order = await this.dataSource.transaction(async (manager) => {
+      await this.checkoutService.assertProductPricesCurrent(
+        params.customerId,
+        params.items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          unitPrice: parseFloat(item.unitPrice),
+          totalPrice: parseFloat(item.totalPrice),
+          isSubscription: item.isSubscription,
+          frequency: item.frequency ?? null,
+        })),
+        manager,
+      );
+
       const addressRepository = manager.getRepository(UserAddressEntity);
       const address = params.addressId
         ? await addressRepository.findOne({
@@ -1584,8 +1619,23 @@ export class OrdersService {
         orderStatus: order.orderStatus,
         grandTotal: order.grandTotal,
       },
-      '[OrderNotify] Dispatching order-placed notifications (WhatsApp + MSG91 SMS)',
+      '[OrderNotify] Dispatching order-placed notifications (BOB /orders-create + MSG91 SMS)',
     );
+
+    await this.eventEmitter.emitAsync(EVENTS.ORDER_CREATED, {
+      id: order.id,
+      orderNumber: order.orderNumber,
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          source,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        '[OrderNotify] BOB /orders-create emit failed (non-blocking)',
+      );
+    });
 
     try {
       await this.orderNotificationsService.notifyOrderPlacedSafely({
@@ -1727,7 +1777,7 @@ export class OrdersService {
         phone: phone ? `${phone.slice(0, 2)}******${phone.slice(-2)}` : null,
         cancelReason,
       },
-      '[OrderNotify] Dispatching order-cancelled notifications (WhatsApp + MSG91 SMS)',
+      '[OrderNotify] Dispatching order-cancelled notifications (BOB /orders-cancelled + MSG91 SMS)',
     );
 
     try {

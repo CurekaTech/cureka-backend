@@ -111,7 +111,11 @@ export function mapBobVariantDetail(
   };
 }
 
-export function mapBobOrder(order: OrderEntity, shipment?: ShipmentEntity | null): BobOrderPayload {
+export function mapBobOrder(
+  order: OrderEntity,
+  shipment?: ShipmentEntity | null,
+  imageByKey?: Map<string, string>,
+): BobOrderPayload {
   const cancelled = order.orderStatus === OrderStatus.CANCELLED;
   return {
     id: order.id,
@@ -135,7 +139,7 @@ export function mapBobOrder(order: OrderEntity, shipment?: ShipmentEntity | null
     },
     total_amount: String(order.grandTotal),
     currencyCode: 'INR',
-    lineItems: (order.items ?? []).map(mapBobLineItem),
+    lineItems: (order.items ?? []).map((item) => mapBobLineItem(item, imageByKey)),
     shipment_details: {
       status: mapBobShipmentStatus(order.orderStatus, shipment?.shipmentStatus),
       tracking_info: shipment?.trackingUrl ?? shipment?.awbNumber ?? '',
@@ -191,13 +195,14 @@ export function mapBobPersonalDetails(params: {
 export function mapBobFulfillment(
   order: OrderEntity,
   shipment: ShipmentEntity,
+  imageByKey?: Map<string, string>,
 ): BobFulfillmentPayload {
   const names = (order.recipientName ?? '').trim().split(/\s+/);
   return {
     fulfillment_id: shipment.id,
     id: order.id,
     id_alias: order.orderNumber,
-    lineItems: (order.items ?? []).map(mapBobLineItem),
+    lineItems: (order.items ?? []).map((item) => mapBobLineItem(item, imageByKey)),
     customer: {
       email: order.user?.email ?? '',
       first_name: names[0] ?? '',
@@ -296,12 +301,15 @@ export function collectImageRefs(product: ProductEntity): IStorageFileReference[
     .filter((url): url is IStorageFileReference => Boolean(url?.key));
 }
 
-function mapBobLineItem(item: OrderItemEntity): BobLineItem {
+function mapBobLineItem(item: OrderItemEntity, imageByKey?: Map<string, string>): BobLineItem {
   const media = item.product?.media?.[0]?.url;
-  const imageUrl =
+  const key =
     media && typeof media === 'object' && 'key' in media ? String(media.key ?? '') : '';
+  const signed = key && imageByKey ? imageByKey.get(key) : undefined;
+  const alreadyUrl =
+    media && typeof media === 'object' && 'url' in media ? String(media.url ?? '') : '';
   return {
-    image: { originalSrc: imageUrl },
+    image: { originalSrc: signed || alreadyUrl || '' },
     product: { id: item.productId, title: item.productName },
     variant: {
       id: item.variantId,

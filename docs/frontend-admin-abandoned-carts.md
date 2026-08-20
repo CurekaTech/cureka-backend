@@ -16,7 +16,7 @@ Follow existing Order Management list + detail patterns (same table, filters, pa
 Do NOT invent extra APIs. Only:
 
 - GET /admin/api/proxy/abandoned-carts
-- GET /admin/api/proxy/abandoned-carts/:id
+- GET /admin/api/proxy/abandoned-carts/:refId
 
 Sidebar item already comes from login/me menu:
 - name: Abandoned Carts
@@ -30,7 +30,7 @@ Roles checkbox group already comes from grouped permissions:
 
 Pages:
 1. List at /abandoned-carts
-2. Detail at /abandoned-carts/[id]
+2. Detail at /abandoned-carts/[refId]  (cart refId e.g. CAR20268131 — not UUID)
 
 List columns: customer name, mobile number, total amount.
 List filters: search (name + mobile), fromDate, toDate, optional minAmount/maxAmount, sort.
@@ -56,7 +56,7 @@ Server-driven. Login / `me` already returns this under **Order Management**:
 
 Frontend work:
 
-1. Add route `/abandoned-carts` and `/abandoned-carts/[id]` (or `/abandoned-carts/:id`).
+1. Add route `/abandoned-carts` and `/abandoned-carts/[refId]` (or `/abandoned-carts/:refId`). Do **not** treat the param as a UUID.
 2. Map icon `ShoppingCart` in the existing sidebar icon map (Lucide). If the map is a whitelist, add it; otherwise reuse `ShoppingBag`.
 3. Hide the page if the admin lacks `abandoned_carts.read` (same pattern as other order screens). Super admin always has access.
 
@@ -152,8 +152,8 @@ Same as other admin lists (`data.data`, not `rows` / `items`):
 
 ```ts
 {
-  id: string;                 // cart UUID — use this for detail route
-  refId: string;
+  id: string;                 // cart UUID — internal only, do not put in the URL
+  refId: string;              // cart refId e.g. CAR20268131 — use this for detail route
   customer: {
     id: string;
     refId: string;
@@ -165,7 +165,7 @@ Same as other admin lists (`data.data`, not `rows` / `items`):
     isGuest: boolean;
   };
   itemCount: number;
-  totalAmount: number;        // merchandise subtotal, number not string
+  totalAmount: number;        // grand total (same as detail cart.grandTotal)
   lastActivityAt: string;     // ISO
   createdAt: string;
   updatedAt: string;
@@ -182,17 +182,17 @@ Same as other admin lists (`data.data`, not `rows` / `items`):
 
 Optional extra columns if you have space: `itemCount`, `lastActivityAt`, Guest badge (`customer.isGuest`).
 
-Row click → `/abandoned-carts/{id}` using **`id`** (UUID). `refId` also works on the detail API.
+Row click → `/abandoned-carts/{refId}` using **`refId`** (e.g. `CAR20268131`). Do **not** use UUID `id` in the path.
 
 ---
 
 ### 2. Detail
 
 ```
-GET /admin/api/proxy/abandoned-carts/:id
+GET /admin/api/proxy/abandoned-carts/:refId
 ```
 
-`:id` = cart UUID **or** `refId`.
+`:refId` = cart **refId** only (e.g. `CAR20268131`). Not the UUID.
 
 404 if the cart was purchased / emptied — show “Cart is no longer abandoned” and send the user back to the list.
 
@@ -291,7 +291,7 @@ type CartLine = {
 3. **Products** — image (`primaryImageUrl.url`), name, SKU, variant, qty, MRP, unit price, line total, availability.
 4. **Totals** — subtotal, coupon (`code` / `title` / `discountAmount`), shipping, handling, platform fee, COD charge, prepaid discount, **grand total**.
 
-`totalAmount` on the **list** is product subtotal. **Detail** `cart.grandTotal` includes shipping / fees / coupon. Do not treat them as the same number.
+List `totalAmount` is the same number as detail `cart.grandTotal` (subtotal + shipping + handling + platform fee − coupon / prepaid). Min/max amount filters still use merchandise subtotal.
 
 ---
 
@@ -319,7 +319,7 @@ Match other admin list toolbars:
 ## Checklist
 
 - [ ] Icon map includes `ShoppingCart`
-- [ ] Route `/abandoned-carts` + detail route
+- [ ] Route `/abandoned-carts` + detail `/abandoned-carts/[refId]` (refId, not UUID)
 - [ ] Gate with `abandoned_carts.read`
 - [ ] List: name, mobile, total amount + search + date sort/filter
 - [ ] Detail: address + product lines + money breakdown

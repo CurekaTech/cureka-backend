@@ -10,8 +10,6 @@ export { gokwikConfig } from './gokwik.config';
 export { bobConfig } from './bob.config';
 export { unicommerceOrderConfig } from './unicommerce-order.config';
 export { unicommerceProductConfig } from './unicommerce-product.config';
-export { whatsappConfig } from './whatsapp.config';
-export { WHATSAPP_STATIC } from './whatsapp.constants';
 export { msg91Config } from './msg91.config';
 export { MSG91_STATIC } from './msg91.constants';
 export { sitemapConfig } from './sitemap.config';

@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, ILike, In, Repository, SelectQueryBuilder } from 'typeorm';
 import { CartEntity } from '../entities/cart.entity';
 import {
   AbandonedCartListOptions,
   AbandonedCartListRow,
 } from '../interfaces/abandoned-cart.interface';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LAST_ACTIVITY_SQL = 'GREATEST(cart.updated_at, MAX(items.updated_at))';
 const TOTAL_AMOUNT_SQL =
@@ -73,11 +71,20 @@ export class CartsRepository {
     return this.repo.exists({ where: { refId } });
   }
 
-  findActiveByIdOrRefId(idOrRefId: string, manager?: EntityManager): Promise<CartEntity | null> {
+  findActiveByRefId(refId: string, manager?: EntityManager): Promise<CartEntity | null> {
     const repository = manager ? manager.getRepository(CartEntity) : this.repo;
-    const isUuid = UUID_RE.test(idOrRefId);
+    const normalized = refId.trim().toUpperCase();
     return repository.findOne({
-      where: isUuid ? { id: idOrRefId, isActive: true } : { refId: idOrRefId, isActive: true },
+      where: { refId: ILike(normalized), isActive: true },
+      relations: this.activeCartRelations,
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  findActiveByIds(ids: string[]): Promise<CartEntity[]> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.repo.find({
+      where: { id: In([...new Set(ids)]), isActive: true },
       relations: this.activeCartRelations,
       order: { items: { createdAt: 'ASC' } },
     });
@@ -110,11 +117,11 @@ export class CartsRepository {
     const total = Number(countRows[0]?.cnt ?? 0);
 
     const dataQb = this.buildAbandonedBaseQb(options)
-      .select('cart.id', 'id')
-      .addSelect('cart.refId', 'refId')
-      .addSelect('cart.userId', 'userId')
-      .addSelect('cart.createdAt', 'createdAt')
-      .addSelect('cart.updatedAt', 'updatedAt')
+      .select('cart.id', 'cartId')
+      .addSelect('cart.refId', 'cartRefId')
+      .addSelect('cart.userId', 'cartUserId')
+      .addSelect('cart.createdAt', 'cartCreatedAt')
+      .addSelect('cart.updatedAt', 'cartUpdatedAt')
       .addSelect('user.refId', 'userRefId')
       .addSelect('user.firstName', 'firstName')
       .addSelect('user.lastName', 'lastName')
@@ -205,9 +212,9 @@ export class CartsRepository {
       value === true || value === 'true' || value === 't' || value === 1 || value === '1';
 
     return {
-      id: String(pick('id', 'cart_id') ?? ''),
-      refId: String(pick('refId', 'cart_refId', 'ref_id') ?? ''),
-      userId: String(pick('userId', 'cart_userId', 'user_id') ?? ''),
+      id: String(pick('cartId', 'cart_id', 'id') ?? ''),
+      refId: String(pick('cartRefId', 'cart_refId', 'cart_ref_id') ?? ''),
+      userId: String(pick('cartUserId', 'cart_userId', 'userId') ?? ''),
       userRefId: String(pick('userRefId', 'user_refId', 'user_ref_id') ?? ''),
       firstName: (pick('firstName', 'user_firstName', 'first_name') as string | null) ?? null,
       lastName: (pick('lastName', 'user_lastName', 'last_name') as string | null) ?? null,
@@ -218,8 +225,8 @@ export class CartsRepository {
       itemCount: Number(pick('itemCount', 'item_count') ?? 0),
       totalAmount: Number(pick('totalAmount', 'total_amount') ?? 0),
       lastActivityAt: toDate(pick('lastActivityAt', 'last_activity_at')),
-      createdAt: toDate(pick('createdAt', 'cart_createdAt', 'created_at')),
-      updatedAt: toDate(pick('updatedAt', 'cart_updatedAt', 'updated_at')),
+      createdAt: toDate(pick('cartCreatedAt', 'cart_createdAt', 'createdAt', 'created_at')),
+      updatedAt: toDate(pick('cartUpdatedAt', 'cart_updatedAt', 'updatedAt', 'updated_at')),
     };
   }
 }

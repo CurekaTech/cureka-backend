@@ -7,6 +7,7 @@ import { CheckoutModule } from '@modules/checkout/checkout.module';
 import { UsersModule } from '@modules/users/users.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
+import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { OtpEntity } from './entities/otp.entity';
 import { UserSessionEntity } from './entities/user-session.entity';
 import { UserSessionsRepository } from './repositories/user-sessions.repository';
@@ -32,6 +33,7 @@ import { KwikpassService } from './services/kwikpass.service';
     CoreAuthModule,
     AdminUsersModule,
     CheckoutModule,
+    AdminSettingsModule,
     UsersModule,
     forwardRef(() => OrdersModule),
     UploadsModule,
