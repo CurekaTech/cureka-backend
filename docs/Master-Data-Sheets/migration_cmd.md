@@ -100,3 +100,15 @@ npm run product:sku-fix -- --apply
 # Optional
 npm run product:sku-fix -- --apply --limit=10
 
+-------------------------------
+
+// sitemap 
+npm run sitemap:generate
+
+-------------------------------
+// top products ( variant is_top)
+npm run product:mark-top
+npm run product:mark-top -- --apply
+
+
+
