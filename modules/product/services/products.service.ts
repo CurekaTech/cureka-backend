@@ -29,7 +29,7 @@ import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
 import { enrichProductInformation } from '../utils/product-information.util';
-import { mapSpecificationFields } from '../utils/product-payload.util';
+import { mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import {
@@ -374,6 +374,15 @@ export class ProductsService {
         });
         const skuToVariantId = new Map(variants.map((v) => [v.sku, v.id]));
         await this.relationsRepository.createMedia(manager, created.id, productMedia, skuToVariantId);
+      }
+
+      const sharedCommerce = pickSharedCommerceFields(normalizedDto);
+      if (sharedCommerce) {
+        await this.variantsRepository.updateSharedCommerceFieldsByProductId(
+          created.id,
+          sharedCommerce,
+          manager,
+        );
       }
 
       return created;
@@ -880,6 +889,16 @@ export class ProductsService {
         });
         const skuToVariantId = new Map(variants.map((variant) => [variant.sku, variant.id]));
         await this.relationsRepository.syncMedia(manager, existing.id, media, skuToVariantId);
+      }
+
+      // Product-level commerce flags must apply to every variant (PDP shares these flags).
+      const sharedCommerce = pickSharedCommerceFields(dto);
+      if (sharedCommerce) {
+        await this.variantsRepository.updateSharedCommerceFieldsByProductId(
+          existing.id,
+          sharedCommerce,
+          manager,
+        );
       }
     });
 

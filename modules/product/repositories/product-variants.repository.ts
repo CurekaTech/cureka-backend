@@ -682,6 +682,39 @@ export class ProductVariantsRepository {
   }
 
   /**
+   * Cascade product-level commerce flags/policy onto every non-deleted variant.
+   * Keeps PDP shared flags consistent when admin updates the product (not a single variant).
+   */
+  async updateSharedCommerceFieldsByProductId(
+    productId: string,
+    fields: Partial<{
+      subscriptionEnabled: boolean;
+      codAvailable: boolean;
+      emiAvailable: boolean;
+      returnAllowed: boolean;
+      returnPolicy: string | null;
+      returnWindowDays: number | null;
+      replaceAllowed: boolean;
+      replaceWindowDays: number | null;
+    }>,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    if (!entries.length) return 0;
+
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    const result = await repo
+      .createQueryBuilder()
+      .update(ProductVariantEntity)
+      .set(Object.fromEntries(entries) as Partial<ProductVariantEntity>)
+      .where('product_id = :productId', { productId })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
+  /**
    * Active (variant.status=active) variants on published products that belong to `categoryId`.
    * Used to validate save payloads for Category Product Indexing.
    */
