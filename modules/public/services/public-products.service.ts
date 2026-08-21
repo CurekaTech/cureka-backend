@@ -141,6 +141,7 @@ export class PublicProductsService {
           variantSlug: query.variantSlug,
           tagSlug: query.tagSlug,
           prioritizeBestsellers: true,
+          prioritizeTopProducts: Boolean(filters.categoryId),
           categoryFilterCriteria: filters.categoryFilterCriteria,
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,

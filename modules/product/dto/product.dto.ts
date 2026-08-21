@@ -778,4 +778,31 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   })
   @IsBoolean()
   outOfStock?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description: 'When true, return only variants with is_top = true (Top Products).',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  isTop?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'When true, pin variants with is_top=true first in the list (then apply sortBy). Use on Category Product Indexing.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  prioritizeTop?: boolean;
 }

@@ -461,6 +461,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
   ),
+  isTop: (entity.variants ?? []).some(
+    (variant) => variant.status === VariantStatus.ACTIVE && (variant.isTop ?? false),
+  ),
   variantId: listVariant?.id ?? null,
   subscriptionEnabled: commerceFlags.subscriptionEnabled,
   codAvailable: commerceFlags.codAvailable,

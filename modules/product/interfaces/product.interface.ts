@@ -38,6 +38,8 @@ export interface IProductVariant {
   discountPercentage: number | null;
   stock: number;
   outOfStock: boolean;
+  /** True when this variant is marked as a Top Product for category PLP ordering. */
+  isTop: boolean;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;

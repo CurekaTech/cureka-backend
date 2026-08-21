@@ -52,6 +52,7 @@ import { ProductReviewsRepository } from './repositories/product-reviews.reposit
 // ── Product services ─────────────────────────────────────────────────────────
 import { ProductsService } from './services/products.service';
 import { BestSellersIndexingService } from './services/best-sellers-indexing.service';
+import { CategoryProductIndexingService } from './services/category-product-indexing.service';
 import { ProductMultipartService } from './services/product-multipart.service';
 import { ProductMasterResolverService } from './services/product-master-resolver.service';
 import { ProductVariantsService } from './services/product-variants.service';
@@ -82,6 +83,7 @@ import {
 import { ProductsController } from './controllers/products.controller';
 import { BundleProductsController } from './controllers/bundle-products.controller';
 import { BestSellersIndexingController } from './controllers/best-sellers-indexing.controller';
+import { CategoryProductIndexingController } from './controllers/category-product-indexing.controller';
 import { ProductVariantsController } from './controllers/product-variants.controller';
 import { ProductFaqsController } from './controllers/product-faqs.controller';
 import { ProductTagsController } from './controllers/product-tags.controller';
@@ -147,6 +149,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     ProductsController,
     BundleProductsController,
     BestSellersIndexingController,
+    CategoryProductIndexingController,
     ProductVariantsController,
     ProductFaqsController,
     ProductTagsController,
@@ -167,6 +170,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     ProductInformationLabelsRepository,
     ProductsService,
     BestSellersIndexingService,
+    CategoryProductIndexingService,
     ProductMultipartService,
     ProductMasterResolverService,
     ProductVariantsService,

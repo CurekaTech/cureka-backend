@@ -7,6 +7,8 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductStatus } from '../enums/product-status.enum';
+import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import {
   buildVariantCombinationKey,
   IVariantAttributeInput,
@@ -20,7 +22,6 @@ import {
   validateVariantPricing,
   validateUniqueVariantCombinations,
 } from '../validators/variant.validator';
-import { ProductStatus } from '../enums/product-status.enum';
 import { ProductsRepository } from './products.repository';
 import {
   mapVariantDetailDtoToEntityColumns,
@@ -678,6 +679,121 @@ export class ProductVariantsRepository {
     }
 
     return { bySkuResult, updatedProductIds };
+  }
+
+  /**
+   * Active (variant.status=active) variants on published products that belong to `categoryId`.
+   * Used to validate save payloads for Category Product Indexing.
+   */
+  async findActiveVariantsInCategory(
+    categoryId: string,
+    variantIds: string[],
+  ): Promise<ProductVariantEntity[]> {
+    if (!variantIds.length) return [];
+
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.id IN (:...variantIds)', { variantIds })
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
+      .getMany();
+  }
+
+  async findTopVariantsForCategory(categoryId: string): Promise<ProductVariantEntity[]> {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.isTop = true')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
+      .orderBy('product.name', 'ASC')
+      .addOrderBy('variant.sku', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Category-scoped sync:
+   * - selected variants in the category → is_top = true
+   * - other currently-top variants in the same category → is_top = false
+   * - variants outside the category are never touched
+   */
+  async syncIsTopForCategory(
+    categoryId: string,
+    selectedVariantIds: string[],
+  ): Promise<{ selectedCount: number; clearedCount: number }> {
+    const categoryMatchSql = `
+      (
+        p.category_id = $1
+        OR p.sub_category_id = $1
+        OR p.sub_sub_category_id = $1
+        OR p.sub_sub_sub_category_id = $1
+        OR EXISTS (
+          SELECT 1 FROM product_category_hierarchies pch
+          WHERE pch.product_id = p.id
+            AND (
+              pch.category_id = $1
+              OR pch.sub_category_id = $1
+              OR pch.sub_sub_category_id = $1
+              OR pch.sub_sub_sub_category_id = $1
+            )
+        )
+      )
+    `;
+
+    const clearRows = (await this.repo.manager.query(
+      `
+      WITH cleared AS (
+        UPDATE product_variants v
+        SET is_top = false, updated_at = NOW()
+        WHERE v.deleted_at IS NULL
+          AND v.is_top = true
+          AND (
+            ${selectedVariantIds.length ? 'v.id <> ALL($2::uuid[])' : 'TRUE'}
+          )
+          AND EXISTS (
+            SELECT 1 FROM products p
+            WHERE p.id = v.product_id
+              AND ${categoryMatchSql}
+          )
+        RETURNING v.id
+      )
+      SELECT COUNT(*)::int AS count FROM cleared
+      `,
+      selectedVariantIds.length ? [categoryId, selectedVariantIds] : [categoryId],
+    )) as Array<{ count: number | string }>;
+
+    let selectedCount = 0;
+    if (selectedVariantIds.length) {
+      const setRows = (await this.repo.manager.query(
+        `
+        WITH updated AS (
+          UPDATE product_variants v
+          SET is_top = true, updated_at = NOW()
+          WHERE v.deleted_at IS NULL
+            AND v.id = ANY($2::uuid[])
+            AND EXISTS (
+              SELECT 1 FROM products p
+              WHERE p.id = v.product_id
+                AND ${categoryMatchSql}
+            )
+          RETURNING v.id
+        )
+        SELECT COUNT(*)::int AS count FROM updated
+        `,
+        [categoryId, selectedVariantIds],
+      )) as Array<{ count: number | string }>;
+      selectedCount = Number(setRows?.[0]?.count ?? 0);
+    }
+
+    return {
+      selectedCount,
+      clearedCount: Number(clearRows?.[0]?.count ?? 0),
+    };
   }
 
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {
