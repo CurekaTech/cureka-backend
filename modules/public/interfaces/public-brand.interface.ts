@@ -26,6 +26,7 @@ export interface IPublicBrandProductListingContext {
   promotionalBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   secondaryBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   secondaryVideo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  offerBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   brandHighlights: IPublicBrandHighlight[] | null;
   description: string | null;
   metaTitle: string | null;

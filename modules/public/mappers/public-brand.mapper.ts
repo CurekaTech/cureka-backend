@@ -26,6 +26,7 @@ export const mapBrandEntityToListingContext = (
   promotionalBanner: entity.promotionalBanner,
   secondaryBanner: entity.secondaryBanner ?? null,
   secondaryVideo: entity.secondaryVideo ?? null,
+  offerBanner: entity.offerBanner ?? null,
   brandHighlights: entity.brandHighlights ?? null,
   description: entity.description,
   metaTitle: entity.metaTitle,

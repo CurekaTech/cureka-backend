@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { Transform, Type } from 'class-transformer';
+import { Transform, Type, plainToInstance } from 'class-transformer';
 import {
+  Allow,
   ArrayMaxSize,
   IsArray,
   IsBoolean,
@@ -28,34 +29,59 @@ const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   return undefined;
 };
 
-/** Multipart may send brandHighlights as a JSON string; null clears the field. */
-const parseBrandHighlights = ({
-  value,
-}: {
-  value: unknown;
-}): BrandHighlightDto[] | null | undefined => {
-  if (value === undefined || value === '') return undefined;
-  if (value === null || value === 'null') return null;
+export class BrandHighlightIconDto {
+  @IsString()
+  @IsNotEmpty()
+  key!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+}
+
+/**
+ * Normalize highlight icon from multipart JSON:
+ * - null / "" / "null" → null
+ * - storage path string → string
+ * - { key, name } → BrandHighlightIconDto
+ */
+const parseHighlightIcon = ({ value }: { value: unknown }): string | BrandHighlightIconDto | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '' || value === 'null') return null;
   if (typeof value === 'string') {
-    const parsed = JSON.parse(value) as unknown;
-    if (parsed === null) return null;
-    if (!Array.isArray(parsed)) {
-      throw new Error('brandHighlights must be a JSON array or null');
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === 'null') return null;
+    // JSON object sent as string
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return plainToInstance(BrandHighlightIconDto, parsed);
+        }
+      } catch {
+        // treat as plain storage path
+      }
     }
-    return parsed as BrandHighlightDto[];
+    return trimmed;
   }
-  if (Array.isArray(value)) return value as BrandHighlightDto[];
-  return undefined;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return plainToInstance(BrandHighlightIconDto, value);
+  }
+  return null;
 };
 
 export class BrandHighlightDto {
   /**
    * Optional icon. Accepts a storage path string, `{ key, name }`, or null.
-   * File field uploads for highlight icons are not supported in multipart;
-   * upload via gallery/uploads first, then pass the path/reference here.
+   * Upload icons via gallery/uploads first, then pass the path/reference here.
    */
   @IsOptional()
-  icon?: string | { key: string; name: string } | null;
+  @Transform(parseHighlightIcon)
+  @ValidateIf((_, value) => value !== null && value !== undefined && typeof value === 'object')
+  @ValidateNested()
+  @Type(() => BrandHighlightIconDto)
+  @Allow()
+  icon?: string | BrandHighlightIconDto | null;
 
   @IsNotEmpty()
   @IsString()
@@ -67,6 +93,27 @@ export class BrandHighlightDto {
   @MaxLength(500)
   subtitle!: string;
 }
+
+/** Multipart may send brandHighlights as a JSON string; null clears the field. */
+const parseBrandHighlights = ({
+  value,
+}: {
+  value: unknown;
+}): BrandHighlightDto[] | null | undefined => {
+  if (value === undefined || value === '') return undefined;
+  if (value === null || value === 'null') return null;
+
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    parsed = JSON.parse(value) as unknown;
+  }
+  if (parsed === null) return null;
+  if (!Array.isArray(parsed)) {
+    throw new Error('brandHighlights must be a JSON array or null');
+  }
+
+  return parsed.map((item) => plainToInstance(BrandHighlightDto, item));
+};
 
 export class CreateBrandDto {
   @IsNotEmpty()
@@ -118,7 +165,20 @@ export class CreateBrandDto {
   brandHighlights?: BrandHighlightDto[] | null;
 }
 
-export class UpdateBrandDto extends PartialType(CreateBrandDto) {}
+/**
+ * Explicitly re-declare brandHighlights so PartialType does not drop
+ * nested @Type / @Transform metadata (causes validate "undefined" errors).
+ */
+export class UpdateBrandDto extends PartialType(CreateBrandDto) {
+  @IsOptional()
+  @Transform(parseBrandHighlights)
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => BrandHighlightDto)
+  brandHighlights?: BrandHighlightDto[] | null;
+}
 
 export class UpdateBrandStatusDto {
   @IsNotEmpty()

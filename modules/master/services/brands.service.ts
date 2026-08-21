@@ -36,6 +36,7 @@ const BRAND_UPLOAD_FIELDS = {
   promotionalBanner: UploadFolder.BANNERS,
   secondaryBanner: UploadFolder.BANNERS,
   secondaryVideo: UploadFolder.VIDEOS,
+  offerBanner: UploadFolder.BANNERS,
 } as const;
 
 type BrandMediaInput = {
@@ -46,6 +47,7 @@ type BrandMediaInput = {
   promotionalBanner?: string | null;
   secondaryBanner?: string | null;
   secondaryVideo?: string | null;
+  offerBanner?: string | null;
 };
 
 @Injectable()
@@ -76,6 +78,7 @@ export class BrandsService {
         promotionalBanner: uploadedUrls['promotionalBanner'] ?? null,
         secondaryBanner: uploadedUrls['secondaryBanner'] ?? null,
         secondaryVideo: uploadedUrls['secondaryVideo'] ?? null,
+        offerBanner: uploadedUrls['offerBanner'] ?? null,
       },
       createdBy,
     );
@@ -96,6 +99,7 @@ export class BrandsService {
       promotionalBanner: uploadedUrls['promotionalBanner'],
       secondaryBanner: uploadedUrls['secondaryBanner'],
       secondaryVideo: uploadedUrls['secondaryVideo'],
+      offerBanner: uploadedUrls['offerBanner'],
     });
   }
 
@@ -120,6 +124,7 @@ export class BrandsService {
       promotionalBanner: this.storageUrlEnricher.persist(media.promotionalBanner),
       secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
       secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
+      offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
       brandHighlights: this.persistBrandHighlights(dto.brandHighlights),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -195,6 +200,9 @@ export class BrandsService {
     }
     if (media.secondaryVideo !== undefined) {
       payload.secondaryVideo = this.storageUrlEnricher.persist(media.secondaryVideo);
+    }
+    if (media.offerBanner !== undefined) {
+      payload.offerBanner = this.storageUrlEnricher.persist(media.offerBanner);
     }
     if (brandHighlights !== undefined) {
       payload.brandHighlights = this.persistBrandHighlights(brandHighlights);
