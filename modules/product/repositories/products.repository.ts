@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
@@ -75,6 +75,8 @@ export interface PublicProductListOptions {
 
 @Injectable()
 export class ProductsRepository {
+  private readonly logger = new Logger(ProductsRepository.name);
+
   constructor(
     @InjectRepository(ProductEntity)
     private readonly repo: Repository<ProductEntity>,
@@ -108,6 +110,28 @@ export class ProductsRepository {
     return product;
   }
 
+  async countProductsWithInformationLabel(
+    label: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM products p
+      WHERE p.product_information IS NOT NULL
+        AND jsonb_typeof(p.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(p.product_information) item
+          WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+        )
+      `,
+      [label],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
   async renameProductInformationLabel(
     oldLabel: string,
     newLabel: string,
@@ -116,11 +140,30 @@ export class ProductsRepository {
   ): Promise<number> {
     const from = oldLabel.trim();
     const to = newLabel.trim();
-    if (!from || !to || from.toLowerCase() === to.toLowerCase()) {
+    this.logger.log(
+      `[PIL-RENAME][products] start from="${from}" to="${to}" updatedBy="${updatedBy}" ` +
+        `hasManager=${Boolean(manager)}`,
+    );
+
+    if (!from || !to) {
+      this.logger.warn(
+        `[PIL-RENAME][products] skipped empty label from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+    if (from.toLowerCase() === to.toLowerCase()) {
+      this.logger.warn(
+        `[PIL-RENAME][products] skipped same label (case-insensitive) from="${from}" to="${to}"`,
+      );
       return 0;
     }
 
     const runner = manager ?? this.repo.manager;
+    const beforeCount = await this.countProductsWithInformationLabel(from, manager);
+    this.logger.log(
+      `[PIL-RENAME][products] rows matching from-label before update: ${beforeCount}`,
+    );
+
     const rows = (await runner.query(
       `
       WITH updated AS (
@@ -156,7 +199,16 @@ export class ProductsRepository {
       `,
       [from, to, updatedBy],
     )) as Array<{ count: number | string }>;
-    return Number(rows?.[0]?.count ?? 0);
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterFromCount = await this.countProductsWithInformationLabel(from, manager);
+    const afterToCount = await this.countProductsWithInformationLabel(to, manager);
+    this.logger.log(
+      `[PIL-RENAME][products] done updatedCount=${updatedCount} ` +
+        `rawResult=${JSON.stringify(rows)} ` +
+        `remainingWithFrom=${afterFromCount} withTo=${afterToCount}`,
+    );
+    return updatedCount;
   }
 
   /**

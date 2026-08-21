@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, BadRequestException } from '@nestjs/common';
+import { ConflictException, Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
@@ -49,6 +49,8 @@ const normalizeSearchTags = (tags?: string[] | null): string[] => {
 
 @Injectable()
 export class ProductVariantsRepository {
+  private readonly logger = new Logger(ProductVariantsRepository.name);
+
   constructor(
     @InjectRepository(ProductVariantEntity)
     private readonly repo: Repository<ProductVariantEntity>,
@@ -63,6 +65,28 @@ export class ProductVariantsRepository {
     return (await qb.getCount()) > 0;
   }
 
+  async countVariantsWithInformationLabel(
+    label: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM product_variants v
+      WHERE v.product_information IS NOT NULL
+        AND jsonb_typeof(v.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(v.product_information) item
+          WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+        )
+      `,
+      [label],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
   async renameProductInformationLabel(
     oldLabel: string,
     newLabel: string,
@@ -71,11 +95,29 @@ export class ProductVariantsRepository {
   ): Promise<number> {
     const from = oldLabel.trim();
     const to = newLabel.trim();
-    if (!from || !to || from.toLowerCase() === to.toLowerCase()) {
+    this.logger.log(
+      `[PIL-RENAME][variants] start from="${from}" to="${to}" hasManager=${Boolean(manager)}`,
+    );
+
+    if (!from || !to) {
+      this.logger.warn(
+        `[PIL-RENAME][variants] skipped empty label from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+    if (from.toLowerCase() === to.toLowerCase()) {
+      this.logger.warn(
+        `[PIL-RENAME][variants] skipped same label (case-insensitive) from="${from}" to="${to}"`,
+      );
       return 0;
     }
 
     const runner = manager ?? this.repo.manager;
+    const beforeCount = await this.countVariantsWithInformationLabel(from, manager);
+    this.logger.log(
+      `[PIL-RENAME][variants] rows matching from-label before update: ${beforeCount}`,
+    );
+
     const rows = (await runner.query(
       `
       WITH updated AS (
@@ -110,7 +152,16 @@ export class ProductVariantsRepository {
       `,
       [from, to],
     )) as Array<{ count: number | string }>;
-    return Number(rows?.[0]?.count ?? 0);
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterFromCount = await this.countVariantsWithInformationLabel(from, manager);
+    const afterToCount = await this.countVariantsWithInformationLabel(to, manager);
+    this.logger.log(
+      `[PIL-RENAME][variants] done updatedCount=${updatedCount} ` +
+        `rawResult=${JSON.stringify(rows)} ` +
+        `remainingWithFrom=${afterFromCount} withTo=${afterToCount}`,
+    );
+    return updatedCount;
   }
 
   /**

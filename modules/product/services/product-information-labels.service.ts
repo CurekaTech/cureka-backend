@@ -93,6 +93,15 @@ export class ProductInformationLabelsService {
     const nextName = dto.name !== undefined ? dto.name.trim() : undefined;
     const previousName = dto.previousName?.trim();
 
+    this.logger.log(
+      `[PIL-UPDATE] start refId=${refId} updatedBy=${updatedBy} ` +
+        `existingName="${existing.name}" oldNameTrimmed="${oldName}" ` +
+        `dtoName=${dto.name === undefined ? '<undefined>' : `"${dto.name}"`} ` +
+        `nextName=${nextName === undefined ? '<undefined>' : `"${nextName}"`} ` +
+        `previousName=${previousName === undefined ? '<undefined>' : `"${previousName}"`} ` +
+        `dtoKeys=[${Object.keys(dto).join(',')}]`,
+    );
+
     if (nextName !== undefined && nextName !== oldName) {
       if (await this.productInformationLabelsRepository.existsByName(nextName, refId)) {
         throw new ConflictException(
@@ -105,20 +114,46 @@ export class ProductInformationLabelsService {
     const cascadeFromNames = new Set<string>();
     if (nextName !== undefined && nextName !== oldName) {
       cascadeFromNames.add(oldName);
+      this.logger.log(
+        `[PIL-UPDATE] cascade reason=master-name-changed from="${oldName}" to="${nextName}"`,
+      );
+    } else if (nextName !== undefined && nextName === oldName) {
+      this.logger.warn(
+        `[PIL-UPDATE] master name unchanged ("${oldName}"). ` +
+          `JSON cascade will NOT run unless previousName is provided. ` +
+          `If product JSON still has an old label, send previousName="<exact JSON label>".`,
+      );
+    } else {
+      this.logger.log('[PIL-UPDATE] dto.name omitted — master name will not change');
     }
+
     if (previousName && nextName && previousName.toLowerCase() !== nextName.toLowerCase()) {
       cascadeFromNames.add(previousName);
+      this.logger.log(
+        `[PIL-UPDATE] cascade reason=previousName from="${previousName}" to="${nextName}"`,
+      );
     }
     // Stuck repair: master already has the new name, but JSON still has previousName.
-    if (previousName && nextName === undefined && previousName.toLowerCase() !== oldName.toLowerCase()) {
+    if (
+      previousName &&
+      nextName === undefined &&
+      previousName.toLowerCase() !== oldName.toLowerCase()
+    ) {
       cascadeFromNames.add(previousName);
+      this.logger.log(
+        `[PIL-UPDATE] cascade reason=previousName-only-repair from="${previousName}" to="${oldName}"`,
+      );
     }
 
     const targetName = nextName ?? oldName;
+    this.logger.log(
+      `[PIL-UPDATE] cascadeFromNames=[${[...cascadeFromNames].join(' | ')}] targetName="${targetName}"`,
+    );
 
     const { previousName: _ignoredPreviousName, ...labelFields } = dto;
 
     const updated = await this.productInformationLabelsRepository.transaction(async (manager) => {
+      this.logger.log('[PIL-UPDATE] transaction started');
       const updatedLabel = await this.productInformationLabelsRepository.updateByRefId(
         refId,
         {
@@ -134,42 +169,55 @@ export class ProductInformationLabelsService {
           `Product information label with refId ${refId} not found after update`,
         );
       }
+      this.logger.log(
+        `[PIL-UPDATE] master row updated name="${updatedLabel.name}" sortOrder=${updatedLabel.sortOrder}`,
+      );
 
       let productsUpdated = 0;
       let variantsUpdated = 0;
+      if (cascadeFromNames.size === 0) {
+        this.logger.warn('[PIL-UPDATE] SKIPPED JSON cascade — cascadeFromNames is empty');
+      }
+
       for (const fromName of cascadeFromNames) {
-        productsUpdated += await this.productsRepository.renameProductInformationLabel(
+        this.logger.log(
+          `[PIL-UPDATE] cascading JSON rename "${fromName}" → "${targetName}"`,
+        );
+        const pCount = await this.productsRepository.renameProductInformationLabel(
           fromName,
           targetName,
           updatedBy,
           manager,
         );
-        variantsUpdated += await this.productVariantsRepository.renameProductInformationLabel(
+        const vCount = await this.productVariantsRepository.renameProductInformationLabel(
           fromName,
           targetName,
           updatedBy,
           manager,
+        );
+        productsUpdated += pCount;
+        variantsUpdated += vCount;
+        this.logger.log(
+          `[PIL-UPDATE] cascade step done from="${fromName}" products=${pCount} variants=${vCount}`,
         );
       }
 
-      if (cascadeFromNames.size > 0) {
-        this.logger.log(
-          `Cascaded product information label rename → "${targetName}" ` +
-            `from=[${[...cascadeFromNames].join(', ')}] ` +
-            `(products=${productsUpdated}, variants=${variantsUpdated})`,
+      this.logger.log(
+        `[PIL-UPDATE] cascade totals products=${productsUpdated} variants=${variantsUpdated}`,
+      );
+      if (cascadeFromNames.size > 0 && productsUpdated === 0 && variantsUpdated === 0) {
+        this.logger.warn(
+          `[PIL-UPDATE] ZERO rows updated. JSON likely still has a different label text than ` +
+            `[${[...cascadeFromNames].join(', ')}]. ` +
+            `Retry PATCH with previousName set to the exact label in productInformation (e.g. "Offers").`,
         );
-        if (productsUpdated === 0 && variantsUpdated === 0) {
-          this.logger.warn(
-            `No products/variants contained labels [${[...cascadeFromNames].join(', ')}]. ` +
-              `If JSON still shows an old label, retry with body.previousName set to that exact text.`,
-          );
-        }
       }
 
       return updatedLabel;
     });
 
     await this.invalidatePublicProductCaches('updated', refId);
+    this.logger.log(`[PIL-UPDATE] completed refId=${refId}`);
     return mapProductInformationLabelEntityToResponse(updated);
   }
 
