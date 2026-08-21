@@ -41,6 +41,9 @@ export interface ProductListOptions {
   productNatureId?: string;
   variantSlug?: string;
   outOfStock?: boolean;
+  isTop?: boolean;
+  /** When true, pin `is_top` variants first (then apply normal sortBy). */
+  prioritizeTop?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
@@ -68,6 +71,11 @@ export interface PublicProductListOptions {
    * (by product_tag_mappings.sort_order), then the rest.
    */
   prioritizeBestsellers?: boolean;
+  /**
+   * When true (typically with a category filter), pin non-bestseller products that have
+   * any active `is_top` variant after bestsellers and before other products.
+   */
+  prioritizeTopProducts?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
   minPrice?: number;
   maxPrice?: number;
@@ -983,7 +991,9 @@ export class ProductsRepository {
       .take(take);
 
     this.applyAdminVariantListFilters(qb, options);
-    this.applyAdminVariantListSort(qb, options.sortBy, sortOrder);
+    this.applyAdminVariantListSort(qb, options.sortBy, sortOrder, {
+      prioritizeTop: options.prioritizeTop,
+    });
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
@@ -1284,22 +1294,37 @@ export class ProductsRepository {
     } else if (options.outOfStock === false) {
       qb.andWhere('variant.outOfStock = false');
     }
+    if (options.isTop === true) {
+      qb.andWhere('variant.isTop = true');
+    } else if (options.isTop === false) {
+      qb.andWhere('variant.isTop = false');
+    }
   }
 
   private applyAdminVariantListSort(
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
+    options?: { prioritizeTop?: boolean },
   ): void {
+    const applySecondary = (column: string): void => {
+      if (options?.prioritizeTop) {
+        qb.orderBy('variant.isTop', 'DESC');
+        qb.addOrderBy(column, sortOrder, 'NULLS LAST');
+      } else {
+        qb.orderBy(column, sortOrder, 'NULLS LAST');
+      }
+    };
+
     switch (sortBy) {
       case 'price':
-        qb.orderBy('variant.sellingPrice', sortOrder, 'NULLS LAST');
+        applySecondary('variant.sellingPrice');
         return;
       case 'stock':
-        qb.orderBy('variant.stock', sortOrder, 'NULLS LAST');
+        applySecondary('variant.stock');
         return;
       case 'sku':
-        qb.orderBy('variant.sku', sortOrder, 'NULLS LAST');
+        applySecondary('variant.sku');
         return;
       default: {
         const SORTABLE: Record<string, string> = {
@@ -1317,7 +1342,7 @@ export class ProductsRepository {
         };
         const resolvedSortBy = sortBy ?? DEFAULT_ADMIN_PRODUCT_LIST_SORT;
         const sortColumn = SORTABLE[resolvedSortBy] ?? SORTABLE[DEFAULT_ADMIN_PRODUCT_LIST_SORT];
-        qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+        applySecondary(sortColumn);
       }
     }
   }
@@ -1374,7 +1399,10 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
-    options?: Pick<PublicProductListOptions, 'tagSlug' | 'prioritizeBestsellers'>,
+    options?: Pick<
+      PublicProductListOptions,
+      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts'
+    >,
   ): void {
     // Storefront: always show in-stock products before fully out-of-stock ones.
     qb.setParameter('oosVariantStatus', VariantStatus.ACTIVE);
@@ -1415,6 +1443,23 @@ export class ProductsRepository {
       );
       qb.addOrderBy('bestseller_rank', 'ASC');
       qb.addOrderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
+    }
+
+    // Category PLP: after bestsellers, pin Top Products (`is_top` on any active variant).
+    // Dual-tagged products stay in the bestseller group via `bestseller_rank` (no duplicate).
+    if (options?.prioritizeTopProducts) {
+      qb.setParameter('topVariantStatus', VariantStatus.ACTIVE);
+      qb.addSelect(
+        `(CASE WHEN EXISTS (
+            SELECT 1 FROM product_variants pv_top
+            WHERE pv_top.product_id = product.id
+              AND pv_top.deleted_at IS NULL
+              AND pv_top.status = :topVariantStatus
+              AND pv_top.is_top = true
+          ) THEN 0 ELSE 1 END)`,
+        'top_rank',
+      );
+      qb.addOrderBy('top_rank', 'ASC');
     }
 
     if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {

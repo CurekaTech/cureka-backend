@@ -128,6 +128,8 @@ export interface IPublicProductCard {
   outOfStock: boolean;
   /** True when the product carries the `bestsellers` tag. */
   isBestSeller: boolean;
+  /** True when any active variant has `is_top` (Category Product Indexing). */
+  isTop: boolean;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;

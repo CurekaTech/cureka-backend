@@ -79,6 +79,11 @@ export class ProductVariantEntity {
   @Column({ name: 'out_of_stock', type: 'boolean', default: false })
   outOfStock!: boolean;
 
+  /** Category PLP “Top Products” pin (after bestsellers). Managed via Category Product Indexing. */
+  @Index()
+  @Column({ name: 'is_top', type: 'boolean', default: false })
+  isTop!: boolean;
+
   @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
   weight!: string | null;
 

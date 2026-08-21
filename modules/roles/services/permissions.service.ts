@@ -364,6 +364,11 @@ export class PermissionsService {
             permissions: getPerms('best_sellers'),
           },
           {
+            name: 'Category Product Indexing',
+            key: 'cms-category-product-indexing',
+            permissions: getPerms('category_product'),
+          },
+          {
             name: 'Pages',
             key: 'cms-pages',
             permissions: getPerms('cms_pages'),
