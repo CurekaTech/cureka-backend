@@ -25,7 +25,7 @@ import * as Joi from 'joi';
 
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
-    .valid('development', 'production', 'test', 'staging')
+    .valid('development', 'production', 'test', 'staging', 'beta')
     .default('development'),
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().uri().required(),
@@ -51,10 +51,12 @@ export const envValidationSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('7d'),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN_DAYS: Joi.number().integer().min(1).max(365).default(90),
-  // Optional — LoggerModule resolves development→debug, production/staging→info, test→silent
+  // Optional — LoggerModule resolves development→debug, production/staging/beta→info, test→silent
   LOG_LEVEL: Joi.string()
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent')
     .optional(),
+  LOG_SERVICE_NAME: Joi.string().allow('').optional(),
+  APP_ENV: Joi.string().allow('').optional(),
   CORS_ORIGINS: Joi.string().allow('').optional(),
   COOKIE_SECURE: Joi.string().valid('true', 'false').optional(),
   DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),

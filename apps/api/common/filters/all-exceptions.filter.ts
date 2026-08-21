@@ -208,17 +208,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
   ): void {
     const err = exception instanceof Error ? exception : new Error(String(exception));
     const messageText = Array.isArray(message) ? message.join(', ') : message;
+    const path = request.url?.split('?')[0] ?? request.url;
     const payload = {
       requestId: request.id,
       method: request.method,
-      url: request.url?.split('?')[0] ?? request.url,
+      path,
       statusCode,
       errorName: err.name,
-      message: messageText,
+      errorType: err.name,
+      errorMessage: messageText,
     };
 
     if (statusCode >= 500) {
-      this.logger.error({ ...payload, stack: err.stack }, 'Request failed');
+      this.logger.error({ ...payload, stack: err.stack, err }, 'Request failed');
       return;
     }
 
