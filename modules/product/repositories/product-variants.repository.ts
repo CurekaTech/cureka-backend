@@ -500,6 +500,39 @@ export class ProductVariantsRepository {
   }
 
   /**
+   * Copies product-level commerce / eligibility flags onto every non-deleted variant
+   * so admin PDP toggles stay in sync with variant rows.
+   */
+  async syncCommerceFlagsFromProduct(
+    manager: EntityManager,
+    productId: string,
+    flags: {
+      subscriptionEnabled: boolean;
+      codAvailable: boolean;
+      emiAvailable: boolean;
+      returnAllowed: boolean;
+      returnPolicy: string | null;
+      returnWindowDays: number | null;
+      replaceAllowed: boolean;
+      replaceWindowDays: number | null;
+    },
+  ): Promise<void> {
+    await manager.getRepository(ProductVariantEntity).update(
+      { productId },
+      {
+        subscriptionEnabled: flags.subscriptionEnabled,
+        codAvailable: flags.codAvailable,
+        emiAvailable: flags.emiAvailable,
+        returnAllowed: flags.returnAllowed,
+        returnPolicy: flags.returnPolicy,
+        returnWindowDays: flags.returnWindowDays,
+        replaceAllowed: flags.replaceAllowed,
+        replaceWindowDays: flags.replaceWindowDays,
+      },
+    );
+  }
+
+  /**
    * Sets stock on all non-deleted variants for the given products and clears
    * outOfStock (restores in-stock / reverses bulk mark-out-of-stock).
    */
