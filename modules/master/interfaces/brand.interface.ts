@@ -1,5 +1,14 @@
 import { MasterStatus } from '../enums/master-status.enum';
-import { IStorageFileReferenceResponse } from '@packages/storage';
+import {
+  IStorageFileReference,
+  IStorageFileReferenceResponse,
+} from '@packages/storage';
+
+export interface IBrandHighlight {
+  icon: IStorageFileReferenceResponse | IStorageFileReference | null;
+  title: string;
+  subtitle: string;
+}
 
 export interface IBrand {
   id: string;
@@ -11,6 +20,9 @@ export interface IBrand {
   video: IStorageFileReferenceResponse | null;
   featuredBanner: IStorageFileReferenceResponse | null;
   promotionalBanner: IStorageFileReferenceResponse | null;
+  secondaryBanner: IStorageFileReferenceResponse | null;
+  secondaryVideo: IStorageFileReferenceResponse | null;
+  brandHighlights: IBrandHighlight[] | null;
   description: string | null;
   status: MasterStatus;
   inHomePage: boolean;
