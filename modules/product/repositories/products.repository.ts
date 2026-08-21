@@ -114,6 +114,12 @@ export class ProductsRepository {
     updatedBy: string,
     manager?: EntityManager,
   ): Promise<number> {
+    const from = oldLabel.trim();
+    const to = newLabel.trim();
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) {
+      return 0;
+    }
+
     const runner = manager ?? this.repo.manager;
     const rows = (await runner.query(
       `
@@ -124,7 +130,7 @@ export class ProductsRepository {
             SELECT COALESCE(
               jsonb_agg(
                 CASE
-                  WHEN lower(trim(item->>'label')) = lower(trim($1::text))
+                  WHEN lower(btrim(item->>'label')) = lower(btrim($1::text))
                     THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
                   ELSE item
                 END
@@ -133,21 +139,23 @@ export class ProductsRepository {
               '[]'::jsonb
             )
             FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb))
-              WITH ORDINALITY AS t(item, ordinality)
+              WITH ORDINALITY AS elem(item, ordinality)
           ),
           updated_by = $3,
           updated_at = NOW()
-        WHERE EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb)) item
-          WHERE lower(trim(item->>'label')) = lower(trim($1::text))
-        )
+        WHERE p.product_information IS NOT NULL
+          AND jsonb_typeof(p.product_information) = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(p.product_information) item
+            WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+          )
         RETURNING p.id
       )
       SELECT COUNT(*)::int AS count FROM updated
       `,
-      [oldLabel, newLabel, updatedBy],
-    )) as Array<{ count: number }>;
+      [from, to, updatedBy],
+    )) as Array<{ count: number | string }>;
     return Number(rows?.[0]?.count ?? 0);
   }
 
