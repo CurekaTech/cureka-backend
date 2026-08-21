@@ -89,22 +89,40 @@ export class ProductInformationLabelsService {
       throw new NotFoundException(`Product information label with refId ${refId} not found`);
     }
 
-    if (dto.name !== undefined && dto.name !== existing.name) {
-      if (await this.productInformationLabelsRepository.existsByName(dto.name, refId)) {
+    const oldName = existing.name.trim();
+    const nextName = dto.name !== undefined ? dto.name.trim() : undefined;
+    const previousName = dto.previousName?.trim();
+
+    if (nextName !== undefined && nextName !== oldName) {
+      if (await this.productInformationLabelsRepository.existsByName(nextName, refId)) {
         throw new ConflictException(
-          `A product information label with name "${dto.name}" already exists`,
+          `A product information label with name "${nextName}" already exists`,
         );
       }
     }
 
-    const oldName = existing.name;
-    const nextName = dto.name?.trim();
+    // Sources of label text still present on products/variants JSON that must become nextName.
+    const cascadeFromNames = new Set<string>();
+    if (nextName !== undefined && nextName !== oldName) {
+      cascadeFromNames.add(oldName);
+    }
+    if (previousName && nextName && previousName.toLowerCase() !== nextName.toLowerCase()) {
+      cascadeFromNames.add(previousName);
+    }
+    // Stuck repair: master already has the new name, but JSON still has previousName.
+    if (previousName && nextName === undefined && previousName.toLowerCase() !== oldName.toLowerCase()) {
+      cascadeFromNames.add(previousName);
+    }
+
+    const targetName = nextName ?? oldName;
+
+    const { previousName: _ignoredPreviousName, ...labelFields } = dto;
 
     const updated = await this.productInformationLabelsRepository.transaction(async (manager) => {
       const updatedLabel = await this.productInformationLabelsRepository.updateByRefId(
         refId,
         {
-          ...dto,
+          ...labelFields,
           ...(nextName !== undefined ? { name: nextName } : {}),
           updatedBy,
         },
@@ -117,23 +135,35 @@ export class ProductInformationLabelsService {
         );
       }
 
-      if (nextName !== undefined && nextName !== oldName) {
-        const productsUpdated = await this.productsRepository.renameProductInformationLabel(
-          oldName,
-          nextName,
+      let productsUpdated = 0;
+      let variantsUpdated = 0;
+      for (const fromName of cascadeFromNames) {
+        productsUpdated += await this.productsRepository.renameProductInformationLabel(
+          fromName,
+          targetName,
           updatedBy,
           manager,
         );
-        const variantsUpdated = await this.productVariantsRepository.renameProductInformationLabel(
-          oldName,
-          nextName,
+        variantsUpdated += await this.productVariantsRepository.renameProductInformationLabel(
+          fromName,
+          targetName,
           updatedBy,
           manager,
         );
+      }
+
+      if (cascadeFromNames.size > 0) {
         this.logger.log(
-          `Renamed product information label "${oldName}" → "${nextName}" ` +
+          `Cascaded product information label rename → "${targetName}" ` +
+            `from=[${[...cascadeFromNames].join(', ')}] ` +
             `(products=${productsUpdated}, variants=${variantsUpdated})`,
         );
+        if (productsUpdated === 0 && variantsUpdated === 0) {
+          this.logger.warn(
+            `No products/variants contained labels [${[...cascadeFromNames].join(', ')}]. ` +
+              `If JSON still shows an old label, retry with body.previousName set to that exact text.`,
+          );
+        }
       }
 
       return updatedLabel;

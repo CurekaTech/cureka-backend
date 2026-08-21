@@ -36,7 +36,22 @@ export class CreateProductInformationLabelDto {
   sortOrder?: number;
 }
 
-export class UpdateProductInformationLabelDto extends PartialType(CreateProductInformationLabelDto) {}
+export class UpdateProductInformationLabelDto extends PartialType(CreateProductInformationLabelDto) {
+  /**
+   * Optional: label text currently stored on products/variants JSON.
+   * Use when master was renamed earlier but product_information JSON was not cascaded
+   * (e.g. after a failed update). Cascade renames this text to `name`.
+   */
+  @ApiPropertyOptional({
+    example: 'Age Group',
+    description:
+      'Existing product_information.label text to rewrite when cascading a rename',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  previousName?: string;
+}
 
 export class UpdateProductInformationLabelStatusDto {
   @ApiProperty({ enum: MasterStatus })
