@@ -33,6 +33,9 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'secondary_video' }))
   secondaryVideo!: IStorageFileReference | null;
 
+  @Column(storageFileReferenceColumn({ name: 'offer_banner' }))
+  offerBanner!: IStorageFileReference | null;
+
   @Column({ name: 'brand_highlights', type: 'jsonb', nullable: true })
   brandHighlights!: Array<{
     icon: IStorageFileReference | null;

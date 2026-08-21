@@ -22,6 +22,7 @@ export interface IBrand {
   promotionalBanner: IStorageFileReferenceResponse | null;
   secondaryBanner: IStorageFileReferenceResponse | null;
   secondaryVideo: IStorageFileReferenceResponse | null;
+  offerBanner: IStorageFileReferenceResponse | null;
   brandHighlights: IBrandHighlight[] | null;
   description: string | null;
   status: MasterStatus;
