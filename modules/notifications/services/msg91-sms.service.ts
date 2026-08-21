@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { sanitizeHeadersForLog } from '@packages/logger';
 import { normalizeMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import {
   IMsg91FlowSendPayload,
@@ -220,45 +221,6 @@ export class Msg91SmsService {
     const startedAt = Date.now();
 
     this.logger.log(
-      [
-        '',
-        '==================== MSG91 REQUEST ====================',
-        `URL:\n${url}`,
-        `Method:\n${method}`,
-        `Headers:\n${JSON.stringify(
-          {
-            accept: headers.accept,
-            'content-type': headers['content-type'],
-            authkey: this.maskSecret(headers.authkey),
-          },
-          null,
-          2,
-        )}`,
-        `Payload:\n${JSON.stringify(
-          {
-            ...payload,
-            // keep full payload in log; auth is only in headers
-          },
-          null,
-          2,
-        )}`,
-        `Flow ID:\n${flowId}`,
-        `Sender in API body:\n${payload.sender ?? '(omitted — uses Flow panel sender)'}`,
-        `MSG91_SENDER_ID env:\n${sender || '(not set)'}`,
-        `MSG91_PASS_SENDER_IN_FLOW:\n${this.passSenderInFlow}`,
-        `DLT Template ID (must match on MSG91 Flow panel):\n${this.dltTemplateId || '(not configured in env)'}`,
-        `PE ID (must match on MSG91 panel):\n${this.peId || '(not configured in env)'}`,
-        `Rendered SMS preview (compare with DLT portal text):\n${renderedSmsPreview ?? '(set MSG91_ORDER_THANKYOU_TEMPLATE_TEXT)'}`,
-        `DLT variable lengths:\n${JSON.stringify(dltVariableChecks, null, 2)}`,
-        `Mobile:\n${mobiles}`,
-        `Variables:\n${Object.entries(params.variables)
-          .map(([key, value]) => `${key}:\n${value}`)
-          .join('\n')}`,
-        '=======================================================',
-      ].join('\n'),
-    );
-
-    this.logger.log(
       {
         ...params.context,
         stage: 'request',
@@ -272,7 +234,6 @@ export class Msg91SmsService {
         peId: this.peId || null,
         renderedSmsPreview,
         dltVariableChecks,
-        phone: mobiles,
         phoneMasked: this.maskPhone(mobiles),
         variables: params.variables,
         shortUrl: this.shortUrl,
@@ -281,7 +242,7 @@ export class Msg91SmsService {
           'content-type': headers['content-type'],
           authkey: this.maskSecret(headers.authkey),
         },
-        payload,
+        payload: this.payloadForLog(payload),
       },
       '[MSG91-SMS] Sending Flow SMS (structured)',
     );
@@ -316,22 +277,6 @@ export class Msg91SmsService {
         responseHeaders,
       };
 
-      this.logger.log(
-        [
-          '',
-          '==================== MSG91 RESPONSE ====================',
-          `Status:\n${response.status}`,
-          `Request ID:\n${requestId ?? '(none)'}`,
-          `Provider status:\n${providerStatus ?? '(none)'}`,
-          `Failure reason:\n${failureReason ?? '(none)'}`,
-          `Elapsed ms:\n${elapsedMs}`,
-          `Response headers:\n${JSON.stringify(responseHeaders, null, 2)}`,
-          `Raw response body:\n${text}`,
-          `Parsed response body:\n${JSON.stringify(parsed, null, 2)}`,
-          '=======================================================',
-        ].join('\n'),
-      );
-
       if (!response.ok) {
         this.logger.error(
           {
@@ -342,7 +287,7 @@ export class Msg91SmsService {
             dltTemplateId: this.dltTemplateId || null,
             templateId: flowId,
             variables: params.variables,
-            phone: this.maskPhone(mobiles),
+            phoneMasked: this.maskPhone(mobiles),
             elapsedMs,
             httpStatus: response.status,
             requestId,
@@ -393,6 +338,8 @@ export class Msg91SmsService {
           renderedSmsPreview,
           requestId,
           providerStatus,
+          elapsedMs,
+          responseHeaders,
           dltDeliveryNote:
             'HTTP success only means MSG91 queued the SMS. Check MSG91 Logs for this requestId — if DLT says "Template not matched", fix Flow 66ab3a0ad6fc0541637a4a34 mapping on MSG91 panel (DLT ID 1207163584541815417, sender CUREKA, PE ID, exact template text, status Verified by DLT).',
           body: parsed,
@@ -413,7 +360,7 @@ export class Msg91SmsService {
           dltTemplateId: this.dltTemplateId || null,
           templateId: flowId,
           variables: params.variables,
-          phone: this.maskPhone(mobiles),
+          phoneMasked: this.maskPhone(mobiles),
           elapsedMs: Date.now() - startedAt,
           timedOut: isAbort,
           error:
@@ -445,12 +392,29 @@ export class Msg91SmsService {
     return `${trimmed.slice(0, 4)}********${trimmed.slice(-4)}`;
   }
 
+  private payloadForLog(payload: IMsg91FlowSendPayload): Record<string, unknown> {
+    return {
+      flow_id: payload.flow_id,
+      template_id: payload.template_id,
+      short_url: payload.short_url,
+      realTimeResponse: payload.realTimeResponse,
+      sender: payload.sender,
+      recipients: payload.recipients.map((recipient) => {
+        const { mobiles: _mobiles, ...variables } = recipient;
+        return {
+          phoneMasked: this.maskPhone(recipient.mobiles),
+          ...variables,
+        };
+      }),
+    };
+  }
+
   private headersToRecord(headers: Headers): Record<string, string> {
     const out: Record<string, string> = {};
     headers.forEach((value, key) => {
       out[key] = value;
     });
-    return out;
+    return sanitizeHeadersForLog(out);
   }
 
   private extractRequestId(body: unknown): string | null {

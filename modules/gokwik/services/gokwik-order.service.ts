@@ -14,6 +14,7 @@ import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { UsersService } from '@modules/users/services/users.service';
 import { DataSource } from 'typeorm';
+import { addressLogMeta, maskMobile } from '@packages/logger';
 import { GokwikCheckOrderExistsDto } from '../dto/gokwik-check-order-exists.dto';
 import { GokwikOrderEntity } from '../entities/gokwik-order.entity';
 import {
@@ -63,15 +64,11 @@ export class GokwikOrderService {
       }
 
       this.logger.log(
-        `create-order received shipping_address: ${JSON.stringify({
-          first_name: dto.shipping_address?.first_name,
-          last_name: dto.shipping_address?.last_name,
-          email: dto.shipping_address?.email,
-          phone: dto.shipping_address?.phone,
-          pincode: dto.shipping_address?.pincode,
-          city: dto.shipping_address?.city,
-          state: dto.shipping_address?.state,
-        })}`,
+        {
+          cartId,
+          ...addressLogMeta(dto.shipping_address),
+        },
+        'create-order received shipping_address',
       );
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
@@ -366,15 +363,11 @@ export class GokwikOrderService {
 
       if (dto.shipping_address || dto.billing_address) {
         this.logger.log(
-          `place-order received shipping_address: ${JSON.stringify({
-            first_name: (dto.shipping_address ?? dto.billing_address)?.first_name,
-            last_name: (dto.shipping_address ?? dto.billing_address)?.last_name,
-            email: (dto.shipping_address ?? dto.billing_address)?.email,
-            phone: (dto.shipping_address ?? dto.billing_address)?.phone,
-            pincode: (dto.shipping_address ?? dto.billing_address)?.pincode,
-            city: (dto.shipping_address ?? dto.billing_address)?.city,
-            state: (dto.shipping_address ?? dto.billing_address)?.state,
-          })}`,
+          {
+            ...addressLogMeta(dto.shipping_address ?? dto.billing_address),
+            hasBillingAddress: Boolean(dto.billing_address),
+          },
+          'place-order received shipping_address',
         );
       }
 
@@ -406,7 +399,13 @@ export class GokwikOrderService {
     const rawPhone = dto.customer_phone ?? dto.user_phone ?? '';
     const customerPhone = parseIndianMobileNumber(rawPhone) ?? '';
     this.logger.log(
-      `[checkOrderExists] session_key="${sessionKey}" customer_phone_raw="${rawPhone}" customer_phone_parsed="${customerPhone}" customer_email="${dto.customer_email ?? dto.user_email ?? ''}"`,
+      {
+        hasSessionKey: Boolean(sessionKey),
+        hasCustomerPhone: Boolean(customerPhone),
+        phoneMasked: maskMobile(customerPhone || rawPhone),
+        hasEmail: Boolean((dto.customer_email ?? dto.user_email ?? '').trim()),
+      },
+      '[checkOrderExists] lookup started',
     );
 
     let link: GokwikOrderEntity | null = null;
@@ -419,7 +418,14 @@ export class GokwikOrderService {
     } else if (customerPhone) {
       link = await this.gokwikRepository.findLatestOrderByCustomerPhone(customerPhone);
       this.logger.log(
-        `[checkOrderExists] lookup=by_phone("${customerPhone}") result=${link ? `id=${link.id} orderId=${link.orderId}` : 'NOT FOUND'}`,
+        {
+          lookup: 'by_phone',
+          phoneMasked: maskMobile(customerPhone),
+          found: Boolean(link),
+          linkId: link?.id,
+          orderId: link?.orderId,
+        },
+        '[checkOrderExists] lookup result',
       );
     } else {
       this.logger.warn('[checkOrderExists] Both session_key and customer_phone are empty → No order found');

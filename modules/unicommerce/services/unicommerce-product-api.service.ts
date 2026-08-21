@@ -92,7 +92,10 @@ export class UnicommerceProductApiService {
     this.cachedToken = { token: tokenData.access_token, expiresAt: now + expiresIn * 1000 };
 
     this.logger.log(
-      { expiresIn, tokenPrefix: tokenData.access_token.slice(0, 8) },
+      {
+        expiresIn,
+        tokenAcquired: true,
+      },
       'Unicommerce OAuth token acquired (product)',
     );
 

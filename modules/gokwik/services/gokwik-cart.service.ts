@@ -9,6 +9,7 @@ import { CartService } from '@modules/orders/services/cart.service';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import { roundMoney } from '@modules/orders/utils/money.util';
 import { UsersService } from '@modules/users/services/users.service';
+import { addressLogMeta } from '@packages/logger';
 import {
   GokwikAvailableCouponsResponse,
   GokwikAvailablePaymentMethod,
@@ -84,15 +85,11 @@ export class GokwikCartService {
     }
 
     this.logger.log(
-      `set-shipping-address received: ${JSON.stringify({
-        first_name: dto.shipping_address.first_name,
-        last_name: dto.shipping_address.last_name,
-        email: dto.shipping_address.email,
-        phone: dto.shipping_address.phone,
-        postal_code: dto.shipping_address.postal_code,
-        city: dto.shipping_address.city,
-        state: dto.shipping_address.state,
-      })}`,
+      {
+        cartId: dto.cart_id,
+        ...addressLogMeta(dto.shipping_address),
+      },
+      'set-shipping-address received',
     );
     await this.syncUnregisteredUserFromShipping(cartEntity.userId, dto.shipping_address);
 

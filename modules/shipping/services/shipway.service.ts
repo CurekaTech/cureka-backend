@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { sanitizeHeadersForLog } from '@packages/logger';
 import {
   IShipwayCancelPayload,
   IShipwayCancelResponse,
@@ -804,7 +805,7 @@ export class ShipwayService {
           looksLikeHtml,
           bodyPreview: typeof text === 'string' ? text.slice(0, 500) : text,
           body: looksLikeHtml ? { rawBody: text.slice(0, 300) } : data,
-          headers: responseHeaders,
+          headers: sanitizeHeadersForLog(responseHeaders),
         },
         '[Shipway] API response',
       );
