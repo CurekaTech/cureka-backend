@@ -707,6 +707,39 @@ export class ProductsService {
       await this.productsRepository.updateByRefId(refId, payload, manager);
       await this.relationsRepository.cleanupLegacyManualMediaKeys(manager, existing.id);
 
+      const commerceFlagUpdated =
+        dto.subscriptionEnabled !== undefined ||
+        dto.codAvailable !== undefined ||
+        dto.emiAvailable !== undefined ||
+        dto.returnAllowed !== undefined ||
+        dto.returnPolicy !== undefined ||
+        dto.returnWindowDays !== undefined ||
+        dto.replaceAllowed !== undefined ||
+        dto.replaceWindowDays !== undefined;
+
+      if (commerceFlagUpdated) {
+        await this.variantsRepository.syncCommerceFlagsFromProduct(manager, existing.id, {
+          subscriptionEnabled:
+            payload.subscriptionEnabled ?? existing.subscriptionEnabled,
+          codAvailable: payload.codAvailable ?? existing.codAvailable,
+          emiAvailable: payload.emiAvailable ?? existing.emiAvailable,
+          returnAllowed: payload.returnAllowed ?? existing.returnAllowed,
+          returnPolicy:
+            payload.returnPolicy !== undefined
+              ? payload.returnPolicy
+              : (existing.returnPolicy ?? null),
+          returnWindowDays:
+            payload.returnWindowDays !== undefined
+              ? payload.returnWindowDays
+              : (existing.returnWindowDays ?? null),
+          replaceAllowed: payload.replaceAllowed ?? existing.replaceAllowed,
+          replaceWindowDays:
+            payload.replaceWindowDays !== undefined
+              ? payload.replaceWindowDays
+              : (existing.replaceWindowDays ?? null),
+        });
+      }
+
       if (resolved) {
         if (dtoHasCategoryHierarchyChanges(dto) && masters?.categoryHierarchies) {
           await this.relationsRepository.syncCategoryHierarchies(
