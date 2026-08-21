@@ -16,6 +16,7 @@ import { ProductCategoryHierarchyEntity } from '../entities/product-category-hie
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
@@ -2113,6 +2114,168 @@ export class ProductsRepository {
       `,
       [categoryFilterIds, ProductStatus.PUBLISHED, categoryId],
     );
+  }
+
+  /**
+   * Distinct ACTIVE categories used by published products of a brand
+   * (primary category columns + product_category_hierarchies), with parent + productCount.
+   */
+  async findActiveCategoriesPaginatedForBrand(options: {
+    brandId: string;
+    page: number;
+    limit: number;
+    search?: string;
+  }): Promise<{
+    data: Array<{
+      id: string;
+      refId: string;
+      name: string;
+      slug: string;
+      position: number;
+      hierarchyLevel: number;
+      image: unknown;
+      banner: unknown;
+      productCount: number;
+      parentId: string | null;
+      parentRefId: string | null;
+      parentName: string | null;
+      parentSlug: string | null;
+      parentHierarchyLevel: number | null;
+    }>;
+    total: number;
+  }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const search = options.search?.trim() || null;
+    const params: unknown[] = [options.brandId, ProductStatus.PUBLISHED, MasterStatus.ACTIVE];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const searchIdx = params.length;
+      searchClause = `
+        AND (
+          c.name ILIKE $${searchIdx}
+          OR c.slug ILIKE $${searchIdx}
+          OR c.ref_id ILIKE $${searchIdx}
+          OR parent.name ILIKE $${searchIdx}
+          OR parent.slug ILIKE $${searchIdx}
+        )
+      `;
+    }
+
+    params.push(take);
+    const limitIdx = params.length;
+    params.push(skip);
+    const offsetIdx = params.length;
+
+    const baseCte = `
+      WITH brand_category_ids AS (
+        SELECT cat_id, COUNT(DISTINCT product_id)::int AS product_count
+        FROM (
+          SELECT
+            p.id AS product_id,
+            UNNEST(ARRAY[
+              p.category_id,
+              p.sub_category_id,
+              p.sub_sub_category_id,
+              p.sub_sub_sub_category_id
+            ]) AS cat_id
+          FROM products p
+          WHERE p.brand_id = $1
+            AND p.status = $2
+            AND p.deleted_at IS NULL
+          UNION ALL
+          SELECT
+            p.id AS product_id,
+            UNNEST(ARRAY[
+              pch.category_id,
+              pch.sub_category_id,
+              pch.sub_sub_category_id,
+              pch.sub_sub_sub_category_id
+            ]) AS cat_id
+          FROM product_category_hierarchies pch
+          INNER JOIN products p ON p.id = pch.product_id
+          WHERE p.brand_id = $1
+            AND p.status = $2
+            AND p.deleted_at IS NULL
+        ) expanded
+        WHERE cat_id IS NOT NULL
+        GROUP BY cat_id
+      )
+    `;
+
+    const fromWhere = `
+      FROM categories c
+      INNER JOIN brand_category_ids bc ON bc.cat_id = c.id
+      LEFT JOIN categories parent
+        ON parent.id = c.parent_category_id
+       AND parent.deleted_at IS NULL
+      WHERE c.status = $3
+        AND c.deleted_at IS NULL
+        ${searchClause}
+    `;
+
+    const countRows = await this.repo.manager.query<Array<{ count: number | string }>>(
+      `
+      ${baseCte}
+      SELECT COUNT(*)::int AS count
+      ${fromWhere}
+      `,
+      params.slice(0, search ? 4 : 3),
+    );
+    const total = Number(countRows?.[0]?.count ?? 0);
+
+    const data = await this.repo.manager.query<
+      Array<{
+        id: string;
+        refId: string;
+        name: string;
+        slug: string;
+        position: number;
+        hierarchyLevel: number | string;
+        image: unknown;
+        banner: unknown;
+        productCount: number | string;
+        parentId: string | null;
+        parentRefId: string | null;
+        parentName: string | null;
+        parentSlug: string | null;
+        parentHierarchyLevel: number | string | null;
+      }>
+    >(
+      `
+      ${baseCte}
+      SELECT
+        c.id AS id,
+        c.ref_id AS "refId",
+        c.name AS name,
+        c.slug AS slug,
+        c.position AS position,
+        c.hierarchy_level AS "hierarchyLevel",
+        c.image AS image,
+        c.banner AS banner,
+        bc.product_count AS "productCount",
+        parent.id AS "parentId",
+        parent.ref_id AS "parentRefId",
+        parent.name AS "parentName",
+        parent.slug AS "parentSlug",
+        parent.hierarchy_level AS "parentHierarchyLevel"
+      ${fromWhere}
+      ORDER BY c.hierarchy_level ASC, c.position ASC, c.name ASC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+      `,
+      params,
+    );
+
+    return {
+      total,
+      data: data.map((row) => ({
+        ...row,
+        hierarchyLevel: Number(row.hierarchyLevel),
+        productCount: Number(row.productCount),
+        parentHierarchyLevel:
+          row.parentHierarchyLevel == null ? null : Number(row.parentHierarchyLevel),
+      })),
+    };
   }
 
   async findPublishedRefIdsByCategoryId(categoryId: string): Promise<string[]> {
