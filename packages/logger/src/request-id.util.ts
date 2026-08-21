@@ -44,6 +44,20 @@ export function resolveOrCreateRequestId(
   return resolveRequestId(headers) ?? randomUUID();
 }
 
+/**
+ * Bind a request id onto the raw IncomingMessage so Fastify `request.id`
+ * and pino-http `req.id` stay aligned, then return it.
+ */
+export function assignIncomingRequestId(req: {
+  headers?: Record<string, HeaderBag> | null;
+  id?: unknown;
+}): string {
+  const existing = typeof req.id === 'string' && req.id.trim() ? req.id : undefined;
+  const id = existing ?? resolveOrCreateRequestId(req.headers);
+  (req as { id?: string }).id = id;
+  return id;
+}
+
 function firstHeaderValue(value: HeaderBag): string | undefined {
   if (Array.isArray(value)) {
     return value[0];

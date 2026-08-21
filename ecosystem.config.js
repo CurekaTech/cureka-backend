@@ -32,11 +32,15 @@ module.exports = {
       // Refreshed by: pm2 reload ecosystem.config.js --update-env
       env: {
         NODE_ENV: 'production',
+        APP_ENV: 'beta',
       },
 
+      // Pino writes NDJSON to the process stdout/stderr. Do not set
+      // log_date_format — PM2 would prefix each line and break JSON parsing
+      // for the GCP Ops Agent. These files are PM2 captures of that stream,
+      // not an application-level file logger.
       out_file: 'logs/pm2-out.log',
       error_file: 'logs/pm2-error.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
     },
   ],
