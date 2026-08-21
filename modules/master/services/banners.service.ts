@@ -344,7 +344,9 @@ export class BannersService {
       case BannerResourceType.BRAND: {
         if (!banner.resourceRefId) return null;
         const brand = await this.brandsRepository.findByRefId(banner.resourceRefId);
-        return brand?.status === MasterStatus.ACTIVE ? `/brands/${brand.slug}` : null;
+        return brand?.status === MasterStatus.ACTIVE
+          ? `/product-brands/${brand.slug}`
+          : null;
       }
       case BannerResourceType.CATEGORY: {
         if (!banner.resourceRefId) return null;

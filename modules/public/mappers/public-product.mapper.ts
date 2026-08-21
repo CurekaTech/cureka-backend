@@ -552,6 +552,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
+  codMinOrderAmount: 0,
   attributes: (entity.attributeMappings ?? []).map((mapping) => ({
     refId: mapping.attribute?.refId ?? '',
     name: mapping.attribute?.name ?? '',

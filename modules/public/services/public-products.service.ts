@@ -776,7 +776,8 @@ export class PublicProductsService {
       variants,
     });
 
-    const isFreeDelivery = await this.resolveIsFreeDelivery(merged);
+    const { isFreeDelivery, codMinOrderAmount } =
+      await this.resolveCheckoutBadgeHints(merged);
     const banners = await this.bannersService.getPdpBanners();
     const subscriptionConfig =
       await this.productSubscriptionConfigService.findForProductVariant(
@@ -792,6 +793,7 @@ export class PublicProductsService {
     return {
       ...merged,
       isFreeDelivery,
+      codMinOrderAmount,
       banners,
       subscriptionEnabled,
       subscriptionConfig: sharedSubscriptionConfig,
@@ -808,10 +810,11 @@ export class PublicProductsService {
   }
 
   /**
-   * Free delivery badge when displayed selling price reaches free-shipping slab min
-   * (same payable base as cart/checkout shipping slabs).
+   * PDP badge hints from cart/checkout admin settings (free delivery + COD min).
    */
-  private async resolveIsFreeDelivery(product: IPublicProductDetail): Promise<boolean> {
+  private async resolveCheckoutBadgeHints(
+    product: IPublicProductDetail,
+  ): Promise<{ isFreeDelivery: boolean; codMinOrderAmount: number }> {
     const [checkoutSettings, shippingSlabs] = await Promise.all([
       this.cartCheckoutAdminSettingsService.resolveAmounts(),
       this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
@@ -820,6 +823,8 @@ export class PublicProductsService {
       shippingSlabs,
       checkoutSettings,
     );
+    const codMinOrderAmount =
+      this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(checkoutSettings);
 
     const selectedVariant = product.selectedVariantId
       ? product.variants.find((variant) => variant.id === product.selectedVariantId)
@@ -828,7 +833,10 @@ export class PublicProductsService {
     const sellingPrice =
       displayVariant?.sellingPrice ?? product.pricing.minSellingPrice ?? 0;
 
-    return sellingPrice >= threshold;
+    return {
+      isFreeDelivery: sellingPrice >= threshold,
+      codMinOrderAmount,
+    };
   }
 
   private async enrichPartySummary<
