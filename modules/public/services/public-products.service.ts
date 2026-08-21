@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -39,7 +39,12 @@ import {
 } from '../utils/category-permalink.util';
 import { buildProductPageUrlLookupCandidates } from '../utils/product-page-url-lookup.util';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
+import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category-filters-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
+import {
+  IPublicBrandCategoryFilterItem,
+  mapHierarchyLevelToFilterType,
+} from '../interfaces/public-brand-category-filter.interface';
 import {
   IPublicImporterSummary,
   IPublicManufacturerSummary,
@@ -179,6 +184,77 @@ export class PublicProductsService {
       sortOrder: query.sortOrder ?? 'ASC',
       tagSlug: BEST_SELLERS_TAG_SLUG,
     });
+  }
+
+  /**
+   * Brand PLP category filter facets — distinct ACTIVE categories that contain
+   * published products for the brand (primary hierarchy columns + hierarchy rows).
+   */
+  async findBrandCategoryFilters(
+    query: PublicBrandCategoryFiltersQueryDto,
+  ): Promise<PaginatedResult<IPublicBrandCategoryFilterItem>> {
+    const brandSlug = query.brandSlug?.trim();
+    const brandRefId = query.brandRefId?.trim();
+    if (!brandSlug && !brandRefId) {
+      throw new BadRequestException('Provide brandSlug or brandRefId');
+    }
+
+    const brand = brandRefId
+      ? await this.brandsRepository.findByRefId(brandRefId)
+      : await this.brandsRepository.findBySlug(brandSlug!);
+    if (!brand) {
+      throw new NotFoundException(
+        brandRefId
+          ? `Brand with refId "${brandRefId}" not found`
+          : `Brand with slug "${brandSlug}" not found`,
+      );
+    }
+
+    const paginationOptions = buildPaginationOptions(query);
+    const { data, total } = await this.productsRepository.findActiveCategoriesPaginatedForBrand({
+      brandId: brand.id,
+      page: paginationOptions.page,
+      limit: paginationOptions.limit,
+      search: paginationOptions.search,
+    });
+
+    const slugPaths = await Promise.all(
+      data.map((row) => this.categoriesRepository.findSlugPathById(row.id)),
+    );
+
+    const mapped: IPublicBrandCategoryFilterItem[] = data.map((row, index) => {
+      const slugPath = slugPaths[index]?.length ? slugPaths[index] : [row.slug];
+      const hierarchyLevel = row.hierarchyLevel as CategoryHierarchyLevel;
+      return {
+        id: row.id,
+        refId: row.refId,
+        name: row.name,
+        slug: row.slug,
+        slugPath,
+        permalink: buildCategoryPermalink(slugPath),
+        position: row.position,
+        hierarchyLevel,
+        type: mapHierarchyLevelToFilterType(hierarchyLevel),
+        parentCategoryRefId: row.parentRefId,
+        parent:
+          row.parentId && row.parentRefId && row.parentName && row.parentSlug != null
+            ? {
+                id: row.parentId,
+                refId: row.parentRefId,
+                name: row.parentName,
+                slug: row.parentSlug,
+                hierarchyLevel: Number(row.parentHierarchyLevel) as CategoryHierarchyLevel,
+                type: mapHierarchyLevelToFilterType(Number(row.parentHierarchyLevel ?? 0)),
+              }
+            : null,
+        productCount: row.productCount,
+        image: (row.image as IPublicBrandCategoryFilterItem['image']) ?? null,
+        banner: (row.banner as IPublicBrandCategoryFilterItem['banner']) ?? null,
+      };
+    });
+
+    const enriched = await this.storageUrlEnricher.enrichManyFields(mapped, ['image', 'banner']);
+    return buildPaginatedResult(enriched, total, paginationOptions);
   }
 
   async searchVariants(

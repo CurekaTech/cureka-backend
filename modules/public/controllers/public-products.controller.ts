@@ -2,6 +2,7 @@ import { Controller, Get, Logger, Param, Query, Req } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { ResponseMessage } from '@packages/common';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
+import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category-filters-query.dto';
 import { YouMayAlsoLikeQueryDto } from '../dto/you-may-also-like-query.dto';
 import { FrequentlyBoughtTogetherQueryDto } from '../dto/frequently-bought-together-query.dto';
 import { PublicProductsService } from '../services/public-products.service';
@@ -22,6 +23,17 @@ export class PublicProductsController {
   @Get('search')
   search(@Query() query: PublicProductQueryDto) {
     return this.publicProductsService.searchVariants(query);
+  }
+
+  /**
+   * Brand PLP — category filter facets for products of a brand.
+   *
+   * GET /public/products/filters/categories?brandSlug=similac&page=1&limit=20
+   */
+  @ResponseMessage('Brand category filters retrieved successfully')
+  @Get('filters/categories')
+  findBrandCategoryFilters(@Query() query: PublicBrandCategoryFiltersQueryDto) {
+    return this.publicProductsService.findBrandCategoryFilters(query);
   }
 
   /**
