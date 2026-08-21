@@ -1,4 +1,4 @@
-import { ConflictException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -6,6 +6,7 @@ import {
   PaginatedResult,
   PaginationQueryDto,
 } from '@packages/common';
+import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import {
   CreateProductInformationLabelDto,
@@ -24,10 +25,13 @@ import { ProductVariantsRepository } from '../repositories/product-variants.repo
 
 @Injectable()
 export class ProductInformationLabelsService {
+  private readonly logger = new Logger(ProductInformationLabelsService.name);
+
   constructor(
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly productVariantsRepository: ProductVariantsRepository,
+    private readonly cacheStrategy: CacheStrategyService,
   ) {}
 
   async create(
@@ -50,6 +54,7 @@ export class ProductInformationLabelsService {
       createdBy,
     });
 
+    await this.invalidatePublicProductCaches('created', entity.refId);
     return mapProductInformationLabelEntityToResponse(entity);
   }
 
@@ -84,24 +89,79 @@ export class ProductInformationLabelsService {
       throw new NotFoundException(`Product information label with refId ${refId} not found`);
     }
 
-    if (dto.name !== undefined && dto.name !== existing.name) {
-      if (await this.productInformationLabelsRepository.existsByName(dto.name, refId)) {
+    const oldName = existing.name.trim();
+    const nextName = dto.name !== undefined ? dto.name.trim() : undefined;
+    const previousName = dto.previousName?.trim();
+
+    this.logger.log(
+      `[PIL-UPDATE] start refId=${refId} updatedBy=${updatedBy} ` +
+        `existingName="${existing.name}" oldNameTrimmed="${oldName}" ` +
+        `dtoName=${dto.name === undefined ? '<undefined>' : `"${dto.name}"`} ` +
+        `nextName=${nextName === undefined ? '<undefined>' : `"${nextName}"`} ` +
+        `previousName=${previousName === undefined ? '<undefined>' : `"${previousName}"`} ` +
+        `dtoKeys=[${Object.keys(dto).join(',')}]`,
+    );
+
+    if (nextName !== undefined && nextName !== oldName) {
+      if (await this.productInformationLabelsRepository.existsByName(nextName, refId)) {
         throw new ConflictException(
-          `A product information label with name "${dto.name}" already exists`,
+          `A product information label with name "${nextName}" already exists`,
         );
       }
     }
 
-    const oldName = existing.name;
-    const nextName = dto.name;
+    // Sources of label text still present on products/variants JSON that must become nextName.
+    const cascadeFromNames = new Set<string>();
+    if (nextName !== undefined && nextName !== oldName) {
+      cascadeFromNames.add(oldName);
+      this.logger.log(
+        `[PIL-UPDATE] cascade reason=master-name-changed from="${oldName}" to="${nextName}"`,
+      );
+    } else if (nextName !== undefined && nextName === oldName) {
+      this.logger.warn(
+        `[PIL-UPDATE] master name unchanged ("${oldName}"). ` +
+          `JSON cascade will NOT run unless previousName is provided. ` +
+          `If product JSON still has an old label, send previousName="<exact JSON label>".`,
+      );
+    } else {
+      this.logger.log('[PIL-UPDATE] dto.name omitted — master name will not change');
+    }
+
+    if (previousName && nextName && previousName.toLowerCase() !== nextName.toLowerCase()) {
+      cascadeFromNames.add(previousName);
+      this.logger.log(
+        `[PIL-UPDATE] cascade reason=previousName from="${previousName}" to="${nextName}"`,
+      );
+    }
+    // Stuck repair: master already has the new name, but JSON still has previousName.
+    if (
+      previousName &&
+      nextName === undefined &&
+      previousName.toLowerCase() !== oldName.toLowerCase()
+    ) {
+      cascadeFromNames.add(previousName);
+      this.logger.log(
+        `[PIL-UPDATE] cascade reason=previousName-only-repair from="${previousName}" to="${oldName}"`,
+      );
+    }
+
+    const targetName = nextName ?? oldName;
+    this.logger.log(
+      `[PIL-UPDATE] cascadeFromNames=[${[...cascadeFromNames].join(' | ')}] targetName="${targetName}"`,
+    );
+
+    const { previousName: _ignoredPreviousName, ...labelFields } = dto;
 
     const updated = await this.productInformationLabelsRepository.transaction(async (manager) => {
+      this.logger.log('[PIL-UPDATE] transaction started');
       const updatedLabel = await this.productInformationLabelsRepository.updateByRefId(
         refId,
         {
-          ...dto,
+          ...labelFields,
+          ...(nextName !== undefined ? { name: nextName } : {}),
           updatedBy,
         },
+        manager,
       );
 
       if (!updatedLabel) {
@@ -109,25 +169,55 @@ export class ProductInformationLabelsService {
           `Product information label with refId ${refId} not found after update`,
         );
       }
+      this.logger.log(
+        `[PIL-UPDATE] master row updated name="${updatedLabel.name}" sortOrder=${updatedLabel.sortOrder}`,
+      );
 
-      if (nextName !== undefined && nextName !== oldName) {
-        await this.productsRepository.renameProductInformationLabel(
-          oldName,
-          nextName,
+      let productsUpdated = 0;
+      let variantsUpdated = 0;
+      if (cascadeFromNames.size === 0) {
+        this.logger.warn('[PIL-UPDATE] SKIPPED JSON cascade — cascadeFromNames is empty');
+      }
+
+      for (const fromName of cascadeFromNames) {
+        this.logger.log(
+          `[PIL-UPDATE] cascading JSON rename "${fromName}" → "${targetName}"`,
+        );
+        const pCount = await this.productsRepository.renameProductInformationLabel(
+          fromName,
+          targetName,
           updatedBy,
           manager,
         );
-        await this.productVariantsRepository.renameProductInformationLabel(
-          oldName,
-          nextName,
+        const vCount = await this.productVariantsRepository.renameProductInformationLabel(
+          fromName,
+          targetName,
           updatedBy,
           manager,
+        );
+        productsUpdated += pCount;
+        variantsUpdated += vCount;
+        this.logger.log(
+          `[PIL-UPDATE] cascade step done from="${fromName}" products=${pCount} variants=${vCount}`,
+        );
+      }
+
+      this.logger.log(
+        `[PIL-UPDATE] cascade totals products=${productsUpdated} variants=${variantsUpdated}`,
+      );
+      if (cascadeFromNames.size > 0 && productsUpdated === 0 && variantsUpdated === 0) {
+        this.logger.warn(
+          `[PIL-UPDATE] ZERO rows updated. JSON likely still has a different label text than ` +
+            `[${[...cascadeFromNames].join(', ')}]. ` +
+            `Retry PATCH with previousName set to the exact label in productInformation (e.g. "Offers").`,
         );
       }
 
       return updatedLabel;
     });
 
+    await this.invalidatePublicProductCaches('updated', refId);
+    this.logger.log(`[PIL-UPDATE] completed refId=${refId}`);
     return mapProductInformationLabelEntityToResponse(updated);
   }
 
@@ -152,6 +242,7 @@ export class ProductInformationLabelsService {
       );
     }
 
+    await this.invalidatePublicProductCaches('status_updated', refId);
     return mapProductInformationLabelEntityToResponse(updated);
   }
 
@@ -179,6 +270,7 @@ export class ProductInformationLabelsService {
       await this.productInformationLabelsRepository.updateByRefId(item.refId, { updatedBy });
     }
 
+    await this.invalidatePublicProductCaches('reordered');
     return mapProductInformationLabelEntitiesToResponse(updated);
   }
 
@@ -188,5 +280,32 @@ export class ProductInformationLabelsService {
       throw new NotFoundException(`Product information label with refId ${refId} not found`);
     }
     await this.productInformationLabelsRepository.softDeleteByRefId(refId);
+    await this.invalidatePublicProductCaches('deleted', refId);
+  }
+
+  /**
+   * Public PDP caches enriched `productInformation` (labels + sort). Master label
+   * changes rewrite DB JSON but must also bust those caches.
+   */
+  private async invalidatePublicProductCaches(
+    action: string,
+    refId?: string,
+  ): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.products.listPattern(),
+        CacheKeys.products.detailPattern(),
+        CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicProducts.variantSearchPattern(),
+        CacheKeys.publicProducts.detailPattern(),
+        CacheKeys.publicBundles.listPattern(),
+        CacheKeys.publicBundles.detailPattern(),
+        CacheKeys.homepage.bestSellersPattern(),
+        CacheKeys.homepage.sectionsPattern(),
+      ],
+    });
+    this.logger.log(
+      `Product information label cache invalidated (${action})${refId ? ` refId=${refId}` : ''}`,
+    );
   }
 }

@@ -50,7 +50,11 @@ export class OrdersController {
     return this.ordersService.placeOrder(user.sub, dto);
   }
 
-  @ApiOperation({ summary: 'List my orders' })
+  @ApiOperation({
+    summary: 'List my orders',
+    description:
+      'Paginated list of the authenticated user\'s orders. Supports search, status, paymentStatus, paymentMethod, date range, and sorting.',
+  })
   @ResponseMessage('Orders fetched successfully')
   @Get()
   @HttpCode(HttpStatus.OK)

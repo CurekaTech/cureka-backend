@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
@@ -75,6 +75,8 @@ export interface PublicProductListOptions {
 
 @Injectable()
 export class ProductsRepository {
+  private readonly logger = new Logger(ProductsRepository.name);
+
   constructor(
     @InjectRepository(ProductEntity)
     private readonly repo: Repository<ProductEntity>,
@@ -108,40 +110,105 @@ export class ProductsRepository {
     return product;
   }
 
+  async countProductsWithInformationLabel(
+    label: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM products p
+      WHERE p.product_information IS NOT NULL
+        AND jsonb_typeof(p.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(p.product_information) item
+          WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+        )
+      `,
+      [label],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
   async renameProductInformationLabel(
     oldLabel: string,
     newLabel: string,
     updatedBy: string,
     manager?: EntityManager,
-  ): Promise<void> {
-    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
-    await repository.manager.query(
-      `
-      UPDATE products p
-      SET
-        product_information = (
-          SELECT COALESCE(
-            jsonb_agg(
-              CASE
-                WHEN item->>'label' = $1
-                  THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
-                ELSE item
-              END
-            ),
-            '[]'::jsonb
-          )
-          FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb)) item
-        ),
-        updated_by = $3,
-        updated_at = NOW()
-      WHERE EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb)) item
-        WHERE item->>'label' = $1
-      )
-      `,
-      [oldLabel, newLabel, updatedBy],
+  ): Promise<number> {
+    const from = oldLabel.trim();
+    const to = newLabel.trim();
+    this.logger.log(
+      `[PIL-RENAME][products] start from="${from}" to="${to}" updatedBy="${updatedBy}" ` +
+        `hasManager=${Boolean(manager)}`,
     );
+
+    if (!from || !to) {
+      this.logger.warn(
+        `[PIL-RENAME][products] skipped empty label from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+    if (from.toLowerCase() === to.toLowerCase()) {
+      this.logger.warn(
+        `[PIL-RENAME][products] skipped same label (case-insensitive) from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+
+    const runner = manager ?? this.repo.manager;
+    const beforeCount = await this.countProductsWithInformationLabel(from, manager);
+    this.logger.log(
+      `[PIL-RENAME][products] rows matching from-label before update: ${beforeCount}`,
+    );
+
+    const rows = (await runner.query(
+      `
+      WITH updated AS (
+        UPDATE products p
+        SET
+          product_information = (
+            SELECT COALESCE(
+              jsonb_agg(
+                CASE
+                  WHEN lower(btrim(item->>'label')) = lower(btrim($1::text))
+                    THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                  ELSE item
+                END
+                ORDER BY ordinality
+              ),
+              '[]'::jsonb
+            )
+            FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb))
+              WITH ORDINALITY AS elem(item, ordinality)
+          ),
+          updated_by = $3,
+          updated_at = NOW()
+        WHERE p.product_information IS NOT NULL
+          AND jsonb_typeof(p.product_information) = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(p.product_information) item
+            WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+          )
+        RETURNING p.id
+      )
+      SELECT COUNT(*)::int AS count FROM updated
+      `,
+      [from, to, updatedBy],
+    )) as Array<{ count: number | string }>;
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterFromCount = await this.countProductsWithInformationLabel(from, manager);
+    const afterToCount = await this.countProductsWithInformationLabel(to, manager);
+    this.logger.log(
+      `[PIL-RENAME][products] done updatedCount=${updatedCount} ` +
+        `rawResult=${JSON.stringify(rows)} ` +
+        `remainingWithFrom=${afterFromCount} withTo=${afterToCount}`,
+    );
+    return updatedCount;
   }
 
   /**

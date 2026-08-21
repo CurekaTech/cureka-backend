@@ -186,17 +186,31 @@ export class PaymentRequestsRepository {
     };
 
     // COD orders never have LINK_GENERATED / EXPIRED — skip that branch for those filters.
+    // FAILED prepaid/GoKwik orders live on `orders.payment_status` (not always mirrored as PR).
     const includeCod =
       !options.status ||
       options.status === PaymentRequestStatus.PAYMENT_PENDING ||
       options.status === PaymentRequestStatus.PAID ||
       options.status === PaymentRequestStatus.CANCELLED;
+    const includeFailedOrders =
+      !options.status || options.status === PaymentRequestStatus.FAILED;
 
     const prWhere: string[] = ['pr.deleted_at IS NULL'];
     const orderWhere: string[] = [];
+    const failedOrderWhere: string[] = [];
 
     if (includeCod) {
       orderWhere.push('o.deleted_at IS NULL', `o.payment_method = ${push('COD')}`);
+    }
+    if (includeFailedOrders) {
+      failedOrderWhere.push(
+        'fo.deleted_at IS NULL',
+        `fo.payment_status = ${push('FAILED')}`,
+      );
+      // Avoid double-counting COD rows already covered by the COD union when unfiltered.
+      if (!options.status) {
+        failedOrderWhere.push(`fo.payment_method != ${push('COD')}`);
+      }
     }
 
     if (options.status) {
@@ -210,6 +224,7 @@ export class PaymentRequestsRepository {
         } else if (options.status === PaymentRequestStatus.PAYMENT_PENDING) {
           orderWhere.push(`o.order_status != ${push('CANCELLED')}`);
           orderWhere.push(`o.payment_status != ${push('PAID')}`);
+          orderWhere.push(`o.payment_status != ${push('FAILED')}`);
         }
       }
     }
@@ -220,6 +235,9 @@ export class PaymentRequestsRepository {
       if (includeCod) {
         orderWhere.push(`o.user_id = ${customerParam}`);
       }
+      if (includeFailedOrders) {
+        failedOrderWhere.push(`fo.user_id = ${customerParam}`);
+      }
     }
 
     if (options.fromDate) {
@@ -228,12 +246,18 @@ export class PaymentRequestsRepository {
       if (includeCod) {
         orderWhere.push(`o.created_at >= ${fromParam}`);
       }
+      if (includeFailedOrders) {
+        failedOrderWhere.push(`fo.created_at >= ${fromParam}`);
+      }
     }
     if (options.toDate) {
       const toParam = push(options.toDate);
       prWhere.push(`pr.created_at <= ${toParam}`);
       if (includeCod) {
         orderWhere.push(`o.created_at <= ${toParam}`);
+      }
+      if (includeFailedOrders) {
+        failedOrderWhere.push(`fo.created_at <= ${toParam}`);
       }
     }
 
@@ -289,6 +313,32 @@ export class PaymentRequestsRepository {
           OR CAST(o.grand_total AS text) LIKE ${searchExact}
         )`);
       }
+      if (includeFailedOrders) {
+        failedOrderWhere.push(`(
+          fo.ref_id ILIKE ${searchLike}
+          OR fo.order_number ILIKE ${searchLike}
+          OR fo.recipient_name ILIKE ${searchLike}
+          OR fo.phone_number ILIKE ${searchLike}
+          OR EXISTS (
+            SELECT 1 FROM users u
+            WHERE u.id = fo.user_id
+              AND u.deleted_at IS NULL
+              AND (
+                u.first_name ILIKE ${searchLike}
+                OR u.last_name ILIKE ${searchLike}
+                OR u.email ILIKE ${searchLike}
+                OR u.mobile_number ILIKE ${searchLike}
+              )
+          )
+          OR EXISTS (
+            SELECT 1 FROM order_items oi
+            WHERE oi.order_id = fo.id
+              AND oi.deleted_at IS NULL
+              AND oi.product_name ILIKE ${searchLike}
+          )
+          OR CAST(fo.grand_total AS text) LIKE ${searchExact}
+        )`);
+      }
     }
 
     const prSelect = `
@@ -304,8 +354,17 @@ export class PaymentRequestsRepository {
       WHERE ${orderWhere.join(' AND ')}
     `
         : null;
+    const failedSelect =
+      includeFailedOrders && failedOrderWhere.length
+        ? `
+      SELECT fo.id::text AS id, 'COD_ORDER' AS "recordType", fo.created_at AS "createdAt"
+      FROM orders fo
+      WHERE ${failedOrderWhere.join(' AND ')}
+    `
+        : null;
 
-    const unionBody = codSelect ? `${prSelect} UNION ALL ${codSelect}` : prSelect;
+    const unionParts = [prSelect, codSelect, failedSelect].filter(Boolean);
+    const unionBody = unionParts.join(' UNION ALL ');
     const limitParam = push(take);
     const offsetParam = push(skip);
 

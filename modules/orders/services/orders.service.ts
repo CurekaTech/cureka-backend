@@ -869,11 +869,19 @@ export class OrdersService {
   async findMyOrders(userId: string, query: OrderQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    const sortOrder = query.sortOrder ?? 'DESC';
     const { data, total } = await this.ordersRepository.findByUserPaginated({
       userId,
       status: query.status,
+      paymentStatus: query.paymentStatus,
+      paymentMethod: query.paymentMethod,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+      search: query.search,
       page,
       limit,
+      sortBy: query.sortBy,
+      sortOrder,
     });
     const shipments = await this.shipmentsRepository.findByOrderIds(data.map((order) => order.id));
     const shipmentByOrderId = new Map(shipments.map((shipment) => [shipment.orderId, shipment]));
@@ -890,7 +898,7 @@ export class OrdersService {
         );
       }),
     );
-    return buildPaginatedResult(mapped, total, { page, limit, sortOrder: 'DESC' });
+    return buildPaginatedResult(mapped, total, { page, limit, sortOrder });
   }
 
   /** Whether the user has purchased the given product (non-cancelled order). */
@@ -1411,6 +1419,200 @@ export class OrdersService {
     );
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
+  }
+
+  /**
+   * Materialize a failed prepaid checkout into `orders` so it appears on GET /admin/orders.
+   * Does not decrement stock, apply coupons, notify, or push fulfillment.
+   */
+  async createFailedOrderFromPaymentRequest(params: {
+    customerId: string;
+    addressId?: string | null;
+    paymentRequestId: string;
+    paymentRequestRefId: string;
+    subtotal: string;
+    discountAmount: string;
+    shippingAmount: string;
+    handlingAmount?: string;
+    prepaidDiscount?: string;
+    grandTotal: string;
+    notes: string | null;
+    failureReason?: string | null;
+    paymentMethod?: OrderPaymentMethod;
+    orderSource?: OrderSource;
+    createdBy?: string;
+    platformFee?: string;
+    codCharge?: string;
+    items: Array<{
+      productId: string;
+      variantId: string;
+      quantity: number;
+      unitPrice: string;
+      totalPrice: string;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
+    }>;
+  }): Promise<OrderEntity | null> {
+    const existing = await this.ordersRepository.findFailedByPaymentRequestRef(
+      params.paymentRequestRefId,
+    );
+    if (existing) {
+      return existing;
+    }
+
+    if (!params.items.length) {
+      this.logger.warn(
+        {
+          paymentRequestId: params.paymentRequestId,
+          paymentRequestRefId: params.paymentRequestRefId,
+        },
+        'Skipped failed-order creation — payment request has no items',
+      );
+      return null;
+    }
+
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const addressRepository = manager.getRepository(UserAddressEntity);
+        const address = params.addressId
+          ? await addressRepository.findOne({
+              where: { id: params.addressId, userId: params.customerId },
+            })
+          : await addressRepository.findOne({
+              where: { userId: params.customerId, isDefault: true },
+              order: { updatedAt: 'DESC' },
+            });
+
+        const actor = params.createdBy ?? 'payment-webhook';
+        const failureNote = params.failureReason?.trim()
+          ? `Payment failed: ${params.failureReason.trim()}`
+          : 'Payment failed';
+        const notes = [
+          params.notes?.trim(),
+          `Failed payment request ${params.paymentRequestRefId}`,
+          failureNote,
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        const orderRefId = await generateUniqueRefId('order', (candidate) =>
+          this.ordersRepository.existsByRefId(candidate),
+        );
+        const orderNumber = await this.generateOrderNumber();
+
+        const createdOrder = await this.ordersRepository.create(
+          {
+            refId: orderRefId,
+            orderNumber,
+            userId: params.customerId,
+            subtotal: params.subtotal,
+            discountAmount: params.discountAmount,
+            shippingAmount: params.shippingAmount,
+            handlingAmount: params.handlingAmount ?? '0.00',
+            platformFee: params.platformFee ?? '0.00',
+            codCharge: params.codCharge ?? '0.00',
+            prepaidDiscount: params.prepaidDiscount ?? '0.00',
+            grandTotal: params.grandTotal,
+            couponId: null,
+            couponCode: null,
+            couponTitle: null,
+            couponDiscountType: null,
+            paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
+            paymentStatus: OrderPaymentStatus.FAILED,
+            orderStatus: OrderStatus.PENDING,
+            orderSource: params.orderSource ?? OrderSource.WEBSITE,
+            recipientName: address?.recipientName ?? 'Customer',
+            phoneNumber: address?.phoneNumber ?? '0000000000',
+            pincode: address?.pincode ?? '000000',
+            addressLine1: address?.addressLine1 ?? 'Address unavailable',
+            addressLine2: address?.addressLine2 ?? null,
+            landmark: address?.landmark ?? null,
+            city: address?.city ?? 'N/A',
+            state: address?.state ?? 'N/A',
+            notes,
+            placedAt: new Date(),
+            createdBy: actor,
+            updatedBy: actor,
+          },
+          manager,
+        );
+
+        const orderItemsPayload = [];
+        for (const item of params.items) {
+          const variant = await manager.getRepository(ProductVariantEntity).findOne({
+            where: { id: item.variantId },
+            relations: { product: true, attributeValues: true },
+          });
+          if (!variant) {
+            this.logger.warn(
+              { variantId: item.variantId, paymentRequestRefId: params.paymentRequestRefId },
+              'Variant missing while creating failed order item — skipping line',
+            );
+            continue;
+          }
+          const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
+            this.orderItemsRepository.existsByRefId(candidate),
+          );
+          orderItemsPayload.push({
+            refId: orderItemRefId,
+            orderId: createdOrder.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            sku: variant.sku,
+            productName: variant.product?.name ?? '',
+            variantName: variant.attributeValues?.length
+              ? variant.attributeValues.map((value) => value.value).join(' / ')
+              : null,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            isSubscription: !!item.isSubscription,
+            frequency: item.isSubscription
+              ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
+              : null,
+            createdBy: actor,
+            updatedBy: actor,
+          });
+        }
+
+        if (!orderItemsPayload.length) {
+          throw new BadRequestException('No valid items to create failed order');
+        }
+
+        await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+
+        const order = await this.ordersRepository.findByIdAndUserId(
+          createdOrder.id,
+          params.customerId,
+          manager,
+        );
+        if (!order) {
+          throw new NotFoundException('Failed order not found after creation');
+        }
+
+        this.logger.log(
+          {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            paymentRequestId: params.paymentRequestId,
+            paymentRequestRefId: params.paymentRequestRefId,
+          },
+          'Failed payment request materialized as admin order',
+        );
+        return order;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        {
+          paymentRequestId: params.paymentRequestId,
+          paymentRequestRefId: params.paymentRequestRefId,
+          error: message,
+        },
+        'Failed to materialize failed payment request as order (non-blocking)',
+      );
+      return null;
+    }
   }
 
   /**

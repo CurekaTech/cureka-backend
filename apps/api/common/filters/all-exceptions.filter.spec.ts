@@ -45,7 +45,7 @@ describe('AllExceptionsFilter logging', () => {
         requestId: 'test-request-id',
         method: 'GET',
         statusCode: HttpStatus.UNAUTHORIZED,
-        url: '/api/v1/secure-resource',
+        path: '/api/v1/secure-resource',
       }),
     );
     expect(message).toBe('Request rejected');
@@ -82,7 +82,12 @@ describe('AllExceptionsFilter logging', () => {
     expect(payload).toEqual(
       expect.objectContaining({
         requestId: 'test-request-id',
+        method: 'GET',
+        path: '/api/v1/secure-resource',
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        errorName: 'Error',
+        errorType: 'Error',
+        errorMessage: 'boom',
         stack: expect.any(String),
       }),
     );

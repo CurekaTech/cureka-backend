@@ -22,12 +22,29 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
 
-const BRAND_MEDIA_FIELDS = ['logo', 'banner'] as const;
+const BRAND_MEDIA_FIELDS = [
+  'logo',
+  'banner',
+  'video',
+  'featuredBanner',
+  'promotionalBanner',
+] as const;
 
 const BRAND_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
   banner: UploadFolder.BANNERS,
+  video: UploadFolder.VIDEOS,
+  featuredBanner: UploadFolder.BANNERS,
+  promotionalBanner: UploadFolder.BANNERS,
 } as const;
+
+type BrandMediaInput = {
+  logo?: string | null;
+  banner?: string | null;
+  video?: string | null;
+  featuredBanner?: string | null;
+  promotionalBanner?: string | null;
+};
 
 @Injectable()
 export class BrandsService {
@@ -52,6 +69,9 @@ export class BrandsService {
       {
         logo: uploadedUrls['logo'] ?? null,
         banner: uploadedUrls['banner'] ?? null,
+        video: uploadedUrls['video'] ?? null,
+        featuredBanner: uploadedUrls['featuredBanner'] ?? null,
+        promotionalBanner: uploadedUrls['promotionalBanner'] ?? null,
       },
       createdBy,
     );
@@ -67,12 +87,15 @@ export class BrandsService {
     return this.update(refId, dto, updatedBy, {
       logo: uploadedUrls['logo'],
       banner: uploadedUrls['banner'],
+      video: uploadedUrls['video'],
+      featuredBanner: uploadedUrls['featuredBanner'],
+      promotionalBanner: uploadedUrls['promotionalBanner'],
     });
   }
 
   async create(
     dto: CreateBrandDto,
-    media: { logo?: string | null; banner?: string | null } = {},
+    media: BrandMediaInput = {},
     createdBy: string,
   ): Promise<IBrand> {
     const slug = dto.slug ?? generateSlug(dto.name);
@@ -86,6 +109,9 @@ export class BrandsService {
       slug,
       logo: this.storageUrlEnricher.persist(media.logo),
       banner: this.storageUrlEnricher.persist(media.banner),
+      video: this.storageUrlEnricher.persist(media.video),
+      featuredBanner: this.storageUrlEnricher.persist(media.featuredBanner),
+      promotionalBanner: this.storageUrlEnricher.persist(media.promotionalBanner),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
@@ -122,7 +148,7 @@ export class BrandsService {
     refId: string,
     dto: UpdateBrandDto,
     updatedBy: string,
-    media: { logo?: string; banner?: string } = {},
+    media: BrandMediaInput = {},
   ): Promise<IBrand> {
     const existing = await this.brandsRepository.findByRefId(refId);
     if (!existing) {
@@ -144,6 +170,13 @@ export class BrandsService {
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
     if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (media.video !== undefined) payload.video = this.storageUrlEnricher.persist(media.video);
+    if (media.featuredBanner !== undefined) {
+      payload.featuredBanner = this.storageUrlEnricher.persist(media.featuredBanner);
+    }
+    if (media.promotionalBanner !== undefined) {
+      payload.promotionalBanner = this.storageUrlEnricher.persist(media.promotionalBanner);
+    }
 
     const result = await this.brandsRepository.updateByRefId(refId, payload);
     if (!result) {

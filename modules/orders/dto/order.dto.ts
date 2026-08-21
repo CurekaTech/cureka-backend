@@ -8,6 +8,7 @@ import {
   IsString,
   IsUUID,
   IsIn,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -29,6 +30,17 @@ export const ADMIN_ORDER_LIST_SORT_FIELDS = [
 ] as const;
 
 export type AdminOrderListSortField = (typeof ADMIN_ORDER_LIST_SORT_FIELDS)[number];
+
+export const USER_ORDER_LIST_SORT_FIELDS = [
+  'createdAt',
+  'placedAt',
+  'orderNumber',
+  'grandTotal',
+  'orderStatus',
+  'paymentStatus',
+] as const;
+
+export type UserOrderListSortField = (typeof USER_ORDER_LIST_SORT_FIELDS)[number];
 
 export class PlaceOrderDto {
   @IsUUID()
@@ -59,11 +71,45 @@ export class OrderQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   limit?: number = 20;
 
+  /** Filter by fulfillment status (legacy query name). */
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
+
+  @IsOptional()
+  @IsEnum(OrderPaymentStatus)
+  paymentStatus?: OrderPaymentStatus;
+
+  @IsOptional()
+  @IsEnum(OrderPaymentMethod)
+  paymentMethod?: OrderPaymentMethod;
+
+  @IsOptional()
+  @IsDateString()
+  fromDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  toDate?: string;
+
+  /**
+   * Search across order number, refId, recipient name, phone, product name, and grand total.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @IsIn([...USER_ORDER_LIST_SORT_FIELDS])
+  sortBy?: UserOrderListSortField;
+
+  @IsOptional()
+  @IsIn(['ASC', 'DESC'])
+  sortOrder?: 'ASC' | 'DESC';
 }
 
 export class AdminOrderQueryDto extends PaginationQueryDto {
