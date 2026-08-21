@@ -628,13 +628,7 @@ export class PublicProductsService {
   private async buildBrandListingContext(
     brand: BrandEntity,
   ): Promise<IPublicBrandProductListingContext> {
-    return this.storageUrlEnricher.enrichFields(mapBrandEntityToListingContext(brand), [
-      'logo',
-      'banner',
-      'video',
-      'featuredBanner',
-      'promotionalBanner',
-    ]);
+    return this.storageUrlEnricher.enrichDeep(mapBrandEntityToListingContext(brand));
   }
 
   private async buildCategoryListingContext(
