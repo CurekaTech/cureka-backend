@@ -1001,14 +1001,14 @@ export class PublicProductsService {
   /**
    * Frequently Bought Together — complementary product recommendations.
    *
-   * Algorithm:
-   *  1. Load cart variant info including category names.
-   *  2. Match category names (deepest available) against FBT_CATEGORY_RULES.
-   *  3. Collect all target name patterns from matched rules.
-   *  4. Resolve target category IDs from DB (ILIKE name match).
-   *  5. Exclude source categories and cart product IDs.
-   *  6. Query published products from target categories within ±35% price band.
-   *  7. Fallback on page 1: if sparse, retry without price band.
+   * Supports cart and product-details page:
+   *  - Prefer passing cart variant IDs and/or the current PDP variant.
+   *  - When `variantIds` is empty (empty cart / no seed), fall back to global bestsellers.
+   *
+   * Cascade (stop when page 1 has enough results, or always for page > 1 once chosen):
+   *  1. FBT category-pair rules → complementary categories (±35% price, then without).
+   *  2. Same root-category bestsellers (exclude seed products).
+   *  3. Global bestsellers (exclude seed products when any).
    *
    * Manual overrides (admin-configured) will always take priority once that
    * feature is added to the admin panel.
@@ -1020,104 +1020,131 @@ export class PublicProductsService {
   ): Promise<PaginatedResult<IPublicProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(20, Math.max(1, limit));
-    const emptyResult = buildPaginatedResult<IPublicProductCard>([], 0, {
-      page: resolvedPage,
-      limit: resolvedLimit,
-      sortOrder: 'ASC',
-    });
+    const sparseThreshold = Math.ceil(resolvedLimit / 2);
 
-    if (!variantIds.length) return emptyResult;
+    const isSparse = (total: number) =>
+      resolvedPage === 1 && total < sparseThreshold;
 
-    const variantInfos =
-      await this.productsRepository.findVariantWithCategoryByIds(variantIds);
-    if (!variantInfos.length) return emptyResult;
+    const toResult = async (data: Awaited<
+      ReturnType<typeof this.productsRepository.findPublishedPaginated>
+    >['data'], total: number) => {
+      const cards = mapProductEntitiesToPublicCards(data);
+      const enriched = await Promise.all(cards.map((card) => this.enrichCard(card)));
+      return buildPaginatedResult(enriched, total, {
+        page: resolvedPage,
+        limit: resolvedLimit,
+        sortOrder: 'ASC',
+      });
+    };
 
-    const excludeProductIds = [...new Set(variantInfos.map((v) => v.productId))];
-
-    // Collect the deepest category name for each variant
-    const sourceCategoryNames = [
-      ...new Set(
-        variantInfos
-          .map((v) => (v.subCategoryName ?? v.categoryName ?? '').toLowerCase().trim())
-          .filter(Boolean),
-      ),
+    const variantInfos = variantIds.length
+      ? await this.productsRepository.findVariantWithCategoryByIds(variantIds)
+      : [];
+    const excludeProductIds = [
+      ...new Set(variantInfos.map((v) => v.productId)),
     ];
 
-    if (!sourceCategoryNames.length) return emptyResult;
-
-    // Collect source category IDs so we can exclude them from target query
-    const sourceCategoryIds = [
-      ...new Set(
-        variantInfos
-          .flatMap((v) => [v.subCategoryId, v.categoryId])
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
-
-    // Match source category names against FBT rules → collect target patterns
-    const targetPatterns: string[] = [];
-    for (const rule of FBT_CATEGORY_RULES) {
-      const sourceMatched = rule.sourceContains.some((src) =>
-        sourceCategoryNames.some((name) => name.includes(src.toLowerCase())),
-      );
-      if (sourceMatched) {
-        targetPatterns.push(...rule.targetContains);
-      }
-    }
-
-    if (!targetPatterns.length) return emptyResult;
-
-    // Resolve target category IDs from DB by name patterns
-    const allTargetCategoryIds =
-      await this.productsRepository.findCategoryIdsByNamePatterns(targetPatterns);
-
-    // Remove source categories from targets (don't recommend same category)
-    const targetCategoryIds = allTargetCategoryIds.filter(
-      (id) => !sourceCategoryIds.includes(id),
-    );
-
-    if (!targetCategoryIds.length) return emptyResult;
-
-    // Price band: avg of cart variant prices ±35%
-    const prices = variantInfos.map((v) => v.sellingPrice).filter((p) => p > 0);
-    const avgPrice = prices.length
-      ? prices.reduce((a, b) => a + b, 0) / prices.length
-      : null;
-    const priceFilter = avgPrice
-      ? {
-          minPrice: Math.round(avgPrice * 0.65 * 100) / 100,
-          maxPrice: Math.round(avgPrice * 1.35 * 100) / 100,
-        }
-      : {};
-
-    const baseOptions = {
+    const listBase = {
       page: resolvedPage,
       limit: resolvedLimit,
-      categoryIds: targetCategoryIds,
-      excludeProductIds,
+      excludeProductIds: excludeProductIds.length ? excludeProductIds : undefined,
       sortBy: 'bestsellerIndex' as const,
       sortOrder: 'ASC' as const,
       prioritizeBestsellers: true,
     };
 
-    // Pass 1 — with price band
-    let { data, total } = await this.productsRepository.findPublishedPaginated({
-      ...baseOptions,
-      ...priceFilter,
-    });
+    // ── 1) Complementary FBT rules (needs seed variants + matching categories) ──
+    if (variantInfos.length) {
+      const sourceCategoryNames = [
+        ...new Set(
+          variantInfos
+            .map((v) => (v.subCategoryName ?? v.categoryName ?? '').toLowerCase().trim())
+            .filter(Boolean),
+        ),
+      ];
 
-    // Pass 2 on page 1: if sparse, retry without price band
-    if (resolvedPage === 1 && total < Math.ceil(resolvedLimit / 2)) {
-      ({ data, total } = await this.productsRepository.findPublishedPaginated(baseOptions));
+      const sourceCategoryIds = [
+        ...new Set(
+          variantInfos
+            .flatMap((v) => [v.subCategoryId, v.categoryId])
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+
+      const targetPatterns: string[] = [];
+      for (const rule of FBT_CATEGORY_RULES) {
+        const sourceMatched = rule.sourceContains.some((src) =>
+          sourceCategoryNames.some((name) => name.includes(src.toLowerCase())),
+        );
+        if (sourceMatched) {
+          targetPatterns.push(...rule.targetContains);
+        }
+      }
+
+      if (targetPatterns.length) {
+        const allTargetCategoryIds =
+          await this.productsRepository.findCategoryIdsByNamePatterns(targetPatterns);
+        const targetCategoryIds = allTargetCategoryIds.filter(
+          (id) => !sourceCategoryIds.includes(id),
+        );
+
+        if (targetCategoryIds.length) {
+          const prices = variantInfos.map((v) => v.sellingPrice).filter((p) => p > 0);
+          const avgPrice = prices.length
+            ? prices.reduce((a, b) => a + b, 0) / prices.length
+            : null;
+          const priceFilter = avgPrice
+            ? {
+                minPrice: Math.round(avgPrice * 0.65 * 100) / 100,
+                maxPrice: Math.round(avgPrice * 1.35 * 100) / 100,
+              }
+            : {};
+
+          const complementaryOptions = {
+            ...listBase,
+            categoryIds: targetCategoryIds,
+          };
+
+          let { data, total } = await this.productsRepository.findPublishedPaginated({
+            ...complementaryOptions,
+            ...priceFilter,
+          });
+
+          if (isSparse(total)) {
+            ({ data, total } =
+              await this.productsRepository.findPublishedPaginated(complementaryOptions));
+          }
+
+          // Commit to complementary when we have hits, or when paging beyond page 1
+          if (total > 0 || resolvedPage > 1) {
+            return toResult(data, total);
+          }
+        }
+      }
+
+      // ── 2) Same root category bestsellers (PDP / unmatched rules) ──
+      const rootCategoryIds = [
+        ...new Set(
+          variantInfos
+            .map((v) => v.categoryId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+
+      if (rootCategoryIds.length) {
+        const { data, total } = await this.productsRepository.findPublishedPaginated({
+          ...listBase,
+          categoryIds: rootCategoryIds,
+        });
+
+        if (total > 0 || resolvedPage > 1) {
+          return toResult(data, total);
+        }
+      }
     }
 
-    const cards = mapProductEntitiesToPublicCards(data);
-    const enriched = await Promise.all(cards.map((card) => this.enrichCard(card)));
-
-    return buildPaginatedResult(enriched, total, {
-      page: resolvedPage,
-      limit: resolvedLimit,
-      sortOrder: 'ASC',
-    });
+    // ── 3) Global bestsellers (empty cart / no seed / last resort) ──
+    const { data, total } = await this.productsRepository.findPublishedPaginated(listBase);
+    return toResult(data, total);
   }
 }

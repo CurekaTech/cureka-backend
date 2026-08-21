@@ -54,17 +54,23 @@ export class PublicProductsController {
   }
 
   /**
-   * "Frequently Bought Together" — pass variant IDs from the cart and receive
-   * complementary product recommendations from different but related categories,
-   * within ±35% of the average cart price. Cart products are always excluded.
+   * "Frequently Bought Together" — complementary recommendations for cart and/or PDP.
+   *
+   * Pass cart variant IDs and/or the current PDP variant. When cart is empty, still pass
+   * the PDP variant so suggestions stay relevant; when `variantIds` is omitted entirely,
+   * results fall back to site bestsellers.
+   *
+   * Cascade: FBT category rules → same root-category bestsellers → global bestsellers.
+   * Seed/cart products are always excluded when variant IDs are provided.
    *
    * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
+   * GET /public/products/frequently-bought-together?page=1&limit=10
    */
   @ResponseMessage('Frequently bought together products retrieved successfully')
   @Get('frequently-bought-together')
   findFrequentlyBoughtTogether(@Query() query: FrequentlyBoughtTogetherQueryDto) {
     return this.publicProductsService.findFrequentlyBoughtTogether(
-      query.variantIds,
+      query.variantIds ?? [],
       query.page ?? 1,
       query.limit ?? 10,
     );
