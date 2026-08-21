@@ -74,17 +74,17 @@ const pickEnabledDetail = <T>(
   return null;
 };
 
-/** If product or any variant enables a flag, apply it (and matching details) to all. */
+/** Product-level admin toggles are the source of truth for storefront badges. */
 export const resolveSharedCommerceFlags = (
   product: CommerceFlagSource,
   variants: CommerceFlagSource[],
 ): SharedCommerceFlags => {
   const sources = [product, ...variants];
-  const subscriptionEnabled = sources.some((source) => isFlagEnabled(source.subscriptionEnabled));
-  const codAvailable = sources.some((source) => isFlagEnabled(source.codAvailable));
-  const emiAvailable = sources.some((source) => isFlagEnabled(source.emiAvailable));
-  const returnAllowed = sources.some((source) => isFlagEnabled(source.returnAllowed));
-  const replaceAllowed = sources.some((source) => isFlagEnabled(source.replaceAllowed));
+  const subscriptionEnabled = isFlagEnabled(product.subscriptionEnabled);
+  const codAvailable = isFlagEnabled(product.codAvailable);
+  const emiAvailable = isFlagEnabled(product.emiAvailable);
+  const returnAllowed = isFlagEnabled(product.returnAllowed);
+  const replaceAllowed = isFlagEnabled(product.replaceAllowed);
 
   return {
     subscriptionEnabled,
@@ -92,23 +92,33 @@ export const resolveSharedCommerceFlags = (
     emiAvailable,
     returnAllowed,
     returnPolicy: returnAllowed
-      ? pickEnabledDetail(sources, (source) => isFlagEnabled(source.returnAllowed), (source) => source.returnPolicy)
-      : (product.returnPolicy ?? null),
+      ? product.returnPolicy?.trim()
+        ? product.returnPolicy
+        : pickEnabledDetail(
+            sources,
+            (source) => isFlagEnabled(source.returnAllowed),
+            (source) => source.returnPolicy,
+          )
+      : null,
     returnWindowDays: returnAllowed
-      ? pickEnabledDetail(
-          sources,
-          (source) => isFlagEnabled(source.returnAllowed),
-          (source) => source.returnWindowDays,
-        )
-      : (product.returnWindowDays ?? null),
+      ? product.returnWindowDays != null
+        ? product.returnWindowDays
+        : pickEnabledDetail(
+            sources,
+            (source) => isFlagEnabled(source.returnAllowed),
+            (source) => source.returnWindowDays,
+          )
+      : null,
     replaceAllowed,
     replaceWindowDays: replaceAllowed
-      ? pickEnabledDetail(
-          sources,
-          (source) => isFlagEnabled(source.replaceAllowed),
-          (source) => source.replaceWindowDays,
-        )
-      : (product.replaceWindowDays ?? null),
+      ? product.replaceWindowDays != null
+        ? product.replaceWindowDays
+        : pickEnabledDetail(
+            sources,
+            (source) => isFlagEnabled(source.replaceAllowed),
+            (source) => source.replaceWindowDays,
+          )
+      : null,
   };
 };
 
@@ -461,6 +471,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
   ),
+  isTop: (entity.variants ?? []).some(
+    (variant) => variant.status === VariantStatus.ACTIVE && (variant.isTop ?? false),
+  ),
   variantId: listVariant?.id ?? null,
   subscriptionEnabled: commerceFlags.subscriptionEnabled,
   codAvailable: commerceFlags.codAvailable,
@@ -549,6 +562,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
+  codMinOrderAmount: 0,
   attributes: (entity.attributeMappings ?? []).map((mapping) => ({
     refId: mapping.attribute?.refId ?? '',
     name: mapping.attribute?.name ?? '',

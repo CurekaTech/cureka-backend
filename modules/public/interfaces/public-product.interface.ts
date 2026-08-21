@@ -128,6 +128,8 @@ export interface IPublicProductCard {
   outOfStock: boolean;
   /** True when the product carries the `bestsellers` tag. */
   isBestSeller: boolean;
+  /** True when any active variant has `is_top` (Category Product Indexing). */
+  isTop: boolean;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;
@@ -285,6 +287,11 @@ export interface IPublicProductDetail {
    * from admin settings (eligible for free delivery on a single-item order).
    */
   isFreeDelivery: boolean;
+  /**
+   * Admin `cod_min_order_amount` — used on PDP to show “COD available above this price”
+   * when the product supports COD but selling price is below the threshold.
+   */
+  codMinOrderAmount: number;
   /** Set when product detail is loaded via a variant slug URL. */
   selectedVariantId?: string | null;
   selectedVariantSlug?: string | null;

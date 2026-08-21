@@ -660,6 +660,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['best_sellers.read'],
       },
       {
+        name: 'Category Product Indexing',
+        key: 'category-product-indexing',
+        icon: 'ListTree',
+        href: '/cms/category-product-indexing',
+        requiredPermissions: ['category_product.read'],
+      },
+      {
         name: 'Health Concern Indexing', // added new one
         key: 'health-concern-indexing',
         icon: 'HeartPulse',

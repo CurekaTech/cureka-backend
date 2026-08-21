@@ -29,7 +29,7 @@ import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
 import { enrichProductInformation } from '../utils/product-information.util';
-import { mapSpecificationFields } from '../utils/product-payload.util';
+import { mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import {
@@ -376,6 +376,15 @@ export class ProductsService {
         await this.relationsRepository.createMedia(manager, created.id, productMedia, skuToVariantId);
       }
 
+      const sharedCommerce = pickSharedCommerceFields(normalizedDto);
+      if (sharedCommerce) {
+        await this.variantsRepository.updateSharedCommerceFieldsByProductId(
+          created.id,
+          sharedCommerce,
+          manager,
+        );
+      }
+
       return created;
     });
 
@@ -420,6 +429,8 @@ export class ProductsService {
       status: query.status,
       variantSlug: query.variantSlug,
       outOfStock: query.outOfStock,
+      isTop: query.isTop,
+      prioritizeTop: query.prioritizeTop,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       brandId: filters.brandId,
       brandIds: filters.brandIds,
@@ -451,6 +462,8 @@ export class ProductsService {
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
           outOfStock: query.outOfStock,
+          isTop: query.isTop,
+          prioritizeTop: query.prioritizeTop,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
@@ -703,6 +716,39 @@ export class ProductsService {
       await this.productsRepository.updateByRefId(refId, payload, manager);
       await this.relationsRepository.cleanupLegacyManualMediaKeys(manager, existing.id);
 
+      const commerceFlagUpdated =
+        dto.subscriptionEnabled !== undefined ||
+        dto.codAvailable !== undefined ||
+        dto.emiAvailable !== undefined ||
+        dto.returnAllowed !== undefined ||
+        dto.returnPolicy !== undefined ||
+        dto.returnWindowDays !== undefined ||
+        dto.replaceAllowed !== undefined ||
+        dto.replaceWindowDays !== undefined;
+
+      if (commerceFlagUpdated) {
+        await this.variantsRepository.syncCommerceFlagsFromProduct(manager, existing.id, {
+          subscriptionEnabled:
+            payload.subscriptionEnabled ?? existing.subscriptionEnabled,
+          codAvailable: payload.codAvailable ?? existing.codAvailable,
+          emiAvailable: payload.emiAvailable ?? existing.emiAvailable,
+          returnAllowed: payload.returnAllowed ?? existing.returnAllowed,
+          returnPolicy:
+            payload.returnPolicy !== undefined
+              ? payload.returnPolicy
+              : (existing.returnPolicy ?? null),
+          returnWindowDays:
+            payload.returnWindowDays !== undefined
+              ? payload.returnWindowDays
+              : (existing.returnWindowDays ?? null),
+          replaceAllowed: payload.replaceAllowed ?? existing.replaceAllowed,
+          replaceWindowDays:
+            payload.replaceWindowDays !== undefined
+              ? payload.replaceWindowDays
+              : (existing.replaceWindowDays ?? null),
+        });
+      }
+
       if (resolved) {
         if (dtoHasCategoryHierarchyChanges(dto) && masters?.categoryHierarchies) {
           await this.relationsRepository.syncCategoryHierarchies(
@@ -876,6 +922,16 @@ export class ProductsService {
         });
         const skuToVariantId = new Map(variants.map((variant) => [variant.sku, variant.id]));
         await this.relationsRepository.syncMedia(manager, existing.id, media, skuToVariantId);
+      }
+
+      // Product-level commerce flags must apply to every variant (PDP shares these flags).
+      const sharedCommerce = pickSharedCommerceFields(dto);
+      if (sharedCommerce) {
+        await this.variantsRepository.updateSharedCommerceFieldsByProductId(
+          existing.id,
+          sharedCommerce,
+          manager,
+        );
       }
     });
 
