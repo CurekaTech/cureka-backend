@@ -786,7 +786,7 @@ export class ProductsService {
         if (dto.faqRefIds) {
           await this.relationsRepository.syncProductFaqs(manager, existing.id, resolved.faqIds);
         }
-        if (dto.customFaqs) {
+        if (dto.customFaqs !== undefined) {
           const faqIds = await this.relationsRepository.createCustomProductFaqs(
             manager,
             dto.customFaqs,
@@ -897,6 +897,11 @@ export class ProductsService {
           pricingVariants,
           attributeIdByRefId,
         );
+      }
+
+      // Variant sync can overwrite faqs from variant DTO — re-apply product FAQs last.
+      if (dto.faqRefIds !== undefined || dto.customFaqs !== undefined) {
+        await this.relationsRepository.cascadeProductFaqsToVariants(manager, existing.id);
       }
 
       if (isVariableToSimple) {
