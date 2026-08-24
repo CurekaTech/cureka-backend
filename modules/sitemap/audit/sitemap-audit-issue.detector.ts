@@ -30,10 +30,16 @@ const pushIssue = (
 
 export const detectAuditIssues = (
   records: AuditRecord[],
-  options?: { requireSlug?: boolean; requireRefId?: boolean },
+  options?: {
+    requireSlug?: boolean;
+    requireRefId?: boolean;
+    /** When true, skip duplicate_ref_id (e.g. product variants share product refId). */
+    skipDuplicateRefId?: boolean;
+  },
 ): AuditIssue[] => {
   const requireSlug = options?.requireSlug ?? true;
   const requireRefId = options?.requireRefId ?? true;
+  const skipDuplicateRefId = options?.skipDuplicateRefId ?? false;
   const issues: AuditIssue[] = [];
 
   const refIdCounts = new Map<string, number>();
@@ -61,7 +67,7 @@ export const detectAuditIssues = (
     if (requireSlug && !slug) {
       pushIssue(issues, 'missing_slug', record, 'Missing slug');
     }
-    if (refId && (refIdCounts.get(refId) ?? 0) > 1) {
+    if (!skipDuplicateRefId && refId && (refIdCounts.get(refId) ?? 0) > 1) {
       pushIssue(issues, 'duplicate_ref_id', record, `Duplicate refId "${refId}"`);
     }
     if (slug && (slugCounts.get(slug) ?? 0) > 1) {
