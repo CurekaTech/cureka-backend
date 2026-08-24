@@ -20,6 +20,18 @@ import { SitemapGeneratorService } from './services/sitemap-generator.service';
 import { SitemapQueryService } from './services/sitemap-query.service';
 import { SitemapQueueService } from './services/sitemap-queue.service';
 import { SitemapStorageService } from './services/sitemap-storage.service';
+import { SitemapAuditRegistry } from './audit/sitemap-audit.registry';
+import { SitemapAuditService } from './audit/sitemap-audit.service';
+import {
+  BlogAuditProvider,
+  BrandAuditProvider,
+  CategoryAuditProvider,
+  CollectionAuditProvider,
+  HealthConcernAuditProvider,
+  ProductAuditProvider,
+  StaticAuditProvider,
+  WellnessGoalAuditProvider,
+} from './audit/providers';
 
 @Module({
   imports: [
@@ -46,7 +58,17 @@ import { SitemapStorageService } from './services/sitemap-storage.service';
     SitemapGeneratorService,
     SitemapProcessor,
     SitemapInvalidationListener,
+    SitemapAuditRegistry,
+    SitemapAuditService,
+    CategoryAuditProvider,
+    BrandAuditProvider,
+    HealthConcernAuditProvider,
+    WellnessGoalAuditProvider,
+    CollectionAuditProvider,
+    ProductAuditProvider,
+    BlogAuditProvider,
+    StaticAuditProvider,
   ],
-  exports: [SitemapQueueService, SitemapGeneratorService],
+  exports: [SitemapQueueService, SitemapGeneratorService, SitemapAuditService],
 })
 export class SitemapModule {}

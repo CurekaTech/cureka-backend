@@ -8,6 +8,7 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
+import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
@@ -91,7 +92,7 @@ export class WellnessGoalsRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: WellnessGoalEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -111,7 +112,11 @@ export class WellnessGoalsRepository {
       .take(take);
 
     if (options.search) {
-      qb.where('wellnessGoal.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere('wellnessGoal.name ILIKE :search', { search: `%${options.search}%` });
+    }
+
+    if (options.status) {
+      qb.andWhere('wellnessGoal.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();

@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AgeGroupEntity } from '../entities/age-group.entity';
-import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { MasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
 export class AgeGroupsRepository {
@@ -48,7 +48,7 @@ export class AgeGroupsRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: AgeGroupEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -67,7 +67,11 @@ export class AgeGroupsRepository {
       .take(take);
 
     if (options.search) {
-      qb.where('ageGroup.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere('ageGroup.name ILIKE :search', { search: `%${options.search}%` });
+    }
+
+    if (options.status) {
+      qb.andWhere('ageGroup.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();
