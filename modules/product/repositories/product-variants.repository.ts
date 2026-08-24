@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, BadRequestException } from '@nestjs/common';
+import { ConflictException, Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
@@ -7,6 +7,8 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductStatus } from '../enums/product-status.enum';
+import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import {
   buildVariantCombinationKey,
   IVariantAttributeInput,
@@ -20,7 +22,6 @@ import {
   validateVariantPricing,
   validateUniqueVariantCombinations,
 } from '../validators/variant.validator';
-import { ProductStatus } from '../enums/product-status.enum';
 import { ProductsRepository } from './products.repository';
 import {
   mapVariantDetailDtoToEntityColumns,
@@ -49,6 +50,8 @@ const normalizeSearchTags = (tags?: string[] | null): string[] => {
 
 @Injectable()
 export class ProductVariantsRepository {
+  private readonly logger = new Logger(ProductVariantsRepository.name);
+
   constructor(
     @InjectRepository(ProductVariantEntity)
     private readonly repo: Repository<ProductVariantEntity>,
@@ -61,6 +64,105 @@ export class ProductVariantsRepository {
     const qb = this.repo.createQueryBuilder('variant').where('variant.sku = :sku', { sku });
     if (excludeId) qb.andWhere('variant.id != :excludeId', { excludeId });
     return (await qb.getCount()) > 0;
+  }
+
+  async countVariantsWithInformationLabel(
+    label: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM product_variants v
+      WHERE v.product_information IS NOT NULL
+        AND jsonb_typeof(v.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(v.product_information) item
+          WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+        )
+      `,
+      [label],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
+  async renameProductInformationLabel(
+    oldLabel: string,
+    newLabel: string,
+    _updatedBy: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const from = oldLabel.trim();
+    const to = newLabel.trim();
+    this.logger.log(
+      `[PIL-RENAME][variants] start from="${from}" to="${to}" hasManager=${Boolean(manager)}`,
+    );
+
+    if (!from || !to) {
+      this.logger.warn(
+        `[PIL-RENAME][variants] skipped empty label from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+    if (from.toLowerCase() === to.toLowerCase()) {
+      this.logger.warn(
+        `[PIL-RENAME][variants] skipped same label (case-insensitive) from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+
+    const runner = manager ?? this.repo.manager;
+    const beforeCount = await this.countVariantsWithInformationLabel(from, manager);
+    this.logger.log(
+      `[PIL-RENAME][variants] rows matching from-label before update: ${beforeCount}`,
+    );
+
+    const rows = (await runner.query(
+      `
+      WITH updated AS (
+        UPDATE product_variants v
+        SET
+          product_information = (
+            SELECT COALESCE(
+              jsonb_agg(
+                CASE
+                  WHEN lower(btrim(item->>'label')) = lower(btrim($1::text))
+                    THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                  ELSE item
+                END
+                ORDER BY ordinality
+              ),
+              '[]'::jsonb
+            )
+            FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb))
+              WITH ORDINALITY AS elem(item, ordinality)
+          ),
+          updated_at = NOW()
+        WHERE v.product_information IS NOT NULL
+          AND jsonb_typeof(v.product_information) = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(v.product_information) item
+            WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+          )
+        RETURNING v.id
+      )
+      SELECT COUNT(*)::int AS count FROM updated
+      `,
+      [from, to],
+    )) as Array<{ count: number | string }>;
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterFromCount = await this.countVariantsWithInformationLabel(from, manager);
+    const afterToCount = await this.countVariantsWithInformationLabel(to, manager);
+    this.logger.log(
+      `[PIL-RENAME][variants] done updatedCount=${updatedCount} ` +
+        `rawResult=${JSON.stringify(rows)} ` +
+        `remainingWithFrom=${afterFromCount} withTo=${afterToCount}`,
+    );
+    return updatedCount;
   }
 
   /**
@@ -464,6 +566,39 @@ export class ProductVariantsRepository {
   }
 
   /**
+   * Copies product-level commerce / eligibility flags onto every non-deleted variant
+   * so admin PDP toggles stay in sync with variant rows.
+   */
+  async syncCommerceFlagsFromProduct(
+    manager: EntityManager,
+    productId: string,
+    flags: {
+      subscriptionEnabled: boolean;
+      codAvailable: boolean;
+      emiAvailable: boolean;
+      returnAllowed: boolean;
+      returnPolicy: string | null;
+      returnWindowDays: number | null;
+      replaceAllowed: boolean;
+      replaceWindowDays: number | null;
+    },
+  ): Promise<void> {
+    await manager.getRepository(ProductVariantEntity).update(
+      { productId },
+      {
+        subscriptionEnabled: flags.subscriptionEnabled,
+        codAvailable: flags.codAvailable,
+        emiAvailable: flags.emiAvailable,
+        returnAllowed: flags.returnAllowed,
+        returnPolicy: flags.returnPolicy,
+        returnWindowDays: flags.returnWindowDays,
+        replaceAllowed: flags.replaceAllowed,
+        replaceWindowDays: flags.replaceWindowDays,
+      },
+    );
+  }
+
+  /**
    * Sets stock on all non-deleted variants for the given products and clears
    * outOfStock (restores in-stock / reverses bulk mark-out-of-stock).
    */
@@ -577,6 +712,154 @@ export class ProductVariantsRepository {
     }
 
     return { bySkuResult, updatedProductIds };
+  }
+
+  /**
+   * Cascade product-level commerce flags/policy onto every non-deleted variant.
+   * Keeps PDP shared flags consistent when admin updates the product (not a single variant).
+   */
+  async updateSharedCommerceFieldsByProductId(
+    productId: string,
+    fields: Partial<{
+      subscriptionEnabled: boolean;
+      codAvailable: boolean;
+      emiAvailable: boolean;
+      returnAllowed: boolean;
+      returnPolicy: string | null;
+      returnWindowDays: number | null;
+      replaceAllowed: boolean;
+      replaceWindowDays: number | null;
+    }>,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    if (!entries.length) return 0;
+
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    const result = await repo
+      .createQueryBuilder()
+      .update(ProductVariantEntity)
+      .set(Object.fromEntries(entries) as Partial<ProductVariantEntity>)
+      .where('product_id = :productId', { productId })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
+  /**
+   * Active (variant.status=active) variants on published products that belong to `categoryId`.
+   * Used to validate save payloads for Category Product Indexing.
+   */
+  async findActiveVariantsInCategory(
+    categoryId: string,
+    variantIds: string[],
+  ): Promise<ProductVariantEntity[]> {
+    if (!variantIds.length) return [];
+
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.id IN (:...variantIds)', { variantIds })
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
+      .getMany();
+  }
+
+  async findTopVariantsForCategory(categoryId: string): Promise<ProductVariantEntity[]> {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.isTop = true')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
+      .orderBy('product.name', 'ASC')
+      .addOrderBy('variant.sku', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Category-scoped sync:
+   * - selected variants in the category → is_top = true
+   * - other currently-top variants in the same category → is_top = false
+   * - variants outside the category are never touched
+   */
+  async syncIsTopForCategory(
+    categoryId: string,
+    selectedVariantIds: string[],
+  ): Promise<{ selectedCount: number; clearedCount: number }> {
+    const categoryMatchSql = `
+      (
+        p.category_id = $1
+        OR p.sub_category_id = $1
+        OR p.sub_sub_category_id = $1
+        OR p.sub_sub_sub_category_id = $1
+        OR EXISTS (
+          SELECT 1 FROM product_category_hierarchies pch
+          WHERE pch.product_id = p.id
+            AND (
+              pch.category_id = $1
+              OR pch.sub_category_id = $1
+              OR pch.sub_sub_category_id = $1
+              OR pch.sub_sub_sub_category_id = $1
+            )
+        )
+      )
+    `;
+
+    const clearRows = (await this.repo.manager.query(
+      `
+      WITH cleared AS (
+        UPDATE product_variants v
+        SET is_top = false, updated_at = NOW()
+        WHERE v.deleted_at IS NULL
+          AND v.is_top = true
+          AND (
+            ${selectedVariantIds.length ? 'v.id <> ALL($2::uuid[])' : 'TRUE'}
+          )
+          AND EXISTS (
+            SELECT 1 FROM products p
+            WHERE p.id = v.product_id
+              AND ${categoryMatchSql}
+          )
+        RETURNING v.id
+      )
+      SELECT COUNT(*)::int AS count FROM cleared
+      `,
+      selectedVariantIds.length ? [categoryId, selectedVariantIds] : [categoryId],
+    )) as Array<{ count: number | string }>;
+
+    let selectedCount = 0;
+    if (selectedVariantIds.length) {
+      const setRows = (await this.repo.manager.query(
+        `
+        WITH updated AS (
+          UPDATE product_variants v
+          SET is_top = true, updated_at = NOW()
+          WHERE v.deleted_at IS NULL
+            AND v.id = ANY($2::uuid[])
+            AND EXISTS (
+              SELECT 1 FROM products p
+              WHERE p.id = v.product_id
+                AND ${categoryMatchSql}
+            )
+          RETURNING v.id
+        )
+        SELECT COUNT(*)::int AS count FROM updated
+        `,
+        [categoryId, selectedVariantIds],
+      )) as Array<{ count: number | string }>;
+      selectedCount = Number(setRows?.[0]?.count ?? 0);
+    }
+
+    return {
+      selectedCount,
+      clearedCount: Number(clearRows?.[0]?.count ?? 0),
+    };
   }
 
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {

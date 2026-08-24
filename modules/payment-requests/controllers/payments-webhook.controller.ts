@@ -56,6 +56,15 @@ export class PaymentsWebhookController {
         sessionId,
         paymentId ? String(paymentId) : undefined,
       );
+    } else if (
+      sessionId &&
+      ['failed', 'failure', 'cancelled', 'canceled', 'dropped'].includes(status)
+    ) {
+      await this.paymentRequestsService.handlePaymentFailedByProviderReference(
+        sessionId,
+        `Shiprocket checkout ${status}`,
+        'shiprocket-checkout-webhook',
+      );
     }
 
     return { received: true, event: eventType, requestId: req.id };
@@ -117,6 +126,20 @@ export class PaymentsWebhookController {
           'Cashfree webhook missing orderId',
         );
       }
+    } else if (
+      (eventType === 'PAYMENT_FAILED_WEBHOOK' ||
+        eventType === 'PAYMENT_USER_DROPPED_WEBHOOK') &&
+      orderId
+    ) {
+      await this.paymentRequestsService.handlePaymentFailedByProviderReference(
+        String(orderId),
+        String(paymentData?.['payment_message'] ?? paymentData?.['error_details'] ?? 'Cashfree payment failed'),
+        'cashfree-webhook',
+      );
+      this.logger.log(
+        { orderId, eventType, requestId: req.id },
+        'Cashfree webhook handled payment failure',
+      );
     } else {
       this.logger.log(
         {
@@ -239,7 +262,22 @@ export class PaymentsWebhookController {
       }
     } else if (event === 'payment.failed') {
       if (paymentRequestId) {
-        await this.paymentRequestsService.handlePaymentFailed(paymentRequestId, paymentEntity?.entity?.error_description);
+        await this.paymentRequestsService.handlePaymentFailed(
+          paymentRequestId,
+          paymentEntity?.entity?.error_description,
+        );
+      } else if (orderId) {
+        await this.paymentRequestsService.handlePaymentFailedByProviderReference(
+          orderId,
+          paymentEntity?.entity?.error_description,
+          'razorpay-webhook',
+        );
+      } else if (linkId) {
+        await this.paymentRequestsService.handlePaymentFailedByProviderReference(
+          linkId,
+          paymentEntity?.entity?.error_description,
+          'razorpay-webhook',
+        );
       }
     } else if (event === 'payment.pending') {
       if (paymentRequestId) {

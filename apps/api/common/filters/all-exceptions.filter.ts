@@ -47,6 +47,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return;
     }
 
+    if (this.isBobRequest(request.url)) {
+      const errorMessage = Array.isArray(normalized.message)
+        ? normalized.message.join(', ')
+        : normalized.message;
+      const statusCode =
+        normalized.statusCode >= 500 ? HttpStatus.INTERNAL_SERVER_ERROR : HttpStatus.BAD_REQUEST;
+      try {
+        void response.status(statusCode).send({
+          status: 'failure',
+          statusCode,
+          error: errorMessage,
+        });
+      } catch (sendError) {
+        this.logger.error(
+          `Failed to send BOB error response: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+          sendError instanceof Error ? sendError.stack : undefined,
+        );
+      }
+      return;
+    }
+
     const errorResponse: ApiErrorResponse = {
       success: false,
       statusCode: normalized.statusCode,
@@ -174,6 +195,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     return path.includes('/gokwik/');
   }
 
+  private isBobRequest(url: string): boolean {
+    const path = url.split('?')[0] ?? url;
+    return path.includes('/bob/') || path.endsWith('/bob');
+  }
+
   private logException(
     request: FastifyRequest,
     statusCode: number,
@@ -182,17 +208,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
   ): void {
     const err = exception instanceof Error ? exception : new Error(String(exception));
     const messageText = Array.isArray(message) ? message.join(', ') : message;
+    const path = request.url?.split('?')[0] ?? request.url;
     const payload = {
       requestId: request.id,
       method: request.method,
-      url: request.url?.split('?')[0] ?? request.url,
+      path,
       statusCode,
       errorName: err.name,
-      message: messageText,
+      errorType: err.name,
+      errorMessage: messageText,
     };
 
     if (statusCode >= 500) {
-      this.logger.error({ ...payload, stack: err.stack }, 'Request failed');
+      this.logger.error({ ...payload, stack: err.stack, err }, 'Request failed');
       return;
     }
 

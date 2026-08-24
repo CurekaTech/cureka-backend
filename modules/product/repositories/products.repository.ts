@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
@@ -16,6 +16,7 @@ import { ProductCategoryHierarchyEntity } from '../entities/product-category-hie
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
@@ -41,6 +42,9 @@ export interface ProductListOptions {
   productNatureId?: string;
   variantSlug?: string;
   outOfStock?: boolean;
+  isTop?: boolean;
+  /** When true, pin `is_top` variants first (then apply normal sortBy). */
+  prioritizeTop?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
 }
 
@@ -68,6 +72,11 @@ export interface PublicProductListOptions {
    * (by product_tag_mappings.sort_order), then the rest.
    */
   prioritizeBestsellers?: boolean;
+  /**
+   * When true (typically with a category filter), pin non-bestseller products that have
+   * any active `is_top` variant after bestsellers and before other products.
+   */
+  prioritizeTopProducts?: boolean;
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
   minPrice?: number;
   maxPrice?: number;
@@ -75,6 +84,8 @@ export interface PublicProductListOptions {
 
 @Injectable()
 export class ProductsRepository {
+  private readonly logger = new Logger(ProductsRepository.name);
+
   constructor(
     @InjectRepository(ProductEntity)
     private readonly repo: Repository<ProductEntity>,
@@ -106,6 +117,107 @@ export class ProductsRepository {
     if (!product) return null;
     await this.attachDetailRelations([product], mgr);
     return product;
+  }
+
+  async countProductsWithInformationLabel(
+    label: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM products p
+      WHERE p.product_information IS NOT NULL
+        AND jsonb_typeof(p.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(p.product_information) item
+          WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+        )
+      `,
+      [label],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
+  async renameProductInformationLabel(
+    oldLabel: string,
+    newLabel: string,
+    updatedBy: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const from = oldLabel.trim();
+    const to = newLabel.trim();
+    this.logger.log(
+      `[PIL-RENAME][products] start from="${from}" to="${to}" updatedBy="${updatedBy}" ` +
+        `hasManager=${Boolean(manager)}`,
+    );
+
+    if (!from || !to) {
+      this.logger.warn(
+        `[PIL-RENAME][products] skipped empty label from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+    if (from.toLowerCase() === to.toLowerCase()) {
+      this.logger.warn(
+        `[PIL-RENAME][products] skipped same label (case-insensitive) from="${from}" to="${to}"`,
+      );
+      return 0;
+    }
+
+    const runner = manager ?? this.repo.manager;
+    const beforeCount = await this.countProductsWithInformationLabel(from, manager);
+    this.logger.log(
+      `[PIL-RENAME][products] rows matching from-label before update: ${beforeCount}`,
+    );
+
+    const rows = (await runner.query(
+      `
+      WITH updated AS (
+        UPDATE products p
+        SET
+          product_information = (
+            SELECT COALESCE(
+              jsonb_agg(
+                CASE
+                  WHEN lower(btrim(item->>'label')) = lower(btrim($1::text))
+                    THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                  ELSE item
+                END
+                ORDER BY ordinality
+              ),
+              '[]'::jsonb
+            )
+            FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb))
+              WITH ORDINALITY AS elem(item, ordinality)
+          ),
+          updated_by = $3,
+          updated_at = NOW()
+        WHERE p.product_information IS NOT NULL
+          AND jsonb_typeof(p.product_information) = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(p.product_information) item
+            WHERE lower(btrim(item->>'label')) = lower(btrim($1::text))
+          )
+        RETURNING p.id
+      )
+      SELECT COUNT(*)::int AS count FROM updated
+      `,
+      [from, to, updatedBy],
+    )) as Array<{ count: number | string }>;
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterFromCount = await this.countProductsWithInformationLabel(from, manager);
+    const afterToCount = await this.countProductsWithInformationLabel(to, manager);
+    this.logger.log(
+      `[PIL-RENAME][products] done updatedCount=${updatedCount} ` +
+        `rawResult=${JSON.stringify(rows)} ` +
+        `remainingWithFrom=${afterFromCount} withTo=${afterToCount}`,
+    );
+    return updatedCount;
   }
 
   /**
@@ -538,38 +650,6 @@ export class ProductsRepository {
   }
 
   /**
-   * Counts, per tag slug, how many distinct (non-deleted) products in a category
-   * already carry that tag. Used to cap the number of products sharing a tag within
-   * a category (e.g. max N "bestSeller" products under "Skin Care").
-   */
-  async countProductsPerTagSlugInCategory(
-    categoryId: string,
-    tagSlugs: string[],
-    excludeProductId: string | null,
-    manager?: EntityManager,
-  ): Promise<Map<string, number>> {
-    if (!categoryId || !tagSlugs.length) return new Map();
-
-    const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
-    const qb = repository
-      .createQueryBuilder('product')
-      .innerJoin('product_tag_mappings', 'ptm', 'ptm.product_id = product.id')
-      .innerJoin('product_tags', 'tag', 'tag.id = ptm.tag_id')
-      .select('tag.slug', 'slug')
-      .addSelect('COUNT(DISTINCT product.id)', 'count')
-      .where('product.categoryId = :categoryId', { categoryId })
-      .andWhere('tag.slug IN (:...tagSlugs)', { tagSlugs })
-      .groupBy('tag.slug');
-
-    if (excludeProductId) {
-      qb.andWhere('product.id != :excludeProductId', { excludeProductId });
-    }
-
-    const rows = await qb.getRawMany<{ slug: string; count: string }>();
-    return new Map(rows.map((row) => [row.slug, parseInt(row.count, 10)]));
-  }
-
-  /**
    * Returns root categories that contain at least one product carrying the given tag
    * (e.g. "bestsellers"), ordered by bestseller_sort_index ASC NULLS LAST, then name.
    * Used by homepage Best Sellers tabs and CMS indexing.
@@ -912,7 +992,9 @@ export class ProductsRepository {
       .take(take);
 
     this.applyAdminVariantListFilters(qb, options);
-    this.applyAdminVariantListSort(qb, options.sortBy, sortOrder);
+    this.applyAdminVariantListSort(qb, options.sortBy, sortOrder, {
+      prioritizeTop: options.prioritizeTop,
+    });
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
@@ -1213,22 +1295,37 @@ export class ProductsRepository {
     } else if (options.outOfStock === false) {
       qb.andWhere('variant.outOfStock = false');
     }
+    if (options.isTop === true) {
+      qb.andWhere('variant.isTop = true');
+    } else if (options.isTop === false) {
+      qb.andWhere('variant.isTop = false');
+    }
   }
 
   private applyAdminVariantListSort(
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
+    options?: { prioritizeTop?: boolean },
   ): void {
+    const applySecondary = (column: string): void => {
+      if (options?.prioritizeTop) {
+        qb.orderBy('variant.isTop', 'DESC');
+        qb.addOrderBy(column, sortOrder, 'NULLS LAST');
+      } else {
+        qb.orderBy(column, sortOrder, 'NULLS LAST');
+      }
+    };
+
     switch (sortBy) {
       case 'price':
-        qb.orderBy('variant.sellingPrice', sortOrder, 'NULLS LAST');
+        applySecondary('variant.sellingPrice');
         return;
       case 'stock':
-        qb.orderBy('variant.stock', sortOrder, 'NULLS LAST');
+        applySecondary('variant.stock');
         return;
       case 'sku':
-        qb.orderBy('variant.sku', sortOrder, 'NULLS LAST');
+        applySecondary('variant.sku');
         return;
       default: {
         const SORTABLE: Record<string, string> = {
@@ -1246,7 +1343,7 @@ export class ProductsRepository {
         };
         const resolvedSortBy = sortBy ?? DEFAULT_ADMIN_PRODUCT_LIST_SORT;
         const sortColumn = SORTABLE[resolvedSortBy] ?? SORTABLE[DEFAULT_ADMIN_PRODUCT_LIST_SORT];
-        qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+        applySecondary(sortColumn);
       }
     }
   }
@@ -1303,7 +1400,10 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
-    options?: Pick<PublicProductListOptions, 'tagSlug' | 'prioritizeBestsellers'>,
+    options?: Pick<
+      PublicProductListOptions,
+      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts'
+    >,
   ): void {
     // Storefront: always show in-stock products before fully out-of-stock ones.
     qb.setParameter('oosVariantStatus', VariantStatus.ACTIVE);
@@ -1344,6 +1444,23 @@ export class ProductsRepository {
       );
       qb.addOrderBy('bestseller_rank', 'ASC');
       qb.addOrderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
+    }
+
+    // Category PLP: after bestsellers, pin Top Products (`is_top` on any active variant).
+    // Dual-tagged products stay in the bestseller group via `bestseller_rank` (no duplicate).
+    if (options?.prioritizeTopProducts) {
+      qb.setParameter('topVariantStatus', VariantStatus.ACTIVE);
+      qb.addSelect(
+        `(CASE WHEN EXISTS (
+            SELECT 1 FROM product_variants pv_top
+            WHERE pv_top.product_id = product.id
+              AND pv_top.deleted_at IS NULL
+              AND pv_top.status = :topVariantStatus
+              AND pv_top.is_top = true
+          ) THEN 0 ELSE 1 END)`,
+        'top_rank',
+      );
+      qb.addOrderBy('top_rank', 'ASC');
     }
 
     if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {
@@ -1830,6 +1947,23 @@ export class ProductsRepository {
     return products[0] ?? null;
   }
 
+  async findIdByUuidOrRefId(idOrRefId: string): Promise<string | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    const row = await this.repo.findOne({
+      where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
+      select: ['id'],
+    });
+    return row?.id ?? null;
+  }
+
+  async findWithTagsById(id: string): Promise<ProductEntity | null> {
+    return this.repo.findOne({
+      where: { id },
+      relations: { tagMappings: { tag: true } },
+    });
+  }
+
   async findPublishedByIds(ids: string[]): Promise<ProductEntity[]> {
     if (!ids.length) {
       return [];
@@ -1980,6 +2114,168 @@ export class ProductsRepository {
       `,
       [categoryFilterIds, ProductStatus.PUBLISHED, categoryId],
     );
+  }
+
+  /**
+   * Distinct ACTIVE categories used by published products of a brand
+   * (primary category columns + product_category_hierarchies), with parent + productCount.
+   */
+  async findActiveCategoriesPaginatedForBrand(options: {
+    brandId: string;
+    page: number;
+    limit: number;
+    search?: string;
+  }): Promise<{
+    data: Array<{
+      id: string;
+      refId: string;
+      name: string;
+      slug: string;
+      position: number;
+      hierarchyLevel: number;
+      image: unknown;
+      banner: unknown;
+      productCount: number;
+      parentId: string | null;
+      parentRefId: string | null;
+      parentName: string | null;
+      parentSlug: string | null;
+      parentHierarchyLevel: number | null;
+    }>;
+    total: number;
+  }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const search = options.search?.trim() || null;
+    const params: unknown[] = [options.brandId, ProductStatus.PUBLISHED, MasterStatus.ACTIVE];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const searchIdx = params.length;
+      searchClause = `
+        AND (
+          c.name ILIKE $${searchIdx}
+          OR c.slug ILIKE $${searchIdx}
+          OR c.ref_id ILIKE $${searchIdx}
+          OR parent.name ILIKE $${searchIdx}
+          OR parent.slug ILIKE $${searchIdx}
+        )
+      `;
+    }
+
+    params.push(take);
+    const limitIdx = params.length;
+    params.push(skip);
+    const offsetIdx = params.length;
+
+    const baseCte = `
+      WITH brand_category_ids AS (
+        SELECT cat_id, COUNT(DISTINCT product_id)::int AS product_count
+        FROM (
+          SELECT
+            p.id AS product_id,
+            UNNEST(ARRAY[
+              p.category_id,
+              p.sub_category_id,
+              p.sub_sub_category_id,
+              p.sub_sub_sub_category_id
+            ]) AS cat_id
+          FROM products p
+          WHERE p.brand_id = $1
+            AND p.status = $2
+            AND p.deleted_at IS NULL
+          UNION ALL
+          SELECT
+            p.id AS product_id,
+            UNNEST(ARRAY[
+              pch.category_id,
+              pch.sub_category_id,
+              pch.sub_sub_category_id,
+              pch.sub_sub_sub_category_id
+            ]) AS cat_id
+          FROM product_category_hierarchies pch
+          INNER JOIN products p ON p.id = pch.product_id
+          WHERE p.brand_id = $1
+            AND p.status = $2
+            AND p.deleted_at IS NULL
+        ) expanded
+        WHERE cat_id IS NOT NULL
+        GROUP BY cat_id
+      )
+    `;
+
+    const fromWhere = `
+      FROM categories c
+      INNER JOIN brand_category_ids bc ON bc.cat_id = c.id
+      LEFT JOIN categories parent
+        ON parent.id = c.parent_category_id
+       AND parent.deleted_at IS NULL
+      WHERE c.status = $3
+        AND c.deleted_at IS NULL
+        ${searchClause}
+    `;
+
+    const countRows = await this.repo.manager.query<Array<{ count: number | string }>>(
+      `
+      ${baseCte}
+      SELECT COUNT(*)::int AS count
+      ${fromWhere}
+      `,
+      params.slice(0, search ? 4 : 3),
+    );
+    const total = Number(countRows?.[0]?.count ?? 0);
+
+    const data = await this.repo.manager.query<
+      Array<{
+        id: string;
+        refId: string;
+        name: string;
+        slug: string;
+        position: number;
+        hierarchyLevel: number | string;
+        image: unknown;
+        banner: unknown;
+        productCount: number | string;
+        parentId: string | null;
+        parentRefId: string | null;
+        parentName: string | null;
+        parentSlug: string | null;
+        parentHierarchyLevel: number | string | null;
+      }>
+    >(
+      `
+      ${baseCte}
+      SELECT
+        c.id AS id,
+        c.ref_id AS "refId",
+        c.name AS name,
+        c.slug AS slug,
+        c.position AS position,
+        c.hierarchy_level AS "hierarchyLevel",
+        c.image AS image,
+        c.banner AS banner,
+        bc.product_count AS "productCount",
+        parent.id AS "parentId",
+        parent.ref_id AS "parentRefId",
+        parent.name AS "parentName",
+        parent.slug AS "parentSlug",
+        parent.hierarchy_level AS "parentHierarchyLevel"
+      ${fromWhere}
+      ORDER BY c.hierarchy_level ASC, c.position ASC, c.name ASC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+      `,
+      params,
+    );
+
+    return {
+      total,
+      data: data.map((row) => ({
+        ...row,
+        hierarchyLevel: Number(row.hierarchyLevel),
+        productCount: Number(row.productCount),
+        parentHierarchyLevel:
+          row.parentHierarchyLevel == null ? null : Number(row.parentHierarchyLevel),
+      })),
+    };
   }
 
   async findPublishedRefIdsByCategoryId(categoryId: string): Promise<string[]> {

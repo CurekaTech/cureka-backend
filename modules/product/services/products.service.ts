@@ -29,7 +29,7 @@ import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
 import { enrichProductInformation } from '../utils/product-information.util';
-import { mapSpecificationFields } from '../utils/product-payload.util';
+import { mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import {
@@ -46,7 +46,7 @@ import { ProductMasterResolverService } from './product-master-resolver.service'
 import { ProductStrategyFactory } from '../strategies/product-strategies';
 import { mapProductEntityToDetailResponse, mapProductEntityToResponse, mapProductEntityToVariantListItem } from '../mappers/product.mapper';
 import { IProductDetail } from '../interfaces/product-detail.interface';
-import { generateProductSlug, assertProductUrlSlugLength, generateTagSlug } from '../utils/product-slug.util';
+import { generateProductSlug, assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
@@ -59,9 +59,6 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
 import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
-
-/** Max products in a single category that may share the same tag (e.g. "bestSeller"). */
-const MAX_PRODUCTS_PER_CATEGORY_TAG = 10;
 
 export interface ProductMutationOptions {
   /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
@@ -300,8 +297,6 @@ export class ProductsService {
       }
     }
 
-    await this.assertTagUsageWithinCategoryLimit(masters.categoryId, normalizedDto.tagNames ?? [], null);
-
     const refId = await generateUniqueRefId(normalizedDto.name, (candidate) =>
       this.productsRepository.existsByRefId(candidate),
     );
@@ -381,6 +376,15 @@ export class ProductsService {
         await this.relationsRepository.createMedia(manager, created.id, productMedia, skuToVariantId);
       }
 
+      const sharedCommerce = pickSharedCommerceFields(normalizedDto);
+      if (sharedCommerce) {
+        await this.variantsRepository.updateSharedCommerceFieldsByProductId(
+          created.id,
+          sharedCommerce,
+          manager,
+        );
+      }
+
       return created;
     });
 
@@ -406,43 +410,6 @@ export class ProductsService {
     return this.enrichProduct(mapProductEntityToResponse(loaded));
   }
 
-  /**
-   * Enforces that a category does not exceed {@link MAX_PRODUCTS_PER_CATEGORY_TAG}
-   * products sharing the same tag. Runs before tags are persisted.
-   */
-  private async assertTagUsageWithinCategoryLimit(
-    categoryId: string | null | undefined,
-    tagNames: string[],
-    excludeProductId: string | null,
-  ): Promise<void> {
-    if (!categoryId || !tagNames.length) return;
-
-    const normalizedNames = [
-      ...new Set(tagNames.map((name) => name.trim()).filter((name) => name.length > 0)),
-    ];
-    if (!normalizedNames.length) return;
-
-    const slugByName = new Map(normalizedNames.map((name) => [name, generateTagSlug(name)]));
-    const uniqueSlugs = [...new Set(slugByName.values())];
-
-    const counts = await this.productsRepository.countProductsPerTagSlugInCategory(
-      categoryId,
-      uniqueSlugs,
-      excludeProductId,
-    );
-
-    const exceeded = normalizedNames.filter((name) => {
-      const existing = counts.get(slugByName.get(name)!) ?? 0;
-      return existing + 1 > MAX_PRODUCTS_PER_CATEGORY_TAG;
-    });
-
-    if (exceeded.length) {
-      throw new BadRequestException(
-        `This category already has the maximum of ${MAX_PRODUCTS_PER_CATEGORY_TAG} products for tag(s): ${exceeded.join(', ')}`,
-      );
-    }
-  }
-
   private logProductCreateFailure(source: 'json' | 'multipart', error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
@@ -462,6 +429,8 @@ export class ProductsService {
       status: query.status,
       variantSlug: query.variantSlug,
       outOfStock: query.outOfStock,
+      isTop: query.isTop,
+      prioritizeTop: query.prioritizeTop,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       brandId: filters.brandId,
       brandIds: filters.brandIds,
@@ -493,6 +462,8 @@ export class ProductsService {
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
           outOfStock: query.outOfStock,
+          isTop: query.isTop,
+          prioritizeTop: query.prioritizeTop,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
@@ -741,17 +712,42 @@ export class ProductsService {
         ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
         : null;
 
-    if (hasTagNamesInput) {
-      await this.assertTagUsageWithinCategoryLimit(
-        masters?.categoryId ?? existing.categoryId,
-        dto.tagNames ?? [],
-        existing.id,
-      );
-    }
-
     await this.dataSource.transaction(async (manager) => {
       await this.productsRepository.updateByRefId(refId, payload, manager);
       await this.relationsRepository.cleanupLegacyManualMediaKeys(manager, existing.id);
+
+      const commerceFlagUpdated =
+        dto.subscriptionEnabled !== undefined ||
+        dto.codAvailable !== undefined ||
+        dto.emiAvailable !== undefined ||
+        dto.returnAllowed !== undefined ||
+        dto.returnPolicy !== undefined ||
+        dto.returnWindowDays !== undefined ||
+        dto.replaceAllowed !== undefined ||
+        dto.replaceWindowDays !== undefined;
+
+      if (commerceFlagUpdated) {
+        await this.variantsRepository.syncCommerceFlagsFromProduct(manager, existing.id, {
+          subscriptionEnabled:
+            payload.subscriptionEnabled ?? existing.subscriptionEnabled,
+          codAvailable: payload.codAvailable ?? existing.codAvailable,
+          emiAvailable: payload.emiAvailable ?? existing.emiAvailable,
+          returnAllowed: payload.returnAllowed ?? existing.returnAllowed,
+          returnPolicy:
+            payload.returnPolicy !== undefined
+              ? payload.returnPolicy
+              : (existing.returnPolicy ?? null),
+          returnWindowDays:
+            payload.returnWindowDays !== undefined
+              ? payload.returnWindowDays
+              : (existing.returnWindowDays ?? null),
+          replaceAllowed: payload.replaceAllowed ?? existing.replaceAllowed,
+          replaceWindowDays:
+            payload.replaceWindowDays !== undefined
+              ? payload.replaceWindowDays
+              : (existing.replaceWindowDays ?? null),
+        });
+      }
 
       if (resolved) {
         if (dtoHasCategoryHierarchyChanges(dto) && masters?.categoryHierarchies) {
@@ -931,6 +927,16 @@ export class ProductsService {
         });
         const skuToVariantId = new Map(variants.map((variant) => [variant.sku, variant.id]));
         await this.relationsRepository.syncMedia(manager, existing.id, media, skuToVariantId);
+      }
+
+      // Product-level commerce flags must apply to every variant (PDP shares these flags).
+      const sharedCommerce = pickSharedCommerceFields(dto);
+      if (sharedCommerce) {
+        await this.variantsRepository.updateSharedCommerceFieldsByProductId(
+          existing.id,
+          sharedCommerce,
+          manager,
+        );
       }
     });
 
@@ -1307,7 +1313,7 @@ export class ProductsService {
 
   private async enrichProductDetail(product: IProductDetail): Promise<IProductDetail> {
     const enrichedBase = await this.enrichProduct(product);
-    const brandFields = ['logo', 'banner'] as const;
+    const brandFields = ['logo', 'banner', 'video', 'featuredBanner', 'promotionalBanner'] as const;
     const logoFields = ['logo'] as const;
     const healthConcernFields = ['icon', 'banner'] as const;
 
@@ -1506,6 +1512,17 @@ export class ProductsService {
     action: 'created' | 'updated' | 'deleted' | 'status_updated',
   ): Promise<void> {
     await this.eventEmitter.emitAsync(EVENTS.PRODUCT_UPDATED, new ProductUpdatedEvent(refId, action));
+  }
+
+  async replaceTags(productId: string, tagNames: string[], actor: string): Promise<void> {
+    const product = await this.productsRepository.findWithTagsById(productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      await this.relationsRepository.syncTags(manager, productId, tagNames, actor);
+    });
+    await this.emitProductUpdated(product.refId, 'updated');
   }
 
   private async syncSubscriptionConfig(

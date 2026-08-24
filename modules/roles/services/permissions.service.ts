@@ -276,6 +276,11 @@ export class PermissionsService {
             key: 'orders-requests',
             permissions: getPerms('orders'),
           },
+          {
+            name: 'Abandoned Carts',
+            key: 'orders-abandoned-carts',
+            permissions: getPerms('abandoned_carts'),
+          },
         ],
       },
       {
@@ -357,6 +362,11 @@ export class PermissionsService {
             name: 'Best Sellers Indexing',
             key: 'cms-best-sellers-indexing',
             permissions: getPerms('best_sellers'),
+          },
+          {
+            name: 'Category Product Indexing',
+            key: 'cms-category-product-indexing',
+            permissions: getPerms('category_product'),
           },
           {
             name: 'Pages',

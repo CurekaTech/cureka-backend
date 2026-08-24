@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
+import { isReadyForUnicommercePush } from '@modules/orders/utils/fulfillment-readiness.util';
 import { mapOrderToUnicommercePayload } from '../mappers/unicommerce-order.mapper';
 import { IUnicommerceCreateSaleOrderResponse } from '../interfaces/unicommerce-order.interface';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
@@ -73,6 +74,20 @@ export class UnicommerceOrderService implements OnModuleInit {
     const order = await this.ordersRepository.findForUnicommercePush(orderId);
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);
+    }
+
+    if (!isReadyForUnicommercePush(order)) {
+      this.logger.warn(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          paymentMethod: order.paymentMethod,
+          paymentStatus: order.paymentStatus,
+          orderStatus: order.orderStatus,
+        },
+        'Unicommerce push skipped — order not ready (prepaid requires PAID/PARTIALLY_PAID and non-PENDING order status; COD requires non-PENDING)',
+      );
+      return null;
     }
 
     const payload = mapOrderToUnicommercePayload(order, {

@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
+import { IncomingMessage } from 'http';
+import { Http2ServerRequest } from 'http2';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
@@ -9,7 +11,9 @@ import fastifyStatic from '@fastify/static';
 import { AppModule } from './app.module';
 import { resolveUploadDir } from './config/storage.config';
 import { APP_CONSTANTS } from '@packages/common';
+import { assignIncomingRequestId, REQUEST_ID_HEADER } from '@packages/logger';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
 async function bootstrap(): Promise<void> {
   // Read CORS config from process.env before the NestJS app is created so
   // @fastify/cors is registered on the raw Fastify instance BEFORE NestJS
@@ -40,11 +44,19 @@ async function bootstrap(): Promise<void> {
       // Honor X-Forwarded-For / X-Real-IP from nginx so OTP IP rate limits
       // are per client, not per load-balancer hop.
       trustProxy: true,
+      // Align Fastify request.id with pino-http by stamping IncomingMessage.id.
+      genReqId: (req: IncomingMessage | Http2ServerRequest) => assignIncomingRequestId(req),
     }),
     // Suppress verbose NestJS bootstrap noise (InstanceLoader, RoutesResolver, etc.).
     // Pino takes over at info level after app.useLogger() is called below.
-    { logger: ['warn', 'error'], rawBody: true },
+    { bufferLogs: true, logger: ['warn', 'error'], rawBody: true },
   );
+
+  // Echo the correlation id on every response, including Fastify-level 404s.
+  app.getHttpAdapter().getInstance().addHook('onRequest', (request, reply, done) => {
+    void reply.header(REQUEST_ID_HEADER, String(request.id));
+    done();
+  });
 
   // @fastify/cors uses fastify-plugin internally, which breaks Fastify's
   // encapsulation — registering here (after create, before listen) makes it
@@ -53,7 +65,7 @@ async function bootstrap(): Promise<void> {
   await (app as any).register(fastifyCors, {
     origin: corsOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
       'Authorization',
@@ -63,8 +75,10 @@ async function bootstrap(): Promise<void> {
       'ngrok-skip-browser-warning',
       'x-request-id',
       'x-correlation-id',
+      'x-guest-id',
+      'x-bob-api-key',
     ],
-    exposedHeaders: ['Set-Cookie', 'Content-Disposition', 'Content-Length'],
+    exposedHeaders: ['Set-Cookie', 'Content-Disposition', 'Content-Length', 'x-request-id'],
   });
 
   // Register cookie plugin — cast needed due to @fastify/cookie v11 type mismatch with @nestjs/platform-fastify

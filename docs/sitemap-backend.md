@@ -56,7 +56,7 @@ There is no `apps/worker` app. Processors run in the API process, same as bulk-u
 | categories | `categories` | `/product-category/{slugPath}` | `status=active`, not deleted, **and** ≥1 indexable product assigned (primary hierarchy columns or `product_category_hierarchies`) |
 | brands | `brands` | `/product-brands/{slug}` | `status=active`, not deleted, **and** ≥1 indexable product with `brand_id` |
 | health-concerns | `health_concerns` | `/health-concerns/{url-safe-slug}` | `status=active`, not deleted, **and** ≥1 indexable product via `product_health_concerns` |
-| wellness-goals | `wellness_goals` | `/wellness-goals/{slugify(name)}` | `status=active`, not deleted, **and** ≥1 indexable product via `product_wellness_goals` |
+| wellness-goals | `wellness_goals` (no slug column) | `/wellness-goals/{slugify(name)}` — `&` → `and` so `Digestion & Gut Health` → `/wellness-goals/digestion-and-gut-health` | `status=active`, not deleted, **and** ≥1 indexable product via `product_wellness_goals` |
 | collections | `home_sections` `type=productSlider` | `/collections/{slug}` | `status=active`, not deleted, **and** ≥1 indexable product whose `ref_id` is in `product_ref_ids` |
 | blogs | `blog_posts` | `/{slug}` | `published` + `visibility=public` |
 | support | `support_articles` | `/support/articles/{slug}` | `status=active` |
@@ -108,7 +108,7 @@ Live keys (stable public names):
 sitemaps/sitemap.xml
 sitemaps/static.xml
 sitemaps/products/products-1.xml
-sitemaps/brands/brands.xml
+sitemaps/brands.xml
 ...
 ```
 

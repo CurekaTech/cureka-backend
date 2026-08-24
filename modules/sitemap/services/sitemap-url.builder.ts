@@ -12,10 +12,12 @@ export interface SitemapUrlEntry {
 export const slugifyForUrl = (value: string): string =>
   value
     .toLowerCase()
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
 export const toStorefrontPath = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
@@ -50,24 +52,38 @@ export interface ProductSitemapLocResolution {
   source: ProductSitemapUrlSource;
 }
 
-export const buildProductLocPath = (input: {
+export interface ProductLocInput {
   slug?: string | null;
   productPageUrl?: string | null;
   singleProductUrl?: string | null;
   categorySlugPath: string[];
-}): string | null => {
+}
+
+const slugPermalink = (input: ProductLocInput): string | null => {
+  const slug = input.slug?.trim();
+  if (!slug) return null;
+  return buildProductPermalink(input.categorySlugPath, slug);
+};
+
+/**
+ * Single public loc for a product/variant input.
+ * Priority: product_page_url → singleProductUrl → /shop/{category-path}/{slug}.
+ * Never emits both a configured page URL and a category-hierarchy URL.
+ */
+export const buildProductLocPath = (input: ProductLocInput): string | null => {
   const fromPageUrl = toStorefrontPath(input.productPageUrl);
   if (fromPageUrl && fromPageUrl !== '/') return fromPageUrl;
 
   const fromSingle = toStorefrontPath(input.singleProductUrl);
   if (fromSingle && fromSingle !== '/') return fromSingle;
 
-  const slug = input.slug?.trim();
-  if (slug) {
-    return buildProductPermalink(input.categorySlugPath, slug);
-  }
+  return slugPermalink(input);
+};
 
-  return null;
+/** @deprecated Prefer buildProductLocPath / resolveProductSitemapLoc — kept for callers that expect an array. */
+export const buildProductLocPaths = (input: ProductLocInput): string[] => {
+  const locPath = buildProductLocPath(input);
+  return locPath ? [locPath] : [];
 };
 
 /**
@@ -75,12 +91,9 @@ export const buildProductLocPath = (input: {
  * Configured `productPageUrl` wins; otherwise existing dynamic fallback
  * (`singleProductUrl` → category path + product slug).
  */
-export const resolveProductSitemapLoc = (input: {
-  slug?: string | null;
-  productPageUrl?: string | null;
-  singleProductUrl?: string | null;
-  categorySlugPath: string[];
-}): ProductSitemapLocResolution | null => {
+export const resolveProductSitemapLoc = (
+  input: ProductLocInput,
+): ProductSitemapLocResolution | null => {
   const configured = toStorefrontPath(input.productPageUrl);
   if (configured && configured !== '/') {
     return { locPath: configured, source: 'CONFIGURED_VARIANT_URL' };

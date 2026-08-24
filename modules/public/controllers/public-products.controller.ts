@@ -2,6 +2,7 @@ import { Controller, Get, Logger, Param, Query, Req } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { ResponseMessage } from '@packages/common';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
+import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category-filters-query.dto';
 import { YouMayAlsoLikeQueryDto } from '../dto/you-may-also-like-query.dto';
 import { FrequentlyBoughtTogetherQueryDto } from '../dto/frequently-bought-together-query.dto';
 import { PublicProductsService } from '../services/public-products.service';
@@ -25,6 +26,17 @@ export class PublicProductsController {
   }
 
   /**
+   * Brand PLP — category filter facets for products of a brand.
+   *
+   * GET /public/products/filters/categories?brandSlug=similac&page=1&limit=20
+   */
+  @ResponseMessage('Brand category filters retrieved successfully')
+  @Get('filters/categories')
+  findBrandCategoryFilters(@Query() query: PublicBrandCategoryFiltersQueryDto) {
+    return this.publicProductsService.findBrandCategoryFilters(query);
+  }
+
+  /**
    * "You May Also Like" — pass variant IDs from the cart (or product page) and receive
    * a paginated list of similar published products ranked by sub-category match, then
    * category, within ±35% price. Cart products are always excluded from results.
@@ -42,17 +54,23 @@ export class PublicProductsController {
   }
 
   /**
-   * "Frequently Bought Together" — pass variant IDs from the cart and receive
-   * complementary product recommendations from different but related categories,
-   * within ±35% of the average cart price. Cart products are always excluded.
+   * "Frequently Bought Together" — complementary recommendations for cart and/or PDP.
+   *
+   * Pass cart variant IDs and/or the current PDP variant. When cart is empty, still pass
+   * the PDP variant so suggestions stay relevant; when `variantIds` is omitted entirely,
+   * results fall back to site bestsellers.
+   *
+   * Cascade: FBT category rules → same root-category bestsellers → global bestsellers.
+   * Seed/cart products are always excluded when variant IDs are provided.
    *
    * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
+   * GET /public/products/frequently-bought-together?page=1&limit=10
    */
   @ResponseMessage('Frequently bought together products retrieved successfully')
   @Get('frequently-bought-together')
   findFrequentlyBoughtTogether(@Query() query: FrequentlyBoughtTogetherQueryDto) {
     return this.publicProductsService.findFrequentlyBoughtTogether(
-      query.variantIds,
+      query.variantIds ?? [],
       query.page ?? 1,
       query.limit ?? 10,
     );

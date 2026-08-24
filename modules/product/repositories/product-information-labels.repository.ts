@@ -47,9 +47,13 @@ export class ProductInformationLabelsRepository {
   async updateByRefId(
     refId: string,
     data: Partial<ProductInformationLabelEntity>,
+    manager?: import('typeorm').EntityManager,
   ): Promise<ProductInformationLabelEntity | null> {
-    await this.repo.update({ refId }, data);
-    return this.findByRefId(refId);
+    const repository = manager
+      ? manager.getRepository(ProductInformationLabelEntity)
+      : this.repo;
+    await repository.update({ refId }, data);
+    return repository.findOne({ where: { refId } });
   }
 
   async softDeleteByRefId(refId: string): Promise<void> {
@@ -165,5 +169,11 @@ export class ProductInformationLabelsRepository {
     }
 
     return qb.getMany();
+  }
+
+  transaction<T>(
+    runInTransaction: (manager: import('typeorm').EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.repo.manager.transaction(runInTransaction);
   }
 }

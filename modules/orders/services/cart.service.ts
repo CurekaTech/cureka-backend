@@ -8,7 +8,7 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
-import { ProductSubscriptionConfigEntity } from '@modules/subscription/entities/product-subscription-config.entity';
+import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
@@ -46,6 +46,7 @@ export class CartService {
     private readonly cartPricingService: CartPricingService,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
+    private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
   ) { }
 
   private async buildEmptyCartResponse(): Promise<CartResponse> {
@@ -167,6 +168,27 @@ export class CartService {
       clearInvalidCoupon: true,
       paymentMethod: options?.paymentMethod,
     });
+  }
+
+  /** Cart snapshot for admin views — does not clear an invalid coupon. */
+  async getCartResponseSnapshot(cart: CartEntity): Promise<CartResponse> {
+    return this.toCartResponse(cart, cart.userId, this.dataSource.manager, {
+      clearInvalidCoupon: false,
+    });
+  }
+
+  /** Same pricing as checkout/detail (grand total), without signing product images. */
+  async getCartGrandTotal(cart: CartEntity): Promise<number> {
+    const items = await this.buildLineItems(cart, { skipImages: true });
+    const pricing = await this.cartPricingService.calculateCartPricing({
+      userId: cart.userId,
+      cartId: cart.id,
+      couponId: cart.couponId,
+      items,
+      manager: this.dataSource.manager,
+      clearInvalidCoupon: false,
+    });
+    return pricing.grandTotal;
   }
 
   /**
@@ -434,7 +456,10 @@ export class CartService {
     };
   }
 
-  private async buildLineItems(cart: CartEntity): Promise<CartLineItem[]> {
+  private async buildLineItems(
+    cart: CartEntity,
+    options?: { skipImages?: boolean },
+  ): Promise<CartLineItem[]> {
     return Promise.all(
       (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
         const variant = item.variant as ProductVariantEntity | undefined;
@@ -443,7 +468,9 @@ export class CartService {
         const mrpRaw = variant?.mrp != null ? parseFloat(String(variant.mrp)) : NaN;
         const mrp = Number.isFinite(mrpRaw) ? mrpRaw : null;
         const imageRef = this.resolvePrimaryImageRef(product, item.variantId);
-        const primaryImageUrl = await this.storageUrlEnricher.toReference(imageRef);
+        const primaryImageUrl = options?.skipImages
+          ? null
+          : await this.storageUrlEnricher.toReference(imageRef);
 
         const isAvailable =
           variant?.status === VariantStatus.ACTIVE &&
@@ -546,19 +573,12 @@ export class CartService {
     variantId: string,
     frequency: ProductSubscriptionFrequency,
   ): Promise<void> {
-    const config = await this.dataSource.manager
-      .getRepository(ProductSubscriptionConfigEntity)
-      .createQueryBuilder('config')
-      .where('config.enabled = true')
-      .andWhere('config.productId = :productId', { productId })
-      .andWhere('(config.productVariantId = :variantId OR config.productVariantId IS NULL)', {
-        variantId,
-      })
-      .orderBy('CASE WHEN config.productVariantId = :variantId THEN 0 ELSE 1 END', 'ASC')
-      .setParameter('variantId', variantId)
-      .getOne();
+    const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
+      productId,
+      variantId,
+    );
 
-    if (!config) {
+    if (!config?.enabled) {
       throw new BadRequestException('Subscription is not enabled for this product');
     }
 

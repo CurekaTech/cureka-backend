@@ -1,6 +1,6 @@
-import { Controller, Get, NotFoundException, Req, Res } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FastifyReply, FastifyRequest } from 'fastify';
+import { FastifyReply } from 'fastify';
 import { RawResponse } from '@packages/common';
 import { SITEMAP_CACHE_CONTROL, SITEMAP_CONTENT_TYPE } from '../constants/sitemap-queue.constants';
 import { SitemapStorageService } from '../services/sitemap-storage.service';
@@ -17,15 +17,20 @@ export class PublicSitemapController {
     await this.sendLiveFile(reply, 'sitemap.xml');
   }
 
-  @ApiOperation({ summary: 'Child sitemap XML (pre-generated, no database query)' })
-  @Get('sitemaps/*')
-  async getChild(@Req() request: FastifyRequest, @Res() reply: FastifyReply): Promise<void> {
-    const urlPath = (request.url ?? '').split('?')[0] ?? '';
-    const marker = '/sitemaps/';
-    const index = urlPath.lastIndexOf(marker) >= 0 ? urlPath.indexOf(marker) : -1;
-    const relative = index >= 0 ? urlPath.slice(index + marker.length) : '';
-    this.assertSafeRelative(relative);
-    await this.sendLiveFile(reply, relative);
+  @ApiOperation({ summary: 'Nested child sitemap XML, e.g. products/products-1.xml' })
+  @Get('sitemaps/:group/:file')
+  async getNestedChild(
+    @Param('group') group: string,
+    @Param('file') file: string,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.sendLiveFile(reply, `${group}/${file}`);
+  }
+
+  @ApiOperation({ summary: 'Child sitemap XML, e.g. brands.xml' })
+  @Get('sitemaps/:file')
+  async getChild(@Param('file') file: string, @Res() reply: FastifyReply): Promise<void> {
+    await this.sendLiveFile(reply, file);
   }
 
   private assertSafeRelative(relative: string): void {
@@ -34,17 +39,27 @@ export class PublicSitemapController {
       !normalized ||
       normalized.includes('..') ||
       normalized.includes('.staging') ||
-      normalized.startsWith('/')
+      !normalized.endsWith('.xml') ||
+      !/^[a-z0-9][a-z0-9./-]*\.xml$/i.test(normalized)
     ) {
       throw new NotFoundException('Sitemap file not found');
     }
   }
 
   private async sendLiveFile(reply: FastifyReply, relativePath: string): Promise<void> {
-    const stream = await this.storageService.createLiveReadStream(relativePath);
-    reply
-      .header('Content-Type', SITEMAP_CONTENT_TYPE)
-      .header('Cache-Control', SITEMAP_CACHE_CONTROL)
-      .send(stream);
+    try {
+      this.assertSafeRelative(relativePath);
+      const stream = await this.storageService.createLiveReadStream(relativePath);
+      await reply
+        .header('Content-Type', SITEMAP_CONTENT_TYPE)
+        .header('Cache-Control', SITEMAP_CACHE_CONTROL)
+        .send(stream);
+    } catch (error) {
+      if (error instanceof NotFoundException && !reply.sent) {
+        await reply.code(404).type('text/plain; charset=utf-8').send('Sitemap file not found');
+        return;
+      }
+      throw error;
+    }
   }
 }

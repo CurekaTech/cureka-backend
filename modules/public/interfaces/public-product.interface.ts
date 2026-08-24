@@ -5,12 +5,12 @@ import { IProductInformationItem } from '@modules/product/interfaces/product-inf
 import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IVariantInlineFaq } from '@modules/product/interfaces/variant-details.interface';
 import { IProductPackMetadataItem } from '@modules/product/interfaces/product-pack-metadata.interface';
+import { IProductSubscriptionConfig } from '@modules/subscription/interfaces/product-subscription.interface';
 import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
 import { IPublicBrandProductListingContext } from './public-brand.interface';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
-import { IPublicBrandProductListingContext } from './public-brand.interface';
 
 /** Cached/stored shape — logo is enriched to include a signed url on API responses. */
 export interface IPublicPartySummary {
@@ -128,6 +128,8 @@ export interface IPublicProductCard {
   outOfStock: boolean;
   /** True when the product carries the `bestsellers` tag. */
   isBestSeller: boolean;
+  /** True when any active variant has `is_top` (Category Product Indexing). */
+  isTop: boolean;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
   publishedAt: Date | null;
@@ -176,6 +178,7 @@ export interface IPublicProductVariant {
   tagNames?: string[];
   categoryFilters?: IProductCategoryFilterBinding[];
   packMetadata?: IProductPackMetadataItem[];
+  subscriptionConfig?: IProductSubscriptionConfig | null;
   mrp: number;
   sellingPrice: number;
   discountPercentage: number | null;
@@ -272,6 +275,7 @@ export interface IPublicProductDetail {
   returnAllowed: boolean;
   returnPolicy: string | null;
   returnWindowDays: number | null;
+  subscriptionConfig?: IProductSubscriptionConfig | null;
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
@@ -283,6 +287,11 @@ export interface IPublicProductDetail {
    * from admin settings (eligible for free delivery on a single-item order).
    */
   isFreeDelivery: boolean;
+  /**
+   * Admin `cod_min_order_amount` — used on PDP to show “COD available above this price”
+   * when the product supports COD but selling price is below the threshold.
+   */
+  codMinOrderAmount: number;
   /** Set when product detail is loaded via a variant slug URL. */
   selectedVariantId?: string | null;
   selectedVariantSlug?: string | null;

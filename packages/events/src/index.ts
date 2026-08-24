@@ -21,5 +21,6 @@ export { CmsPageUpdatedEvent } from './domain/cms-page-updated.event';
 export { SupportArticleUpdatedEvent } from './domain/support-article-updated.event';
 export { ShipmentUpdatedEvent } from './domain/shipment-updated.event';
 export { OrderCancelledEvent } from './domain/order-cancelled.event';
+export { CheckoutCartAbandonedEvent } from './domain/checkout-cart-abandoned.event';
 export { OrderConfirmedEvent } from './domain/order-confirmed.event';
 export type { OrderConfirmedSubscriptionItem } from './domain/order-confirmed.event';

@@ -3,7 +3,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '../repositories/brands.repository';
-import { CreateBrandDto, UpdateBrandDto, UpdateBrandStatusDto } from '../dto/brand.dto';
+import {
+  BrandHighlightDto,
+  CreateBrandDto,
+  UpdateBrandDto,
+  UpdateBrandStatusDto,
+} from '../dto/brand.dto';
 import { IBrand } from '../interfaces/brand.interface';
 import { MasterStatus } from '../enums/master-status.enum';
 import { mapBrandEntityToResponse, mapBrandEntitiesToResponse } from '../mappers/brand.mapper';
@@ -21,13 +26,29 @@ import { BrandEntity } from '../entities/brand.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
-
-const BRAND_MEDIA_FIELDS = ['logo', 'banner'] as const;
+import { IStorageFileReference } from '@packages/storage';
 
 const BRAND_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
   banner: UploadFolder.BANNERS,
+  video: UploadFolder.VIDEOS,
+  featuredBanner: UploadFolder.BANNERS,
+  promotionalBanner: UploadFolder.BANNERS,
+  secondaryBanner: UploadFolder.BANNERS,
+  secondaryVideo: UploadFolder.VIDEOS,
+  offerBanner: UploadFolder.BANNERS,
 } as const;
+
+type BrandMediaInput = {
+  logo?: string | null;
+  banner?: string | null;
+  video?: string | null;
+  featuredBanner?: string | null;
+  promotionalBanner?: string | null;
+  secondaryBanner?: string | null;
+  secondaryVideo?: string | null;
+  offerBanner?: string | null;
+};
 
 @Injectable()
 export class BrandsService {
@@ -52,6 +73,12 @@ export class BrandsService {
       {
         logo: uploadedUrls['logo'] ?? null,
         banner: uploadedUrls['banner'] ?? null,
+        video: uploadedUrls['video'] ?? null,
+        featuredBanner: uploadedUrls['featuredBanner'] ?? null,
+        promotionalBanner: uploadedUrls['promotionalBanner'] ?? null,
+        secondaryBanner: uploadedUrls['secondaryBanner'] ?? null,
+        secondaryVideo: uploadedUrls['secondaryVideo'] ?? null,
+        offerBanner: uploadedUrls['offerBanner'] ?? null,
       },
       createdBy,
     );
@@ -67,12 +94,18 @@ export class BrandsService {
     return this.update(refId, dto, updatedBy, {
       logo: uploadedUrls['logo'],
       banner: uploadedUrls['banner'],
+      video: uploadedUrls['video'],
+      featuredBanner: uploadedUrls['featuredBanner'],
+      promotionalBanner: uploadedUrls['promotionalBanner'],
+      secondaryBanner: uploadedUrls['secondaryBanner'],
+      secondaryVideo: uploadedUrls['secondaryVideo'],
+      offerBanner: uploadedUrls['offerBanner'],
     });
   }
 
   async create(
     dto: CreateBrandDto,
-    media: { logo?: string | null; banner?: string | null } = {},
+    media: BrandMediaInput = {},
     createdBy: string,
   ): Promise<IBrand> {
     const slug = dto.slug ?? generateSlug(dto.name);
@@ -86,6 +119,13 @@ export class BrandsService {
       slug,
       logo: this.storageUrlEnricher.persist(media.logo),
       banner: this.storageUrlEnricher.persist(media.banner),
+      video: this.storageUrlEnricher.persist(media.video),
+      featuredBanner: this.storageUrlEnricher.persist(media.featuredBanner),
+      promotionalBanner: this.storageUrlEnricher.persist(media.promotionalBanner),
+      secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
+      secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
+      offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
+      brandHighlights: this.persistBrandHighlights(dto.brandHighlights),
       description: dto.description ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
@@ -107,7 +147,10 @@ export class BrandsService {
     const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.brandsRepository.findAllPaginated(paginationOptions);
     const result = buildPaginatedResult(mapBrandEntitiesToResponse(data), total, paginationOptions);
-    return this.storageUrlEnricher.enrichPaginated(result, [...BRAND_MEDIA_FIELDS]);
+    return {
+      ...result,
+      data: await Promise.all(result.data.map((item) => this.enrichBrand(item))),
+    };
   }
 
   async findOne(refId: string): Promise<IBrand> {
@@ -122,7 +165,7 @@ export class BrandsService {
     refId: string,
     dto: UpdateBrandDto,
     updatedBy: string,
-    media: { logo?: string; banner?: string } = {},
+    media: BrandMediaInput = {},
   ): Promise<IBrand> {
     const existing = await this.brandsRepository.findByRefId(refId);
     if (!existing) {
@@ -140,10 +183,30 @@ export class BrandsService {
       }
     }
 
-    const payload: Partial<BrandEntity> = { ...dto, updatedBy };
+    const { brandHighlights, ...dtoFields } = dto;
+    const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
     if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (media.video !== undefined) payload.video = this.storageUrlEnricher.persist(media.video);
+    if (media.featuredBanner !== undefined) {
+      payload.featuredBanner = this.storageUrlEnricher.persist(media.featuredBanner);
+    }
+    if (media.promotionalBanner !== undefined) {
+      payload.promotionalBanner = this.storageUrlEnricher.persist(media.promotionalBanner);
+    }
+    if (media.secondaryBanner !== undefined) {
+      payload.secondaryBanner = this.storageUrlEnricher.persist(media.secondaryBanner);
+    }
+    if (media.secondaryVideo !== undefined) {
+      payload.secondaryVideo = this.storageUrlEnricher.persist(media.secondaryVideo);
+    }
+    if (media.offerBanner !== undefined) {
+      payload.offerBanner = this.storageUrlEnricher.persist(media.offerBanner);
+    }
+    if (brandHighlights !== undefined) {
+      payload.brandHighlights = this.persistBrandHighlights(brandHighlights);
+    }
 
     const result = await this.brandsRepository.updateByRefId(refId, payload);
     if (!result) {
@@ -189,6 +252,20 @@ export class BrandsService {
     await this.emitBrandUpdated(refId, 'deleted');
   }
 
+  private persistBrandHighlights(
+    highlights: BrandHighlightDto[] | null | undefined,
+  ): BrandEntity['brandHighlights'] {
+    if (highlights === undefined) return null;
+    if (highlights === null) return null;
+    return highlights.map((item) => ({
+      icon: this.storageUrlEnricher.persist(
+        item.icon as string | IStorageFileReference | null | undefined,
+      ),
+      title: String(item.title ?? '').trim(),
+      subtitle: String(item.subtitle ?? '').trim(),
+    }));
+  }
+
   private async emitBrandUpdated(
     refId: string,
     action: 'created' | 'updated' | 'deleted' | 'status_updated',
@@ -197,6 +274,8 @@ export class BrandsService {
       patterns: [
         CacheKeys.homepage.brandsWeTrustPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.publicProducts.listPattern(),
+        CacheKeys.brands.listPattern(),
       ],
     });
     await this.eventEmitter.emitAsync(
@@ -205,8 +284,8 @@ export class BrandsService {
     );
   }
 
+  /** Sign top-level media + nested brandHighlights[].icon. */
   private enrichBrand(brand: IBrand): Promise<IBrand> {
-    return this.storageUrlEnricher.enrichFields(brand, [...BRAND_MEDIA_FIELDS]);
+    return this.storageUrlEnricher.enrichDeep(brand);
   }
 }
-

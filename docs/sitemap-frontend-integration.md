@@ -37,7 +37,7 @@ Pre-generated XML, stored in GCS (production) or local `uploads/sitemaps/` (dev)
 | `{STOREFRONT}/sitemap.xml` | `GET {API}/api/v1/public/sitemap.xml` |
 | `{STOREFRONT}/sitemaps/static.xml` | `GET {API}/api/v1/public/sitemaps/static.xml` |
 | `{STOREFRONT}/sitemaps/products/products-1.xml` | `GET {API}/api/v1/public/sitemaps/products/products-1.xml` |
-| `{STOREFRONT}/sitemaps/brands/brands.xml` | `GET {API}/api/v1/public/sitemaps/brands/brands.xml` |
+| `{STOREFRONT}/sitemaps/brands.xml` | `GET {API}/api/v1/public/sitemaps/brands.xml` |
 | … same pattern for categories, health-concerns, wellness-goals, collections, blogs, support, cms | |
 
 `{API}` = frontend env (API origin). `{STOREFRONT}` = public site origin.
@@ -98,14 +98,14 @@ Same paths on every server; only the storefront host changes:
 {STOREFRONT}/sitemaps/static.xml
 {STOREFRONT}/sitemaps/products/products-1.xml
 {STOREFRONT}/sitemaps/products/products-2.xml
-{STOREFRONT}/sitemaps/brands/brands.xml
-{STOREFRONT}/sitemaps/categories/categories.xml
-{STOREFRONT}/sitemaps/health-concerns/health-concerns.xml
-{STOREFRONT}/sitemaps/wellness-goals/wellness-goals.xml
-{STOREFRONT}/sitemaps/collections/collections.xml
-{STOREFRONT}/sitemaps/blogs/blogs.xml
-{STOREFRONT}/sitemaps/support/support.xml
-{STOREFRONT}/sitemaps/cms/cms.xml
+{STOREFRONT}/sitemaps/brands.xml
+{STOREFRONT}/sitemaps/categories.xml
+{STOREFRONT}/sitemaps/health-concerns.xml
+{STOREFRONT}/sitemaps/wellness-goals.xml
+{STOREFRONT}/sitemaps/collections.xml
+{STOREFRONT}/sitemaps/blogs.xml
+{STOREFRONT}/sitemaps/support.xml
+{STOREFRONT}/sitemaps/cms.xml
 ```
 
 ## No database calls

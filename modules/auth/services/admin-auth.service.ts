@@ -505,9 +505,64 @@ export const MENU_HIERARCHY: MenuItem[] = [
         href: '/order-requests?status=CANCELLED',
         requiredPermissions: ['orders.read'],
       },
-
+      {
+        name: 'Abandoned Carts',
+        key: 'orders-abandoned-carts',
+        icon: 'ShoppingCart',
+        href: '/abandoned-carts',
+        requiredPermissions: ['abandoned_carts.read'],
+      },
     ],
   },
+  // {
+  //   name: 'Subscription & Membership',
+  //   key: 'subscriptions',
+  //   icon: 'Repeat',
+  //   subItems: [
+  //     {
+  //       name: 'Membership Plans',
+  //       key: 'subscriptions-membership-plans',
+  //       icon: 'Crown',
+  //       href: '/memberships/plans',
+  //       requiredPermissions: ['membership_plans.read'],
+  //     },
+  //     {
+  //       name: 'User Memberships',
+  //       key: 'subscriptions-user-memberships',
+  //       icon: 'Users',
+  //       href: '/memberships/users',
+  //       requiredPermissions: ['user_memberships.read'],
+  //     },
+  //     {
+  //       name: 'Membership Payments',
+  //       key: 'subscriptions-membership-payments',
+  //       icon: 'CreditCard',
+  //       href: '/memberships/payments',
+  //       requiredPermissions: ['membership_payments.read'],
+  //     },
+  //     {
+  //       name: 'Product Subscriptions',
+  //       key: 'subscriptions-product-subscriptions',
+  //       icon: 'Package',
+  //       href: '/subscriptions/products',
+  //       requiredPermissions: ['user_product_subscriptions.read'],
+  //     },
+  //     {
+  //       name: 'Subscription Payments',
+  //       key: 'subscriptions-product-payments',
+  //       icon: 'CreditCard',
+  //       href: '/subscriptions/payments',
+  //       requiredPermissions: ['subscription_payments.read'],
+  //     },
+  //     {
+  //       name: 'Failed Renewals',
+  //       key: 'subscriptions-failed-renewals',
+  //       icon: 'AlertTriangle',
+  //       href: '/subscriptions/payments?status=FAILED',
+  //       requiredPermissions: ['subscription_payments.read'],
+  //     },
+  //   ],
+  // },
   // {
   //   name: 'Subscription & Membership',
   //   key: 'subscriptions',
@@ -603,6 +658,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         icon: 'Award',
         href: '/cms/best-sellers-indexing',
         requiredPermissions: ['best_sellers.read'],
+      },
+      {
+        name: 'Category Product Indexing',
+        key: 'category-product-indexing',
+        icon: 'ListTree',
+        href: '/cms/category-product-indexing',
+        requiredPermissions: ['category_product.read'],
       },
       {
         name: 'Health Concern Indexing', // added new one
@@ -869,6 +931,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         key: 'payment-methods-view',
         icon: 'CreditCard',
         href: '/settings/payment-methods',
+        requiredPermissions: ['settings.read'],
+      },
+      {
+        name: 'Store Configuration',
+        key: 'store-configuration-view',
+        icon: 'SlidersHorizontal',
+        href: '/settings/store-configuration',
         requiredPermissions: ['settings.read'],
       },
       {

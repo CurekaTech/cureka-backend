@@ -112,6 +112,9 @@ export function mapCodOrderStatus(order: OrderEntity): PaymentRequestStatus {
   if (order.paymentStatus === OrderPaymentStatus.PAID) {
     return PaymentRequestStatus.PAID;
   }
+  if (order.paymentStatus === OrderPaymentStatus.FAILED) {
+    return PaymentRequestStatus.FAILED;
+  }
   return PaymentRequestStatus.PAYMENT_PENDING;
 }
 

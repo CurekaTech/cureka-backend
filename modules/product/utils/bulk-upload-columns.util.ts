@@ -50,6 +50,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Batch Number',
   'Expiry Date',
   'Single Product URL',
+  'Product Page URL',
   'Pack SKU Code 1',
   'Barcode 1 (EAN/UPC)',
   'Pack Product ID 1',
