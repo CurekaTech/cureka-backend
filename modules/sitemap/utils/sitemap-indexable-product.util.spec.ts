@@ -35,27 +35,28 @@ describe('sitemap indexable product eligibility SQL', () => {
 
   it('matches categories via hierarchy columns and product_category_hierarchies', () => {
     const sql = sitemapCategoryHasIndexableProductSql('category');
-    expect(sql).toContain('p.category_id = category.id');
-    expect(sql).toContain('p.sub_category_id = category.id');
+    expect(sql).toContain('p.category_id = "category".id');
+    expect(sql).toContain('p.sub_category_id = "category".id');
     expect(sql).toContain('product_category_hierarchies');
   });
 
   it('matches brands via products.brand_id', () => {
-    expect(sitemapBrandHasIndexableProductSql('brand')).toContain('p.brand_id = brand.id');
+    expect(sitemapBrandHasIndexableProductSql('brand')).toContain('p.brand_id = "brand".id');
   });
 
   it('matches health concerns and wellness goals via mapping tables', () => {
-    expect(sitemapHealthConcernHasIndexableProductSql('healthConcern')).toContain(
-      'product_health_concerns',
-    );
-    expect(sitemapWellnessGoalHasIndexableProductSql('wellnessGoal')).toContain(
-      'product_wellness_goals',
-    );
+    const healthSql = sitemapHealthConcernHasIndexableProductSql('healthConcern');
+    expect(healthSql).toContain('product_health_concerns');
+    expect(healthSql).toContain('phc.health_concern_id = "healthConcern".id');
+
+    const wellnessSql = sitemapWellnessGoalHasIndexableProductSql('wellnessGoal');
+    expect(wellnessSql).toContain('product_wellness_goals');
+    expect(wellnessSql).toContain('pwg.wellness_goal_id = "wellnessGoal".id');
   });
 
   it('matches collections via product_ref_ids jsonb refIds', () => {
     const sql = sitemapCollectionHasIndexableProductSql('section');
-    expect(sql).toContain('jsonb_array_elements_text(section.product_ref_ids)');
+    expect(sql).toContain('jsonb_array_elements_text("section".product_ref_ids)');
     expect(sql).toContain('p.ref_id IN');
   });
 });
