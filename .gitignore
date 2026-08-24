@@ -38,6 +38,9 @@ yarn-error.log*
 /uploads/**
 !/uploads/.gitkeep
 
+# Sitemap audit exports (local CLI output)
+/reports/sitemap-audit/
+
 # GCS service account credentials (never commit)
 /secrets/**
 !/secrets/.gitkeep

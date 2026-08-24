@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { ProductInformationLabelsService } from '../services/product-information-labels.service';
@@ -22,6 +22,7 @@ import {
   UpdateProductInformationLabelStatusDto,
   ReorderProductInformationLabelsDto,
 } from '../dto/product-information-label.dto';
+import { MasterListQueryDto } from '@modules/master/dto/master-list-query.dto';
 
 @ApiTags('Product Information Labels')
 @ApiBearerAuth()
@@ -48,7 +49,7 @@ export class ProductInformationLabelsController {
   @ResponseMessage('Product information labels retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.productInformationLabelsService.findAll(query);
   }
 

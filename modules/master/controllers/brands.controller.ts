@@ -34,7 +34,7 @@ import { BrandsService } from '../services/brands.service';
 
 import { UpdateBrandStatusDto } from '../dto/brand.dto';
 
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
 import { JwtAuthGuard } from '@packages/auth';
 
@@ -75,7 +75,7 @@ export class BrandsController {
   @ResponseMessage('Brands retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.brandsService.findAll(query);
   }
 

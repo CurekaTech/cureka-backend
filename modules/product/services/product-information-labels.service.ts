@@ -1,13 +1,13 @@
 import { ConflictException, BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { MasterListQueryDto } from '@modules/master/dto/master-list-query.dto';
+import { buildMasterListOptions } from '@modules/master/utils/master-list-query.util';
 import {
   CreateProductInformationLabelDto,
   UpdateProductInformationLabelDto,
@@ -59,9 +59,9 @@ export class ProductInformationLabelsService {
   }
 
   async findAll(
-    query: PaginationQueryDto,
+    query: MasterListQueryDto,
   ): Promise<PaginatedResult<IProductInformationLabel>> {
-    const paginationOptions = buildPaginationOptions(query);
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } =
       await this.productInformationLabelsRepository.findAllPaginated(paginationOptions);
     return buildPaginatedResult(

@@ -16,11 +16,11 @@ import {
 } from '../mappers/age-group.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
@@ -46,8 +46,8 @@ export class AgeGroupsService {
     return mapAgeGroupEntityToResponse(entity);
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IAgeGroup>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IAgeGroup>> {
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.ageGroupsRepository.findAllPaginated(paginationOptions);
     return buildPaginatedResult(mapAgeGroupEntitiesToResponse(data), total, paginationOptions);
   }

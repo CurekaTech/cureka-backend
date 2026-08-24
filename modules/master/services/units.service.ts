@@ -1,16 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CreateUnitDto, UpdateUnitDto, UpdateUnitStatusDto } from '../dto/unit.dto';
 import { IUnit } from '../interfaces/unit.interface';
 import { mapUnitEntitiesToResponse, mapUnitEntityToResponse } from '../mappers/unit.mapper';
 import { UnitsRepository } from '../repositories/units.repository';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
 export class UnitsService {
@@ -29,8 +29,8 @@ export class UnitsService {
     return mapUnitEntityToResponse(entity);
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IUnit>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IUnit>> {
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.unitsRepository.findAllPaginated(paginationOptions);
     return buildPaginatedResult(mapUnitEntitiesToResponse(data), total, paginationOptions);
   }

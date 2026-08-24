@@ -15,11 +15,11 @@ import {
 } from '../mappers/wellness-goal.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
@@ -95,8 +95,8 @@ export class WellnessGoalsService {
     return this.enrichWellnessGoal(mapWellnessGoalEntityToResponse(entity));
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IWellnessGoal>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IWellnessGoal>> {
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } =
       await this.wellnessGoalsRepository.findAllPaginated(paginationOptions);
     const result = buildPaginatedResult(

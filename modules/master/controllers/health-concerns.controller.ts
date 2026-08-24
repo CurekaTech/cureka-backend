@@ -16,7 +16,7 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe } from '@packages/common';
 import { HealthConcernsService } from '../services/health-concerns.service';
 import { UpdateHealthConcernStatusDto, UpdateHealthConcernIndexDto } from '../dto/health-concern.dto';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 import { JwtAuthGuard } from '@packages/auth';
 import { RolesGuard } from '@packages/auth';
 import { Roles } from '@packages/auth';
@@ -41,7 +41,7 @@ export class HealthConcernsController {
   @ResponseMessage('Health concerns retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.healthConcernsService.findAll(query);
   }
 

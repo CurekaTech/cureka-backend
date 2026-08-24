@@ -8,6 +8,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 
 interface CategoryFilterFindOptions extends PaginationOptions {
   categoryId?: string;
+  status?: MasterStatus;
 }
 
 @Injectable()
@@ -128,6 +129,10 @@ export class CategoryFiltersRepository {
 
     if (options.search) {
       qb.andWhere('categoryFilter.name ILIKE :search', { search: `%${options.search}%` });
+    }
+
+    if (options.status) {
+      qb.andWhere('categoryFilter.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();

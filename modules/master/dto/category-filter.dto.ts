@@ -9,8 +9,9 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
-import { IsRefId, PaginationQueryDto } from '@packages/common';
+import { IsRefId } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterListQueryDto } from './master-list-query.dto';
 
 const parseStringArray = ({ value }: { value: unknown }): string[] | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -45,7 +46,7 @@ export class UpdateCategoryFilterStatusDto {
   status!: MasterStatus;
 }
 
-export class CategoryFilterQueryDto extends PaginationQueryDto {
+export class CategoryFilterQueryDto extends MasterListQueryDto {
   @IsOptional()
   @IsUUID()
   categoryId?: string;

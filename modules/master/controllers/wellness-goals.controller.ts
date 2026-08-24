@@ -13,11 +13,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { WellnessGoalsService } from '../services/wellness-goals.service';
 import { UpdateWellnessGoalStatusDto } from '../dto/wellness-goal.dto';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('master/wellness-goals')
@@ -35,7 +36,7 @@ export class WellnessGoalsController {
   @ResponseMessage('Wellness goals retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.wellnessGoalsService.findAll(query);
   }
 

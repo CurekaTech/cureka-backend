@@ -8,6 +8,7 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
+import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 
 @Injectable()
@@ -76,7 +77,7 @@ export class BrandsRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: BrandEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -96,9 +97,13 @@ export class BrandsRepository {
       .take(take);
 
     if (options.search) {
-      qb.where('(brand.name ILIKE :search OR brand.slug ILIKE :search)', {
+      qb.andWhere('(brand.name ILIKE :search OR brand.slug ILIKE :search)', {
         search: `%${options.search}%`,
       });
+    }
+
+    if (options.status) {
+      qb.andWhere('brand.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();
