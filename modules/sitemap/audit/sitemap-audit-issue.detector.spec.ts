@@ -56,6 +56,12 @@ describe('sitemap audit issue detector', () => {
     expect(types.has('not_eligible')).toBe(true);
   });
 
+  it('can skip duplicate_ref_id for multi-variant product audits', () => {
+    const issues = detectAuditIssues(baseRecords, { skipDuplicateRefId: true });
+    expect(issues.some((issue) => issue.issueType === 'duplicate_ref_id')).toBe(false);
+    expect(issues.some((issue) => issue.issueType === 'duplicate_url')).toBe(true);
+  });
+
   it('builds summary stats', () => {
     const issues = detectAuditIssues(baseRecords);
     const summary = buildSummaryStats({

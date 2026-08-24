@@ -12,6 +12,7 @@ import { BlogPostEntity } from '@modules/master/entities/blog-post.entity';
 import { SupportArticleEntity } from '@modules/master/entities/support-article.entity';
 import { CmsPageEntity } from '@modules/master/entities/cms-page.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { PublicSitemapController } from './controllers/public-sitemap.controller';
 import { SitemapInvalidationListener } from './listeners/sitemap-invalidation.listener';
 import { SitemapProcessor } from './processors/sitemap.processor';
@@ -39,6 +40,7 @@ import {
     QueueModule.registerQueue(QUEUE_NAMES.SITEMAP),
     TypeOrmModule.forFeature([
       ProductEntity,
+      ProductVariantEntity,
       CategoryEntity,
       BrandEntity,
       HealthConcernEntity,
