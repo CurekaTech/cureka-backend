@@ -14,11 +14,11 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { mapBrandEntityToResponse, mapBrandEntitiesToResponse } from '../mappers/brand.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { generateSlug } from '@packages/common/pagination.util';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
@@ -143,8 +143,8 @@ export class BrandsService {
     return brand;
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IBrand>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IBrand>> {
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.brandsRepository.findAllPaginated(paginationOptions);
     const result = buildPaginatedResult(mapBrandEntitiesToResponse(data), total, paginationOptions);
     return {

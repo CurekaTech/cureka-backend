@@ -20,12 +20,12 @@ import {
 } from '../mappers/subscription-frequency.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
 export class SubscriptionFrequenciesService {
@@ -60,20 +60,21 @@ export class SubscriptionFrequenciesService {
     return mapSubscriptionFrequencyEntityToResponse(entity);
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<ISubscriptionFrequency>> {
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<ISubscriptionFrequency>> {
     const queryHash = buildQueryCacheHash({
       page: query.page ?? 1,
       limit: query.limit ?? 10,
       search: query.search ?? '',
       sortBy: query.sortBy ?? '',
       sortOrder: query.sortOrder ?? '',
+      status: query.status ?? 'all',
     });
 
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.subscriptionFrequencies.list(queryHash),
       module: CacheModuleName.SUBSCRIPTION_FREQUENCY,
       loader: async () => {
-        const paginationOptions = buildPaginationOptions(query);
+        const paginationOptions = buildMasterListOptions(query);
         const { data, total } =
           await this.subscriptionFrequenciesRepository.findAllPaginated(paginationOptions);
         return buildPaginatedResult(

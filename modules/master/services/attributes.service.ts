@@ -16,11 +16,11 @@ import {
 } from '../mappers/attribute.mapper';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { MasterStatus } from '../enums/master-status.enum';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 
@@ -49,20 +49,21 @@ export class AttributesService {
     return mapAttributeEntityToResponse(entity);
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IAttribute>> {
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<IAttribute>> {
     const queryHash = buildQueryCacheHash({
       page: query.page ?? 1,
       limit: query.limit ?? 10,
       search: query.search ?? '',
       sortBy: query.sortBy ?? '',
       sortOrder: query.sortOrder ?? '',
+      status: query.status ?? 'all',
     });
 
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.attributes.list(queryHash),
       module: CacheModuleName.ATTRIBUTE,
       loader: async () => {
-        const paginationOptions = buildPaginationOptions(query);
+        const paginationOptions = buildMasterListOptions(query);
         const { data, total } =
           await this.attributesRepository.findAllPaginated(paginationOptions);
         return buildPaginatedResult(

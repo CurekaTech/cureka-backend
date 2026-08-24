@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
 } from '@packages/common';
@@ -18,6 +17,7 @@ import {
   mapCategoryFilterEntityToResponse,
 } from '../mappers/category-filter.mapper';
 import { CategoryFiltersRepository } from '../repositories/category-filters.repository';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 import { CategoriesRepository } from '../repositories/categories.repository';
 
 @Injectable()
@@ -58,7 +58,7 @@ export class CategoryFiltersService {
     }
 
     const options = {
-      ...buildPaginationOptions(query),
+      ...buildMasterListOptions(query),
       categoryId,
     };
     const { data, total } =

@@ -19,6 +19,14 @@ import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { SITEMAP_STATIC_URLS } from '../config/static-urls';
 import {
+  sitemapBrandHasIndexableProductSql,
+  sitemapCategoryHasIndexableProductSql,
+  sitemapCollectionHasIndexableProductSql,
+  sitemapHealthConcernHasIndexableProductSql,
+  sitemapIndexableProductParams,
+  sitemapWellnessGoalHasIndexableProductSql,
+} from '../utils/sitemap-indexable-product.util';
+import {
   SitemapUrlEntry,
   buildBlogLocPath,
   buildBrandLocPath,
@@ -177,12 +185,15 @@ export class SitemapQueryService {
     const nodes = await this.loadCategoryNodes();
     const entries: SitemapUrlEntry[] = [];
     let lastId = '';
+    const indexableParams = sitemapIndexableProductParams();
 
     while (true) {
       const qb = this.categoriesRepo
         .createQueryBuilder('category')
         .select(['category.id', 'category.slug', 'category.updatedAt'])
         .where('category.status = :status', { status: MasterStatus.ACTIVE })
+        .andWhere(sitemapCategoryHasIndexableProductSql('category'))
+        .setParameters(indexableParams)
         .orderBy('category.id', 'ASC')
         .take(batchSize);
       if (lastId) qb.andWhere('category.id > :lastId', { lastId });
@@ -206,6 +217,8 @@ export class SitemapQueryService {
       alias: 'brand',
       batchSize,
       status: MasterStatus.ACTIVE,
+      extraWhere: sitemapBrandHasIndexableProductSql('brand'),
+      extraParams: sitemapIndexableProductParams(),
       toEntry: (row) => {
         const locPath = buildBrandLocPath(row.slug);
         return locPath ? { locPath, lastmod: row.updatedAt } : null;
@@ -219,6 +232,8 @@ export class SitemapQueryService {
       alias: 'healthConcern',
       batchSize,
       status: MasterStatus.ACTIVE,
+      extraWhere: sitemapHealthConcernHasIndexableProductSql('healthConcern'),
+      extraParams: sitemapIndexableProductParams(),
       toEntry: (row) => {
         const locPath = buildHealthConcernLocPath(row.slug);
         return locPath ? { locPath, lastmod: row.updatedAt } : null;
@@ -229,11 +244,14 @@ export class SitemapQueryService {
   async collectWellnessGoalEntries(batchSize: number): Promise<SitemapUrlEntry[]> {
     const entries: SitemapUrlEntry[] = [];
     let lastId = '';
+    const indexableParams = sitemapIndexableProductParams();
     while (true) {
       const qb = this.wellnessGoalsRepo
         .createQueryBuilder('wellnessGoal')
         .select(['wellnessGoal.id', 'wellnessGoal.name', 'wellnessGoal.updatedAt'])
         .where('wellnessGoal.status = :status', { status: MasterStatus.ACTIVE })
+        .andWhere(sitemapWellnessGoalHasIndexableProductSql('wellnessGoal'))
+        .setParameters(indexableParams)
         .orderBy('wellnessGoal.id', 'ASC')
         .take(batchSize);
       if (lastId) qb.andWhere('wellnessGoal.id > :lastId', { lastId });
@@ -253,12 +271,15 @@ export class SitemapQueryService {
   async collectCollectionEntries(batchSize: number): Promise<SitemapUrlEntry[]> {
     const entries: SitemapUrlEntry[] = [];
     let lastId = '';
+    const indexableParams = sitemapIndexableProductParams();
     while (true) {
       const qb = this.homeSectionsRepo
         .createQueryBuilder('section')
         .select(['section.id', 'section.slug', 'section.updatedAt'])
         .where('section.status = :status', { status: MasterStatus.ACTIVE })
         .andWhere('section.type = :type', { type: HomeSectionType.PRODUCT_SLIDER })
+        .andWhere(sitemapCollectionHasIndexableProductSql('section'))
+        .setParameters(indexableParams)
         .orderBy('section.id', 'ASC')
         .take(batchSize);
       if (lastId) qb.andWhere('section.id > :lastId', { lastId });
@@ -332,6 +353,8 @@ export class SitemapQueryService {
     batchSize: number;
     status: string;
     extraSelect?: string[];
+    extraWhere?: string;
+    extraParams?: Record<string, unknown>;
     toEntry: (row: T) => SitemapUrlEntry | null;
   }): Promise<SitemapUrlEntry[]> {
     const entries: SitemapUrlEntry[] = [];
@@ -350,6 +373,12 @@ export class SitemapQueryService {
         .where(`${options.alias}.status = :status`, { status: options.status })
         .orderBy(`${options.alias}.id`, 'ASC')
         .take(options.batchSize);
+      if (options.extraWhere) {
+        qb.andWhere(options.extraWhere);
+      }
+      if (options.extraParams) {
+        qb.setParameters(options.extraParams);
+      }
       if (lastId) qb.andWhere(`${options.alias}.id > :lastId`, { lastId });
       const rows = await qb.getMany();
       if (!rows.length) break;

@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import { CursorPaginatedResult } from '@packages/common';
 import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
+import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { UnitEntity } from '../entities/unit.entity';
 import { MasterStatus } from '../enums/master-status.enum';
@@ -43,7 +44,7 @@ export class UnitsRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: UnitEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -62,7 +63,11 @@ export class UnitsRepository {
       .take(take);
 
     if (options.search) {
-      qb.where('unit.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere('unit.name ILIKE :search', { search: `%${options.search}%` });
+    }
+
+    if (options.status) {
+      qb.andWhere('unit.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();

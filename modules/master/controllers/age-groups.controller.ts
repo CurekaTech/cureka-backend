@@ -22,7 +22,7 @@ import {
   UpdateAgeGroupStatusDto,
 } from '../dto/age-group.dto';
 
-import { PaginationQueryDto } from '@packages/common';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
 import { JwtAuthGuard } from '@packages/auth';
 
@@ -54,7 +54,7 @@ export class AgeGroupsController {
   @ResponseMessage('Age groups retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.ageGroupsService.findAll(query);
   }
 

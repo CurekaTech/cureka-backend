@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SubscriptionFrequencyEntity } from '../entities/subscription-frequency.entity';
-import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
+import { MasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
 export class SubscriptionFrequenciesRepository {
@@ -43,7 +43,7 @@ export class SubscriptionFrequenciesRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: SubscriptionFrequencyEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -66,7 +66,11 @@ export class SubscriptionFrequenciesRepository {
       .take(take);
 
     if (options.search) {
-      qb.where('subscriptionFrequency.name ILIKE :search', { search: `%${options.search}%` });
+      qb.andWhere('subscriptionFrequency.name ILIKE :search', { search: `%${options.search}%` });
+    }
+
+    if (options.status) {
+      qb.andWhere('subscriptionFrequency.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();
