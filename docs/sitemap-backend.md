@@ -52,33 +52,51 @@ There is no `apps/worker` app. Processors run in the API process, same as bulk-u
 | Group | Source | Public loc | Indexable when |
 |---|---|---|---|
 | static | `config/static-urls.ts` | `/`, `/categories`, `/product-brands`, … | always |
-| products | `products` + one `product_page_url` | `productPageUrl` else `/shop/{category-path}/{slug}` | `status=published`, not deleted, ≥1 active variant, valid loc. **Not per SKU** |
-| categories | `categories` | `/product-category/{slugPath}` | `status=active` |
-| brands | `brands` | `/product-brands/{slug}` | `status=active` |
-| health-concerns | `health_concerns` | `/health-concerns/{url-safe-slug}` | `status=active` |
-| wellness-goals | `wellness_goals` | `/wellness-goals/{slugify(name)}` | `status=active` |
-| collections | `home_sections` `type=productSlider` | `/collections/{slug}` | `status=active` |
+| products | eligible `product_variants` joined to published `products` | per variant: `product_page_url` if set, else dynamic (`singleProductUrl` → `/shop/{category-path}/{product.slug}`); **dedupe by final locPath** | product `published` + not deleted; variant `active` + not deleted; valid loc. Multiple variants → multiple URLs only when final locs differ |
+| categories | `categories` | `/product-category/{slugPath}` | `status=active`, not deleted, **and** ≥1 indexable product assigned (primary hierarchy columns or `product_category_hierarchies`) |
+| brands | `brands` | `/product-brands/{slug}` | `status=active`, not deleted, **and** ≥1 indexable product with `brand_id` |
+| health-concerns | `health_concerns` | `/health-concerns/{url-safe-slug}` | `status=active`, not deleted, **and** ≥1 indexable product via `product_health_concerns` |
+| wellness-goals | `wellness_goals` | `/wellness-goals/{slugify(name)}` | `status=active`, not deleted, **and** ≥1 indexable product via `product_wellness_goals` |
+| collections | `home_sections` `type=productSlider` | `/collections/{slug}` | `status=active`, not deleted, **and** ≥1 indexable product whose `ref_id` is in `product_ref_ids` |
 | blogs | `blog_posts` | `/{slug}` | `published` + `visibility=public` |
 | support | `support_articles` | `/support/articles/{slug}` | `status=active` |
 | cms | `cms_pages` | `/about`, `/policies/privacy`, … | `status=active` |
 
-Category slug changes also dirty **products** (computed `/shop/...` permalinks).
+**Indexable product** (for listing groups above) means: `products.status = published`, `products.deleted_at IS NULL`, and ≥1 `product_variants` row with `status = active` and `deleted_at IS NULL`. Empty active listings are excluded.
 
-Excluded: search, cart, account, facet querystrings, `/categories/{slug}`, `/blog/{slug}`, SKU URLs.
+### Product URL precedence
+
+For each eligible variant:
+
+1. If `product_variants.product_page_url` is present and non-empty → use it (`CONFIGURED_VARIANT_URL`). Do **not** also emit a category-hierarchy URL for that variant.
+2. Otherwise → existing dynamic builder (`product.single_product_url`, then `/shop/{category-path}/{product.slug}`) as `DYNAMIC_FALLBACK`.
+
+Configured variant URLs take precedence over dynamically generated category URLs when the catalog hierarchy has changed.
+
+Final sitemap locs are **deduplicated by normalized `locPath`** across the entire product generation run (including across keyset batches). Default + sibling variants that resolve to the same URL produce a single `<url>`.
+
+Category slug changes also dirty **products** (dynamic `/shop/...` fallbacks).
+
+Excluded: search, cart, account, facet querystrings, `/categories/{slug}`, `/blog/{slug}`, SKU-only paths.
 
 ## Batch queries
 
-Products (and other groups) use keyset pagination:
+Listing groups use keyset pagination on entity `id`. **Products** keyset on `product_variants.id` with a join to published products:
 
 ```sql
-WHERE status = 'published' AND deleted_at IS NULL AND id > :lastId
-ORDER BY id
+-- products group (simplified)
+WHERE product.status = 'published'
+  AND product.deleted_at IS NULL
+  AND variant.status = 'active'
+  AND variant.deleted_at IS NULL
+  AND variant.id > :lastVariantId
+ORDER BY variant.id
 LIMIT :batchSize
 ```
 
-Selected columns are only those needed for loc + lastmod. Partial index: `IDX_products_sitemap_keyset`.
+Selected columns are only those needed for loc + lastmod. Partial index: `IDX_products_sitemap_keyset` (products); variants use primary key order.
 
-`lastmod` is `updated_at` from the row, never generation time.
+`lastmod` is the later of variant/product `updated_at`, never generation time.
 
 ## Storage / atomic publish
 
@@ -152,7 +170,7 @@ Worker logs include: start, group, URL count, file count, duration, upload/publi
 |---|---|
 | 404 on sitemap.xml | Run `npm run sitemap:generate`. Confirm storage driver/bucket. |
 | Stale URLs | Dirty flags / Redis up? Safety job every hour. `SITEMAP_FORCE_FULL_REBUILD=true` then restart API. |
-| Missing product URLs | Product `status` must be `published` (not `active`), with an active variant and slug or `product_page_url`. |
+| Missing product URLs | Product must be `published` (not deleted) with an `active` variant; that variant needs `product_page_url` or product `slug` / `single_product_url` for the dynamic fallback. |
 | Duplicate loc | Generator dedupes by loc path. Product sitemap is one row per product id. |
 | Broken XML after a failed job | Live files are unchanged; staging is deleted. Inspect worker error logs. |
 | PM2 cluster duplicate cron | Repeatable job uses fixed `jobId` `sitemap-safety-rebuild`. |

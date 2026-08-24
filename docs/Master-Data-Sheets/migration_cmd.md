@@ -100,3 +100,22 @@ npm run product:sku-fix -- --apply
 # Optional
 npm run product:sku-fix -- --apply --limit=10
 
+---------------------------
+
+// update the sitemap for exclude the urls which do not have any products
+npm run sitemap:generate -- --group=categories
+npm run sitemap:generate -- --group=brands
+npm run sitemap:generate -- --group=health-concerns
+npm run sitemap:generate -- --group=wellness-goals
+npm run sitemap:generate -- --group=collections
+
+// scripts for getting db data of for sitemap urls from db 
+
+npm run sitemap:audit categories
+npm run sitemap:audit brands -- --format=both
+npm run sitemap:audit all
+npm run sitemap:audit check -- --url=https://beta.cureka.com/product-brands/himalaya
+npm run sitemap:audit compare categories
+
+// update product sitemap
+npm run sitemap:generate -- --group=products

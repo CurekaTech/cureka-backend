@@ -121,7 +121,7 @@ The sitemap includes both:
 - **Static hub pages** (`/`, `/product-brands`, `/blog`, `/support`, …)
 - **Database-driven pages** (products, categories, brands, health concerns, wellness goals, collections, blogs, support articles, CMS/policy pages)
 
-Product URLs are **one per parent product** (`/shop/...` or `productPageUrl`), never per SKU. Facet/sort/`?page=` variants are not included.
+Product URLs are resolved **per eligible variant**: prefer `product_variants.product_page_url`, else the existing dynamic `/shop/...` (or `singleProductUrl`) fallback. Distinct final URLs are all included; identical final URLs across variants are deduplicated to one `<url>`. Facet/sort/`?page=` query variants are not included.
 
 ## Google Search Console
 
@@ -139,9 +139,10 @@ Google discovers children from the index.
 - sitemap index contains child sitemap URLs on the **storefront** origin (from backend `SITEMAP_BASE_URL`), not the API host
 - child sitemap URLs are accessible (HTTP 200)
 - rewrite destination uses env API base URL (works on local / staging / prod)
-- product URLs look like `/shop/...` (or stored `productPageUrl`), not `/products/{sku}`
-- no duplicate `<loc>` values
+- product URLs look like configured `product_page_url` or dynamic `/shop/...`, not `/products/{sku}`
+- no duplicate `<loc>` values (including when multiple variants resolve to the same path)
 - inactive/deleted records are excluded
+- empty categories/brands/health-concerns/wellness-goals/collections (no published product with an active variant) are excluded
 - `<lastmod>` is present on dynamic URLs and is the entity `updated_at`, not “now”
 - large product catalogs split into `products-1.xml`, `products-2.xml`, …
 - frontend performs no catalog/database query to produce the sitemap

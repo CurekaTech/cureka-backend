@@ -14,7 +14,7 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { BlogPostStatus } from '@modules/master/enums/blog-post-status.enum';
 import { BlogPostVisibility } from '@modules/master/enums/blog-post-visibility.enum';
 import { SupportContentStatus } from '@modules/master/enums/support-content-status.enum';
-import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { SITEMAP_STATIC_URLS } from '../config/static-urls';
@@ -34,19 +34,29 @@ import {
   buildCmsLocPath,
   buildCollectionLocPath,
   buildHealthConcernLocPath,
-  buildProductLocPath,
   buildSupportLocPath,
   buildWellnessGoalLocPath,
   dedupeUrlEntries,
+  resolveProductSitemapLoc,
 } from './sitemap-url.builder';
 
 type CategoryNode = { id: string; slug: string; parentId: string | null };
 
+const laterDate = (
+  a: Date | string | null | undefined,
+  b: Date | string | null | undefined,
+): Date | null => {
+  const left = a ? new Date(a) : null;
+  const right = b ? new Date(b) : null;
+  if (left && right) return left.getTime() >= right.getTime() ? left : right;
+  return left ?? right;
+};
+
 @Injectable()
 export class SitemapQueryService {
   constructor(
-    @InjectRepository(ProductEntity)
-    private readonly productsRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity)
+    private readonly variantsRepo: Repository<ProductVariantEntity>,
     @InjectRepository(CategoryEntity)
     private readonly categoriesRepo: Repository<CategoryEntity>,
     @InjectRepository(BrandEntity)
@@ -97,82 +107,76 @@ export class SitemapQueryService {
     return slugs;
   }
 
+  /**
+   * Yields one sitemap entry per unique final product locPath across eligible variants.
+   * `seenLocs` spans the full generation (all keyset batches) so duplicates across
+   * variants and batches are skipped after final URL resolution/normalization.
+   */
   async *iterateProductEntries(batchSize: number): AsyncGenerator<SitemapUrlEntry> {
     const nodes = await this.loadCategoryNodes();
-    let lastId = '';
+    let lastVariantId = '';
     const seenLocs = new Set<string>();
 
     while (true) {
-      const qb = this.productsRepo
-        .createQueryBuilder('product')
-        .select('product.id', 'id')
-        .addSelect('product.slug', 'slug')
-        .addSelect('product.updated_at', 'updatedAt')
+      const qb = this.variantsRepo
+        .createQueryBuilder('variant')
+        .innerJoin('variant.product', 'product')
+        .select('variant.id', 'variantId')
+        .addSelect('variant.product_page_url', 'productPageUrl')
+        .addSelect('variant.updated_at', 'variantUpdatedAt')
+        .addSelect('product.id', 'productId')
+        .addSelect('product.slug', 'productSlug')
+        .addSelect('product.updated_at', 'productUpdatedAt')
         .addSelect('product.category_id', 'categoryId')
         .addSelect('product.sub_category_id', 'subCategoryId')
         .addSelect('product.sub_sub_category_id', 'subSubCategoryId')
         .addSelect('product.sub_sub_sub_category_id', 'subSubSubCategoryId')
         .addSelect('product.single_product_url', 'singleProductUrl')
-        .addSelect(
-          `(SELECT pv.product_page_url FROM product_variants pv
-            WHERE pv.product_id = product.id
-              AND pv.deleted_at IS NULL
-              AND pv.status = :variantStatus
-              AND pv.product_page_url IS NOT NULL
-              AND btrim(pv.product_page_url) <> ''
-            ORDER BY pv.product_page_url
-            LIMIT 1)`,
-          'productPageUrl',
-        )
-        .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-        .andWhere(
-          `EXISTS (
-            SELECT 1 FROM product_variants pv
-            WHERE pv.product_id = product.id
-              AND pv.deleted_at IS NULL
-              AND pv.status = :variantStatus
-          )`,
-        )
-        .setParameter('variantStatus', VariantStatus.ACTIVE)
-        .orderBy('product.id', 'ASC')
+        .where('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+        .andWhere('product.deleted_at IS NULL')
+        .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+        .andWhere('variant.deleted_at IS NULL')
+        .orderBy('variant.id', 'ASC')
         .take(batchSize);
 
-      if (lastId) {
-        qb.andWhere('product.id > :lastId', { lastId });
+      if (lastVariantId) {
+        qb.andWhere('variant.id > :lastVariantId', { lastVariantId });
       }
 
       const rows = await qb.getRawMany<{
-        id: string;
-        slug: string | null;
-        updatedAt: Date | string;
+        variantId: string;
+        productPageUrl: string | null;
+        variantUpdatedAt: Date | string | null;
+        productId: string;
+        productSlug: string | null;
+        productUpdatedAt: Date | string | null;
         categoryId: string | null;
         subCategoryId: string | null;
         subSubCategoryId: string | null;
         subSubSubCategoryId: string | null;
         singleProductUrl: string | null;
-        productPageUrl: string | null;
       }>();
 
       if (!rows.length) break;
 
       for (const row of rows) {
-        lastId = row.id;
+        lastVariantId = row.variantId;
         const deepestCategoryId =
           row.subSubSubCategoryId ||
           row.subSubCategoryId ||
           row.subCategoryId ||
           row.categoryId;
-        const locPath = buildProductLocPath({
-          slug: row.slug,
+        const resolved = resolveProductSitemapLoc({
+          slug: row.productSlug,
           productPageUrl: row.productPageUrl,
           singleProductUrl: row.singleProductUrl,
           categorySlugPath: this.categorySlugPath(nodes, deepestCategoryId),
         });
-        if (!locPath || seenLocs.has(locPath)) continue;
-        seenLocs.add(locPath);
+        if (!resolved || seenLocs.has(resolved.locPath)) continue;
+        seenLocs.add(resolved.locPath);
         yield {
-          locPath,
-          lastmod: row.updatedAt ? new Date(row.updatedAt) : null,
+          locPath: resolved.locPath,
+          lastmod: laterDate(row.variantUpdatedAt, row.productUpdatedAt),
         };
       }
 

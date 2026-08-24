@@ -9,6 +9,7 @@ import {
   buildSupportLocPath,
   buildWellnessGoalLocPath,
   dedupeUrlEntries,
+  resolveProductSitemapLoc,
   slugifyForUrl,
   splitUrlEntries,
   toStorefrontPath,
@@ -72,6 +73,158 @@ describe('sitemap-url.builder', () => {
           categorySlugPath: [],
         }),
       ).toBe('/shop/vitamin-c');
+    });
+  });
+
+  describe('resolveProductSitemapLoc', () => {
+    const deepCategory = [
+      'healthcare-devices',
+      'supports-splints-braces',
+      'cervical-neck-support',
+    ];
+    const productSlug = 'flamingo-cervical-orthosis-philadelphia-collar-xl';
+
+    it('uses configured product_page_url and ignores category hierarchy', () => {
+      const resolved = resolveProductSitemapLoc({
+        slug: productSlug,
+        productPageUrl:
+          '/shop/pain-relief/flamingo-cervical-orthosis-philadelphia-collar-xl/',
+        singleProductUrl: '/shop/ignored-single/',
+        categorySlugPath: deepCategory,
+      });
+      expect(resolved).toEqual({
+        locPath: '/shop/pain-relief/flamingo-cervical-orthosis-philadelphia-collar-xl',
+        source: 'CONFIGURED_VARIANT_URL',
+      });
+    });
+
+    it('falls back to dynamic URL when product_page_url is missing', () => {
+      expect(
+        resolveProductSitemapLoc({
+          slug: productSlug,
+          productPageUrl: null,
+          categorySlugPath: ['pain-relief'],
+        }),
+      ).toEqual({
+        locPath: `/shop/pain-relief/${productSlug}`,
+        source: 'DYNAMIC_FALLBACK',
+      });
+    });
+
+    it('falls back when product_page_url is empty or whitespace', () => {
+      expect(
+        resolveProductSitemapLoc({
+          slug: productSlug,
+          productPageUrl: '',
+          categorySlugPath: ['pain-relief'],
+        })?.source,
+      ).toBe('DYNAMIC_FALLBACK');
+      expect(
+        resolveProductSitemapLoc({
+          slug: productSlug,
+          productPageUrl: '   ',
+          categorySlugPath: ['pain-relief'],
+        })?.source,
+      ).toBe('DYNAMIC_FALLBACK');
+    });
+
+    it('does not use singleProductUrl when configured product_page_url exists', () => {
+      const resolved = resolveProductSitemapLoc({
+        slug: productSlug,
+        productPageUrl: '/shop/pain-relief/configured/',
+        singleProductUrl: '/shop/pain-relief/from-single/',
+        categorySlugPath: deepCategory,
+      });
+      expect(resolved?.locPath).toBe('/shop/pain-relief/configured');
+      expect(resolved?.source).toBe('CONFIGURED_VARIANT_URL');
+    });
+
+    it('dedupes identical final locs across configured + dynamic variants', () => {
+      const configured = resolveProductSitemapLoc({
+        slug: 'product-a',
+        productPageUrl: '/shop/pain-relief/product-a/',
+        categorySlugPath: ['pain-relief'],
+      });
+      const dynamic = resolveProductSitemapLoc({
+        slug: 'product-a',
+        productPageUrl: null,
+        categorySlugPath: ['pain-relief'],
+      });
+      expect(configured?.locPath).toBe('/shop/pain-relief/product-a');
+      expect(dynamic?.locPath).toBe('/shop/pain-relief/product-a');
+
+      const seen = new Set<string>();
+      const emit = (locPath: string | undefined): boolean => {
+        if (!locPath || seen.has(locPath)) return false;
+        seen.add(locPath);
+        return true;
+      };
+      expect(emit(configured?.locPath)).toBe(true);
+      expect(emit(dynamic?.locPath)).toBe(false);
+      expect([...seen]).toEqual(['/shop/pain-relief/product-a']);
+    });
+
+    it('keeps distinct variant URLs separate', () => {
+      const xl = resolveProductSitemapLoc({
+        slug: 'product-a',
+        productPageUrl: '/shop/pain-relief/product-a-xl/',
+        categorySlugPath: [],
+      });
+      const child = resolveProductSitemapLoc({
+        slug: 'product-a',
+        productPageUrl: '/shop/pain-relief/product-a-child/',
+        categorySlugPath: [],
+      });
+      const seen = new Set<string>();
+      for (const loc of [xl?.locPath, child?.locPath]) {
+        if (loc && !seen.has(loc)) seen.add(loc);
+      }
+      expect([...seen]).toEqual([
+        '/shop/pain-relief/product-a-xl',
+        '/shop/pain-relief/product-a-child',
+      ]);
+    });
+
+    it('dedupes the same locPath across simulated DB batches', () => {
+      const seen = new Set<string>();
+      const batches = [
+        ['/shop/pain-relief/product-a'],
+        ['/shop/pain-relief/product-a', '/shop/pain-relief/other'],
+      ];
+      const emitted: string[] = [];
+      for (const batch of batches) {
+        for (const locPath of batch) {
+          if (seen.has(locPath)) continue;
+          seen.add(locPath);
+          emitted.push(locPath);
+        }
+      }
+      expect(emitted).toEqual([
+        '/shop/pain-relief/product-a',
+        '/shop/pain-relief/other',
+      ]);
+    });
+
+    it('includes configured URL plus a different dynamic fallback', () => {
+      const configured = resolveProductSitemapLoc({
+        slug: 'parent',
+        productPageUrl: '/shop/pain-relief/configured-xl/',
+        categorySlugPath: ['healthcare-devices'],
+      });
+      const dynamic = resolveProductSitemapLoc({
+        slug: 'parent',
+        productPageUrl: null,
+        categorySlugPath: ['healthcare-devices'],
+      });
+      expect(configured).toEqual({
+        locPath: '/shop/pain-relief/configured-xl',
+        source: 'CONFIGURED_VARIANT_URL',
+      });
+      expect(dynamic).toEqual({
+        locPath: '/shop/healthcare-devices/parent',
+        source: 'DYNAMIC_FALLBACK',
+      });
+      expect(configured?.locPath).not.toBe(dynamic?.locPath);
     });
   });
 

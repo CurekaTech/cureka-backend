@@ -90,7 +90,11 @@ export class SitemapAuditService implements OnModuleInit {
     const filtered = applyAuditFilters(allRecords, filters);
     const requireSlug = type !== 'static';
     const requireRefId = type !== 'static';
-    const issues = detectAuditIssues(filtered, { requireSlug, requireRefId });
+    const issues = detectAuditIssues(filtered, {
+      requireSlug,
+      requireRefId,
+      skipDuplicateRefId: type === 'products',
+    });
     const summary = buildSummaryStats({
       type,
       records: filtered,

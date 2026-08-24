@@ -43,6 +43,13 @@ export const absoluteSitemapUrl = (baseUrl: string, locPath: string): string => 
   return `${origin}${path}`;
 };
 
+export type ProductSitemapUrlSource = 'CONFIGURED_VARIANT_URL' | 'DYNAMIC_FALLBACK';
+
+export interface ProductSitemapLocResolution {
+  locPath: string;
+  source: ProductSitemapUrlSource;
+}
+
 export const buildProductLocPath = (input: {
   slug?: string | null;
   productPageUrl?: string | null;
@@ -61,6 +68,32 @@ export const buildProductLocPath = (input: {
   }
 
   return null;
+};
+
+/**
+ * Per-variant product sitemap loc resolution.
+ * Configured `productPageUrl` wins; otherwise existing dynamic fallback
+ * (`singleProductUrl` → category path + product slug).
+ */
+export const resolveProductSitemapLoc = (input: {
+  slug?: string | null;
+  productPageUrl?: string | null;
+  singleProductUrl?: string | null;
+  categorySlugPath: string[];
+}): ProductSitemapLocResolution | null => {
+  const configured = toStorefrontPath(input.productPageUrl);
+  if (configured && configured !== '/') {
+    return { locPath: configured, source: 'CONFIGURED_VARIANT_URL' };
+  }
+
+  const locPath = buildProductLocPath({
+    slug: input.slug,
+    productPageUrl: null,
+    singleProductUrl: input.singleProductUrl,
+    categorySlugPath: input.categorySlugPath,
+  });
+  if (!locPath) return null;
+  return { locPath, source: 'DYNAMIC_FALLBACK' };
 };
 
 export const buildCategoryLocPath = (slugPath: string[]): string | null => {
