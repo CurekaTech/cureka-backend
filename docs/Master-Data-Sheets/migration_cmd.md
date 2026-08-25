@@ -124,3 +124,5 @@ npm run sitemap:audit compare categories
 # top products (variant is_top)
 npm run product:mark-top
 npm run product:mark-top -- --apply
+
+npm run sitemap:generate -- --group=products
