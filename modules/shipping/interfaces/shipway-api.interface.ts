@@ -89,7 +89,7 @@ export interface IShipwayPushOrderResponse {
 
 export interface IShipwayTrackingEvent {
   status: string;
-  status_date: string;
+  status_date?: string;
   location?: string;
   message?: string;
   activity?: string;
@@ -195,6 +195,8 @@ export interface IShipwayWebhookEvent {
   shipment_id?: string | number;
   status_code?: string;
   current_status_code?: string;
+  /** Optional scan history from Shipway panel `api_input.scans`. */
+  scans?: IShipwayTrackingEvent[];
   [key: string]: unknown;
 }
 

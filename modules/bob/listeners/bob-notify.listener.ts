@@ -122,13 +122,21 @@ export class BobNotifyListener {
       const shippingStatus = mapBobEventStatus(shipment.shipmentStatus);
       this.logger.log(
         {
+          trigger: 'EVENTS.SHIPMENT_UPDATED',
+          sources: ['Shipway push after place-order', 'Shipway webhook POST /api/v1/shipments/webhook', 'Shipway poll sync'],
           orderId: order.id,
           orderNumber: order.orderNumber,
+          shipmentId: shipment.id,
           shipmentStatus: shipment.shipmentStatus,
           shippingStatus,
           hasAwb: true,
+          awbNumber: shipment.awbNumber,
+          apis: [
+            '/fulfillments-create',
+            ...(shippingStatus !== 'Dispatched' ? ['/fulfillments-events-create'] : []),
+          ],
         },
-        '[BOB notify] SHIPMENT_UPDATED — preparing fulfillment notify',
+        '[BOB notify] SHIPMENT_UPDATED — calling BOB fulfillment APIs now',
       );
       const imageByKey = await this.signOrderImages(order);
       await this.bobNotifyService.post(
@@ -141,6 +149,19 @@ export class BobNotifyListener {
           mapBobFulfillmentEvent(order, shipment),
         );
       }
+      this.logger.log(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          shipmentStatus: shipment.shipmentStatus,
+          shippingStatus,
+          posted: [
+            '/fulfillments-create',
+            ...(shippingStatus !== 'Dispatched' ? ['/fulfillments-events-create'] : []),
+          ],
+        },
+        '[BOB notify] fulfillment notify finished (see BobNotifyService response logs)',
+      );
     } catch (error) {
       this.logger.warn(
         {

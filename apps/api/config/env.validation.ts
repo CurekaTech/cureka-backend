@@ -172,6 +172,8 @@ export const envValidationSchema = Joi.object({
     .optional(),
   GOKWIK_ORIGIN_COUNTRY: Joi.string().default('India'),
   GOKWIK_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).allow('').optional(),
+  GOKWIK_CHECKOUT_TOKEN_SECRET: Joi.string().allow('').optional(),
+  GOKWIK_CHECKOUT_TOKEN_TTL_SECONDS: Joi.number().integer().min(300).max(86400).optional(),
   KWIKPASS_ENVIRONMENT: Joi.string().valid('sandbox', 'production').default('sandbox'),
   KWIKPASS_MERCHANT_ID: Joi.string().allow('').optional(),
   KWIKPASS_JWE_SECRET: Joi.string().allow('').optional(),

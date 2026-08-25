@@ -94,7 +94,10 @@ export class UnicommerceOrderApiService {
     };
 
     this.logger.log(
-      { expiresIn, tokenPrefix: tokenData.access_token.slice(0, 8) },
+      {
+        expiresIn,
+        tokenAcquired: true,
+      },
       'Unicommerce OAuth token acquired',
     );
 
