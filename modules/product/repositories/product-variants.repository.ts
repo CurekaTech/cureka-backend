@@ -7,6 +7,7 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductMediaType } from '../enums/product-media-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import {
@@ -367,9 +368,20 @@ export class ProductVariantsRepository {
     // do not block new/updated variants (partial unique index ignores soft-deleted rows).
     for (const variant of existing) {
       if (!payloadSkus.has(variant.sku)) {
-        // Soft-delete does not cascade to product_media — remove media explicitly
-        // so orphaned rows are not left attached to the product.
-        await manager.getRepository(ProductMediaEntity).delete({ variantId: variant.id });
+        const mediaRepo = manager.getRepository(ProductMediaEntity);
+        if (productType === ProductType.VARIABLE) {
+          // simple→variable (and pack SKU renames): keep galleries by detaching from the
+          // dropped SKU. Bulk upload then replaces with per-variant Product ID images when
+          // present; otherwise common media remains visible on the variable product.
+          await mediaRepo.update(
+            { variantId: variant.id },
+            { variantId: null, type: ProductMediaType.COMMON },
+          );
+        } else {
+          // Soft-delete does not cascade to product_media — remove media explicitly
+          // so orphaned rows are not left attached to the product.
+          await mediaRepo.delete({ variantId: variant.id });
+        }
         await variantRepo.softDelete(variant.id);
       }
     }

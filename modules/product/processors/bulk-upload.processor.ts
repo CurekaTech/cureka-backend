@@ -804,7 +804,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 group.manufacturerAddress?.trim() || lookupManufacturerAddress || undefined;
 
               const processedVariants = group.variants ? await Promise.all(
-                group.variants.map(async (v, variantIndex) => {
+                group.variants.map(async (v) => {
                   const processedImages = [];
                   for (const img of v.images) {
                     const resolved = await this.resolveBulkUploadImage(img, galleryMap);
@@ -814,9 +814,12 @@ export class BulkUploadProcessor extends WorkerHost {
                   }
 
                   // Sheet images win when present; this row's Product ID lookup fills when empty.
+                  // Prefer the variant row Product ID so pack-of-1 / pack-of-2 each map to their
+                  // own master-sheet gallery (never shared as product common media).
                   const variantLookupProductId =
                     normalizeLookupProductId(v.externalProductId) ||
-                    (variantIndex === 0 ? lookupProductId : '');
+                    normalizeLookupProductId(group.externalProductId) ||
+                    '';
                   const variantLookupImageUrls = variantLookupProductId
                     ? imageLookup.byProductId.get(variantLookupProductId)
                     : undefined;
@@ -954,19 +957,12 @@ export class BulkUploadProcessor extends WorkerHost {
                 })
               ) : undefined;
 
+              // Common media comes only from explicit sheet columns (common_media_*).
+              // Product ID master-sheet images attach per variant (see processedVariants above),
+              // never as shared common — so pack-of-1 / pack-of-2 each keep their own gallery.
               const processedCommonMedia: CreateProductMediaDto[] = [];
               const unresolvedCommonMedia: IParsedImage[] = [];
-              const commonMediaSource =
-                group.commonMedia?.length
-                  ? group.commonMedia
-                  : lookupImageUrls?.length && group.productType === 'variable'
-                    ? buildImagesFromLookupUrls(lookupImageUrls).map((item) => ({
-                        url: item.url,
-                        isPrimary: item.isPrimary,
-                        sortOrder: item.sortOrder,
-                      }))
-                    : [];
-              for (const img of commonMediaSource) {
+              for (const img of group.commonMedia ?? []) {
                 const resolved = await this.resolveBulkUploadImage(img, galleryMap);
                 if (!resolved?.url) {
                   unresolvedCommonMedia.push(img as IParsedImage);
@@ -982,7 +978,7 @@ export class BulkUploadProcessor extends WorkerHost {
                 );
               }
               this.logger.debug?.(
-                `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId || '(empty)'} manufacturerRef=${autoManufacturerRefId || '(none)'} commonMedia=${processedCommonMedia.length}`,
+                `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId || '(empty)'} manufacturerRef=${autoManufacturerRefId || '(none)'} commonMedia=${processedCommonMedia.length} variantImages=${processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0}`,
               );
 
               if (lookupProductId && lookupManufacturerAddress && !autoManufacturerRefId) {
@@ -1068,7 +1064,17 @@ export class BulkUploadProcessor extends WorkerHost {
               const sheetHadVariantImages = (group.variants ?? []).some(
                 (variant) => (variant.images?.length ?? 0) > 0,
               );
-              const shouldSyncMedia = sheetHadCommonMedia || sheetHadVariantImages;
+              // Include Product ID master-sheet images resolved onto variants (or sheet common_media).
+              // Previously only sheet-filled image cells counted, so simple→variable updates dropped
+              // lookup galleries while syncVariants deleted the old simple variant's media.
+              const resolvedVariantImages = (processedVariants ?? []).some(
+                (variant) => (variant.images?.length ?? 0) > 0,
+              );
+              const shouldSyncMedia =
+                sheetHadCommonMedia ||
+                sheetHadVariantImages ||
+                resolvedVariantImages ||
+                processedCommonMedia.length > 0;
 
               const existingProductRefId =
                 group.canonicalProductRefId ||
@@ -1085,16 +1091,14 @@ export class BulkUploadProcessor extends WorkerHost {
                 );
               }
 
-              // On update: only include images/media when the sheet had image columns,
-              // so we REPLACE product_media instead of appending / leaving orphans.
-              // Empty resolved arrays still mean "clear and replace with what's on the sheet".
-              // When the sheet has no image columns, omit images so existing media is kept.
+              // On update: include images when sheet OR Product ID lookup resolved any media,
+              // so we REPLACE product_media (needed after simple→variable SKU changes).
+              // When nothing resolved, omit images so unrelated field updates keep existing media.
               const variantsForDto = normalizedVariants?.map((variant) => {
                 if (existingProductRefId && !shouldSyncMedia) {
                   const { images: _omitImages, ...rest } = variant;
                   return rest;
                 }
-                // Create, or update with image columns on the sheet → explicit images[] (replace semantics)
                 return variant;
               });
 
