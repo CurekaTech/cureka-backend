@@ -53,6 +53,11 @@ export const SHIPWAY_TO_SHIPMENT_STATUS_MAP: Record<string, ShipmentStatus> = {
   'On Hold': ShipmentStatus.PROCESSING,
   'Out for Delivery': ShipmentStatus.OUT_FOR_DELIVERY,
   'Out For Delivery': ShipmentStatus.OUT_FOR_DELIVERY, // scan status_detail spelling
+  'Delivered to consignee': ShipmentStatus.DELIVERED,
+  'Delivered To Consignee': ShipmentStatus.DELIVERED,
+  'Shipment Received at Facility': ShipmentStatus.IN_TRANSIT,
+  'Bag Received at Facility': ShipmentStatus.IN_TRANSIT,
+  'Call placed to consignee': ShipmentStatus.OUT_FOR_DELIVERY,
   'Network Issue': ShipmentStatus.IN_TRANSIT,
   'Delivery Next Day': ShipmentStatus.IN_TRANSIT,
   'Not Found/Incorrect': ShipmentStatus.PENDING,
@@ -110,7 +115,8 @@ export const SHIPMENT_TO_ORDER_STATUS_MAP: Partial<Record<ShipmentStatus, OrderS
   [ShipmentStatus.CONFIRMED]: OrderStatus.CONFIRMED,
   [ShipmentStatus.PROCESSING]: OrderStatus.PROCESSING,
   [ShipmentStatus.PICKUP_PENDING]: OrderStatus.PROCESSING,
-  [ShipmentStatus.PICKUP_COMPLETE]: OrderStatus.PROCESSING,
+  // Picked Up / Pickup Complete → Dispatched (step 2) on the order
+  [ShipmentStatus.PICKUP_COMPLETE]: OrderStatus.SHIPPED,
   [ShipmentStatus.IN_TRANSIT]: OrderStatus.SHIPPED,
   [ShipmentStatus.OUT_FOR_DELIVERY]: OrderStatus.OUT_FOR_DELIVERY,
   [ShipmentStatus.DELIVERED]: OrderStatus.DELIVERED,

@@ -361,6 +361,19 @@ export class GokwikOrderService {
         notes: dto.order_note?.trim() || null,
       });
 
+      this.logger.log(
+        {
+          cartId,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          paymentMethod,
+          paymentStatus,
+          grandTotal: order.grandTotal,
+          stage: 'draft_confirmed',
+        },
+        '[GoKwik] place-order draft confirmed — fulfillment kickoff + BOB notify will run from OrdersService',
+      );
+
       if (dto.shipping_address || dto.billing_address) {
         this.logger.log(
           {
@@ -380,6 +393,17 @@ export class GokwikOrderService {
       // GoKwik stores merchant_order_id only after this place-order response.
       // Push Confirmed on a short delay so Platform Order Status actually updates.
       await this.gokwikQueueService.enqueueOrderStatus(order.id, 'Confirmed');
+
+      this.logger.log(
+        {
+          cartId,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          thankyouRedirectHost: this.hostOfThankYou(order.orderNumber),
+          enqueuedGoKwikStatus: 'Confirmed',
+        },
+        '[GoKwik] place-order success — returning thankyou_redirect_url',
+      );
 
       return {
         status: 'success',
@@ -920,5 +944,13 @@ export class GokwikOrderService {
       throw new ServiceUnavailableException('STOREFRONT_URL is required for GoKwik checkout');
     }
     return `${storefrontUrl}/thankyou?order_id=${encodeURIComponent(orderNumber)}`;
+  }
+
+  private hostOfThankYou(orderNumber: string): string | null {
+    try {
+      return new URL(this.buildThankYouUrl(orderNumber)).host;
+    } catch {
+      return null;
+    }
   }
 }

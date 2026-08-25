@@ -26,6 +26,7 @@ import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.uti
 import { roundMoney } from '@modules/orders/utils/money.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
+import { GokwikCheckoutTokenService } from '@modules/auth/services/gokwik-checkout-token.service';
 import {
   CreatePaymentRequestDto,
   GenerateLinkPrefillDto,
@@ -77,18 +78,18 @@ export class PaymentRequestsService {
     private readonly shiprocketCheckoutProvider: ShiprocketCheckoutProvider,
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
+    private readonly gokwikCheckoutTokenService: GokwikCheckoutTokenService,
   ) { }
 
   async checkoutFromCart(
     userId: string,
     addressId?: string,
     orderSource?: OrderSource,
-    customerToken?: string,
     paymentMethod?: OrderPaymentMethod,
   ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
     if (checkoutProvider === 'gokwik') {
-      return this.createGokwikCheckoutSession(userId, addressId, customerToken, paymentMethod);
+      return this.createGokwikCheckoutSession(userId, addressId, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
       this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
@@ -226,7 +227,6 @@ export class PaymentRequestsService {
     userId: string,
     addressId?: string,
     orderSource?: OrderSource,
-    customerToken?: string,
     paymentMethod?: OrderPaymentMethod,
   ) {
     this.logger.log(
@@ -248,7 +248,7 @@ export class PaymentRequestsService {
     // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to GoKwik');
-      return this.createGokwikCheckoutSession(userId, addressId, customerToken, paymentMethod);
+      return this.createGokwikCheckoutSession(userId, addressId, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
       this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
@@ -770,7 +770,6 @@ export class PaymentRequestsService {
   private async createGokwikCheckoutSession(
     userId: string,
     addressId?: string,
-    customerToken?: string,
     paymentMethod?: OrderPaymentMethod,
   ) {
     const [cart, pricing, customer] = await Promise.all([
@@ -805,6 +804,12 @@ export class PaymentRequestsService {
       .trim();
     const environment = kwikpassEnv === 'production' ? 'production' : 'sandbox';
 
+    // Short-lived scoped token for GoKwik SDK — never echo HttpOnly user_session.
+    const customerToken = await this.gokwikCheckoutTokenService.issue({
+      userId,
+      cartId: cart.id,
+    });
+
     return {
       gateway: 'gokwik',
       checkoutProvider: 'gokwik',
@@ -815,7 +820,7 @@ export class PaymentRequestsService {
         amount: pricing.grandTotal,
         currency: 'INR',
         environment,
-        ...(customerToken ? { customerToken } : {}),
+        customerToken,
         customer: {
           name,
           email: customer.email ?? '',

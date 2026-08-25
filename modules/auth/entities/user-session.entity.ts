@@ -60,6 +60,14 @@ export class UserSessionEntity {
   @Column({ name: 'is_revoked', type: 'boolean', default: false })
   isRevoked!: boolean;
 
+  /**
+   * `login` — long-lived storefront session (HttpOnly cookie).
+   * `gokwik_checkout` — short-lived opaque customerToken for GoKwik merchant callbacks only.
+   */
+  @Index('IDX_user_sessions_purpose')
+  @Column({ name: 'purpose', type: 'varchar', length: 32, default: 'login' })
+  purpose!: string;
+
   @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
   revokedAt?: Date;
 

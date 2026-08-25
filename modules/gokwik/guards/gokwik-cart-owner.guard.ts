@@ -18,7 +18,9 @@ type GokwikCartBody = {
 /**
  * Ensures the authenticated Cureka user owns the cart referenced by
  * `cart_id` or `session_key` on GoKwik merchant callbacks.
- * Compose AFTER SessionCookieGuard (and preferably VerifiedUserGuard).
+ * Compose AFTER GokwikCheckoutAuthGuard (or SessionCookieGuard) and preferably VerifiedUserGuard.
+ *
+ * When auth used a scoped gokwik_checkout token, also enforce cartId binding.
  */
 @Injectable()
 export class GokwikCartOwnerGuard implements CanActivate {
@@ -26,7 +28,11 @@ export class GokwikCartOwnerGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<
-      FastifyRequest & { user?: IUserSessionContext; body?: GokwikCartBody }
+      FastifyRequest & {
+        user?: IUserSessionContext;
+        body?: GokwikCartBody;
+        gokwikCheckoutCartId?: string;
+      }
     >();
 
     const userId = request.user?.sub;
@@ -37,6 +43,11 @@ export class GokwikCartOwnerGuard implements CanActivate {
     const cartId = request.body?.cart_id?.trim() || request.body?.session_key?.trim();
     if (!cartId) {
       throw new BadRequestException('cart_id or session_key is required');
+    }
+
+    const boundCartId = request.gokwikCheckoutCartId?.trim();
+    if (boundCartId && boundCartId !== cartId) {
+      throw new ForbiddenException('GoKwik checkout token is not valid for this cart');
     }
 
     const cart = await this.cartService.findCartById(cartId);

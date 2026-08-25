@@ -14,18 +14,44 @@ Ask Shipway support (`contact@shipway.in`) to register this callback URL if it i
 
 ## Supported payload shapes
 
-Shipway panel **Send Sample Webhook** (captured on beta, `User-Agent: Shipway`) is:
+### Preferred — Shipway panel / carrier sample
+
+This is the format we follow for live status updates:
 
 ```json
 {
-  "order_id": "99999999",
-  "current_status": "DEL"
+  "store_code": "1",
+  "awbno": "12345678901234",
+  "company_id": "99999",
+  "carrier": "DummyCarrier",
+  "scans_current_status": "Delivered to consignee",
+  "scans_current_status_time": "2025-01-04 15:00:00",
+  "api_input": {
+    "awbno": "12345678901234",
+    "carrier": "DummyCarrier",
+    "carrier_id": "99",
+    "current_status": "DEL",
+    "current_status_desc": "Delivered",
+    "status_time": "2025-01-04 15:00:00",
+    "order_id": "99999999",
+    "tracking_url": "https://dummytracking.com/track/12345678901234",
+    "scans": {
+      "0": { "location": "…", "time": "…", "status": "Delivered to consignee" }
+    }
+  },
+  "current_status": "DEL",
+  "status_time": "2025-01-04 15:00:00",
+  "order_id": "99999999"
 }
 ```
 
-No `hash`, no HMAC header. Dummy `order_id` `99999999` is acknowledged with HTTP 200 (`notFound`).
+- `order_id` must match `shipments.shipway_order_id` (Cureka order number).
+- `current_status` (top-level or `api_input`) drives the order status update.
+- `awbno` / `carrier` / `status_time` / `api_input.scans` are stored when present.
 
-Classic docs (API Version 1.1.2) may still POST:
+### Also accepted
+
+Classic docs (API Version 1.1.2):
 
 ```json
 {
@@ -36,11 +62,16 @@ Classic docs (API Version 1.1.2) may still POST:
 }
 ```
 
-- `order_id` must match `shipments.shipway_order_id` (Cureka order number).
-- `current_status` is a Shipway code (`INT`, `OOD`, `DEL`, …) mapped via `ShipwayStatusMapper`.
-- Extra keys on the body or feed items (AWB, courier, scans, …) are ignored, not rejected.
-- Auth: verify `hash` when present; verify HMAC only when `x-webhook-signature` / `x-shipway-signature` is sent.
-- Unsigned `{ order_id, current_status }` from the Shipway panel is accepted.
+Minimal panel ping: `{ "order_id": "99999999", "current_status": "DEL" }` — dummy ids are acknowledged with HTTP 200 (`notFound`).
+
+## Four-step order status mapping
+
+| Step | Label | When Shipway sends | Stored on order |
+| --- | --- | --- | --- |
+| 1 | Order Confirmed | Confirmed / Pending / Processing / SCH | `CONFIRMED` / `PROCESSING` |
+| 2 | Dispatched | INT / In Transit / Picked Up / PKP | `SHIPPED` |
+| 3 | Out for Delivery | OOD / OFD / Out for Delivery | `OUT_FOR_DELIVERY` |
+| 4 | Delivered | DEL / Delivered / Delivered to consignee | `DELIVERED` |
 
 ## Environment variables
 
@@ -55,19 +86,18 @@ Classic docs (API Version 1.1.2) may still POST:
 
 - `status_feed` + `hash`: `md5(SHIPWAY_EMAIL:SHIPWAY_LICENSE_KEY)` required.
 - HMAC header present: `SHIPWAY_WEBHOOK_SECRET` required (misconfigured → 503).
-- Panel sample `{ order_id, current_status }` with no hash/HMAC: accepted.
+- Panel sample with no hash/HMAC: accepted.
 
 ## Behaviour notes
 
-- Updates `shipments.shipment_status` + `shipway_raw_status` and appends `shipment_events`.
-- Duplicate events (same `event_id` or AWB+status+timestamp+message fingerprint) are skipped.
-- Out-of-order events (older `status_date` than the latest recorded event) are skipped.
+- Updates `shipments.shipment_status` + `shipway_raw_status`, syncs `orders.order_status`, appends `shipment_events` (primary status + optional scans).
+- Duplicate events (same fingerprint) are skipped.
+- Out-of-order events (older `status_time` / `status_date` than the latest recorded event) are skipped.
 - Unknown Shipway statuses are recorded as events but do not overwrite a known `shipment_status`.
-- Order Details prefers the DB when the local row is webhook/sync-fresh; otherwise live Shipway GET remains the fallback.
 
 ## Dashboard checklist
 
-1. Set webhook URL to `…/api/v1/shipments/webhook` (existing path — not `/api/v1/webhooks/shipway`).
+1. Set webhook URL to `…/api/v1/shipments/webhook`.
 2. Confirm credentials match env (`SHIPWAY_EMAIL` / `SHIPWAY_LICENSE_KEY`).
-3. If using HMAC single-event webhooks, set `SHIPWAY_WEBHOOK_SECRET` to the shared secret from Shipway.
-4. Send a test status change and confirm a `shipment_events` row + updated `shipments` row.
+3. If using HMAC single-event webhooks, set `SHIPWAY_WEBHOOK_SECRET`.
+4. Send a test status change and confirm a `shipment_events` row + updated `orders.order_status`.

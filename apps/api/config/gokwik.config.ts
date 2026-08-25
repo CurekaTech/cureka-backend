@@ -54,4 +54,14 @@ export const gokwikConfig = registerAs('gokwik', () => ({
     audience: sanitizePlaceholder(process.env['KWIKPASS_JWE_AUDIENCE']),
   },
   timeoutMs: parseInt(process.env['GOKWIK_TIMEOUT_MS'] ?? '15000', 10),
+  /**
+   * Optional dedicated signing secret — unused for opaque tokens; kept for env compatibility.
+   * Opaque gokwik_checkout tokens are stored hashed in user_sessions.
+   */
+  checkoutTokenSecret: process.env['GOKWIK_CHECKOUT_TOKEN_SECRET'] ?? '',
+  /** TTL for GoKwik customerToken (seconds). Default 45 minutes. */
+  checkoutTokenTtlSeconds: parseInt(
+    process.env['GOKWIK_CHECKOUT_TOKEN_TTL_SECONDS'] ?? String(45 * 60),
+    10,
+  ),
 }));

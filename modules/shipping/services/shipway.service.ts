@@ -1049,6 +1049,24 @@ export class ShipwayService {
         if ('username' in parsed && typeof parsed.username === 'string') {
           parsed.username = this.maskEmail(parsed.username);
         }
+        // Push-order address PII — keep city/state/zip only
+        for (const key of [
+          'shipping_phone',
+          'billing_phone',
+          'shipping_firstname',
+          'shipping_lastname',
+          'billing_firstname',
+          'billing_lastname',
+          'shipping_address',
+          'shipping_address2',
+          'billing_address',
+          'billing_address2',
+          'email',
+        ]) {
+          if (key in parsed && parsed[key] != null && parsed[key] !== '') {
+            parsed[key] = '<redacted>';
+          }
+        }
       }
       return parsed;
     } catch {

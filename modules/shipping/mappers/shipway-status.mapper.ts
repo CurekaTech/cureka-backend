@@ -198,7 +198,8 @@ export class ShipwayStatusMapper {
     if (/out\s*for\s*delivery/.test(lower)) return ShipmentStatus.OUT_FOR_DELIVERY;
     if (/\bundelivered\b/.test(lower)) return ShipmentStatus.FAILED_DELIVERY;
     if (/\bdelivered\b/.test(lower)) return ShipmentStatus.DELIVERED;
-    if (/in transit/.test(lower)) return ShipmentStatus.IN_TRANSIT;
+    if (/in\s*transit/.test(lower)) return ShipmentStatus.IN_TRANSIT;
+    if (/picked\s*up|pickup\s*complete/.test(lower)) return ShipmentStatus.PICKUP_COMPLETE;
     if (/\brto\b/.test(lower)) return ShipmentStatus.RTO;
     if (/cancel/.test(lower)) return ShipmentStatus.CANCELLED;
     return null;

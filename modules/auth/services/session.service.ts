@@ -10,6 +10,11 @@ import {
 } from '../interfaces/session.interface';
 import { mapUserEntityToResponse } from '@modules/users/mappers/user.mapper';
 import { SESSION_ACTIVITY_TOUCH_INTERVAL_MS } from '../constants/session.constants';
+import {
+  parseGokwikCheckoutCartId,
+  SESSION_PURPOSE_GOKWIK_CHECKOUT,
+  SESSION_PURPOSE_LOGIN,
+} from '../constants/session-purpose.constants';
 import { generateRefreshToken, hashRefreshToken } from '../utils/refresh-token.util';
 import { SessionCacheService } from './session-cache.service';
 
@@ -43,6 +48,7 @@ export class SessionService {
       lastActivity: now,
       expiresAt,
       isRevoked: false,
+      purpose: SESSION_PURPOSE_LOGIN,
     });
 
     return { sessionToken, sessionId: session.id };
@@ -80,6 +86,7 @@ export class SessionService {
     }
 
     const profile = mapUserEntityToResponse(session.user);
+    const purpose = session.purpose?.trim() || SESSION_PURPOSE_LOGIN;
 
     const context: IUserSessionContext = {
       sub: profile.id,
@@ -89,6 +96,11 @@ export class SessionService {
       isRegistered: profile.isRegistered,
       status: profile.status,
       profile,
+      purpose,
+      gokwikCartId:
+        purpose === SESSION_PURPOSE_GOKWIK_CHECKOUT
+          ? parseGokwikCheckoutCartId(session.deviceId)
+          : undefined,
     };
 
     await this.sessionCacheService.setContext(refreshTokenHash, session.id, context);
@@ -114,6 +126,10 @@ export class SessionService {
       await this.userSessionsRepository.revokeById(session.id);
       await this.sessionCacheService.invalidateBySessionId(session.id);
       throw new UnauthorizedException('Session expired');
+    }
+
+    if ((session.purpose?.trim() || SESSION_PURPOSE_LOGIN) === SESSION_PURPOSE_GOKWIK_CHECKOUT) {
+      throw new UnauthorizedException('GoKwik checkout tokens cannot be refreshed');
     }
 
     await this.sessionCacheService.invalidateByTokenHash(refreshTokenHash);
@@ -157,16 +173,21 @@ export class SessionService {
   async listActiveSessions(userId: string, currentSessionId?: string): Promise<IUserSessionInfo[]> {
     const sessions = await this.userSessionsRepository.findActiveByUserId(userId);
 
-    return sessions.map((session) => ({
-      id: session.id,
-      deviceName: session.deviceName,
-      browser: session.browser,
-      os: session.os,
-      ipAddress: session.ipAddress,
-      lastActivity: session.lastActivity,
-      createdAt: session.createdAt,
-      isCurrent: session.id === currentSessionId,
-    }));
+    return sessions
+      .filter(
+        (session) =>
+          (session.purpose?.trim() || SESSION_PURPOSE_LOGIN) !== SESSION_PURPOSE_GOKWIK_CHECKOUT,
+      )
+      .map((session) => ({
+        id: session.id,
+        deviceName: session.deviceName,
+        browser: session.browser,
+        os: session.os,
+        ipAddress: session.ipAddress,
+        lastActivity: session.lastActivity,
+        createdAt: session.createdAt,
+        isCurrent: session.id === currentSessionId,
+      }));
   }
 
   private buildSessionExpiryDate(): Date {
