@@ -18,3 +18,24 @@ export function maskMobile(mobile: string | null | undefined): string {
 
   return `***${digits.slice(-4)}`;
 }
+
+type AddressLogSource = {
+  email?: string | null;
+  phone?: string | null;
+} | null | undefined;
+
+/**
+ * Safe structured fields for address-bearing logs.
+ * Never include name, email, phone, or full address in the message string.
+ */
+export function addressLogMeta(address: AddressLogSource): {
+  hasShippingAddress: boolean;
+  hasEmail: boolean;
+  phoneMasked: string;
+} {
+  return {
+    hasShippingAddress: Boolean(address),
+    hasEmail: Boolean(address?.email?.trim()),
+    phoneMasked: maskMobile(address?.phone),
+  };
+}

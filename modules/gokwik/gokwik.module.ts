@@ -1,5 +1,5 @@
 import { HttpModule } from '@nestjs/axios';
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QueueModule } from '@packages/queue';
@@ -21,6 +21,7 @@ import { GokwikSyncStateEntity } from './entities/gokwik-sync-state.entity';
 import { GokwikWebhookEventEntity } from './entities/gokwik-webhook-event.entity';
 import { GokwikCallbackGuard } from './guards/gokwik-callback.guard';
 import { GokwikCartOwnerGuard } from './guards/gokwik-cart-owner.guard';
+import { GokwikCheckoutAuthGuard } from './guards/gokwik-checkout-auth.guard';
 import { GokwikWebhookGuard } from './guards/gokwik-webhook.guard';
 import { GokwikCancelListener } from './listeners/gokwik-cancel.listener';
 import { GokwikCatalogListener } from './listeners/gokwik-catalog.listener';
@@ -39,7 +40,7 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
 @Module({
   imports: [
     AdminSettingsModule,
-    OrdersModule,
+    forwardRef(() => OrdersModule),
     UnicommerceOrderModule,
     UsersModule,
     MasterModule,
@@ -73,6 +74,7 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
     GokwikApiService,
     GokwikCallbackGuard,
     GokwikCartOwnerGuard,
+    GokwikCheckoutAuthGuard,
     GokwikWebhookGuard,
     GokwikRepository,
     GokwikQueueService,

@@ -93,6 +93,7 @@ describe('UnicommerceOrderApiService', () => {
 
   it('fetches OAuth token then posts createSaleOrder and returns parsed body', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
+    const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => undefined);
 
     const tokenResponse = { access_token: 'test-token-abc', token_type: 'bearer', refresh_token: 'ref', expires_in: 3600 };
     const orderResponse = { successful: true, message: 'Sale Order Created' };
@@ -158,6 +159,16 @@ describe('UnicommerceOrderApiService', () => {
     expect((orderOptions.headers as Record<string, string>)['Authorization']).toBe(
       'bearer test-token-abc',
     );
+
+    const tokenAcquiredLog = logSpy.mock.calls.find(
+      (call) => call[1] === 'Unicommerce OAuth token acquired',
+    );
+    expect(tokenAcquiredLog?.[0]).toEqual({
+      expiresIn: 3600,
+      tokenAcquired: true,
+    });
+    expect(JSON.stringify(tokenAcquiredLog?.[0])).not.toContain('test-token');
+    expect(JSON.stringify(tokenAcquiredLog?.[0])).not.toContain('tokenPrefix');
   });
 
   it('throws ServiceUnavailable when OAuth token request fails', async () => {

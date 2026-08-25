@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { sanitizeHeadersForLog } from '@packages/logger';
 import {
   IShipwayCancelPayload,
   IShipwayCancelResponse,
@@ -804,7 +805,7 @@ export class ShipwayService {
           looksLikeHtml,
           bodyPreview: typeof text === 'string' ? text.slice(0, 500) : text,
           body: looksLikeHtml ? { rawBody: text.slice(0, 300) } : data,
-          headers: responseHeaders,
+          headers: sanitizeHeadersForLog(responseHeaders),
         },
         '[Shipway] API response',
       );
@@ -1047,6 +1048,24 @@ export class ShipwayService {
         if ('license_key' in parsed) parsed.license_key = '<redacted>';
         if ('username' in parsed && typeof parsed.username === 'string') {
           parsed.username = this.maskEmail(parsed.username);
+        }
+        // Push-order address PII — keep city/state/zip only
+        for (const key of [
+          'shipping_phone',
+          'billing_phone',
+          'shipping_firstname',
+          'shipping_lastname',
+          'billing_firstname',
+          'billing_lastname',
+          'shipping_address',
+          'shipping_address2',
+          'billing_address',
+          'billing_address2',
+          'email',
+        ]) {
+          if (key in parsed && parsed[key] != null && parsed[key] !== '') {
+            parsed[key] = '<redacted>';
+          }
         }
       }
       return parsed;

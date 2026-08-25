@@ -95,32 +95,65 @@ export class ShippingService {
     }
 
     const payload = this.buildPushOrderPayload(order);
-    this.logger.log({ orderId: order.id, orderNumber: order.orderNumber, payload }, 'Built Shipway push payload');
+    const payloadSummary = this.summarizeShipwayPushPayload(payload);
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        api: 'POST /api/v2orders',
+        when: 'after order confirm (kickoffFulfillment → pushOrderToShipway)',
+        payload: payloadSummary,
+      },
+      '[Shipway] Push payload ready — calling Shipway',
+    );
     this.validateShipwayPayload(payload, order);
 
     let response: IShipwayPushOrderResponse;
     try {
-      this.logger.log({ orderId: order.id, orderNumber: order.orderNumber }, 'Calling Shipway push order API');
+      this.logger.log(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          api: 'POST /api/v2orders',
+          paymentType: payload.payment_type,
+          productCount: payload.products.length,
+        },
+        '[Shipway] Calling push order API now',
+      );
       response = await this.shipwayService.pushOrder(payload);
     } catch (error) {
       this.logger.error(
         {
           orderId: order.id,
           orderNumber: order.orderNumber,
-          payload,
+          api: 'POST /api/v2orders',
+          payload: payloadSummary,
           error: this.serializeError(error),
         },
-        'Shipway push order API threw an exception',
+        '[Shipway] Push order API threw an exception',
       );
       throw error;
     }
 
-    this.logger.log({ orderId: order.id, orderNumber: order.orderNumber, response }, 'Received Shipway push response');
+    this.logger.log(
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        api: 'POST /api/v2orders',
+        response: this.summarizeShipwayPushResponse(response),
+      },
+      '[Shipway] Push order API response received',
+    );
 
     if (!response.success) {
       this.logger.warn(
-        { orderId: order.id, orderNumber: order.orderNumber, response },
-        'Shipway rejected order push',
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          api: 'POST /api/v2orders',
+          response: this.summarizeShipwayPushResponse(response),
+        },
+        '[Shipway] Push rejected by Shipway',
       );
       throw new BadRequestException(response.message || 'Shipway rejected order push');
     }
@@ -196,8 +229,9 @@ export class ShippingService {
           trackingUrl: saved.trackingUrl,
           shipmentStatus: saved.shipmentStatus,
           nextOrderStatus,
+          next: 'EVENTS.SHIPMENT_UPDATED → BOB /fulfillments-create (if AWB present)',
         },
-        'Shipway push persisted successfully',
+        '[Shipway] Push persisted successfully — SHIPMENT_UPDATED emitted',
       );
       return saved;
     });
@@ -289,6 +323,20 @@ export class ShippingService {
   async handleShipwayWebhook(
     payload: IShipwayWebhookEvent,
   ): Promise<{ shipment: ShipmentEntity; outcome: 'processed' | 'skipped'; reason?: string }> {
+    this.logger.log(
+      {
+        endpoint: 'POST /api/v1/shipments/webhook',
+        shipwayOrderId: payload.order_id,
+        status: payload.status,
+        statusCode: payload.current_status_code ?? payload.status_code ?? null,
+        awbNumber: payload.awb_number ?? null,
+        courierName: payload.courier_name ?? null,
+        statusDate: payload.status_date ?? null,
+        hasMessage: Boolean(payload.message?.trim()),
+      },
+      '[Shipway] Webhook event received — applying status update',
+    );
+
     const shipment = await this.shipmentsRepository.findByShipwayOrderId(payload.order_id);
     if (!shipment) {
       throw new NotFoundException(`Shipment for Shipway order ${payload.order_id} not found`);
@@ -401,6 +449,8 @@ export class ShippingService {
       '[Shipway] Webhook status mapped raw → shipmentStatus',
     );
 
+    const previousStatus = shipment.shipmentStatus;
+
     return this.dataSource.transaction(async (manager) => {
       shipment.awbNumber = payload.awb_number ?? shipment.awbNumber;
       shipment.courierName = payload.courier_name ?? shipment.courierName;
@@ -432,7 +482,25 @@ export class ShippingService {
         'webhook',
         manager,
       );
+      if (Array.isArray(payload.scans) && payload.scans.length > 0) {
+        await this.recordTrackingEvents(saved.id, payload.scans, 'webhook', manager);
+      }
       await this.syncOrderStatus(saved.orderId, mappedStatus, manager);
+      this.logger.log(
+        {
+          endpoint: 'POST /api/v1/shipments/webhook',
+          orderId: saved.orderId,
+          orderNumber: saved.orderNumber,
+          shipwayOrderId: payload.order_id,
+          previousStatus,
+          shipmentStatus: saved.shipmentStatus,
+          shipwayRawStatus: saved.shipwayRawStatus,
+          awbNumber: saved.awbNumber,
+          orderStatusSynced: true,
+          next: 'EVENTS.SHIPMENT_UPDATED → BOB /fulfillments-create + /fulfillments-events-create (if AWB)',
+        },
+        '[Shipway] Webhook applied — DB updated and SHIPMENT_UPDATED emitted',
+      );
       return { shipment: saved, outcome: 'processed' as const };
     });
   }
@@ -1208,6 +1276,51 @@ export class ShippingService {
     }
 
     return { message: String(error) };
+  }
+
+  /** Safe push payload for logs — no phone/email/full address. */
+  private summarizeShipwayPushPayload(payload: IShipwayPushOrderPayload): Record<string, unknown> {
+    return {
+      order_id: payload.order_id,
+      payment_type: payload.payment_type,
+      productCount: payload.products?.length ?? 0,
+      products: (payload.products ?? []).map((product) => ({
+        product_code: product.product_code,
+        product_quantity: product.product_quantity,
+        price: product.price,
+      })),
+      shipping_city: payload.shipping_city,
+      shipping_state: payload.shipping_state,
+      shipping_zipcode: payload.shipping_zipcode,
+      hasShippingPhone: Boolean(payload.shipping_phone?.trim()),
+      hasEmail: Boolean(payload.email?.trim()),
+      order_total: payload.order_total,
+      discount: payload.discount,
+      shipping: payload.shipping,
+      order_weight: payload.order_weight,
+      box_length: payload.box_length,
+      box_breadth: payload.box_breadth,
+      box_height: payload.box_height,
+      carrier_id: payload.carrier_id ?? null,
+      warehouse_id: payload.warehouse_id ?? null,
+      return_warehouse_id: payload.return_warehouse_id ?? null,
+      order_date: payload.order_date ?? null,
+    };
+  }
+
+  private summarizeShipwayPushResponse(response: IShipwayPushOrderResponse): Record<string, unknown> {
+    return {
+      success: response.success,
+      message: response.message,
+      awb_number: response.awb_number ?? null,
+      courier_name: response.courier_name ?? null,
+      courier_id: response.courier_id ?? null,
+      shipment_id: response.shipment_id ?? null,
+      tracking_url: response.tracking_url ?? null,
+      label_url: response.label_url ?? null,
+      invoice_url: response.invoice_url ?? null,
+      pickup_id: response.pickup_id ?? null,
+    };
   }
 
   private toNullableString(value: string | number | undefined): string | null {

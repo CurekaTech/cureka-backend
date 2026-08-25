@@ -1,6 +1,6 @@
 import { Writable } from 'stream';
 import pino from 'pino';
-import { maskMobile } from './redact.util';
+import { addressLogMeta, maskMobile } from './redact.util';
 import { LOG_REDACT_PATHS } from './logging.constants';
 
 describe('maskMobile', () => {
@@ -14,6 +14,26 @@ describe('maskMobile', () => {
     expect(maskMobile('')).toBe('***');
     expect(maskMobile(null)).toBe('');
     expect(maskMobile(undefined)).toBe('');
+  });
+});
+
+describe('addressLogMeta', () => {
+  it('exposes only safe flags and masked phone', () => {
+    expect(
+      addressLogMeta({
+        email: 'a@b.c',
+        phone: '9876543210',
+      }),
+    ).toEqual({
+      hasShippingAddress: true,
+      hasEmail: true,
+      phoneMasked: '***3210',
+    });
+    expect(addressLogMeta(null)).toEqual({
+      hasShippingAddress: false,
+      hasEmail: false,
+      phoneMasked: '',
+    });
   });
 });
 

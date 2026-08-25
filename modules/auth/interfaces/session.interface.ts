@@ -36,4 +36,11 @@ export interface IUserSessionContext {
   status: UserStatus;
   /** Loaded once during session resolve — avoids a second user query on /auth/me. */
   profile: IUser;
+  /**
+   * `login` (default) or `gokwik_checkout`.
+   * GoKwik checkout tokens must not authenticate normal storefront APIs.
+   */
+  purpose?: string;
+  /** Present when purpose is gokwik_checkout — cart / merchantCheckoutId binding. */
+  gokwikCartId?: string;
 }

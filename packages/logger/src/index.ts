@@ -11,7 +11,8 @@ export {
   resolveOrCreateRequestId,
   assignIncomingRequestId,
 } from './request-id.util';
-export { maskMobile } from './redact.util';
+export { maskMobile, addressLogMeta } from './redact.util';
+export { sanitizeHeadersForLog } from './sanitize-headers.util';
 export {
   buildPinoHttpOptions,
   resolveLogLevel,

@@ -14,6 +14,7 @@ import { PaymentRequestsService } from './services/payment-requests.service';
 import { RazorpayPaymentLinksService } from './services/razorpay-payment-links.service';
 import { CashfreePaymentService } from './services/cashfree-payment.service';
 import { PaymentGatewayResolverService } from './services/payment-gateway-resolver.service';
+import { CheckoutIdempotencyService } from './services/checkout-idempotency.service';
 import { AdminPaymentRequestsController } from './controllers/admin-payment-requests.controller';
 import { CustomerPaymentRequestsController } from './controllers/customer-payment-requests.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
@@ -34,6 +35,7 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     RazorpayPaymentLinksService,
     CashfreePaymentService,
     PaymentGatewayResolverService,
+    CheckoutIdempotencyService,
   ],
   controllers: [
     AdminPaymentRequestsController,

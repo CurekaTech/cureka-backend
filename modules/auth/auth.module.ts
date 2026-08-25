@@ -25,6 +25,7 @@ import { OtpRateLimitService } from './services/otp-rate-limit.service';
 import { OtpRepository } from './repositories/otp.repository';
 import { VerifiedUserGuard } from './guards/verified-user.guard';
 import { KwikpassService } from './services/kwikpass.service';
+import { GokwikCheckoutTokenService } from './services/gokwik-checkout-token.service';
 
 @Global()
 @Module({
@@ -49,6 +50,7 @@ import { KwikpassService } from './services/kwikpass.service';
     UserSessionsRepository,
     SessionService,
     SessionCacheService,
+    GokwikCheckoutTokenService,
     VerifiedUserGuard,
     SessionCookieGuard,
     OptionalSessionCookieGuard,
@@ -60,6 +62,8 @@ import { KwikpassService } from './services/kwikpass.service';
     AuthService,
     SessionService,
     SessionCacheService,
+    UserSessionsRepository,
+    GokwikCheckoutTokenService,
     VerifiedUserGuard,
     SessionCookieGuard,
     OptionalSessionCookieGuard,
