@@ -188,6 +188,8 @@ export class BrandsService {
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
     if (media.banner !== undefined) {
+      // Explicit clear (`banner: {}` / `banner: null` from Admin) sets DB banner to null.
+      payload.banner = this.storageUrlEnricher.persist(media.banner);
       payload.banner = this.storageUrlEnricher.persist(media.banner);
       // New upload un-hides the banner; previous GCS object is intentionally retained.
       payload.bannerDeletedAt = null;
