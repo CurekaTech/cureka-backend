@@ -1711,6 +1711,24 @@ export class ProductsRepository {
       }),
     ]);
 
+    const variantIds = variants.map((v) => v.id);
+    const attributeValues = variantIds.length
+      ? await this.repo.manager.getRepository(VariantAttributeValueEntity).find({
+          where: { variantId: In(variantIds) },
+          relations: { attribute: true },
+        })
+      : [];
+
+    const attrValuesByVariantId = new Map<string, VariantAttributeValueEntity[]>();
+    for (const av of attributeValues) {
+      const list = attrValuesByVariantId.get(av.variantId) ?? [];
+      list.push(av);
+      attrValuesByVariantId.set(av.variantId, list);
+    }
+    for (const variant of variants) {
+      variant.attributeValues = attrValuesByVariantId.get(variant.id) ?? [];
+    }
+
     const variantsByProduct = new Map<string, ProductVariantEntity[]>();
     for (const v of variants) {
       (variantsByProduct.get(v.productId) ?? (variantsByProduct.set(v.productId, []).get(v.productId)!)).push(v);
