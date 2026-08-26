@@ -477,7 +477,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   brandSlug: entity.brand?.slug ?? null,
   productNatureRefId: entity.productNature?.refId ?? null,
   productNatureName: entity.productNature?.name ?? null,
-  primaryImageUrl: getPrimaryImageUrl(entity),
+  primaryImageUrl: listVariant
+    ? getVariantPrimaryImageUrl(entity, listVariant.id)
+    : getPrimaryImageUrl(entity),
   pricing: buildListVariantPricing(listVariant),
   outOfStock,
   isBestSeller: (entity.tagMappings ?? []).some(
