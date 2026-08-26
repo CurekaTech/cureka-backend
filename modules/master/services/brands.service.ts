@@ -169,7 +169,10 @@ export class BrandsService {
     const payload: Partial<BrandEntity> = { ...dto, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
-    if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (media.banner !== undefined) {
+      // Explicit clear (`banner: {}` / `banner: null` from Admin) sets DB banner to null.
+      payload.banner = this.storageUrlEnricher.persist(media.banner);
+    }
     if (media.video !== undefined) payload.video = this.storageUrlEnricher.persist(media.video);
     if (media.featuredBanner !== undefined) {
       payload.featuredBanner = this.storageUrlEnricher.persist(media.featuredBanner);
