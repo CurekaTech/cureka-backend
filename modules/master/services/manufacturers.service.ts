@@ -128,7 +128,7 @@ export class ManufacturersService {
     refId: string,
     dto: UpdateManufacturerDto,
     updatedBy: string,
-    logo?: string,
+    logo?: string | null,
   ): Promise<IManufacturer> {
     const existing = await this.manufacturersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Manufacturer with refId ${refId} not found`);

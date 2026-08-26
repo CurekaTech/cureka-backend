@@ -138,7 +138,7 @@ export class ImportersService {
     refId: string,
     dto: UpdateImporterDto,
     updatedBy: string,
-    logo?: string,
+    logo?: string | null,
   ): Promise<IImporter> {
     const existing = await this.importersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Importer with refId ${refId} not found`);

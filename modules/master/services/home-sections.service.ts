@@ -9,7 +9,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { generateUniqueRefId } from '@packages/common';
-import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
+import {
+  MultipartFormService,
+  MultipartUploadedUrls,
+} from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { HomeSectionUpdatedEvent, EVENTS } from '@packages/events';
@@ -194,7 +197,7 @@ export class HomeSectionsService implements OnModuleInit {
 
   async createCustom(
     dto: CreateHomeSectionDto,
-    uploadedUrls: Record<string, string>,
+    uploadedUrls: MultipartUploadedUrls,
     createdBy: string,
   ): Promise<IHomeSection> {
     if (!isCustomHomeSectionType(dto.type)) {
@@ -234,7 +237,7 @@ export class HomeSectionsService implements OnModuleInit {
   async updateCustom(
     refId: string,
     dto: UpdateHomeSectionDto,
-    uploadedUrls: Record<string, string>,
+    uploadedUrls: MultipartUploadedUrls,
     updatedBy: string,
   ): Promise<IHomeSection> {
     const existing = await this.homeSectionsRepository.findByRefId(refId);
@@ -362,7 +365,7 @@ export class HomeSectionsService implements OnModuleInit {
       CreateHomeSectionDto,
       'linkUrl' | 'linkUrl2' | 'bannerVariant' | 'productRefIds' | 'categoryRefIds'
     >,
-    uploadedUrls: Record<string, string>,
+    uploadedUrls: MultipartUploadedUrls,
     requireComplete: boolean,
     existing?: HomeSectionEntity,
   ): Promise<{
@@ -462,7 +465,7 @@ export class HomeSectionsService implements OnModuleInit {
    */
   private resolveOptionalSectionBanner(
     dto: Pick<CreateHomeSectionDto, 'linkUrl'>,
-    uploadedUrls: Record<string, string>,
+    uploadedUrls: MultipartUploadedUrls,
     existing?: HomeSectionEntity,
   ): HomeSectionBannerItem[] | null {
     const desktop = uploadedUrls['banner_image'];

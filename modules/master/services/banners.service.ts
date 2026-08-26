@@ -142,7 +142,7 @@ export class BannersService {
     refId: string,
     dto: UpdateBannerDto,
     updatedBy: string,
-    imageUrl?: string,
+    imageUrl?: string | null,
   ): Promise<IBanner> {
     const existing = await this.bannersRepository.findByRefId(refId);
     if (!existing) {

@@ -139,7 +139,7 @@ export class PackersService {
     refId: string,
     dto: UpdatePackerDto,
     updatedBy: string,
-    logo?: string,
+    logo?: string | null,
   ): Promise<IPacker> {
     const existing = await this.packersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Packer with refId ${refId} not found`);
