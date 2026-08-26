@@ -1206,18 +1206,52 @@ export class ShippingService {
     manager: Parameters<OrdersRepository['updateById']>[2],
   ) {
     const orderStatus = ShipwayStatusMapper.toOrderStatus(shipmentStatus);
-    if (orderStatus) {
-      this.logger.log(
-        { orderId, shipmentStatus, orderStatus },
-        '[Shipway] Syncing orderStatus from shipmentStatus',
-      );
-      await this.ordersRepository.updateById(orderId, { orderStatus, updatedBy: 'shipway-sync' }, manager);
-    } else {
+    if (!orderStatus) {
       this.logger.log(
         { orderId, shipmentStatus, orderStatus: null },
         '[Shipway] No orderStatus mapping for shipmentStatus — order row unchanged',
       );
+      return;
     }
+
+    const order = await this.ordersRepository.findById(orderId, manager);
+    if (!order) {
+      this.logger.warn(
+        { orderId, shipmentStatus, orderStatus },
+        '[Shipway] Order not found during orderStatus sync',
+      );
+      return;
+    }
+
+    const shouldMarkCodPaid =
+      order.paymentMethod === OrderPaymentMethod.COD &&
+      shipmentStatus === ShipmentStatus.DELIVERED &&
+      order.paymentStatus !== OrderPaymentStatus.PAID;
+
+    this.logger.log(
+      {
+        orderId,
+        orderNumber: order.orderNumber,
+        shipmentStatus,
+        orderStatus,
+        paymentMethod: order.paymentMethod,
+        previousPaymentStatus: order.paymentStatus,
+        codCollectionSignalPresent: false,
+        codCollectionConfirmed: false,
+        paymentStatusUpdated: shouldMarkCodPaid,
+      },
+      '[Shipway] Syncing order + payment status from shipmentStatus',
+    );
+
+    await this.ordersRepository.updateById(
+      orderId,
+      {
+        orderStatus,
+        ...(shouldMarkCodPaid ? { paymentStatus: OrderPaymentStatus.PAID } : {}),
+        updatedBy: 'shipway-sync',
+      },
+      manager,
+    );
   }
 
   private formatShipwayDate(date: Date): string {
