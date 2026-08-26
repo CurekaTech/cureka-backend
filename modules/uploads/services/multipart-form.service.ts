@@ -24,7 +24,7 @@ export class MultipartFormService {
     fileFields: MultipartFileFieldMap,
   ): Promise<{ dto: T; uploadedUrls: Record<string, string> }> {
     const { fields, uploadedUrls } = await this.parseMultipart(req, fileFields);
-    const mergedFields = this.mergeFormFields(fields);
+    const mergedFields = this.sanitizeDtoFields(this.mergeFormFields(fields), fileFields);
     const dto = await this.validateDto(dtoClass, mergedFields);
     return { dto, uploadedUrls };
   }
@@ -57,6 +57,29 @@ export class MultipartFormService {
     }
 
     return { ...merged, ...rest };
+  }
+
+  /**
+   * Clients often send file fields as text placeholders (`banner=null`) and empty
+   * optional fields. Those are not DTO properties and trip forbidNonWhitelisted.
+   * Real uploads are already captured in `uploadedUrls`.
+   */
+  private sanitizeDtoFields(
+    fields: Record<string, string>,
+    fileFields: MultipartFileFieldMap,
+  ): Record<string, string> {
+    const cleaned: Record<string, string> = {};
+
+    for (const [key, value] of Object.entries(fields)) {
+      if (key in fileFields) continue;
+
+      const trimmed = value.trim();
+      if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') continue;
+
+      cleaned[key] = value;
+    }
+
+    return cleaned;
   }
 
   private async parseMultipart(
