@@ -43,16 +43,13 @@ Logs showed `carrier_id: null` in the push payload summary.
 Classic Shipway tracking returns `Invalid Username or Password`.  
 OMS is reachable but has no order because push never succeeded.
 
-## Tomorrow — first task
+## Follow-up (2026-08-26)
 
-**Do not** debug webhook / AWB fallback first.
+Minimal fix applied: omit invalid/empty `carrier_id` on push.  
+See `docs/shipway-carrier-id-investigation.md`.
 
-1. Investigate how `carrier_id` is selected in `buildPushOrderPayload` / push.
-2. Confirm whether error is from Cureka validation or Shipway API.
-3. Decide: omit field when unset vs populate from valid Shipway carrier source.
-4. Minimal fix → fresh test order → confirm `public.shipments` row → then tracking/webhook.
-
-Prompt saved for next session: see chat “Investigate and fix the Shipway order creation failure…” or re-open this checkpoint and run that investigation.
+**Still required:** deploy/restart → **fresh** GoKwik COD order → confirm `public.shipments` row.  
+Do not treat as fixed until that passes. Webhook/AWB fallback still deferred.
 
 ## Related docs
 
