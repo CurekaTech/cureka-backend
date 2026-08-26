@@ -10,12 +10,14 @@ import { ProductTagMappingEntity } from '../entities/product-tag-mapping.entity'
 import { ProductFaqMappingEntity } from '../entities/product-faq-mapping.entity';
 import { ProductBundleEntity } from '../entities/product-bundle.entity';
 import { ProductFaqEntity } from '../entities/product-faq.entity';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { ProductAttributeMappingEntity } from '../entities/product-attribute-mapping.entity';
 import { ProductCategoryFilterMappingEntity } from '../entities/product-category-filter-mapping.entity';
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 import { CreateProductMediaDto } from '../dto/variant.dto';
 import { CustomProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
+import { IVariantInlineFaq } from '../interfaces/variant-details.interface';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
@@ -247,10 +249,50 @@ export class ProductRelationsRepository {
   ): Promise<void> {
     const repo = manager.getRepository(ProductFaqMappingEntity);
     await repo.delete({ productId });
-    if (!productFaqIds.length) return;
-    await repo.save(
-      productFaqIds.map((productFaqId) => repo.create({ productId, productFaqId })),
-    );
+    if (productFaqIds.length) {
+      await repo.save(
+        productFaqIds.map((productFaqId) => repo.create({ productId, productFaqId })),
+      );
+    }
+    // Keep every variant's inline FAQs in sync with the product-level set.
+    await this.cascadeProductFaqsToVariants(manager, productId);
+  }
+
+  /**
+   * Overwrite `product_variants.faqs` for all active variants of a product
+   * with the current product-level FAQ mappings (question + answer).
+   * Empty product FAQ set clears variant overrides so PDP uses product FAQs.
+   */
+  async cascadeProductFaqsToVariants(
+    manager: EntityManager,
+    productId: string,
+  ): Promise<void> {
+    const mappings = await manager.getRepository(ProductFaqMappingEntity).find({
+      where: { productId },
+      relations: { productFaq: true },
+    });
+
+    const faqs: IVariantInlineFaq[] = mappings
+      .map((mapping) => mapping.productFaq)
+      .filter(
+        (faq): faq is ProductFaqEntity =>
+          Boolean(faq) &&
+          faq.status === ProductFaqStatus.ACTIVE &&
+          !faq.deletedAt,
+      )
+      .map((faq) => ({
+        question: faq.question,
+        answer: faq.answer,
+      }));
+
+    await manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder()
+      .update(ProductVariantEntity)
+      .set({ faqs })
+      .where('product_id = :productId', { productId })
+      .andWhere('deleted_at IS NULL')
+      .execute();
   }
 
   async syncBundles(

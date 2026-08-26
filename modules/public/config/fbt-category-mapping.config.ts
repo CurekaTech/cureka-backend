@@ -14,6 +14,11 @@
  *     missing target names simply return no products.
  *   - Manual overrides configured in the admin panel always take priority
  *     over these automatic rules (reserved for future admin UI feature).
+ *
+ * Runtime fallbacks (see PublicProductsService.findFrequentlyBoughtTogether):
+ *   1. These complementary rules
+ *   2. Same root-category bestsellers (e.g. PDP / unmatched category names)
+ *   3. Global bestsellers (empty cart / no seed variantIds)
  */
 export interface FbtCategoryRule {
   /** Source patterns — any of these matching the cart variant's category name triggers the rule. */

@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationOptions, CursorPaginatedResult } from '@packages/common';
+import { CursorPaginatedResult } from '@packages/common';
 import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '@modules/master/utils/master-cursor-query.util';
+import { MasterListOptions } from '@modules/master/utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -99,7 +100,7 @@ export class ProductInformationLabelsRepository {
   }
 
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: ProductInformationLabelEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -122,6 +123,10 @@ export class ProductInformationLabelsRepository {
 
     if (options.search) {
       qb.andWhere('label.name ILIKE :search', { search: `%${options.search}%` });
+    }
+
+    if (options.status) {
+      qb.andWhere('label.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();

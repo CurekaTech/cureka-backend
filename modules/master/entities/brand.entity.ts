@@ -18,6 +18,10 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  /** Soft-hides `banner` in API responses without clearing DB/GCS data. */
+  @Column({ name: 'banner_deleted_at', type: 'timestamptz', nullable: true })
+  bannerDeletedAt!: Date | null;
+
   @Column(storageFileReferenceColumn())
   video!: IStorageFileReference | null;
 
@@ -26,6 +30,22 @@ export class BrandEntity extends BaseEntity {
 
   @Column(storageFileReferenceColumn({ name: 'promotional_banner' }))
   promotionalBanner!: IStorageFileReference | null;
+
+  @Column(storageFileReferenceColumn({ name: 'secondary_banner' }))
+  secondaryBanner!: IStorageFileReference | null;
+
+  @Column(storageFileReferenceColumn({ name: 'secondary_video' }))
+  secondaryVideo!: IStorageFileReference | null;
+
+  @Column(storageFileReferenceColumn({ name: 'offer_banner' }))
+  offerBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'brand_highlights', type: 'jsonb', nullable: true })
+  brandHighlights!: Array<{
+    icon: IStorageFileReference | null;
+    title: string;
+    subtitle: string;
+  }> | null;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;

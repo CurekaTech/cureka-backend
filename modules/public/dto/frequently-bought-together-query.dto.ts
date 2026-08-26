@@ -3,9 +3,11 @@ import { IsArray, IsInt, IsOptional, IsUUID, ArrayMaxSize, Max, Min } from 'clas
 
 export class FrequentlyBoughtTogetherQueryDto {
   /**
-   * Comma-separated variant UUIDs from the current cart (up to 20).
+   * Comma-separated variant UUIDs from the cart and/or the product details page (up to 20).
+   * Optional — when omitted/empty (empty cart on PDP), the API falls back to bestsellers.
    * Example: ?variantIds=uuid1,uuid2,uuid3
    */
+  @IsOptional()
   @Transform(({ value }: { value: unknown }) => {
     if (typeof value === 'string') {
       return value
@@ -18,7 +20,7 @@ export class FrequentlyBoughtTogetherQueryDto {
   @IsArray()
   @IsUUID(4, { each: true })
   @ArrayMaxSize(20)
-  variantIds!: string[];
+  variantIds?: string[] = [];
 
   @IsOptional()
   @Type(() => Number)

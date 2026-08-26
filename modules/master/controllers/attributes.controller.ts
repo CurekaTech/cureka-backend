@@ -11,7 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
@@ -22,6 +22,7 @@ import {
   UpdateAttributeDto,
   UpdateAttributeStatusDto,
 } from '../dto/attribute.dto';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('master/attributes')
@@ -41,7 +42,7 @@ export class AttributesController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('attributes.read')
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.attributesService.findAll(query);
   }
 

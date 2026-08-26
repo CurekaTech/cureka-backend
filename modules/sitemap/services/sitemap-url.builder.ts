@@ -45,6 +45,13 @@ export const absoluteSitemapUrl = (baseUrl: string, locPath: string): string => 
   return `${origin}${path}`;
 };
 
+export type ProductSitemapUrlSource = 'CONFIGURED_VARIANT_URL' | 'DYNAMIC_FALLBACK';
+
+export interface ProductSitemapLocResolution {
+  locPath: string;
+  source: ProductSitemapUrlSource;
+}
+
 export interface ProductLocInput {
   slug?: string | null;
   productPageUrl?: string | null;
@@ -59,30 +66,48 @@ const slugPermalink = (input: ProductLocInput): string | null => {
 };
 
 /**
- * Unique public locs for one product.
- * - `product_page_url` when present (legacy/canonical storefront path)
- * - `/shop/{category-path}/{slug}` when slug is present
- * Many products have no product_page_url; those emit the slug permalink only.
+ * Single public loc for a product/variant input.
+ * Priority: product_page_url → singleProductUrl → /shop/{category-path}/{slug}.
+ * Never emits both a configured page URL and a category-hierarchy URL.
  */
-export const buildProductLocPaths = (input: ProductLocInput): string[] => {
-  const paths: string[] = [];
-  const seen = new Set<string>();
-  const add = (path: string | null | undefined): void => {
-    if (!path || path === '/' || seen.has(path)) return;
-    seen.add(path);
-    paths.push(path);
-  };
+export const buildProductLocPath = (input: ProductLocInput): string | null => {
+  const fromPageUrl = toStorefrontPath(input.productPageUrl);
+  if (fromPageUrl && fromPageUrl !== '/') return fromPageUrl;
 
-  add(toStorefrontPath(input.productPageUrl));
-  add(slugPermalink(input));
-  if (!paths.length) {
-    add(toStorefrontPath(input.singleProductUrl));
-  }
-  return paths;
+  const fromSingle = toStorefrontPath(input.singleProductUrl);
+  if (fromSingle && fromSingle !== '/') return fromSingle;
+
+  return slugPermalink(input);
 };
 
-export const buildProductLocPath = (input: ProductLocInput): string | null =>
-  buildProductLocPaths(input)[0] ?? null;
+/** @deprecated Prefer buildProductLocPath / resolveProductSitemapLoc — kept for callers that expect an array. */
+export const buildProductLocPaths = (input: ProductLocInput): string[] => {
+  const locPath = buildProductLocPath(input);
+  return locPath ? [locPath] : [];
+};
+
+/**
+ * Per-variant product sitemap loc resolution.
+ * Configured `productPageUrl` wins; otherwise existing dynamic fallback
+ * (`singleProductUrl` → category path + product slug).
+ */
+export const resolveProductSitemapLoc = (
+  input: ProductLocInput,
+): ProductSitemapLocResolution | null => {
+  const configured = toStorefrontPath(input.productPageUrl);
+  if (configured && configured !== '/') {
+    return { locPath: configured, source: 'CONFIGURED_VARIANT_URL' };
+  }
+
+  const locPath = buildProductLocPath({
+    slug: input.slug,
+    productPageUrl: null,
+    singleProductUrl: input.singleProductUrl,
+    categorySlugPath: input.categorySlugPath,
+  });
+  if (!locPath) return null;
+  return { locPath, source: 'DYNAMIC_FALLBACK' };
+};
 
 export const buildCategoryLocPath = (slugPath: string[]): string | null => {
   const cleaned = slugPath.map((slug) => slug.trim()).filter(Boolean);

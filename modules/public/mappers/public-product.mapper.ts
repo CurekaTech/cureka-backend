@@ -28,10 +28,22 @@ import {
   buildProductCategorySlugPathFromRelations,
   buildProductPermalink,
 } from '../utils/category-permalink.util';
+import {
+  sanitizeProductPagePath,
+  sanitizeProductSlugSegment,
+} from '@modules/product/utils/sanitize-product-url.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
   return typeof value === 'number' ? value : parseFloat(value);
+};
+
+const sanitizePublicProductPageUrl = (
+  value: string | null | undefined,
+): string | null => {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return sanitizeProductPagePath(trimmed) || trimmed;
 };
 
 const getActiveVariants = (entity: ProductEntity) =>
@@ -74,17 +86,17 @@ const pickEnabledDetail = <T>(
   return null;
 };
 
-/** If product or any variant enables a flag, apply it (and matching details) to all. */
+/** Product-level admin toggles are the source of truth for storefront badges. */
 export const resolveSharedCommerceFlags = (
   product: CommerceFlagSource,
   variants: CommerceFlagSource[],
 ): SharedCommerceFlags => {
   const sources = [product, ...variants];
-  const subscriptionEnabled = sources.some((source) => isFlagEnabled(source.subscriptionEnabled));
-  const codAvailable = sources.some((source) => isFlagEnabled(source.codAvailable));
-  const emiAvailable = sources.some((source) => isFlagEnabled(source.emiAvailable));
-  const returnAllowed = sources.some((source) => isFlagEnabled(source.returnAllowed));
-  const replaceAllowed = sources.some((source) => isFlagEnabled(source.replaceAllowed));
+  const subscriptionEnabled = isFlagEnabled(product.subscriptionEnabled);
+  const codAvailable = isFlagEnabled(product.codAvailable);
+  const emiAvailable = isFlagEnabled(product.emiAvailable);
+  const returnAllowed = isFlagEnabled(product.returnAllowed);
+  const replaceAllowed = isFlagEnabled(product.replaceAllowed);
 
   return {
     subscriptionEnabled,
@@ -92,23 +104,33 @@ export const resolveSharedCommerceFlags = (
     emiAvailable,
     returnAllowed,
     returnPolicy: returnAllowed
-      ? pickEnabledDetail(sources, (source) => isFlagEnabled(source.returnAllowed), (source) => source.returnPolicy)
-      : (product.returnPolicy ?? null),
+      ? product.returnPolicy?.trim()
+        ? product.returnPolicy
+        : pickEnabledDetail(
+            sources,
+            (source) => isFlagEnabled(source.returnAllowed),
+            (source) => source.returnPolicy,
+          )
+      : null,
     returnWindowDays: returnAllowed
-      ? pickEnabledDetail(
-          sources,
-          (source) => isFlagEnabled(source.returnAllowed),
-          (source) => source.returnWindowDays,
-        )
-      : (product.returnWindowDays ?? null),
+      ? product.returnWindowDays != null
+        ? product.returnWindowDays
+        : pickEnabledDetail(
+            sources,
+            (source) => isFlagEnabled(source.returnAllowed),
+            (source) => source.returnWindowDays,
+          )
+      : null,
     replaceAllowed,
     replaceWindowDays: replaceAllowed
-      ? pickEnabledDetail(
-          sources,
-          (source) => isFlagEnabled(source.replaceAllowed),
-          (source) => source.replaceWindowDays,
-        )
-      : (product.replaceWindowDays ?? null),
+      ? product.replaceWindowDays != null
+        ? product.replaceWindowDays
+        : pickEnabledDetail(
+            sources,
+            (source) => isFlagEnabled(source.replaceAllowed),
+            (source) => source.replaceWindowDays,
+          )
+      : null,
   };
 };
 
@@ -395,7 +417,7 @@ export const mapVariantEntityToPublicSearchItem = (
     name: variant.displayName?.trim() || product.name,
     productSlug: product.slug,
     variantSlug: variant.slug,
-    productPageUrl: variant.productPageUrl ?? null,
+    productPageUrl: sanitizePublicProductPageUrl(variant.productPageUrl),
     primaryImageUrl: getVariantPrimaryImageUrl(product, variant.id),
     category: mapCategorySummary(product.category),
     subCategory: mapCategorySummary(product.subCategory),
@@ -433,7 +455,7 @@ export const mapVariantEntitiesToPublicSearchItems = (
 export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
-  const productPageUrl = listVariant?.productPageUrl ?? null;
+  const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
   const outOfStock = listVariant?.outOfStock ?? false;
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   return {
@@ -460,6 +482,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   outOfStock,
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
+  ),
+  isTop: (entity.variants ?? []).some(
+    (variant) => variant.status === VariantStatus.ACTIVE && (variant.isTop ?? false),
   ),
   variantId: listVariant?.id ?? null,
   subscriptionEnabled: commerceFlags.subscriptionEnabled,
@@ -549,6 +574,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
+  codMinOrderAmount: 0,
   attributes: (entity.attributeMappings ?? []).map((mapping) => ({
     refId: mapping.attribute?.refId ?? '',
     name: mapping.attribute?.name ?? '',
@@ -559,8 +585,9 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     return activeVariants.map((variant) => ({
       id: variant.id,
       sku: variant.sku,
-      slug: variant.slug,
+      slug: sanitizeProductSlugSegment(variant.slug) || variant.slug,
       ...mapVariantEntityToDetailFields(variant),
+      productPageUrl: sanitizePublicProductPageUrl(variant.productPageUrl),
       subscriptionEnabled: commerceFlags.subscriptionEnabled,
       codAvailable: commerceFlags.codAvailable,
       emiAvailable: commerceFlags.emiAvailable,

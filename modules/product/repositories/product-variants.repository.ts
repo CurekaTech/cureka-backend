@@ -7,6 +7,9 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductMediaType } from '../enums/product-media-type.enum';
+import { ProductStatus } from '../enums/product-status.enum';
+import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import {
   buildVariantCombinationKey,
   IVariantAttributeInput,
@@ -20,7 +23,6 @@ import {
   validateVariantPricing,
   validateUniqueVariantCombinations,
 } from '../validators/variant.validator';
-import { ProductStatus } from '../enums/product-status.enum';
 import { ProductsRepository } from './products.repository';
 import {
   mapVariantDetailDtoToEntityColumns,
@@ -366,9 +368,20 @@ export class ProductVariantsRepository {
     // do not block new/updated variants (partial unique index ignores soft-deleted rows).
     for (const variant of existing) {
       if (!payloadSkus.has(variant.sku)) {
-        // Soft-delete does not cascade to product_media — remove media explicitly
-        // so orphaned rows are not left attached to the product.
-        await manager.getRepository(ProductMediaEntity).delete({ variantId: variant.id });
+        const mediaRepo = manager.getRepository(ProductMediaEntity);
+        if (productType === ProductType.VARIABLE) {
+          // simple→variable (and pack SKU renames): keep galleries by detaching from the
+          // dropped SKU. Bulk upload then replaces with per-variant Product ID images when
+          // present; otherwise common media remains visible on the variable product.
+          await mediaRepo.update(
+            { variantId: variant.id },
+            { variantId: null, type: ProductMediaType.COMMON },
+          );
+        } else {
+          // Soft-delete does not cascade to product_media — remove media explicitly
+          // so orphaned rows are not left attached to the product.
+          await mediaRepo.delete({ variantId: variant.id });
+        }
         await variantRepo.softDelete(variant.id);
       }
     }
@@ -565,6 +578,39 @@ export class ProductVariantsRepository {
   }
 
   /**
+   * Copies product-level commerce / eligibility flags onto every non-deleted variant
+   * so admin PDP toggles stay in sync with variant rows.
+   */
+  async syncCommerceFlagsFromProduct(
+    manager: EntityManager,
+    productId: string,
+    flags: {
+      subscriptionEnabled: boolean;
+      codAvailable: boolean;
+      emiAvailable: boolean;
+      returnAllowed: boolean;
+      returnPolicy: string | null;
+      returnWindowDays: number | null;
+      replaceAllowed: boolean;
+      replaceWindowDays: number | null;
+    },
+  ): Promise<void> {
+    await manager.getRepository(ProductVariantEntity).update(
+      { productId },
+      {
+        subscriptionEnabled: flags.subscriptionEnabled,
+        codAvailable: flags.codAvailable,
+        emiAvailable: flags.emiAvailable,
+        returnAllowed: flags.returnAllowed,
+        returnPolicy: flags.returnPolicy,
+        returnWindowDays: flags.returnWindowDays,
+        replaceAllowed: flags.replaceAllowed,
+        replaceWindowDays: flags.replaceWindowDays,
+      },
+    );
+  }
+
+  /**
    * Sets stock on all non-deleted variants for the given products and clears
    * outOfStock (restores in-stock / reverses bulk mark-out-of-stock).
    */
@@ -678,6 +724,154 @@ export class ProductVariantsRepository {
     }
 
     return { bySkuResult, updatedProductIds };
+  }
+
+  /**
+   * Cascade product-level commerce flags/policy onto every non-deleted variant.
+   * Keeps PDP shared flags consistent when admin updates the product (not a single variant).
+   */
+  async updateSharedCommerceFieldsByProductId(
+    productId: string,
+    fields: Partial<{
+      subscriptionEnabled: boolean;
+      codAvailable: boolean;
+      emiAvailable: boolean;
+      returnAllowed: boolean;
+      returnPolicy: string | null;
+      returnWindowDays: number | null;
+      replaceAllowed: boolean;
+      replaceWindowDays: number | null;
+    }>,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    if (!entries.length) return 0;
+
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    const result = await repo
+      .createQueryBuilder()
+      .update(ProductVariantEntity)
+      .set(Object.fromEntries(entries) as Partial<ProductVariantEntity>)
+      .where('product_id = :productId', { productId })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
+  /**
+   * Active (variant.status=active) variants on published products that belong to `categoryId`.
+   * Used to validate save payloads for Category Product Indexing.
+   */
+  async findActiveVariantsInCategory(
+    categoryId: string,
+    variantIds: string[],
+  ): Promise<ProductVariantEntity[]> {
+    if (!variantIds.length) return [];
+
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.id IN (:...variantIds)', { variantIds })
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
+      .getMany();
+  }
+
+  async findTopVariantsForCategory(categoryId: string): Promise<ProductVariantEntity[]> {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.isTop = true')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+      .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
+      .orderBy('product.name', 'ASC')
+      .addOrderBy('variant.sku', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Category-scoped sync:
+   * - selected variants in the category → is_top = true
+   * - other currently-top variants in the same category → is_top = false
+   * - variants outside the category are never touched
+   */
+  async syncIsTopForCategory(
+    categoryId: string,
+    selectedVariantIds: string[],
+  ): Promise<{ selectedCount: number; clearedCount: number }> {
+    const categoryMatchSql = `
+      (
+        p.category_id = $1
+        OR p.sub_category_id = $1
+        OR p.sub_sub_category_id = $1
+        OR p.sub_sub_sub_category_id = $1
+        OR EXISTS (
+          SELECT 1 FROM product_category_hierarchies pch
+          WHERE pch.product_id = p.id
+            AND (
+              pch.category_id = $1
+              OR pch.sub_category_id = $1
+              OR pch.sub_sub_category_id = $1
+              OR pch.sub_sub_sub_category_id = $1
+            )
+        )
+      )
+    `;
+
+    const clearRows = (await this.repo.manager.query(
+      `
+      WITH cleared AS (
+        UPDATE product_variants v
+        SET is_top = false, updated_at = NOW()
+        WHERE v.deleted_at IS NULL
+          AND v.is_top = true
+          AND (
+            ${selectedVariantIds.length ? 'v.id <> ALL($2::uuid[])' : 'TRUE'}
+          )
+          AND EXISTS (
+            SELECT 1 FROM products p
+            WHERE p.id = v.product_id
+              AND ${categoryMatchSql}
+          )
+        RETURNING v.id
+      )
+      SELECT COUNT(*)::int AS count FROM cleared
+      `,
+      selectedVariantIds.length ? [categoryId, selectedVariantIds] : [categoryId],
+    )) as Array<{ count: number | string }>;
+
+    let selectedCount = 0;
+    if (selectedVariantIds.length) {
+      const setRows = (await this.repo.manager.query(
+        `
+        WITH updated AS (
+          UPDATE product_variants v
+          SET is_top = true, updated_at = NOW()
+          WHERE v.deleted_at IS NULL
+            AND v.id = ANY($2::uuid[])
+            AND EXISTS (
+              SELECT 1 FROM products p
+              WHERE p.id = v.product_id
+                AND ${categoryMatchSql}
+            )
+          RETURNING v.id
+        )
+        SELECT COUNT(*)::int AS count FROM updated
+        `,
+        [categoryId, selectedVariantIds],
+      )) as Array<{ count: number | string }>;
+      selectedCount = Number(setRows?.[0]?.count ?? 0);
+    }
+
+    return {
+      selectedCount,
+      clearedCount: Number(clearRows?.[0]?.count ?? 0),
+    };
   }
 
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {

@@ -100,3 +100,29 @@ npm run product:sku-fix -- --apply
 # Optional
 npm run product:sku-fix -- --apply --limit=10
 
+---------------------------
+
+# Sitemap — exclude empty listing groups / regenerate products
+npm run sitemap:generate -- --group=categories
+npm run sitemap:generate -- --group=brands
+npm run sitemap:generate -- --group=health-concerns
+npm run sitemap:generate -- --group=wellness-goals
+npm run sitemap:generate -- --group=collections
+npm run sitemap:generate -- --group=products
+
+# Or full regenerate
+npm run sitemap:generate
+
+# Sitemap audit (DB vs live)
+npm run sitemap:audit categories
+npm run sitemap:audit brands -- --format=both
+npm run sitemap:audit all
+npm run sitemap:audit check -- --url=https://beta.cureka.com/product-brands/himalaya
+npm run sitemap:audit compare categories
+
+-------------------------------
+# top products (variant is_top)
+npm run product:mark-top
+npm run product:mark-top -- --apply
+
+npm run sitemap:generate -- --group=products

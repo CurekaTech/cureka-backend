@@ -12,6 +12,7 @@ import { BlogPostEntity } from '@modules/master/entities/blog-post.entity';
 import { SupportArticleEntity } from '@modules/master/entities/support-article.entity';
 import { CmsPageEntity } from '@modules/master/entities/cms-page.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { PublicSitemapController } from './controllers/public-sitemap.controller';
 import { SitemapInvalidationListener } from './listeners/sitemap-invalidation.listener';
 import { SitemapProcessor } from './processors/sitemap.processor';
@@ -20,6 +21,18 @@ import { SitemapGeneratorService } from './services/sitemap-generator.service';
 import { SitemapQueryService } from './services/sitemap-query.service';
 import { SitemapQueueService } from './services/sitemap-queue.service';
 import { SitemapStorageService } from './services/sitemap-storage.service';
+import { SitemapAuditRegistry } from './audit/sitemap-audit.registry';
+import { SitemapAuditService } from './audit/sitemap-audit.service';
+import {
+  BlogAuditProvider,
+  BrandAuditProvider,
+  CategoryAuditProvider,
+  CollectionAuditProvider,
+  HealthConcernAuditProvider,
+  ProductAuditProvider,
+  StaticAuditProvider,
+  WellnessGoalAuditProvider,
+} from './audit/providers';
 
 @Module({
   imports: [
@@ -27,6 +40,7 @@ import { SitemapStorageService } from './services/sitemap-storage.service';
     QueueModule.registerQueue(QUEUE_NAMES.SITEMAP),
     TypeOrmModule.forFeature([
       ProductEntity,
+      ProductVariantEntity,
       CategoryEntity,
       BrandEntity,
       HealthConcernEntity,
@@ -46,7 +60,17 @@ import { SitemapStorageService } from './services/sitemap-storage.service';
     SitemapGeneratorService,
     SitemapProcessor,
     SitemapInvalidationListener,
+    SitemapAuditRegistry,
+    SitemapAuditService,
+    CategoryAuditProvider,
+    BrandAuditProvider,
+    HealthConcernAuditProvider,
+    WellnessGoalAuditProvider,
+    CollectionAuditProvider,
+    ProductAuditProvider,
+    BlogAuditProvider,
+    StaticAuditProvider,
   ],
-  exports: [SitemapQueueService, SitemapGeneratorService],
+  exports: [SitemapQueueService, SitemapGeneratorService, SitemapAuditService],
 })
 export class SitemapModule {}

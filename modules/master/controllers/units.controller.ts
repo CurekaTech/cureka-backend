@@ -11,11 +11,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { UnitsService } from '../services/units.service';
 import { CreateUnitDto, UpdateUnitDto, UpdateUnitStatusDto } from '../dto/unit.dto';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('master/units')
@@ -33,7 +34,7 @@ export class UnitsController {
   @ResponseMessage('Units retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.unitsService.findAll(query);
   }
 

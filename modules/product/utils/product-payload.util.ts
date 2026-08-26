@@ -69,3 +69,41 @@ export const mapSpecificationFields = (
   ...(dto.curatedFor !== undefined && { curatedFor: dto.curatedFor?.trim() || null }),
   ...(dto.bundleIcon !== undefined && { bundleIcon: dto.bundleIcon ?? null }),
 });
+
+/** Commerce flags / policy fields shared across product + all variants. */
+export type SharedCommerceFields = Pick<
+  ProductEntity,
+  | 'subscriptionEnabled'
+  | 'codAvailable'
+  | 'emiAvailable'
+  | 'returnAllowed'
+  | 'returnPolicy'
+  | 'returnWindowDays'
+  | 'replaceAllowed'
+  | 'replaceWindowDays'
+>;
+
+/**
+ * Pick product-level commerce fields from a DTO so they can be cascaded to every variant.
+ * Returns null when none of these fields are present in the payload.
+ */
+export const pickSharedCommerceFields = (
+  dto: Partial<SpecificationFields>,
+): Partial<SharedCommerceFields> | null => {
+  const fields: Partial<SharedCommerceFields> = {
+    ...(dto.subscriptionEnabled !== undefined && { subscriptionEnabled: dto.subscriptionEnabled }),
+    ...(dto.codAvailable !== undefined && { codAvailable: dto.codAvailable }),
+    ...(dto.emiAvailable !== undefined && { emiAvailable: dto.emiAvailable }),
+    ...(dto.returnAllowed !== undefined && { returnAllowed: dto.returnAllowed }),
+    ...(dto.returnPolicy !== undefined && { returnPolicy: dto.returnPolicy ?? null }),
+    ...(dto.returnWindowDays !== undefined && {
+      returnWindowDays: Number.isFinite(dto.returnWindowDays) ? dto.returnWindowDays : null,
+    }),
+    ...(dto.replaceAllowed !== undefined && { replaceAllowed: dto.replaceAllowed }),
+    ...(dto.replaceWindowDays !== undefined && {
+      replaceWindowDays: Number.isFinite(dto.replaceWindowDays) ? dto.replaceWindowDays : null,
+    }),
+  };
+
+  return Object.keys(fields).length ? fields : null;
+};

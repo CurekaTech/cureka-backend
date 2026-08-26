@@ -14,10 +14,18 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { BlogPostStatus } from '@modules/master/enums/blog-post-status.enum';
 import { BlogPostVisibility } from '@modules/master/enums/blog-post-visibility.enum';
 import { SupportContentStatus } from '@modules/master/enums/support-content-status.enum';
-import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { SITEMAP_STATIC_URLS } from '../config/static-urls';
+import {
+  sitemapBrandHasIndexableProductSql,
+  sitemapCategoryHasIndexableProductSql,
+  sitemapCollectionHasIndexableProductSql,
+  sitemapHealthConcernHasIndexableProductSql,
+  sitemapIndexableProductParams,
+  sitemapWellnessGoalHasIndexableProductSql,
+} from '../utils/sitemap-indexable-product.util';
 import {
   SitemapUrlEntry,
   buildBlogLocPath,
@@ -26,27 +34,29 @@ import {
   buildCmsLocPath,
   buildCollectionLocPath,
   buildHealthConcernLocPath,
-  buildProductLocPaths,
   buildSupportLocPath,
   buildWellnessGoalLocPath,
   dedupeUrlEntries,
+  resolveProductSitemapLoc,
 } from './sitemap-url.builder';
 
 type CategoryNode = { id: string; slug: string; parentId: string | null };
 
-const rawString = (row: Record<string, unknown>, ...keys: string[]): string | null => {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return null;
+const laterDate = (
+  a: Date | string | null | undefined,
+  b: Date | string | null | undefined,
+): Date | null => {
+  const left = a ? new Date(a) : null;
+  const right = b ? new Date(b) : null;
+  if (left && right) return left.getTime() >= right.getTime() ? left : right;
+  return left ?? right;
 };
 
 @Injectable()
 export class SitemapQueryService {
   constructor(
-    @InjectRepository(ProductEntity)
-    private readonly productsRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity)
+    private readonly variantsRepo: Repository<ProductVariantEntity>,
     @InjectRepository(CategoryEntity)
     private readonly categoriesRepo: Repository<CategoryEntity>,
     @InjectRepository(BrandEntity)
@@ -97,79 +107,80 @@ export class SitemapQueryService {
     return slugs;
   }
 
+  /**
+   * Yields one sitemap entry per unique final product locPath across eligible variants.
+   * `seenLocs` spans the full generation (all keyset batches) so duplicates across
+   * variants and batches are skipped after final URL resolution/normalization.
+   */
   async *iterateProductEntries(batchSize: number): AsyncGenerator<SitemapUrlEntry> {
     const nodes = await this.loadCategoryNodes();
-    let lastId = '';
+    let lastVariantId = '';
     const seenLocs = new Set<string>();
 
     while (true) {
-      const qb = this.productsRepo
-        .createQueryBuilder('product')
-        .select([
-          'product.id',
-          'product.slug',
-          'product.updatedAt',
-          'product.categoryId',
-          'product.subCategoryId',
-          'product.subSubCategoryId',
-          'product.subSubSubCategoryId',
-          'product.singleProductUrl',
-        ])
-        .addSelect(
-          `(SELECT pv.product_page_url FROM product_variants pv
-            WHERE pv.product_id = product.id
-              AND pv.deleted_at IS NULL
-              AND pv.status = :variantStatus
-              AND pv.product_page_url IS NOT NULL
-              AND btrim(pv.product_page_url) <> ''
-            ORDER BY pv.product_page_url
-            LIMIT 1)`,
-          'product_page_url',
-        )
-        .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-        .andWhere(
-          `EXISTS (
-            SELECT 1 FROM product_variants pv
-            WHERE pv.product_id = product.id
-              AND pv.deleted_at IS NULL
-              AND pv.status = :variantStatus
-          )`,
-        )
-        .setParameter('variantStatus', VariantStatus.ACTIVE)
-        .orderBy('product.id', 'ASC')
+      const qb = this.variantsRepo
+        .createQueryBuilder('variant')
+        .innerJoin('variant.product', 'product')
+        .select('variant.id', 'variantId')
+        .addSelect('variant.product_page_url', 'productPageUrl')
+        .addSelect('variant.updated_at', 'variantUpdatedAt')
+        .addSelect('product.id', 'productId')
+        .addSelect('product.slug', 'productSlug')
+        .addSelect('product.updated_at', 'productUpdatedAt')
+        .addSelect('product.category_id', 'categoryId')
+        .addSelect('product.sub_category_id', 'subCategoryId')
+        .addSelect('product.sub_sub_category_id', 'subSubCategoryId')
+        .addSelect('product.sub_sub_sub_category_id', 'subSubSubCategoryId')
+        .addSelect('product.single_product_url', 'singleProductUrl')
+        .where('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
+        .andWhere('product.deleted_at IS NULL')
+        .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+        .andWhere('variant.deleted_at IS NULL')
+        .orderBy('variant.id', 'ASC')
         .take(batchSize);
 
-      if (lastId) {
-        qb.andWhere('product.id > :lastId', { lastId });
+      if (lastVariantId) {
+        qb.andWhere('variant.id > :lastVariantId', { lastVariantId });
       }
 
-      const { entities, raw } = await qb.getRawAndEntities();
-      if (!entities.length) break;
+      const rows = await qb.getRawMany<{
+        variantId: string;
+        productPageUrl: string | null;
+        variantUpdatedAt: Date | string | null;
+        productId: string;
+        productSlug: string | null;
+        productUpdatedAt: Date | string | null;
+        categoryId: string | null;
+        subCategoryId: string | null;
+        subSubCategoryId: string | null;
+        subSubSubCategoryId: string | null;
+        singleProductUrl: string | null;
+      }>();
 
-      for (let index = 0; index < entities.length; index += 1) {
-        const product = entities[index];
-        lastId = product.id;
-        const rawRow = (raw[index] ?? {}) as Record<string, unknown>;
+      if (!rows.length) break;
+
+      for (const row of rows) {
+        lastVariantId = row.variantId;
         const deepestCategoryId =
-          product.subSubSubCategoryId ||
-          product.subSubCategoryId ||
-          product.subCategoryId ||
-          product.categoryId;
-        const locPaths = buildProductLocPaths({
-          slug: product.slug,
-          productPageUrl: rawString(rawRow, 'product_page_url', 'productPageUrl', 'productpageurl'),
-          singleProductUrl: product.singleProductUrl,
+          row.subSubSubCategoryId ||
+          row.subSubCategoryId ||
+          row.subCategoryId ||
+          row.categoryId;
+        const resolved = resolveProductSitemapLoc({
+          slug: row.productSlug,
+          productPageUrl: row.productPageUrl,
+          singleProductUrl: row.singleProductUrl,
           categorySlugPath: this.categorySlugPath(nodes, deepestCategoryId),
         });
-        const lastmod = product.updatedAt ?? null;
-        for (const locPath of locPaths) {
-          if (seenLocs.has(locPath)) continue;
-          seenLocs.add(locPath);
-          yield { locPath, lastmod };
-        }
+        if (!resolved || seenLocs.has(resolved.locPath)) continue;
+        seenLocs.add(resolved.locPath);
+        yield {
+          locPath: resolved.locPath,
+          lastmod: laterDate(row.variantUpdatedAt, row.productUpdatedAt),
+        };
       }
 
-      if (entities.length < batchSize) break;
+      if (rows.length < batchSize) break;
     }
   }
 
@@ -177,12 +188,15 @@ export class SitemapQueryService {
     const nodes = await this.loadCategoryNodes();
     const entries: SitemapUrlEntry[] = [];
     let lastId = '';
+    const indexableParams = sitemapIndexableProductParams();
 
     while (true) {
       const qb = this.categoriesRepo
         .createQueryBuilder('category')
         .select(['category.id', 'category.slug', 'category.updatedAt'])
         .where('category.status = :status', { status: MasterStatus.ACTIVE })
+        .andWhere(sitemapCategoryHasIndexableProductSql('category'))
+        .setParameters(indexableParams)
         .orderBy('category.id', 'ASC')
         .take(batchSize);
       if (lastId) qb.andWhere('category.id > :lastId', { lastId });
@@ -206,6 +220,8 @@ export class SitemapQueryService {
       alias: 'brand',
       batchSize,
       status: MasterStatus.ACTIVE,
+      extraWhere: sitemapBrandHasIndexableProductSql('brand'),
+      extraParams: sitemapIndexableProductParams(),
       toEntry: (row) => {
         const locPath = buildBrandLocPath(row.slug);
         return locPath ? { locPath, lastmod: row.updatedAt } : null;
@@ -219,6 +235,8 @@ export class SitemapQueryService {
       alias: 'healthConcern',
       batchSize,
       status: MasterStatus.ACTIVE,
+      extraWhere: sitemapHealthConcernHasIndexableProductSql('healthConcern'),
+      extraParams: sitemapIndexableProductParams(),
       toEntry: (row) => {
         const locPath = buildHealthConcernLocPath(row.slug);
         return locPath ? { locPath, lastmod: row.updatedAt } : null;
@@ -229,11 +247,14 @@ export class SitemapQueryService {
   async collectWellnessGoalEntries(batchSize: number): Promise<SitemapUrlEntry[]> {
     const entries: SitemapUrlEntry[] = [];
     let lastId = '';
+    const indexableParams = sitemapIndexableProductParams();
     while (true) {
       const qb = this.wellnessGoalsRepo
         .createQueryBuilder('wellnessGoal')
         .select(['wellnessGoal.id', 'wellnessGoal.name', 'wellnessGoal.updatedAt'])
         .where('wellnessGoal.status = :status', { status: MasterStatus.ACTIVE })
+        .andWhere(sitemapWellnessGoalHasIndexableProductSql('wellnessGoal'))
+        .setParameters(indexableParams)
         .orderBy('wellnessGoal.id', 'ASC')
         .take(batchSize);
       if (lastId) qb.andWhere('wellnessGoal.id > :lastId', { lastId });
@@ -253,12 +274,15 @@ export class SitemapQueryService {
   async collectCollectionEntries(batchSize: number): Promise<SitemapUrlEntry[]> {
     const entries: SitemapUrlEntry[] = [];
     let lastId = '';
+    const indexableParams = sitemapIndexableProductParams();
     while (true) {
       const qb = this.homeSectionsRepo
         .createQueryBuilder('section')
         .select(['section.id', 'section.slug', 'section.updatedAt'])
         .where('section.status = :status', { status: MasterStatus.ACTIVE })
         .andWhere('section.type = :type', { type: HomeSectionType.PRODUCT_SLIDER })
+        .andWhere(sitemapCollectionHasIndexableProductSql('section'))
+        .setParameters(indexableParams)
         .orderBy('section.id', 'ASC')
         .take(batchSize);
       if (lastId) qb.andWhere('section.id > :lastId', { lastId });
@@ -332,6 +356,8 @@ export class SitemapQueryService {
     batchSize: number;
     status: string;
     extraSelect?: string[];
+    extraWhere?: string;
+    extraParams?: Record<string, unknown>;
     toEntry: (row: T) => SitemapUrlEntry | null;
   }): Promise<SitemapUrlEntry[]> {
     const entries: SitemapUrlEntry[] = [];
@@ -350,6 +376,12 @@ export class SitemapQueryService {
         .where(`${options.alias}.status = :status`, { status: options.status })
         .orderBy(`${options.alias}.id`, 'ASC')
         .take(options.batchSize);
+      if (options.extraWhere) {
+        qb.andWhere(options.extraWhere);
+      }
+      if (options.extraParams) {
+        qb.setParameters(options.extraParams);
+      }
       if (lastId) qb.andWhere(`${options.alias}.id > :lastId`, { lastId });
       const rows = await qb.getMany();
       if (!rows.length) break;
