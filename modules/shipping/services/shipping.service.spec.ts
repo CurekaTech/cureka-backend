@@ -9,6 +9,8 @@ import { ShipmentsRepository } from '../repositories/shipments.repository';
 import { ShipmentEventsRepository } from '../repositories/shipment-events.repository';
 import { ShipwayService } from './shipway.service';
 import { ShippingService } from './shipping.service';
+import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
+import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 
 describe('ShippingService webhook handling', () => {
   const shipment: ShipmentEntity = {
@@ -56,9 +58,12 @@ describe('ShippingService webhook handling', () => {
 
   let shipmentsRepository: jest.Mocked<Pick<ShipmentsRepository, 'findByShipwayOrderId' | 'findByOrderId' | 'save'>>;
   let shipmentEventsRepository: jest.Mocked<
-    Pick<ShipmentEventsRepository, 'create' | 'existsByRefId' | 'existsDuplicateEvent' | 'findLatestHappenedAt'>
+    Pick<
+      ShipmentEventsRepository,
+      'create' | 'existsByRefId' | 'existsDuplicateEvent' | 'findLatestHappenedAt' | 'findByShipmentId'
+    >
   >;
-  let ordersRepository: jest.Mocked<Pick<OrdersRepository, 'updateById'>>;
+  let ordersRepository: jest.Mocked<Pick<OrdersRepository, 'updateById' | 'findById'>>;
   let shipwayService: jest.Mocked<Pick<ShipwayService, 'getShipmentDetails'>>;
   let eventEmitter: jest.Mocked<Pick<EventEmitter2, 'emitAsync'>>;
   let dataSource: { transaction: jest.Mock };
@@ -76,9 +81,16 @@ describe('ShippingService webhook handling', () => {
       existsByRefId: jest.fn().mockResolvedValue(false),
       existsDuplicateEvent: jest.fn().mockResolvedValue(false),
       findLatestHappenedAt: jest.fn().mockResolvedValue(new Date('2026-08-10T09:00:00.000Z')),
+      findByShipmentId: jest.fn().mockResolvedValue([]),
     };
     ordersRepository = {
       updateById: jest.fn().mockResolvedValue(undefined),
+      findById: jest.fn().mockResolvedValue({
+        id: 'ord-1',
+        orderNumber: 'CUR1',
+        paymentMethod: OrderPaymentMethod.COD,
+        paymentStatus: OrderPaymentStatus.PENDING,
+      } as never),
     };
     shipwayService = {
       getShipmentDetails: jest.fn(),
@@ -168,6 +180,57 @@ describe('ShippingService webhook handling', () => {
     expect(result.outcome).toBe('processed');
     expect(result.shipment.shipmentStatus).toBe(ShipmentStatus.OUT_FOR_DELIVERY);
     expect(shipmentEventsRepository.create).toHaveBeenCalled();
+  });
+
+  it('marks COD order payment as PAID on DELIVERED status', async () => {
+    ordersRepository.findById.mockResolvedValue({
+      id: 'ord-1',
+      orderNumber: 'CUR1',
+      paymentMethod: OrderPaymentMethod.COD,
+      paymentStatus: OrderPaymentStatus.PENDING,
+    } as never);
+
+    const result = await service.handleShipwayWebhook({
+      order_id: 'CUR1',
+      status: 'DEL',
+      status_date: '2026-08-11T12:00:00.000Z',
+      awb_number: 'AWB1',
+    });
+
+    expect(result.outcome).toBe('processed');
+    expect(result.shipment.shipmentStatus).toBe(ShipmentStatus.DELIVERED);
+    expect(ordersRepository.updateById).toHaveBeenCalledWith(
+      'ord-1',
+      expect.objectContaining({
+        orderStatus: expect.any(String),
+        paymentStatus: OrderPaymentStatus.PAID,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('does not alter prepaid payment status on DELIVERED status', async () => {
+    ordersRepository.findById.mockResolvedValue({
+      id: 'ord-1',
+      orderNumber: 'CUR1',
+      paymentMethod: OrderPaymentMethod.RAZORPAY,
+      paymentStatus: OrderPaymentStatus.PENDING,
+    } as never);
+
+    await service.handleShipwayWebhook({
+      order_id: 'CUR1',
+      status: 'DEL',
+      status_date: '2026-08-11T12:00:00.000Z',
+      awb_number: 'AWB1',
+    });
+
+    const call = ordersRepository.updateById.mock.calls.at(-1);
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        orderStatus: expect.any(String),
+      }),
+    );
+    expect(call?.[1]).not.toHaveProperty('paymentStatus');
   });
 
   it('batch marks missing shipments as not_found without failing the batch', async () => {
