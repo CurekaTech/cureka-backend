@@ -119,7 +119,7 @@ export class WellnessGoalsService {
     refId: string,
     dto: UpdateWellnessGoalDto,
     updatedBy: string,
-    image?: string,
+    image?: string | null,
   ): Promise<IWellnessGoal> {
     const existing = await this.wellnessGoalsRepository.findByRefId(refId);
     if (!existing) {

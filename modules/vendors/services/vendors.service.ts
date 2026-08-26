@@ -74,9 +74,9 @@ const splitContactPerson = (contactPerson: string): { firstName: string; lastNam
 };
 
 type VendorUploadPaths = {
-  panDocumentPath?: string;
-  gstCertificateDocumentPath?: string;
-  productExcelSheetPath?: string;
+  panDocumentPath?: string | null;
+  gstCertificateDocumentPath?: string | null;
+  productExcelSheetPath?: string | null;
 };
 
 @Injectable()
@@ -517,7 +517,7 @@ export class VendorsService {
   }
 
   private requireDocument(
-    uploadedPath: string | undefined,
+    uploadedPath: string | null | undefined,
     jsonRef: { key: string; name: string } | undefined,
     label: string,
   ): IStorageFileReference {
@@ -529,7 +529,7 @@ export class VendorsService {
   }
 
   private resolveOptionalDocument(
-    uploadedPath: string | undefined,
+    uploadedPath: string | null | undefined,
     jsonRef: { key: string; name: string } | undefined,
     existing: IStorageFileReference,
   ): IStorageFileReference {

@@ -12,6 +12,26 @@ import { UploadFolder } from '../enums/upload-folder.enum';
 
 export type MultipartFileFieldMap = Record<string, UploadFolder>;
 
+/** Uploaded object path, or `null` when the client explicitly cleared the media field. */
+export type MultipartUploadedUrls = Record<string, string | null>;
+
+const isMediaClearValue = (value: string | undefined): boolean => {
+  if (value === undefined) return false;
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return true;
+  if (trimmed === '{}' || trimmed === '[]') return true;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed === null) return true;
+    if (typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed as object).length === 0) {
+      return true;
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  return false;
+};
+
 @Injectable()
 export class MultipartFormService {
   private readonly logger = new Logger(MultipartFormService.name);
@@ -22,10 +42,11 @@ export class MultipartFormService {
     req: FastifyRequest,
     dtoClass: ClassConstructor<T>,
     fileFields: MultipartFileFieldMap,
-  ): Promise<{ dto: T; uploadedUrls: Record<string, string> }> {
+  ): Promise<{ dto: T; uploadedUrls: MultipartUploadedUrls }> {
     const { fields, uploadedUrls } = await this.parseMultipart(req, fileFields);
     const mergedFields = this.mergeFormFields(fields);
-    const dto = await this.validateDto(dtoClass, mergedFields);
+    this.applyMediaClearSignals(mergedFields, fileFields, uploadedUrls);
+    const dto = await this.validateDto(dtoClass, this.sanitizeDtoFields(mergedFields, fileFields));
     return { dto, uploadedUrls };
   }
 
@@ -51,7 +72,11 @@ export class MultipartFormService {
     const merged: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(parsed)) {
-      if (value === undefined || value === null) continue;
+      if (value === undefined || value === null) {
+        // Preserve explicit null clears for known media fields (handled later).
+        merged[key] = 'null';
+        continue;
+      }
       merged[key] =
         typeof value === 'object' ? JSON.stringify(value) : String(value);
     }
@@ -59,10 +84,51 @@ export class MultipartFormService {
     return { ...merged, ...rest };
   }
 
+  /**
+   * When Admin sends `banner: {}` / `banner: null` (no file), treat it as clear:
+   * set uploadedUrls[field] = null so services can null the DB column.
+   * A real uploaded file always wins over a clear placeholder.
+   */
+  private applyMediaClearSignals(
+    fields: Record<string, string>,
+    fileFields: MultipartFileFieldMap,
+    uploadedUrls: MultipartUploadedUrls,
+  ): void {
+    for (const fieldName of Object.keys(fileFields)) {
+      if (Object.prototype.hasOwnProperty.call(uploadedUrls, fieldName)) continue;
+      if (isMediaClearValue(fields[fieldName])) {
+        uploadedUrls[fieldName] = null;
+      }
+    }
+  }
+
+  /**
+   * Clients often send file fields as text placeholders (`banner=null`, `banner={}`) and empty
+   * optional fields. Those are not DTO properties and trip forbidNonWhitelisted.
+   * Real uploads / clears are already captured in `uploadedUrls`.
+   */
+  private sanitizeDtoFields(
+    fields: Record<string, string>,
+    fileFields: MultipartFileFieldMap,
+  ): Record<string, string> {
+    const cleaned: Record<string, string> = {};
+
+    for (const [key, value] of Object.entries(fields)) {
+      if (key in fileFields) continue;
+
+      const trimmed = value.trim();
+      if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') continue;
+
+      cleaned[key] = value;
+    }
+
+    return cleaned;
+  }
+
   private async parseMultipart(
     req: FastifyRequest,
     fileFields: MultipartFileFieldMap,
-  ): Promise<{ fields: Record<string, string>; uploadedUrls: Record<string, string> }> {
+  ): Promise<{ fields: Record<string, string>; uploadedUrls: MultipartUploadedUrls }> {
     const contentType = req.headers['content-type'] ?? '';
     if (!contentType.includes('multipart/form-data')) {
       throw new BadRequestException(
@@ -71,7 +137,7 @@ export class MultipartFormService {
     }
 
     const rawFields: Record<string, string[]> = {};
-    const uploadedUrls: Record<string, string> = {};
+    const uploadedUrls: MultipartUploadedUrls = {};
 
     for await (const part of req.parts()) {
       if (part.type === 'file') {
@@ -89,7 +155,7 @@ export class MultipartFormService {
     // Collapse single-value fields to a plain string; multi-value fields to a JSON array string
     const fields: Record<string, string> = {};
     for (const [key, values] of Object.entries(rawFields)) {
-      fields[key] = values.length === 1 ? values[0] : JSON.stringify(values);
+      fields[key] = values.length === 1 ? values[0]! : JSON.stringify(values);
     }
 
     return { fields, uploadedUrls };
@@ -98,13 +164,20 @@ export class MultipartFormService {
   private async handleFilePart(
     part: MultipartFile,
     fileFields: MultipartFileFieldMap,
-    uploadedUrls: Record<string, string>,
+    uploadedUrls: MultipartUploadedUrls,
   ): Promise<void> {
     const folder = fileFields[part.fieldname];
 
     if (!folder) {
       part.file.resume();
       throw new BadRequestException(`Unexpected file field "${part.fieldname}"`);
+    }
+
+    // Empty file part with no filename is treated as a clear, not an upload.
+    if (!part.filename || part.filename.trim() === '') {
+      part.file.resume();
+      uploadedUrls[part.fieldname] = null;
+      return;
     }
 
     let uploadStream: Readable = part.file;
