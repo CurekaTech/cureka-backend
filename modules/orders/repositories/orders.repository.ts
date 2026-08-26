@@ -134,6 +134,11 @@ export class OrdersRepository {
     });
   }
 
+  findById(id: string, manager?: EntityManager): Promise<OrderEntity | null> {
+    const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
+    return repository.findOne({ where: { id } });
+  }
+
   /** Idempotency helper for failed payment-request → order materialization. */
   findFailedByPaymentRequestRef(
     paymentRequestRefId: string,
