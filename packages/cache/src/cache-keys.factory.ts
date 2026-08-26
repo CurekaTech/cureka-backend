@@ -82,13 +82,14 @@ export const CacheKeys = {
     sectionsPattern: () => 'homepage:sections*',
   },
   publicProducts: {
-    list: (queryHash: string) => `public:products:v3:list:${queryHash}`,
-    listPattern: () => 'public:products:v3:list:*',
-    variantSearch: (queryHash: string) => `public:products:v3:variant-search:${queryHash}`,
-    variantSearchPattern: () => 'public:products:v3:variant-search:*',
-    detail: (slug: string) => `public:products:v3:detail:${slug}`,
+    // v4: list cards use list-variant primary image (not product-level isPrimary).
+    list: (queryHash: string) => `public:products:v4:list:${queryHash}`,
+    listPattern: () => 'public:products:v4:list:*',
+    variantSearch: (queryHash: string) => `public:products:v4:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:v4:variant-search:*',
+    detail: (slug: string) => `public:products:v4:detail:${slug}`,
     detailPattern: (slug?: string) =>
-      slug ? `public:products:v3:detail:${slug}` : 'public:products:v3:detail:*',
+      slug ? `public:products:v4:detail:${slug}` : 'public:products:v4:detail:*',
   },
   publicBundles: {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.
