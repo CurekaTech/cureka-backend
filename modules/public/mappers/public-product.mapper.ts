@@ -184,7 +184,7 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
 };
 
 export const pickPreferredPublicVariant = <
-  T extends { sellingPrice: number; stock: number; outOfStock: boolean },
+  T extends { sellingPrice: number; outOfStock: boolean },
 >(
   variants: T[],
 ): T | null => {
