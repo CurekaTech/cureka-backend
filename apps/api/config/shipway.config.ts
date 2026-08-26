@@ -31,9 +31,15 @@ export const shipwayConfig = registerAs('shipway', () => ({
 
   /**
    * Optional Carrier ID to force a specific courier.
-   * When empty, Shipway will auto-select based on serviceability.
+   * When empty/invalid, omit from push payload so Shipway auto-selects.
+   * Never send null/NaN — Shipway rejects those as "carrier_id does not exist."
    */
-  carrierId: process.env['SHIPWAY_CARRIER_ID'] ? parseInt(process.env['SHIPWAY_CARRIER_ID'], 10) : undefined,
+  carrierId: (() => {
+    const raw = process.env['SHIPWAY_CARRIER_ID']?.trim();
+    if (!raw) return undefined;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  })(),
 
   /**
    * Optional HMAC secret for single-event webhooks (`x-webhook-signature` /

@@ -1,4 +1,5 @@
 import { BrandEntity } from '@modules/master/entities/brand.entity';
+import { resolveBrandBannerForResponse } from '@modules/master/mappers/brand.mapper';
 import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicBrandListItem } from '../interfaces/public-master.interface';
 
@@ -20,7 +21,7 @@ export const mapBrandEntityToListingContext = (
   name: entity.name,
   slug: entity.slug,
   logo: entity.logo,
-  banner: entity.banner,
+  banner: resolveBrandBannerForResponse(entity),
   video: entity.video,
   featuredBanner: entity.featuredBanner,
   promotionalBanner: entity.promotionalBanner,

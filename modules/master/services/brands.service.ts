@@ -187,7 +187,11 @@ export class BrandsService {
     const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
-    if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (media.banner !== undefined) {
+      payload.banner = this.storageUrlEnricher.persist(media.banner);
+      // New upload un-hides the banner; previous GCS object is intentionally retained.
+      payload.bannerDeletedAt = null;
+    }
     if (media.video !== undefined) payload.video = this.storageUrlEnricher.persist(media.video);
     if (media.featuredBanner !== undefined) {
       payload.featuredBanner = this.storageUrlEnricher.persist(media.featuredBanner);

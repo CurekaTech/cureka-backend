@@ -55,9 +55,34 @@ export class ShipwayService {
   }
 
   pushOrder(payload: IShipwayPushOrderPayload): Promise<IShipwayPushOrderResponse> {
+    const body: IShipwayPushOrderPayload = { ...payload };
+    // Shipway rejects explicit null/invalid carrier_id ("carrier_id does not exist").
+    // Omit the field so Shipway can auto-select when SHIPWAY_CARRIER_ID is unset.
+    if (
+      body.carrier_id == null ||
+      !Number.isFinite(body.carrier_id) ||
+      body.carrier_id <= 0
+    ) {
+      delete body.carrier_id;
+    }
+    this.logger.log(
+      {
+        api: 'POST /api/v2orders',
+        orderId: body.order_id,
+        paymentType: body.payment_type,
+        carrierIdPresent: body.carrier_id != null,
+        carrierId: body.carrier_id ?? null,
+        warehouseId: body.warehouse_id ?? null,
+        returnWarehouseId: body.return_warehouse_id ?? null,
+        productCount: body.products?.length ?? 0,
+        shippingZipcode: body.shipping_zipcode ?? null,
+        orderWeight: body.order_weight ?? null,
+      },
+      '[Shipway] POST /api/v2orders — sanitized outbound body (no PII)',
+    );
     return this.request<IShipwayPushOrderResponse>('/api/v2orders', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   }
 

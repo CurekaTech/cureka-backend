@@ -102,6 +102,9 @@ export class ShippingService {
         orderNumber: order.orderNumber,
         api: 'POST /api/v2orders',
         when: 'after order confirm (kickoffFulfillment → pushOrderToShipway)',
+        carrierIdPresent: payload.carrier_id != null,
+        carrierId: payload.carrier_id ?? null,
+        warehouseId: payload.warehouse_id ?? null,
         payload: payloadSummary,
       },
       '[Shipway] Push payload ready — calling Shipway',
@@ -117,6 +120,9 @@ export class ShippingService {
           api: 'POST /api/v2orders',
           paymentType: payload.payment_type,
           productCount: payload.products.length,
+          carrierIdPresent: payload.carrier_id != null,
+          carrierId: payload.carrier_id ?? null,
+          warehouseId: payload.warehouse_id ?? null,
         },
         '[Shipway] Calling push order API now',
       );
@@ -838,10 +844,10 @@ export class ShippingService {
       this.configService.get<string>('shipway.returnWarehouseId') ||
       warehouseId ||
       undefined;
-    const carrierId = this.configService.get<number>('shipway.carrierId');
+    const carrierId = this.resolveOptionalCarrierId();
     const parcel = this.buildParcelDetails(order);
 
-    return {
+    const payload: IShipwayPushOrderPayload = {
       order_id: order.orderNumber,
       payment_type: order.paymentMethod === OrderPaymentMethod.COD ? 'C' : 'P',
       products: order.items.map((item) => ({
@@ -875,12 +881,37 @@ export class ShippingService {
       box_length: parcel.lengthCm,
       box_breadth: parcel.breadthCm,
       box_height: parcel.heightCm,
-      carrier_id: carrierId,
       warehouse_id: warehouseId,
       return_warehouse_id: returnWarehouseId,
       email: order.user?.email,
       order_date: this.formatShipwayDate(order.placedAt ?? order.createdAt),
     };
+
+    // Omit carrier_id entirely when unset — do not send null/NaN (Shipway rejects those).
+    if (carrierId !== undefined) {
+      payload.carrier_id = carrierId;
+    }
+
+    return payload;
+  }
+
+  /**
+   * Optional env `SHIPWAY_CARRIER_ID` → positive int, else undefined (Shipway auto-select).
+   */
+  private resolveOptionalCarrierId(): number | undefined {
+    const raw = this.configService.get<number | string | null | undefined>('shipway.carrierId');
+    if (raw === undefined || raw === null || raw === '') {
+      return undefined;
+    }
+    const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw).trim(), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      this.logger.warn(
+        { rawCarrierId: raw },
+        '[Shipway] Ignoring invalid SHIPWAY_CARRIER_ID — omitting carrier_id from push',
+      );
+      return undefined;
+    }
+    return Math.trunc(parsed);
   }
 
   private buildParcelDetails(order: OrderEntity) {
@@ -1301,6 +1332,7 @@ export class ShippingService {
       box_length: payload.box_length,
       box_breadth: payload.box_breadth,
       box_height: payload.box_height,
+      carrierIdPresent: Object.prototype.hasOwnProperty.call(payload, 'carrier_id'),
       carrier_id: payload.carrier_id ?? null,
       warehouse_id: payload.warehouse_id ?? null,
       return_warehouse_id: payload.return_warehouse_id ?? null,
