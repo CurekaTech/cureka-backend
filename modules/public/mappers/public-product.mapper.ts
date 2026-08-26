@@ -134,15 +134,31 @@ export const resolveSharedCommerceFlags = (
   };
 };
 
-const sortVariantsBySellingPrice = (
-  variants: ProductVariantEntity[],
-): ProductVariantEntity[] =>
-  [...variants].sort(
-    (left, right) =>
-      (toNumber(left.sellingPrice) ?? 0) - (toNumber(right.sellingPrice) ?? 0),
-  );
+/** Prefer Pack of 1 (parent) for listing cards; then lowest in-stock price. */
+const PACK_OF_ONE_VALUE = /pack\s*of\s*1\b/i;
+const PACK_OF_MULTI_VALUE = /pack\s*of\s*(?:[2-9]|\d{2,})\b/i;
+const PACK_OF_ONE_SLUG = /(?:^|-)pack-of-1(?:-|$)/i;
+const PACK_OF_MULTI_SLUG = /(?:^|-)pack-of-(?:[2-9]|\d{2,})(?:-|$)/i;
 
-/** Prefer the lowest-price in-stock variant for listing cards and add-to-cart defaults. */
+/** 0 = pack of 1, 1 = no pack attr (treat as single), 2 = multi-pack. */
+const getVariantPackRank = (variant: ProductVariantEntity): number => {
+  const attributeValues = (variant.attributeValues ?? [])
+    .map((item) => item.value?.trim() ?? '')
+    .filter(Boolean);
+  const slug = variant.slug?.trim() ?? '';
+  const displayName = variant.displayName?.trim() ?? '';
+  const haystack = [...attributeValues, displayName].join(' ');
+
+  if (PACK_OF_ONE_VALUE.test(haystack) || PACK_OF_ONE_SLUG.test(slug)) {
+    return 0;
+  }
+  if (PACK_OF_MULTI_VALUE.test(haystack) || PACK_OF_MULTI_SLUG.test(slug)) {
+    return 2;
+  }
+  return 1;
+};
+
+/** Prefer Pack of 1 as the listing parent; fall back to lowest-price in-stock. */
 const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity | null => {
   const activeVariants = getActiveVariants(entity);
   if (!activeVariants.length) {
@@ -153,9 +169,18 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
     return activeVariants[0]!;
   }
 
-  const sorted = sortVariantsBySellingPrice(activeVariants);
-  const inStockVariants = sorted.filter((variant) => !variant.outOfStock);
-  return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
+  const inStockVariants = activeVariants.filter((variant) => !variant.outOfStock);
+  const pool = inStockVariants.length ? inStockVariants : activeVariants;
+
+  const ranked = [...pool].sort((left, right) => {
+    const packDiff = getVariantPackRank(left) - getVariantPackRank(right);
+    if (packDiff !== 0) {
+      return packDiff;
+    }
+    return (toNumber(left.sellingPrice) ?? 0) - (toNumber(right.sellingPrice) ?? 0);
+  });
+
+  return ranked[0] ?? null;
 };
 
 export const pickPreferredPublicVariant = <
@@ -170,6 +195,105 @@ export const pickPreferredPublicVariant = <
   const sorted = [...variants].sort((left, right) => left.sellingPrice - right.sellingPrice);
   const inStockVariants = sorted.filter((variant) => !variant.outOfStock);
   return (inStockVariants.length ? inStockVariants : sorted)[0] ?? null;
+};
+
+const slugifyLoose = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const extractRequestSlugTokens = (slug: string): string[] => {
+  const normalized = slugifyLoose(slug);
+  const matches =
+    normalized.match(/pack-of-\d+|\d+(?:\.\d+)?(?:ml|mg|g|kg|l|ltr|gm)/g) ?? [];
+  return [...new Set(matches)];
+};
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+type SlugScorableVariant = {
+  id: string;
+  slug: string;
+  productPageUrl?: string | null;
+  sellingPrice: number;
+  outOfStock: boolean;
+  attributes?: Array<{ value: string }> | Record<string, string>;
+};
+
+const variantSlugHaystack = (variant: SlugScorableVariant): string => {
+  const attrValues = Array.isArray(variant.attributes)
+    ? variant.attributes.map((item) => item.value)
+    : Object.values(variant.attributes ?? {});
+  const pageLeaf = (variant.productPageUrl ?? '')
+    .split('/')
+    .filter(Boolean)
+    .at(-1);
+  return slugifyLoose([variant.slug, pageLeaf ?? '', ...attrValues].join('-'));
+};
+
+const scoreVariantAgainstRequestSlug = (
+  variant: SlugScorableVariant,
+  requestSlug: string,
+): number => {
+  const tokens = extractRequestSlugTokens(requestSlug);
+  if (!tokens.length) return 0;
+
+  const haystack = variantSlugHaystack(variant);
+  let score = 0;
+  for (const token of tokens) {
+    const pattern = new RegExp(`(?:^|-)${escapeRegExp(token)}(?:-|$)`);
+    if (pattern.test(haystack)) {
+      score += 10 + token.length;
+    }
+  }
+  const requestHasPack = tokens.some((token) => token.startsWith('pack-of-'));
+  if (!requestHasPack) {
+    if (/(?:^|-)pack-of-1(?:-|$)/.test(haystack)) score += 5;
+    if (/(?:^|-)pack-of-(?:[2-9]|\d{2,})(?:-|$)/.test(haystack)) score -= 3;
+  }
+  return score;
+};
+
+/**
+ * Pick the variant that best matches size/pack tokens in the request slug
+ * (e.g. `...-500ml` → 500ml Pack of 1), not merely the cheapest SKU.
+ */
+export const pickVariantForRequestSlug = <T extends SlugScorableVariant>(
+  variants: T[],
+  requestSlug: string,
+  preferredVariantId?: string | null,
+): T | null => {
+  if (!variants.length) return null;
+
+  const inStock = variants.filter((variant) => !variant.outOfStock);
+  const pool = inStock.length ? inStock : variants;
+
+  const ranked = [...pool].sort((left, right) => {
+    const scoreDiff =
+      scoreVariantAgainstRequestSlug(right, requestSlug) -
+      scoreVariantAgainstRequestSlug(left, requestSlug);
+    if (scoreDiff !== 0) return scoreDiff;
+    if (preferredVariantId) {
+      if (left.id === preferredVariantId) return -1;
+      if (right.id === preferredVariantId) return 1;
+    }
+    return left.sellingPrice - right.sellingPrice;
+  });
+
+  const best = ranked[0] ?? null;
+  if (!best) return null;
+
+  const bestScore = scoreVariantAgainstRequestSlug(best, requestSlug);
+  if (bestScore > 0) return best;
+
+  if (preferredVariantId) {
+    const preferred = pool.find((variant) => variant.id === preferredVariantId);
+    if (preferred) return preferred;
+  }
+
+  return pickPreferredPublicVariant(pool);
 };
 
 const resolveListVariant = (entity: ProductEntity): ProductVariantEntity | null =>
@@ -458,10 +582,24 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
   const outOfStock = listVariant?.outOfStock ?? false;
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
+  const listVariantSlug = listVariant
+    ? sanitizeProductSlugSegment(listVariant.slug) || listVariant.slug
+    : entity.slug;
+
+  // When many variants share one parent Woo URL, listing must deep-link the Pack of 1
+  // row via its unique variant slug — not the shared parent path.
+  const activeVariants = getActiveVariants(entity);
+  const pageUrlOwners = productPageUrl
+    ? activeVariants.filter(
+        (variant) => sanitizePublicProductPageUrl(variant.productPageUrl) === productPageUrl,
+      )
+    : [];
+  const uniqueListPageUrl = pageUrlOwners.length <= 1 ? productPageUrl : null;
+
   return {
   id: entity.id,
   refId: entity.refId,
-  name: entity.name,
+  name: listVariant?.displayName?.trim() || entity.name,
   slug: entity.slug,
   productType: entity.productType,
   defaultVariantId: listVariant?.id ?? null,
@@ -470,8 +608,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   subCategoryRefId: entity.subCategory?.refId ?? null,
   subCategoryName: entity.subCategory?.name ?? null,
   categorySlugPath,
-  permalink: productPageUrl || buildProductPermalink(categorySlugPath, entity.slug),
-  productPageUrl,
+  permalink:
+    uniqueListPageUrl || buildProductPermalink(categorySlugPath, listVariantSlug),
+  productPageUrl: uniqueListPageUrl,
   brandRefId: entity.brand?.refId ?? null,
   brandName: entity.brand?.name ?? null,
   brandSlug: entity.brand?.slug ?? null,
