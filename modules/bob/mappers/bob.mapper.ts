@@ -365,6 +365,42 @@ export function mapBobEventStatus(
   }
 }
 
+/**
+ * UI step "Dispatched" and anything after it on the 4-step tracker:
+ * Confirmed → Dispatched → Out for Delivery → Delivered.
+ * Used to fire /fulfillments-create only on the first transition into this set.
+ */
+export function isBobDispatchedOrLater(
+  status: ShipmentStatus | string | null | undefined,
+): boolean {
+  switch (status) {
+    case ShipmentStatus.PICKUP_COMPLETE:
+    case ShipmentStatus.IN_TRANSIT:
+    case ShipmentStatus.OUT_FOR_DELIVERY:
+    case ShipmentStatus.DELIVERED:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Friendly 4-step tracker label for logs. */
+export function bobTrackerStepLabel(
+  status: ShipmentStatus | string | null | undefined,
+): 'Order Confirmed' | 'Dispatched' | 'Out for Delivery' | 'Delivered' {
+  switch (status) {
+    case ShipmentStatus.DELIVERED:
+      return 'Delivered';
+    case ShipmentStatus.OUT_FOR_DELIVERY:
+      return 'Out for Delivery';
+    case ShipmentStatus.PICKUP_COMPLETE:
+    case ShipmentStatus.IN_TRANSIT:
+      return 'Dispatched';
+    default:
+      return 'Order Confirmed';
+  }
+}
+
 function mapBobShipmentStatus(
   orderStatus: OrderStatus,
   shipmentStatus?: ShipmentStatus | null,

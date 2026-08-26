@@ -1821,7 +1821,7 @@ export class OrdersService {
         orderStatus: order.orderStatus,
         grandTotal: order.grandTotal,
       },
-      '[OrderNotify] Dispatching order-placed notifications (BOB /orders-create + MSG91 SMS)',
+      '[OrderNotify] Dispatching order-placed notifications (BOB WhatsApp #1 /orders-create + MSG91 SMS)',
     );
 
     await this.eventEmitter.emitAsync(EVENTS.ORDER_CREATED, {
@@ -1830,19 +1830,27 @@ export class OrdersService {
     }).then(
       () => {
         this.logger.log(
-          { orderId: order.id, orderNumber: order.orderNumber, source },
-          '[OrderNotify] BOB /orders-create listener finished',
+          {
+            whatsappSlot: 1,
+            api: '/orders-create',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            source,
+          },
+          '[OrderNotify] BOB WhatsApp #1 /orders-create listener finished',
         );
       },
       (error: unknown) => {
         this.logger.warn(
           {
+            whatsappSlot: 1,
+            api: '/orders-create',
             orderId: order.id,
             orderNumber: order.orderNumber,
             source,
             error: error instanceof Error ? error.message : String(error),
           },
-          '[OrderNotify] BOB /orders-create emit failed (non-blocking)',
+          '[OrderNotify] BOB WhatsApp #1 /orders-create emit failed (non-blocking)',
         );
       },
     );

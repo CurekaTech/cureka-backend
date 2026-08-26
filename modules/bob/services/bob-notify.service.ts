@@ -71,6 +71,11 @@ export class BobNotifyService implements OnModuleInit {
         payloadKeys: Object.keys(payload),
         authHeaders: ['x-guest-id', 'x-api-key'],
         wabizSendUsed: false,
+        whatsappSlot: path.includes('orders-create')
+          ? 1
+          : path.includes('fulfillments-create')
+            ? 2
+            : undefined,
         ...summary,
       },
       '[BOB notify] posting Notifications API — BOB sends WhatsApp after this',
@@ -109,6 +114,11 @@ export class BobNotifyService implements OnModuleInit {
         bobError,
         contentType: String(response.headers?.['content-type'] ?? ''),
         bodyPreview: this.previewBody(body),
+        whatsappSlot: path.includes('orders-create')
+          ? 1
+          : path.includes('fulfillments-create')
+            ? 2
+            : undefined,
         ...summary,
       };
 
