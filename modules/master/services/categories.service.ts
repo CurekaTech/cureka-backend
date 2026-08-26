@@ -244,7 +244,7 @@ export class CategoriesService {
     refId: string,
     dto: UpdateCategoryDto,
     updatedBy: string,
-    media: { image?: string; banner?: string } = {},
+    media: { image?: string | null; banner?: string | null } = {},
   ): Promise<ICategory> {
     const existing = await this.categoriesRepository.findByRefId(refId);
     if (!existing) {

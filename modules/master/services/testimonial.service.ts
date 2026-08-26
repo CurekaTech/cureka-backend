@@ -95,7 +95,7 @@ export class TestimonialService {
   async create(
     dto: CreateTestimonialDto,
     createdBy: string,
-    uploadedImage?: string,
+    uploadedImage?: string | null,
   ): Promise<ITestimonial> {
     const normalized = this.normalizeDto(dto, uploadedImage);
 
@@ -146,7 +146,7 @@ export class TestimonialService {
     refId: string,
     dto: UpdateTestimonialDto,
     updatedBy: string,
-    uploadedImage?: string,
+    uploadedImage?: string | null,
   ): Promise<ITestimonial> {
     const existing = await this.testimonialRepository.findByRefId(refId);
     if (!existing) {
@@ -253,7 +253,7 @@ export class TestimonialService {
 
   private normalizeDto(
     dto: CreateTestimonialDto,
-    uploadedImage?: string,
+    uploadedImage?: string | null,
     existingImage?: TestimonialEntity['image'],
   ): {
     name: string;

@@ -171,7 +171,7 @@ export class WatchAndShopService {
 
     createdBy: string,
 
-    uploadedMediaUrl?: string,
+    uploadedMediaUrl?: string | null,
 
   ): Promise<IWatchAndShopItem> {
 
@@ -283,7 +283,7 @@ export class WatchAndShopService {
 
     updatedBy: string,
 
-    uploadedMediaUrl?: string,
+    uploadedMediaUrl?: string | null,
 
   ): Promise<IWatchAndShopItem> {
 
@@ -544,7 +544,7 @@ export class WatchAndShopService {
 
     dto: CreateWatchAndShopItemDto,
 
-    uploadedMediaUrl?: string,
+    uploadedMediaUrl?: string | null,
 
     existingMediaUrl?: string | IStorageFileReference | null,
 

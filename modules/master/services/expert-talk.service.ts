@@ -99,7 +99,7 @@ export class ExpertTalkService {
   async create(
     dto: CreateExpertTalkItemDto,
     createdBy: string,
-    uploadedThumbnail?: string,
+    uploadedThumbnail?: string | null,
   ): Promise<IExpertTalkItem> {
     const normalized = this.normalizeDto(dto, uploadedThumbnail);
 
@@ -151,7 +151,7 @@ export class ExpertTalkService {
     refId: string,
     dto: UpdateExpertTalkItemDto,
     updatedBy: string,
-    uploadedThumbnail?: string,
+    uploadedThumbnail?: string | null,
   ): Promise<IExpertTalkItem> {
     const existing = await this.expertTalkRepository.findByRefId(refId);
     if (!existing) {
@@ -314,7 +314,7 @@ export class ExpertTalkService {
 
   private normalizeDto(
     dto: CreateExpertTalkItemDto,
-    uploadedThumbnail?: string,
+    uploadedThumbnail?: string | null,
     existingThumbnail?: ExpertTalkItemEntity['thumbnail'],
   ): {
     title: string;

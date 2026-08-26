@@ -169,7 +169,7 @@ export class HealthConcernsService {
     refId: string,
     dto: UpdateHealthConcernDto,
     updatedBy: string,
-    media: { icon?: string; banner?: string } = {},
+    media: { icon?: string | null; banner?: string | null } = {},
   ): Promise<IHealthConcern> {
     const existing = await this.healthConcernsRepository.findByRefId(refId);
     if (!existing) {
