@@ -38,6 +38,11 @@ import {
   buildProductPermalink,
 } from '../utils/category-permalink.util';
 import { buildProductPageUrlLookupCandidates } from '../utils/product-page-url-lookup.util';
+import {
+  decodeProductUrlEncoding,
+  sanitizeProductPagePath,
+  sanitizeProductSlugSegment,
+} from '@modules/product/utils/sanitize-product-url.util';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category-filters-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
@@ -382,46 +387,94 @@ export class PublicProductsService {
 
   async findBySlug(slugOrPath: string): Promise<IPublicProductDetail> {
     const tDb = Date.now();
-    const key = decodeURIComponent(String(slugOrPath ?? '').trim());
-    const cacheKey = CacheKeys.publicProducts.detail(key);
+    const key = decodeProductUrlEncoding(String(slugOrPath ?? '').trim());
+    const sanitizedPath = key.includes('/') ? sanitizeProductPagePath(key) : '';
+    const sanitizedSlug = key.includes('/')
+      ? sanitizeProductSlugSegment(key.split('/').filter(Boolean).pop() ?? '')
+      : sanitizeProductSlugSegment(key);
+    const slugKeys = Array.from(
+      new Set(
+        [
+          key,
+          sanitizedSlug,
+          // Pre-migration DB may still store hex leftovers or percent-encoding.
+          sanitizedSlug.replace(/-inches/gi, 'e280b3').replace(/-degree/gi, 'cb9a'),
+          sanitizedSlug.replace(/-inches/gi, '%e2%80%b3').replace(/-degree/gi, '%cb%9a'),
+        ].filter(Boolean),
+      ),
+    );
+    const cacheKey = CacheKeys.publicProducts.detail(sanitizedPath || sanitizedSlug || key);
     const raw = await this.cacheStrategy.cacheAside({
       key: cacheKey,
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const byProductSlug = await this.productsRepository.findPublishedBySlug(key);
-        if (byProductSlug) {
-          const detail = mapProductEntityToPublicDetail(byProductSlug);
-          const matchedVariant =
-            detail.variants.find((variant) => variant.slug === key) ??
-            pickPreferredPublicVariant(detail.variants);
-          this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
-          if (!matchedVariant) {
-            return detail;
+        const resolvePermalink = (
+          productPageUrl: string | null | undefined,
+          categorySlugPath: string[],
+          slug: string,
+        ): string => {
+          const cleanedPageUrl = productPageUrl?.trim()
+            ? sanitizeProductPagePath(productPageUrl.trim())
+            : '';
+          if (cleanedPageUrl) return cleanedPageUrl;
+          return buildProductPermalink(
+            categorySlugPath,
+            sanitizeProductSlugSegment(slug) || slug,
+          );
+        };
+
+        for (const slugKey of slugKeys) {
+          const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
+          if (byProductSlug) {
+            const detail = mapProductEntityToPublicDetail(byProductSlug);
+            const matchedVariant =
+              detail.variants.find((variant) =>
+                slugKeys.includes(variant.slug) ||
+                slugKeys.includes(sanitizeProductSlugSegment(variant.slug)),
+              ) ?? pickPreferredPublicVariant(detail.variants);
+            this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
+            if (!matchedVariant) {
+              return detail;
+            }
+            return {
+              ...detail,
+              selectedVariantId: matchedVariant.id,
+              selectedVariantSlug: sanitizeProductSlugSegment(matchedVariant.slug) || matchedVariant.slug,
+              permalink: resolvePermalink(
+                matchedVariant.productPageUrl,
+                detail.categorySlugPath,
+                matchedVariant.slug,
+              ),
+            };
           }
-          return {
-            ...detail,
-            selectedVariantId: matchedVariant.id,
-            selectedVariantSlug: matchedVariant.slug,
-            permalink:
-              matchedVariant.productPageUrl ||
-              buildProductPermalink(detail.categorySlugPath, matchedVariant.slug),
-          };
         }
 
-        const byVariantSlug = await this.productsRepository.findPublishedByVariantSlug(key);
-        if (byVariantSlug) {
-          const detail = mapProductEntityToPublicDetail(byVariantSlug);
-          const matchedVariant = detail.variants.find((variant) => variant.slug === key);
-          this.logger.log(`[PERF] findBySlug (via variant) | DB query: ${Date.now() - tDb}ms`);
-          const selectedVariantSlug = matchedVariant?.slug ?? key;
-          return {
-            ...detail,
-            selectedVariantId: matchedVariant?.id ?? null,
-            selectedVariantSlug,
-            permalink:
-              matchedVariant?.productPageUrl ||
-              buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
-          };
+        for (const slugKey of slugKeys) {
+          const byVariantSlug =
+            await this.productsRepository.findPublishedByVariantSlug(slugKey);
+          if (byVariantSlug) {
+            const detail = mapProductEntityToPublicDetail(byVariantSlug);
+            const matchedVariant = detail.variants.find(
+              (variant) =>
+                slugKeys.includes(variant.slug) ||
+                slugKeys.includes(sanitizeProductSlugSegment(variant.slug)),
+            );
+            this.logger.log(`[PERF] findBySlug (via variant) | DB query: ${Date.now() - tDb}ms`);
+            const selectedVariantSlug =
+              sanitizeProductSlugSegment(matchedVariant?.slug ?? slugKey) ||
+              matchedVariant?.slug ||
+              slugKey;
+            return {
+              ...detail,
+              selectedVariantId: matchedVariant?.id ?? null,
+              selectedVariantSlug,
+              permalink: resolvePermalink(
+                matchedVariant?.productPageUrl,
+                detail.categorySlugPath,
+                selectedVariantSlug,
+              ),
+            };
+          }
         }
 
         for (const candidate of buildProductPageUrlLookupCandidates(key)) {
@@ -443,15 +496,20 @@ export class PublicProductsService {
           this.logger.log(
             `[PERF] findBySlug (via product_page_url) | DB query: ${Date.now() - tDb}ms`,
           );
-          const selectedVariantSlug = matchedVariant?.slug ?? key;
-        return {
-          ...detail,
-          selectedVariantId: matchedVariant?.id ?? null,
+          const selectedVariantSlug =
+            sanitizeProductSlugSegment(matchedVariant?.slug ?? key) ||
+            matchedVariant?.slug ||
+            key;
+          return {
+            ...detail,
+            selectedVariantId: matchedVariant?.id ?? null,
             selectedVariantSlug,
-            permalink:
-              matchedVariant?.productPageUrl ||
-              buildProductPermalink(detail.categorySlugPath, selectedVariantSlug),
-        };
+            permalink: resolvePermalink(
+              matchedVariant?.productPageUrl,
+              detail.categorySlugPath,
+              selectedVariantSlug,
+            ),
+          };
         }
 
         throw new NotFoundException(`Product with slug "${key}" not found`);

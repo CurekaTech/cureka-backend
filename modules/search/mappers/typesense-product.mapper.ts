@@ -4,6 +4,7 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { extractDescriptionFromProductInformation } from '@modules/product/utils/variant-details-payload.util';
+import { sanitizeProductPagePath, sanitizeProductSlugSegment } from '@modules/product/utils/sanitize-product-url.util';
 import { buildProductDocumentId, buildVariantDocumentId } from '../constants/typesense-document-id.constant';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
@@ -87,11 +88,13 @@ function mapVariantToTypesenseDocument(
     id: buildVariantDocumentId(variant.id),
     refId: product.refId,
     variantId: variant.id,
-    variantSlug: variant.slug,
-    productPageUrl: variant.productPageUrl?.trim() || undefined,
+    variantSlug: sanitizeProductSlugSegment(variant.slug) || variant.slug,
+    productPageUrl: variant.productPageUrl?.trim()
+      ? sanitizeProductPagePath(variant.productPageUrl.trim()) || undefined
+      : undefined,
     entityType: SEARCH_ENTITY_TYPES.PRODUCT,
     name: buildVariantSearchTitle(product, variant),
-    slug: variant.slug,
+    slug: sanitizeProductSlugSegment(variant.slug) || variant.slug,
     sku: variant.sku?.trim() || undefined,
     brand: shared.brand,
     category: shared.category,
