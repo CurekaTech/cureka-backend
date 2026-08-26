@@ -28,10 +28,22 @@ import {
   buildProductCategorySlugPathFromRelations,
   buildProductPermalink,
 } from '../utils/category-permalink.util';
+import {
+  sanitizeProductPagePath,
+  sanitizeProductSlugSegment,
+} from '@modules/product/utils/sanitize-product-url.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
   return typeof value === 'number' ? value : parseFloat(value);
+};
+
+const sanitizePublicProductPageUrl = (
+  value: string | null | undefined,
+): string | null => {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return sanitizeProductPagePath(trimmed) || trimmed;
 };
 
 const getActiveVariants = (entity: ProductEntity) =>
@@ -405,7 +417,7 @@ export const mapVariantEntityToPublicSearchItem = (
     name: variant.displayName?.trim() || product.name,
     productSlug: product.slug,
     variantSlug: variant.slug,
-    productPageUrl: variant.productPageUrl ?? null,
+    productPageUrl: sanitizePublicProductPageUrl(variant.productPageUrl),
     primaryImageUrl: getVariantPrimaryImageUrl(product, variant.id),
     category: mapCategorySummary(product.category),
     subCategory: mapCategorySummary(product.subCategory),
@@ -443,7 +455,7 @@ export const mapVariantEntitiesToPublicSearchItems = (
 export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProductCard => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
-  const productPageUrl = listVariant?.productPageUrl ?? null;
+  const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
   const outOfStock = listVariant?.outOfStock ?? false;
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   return {
@@ -573,8 +585,9 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     return activeVariants.map((variant) => ({
       id: variant.id,
       sku: variant.sku,
-      slug: variant.slug,
+      slug: sanitizeProductSlugSegment(variant.slug) || variant.slug,
       ...mapVariantEntityToDetailFields(variant),
+      productPageUrl: sanitizePublicProductPageUrl(variant.productPageUrl),
       subscriptionEnabled: commerceFlags.subscriptionEnabled,
       codAvailable: commerceFlags.codAvailable,
       emiAvailable: commerceFlags.emiAvailable,
