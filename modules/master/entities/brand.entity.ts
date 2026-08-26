@@ -18,6 +18,10 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  /** Soft-hides `banner` in API responses without clearing DB/GCS data. */
+  @Column({ name: 'banner_deleted_at', type: 'timestamptz', nullable: true })
+  bannerDeletedAt!: Date | null;
+
   @Column(storageFileReferenceColumn())
   video!: IStorageFileReference | null;
 

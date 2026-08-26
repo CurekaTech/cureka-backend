@@ -1,6 +1,11 @@
 import { BrandEntity } from '../entities/brand.entity';
 import { IBrand } from '../interfaces/brand.interface';
 
+/** Hide soft-deleted banner from API consumers; DB/GCS values stay intact. */
+export const resolveBrandBannerForResponse = (
+  entity: Pick<BrandEntity, 'banner' | 'bannerDeletedAt'>,
+): BrandEntity['banner'] => (entity.bannerDeletedAt ? null : entity.banner);
+
 export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
   ({
     id: entity.id,
@@ -8,7 +13,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
     name: entity.name,
     slug: entity.slug,
     logo: entity.logo,
-    banner: entity.banner,
+    banner: resolveBrandBannerForResponse(entity),
     video: entity.video,
     featuredBanner: entity.featuredBanner,
     promotionalBanner: entity.promotionalBanner,
