@@ -46,6 +46,8 @@
     "bulk-upload:cancel": "ts-node -r tsconfig-paths/register apps/api/database/scripts/cancel-bulk-upload.runner.ts",
     "gokwik:test-credentials": "ts-node -r tsconfig-paths/register apps/api/database/scripts/gokwik-test-credentials.runner.ts",
     "user:purge": "ts-node -r tsconfig-paths/register apps/api/database/scripts/user-purge.runner.ts",
+    "brand:banner-soft-delete": "ts-node -r tsconfig-paths/register apps/api/database/scripts/brand-banner-soft-delete.runner.ts",
+    "brand:banner-soft-delete-rollback": "ts-node -r tsconfig-paths/register apps/api/database/scripts/brand-banner-soft-delete.runner.ts --rollback",
     "redis:dev": "docker compose -f docker-compose.dev.yml up redis -d",
     "db:dev": "docker compose -f docker-compose.dev.yml up -d"
   },
