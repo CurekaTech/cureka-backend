@@ -141,6 +141,8 @@ export type BobFulfillmentPayload = {
     tracking_company_name: string;
     shipping_status: string;
   };
+  /** Required by BOB fulfillments-create schema (root-level, not only customer.phone). */
+  phone: string;
   fulfilled_at: string;
 };
 

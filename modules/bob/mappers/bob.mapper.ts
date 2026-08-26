@@ -200,6 +200,7 @@ export function mapBobFulfillment(
   imageByKey?: Map<string, string>,
 ): BobFulfillmentPayload {
   const names = (order.recipientName ?? '').trim().split(/\s+/);
+  const phone = order.phoneNumber ?? '';
   return {
     fulfillment_id: shipment.id,
     id: order.id,
@@ -209,7 +210,7 @@ export function mapBobFulfillment(
       email: order.user?.email ?? '',
       first_name: names[0] ?? '',
       last_name: names.slice(1).join(' '),
-      phone: order.phoneNumber,
+      phone,
     },
     order_details: {
       total_price: Number(order.grandTotal),
@@ -223,6 +224,7 @@ export function mapBobFulfillment(
       tracking_company_name: shipment.courierName ?? '',
       shipping_status: mapBobEventStatus(shipment.shipmentStatus),
     },
+    phone,
     fulfilled_at: (shipment.pushedAt ?? shipment.updatedAt).toISOString(),
   };
 }
