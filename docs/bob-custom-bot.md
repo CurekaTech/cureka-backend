@@ -25,11 +25,11 @@ You (WhatsApp)  →  Cureka WhatsApp number
               BOB_NOTIFY_URL
               /orders-create  /orders-cancelled
               /fulfillments-create (once, on Dispatched)
-              /abandoned-cart
+              (BOB pulls) GET /api/v1/bob/webhooks/abandoned-cart
                       │
                       ▼
               BOB sends WhatsApp templates
-              (order confirmation, cancel, shipped)
+              (order confirmation, cancel, shipped, cart recovery)
               Do NOT call /wabiz/send from Cureka
 ```
 
@@ -130,10 +130,10 @@ This is **not** [Send a Template `/wabiz/send`](https://resources.businessonbot.
 
 | When | Path | WhatsApp BOB should send |
 |---|---|---|
-| Website / GoKwik / BOB / subscription / payment-request order is placed | `POST /orders-create` | Order confirmation (message 1) |
+| Website / GoKwik / BOB / subscription / payment-request order is placed | `POST /orders-create` (`fullyPaid: true` prepaid, `false` COD) | Order confirmation (message 1) |
 | Order cancelled (website, admin, or bot `/bob/cancel-order`) | `POST /orders-cancelled` | Cancel |
 | First time shipment reaches **Dispatched** (or later) with AWB — usually Shipway webhook | `POST /fulfillments-create` | Shipped / tracking (message 2) |
-| GoKwik abandoned-cart webhook | `POST /abandoned-cart` | Cart recovery |
+| BOB pulls Cureka carts via `GET /api/v1/bob/webhooks/abandoned-cart` | (BOB sends WhatsApp) | Cart recovery |
 
 **Two WhatsApp messages per order (happy path):** `/orders-create` on place + `/fulfillments-create` once on Dispatched. We do **not** call `/fulfillments-events-create` (avoids extra OFD/Delivered WhatsApps). Shipway webhooks still update the 4-step tracker: Confirmed → Dispatched → Out for Delivery → Delivered.
 
@@ -213,9 +213,20 @@ Place a normal website/GoKwik order with a phone that can receive Cureka WhatsAp
 2. On **first** transition into Dispatched (with AWB) we POST `/fulfillments-create` → shipped WhatsApp (if that notification is on in BOB). Later OFD/Delivered updates do **not** call BOB again for WhatsApp.
 3. Cancel from admin or WhatsApp → `/orders-cancelled`.
 
-### F. Abandoned cart (optional)
+### F. Abandoned cart (Cureka user carts → BOB)
 
-GoKwik abandon webhook → we POST `/abandoned-cart`. Needs `STOREFRONT_URL` for recovery link.
+Independent of GoKwik. BOB calls Cureka with webhook secret and receives abandoned **user cart** payloads.
+
+```
+GET https://<api-host>/api/v1/bob/webhooks/abandoned-cart
+Header: x-bob-webhook-secret: <BOB_WEBHOOK_SECRET>
+```
+
+Optional: `?page=1&limit=20&fromDate=&toDate=&search=`  
+One cart: `GET /api/v1/bob/webhooks/abandoned-cart/:refId`
+
+Env: `BOB_WEBHOOK_SECRET`. Recovery link uses `STOREFRONT_URL/cart`.  
+GoKwik abandoned-cart webhooks are unchanged and separate.
 
 ---
 

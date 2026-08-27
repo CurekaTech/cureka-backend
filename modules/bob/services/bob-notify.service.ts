@@ -192,6 +192,7 @@ export class BobNotifyService implements OnModuleInit {
     hasEmail?: boolean;
     lineItemCount?: number;
     fulfillmentStatus?: string;
+    fullyPaid?: boolean;
   } {
     const row = payload as Record<string, unknown>;
     const shipping = this.asRecord(row['shippingAddress']);
@@ -209,6 +210,7 @@ export class BobNotifyService implements OnModuleInit {
       lineItemCount: Array.isArray(lineItems) ? lineItems.length : undefined,
       fulfillmentStatus:
         typeof row['status'] === 'string' ? row['status'] : undefined,
+      fullyPaid: typeof row['fullyPaid'] === 'boolean' ? row['fullyPaid'] : undefined,
     };
   }
 

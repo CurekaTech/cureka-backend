@@ -77,6 +77,8 @@ async function bootstrap(): Promise<void> {
       'x-correlation-id',
       'x-guest-id',
       'x-bob-api-key',
+      'x-bob-webhook-secret',
+      'x-webhook-secret',
     ],
     exposedHeaders: ['Set-Cookie', 'Content-Disposition', 'Content-Length', 'x-request-id'],
   });

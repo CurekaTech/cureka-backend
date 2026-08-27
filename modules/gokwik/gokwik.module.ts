@@ -87,6 +87,12 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
     GokwikCancelListener,
     GokwikProcessor,
   ],
-  exports: [GokwikApiService, GokwikRepository, GokwikQueueService, GokwikWebhookService],
+  exports: [
+    GokwikApiService,
+    GokwikRepository,
+    GokwikQueueService,
+    GokwikWebhookService,
+    GokwikCallbackGuard,
+  ],
 })
 export class GokwikModule {}
