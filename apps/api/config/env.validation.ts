@@ -184,6 +184,7 @@ export const envValidationSchema = Joi.object({
   BOB_API_KEY: Joi.string().allow('').optional(),
   BOB_AUTH_REQUIRED: Joi.string().valid('true', 'false').optional(),
   BOB_NOTIFY_URL: Joi.string().uri().allow('').optional(),
+  BOB_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   BOB_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
   // Legacy Send-a-Template env — ignored. Do not call /wabiz/send.
   WHATSAPP_ENABLED: Joi.string().valid('true', 'false').optional(),
