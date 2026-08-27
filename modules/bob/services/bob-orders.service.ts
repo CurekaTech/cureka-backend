@@ -141,18 +141,36 @@ export class BobOrdersService {
 
     const paymentPending = dto.paymentPending === true;
     const paymentId = dto.paymentId?.trim() || null;
+    // Prepaid: has paymentId, or paymentPending explicitly false (card/UPI paid).
+    // COD: paymentPending true, or neither flag/id (legacy).
+    const isPrepaid = Boolean(paymentId) || dto.paymentPending === false;
+
     this.logger.log(
-      { orderId, paymentPending, hasPaymentId: Boolean(paymentId) },
+      {
+        orderId,
+        paymentPending,
+        isPrepaid,
+        hasPaymentId: Boolean(paymentId),
+        paymentIdPreview: paymentId ? `${paymentId.slice(0, 6)}…` : null,
+      },
       '[BOB inbound] place-order — will notify BOB /orders-create after PROCESSING',
     );
 
     const order = await this.ordersService.placeBobOrder({
       orderId,
       paymentId: paymentPending ? null : paymentId,
+      isPrepaid,
     });
 
     this.logger.log(
-      { orderId: order.id, orderNumber: order.orderNumber, status: 'processing' },
+      {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        status: 'processing',
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        isPrepaid,
+      },
       '[BOB inbound] place-order done',
     );
 
