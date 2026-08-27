@@ -369,9 +369,10 @@ export class GokwikOrderService {
           paymentMethod,
           paymentStatus,
           grandTotal: order.grandTotal,
+          orderStatus: order.orderStatus,
           stage: 'draft_confirmed',
         },
-        '[GoKwik] place-order draft confirmed — fulfillment kickoff + BOB notify will run from OrdersService',
+        '[GoKwik] place-order confirmDraftOrder returned — see OrdersService logs for BOB notify vs idempotent skip',
       );
 
       if (dto.shipping_address || dto.billing_address) {

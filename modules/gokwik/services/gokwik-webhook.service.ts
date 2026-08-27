@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CheckoutCartAbandonedEvent, EVENTS } from '@packages/events';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
+import { OrdersService } from '@modules/orders/services/orders.service';
 import {
   resolveOrderStatusUpdate,
   resolvePaymentStatusUpdate,
@@ -31,6 +32,8 @@ export class GokwikWebhookService {
     private readonly dataSource: DataSource,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => OrdersService))
+    private readonly ordersService: OrdersService,
   ) {}
 
   receiveTransaction(payload: GokwikTransactionWebhookDto) {
@@ -338,6 +341,7 @@ export class GokwikWebhookService {
     }
 
     const wantsConfirmed = status.includes('success') || status === 'paid';
+    let orderBecameConfirmed = false;
     if (wantsConfirmed) {
       const orderTransition = resolveOrderStatusUpdate(
         link.order.orderStatus,
@@ -345,6 +349,7 @@ export class GokwikWebhookService {
       );
       if (orderTransition.apply) {
         orderUpdate.orderStatus = orderTransition.status;
+        orderBecameConfirmed = true;
       }
     }
 
@@ -368,9 +373,39 @@ export class GokwikWebhookService {
           orderNumber: link.order.orderNumber,
           event: payload.event,
           orderStatusPushed: 'Confirmed',
+          orderBecameConfirmed,
         },
         '[GoKwik-Webhook] queued delayed updateOrder + UniCommerce push from transaction success',
       );
+
+      // Prepaid CC race: webhook often confirms BEFORE /gokwik/place-order.
+      // confirmDraftOrder then skips notify — so fire BOB WhatsApp here on first confirm.
+      if (orderBecameConfirmed) {
+        this.logger.log(
+          {
+            paymentId: data.paymentId,
+            orderId: link.orderId,
+            orderNumber: link.order.orderNumber,
+            paymentMethod: link.order.paymentMethod,
+            method: data.method,
+          },
+          '[GoKwik-Webhook] first CONFIRMED via transaction — notifying BOB /orders-create (prepaid WhatsApp)',
+        );
+        await this.ordersService.notifyOrderPlacedFromExternal(
+          link.orderId,
+          'gokwik-transaction-webhook',
+        );
+      } else {
+        this.logger.log(
+          {
+            paymentId: data.paymentId,
+            orderId: link.orderId,
+            orderNumber: link.order.orderNumber,
+            orderStatus: link.order.orderStatus,
+          },
+          '[GoKwik-Webhook] order already confirmed — skip BOB notify (place-order or prior webhook handled it)',
+        );
+      }
     }
 
     this.logger.log(
