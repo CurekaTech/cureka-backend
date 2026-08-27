@@ -147,4 +147,51 @@ describe('ShipmentMapper', () => {
       false,
     );
   });
+
+  it('uses distinct order timestamps per status-flow step', () => {
+    const confirmedAt = new Date('2026-07-17T06:00:00.000Z');
+    const shippedAt = new Date('2026-07-18T10:00:00.000Z');
+    const outForDeliveryAt = new Date('2026-07-19T08:00:00.000Z');
+    const deliveredAt = new Date('2026-07-19T18:00:00.000Z');
+
+    const response = mapDefaultShipmentResponse({
+      id: 'order-123',
+      orderNumber: 'ORD12345',
+      orderStatus: OrderStatus.DELIVERED,
+      confirmedAt,
+      shippedAt,
+      outForDeliveryAt,
+      deliveredAt,
+    });
+
+    expect(response.statusFlow.map((s) => s.happenedAt?.toISOString())).toEqual([
+      confirmedAt.toISOString(),
+      shippedAt.toISOString(),
+      outForDeliveryAt.toISOString(),
+      deliveredAt.toISOString(),
+    ]);
+  });
+
+  it('prefers order timestamps over a shared lastSyncedAt when shipwayStatus=true', () => {
+    const confirmedAt = new Date('2026-07-17T06:00:00.000Z');
+    const shippedAt = new Date('2026-07-18T10:00:00.000Z');
+    const outForDeliveryAt = new Date('2026-07-19T08:00:00.000Z');
+    const shipment = {
+      ...baseShipment,
+      shipmentStatus: ShipmentStatus.OUT_FOR_DELIVERY,
+      pushedAt: confirmedAt,
+      lastSyncedAt: new Date('2026-07-20T00:00:00.000Z'),
+      events: [],
+    } as ShipmentEntity;
+
+    const response = mapShipmentToResponse(shipment, {
+      shipwayStatus: true,
+      orderTimestamps: { confirmedAt, shippedAt, outForDeliveryAt },
+    });
+
+    expect(response.statusFlow[0].happenedAt?.toISOString()).toBe(confirmedAt.toISOString());
+    expect(response.statusFlow[1].happenedAt?.toISOString()).toBe(shippedAt.toISOString());
+    expect(response.statusFlow[2].happenedAt?.toISOString()).toBe(outForDeliveryAt.toISOString());
+    expect(response.statusFlow[3].happenedAt).toBeNull();
+  });
 });

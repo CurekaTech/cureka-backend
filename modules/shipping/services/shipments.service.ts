@@ -76,6 +76,7 @@ export class ShipmentsService {
     const response = mapShipmentToResponse(shipment, {
       shipwayStatus,
       orderStatus: order.orderStatus,
+      orderTimestamps: order,
     });
     this.logger.log(
       {

@@ -10,6 +10,10 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
+import {
+  applyOrderStatusTimestamps,
+  resolveOccurredAt,
+} from '@modules/orders/utils/order-status-timestamps.util';
 import { ShipwayStatusMapper } from '../mappers/shipway-status.mapper';
 import { HIDDEN_SHIPWAY_SCAN_STATUSES } from '../constants/shipway-status.constants';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
@@ -221,7 +225,7 @@ export class ShippingService {
       );
 
       const nextOrderStatus = ShipwayStatusMapper.toOrderStatus(shipmentStatus) ?? OrderStatus.PROCESSING;
-      await this.ordersRepository.updateById(order.id, { orderStatus: nextOrderStatus, updatedBy: 'shipway-api' }, manager);
+      await this.syncOrderStatus(order.id, shipmentStatus, manager, new Date());
       this.logger.log(
         { orderId: order.id, orderNumber: order.orderNumber, nextOrderStatus },
         'Order updated after Shipway push',
@@ -314,7 +318,12 @@ export class ShippingService {
         '[Shipway] syncShipmentStatus persisted — SHIPMENT_UPDATED emitted',
       );
       await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
-      await this.syncOrderStatus(saved.orderId, shipmentStatus, manager);
+      await this.syncOrderStatus(
+        saved.orderId,
+        shipmentStatus,
+        manager,
+        this.resolveTrackingOccurredAt(tracking, shipmentStatus),
+      );
       return saved;
     });
   }
@@ -516,7 +525,12 @@ export class ShippingService {
       if (Array.isArray(payload.scans) && payload.scans.length > 0) {
         await this.recordTrackingEvents(saved.id, payload.scans, 'webhook', manager);
       }
-      await this.syncOrderStatus(saved.orderId, mappedStatus, manager);
+      await this.syncOrderStatus(
+        saved.orderId,
+        mappedStatus,
+        manager,
+        resolveOccurredAt(payload.status_date),
+      );
       this.logger.log(
         {
           endpoint: 'POST /api/v1/shipments/webhook',
@@ -825,7 +839,12 @@ export class ShippingService {
         '[Shipway] persistTrackingUpdate persisted — SHIPMENT_UPDATED emitted',
       );
       await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
-      await this.syncOrderStatus(saved.orderId, shipmentStatus, manager);
+      await this.syncOrderStatus(
+        saved.orderId,
+        shipmentStatus,
+        manager,
+        this.resolveTrackingOccurredAt(tracking, shipmentStatus),
+      );
       return (await this.shipmentsRepository.findByOrderId(saved.orderId, manager)) ?? saved;
     });
   }
@@ -1273,6 +1292,7 @@ export class ShippingService {
     orderId: string,
     shipmentStatus: ShipmentStatus,
     manager: Parameters<OrdersRepository['updateById']>[2],
+    occurredAt?: Date | string | null,
   ) {
     const orderStatus = ShipwayStatusMapper.toOrderStatus(shipmentStatus);
     if (!orderStatus) {
@@ -1297,12 +1317,15 @@ export class ShippingService {
       shipmentStatus === ShipmentStatus.DELIVERED &&
       order.paymentStatus !== OrderPaymentStatus.PAID;
 
+    const statusAt = resolveOccurredAt(occurredAt);
+
     this.logger.log(
       {
         orderId,
         orderNumber: order.orderNumber,
         shipmentStatus,
         orderStatus,
+        statusAt: statusAt.toISOString(),
         paymentMethod: order.paymentMethod,
         previousPaymentStatus: order.paymentStatus,
         codCollectionSignalPresent: false,
@@ -1316,11 +1339,48 @@ export class ShippingService {
       orderId,
       {
         orderStatus,
+        ...applyOrderStatusTimestamps(order, orderStatus, statusAt),
         ...(shouldMarkCodPaid ? { paymentStatus: OrderPaymentStatus.PAID } : {}),
         updatedBy: 'shipway-sync',
       },
       manager,
     );
+  }
+
+  /**
+   * Prefer Shipway current_status_date, else earliest scan time that maps to this shipment status.
+   */
+  private resolveTrackingOccurredAt(
+    tracking: IShipwayTrackingResponse,
+    shipmentStatus: ShipmentStatus,
+  ): Date {
+    const fromCurrent = this.parseEventDate(tracking.current_status_date);
+    if (fromCurrent) {
+      return fromCurrent;
+    }
+
+    const events = tracking.events ?? tracking.scans ?? [];
+    let earliest: Date | null = null;
+    for (const event of events) {
+      const raw =
+        event.status ||
+        event.status_detail ||
+        event.message ||
+        event.details ||
+        event.activity ||
+        '';
+      const mapped = ShipwayStatusMapper.toShipmentStatus(raw);
+      if (mapped !== shipmentStatus) {
+        continue;
+      }
+      const at = this.parseEventDate(event.status_date ?? event.time);
+      if (!at) continue;
+      if (!earliest || at.getTime() < earliest.getTime()) {
+        earliest = at;
+      }
+    }
+
+    return earliest ?? new Date();
   }
 
   private formatShipwayDate(date: Date): string {

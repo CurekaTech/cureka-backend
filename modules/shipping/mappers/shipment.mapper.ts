@@ -37,6 +37,20 @@ export type ShipmentResponse = {
   statusFlow: ShipmentStatusFlowStep[];
 };
 
+/** Order columns preferred for per-step status-flow times. */
+export type OrderStatusFlowTimestamps = {
+  confirmedAt?: Date | null;
+  processingAt?: Date | null;
+  shippedAt?: Date | null;
+  outForDeliveryAt?: Date | null;
+  deliveredAt?: Date | null;
+  cancelledAt?: Date | null;
+  failedDeliveryAt?: Date | null;
+  rtoAt?: Date | null;
+  placedAt?: Date | null;
+  createdAt?: Date | null;
+};
+
 const STATIC_FLOW_STEPS = [
   { key: 'confirmed', label: 'Order Confirmed' },
   { key: 'dispatched', label: 'Dispatched' },
@@ -185,11 +199,135 @@ function getOrderStepIndex(orderStatus: OrderStatus | string): number {
   }
 }
 
+function earliestMatchingEvent(
+  events: ShipmentEventEntity[],
+  matchers: Array<(status: string, description: string) => boolean>,
+): Date | null {
+  let earliest: Date | null = null;
+  for (const event of events) {
+    const status = (event.status ?? '').trim().toLowerCase();
+    const description = (event.description ?? '').trim().toLowerCase();
+    if (!matchers.some((match) => match(status, description))) continue;
+    if (!event.happenedAt) continue;
+    if (!earliest || event.happenedAt.getTime() < earliest.getTime()) {
+      earliest = event.happenedAt;
+    }
+  }
+  return earliest;
+}
+
+function includesAny(haystack: string, needles: string[]): boolean {
+  return needles.some((needle) => haystack.includes(needle));
+}
+
+type ResolvedFlowTimes = {
+  confirmedAt: Date | null;
+  shippedAt: Date | null;
+  outForDeliveryAt: Date | null;
+  deliveredAt: Date | null;
+  cancelledAt: Date | null;
+  failedDeliveryAt: Date | null;
+  rtoAt: Date | null;
+};
+
+/**
+ * Prefer order timestamp columns, then matching shipment_events.happened_at.
+ * Avoids reusing a single syncedAt for every step.
+ */
+function resolveFlowTimes(
+  orderTimestamps: OrderStatusFlowTimestamps | undefined,
+  events: ShipmentEventEntity[],
+  fallbackConfirmed: Date | null,
+): ResolvedFlowTimes {
+  const confirmedAt =
+    orderTimestamps?.confirmedAt ??
+    orderTimestamps?.processingAt ??
+    orderTimestamps?.placedAt ??
+    orderTimestamps?.createdAt ??
+    fallbackConfirmed;
+
+  const shippedAt =
+    orderTimestamps?.shippedAt ??
+    earliestMatchingEvent(events, [
+      (s, d) =>
+        ['pkp', 'rpkp', 'int', 'picked up', 'in transit', 'pickup complete', 'shipment picked up'].includes(
+          s,
+        ) ||
+        includesAny(s, ['picked up', 'in transit']) ||
+        includesAny(d, ['picked up', 'in transit']),
+    ]);
+
+  const outForDeliveryAt =
+    orderTimestamps?.outForDeliveryAt ??
+    earliestMatchingEvent(events, [
+      (s, d) =>
+        ['ood', 'ofd', 'rad', 'out for delivery'].includes(s) ||
+        includesAny(s, ['out for delivery']) ||
+        includesAny(d, ['out for delivery']),
+    ]);
+
+  const deliveredAt =
+    orderTimestamps?.deliveredAt ??
+    earliestMatchingEvent(events, [
+      (s, d) => s === 'del' || s === 'delivered' || includesAny(d, ['delivered']),
+    ]);
+
+  const cancelledAt =
+    orderTimestamps?.cancelledAt ??
+    earliestMatchingEvent(events, [
+      (s, d) =>
+        ['can', 'pcan', 'cancelled', 'canceled'].includes(s) ||
+        includesAny(d, ['cancel']),
+    ]);
+
+  const failedDeliveryAt =
+    orderTimestamps?.failedDeliveryAt ??
+    earliestMatchingEvent(events, [
+      (s, d) =>
+        ['und', 'dex', 'cna', 'ndr', 'failed delivery'].includes(s) ||
+        includesAny(s, ['undeliver', 'failed']) ||
+        includesAny(d, ['undeliver', 'failed delivery']),
+    ]);
+
+  const rtoAt =
+    orderTimestamps?.rtoAt ??
+    earliestMatchingEvent(events, [
+      (s, d) =>
+        ['rto', 'rtd', 'rdel', 'rint'].includes(s) ||
+        includesAny(s, ['rto', 'return']) ||
+        includesAny(d, ['rto', 'return to origin']),
+    ]);
+
+  return {
+    confirmedAt: confirmedAt ?? null,
+    shippedAt: shippedAt ?? null,
+    outForDeliveryAt: outForDeliveryAt ?? null,
+    deliveredAt: deliveredAt ?? null,
+    cancelledAt: cancelledAt ?? null,
+    failedDeliveryAt: failedDeliveryAt ?? null,
+    rtoAt: rtoAt ?? null,
+  };
+}
+
+function stepTimeForIndex(index: number, times: ResolvedFlowTimes): Date | null {
+  switch (index) {
+    case 0:
+      return times.confirmedAt;
+    case 1:
+      return times.shippedAt;
+    case 2:
+      return times.outForDeliveryAt;
+    case 3:
+      return times.deliveredAt;
+    default:
+      return null;
+  }
+}
+
 function buildFlowFromStepIndex(
   currentIndex: number,
   isDelivered: boolean,
-  confirmedAt: Date | null,
-  syncedAt: Date | null = null,
+  times: ResolvedFlowTimes,
 ): ShipmentStatusFlowStep[] {
   return STATIC_FLOW_STEPS.map((step, index) => {
     let status: 'completed' | 'current' | 'pending' = 'pending';
@@ -197,10 +335,10 @@ function buildFlowFromStepIndex(
 
     if (isDelivered || index < currentIndex) {
       status = 'completed';
-      happenedAt = index === 0 ? confirmedAt : syncedAt ?? confirmedAt;
+      happenedAt = stepTimeForIndex(index, times);
     } else if (index === currentIndex) {
       status = currentIndex === 0 ? 'completed' : 'current';
-      happenedAt = index === 0 ? confirmedAt : syncedAt ?? confirmedAt;
+      happenedAt = stepTimeForIndex(index, times);
     }
 
     return {
@@ -217,8 +355,7 @@ function buildFlowFromStepIndex(
  */
 function buildStatusFlowFromOrderStatus(
   orderStatus: OrderStatus | string,
-  confirmedAt: Date | null,
-  syncedAt: Date | null = null,
+  times: ResolvedFlowTimes,
 ): ShipmentStatusFlowStep[] {
   if (orderStatus === OrderStatus.CANCELLED) {
     return [
@@ -226,13 +363,13 @@ function buildStatusFlowFromOrderStatus(
         key: 'confirmed',
         label: 'Order Confirmed',
         status: 'completed',
-        happenedAt: confirmedAt,
+        happenedAt: times.confirmedAt,
       },
       {
         key: 'cancelled',
         label: 'Cancelled',
         status: 'completed',
-        happenedAt: syncedAt ?? confirmedAt,
+        happenedAt: times.cancelledAt ?? times.confirmedAt,
       },
     ];
   }
@@ -243,19 +380,22 @@ function buildStatusFlowFromOrderStatus(
         key: 'confirmed',
         label: 'Order Confirmed',
         status: 'completed',
-        happenedAt: confirmedAt,
+        happenedAt: times.confirmedAt,
       },
       {
         key: 'dispatched',
         label: 'Dispatched',
         status: 'completed',
-        happenedAt: syncedAt ?? confirmedAt,
+        happenedAt: times.shippedAt ?? times.confirmedAt,
       },
       {
         key: orderStatus === OrderStatus.RTO ? 'rto' : 'failed_delivery',
         label: orderStatus === OrderStatus.RTO ? 'Returned to Origin' : 'Delivery Failed',
         status: 'completed',
-        happenedAt: syncedAt ?? confirmedAt,
+        happenedAt:
+          orderStatus === OrderStatus.RTO
+            ? times.rtoAt ?? times.shippedAt
+            : times.failedDeliveryAt ?? times.shippedAt,
       },
     ];
   }
@@ -264,15 +404,21 @@ function buildStatusFlowFromOrderStatus(
   return buildFlowFromStepIndex(
     currentIndex,
     orderStatus === OrderStatus.DELIVERED,
-    confirmedAt,
-    syncedAt,
+    times,
   );
 }
 
-function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
+function buildStatusFlow(
+  shipment: ShipmentEntity,
+  orderTimestamps?: OrderStatusFlowTimestamps,
+): ShipmentStatusFlowStep[] {
   const currentStatus = shipment.shipmentStatus;
-  const confirmedAt = shipment.pushedAt;
-  const syncedAt = shipment.lastSyncedAt;
+  const events = uniqueVisibleEvents(shipment.events ?? []);
+  const times = resolveFlowTimes(
+    orderTimestamps,
+    events,
+    shipment.pushedAt ?? shipment.lastSyncedAt ?? null,
+  );
 
   if (currentStatus === ShipmentStatus.CANCELLED) {
     return [
@@ -280,13 +426,13 @@ function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
         key: 'confirmed',
         label: 'Order Confirmed',
         status: 'completed',
-        happenedAt: confirmedAt,
+        happenedAt: times.confirmedAt,
       },
       {
         key: 'cancelled',
         label: 'Cancelled',
         status: 'completed',
-        happenedAt: syncedAt,
+        happenedAt: times.cancelledAt ?? times.confirmedAt,
       },
     ];
   }
@@ -297,19 +443,42 @@ function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
         key: 'confirmed',
         label: 'Order Confirmed',
         status: 'completed',
-        happenedAt: confirmedAt,
+        happenedAt: times.confirmedAt,
       },
       {
         key: 'dispatched',
         label: 'Dispatched',
         status: 'completed',
-        happenedAt: syncedAt ?? confirmedAt,
+        happenedAt: times.shippedAt ?? times.confirmedAt,
       },
       {
         key: 'rto',
         label: currentStatus === ShipmentStatus.RTO ? 'Returned to Origin' : 'RTO Initiated',
         status: 'completed',
-        happenedAt: syncedAt,
+        happenedAt: times.rtoAt ?? times.shippedAt,
+      },
+    ];
+  }
+
+  if (currentStatus === ShipmentStatus.FAILED_DELIVERY || currentStatus === ShipmentStatus.NDR) {
+    return [
+      {
+        key: 'confirmed',
+        label: 'Order Confirmed',
+        status: 'completed',
+        happenedAt: times.confirmedAt,
+      },
+      {
+        key: 'dispatched',
+        label: 'Dispatched',
+        status: 'completed',
+        happenedAt: times.shippedAt ?? times.confirmedAt,
+      },
+      {
+        key: 'failed_delivery',
+        label: 'Delivery Failed',
+        status: 'completed',
+        happenedAt: times.failedDeliveryAt ?? times.shippedAt,
       },
     ];
   }
@@ -317,8 +486,7 @@ function buildStatusFlow(shipment: ShipmentEntity): ShipmentStatusFlowStep[] {
   return buildFlowFromStepIndex(
     getCurrentStepIndex(currentStatus),
     currentStatus === ShipmentStatus.DELIVERED,
-    confirmedAt,
-    syncedAt,
+    times,
   );
 }
 
@@ -347,14 +515,33 @@ function orderStatusToShipmentStatus(orderStatus: OrderStatus | string): Shipmen
   }
 }
 
-export function mapDefaultShipmentResponse(order: {
-  id: string;
-  orderNumber: string;
-  orderStatus: OrderStatus | string;
-  createdAt?: Date | null;
-}): ShipmentResponse {
-  const confirmedAt = order.createdAt ?? null;
+function pickOrderTimestamps(
+  order: OrderStatusFlowTimestamps & Record<string, unknown>,
+): OrderStatusFlowTimestamps {
+  return {
+    confirmedAt: (order.confirmedAt as Date | null | undefined) ?? null,
+    processingAt: (order.processingAt as Date | null | undefined) ?? null,
+    shippedAt: (order.shippedAt as Date | null | undefined) ?? null,
+    outForDeliveryAt: (order.outForDeliveryAt as Date | null | undefined) ?? null,
+    deliveredAt: (order.deliveredAt as Date | null | undefined) ?? null,
+    cancelledAt: (order.cancelledAt as Date | null | undefined) ?? null,
+    failedDeliveryAt: (order.failedDeliveryAt as Date | null | undefined) ?? null,
+    rtoAt: (order.rtoAt as Date | null | undefined) ?? null,
+    placedAt: (order.placedAt as Date | null | undefined) ?? null,
+    createdAt: (order.createdAt as Date | null | undefined) ?? null,
+  };
+}
+
+export function mapDefaultShipmentResponse(
+  order: {
+    id: string;
+    orderNumber: string;
+    orderStatus: OrderStatus | string;
+  } & OrderStatusFlowTimestamps,
+): ShipmentResponse {
   const orderStatus = order.orderStatus;
+  const timestamps = pickOrderTimestamps(order);
+  const times = resolveFlowTimes(timestamps, [], timestamps.createdAt ?? null);
 
   return {
     refId: '',
@@ -372,23 +559,32 @@ export function mapDefaultShipmentResponse(order: {
     lastSyncedAt: null,
     events: [],
     currentStatusLabel: getFriendlyOrderStatusLabel(orderStatus),
-    statusFlow: buildStatusFlowFromOrderStatus(orderStatus, confirmedAt),
+    statusFlow: buildStatusFlowFromOrderStatus(orderStatus, times),
   };
 }
 
 export function mapShipmentToResponse(
   shipment: ShipmentEntity,
-  options: { shipwayStatus: boolean; orderStatus?: OrderStatus | string } = {
+  options: {
+    shipwayStatus: boolean;
+    orderStatus?: OrderStatus | string;
+    orderTimestamps?: OrderStatusFlowTimestamps;
+  } = {
     shipwayStatus: false,
   },
 ): ShipmentResponse {
   const events = uniqueVisibleEvents(shipment.events ?? []);
   const mappedEvents = events.map(mapShipmentEventToResponse);
   const shipwayStatus = options.shipwayStatus;
+  const orderTimestamps = options.orderTimestamps;
 
   if (!shipwayStatus) {
     const orderStatus = options.orderStatus ?? OrderStatus.CONFIRMED;
-    const confirmedAt = shipment.pushedAt ?? shipment.lastSyncedAt;
+    const times = resolveFlowTimes(
+      orderTimestamps,
+      events,
+      shipment.pushedAt ?? shipment.lastSyncedAt ?? orderTimestamps?.createdAt ?? null,
+    );
 
     return {
       refId: shipment.refId,
@@ -406,11 +602,7 @@ export function mapShipmentToResponse(
       lastSyncedAt: shipment.lastSyncedAt,
       events: mappedEvents,
       currentStatusLabel: getFriendlyOrderStatusLabel(orderStatus),
-      statusFlow: buildStatusFlowFromOrderStatus(
-        orderStatus,
-        confirmedAt,
-        shipment.lastSyncedAt,
-      ),
+      statusFlow: buildStatusFlowFromOrderStatus(orderStatus, times),
     };
   }
 
@@ -430,6 +622,6 @@ export function mapShipmentToResponse(
     lastSyncedAt: shipment.lastSyncedAt,
     events: mappedEvents,
     currentStatusLabel: getFriendlyStatusLabel(shipment.shipmentStatus),
-    statusFlow: buildStatusFlow(shipment),
+    statusFlow: buildStatusFlow(shipment, orderTimestamps),
   };
 }
