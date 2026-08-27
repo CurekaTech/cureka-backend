@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
@@ -52,6 +53,7 @@ export class PublicSearchService {
   constructor(
     private readonly typesenseClient: TypesenseClientService,
     private readonly collectionService: TypesenseCollectionService,
+    private readonly adminSettingsService: AdminSettingsService,
     private readonly productsRepository: ProductsRepository,
     private readonly brandsRepository: BrandsRepository,
     private readonly categoriesRepository: CategoriesRepository,
@@ -64,13 +66,14 @@ export class PublicSearchService {
       return [];
     }
 
-    const cacheKey = this.buildCacheKey(trimmed, perPage);
+    const useTypesense = await this.shouldUseTypesense();
+    const cacheKey = this.buildCacheKey(trimmed, perPage, useTypesense);
     const cached = this.readCache(cacheKey);
     if (cached) {
       return cached;
     }
 
-    if (this.typesenseClient.isEnabled()) {
+    if (useTypesense) {
       try {
         const merged = await this.searchWithTypesense(trimmed, perPage);
         this.writeCache(cacheKey, merged);
@@ -96,7 +99,7 @@ export class PublicSearchService {
   }
 
   async getPopular(perPage = 4): Promise<IPublicSearchResult[]> {
-    if (!this.typesenseClient.isEnabled()) {
+    if (!(await this.shouldUseTypesense())) {
       return [];
     }
 
@@ -106,26 +109,47 @@ export class PublicSearchService {
       ? config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT]
       : undefined;
 
-    const result = await this.typesenseClient
-      .getSearchClient()
-      .collections(collectionName)
-      .documents()
-      .search({
-        q: '*',
-        query_by: 'name',
-        per_page: Math.min(perPage * 3, 30),
-        exhaustive_search: false,
-        ...(filterBy ? { filter_by: filterBy } : {}),
-        ...(config.hasPopularSortField
-          ? { sort_by: `${PRODUCT_POPULAR_SORT_FIELD}:asc` }
-          : {}),
-      });
+    try {
+      const result = await this.typesenseClient
+        .getSearchClient()
+        .collections(collectionName)
+        .documents()
+        .search({
+          q: '*',
+          query_by: 'name',
+          per_page: Math.min(perPage * 3, 30),
+          exhaustive_search: false,
+          ...(filterBy ? { filter_by: filterBy } : {}),
+          ...(config.hasPopularSortField
+            ? { sort_by: `${PRODUCT_POPULAR_SORT_FIELD}:asc` }
+            : {}),
+        });
 
-    return filterDistinctMatchingProductVariants(
-      mapTypesenseHitsToSearchResults(
-        (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
-      ),
-    ).slice(0, perPage);
+      return filterDistinctMatchingProductVariants(
+        mapTypesenseHitsToSearchResults(
+          (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+        ),
+      ).slice(0, perPage);
+    } catch (error) {
+      this.logger.warn(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        '[Search] Typesense popular failed — returning empty',
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Admin Store Configuration `enableTypesense` AND Typesense env/client must both be on.
+   * Otherwise search uses native Postgres fallback; popular returns [].
+   */
+  private async shouldUseTypesense(): Promise<boolean> {
+    if (!this.typesenseClient.isEnabled()) {
+      return false;
+    }
+    return this.adminSettingsService.isTypesenseSearchEnabled();
   }
 
   private async searchWithTypesense(trimmed: string, perPage: number): Promise<IPublicSearchResult[]> {
@@ -244,8 +268,8 @@ export class PublicSearchService {
     return results;
   }
 
-  private buildCacheKey(query: string, perPage: number): string {
-    return `${query.toLowerCase()}\0${perPage}`;
+  private buildCacheKey(query: string, perPage: number, useTypesense: boolean): string {
+    return `${useTypesense ? 'ts' : 'native'}\0${query.toLowerCase()}\0${perPage}`;
   }
 
   private readCache(cacheKey: string): IPublicSearchResult[] | null {

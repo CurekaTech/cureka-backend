@@ -40,3 +40,8 @@ export class UpdateAllowGuestLoginDto {
   enabled!: boolean;
 }
 
+export class UpdateEnableTypesenseDto {
+  @IsBoolean()
+  enabled!: boolean;
+}
+

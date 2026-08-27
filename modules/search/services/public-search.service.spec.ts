@@ -1,3 +1,4 @@
+import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
@@ -16,6 +17,9 @@ describe('PublicSearchService native fallback', () => {
   const collectionService = {
     getSearchRuntimeConfig: jest.fn(),
   };
+  const adminSettingsService = {
+    isTypesenseSearchEnabled: jest.fn(),
+  };
   const productsRepository = {
     findPublishedDropdownSuggestions: jest.fn(),
   };
@@ -29,22 +33,26 @@ describe('PublicSearchService native fallback', () => {
     findPublicPaginated: jest.fn(),
   };
 
-  const service = new PublicSearchService(
-    typesenseClient as unknown as TypesenseClientService,
-    collectionService as unknown as TypesenseCollectionService,
-    productsRepository as unknown as ProductsRepository,
-    brandsRepository as unknown as BrandsRepository,
-    categoriesRepository as unknown as CategoriesRepository,
-    healthConcernsRepository as unknown as HealthConcernsRepository,
-  );
+  let service: PublicSearchService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     typesenseClient.isEnabled.mockReturnValue(false);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(false);
     productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
     brandsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
     categoriesRepository.findPublicPaginated.mockResolvedValue({ data: [] });
     healthConcernsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
+
+    service = new PublicSearchService(
+      typesenseClient as unknown as TypesenseClientService,
+      collectionService as unknown as TypesenseCollectionService,
+      adminSettingsService as unknown as AdminSettingsService,
+      productsRepository as unknown as ProductsRepository,
+      brandsRepository as unknown as BrandsRepository,
+      categoriesRepository as unknown as CategoriesRepository,
+      healthConcernsRepository as unknown as HealthConcernsRepository,
+    );
   });
 
   it('does not call native search until 3 characters when Typesense is down', async () => {
@@ -78,8 +86,20 @@ describe('PublicSearchService native fallback', () => {
     ]);
   });
 
+  it('uses native fallback when Typesense client is up but admin flag is off', async () => {
+    typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(false);
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
+
+    await service.search('vit');
+
+    expect(adminSettingsService.isTypesenseSearchEnabled).toHaveBeenCalled();
+    expect(typesenseClient.getSearchClient).not.toHaveBeenCalled();
+    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30);
+  });
   it('falls back to native search when Typesense throws', async () => {
     typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
     collectionService.getSearchRuntimeConfig.mockResolvedValue({
       hasEntityType: false,
       productQueryBy: 'name',
