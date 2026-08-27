@@ -8,5 +8,10 @@ export const bobConfig = registerAs('bob', () => ({
     process.env['BOB_AUTH_REQUIRED'] === 'true' || process.env['NODE_ENV'] === 'production',
   /** BusinessOnBot notify base, e.g. https://customstore.bonb.io/cureka — no /orders-create suffix. */
   notifyUrl: (process.env['BOB_NOTIFY_URL'] ?? '').trim(),
+  /**
+   * Shared secret for BOB → Cureka abandoned-cart webhook.
+   * Header: `x-bob-webhook-secret`. Independent of GoKwik.
+   */
+  webhookSecret: (process.env['BOB_WEBHOOK_SECRET'] ?? '').trim(),
   timeoutMs: parseInt(process.env['BOB_TIMEOUT_MS'] ?? '15000', 10),
 }));

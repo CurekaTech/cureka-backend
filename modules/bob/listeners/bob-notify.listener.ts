@@ -67,7 +67,24 @@ export class BobNotifyListener {
       }
       const shipment = await this.shipmentsRepository.findByOrderId(full.id);
       const imageByKey = await this.signOrderImages(full);
-      await this.bobNotifyService.post('/orders-create', mapBobOrder(full, shipment, imageByKey));
+      const payload = mapBobOrder(full, shipment, imageByKey);
+      this.logger.log(
+        {
+          whatsappSlot: 1,
+          whatsappKind: 'order_placed',
+          decision: 'posting',
+          api: '/orders-create',
+          orderId: full.id,
+          orderNumber: full.orderNumber,
+          paymentMethod: full.paymentMethod,
+          paymentStatus: full.paymentStatus,
+          fullyPaid: payload.fullyPaid,
+          phoneMasked: this.maskPhone(full.phoneNumber),
+          lineItemCount: payload.lineItems?.length ?? 0,
+        },
+        '[BOB notify] WhatsApp #1 /orders-create payload ready',
+      );
+      await this.bobNotifyService.post('/orders-create', payload);
       this.logger.log(
         {
           whatsappSlot: 1,
@@ -76,6 +93,9 @@ export class BobNotifyListener {
           api: '/orders-create',
           orderId: full.id,
           orderNumber: full.orderNumber,
+          paymentMethod: full.paymentMethod,
+          paymentStatus: full.paymentStatus,
+          fullyPaid: payload.fullyPaid,
           phoneMasked: this.maskPhone(full.phoneNumber),
         },
         '[BOB notify] WhatsApp #1 /orders-create handed to BobNotifyService',

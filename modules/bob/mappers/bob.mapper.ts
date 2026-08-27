@@ -3,7 +3,6 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
-import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { isCodPaymentMethod } from '@modules/orders/utils/payment-method.util';
 import { ProductEntity } from '@modules/product/entities/product.entity';
@@ -18,6 +17,7 @@ import {
 } from '@modules/public/utils/category-permalink.util';
 import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { ShipmentStatus } from '@modules/shipping/enums/shipment-status.enum';
+import { IAbandonedCartDetail } from '@modules/orders/interfaces/abandoned-cart.interface';
 import { IUser } from '@modules/users/interfaces/user.interface';
 import { IUserAddress } from '@modules/users/interfaces/user-address.interface';
 import { IStorageFileReference } from '@packages/storage';
@@ -123,13 +123,11 @@ export function mapBobOrder(
 ): BobOrderPayload {
   const cancelled = order.orderStatus === OrderStatus.CANCELLED;
   const orderAlias = toBobOrderAlias(order.orderNumber);
-  // BOB team examples send fullyPaid: true for placed orders (prepaid + COD).
-  const fullyPaid =
-    order.paymentStatus === OrderPaymentStatus.PAID ||
-    order.paymentStatus === OrderPaymentStatus.PARTIALLY_PAID ||
+  // BOB WhatsApp templates: fullyPaid true = prepaid, false = COD / partial COD.
+  const isCodLike =
     isCodPaymentMethod(order.paymentMethod) ||
-    order.paymentMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD ||
-    (order.orderStatus !== OrderStatus.PENDING && order.orderStatus !== OrderStatus.CANCELLED);
+    order.paymentMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD;
+  const fullyPaid = !isCodLike;
   return {
     id: orderAlias,
     name: orderAlias,
@@ -257,6 +255,60 @@ export function mapBobFulfillmentEvent(
     fulfillment_id: shipment.id,
     status: mapBobEventStatus(shipment.shipmentStatus),
     delivered_at: (shipment.lastSyncedAt ?? shipment.updatedAt).toISOString(),
+  };
+}
+
+/** Map Cureka storefront abandoned cart → BOB Notifications abandoned-cart shape. */
+export function mapCurekaAbandonedCartToBob(params: {
+  detail: IAbandonedCartDetail;
+  recoveryUrl: string;
+}): BobAbandonedCartPayload {
+  const { detail, recoveryUrl } = params;
+  const customer = detail.customer;
+  const cart = detail.cart;
+  const address = detail.defaultAddress ?? detail.addresses[0] ?? null;
+  const phone = String(customer.mobileNumber ?? address?.phoneNumber ?? '');
+
+  const mappedAddress = address
+    ? {
+        address: [address.addressLine1, address.addressLine2].filter(Boolean).join(', '),
+        city: address.city,
+        province: address.state,
+        country: 'India',
+        zip: address.pincode,
+      }
+    : { address: '', city: '', province: '', country: 'India', zip: '' };
+
+  return {
+    checkout_id: detail.refId,
+    cart_recovery_url: recoveryUrl,
+    line_items: (cart.items ?? []).map((item) => ({
+      id: item.variantId || item.id,
+      name: item.productName,
+      image: {
+        originalSrc: item.primaryImageUrl?.url ?? '',
+      },
+      quantity: item.quantity,
+      price: item.unitPrice,
+    })),
+    customer: {
+      email: customer.email ?? '',
+      first_name: customer.firstName ?? '',
+      last_name: customer.lastName ?? '',
+      phone,
+    },
+    order_details: {
+      total_price: cart.grandTotal,
+      total_tax: 0,
+      total_discount: cart.discountAmount ?? 0,
+      currency: 'INR',
+    },
+    address: {
+      billing_address: mappedAddress,
+      shipping_address: mappedAddress,
+    },
+    phone,
+    created_at: detail.lastActivityAt.toISOString(),
   };
 }
 
