@@ -355,6 +355,7 @@ export class GokwikWebhookService {
           orderUpdate,
           applyOrderStatusTimestamps(link.order, orderTransition.status, new Date()),
         );
+        orderBecameConfirmed = true;
       }
     }
 
