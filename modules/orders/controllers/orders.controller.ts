@@ -53,7 +53,9 @@ export class OrdersController {
   @ApiOperation({
     summary: 'List my orders',
     description:
-      'Paginated list of the authenticated user\'s orders. Supports search, status, paymentStatus, paymentMethod, date range, and sorting.',
+      'Paginated list of the authenticated user\'s orders. Supports search, status, paymentStatus, paymentMethod, date range, and sorting. ' +
+      'Each order includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt ' +
+      '(null until that status is first reached). Also see shipment.statusFlow[].happenedAt for tracking UI.',
   })
   @ResponseMessage('Orders fetched successfully')
   @Get()
@@ -62,7 +64,12 @@ export class OrdersController {
     return this.ordersService.findMyOrders(user.sub, query);
   }
 
-  @ApiOperation({ summary: 'Get my order by id' })
+  @ApiOperation({
+    summary: 'Get my order by id',
+    description:
+      'Full order detail including line items, shipment tracking, and all status timestamps ' +
+      '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt).',
+  })
   @ResponseMessage('Order fetched successfully')
   @Get(':id')
   @HttpCode(HttpStatus.OK)

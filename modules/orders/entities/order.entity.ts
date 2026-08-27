@@ -127,6 +127,34 @@ export class OrderEntity extends BaseEntity {
   placedAt!: Date | null;
 
   @Index()
+  @Column({ name: 'confirmed_at', type: 'timestamptz', nullable: true })
+  confirmedAt!: Date | null;
+
+  @Column({ name: 'processing_at', type: 'timestamptz', nullable: true })
+  processingAt!: Date | null;
+
+  @Index()
+  @Column({ name: 'shipped_at', type: 'timestamptz', nullable: true })
+  shippedAt!: Date | null;
+
+  @Index()
+  @Column({ name: 'out_for_delivery_at', type: 'timestamptz', nullable: true })
+  outForDeliveryAt!: Date | null;
+
+  @Index()
+  @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
+  deliveredAt!: Date | null;
+
+  @Column({ name: 'cancelled_at', type: 'timestamptz', nullable: true })
+  cancelledAt!: Date | null;
+
+  @Column({ name: 'failed_delivery_at', type: 'timestamptz', nullable: true })
+  failedDeliveryAt!: Date | null;
+
+  @Column({ name: 'rto_at', type: 'timestamptz', nullable: true })
+  rtoAt!: Date | null;
+
+  @Index()
   @Column({ name: 'subscription_id', type: 'uuid', nullable: true })
   subscriptionId!: string | null;
 
