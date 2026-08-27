@@ -46,7 +46,7 @@ import { OrderNotificationsService } from '@modules/notifications/services/order
 import { roundMoney, toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
-import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
+import { isCodPaymentMethod, isPrepaidPaymentMethod } from '../utils/payment-method.util';
 
 @Injectable()
 export class OrdersService {
@@ -764,14 +764,18 @@ export class OrdersService {
 
   /**
    * BOB / BusinessOnBot place-order: PENDING → PROCESSING.
-   * COD: no paymentId. Prepaid: paymentId stored as paid.
+   * COD: paymentPending / no paymentId → fullyPaid false on /orders-create.
+   * Prepaid (credit card etc.): paymentId or isPrepaid → fullyPaid true.
    */
   async placeBobOrder(params: {
     orderId: string;
     paymentId?: string | null;
+    /** When true, treat as prepaid even if paymentId is empty. */
+    isPrepaid?: boolean;
   }): Promise<OrderEntity> {
     let shouldPushFulfillment = true;
-    const isPrepaid = Boolean(params.paymentId?.trim());
+    let shouldNotify = true;
+    const isPrepaid = params.isPrepaid === true || Boolean(params.paymentId?.trim());
 
     const order = await this.dataSource.transaction(async (manager) => {
       const existing =
@@ -786,6 +790,52 @@ export class OrdersService {
         existing.orderStatus === OrderStatus.CONFIRMED
       ) {
         shouldPushFulfillment = false;
+        // Card paid after an earlier COD-style place-order: upgrade + send prepaid WhatsApp.
+        const wasCodLike =
+          isCodPaymentMethod(existing.paymentMethod) ||
+          existing.paymentStatus !== OrderPaymentStatus.PAID;
+        if (isPrepaid && wasCodLike) {
+          const paymentId = params.paymentId?.trim() || null;
+          await this.ordersRepository.updateById(
+            existing.id,
+            {
+              paymentMethod: OrderPaymentMethod.RAZORPAY,
+              paymentStatus: OrderPaymentStatus.PAID,
+              notes: paymentId
+                ? [existing.notes, `paymentId=${paymentId}`].filter(Boolean).join(' | ')
+                : existing.notes,
+              updatedBy: existing.userId,
+            },
+            manager,
+          );
+          shouldNotify = true;
+          this.logger.log(
+            {
+              orderId: existing.id,
+              orderNumber: existing.orderNumber,
+              previousPaymentMethod: existing.paymentMethod,
+              previousPaymentStatus: existing.paymentStatus,
+              hasPaymentId: Boolean(paymentId),
+            },
+            '[BOB place-order] upgraded already-placed order to prepaid — will notify /orders-create',
+          );
+          const upgraded =
+            (await this.ordersRepository.findByOrderNumber(existing.orderNumber, manager)) ??
+            existing;
+          return upgraded;
+        }
+
+        shouldNotify = false;
+        this.logger.log(
+          {
+            orderId: existing.id,
+            orderNumber: existing.orderNumber,
+            orderStatus: existing.orderStatus,
+            paymentMethod: existing.paymentMethod,
+            isPrepaid,
+          },
+          '[BOB place-order] idempotent skip — already placed, no second WhatsApp',
+        );
         return existing;
       }
 
@@ -829,8 +879,8 @@ export class OrdersService {
           paymentMethod,
           paymentStatus,
           orderStatus: OrderStatus.PROCESSING,
-          notes: isPrepaid
-            ? [existing.notes, `paymentId=${params.paymentId}`].filter(Boolean).join(' | ')
+          notes: isPrepaid && params.paymentId?.trim()
+            ? [existing.notes, `paymentId=${params.paymentId.trim()}`].filter(Boolean).join(' | ')
             : existing.notes,
           placedAt: new Date(),
           updatedBy: existing.userId,
@@ -840,6 +890,18 @@ export class OrdersService {
 
       const placed = await this.ordersRepository.findByOrderNumber(existing.orderNumber, manager);
       if (!placed) throw new NotFoundException('Order not found after place');
+
+      this.logger.log(
+        {
+          orderId: placed.id,
+          orderNumber: placed.orderNumber,
+          isPrepaid,
+          paymentMethod,
+          paymentStatus,
+          fullyPaidExpected: isPrepaid,
+        },
+        '[BOB place-order] PENDING → PROCESSING',
+      );
 
       if (!isPrepaid) {
         await this.createCodPaymentRequestForAdminList(
@@ -855,11 +917,24 @@ export class OrdersService {
         );
       }
 
+      shouldNotify = true;
       return placed;
     });
 
-    if (shouldPushFulfillment) {
+    if (shouldNotify) {
       await this.notifyOrderPlacedSafely(order, 'bob-place-order');
+    } else {
+      this.logger.log(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          paymentMethod: order.paymentMethod,
+        },
+        '[BOB place-order] skipped /orders-create notify (idempotent)',
+      );
+    }
+
+    if (shouldPushFulfillment) {
       await this.kickoffFulfillment(order.id, order.orderNumber, 'bob-place-order');
     }
 
