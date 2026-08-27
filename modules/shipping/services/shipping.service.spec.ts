@@ -188,6 +188,14 @@ describe('ShippingService webhook handling', () => {
       orderNumber: 'CUR1',
       paymentMethod: OrderPaymentMethod.COD,
       paymentStatus: OrderPaymentStatus.PENDING,
+      confirmedAt: null,
+      processingAt: null,
+      shippedAt: null,
+      outForDeliveryAt: null,
+      deliveredAt: null,
+      cancelledAt: null,
+      failedDeliveryAt: null,
+      rtoAt: null,
     } as never);
 
     const result = await service.handleShipwayWebhook({
@@ -204,6 +212,7 @@ describe('ShippingService webhook handling', () => {
       expect.objectContaining({
         orderStatus: expect.any(String),
         paymentStatus: OrderPaymentStatus.PAID,
+        deliveredAt: new Date('2026-08-11T12:00:00.000Z'),
       }),
       expect.anything(),
     );
@@ -215,6 +224,14 @@ describe('ShippingService webhook handling', () => {
       orderNumber: 'CUR1',
       paymentMethod: OrderPaymentMethod.RAZORPAY,
       paymentStatus: OrderPaymentStatus.PENDING,
+      confirmedAt: null,
+      processingAt: null,
+      shippedAt: null,
+      outForDeliveryAt: null,
+      deliveredAt: null,
+      cancelledAt: null,
+      failedDeliveryAt: null,
+      rtoAt: null,
     } as never);
 
     await service.handleShipwayWebhook({

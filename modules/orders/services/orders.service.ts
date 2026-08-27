@@ -28,6 +28,7 @@ import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderSource } from '../enums/order-source.enum';
+import { applyOrderStatusTimestamps, EMPTY_ORDER_STATUS_TIMESTAMPS } from '../utils/order-status-timestamps.util';
 import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
@@ -170,6 +171,13 @@ export class OrdersService {
           state: address.state,
           notes: dto.notes ?? null,
           placedAt: new Date(),
+          ...applyOrderStatusTimestamps(
+            EMPTY_ORDER_STATUS_TIMESTAMPS,
+            dto.paymentMethod === OrderPaymentMethod.COD
+              ? OrderStatus.CONFIRMED
+              : OrderStatus.PENDING,
+            new Date(),
+          ),
           createdBy: userId,
           updatedBy: userId,
         },
@@ -602,6 +610,7 @@ export class OrdersService {
           orderStatus: nextOrderStatus,
           notes: params.notes ?? existing.notes,
           placedAt: new Date(),
+          ...applyOrderStatusTimestamps(existing, nextOrderStatus, new Date()),
           updatedBy: userId,
         },
         manager,
@@ -833,6 +842,7 @@ export class OrdersService {
             ? [existing.notes, `paymentId=${params.paymentId}`].filter(Boolean).join(' | ')
             : existing.notes,
           placedAt: new Date(),
+          ...applyOrderStatusTimestamps(existing, OrderStatus.PROCESSING, new Date()),
           updatedBy: existing.userId,
         },
         manager,
@@ -943,6 +953,7 @@ export class OrdersService {
       ? mapShipmentToResponse(shipment, {
           shipwayStatus,
           orderStatus: order.orderStatus,
+          orderTimestamps: order,
         })
       : mapDefaultShipmentResponse(order);
 
@@ -964,6 +975,7 @@ export class OrdersService {
       ? mapShipmentToResponse(shipment, {
           shipwayStatus,
           orderStatus: order.orderStatus,
+          orderTimestamps: order,
         })
       : mapDefaultShipmentResponse(order);
 
@@ -1090,8 +1102,9 @@ export class OrdersService {
       await this.ordersRepository.updateById(
         orderId,
         {
-      orderStatus: OrderStatus.CANCELLED,
+          orderStatus: OrderStatus.CANCELLED,
           cancelReason: reason,
+          ...applyOrderStatusTimestamps(locked, OrderStatus.CANCELLED, new Date()),
           updatedBy,
         },
         manager,
@@ -1169,6 +1182,11 @@ export class OrdersService {
             params.notes ??
             `Generated from product subscription ${params.subscriptionRefId}`,
           placedAt: new Date(),
+          ...applyOrderStatusTimestamps(
+            EMPTY_ORDER_STATUS_TIMESTAMPS,
+            OrderStatus.CONFIRMED,
+            new Date(),
+          ),
           createdBy: params.createdBy ?? 'subscription-webhook',
           updatedBy: params.createdBy ?? 'subscription-webhook',
         },
@@ -1339,6 +1357,11 @@ export class OrdersService {
           state: address.state,
           notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
           placedAt: new Date(),
+          ...applyOrderStatusTimestamps(
+            EMPTY_ORDER_STATUS_TIMESTAMPS,
+            OrderStatus.CONFIRMED,
+            new Date(),
+          ),
           createdBy: params.createdBy ?? 'razorpay-webhook',
           updatedBy: params.createdBy ?? 'razorpay-webhook',
         },

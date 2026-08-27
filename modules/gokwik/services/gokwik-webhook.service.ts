@@ -8,6 +8,7 @@ import {
   resolveOrderStatusUpdate,
   resolvePaymentStatusUpdate,
 } from '@modules/orders/utils/payment-status-transition.util';
+import { applyOrderStatusTimestamps } from '@modules/orders/utils/order-status-timestamps.util';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { createHash } from 'crypto';
 import { DataSource } from 'typeorm';
@@ -345,6 +346,10 @@ export class GokwikWebhookService {
       );
       if (orderTransition.apply) {
         orderUpdate.orderStatus = orderTransition.status;
+        Object.assign(
+          orderUpdate,
+          applyOrderStatusTimestamps(link.order, orderTransition.status, new Date()),
+        );
       }
     }
 

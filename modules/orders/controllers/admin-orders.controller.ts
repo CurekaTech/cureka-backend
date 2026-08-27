@@ -32,7 +32,8 @@ export class AdminOrdersController {
   @ApiOperation({
     summary: 'List all orders (super admin)',
     description:
-      'Paginated order list with search, status filters, date range, and sorting. Search matches order refId, order number, customer name/email/phone, product name, and grand total.',
+      'Paginated order list with search, status filters, date range, and sorting. Search matches order refId, order number, customer name/email/phone, product name, and grand total. ' +
+      'Each row includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt.',
   })
   @ResponseMessage('Orders fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN)
@@ -63,7 +64,9 @@ export class AdminOrdersController {
   @ApiOperation({
     summary: 'Get order detail (super admin)',
     description:
-      'Returns full order detail including line items, customer, and shipment tracking. Accepts order UUID (`id`) or business refId (e.g. order20261234).',
+      'Returns full order detail including line items, customer, shipment tracking, and all status timestamps ' +
+      '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt). ' +
+      'Accepts order UUID (`id`) or business refId (e.g. order20261234).',
   })
   @ResponseMessage('Order fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN)
