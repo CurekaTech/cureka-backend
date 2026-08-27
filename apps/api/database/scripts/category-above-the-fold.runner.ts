@@ -307,7 +307,7 @@ const resolveHierarchy = (
 
   for (let i = 0; i < slugPath.length; i++) {
     const slug = slugPath[i];
-    const matches = index.get(lookupKey(parentId, slug)) ?? [];
+    const matches: CategoryRow[] = index.get(lookupKey(parentId, slug)) ?? [];
     if (matches.length === 0) {
       return {
         ok: false,
@@ -322,8 +322,9 @@ const resolveHierarchy = (
         detail: `${slugPath.slice(0, i + 1).join(' → ')} (${matches.length} categories with slug="${slug}" under same parent)`,
       };
     }
-    current = matches[0];
-    parentId = current.id;
+    const next = matches[0]!;
+    current = next;
+    parentId = next.id;
   }
 
   if (!current) {
