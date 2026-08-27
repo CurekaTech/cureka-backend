@@ -2,8 +2,10 @@ import { STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
+import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
+import { isCodPaymentMethod } from '@modules/orders/utils/payment-method.util';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
@@ -33,6 +35,7 @@ import {
   BobProductSummary,
   BobVariantDetail,
 } from '../interfaces/bob.interface';
+import { toBobE164Phone, toBobOrderAlias } from '../utils/bob.util';
 
 export function mapBobCategory(category: CategoryEntity): BobCategory {
   return { id: category.id, title: category.name };
@@ -119,19 +122,27 @@ export function mapBobOrder(
   imageByKey?: Map<string, string>,
 ): BobOrderPayload {
   const cancelled = order.orderStatus === OrderStatus.CANCELLED;
+  const orderAlias = toBobOrderAlias(order.orderNumber);
+  // BOB team examples send fullyPaid: true for placed orders (prepaid + COD).
+  const fullyPaid =
+    order.paymentStatus === OrderPaymentStatus.PAID ||
+    order.paymentStatus === OrderPaymentStatus.PARTIALLY_PAID ||
+    isCodPaymentMethod(order.paymentMethod) ||
+    order.paymentMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD ||
+    (order.orderStatus !== OrderStatus.PENDING && order.orderStatus !== OrderStatus.CANCELLED);
   return {
-    id: order.id,
-    name: `#${order.orderNumber}`,
+    id: orderAlias,
+    name: orderAlias,
     email: order.user?.email ?? '',
     createdAt: (order.placedAt ?? order.createdAt).toISOString(),
-    fullyPaid: order.paymentStatus === OrderPaymentStatus.PAID,
+    fullyPaid,
     cancelReason: cancelled ? order.cancelReason : null,
     cancelledAt: cancelled ? order.updatedAt.toISOString() : null,
     note: order.notes,
     channel: String(order.orderSource ?? 'Website'),
     shippingAddress: {
       name: order.recipientName,
-      phone: order.phoneNumber,
+      phone: toBobE164Phone(order.phoneNumber),
       address1: order.addressLine1,
       address2: [order.addressLine2, order.landmark].filter(Boolean).join(', '),
       city: order.city,
@@ -200,16 +211,22 @@ export function mapBobFulfillment(
   imageByKey?: Map<string, string>,
 ): BobFulfillmentPayload {
   const names = (order.recipientName ?? '').trim().split(/\s+/);
+  const phone = toBobE164Phone(order.phoneNumber);
+  const orderAlias = toBobOrderAlias(order.orderNumber);
   return {
-    fulfillment_id: shipment.id,
-    id: order.id,
-    id_alias: order.orderNumber,
+    // BOB team example uses order alias for fulfillment_id / id / id_alias.
+    fulfillment_id: orderAlias,
+    id: orderAlias,
+    id_alias: orderAlias,
     lineItems: (order.items ?? []).map((item) => mapBobLineItem(item, imageByKey)),
     customer: {
       email: order.user?.email ?? '',
       first_name: names[0] ?? '',
       last_name: names.slice(1).join(' '),
-      phone: order.phoneNumber,
+      phone,
+      orders_count: null,
+      total_spent: null,
+      last_order_id: null,
     },
     order_details: {
       total_price: Number(order.grandTotal),
@@ -221,8 +238,10 @@ export function mapBobFulfillment(
       tracking_number: shipment.awbNumber ?? '',
       tracking_url: shipment.trackingUrl ?? '',
       tracking_company_name: shipment.courierName ?? '',
-      shipping_status: mapBobEventStatus(shipment.shipmentStatus),
+      // BOB team example uses "shipped" for fulfillments-create.
+      shipping_status: 'shipped',
     },
+    phone,
     fulfilled_at: (shipment.pushedAt ?? shipment.updatedAt).toISOString(),
   };
 }
@@ -360,6 +379,42 @@ export function mapBobEventStatus(
       return 'Returned';
     default:
       return 'Dispatched';
+  }
+}
+
+/**
+ * UI step "Dispatched" and anything after it on the 4-step tracker:
+ * Confirmed → Dispatched → Out for Delivery → Delivered.
+ * Used to fire /fulfillments-create only on the first transition into this set.
+ */
+export function isBobDispatchedOrLater(
+  status: ShipmentStatus | string | null | undefined,
+): boolean {
+  switch (status) {
+    case ShipmentStatus.PICKUP_COMPLETE:
+    case ShipmentStatus.IN_TRANSIT:
+    case ShipmentStatus.OUT_FOR_DELIVERY:
+    case ShipmentStatus.DELIVERED:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Friendly 4-step tracker label for logs. */
+export function bobTrackerStepLabel(
+  status: ShipmentStatus | string | null | undefined,
+): 'Order Confirmed' | 'Dispatched' | 'Out for Delivery' | 'Delivered' {
+  switch (status) {
+    case ShipmentStatus.DELIVERED:
+      return 'Delivered';
+    case ShipmentStatus.OUT_FOR_DELIVERY:
+      return 'Out for Delivery';
+    case ShipmentStatus.PICKUP_COMPLETE:
+    case ShipmentStatus.IN_TRANSIT:
+      return 'Dispatched';
+    default:
+      return 'Order Confirmed';
   }
 }
 

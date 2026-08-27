@@ -124,9 +124,9 @@ export type BobFulfillmentPayload = {
     email: string;
     first_name: string;
     last_name: string;
-    orders_count?: number;
-    total_spent?: number;
-    last_order_id?: string;
+    orders_count?: number | null;
+    total_spent?: number | null;
+    last_order_id?: string | null;
     phone: string;
   };
   order_details: {
@@ -141,6 +141,8 @@ export type BobFulfillmentPayload = {
     tracking_company_name: string;
     shipping_status: string;
   };
+  /** Required by BOB fulfillments-create schema (root-level, not only customer.phone). */
+  phone: string;
   fulfilled_at: string;
 };
 

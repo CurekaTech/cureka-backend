@@ -24,7 +24,7 @@ You (WhatsApp)  →  Cureka WhatsApp number
                       ▼
               BOB_NOTIFY_URL
               /orders-create  /orders-cancelled
-              /fulfillments-create  /fulfillments-events-create
+              /fulfillments-create (once, on Dispatched)
               /abandoned-cart
                       │
                       ▼
@@ -130,11 +130,12 @@ This is **not** [Send a Template `/wabiz/send`](https://resources.businessonbot.
 
 | When | Path | WhatsApp BOB should send |
 |---|---|---|
-| Website / GoKwik / BOB / subscription / payment-request order is placed | `POST /orders-create` | Order confirmation |
+| Website / GoKwik / BOB / subscription / payment-request order is placed | `POST /orders-create` | Order confirmation (message 1) |
 | Order cancelled (website, admin, or bot `/bob/cancel-order`) | `POST /orders-cancelled` | Cancel |
-| Shipment has an AWB | `POST /fulfillments-create` | Shipped / tracking |
-| Shipment becomes In-transit / Delivered / Returned | `POST /fulfillments-events-create` | Delivery status |
+| First time shipment reaches **Dispatched** (or later) with AWB — usually Shipway webhook | `POST /fulfillments-create` | Shipped / tracking (message 2) |
 | GoKwik abandoned-cart webhook | `POST /abandoned-cart` | Cart recovery |
+
+**Two WhatsApp messages per order (happy path):** `/orders-create` on place + `/fulfillments-create` once on Dispatched. We do **not** call `/fulfillments-events-create` (avoids extra OFD/Delivered WhatsApps). Shipway webhooks still update the 4-step tracker: Confirmed → Dispatched → Out for Delivery → Delivered.
 
 `/order/:id`, `/personal-details`, `/get-orders`, `/cancel-order` stay **inbound** (`{{brand_domain_name}}`). BOB calls us for those.
 
@@ -208,8 +209,8 @@ Place a normal website/GoKwik order with a phone that can receive Cureka WhatsAp
 
 ### E. Tracking / cancel
 
-1. After Shipway assigns AWB, we POST `/fulfillments-create` → shipped WhatsApp (if that notification is on in BOB).
-2. In-transit / delivered / returned → `/fulfillments-events-create`.
+1. Shipway webhook/sync updates the 4-step UI: Confirmed → Dispatched → Out for Delivery → Delivered.
+2. On **first** transition into Dispatched (with AWB) we POST `/fulfillments-create` → shipped WhatsApp (if that notification is on in BOB). Later OFD/Delivered updates do **not** call BOB again for WhatsApp.
 3. Cancel from admin or WhatsApp → `/orders-cancelled`.
 
 ### F. Abandoned cart (optional)

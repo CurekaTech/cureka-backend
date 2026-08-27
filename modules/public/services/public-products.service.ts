@@ -67,6 +67,7 @@ import {
   mapProductEntityToPublicDetail,
   mapVariantEntitiesToPublicSearchItems,
   pickPreferredPublicVariant,
+  pickVariantForRequestSlug,
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
@@ -427,11 +428,14 @@ export class PublicProductsService {
           const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
           if (byProductSlug) {
             const detail = mapProductEntityToPublicDetail(byProductSlug);
+            const requestSlug = sanitizedSlug || slugKey;
             const matchedVariant =
               detail.variants.find((variant) =>
                 slugKeys.includes(variant.slug) ||
                 slugKeys.includes(sanitizeProductSlugSegment(variant.slug)),
-              ) ?? pickPreferredPublicVariant(detail.variants);
+              ) ??
+              pickVariantForRequestSlug(detail.variants, requestSlug) ??
+              pickPreferredPublicVariant(detail.variants);
             this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
             if (!matchedVariant) {
               return detail;
@@ -485,13 +489,14 @@ export class PublicProductsService {
           }
 
           const detail = mapProductEntityToPublicDetail(byPageUrl.product);
+          const requestSlug = sanitizedSlug || key;
           const matchedVariant =
-            detail.variants.find((variant) => variant.id === byPageUrl.matchedVariantId) ??
-            detail.variants.find((variant) =>
-              buildProductPageUrlLookupCandidates(variant.productPageUrl ?? '').includes(
-                candidate,
-              ),
+            pickVariantForRequestSlug(
+              detail.variants,
+              requestSlug,
+              byPageUrl.matchedVariantId,
             ) ??
+            detail.variants.find((variant) => variant.id === byPageUrl.matchedVariantId) ??
             pickPreferredPublicVariant(detail.variants);
           this.logger.log(
             `[PERF] findBySlug (via product_page_url) | DB query: ${Date.now() - tDb}ms`,

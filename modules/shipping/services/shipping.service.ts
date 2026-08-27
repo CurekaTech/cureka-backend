@@ -166,6 +166,7 @@ export class ShippingService {
 
     const rawStatus = response.awb_number ? 'Processing' : 'Confirmed';
     const shipmentStatus = ShipwayStatusMapper.toShipmentStatus(rawStatus);
+    const previousStatus = existing?.shipmentStatus ?? null;
 
     return this.dataSource.transaction(async (manager) => {
       const shipment =
@@ -205,7 +206,7 @@ export class ShippingService {
       const saved = await this.shipmentsRepository.save(shipment, manager);
       await this.eventEmitter.emitAsync(
         EVENTS.SHIPMENT_UPDATED,
-        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+        new ShipmentUpdatedEvent(saved.orderId, saved.id, previousStatus),
       );
       this.logger.log(
         {
@@ -233,9 +234,15 @@ export class ShippingService {
           shipwayShipmentId: saved.shipmentId,
           awbNumber: saved.awbNumber,
           trackingUrl: saved.trackingUrl,
+          previousStatus,
           shipmentStatus: saved.shipmentStatus,
           nextOrderStatus,
-          next: 'EVENTS.SHIPMENT_UPDATED → BOB /fulfillments-create (if AWB present)',
+          bobWhatsApp2Eligible: this.isBobDispatchedWhatsAppEligible(
+            previousStatus,
+            saved.shipmentStatus,
+            saved.awbNumber,
+          ),
+          next: 'EVENTS.SHIPMENT_UPDATED → BOB evaluates WhatsApp #2 /fulfillments-create',
         },
         '[Shipway] Push persisted successfully — SHIPMENT_UPDATED emitted',
       );
@@ -269,6 +276,8 @@ export class ShippingService {
       '[Shipway] syncShipmentStatus mapped raw → shipmentStatus',
     );
 
+    const previousStatus = shipment.shipmentStatus;
+
     return this.dataSource.transaction(async (manager) => {
       shipment.awbNumber = tracking.awb_number ?? shipment.awbNumber;
       shipment.courierName = tracking.courier_name ?? shipment.courierName;
@@ -286,7 +295,23 @@ export class ShippingService {
       const saved = await this.shipmentsRepository.save(shipment, manager);
       await this.eventEmitter.emitAsync(
         EVENTS.SHIPMENT_UPDATED,
-        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+        new ShipmentUpdatedEvent(saved.orderId, saved.id, previousStatus),
+      );
+      this.logger.log(
+        {
+          orderId: saved.orderId,
+          orderNumber: saved.orderNumber,
+          previousStatus,
+          shipmentStatus: saved.shipmentStatus,
+          awbNumber: saved.awbNumber,
+          bobWhatsApp2Eligible: this.isBobDispatchedWhatsAppEligible(
+            previousStatus,
+            saved.shipmentStatus,
+            saved.awbNumber,
+          ),
+          next: 'EVENTS.SHIPMENT_UPDATED → BOB evaluates WhatsApp #2 /fulfillments-create',
+        },
+        '[Shipway] syncShipmentStatus persisted — SHIPMENT_UPDATED emitted',
       );
       await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
       await this.syncOrderStatus(saved.orderId, shipmentStatus, manager);
@@ -475,7 +500,7 @@ export class ShippingService {
       const saved = await this.shipmentsRepository.save(shipment, manager);
       await this.eventEmitter.emitAsync(
         EVENTS.SHIPMENT_UPDATED,
-        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+        new ShipmentUpdatedEvent(saved.orderId, saved.id, previousStatus),
       );
       await this.recordShipmentEvent(
         saved.id,
@@ -503,7 +528,12 @@ export class ShippingService {
           shipwayRawStatus: saved.shipwayRawStatus,
           awbNumber: saved.awbNumber,
           orderStatusSynced: true,
-          next: 'EVENTS.SHIPMENT_UPDATED → BOB /fulfillments-create + /fulfillments-events-create (if AWB)',
+          bobWhatsApp2Eligible: this.isBobDispatchedWhatsAppEligible(
+            previousStatus,
+            saved.shipmentStatus,
+            saved.awbNumber,
+          ),
+          next: 'EVENTS.SHIPMENT_UPDATED → BOB evaluates WhatsApp #2 /fulfillments-create',
         },
         '[Shipway] Webhook applied — DB updated and SHIPMENT_UPDATED emitted',
       );
@@ -757,6 +787,8 @@ export class ShippingService {
       '[Shipway] persistTrackingUpdate mapped raw → shipmentStatus',
     );
 
+    const previousStatus = shipment.shipmentStatus;
+
     return this.dataSource.transaction(async (manager) => {
       shipment.awbNumber = tracking.awb_number ?? shipment.awbNumber;
       shipment.courierName = tracking.courier_name ?? shipment.courierName;
@@ -774,7 +806,23 @@ export class ShippingService {
       const saved = await this.shipmentsRepository.save(shipment, manager);
       await this.eventEmitter.emitAsync(
         EVENTS.SHIPMENT_UPDATED,
-        new ShipmentUpdatedEvent(saved.orderId, saved.id),
+        new ShipmentUpdatedEvent(saved.orderId, saved.id, previousStatus),
+      );
+      this.logger.log(
+        {
+          orderId: saved.orderId,
+          orderNumber: saved.orderNumber,
+          previousStatus,
+          shipmentStatus: saved.shipmentStatus,
+          awbNumber: saved.awbNumber,
+          bobWhatsApp2Eligible: this.isBobDispatchedWhatsAppEligible(
+            previousStatus,
+            saved.shipmentStatus,
+            saved.awbNumber,
+          ),
+          next: 'EVENTS.SHIPMENT_UPDATED → BOB evaluates WhatsApp #2 /fulfillments-create',
+        },
+        '[Shipway] persistTrackingUpdate persisted — SHIPMENT_UPDATED emitted',
       );
       await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
       await this.syncOrderStatus(saved.orderId, shipmentStatus, manager);
@@ -1198,6 +1246,27 @@ export class ShippingService {
       },
       manager,
     );
+  }
+
+  private isBobDispatchedWhatsAppEligible(
+    previousStatus: ShipmentStatus | string | null | undefined,
+    currentStatus: ShipmentStatus | string | null | undefined,
+    awbNumber: string | null | undefined,
+  ): boolean {
+    if (!awbNumber) return false;
+    return this.isDispatchedOrLater(currentStatus) && !this.isDispatchedOrLater(previousStatus);
+  }
+
+  private isDispatchedOrLater(status: ShipmentStatus | string | null | undefined): boolean {
+    switch (status) {
+      case ShipmentStatus.PICKUP_COMPLETE:
+      case ShipmentStatus.IN_TRANSIT:
+      case ShipmentStatus.OUT_FOR_DELIVERY:
+      case ShipmentStatus.DELIVERED:
+        return true;
+      default:
+        return false;
+    }
   }
 
   private async syncOrderStatus(

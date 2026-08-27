@@ -13,11 +13,12 @@ import { OrdersRepository } from '@modules/orders/repositories/orders.repository
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import {
+  bobTrackerStepLabel,
   collectImageRefs,
+  isBobDispatchedOrLater,
   mapBobAbandonedCart,
   mapBobEventStatus,
   mapBobFulfillment,
-  mapBobFulfillmentEvent,
   mapBobOrder,
 } from '../mappers/bob.mapper';
 import { BobNotifyService } from '../services/bob-notify.service';
@@ -34,33 +35,62 @@ export class BobNotifyListener {
     private readonly configService: ConfigService,
   ) {}
 
-  /** Notifications API: POST /orders-create → BOB sends order-confirmation WhatsApp. */
+  /** WhatsApp #1: POST /orders-create → order confirmation. */
   @OnEvent(EVENTS.ORDER_CREATED)
   async onOrderCreated(order: Pick<OrderEntity, 'id' | 'orderNumber'>): Promise<void> {
     this.logger.log(
-      { orderId: order.id, orderNumber: order.orderNumber },
-      '[BOB notify] ORDER_CREATED received — preparing /orders-create',
+      {
+        whatsappSlot: 1,
+        whatsappKind: 'order_placed',
+        decision: 'call',
+        api: '/orders-create',
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      },
+      '[BOB notify] WhatsApp #1 ORDER_CREATED — preparing /orders-create',
     );
     try {
       const full = await this.loadOrder(order.id, order.orderNumber);
       if (!full) {
         this.logger.warn(
-          { orderId: order.id, orderNumber: order.orderNumber },
-          '[BOB notify] order created but order missing — /orders-create skipped',
+          {
+            whatsappSlot: 1,
+            decision: 'skip',
+            reason: 'order_missing',
+            api: '/orders-create',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+          },
+          '[BOB notify] WhatsApp #1 skipped — order missing',
         );
         return;
       }
       const shipment = await this.shipmentsRepository.findByOrderId(full.id);
       const imageByKey = await this.signOrderImages(full);
       await this.bobNotifyService.post('/orders-create', mapBobOrder(full, shipment, imageByKey));
+      this.logger.log(
+        {
+          whatsappSlot: 1,
+          whatsappKind: 'order_placed',
+          decision: 'posted',
+          api: '/orders-create',
+          orderId: full.id,
+          orderNumber: full.orderNumber,
+          phoneMasked: this.maskPhone(full.phoneNumber),
+        },
+        '[BOB notify] WhatsApp #1 /orders-create handed to BobNotifyService',
+      );
     } catch (error) {
       this.logger.warn(
         {
+          whatsappSlot: 1,
+          decision: 'error',
+          api: '/orders-create',
           orderId: order.id,
           orderNumber: order.orderNumber,
           error: error instanceof Error ? error.message : String(error),
         },
-        '[BOB notify] /orders-create crashed (non-blocking) — WhatsApp will not send',
+        '[BOB notify] WhatsApp #1 /orders-create crashed (non-blocking) — WhatsApp will not send',
       );
     }
   }
@@ -69,24 +99,48 @@ export class BobNotifyListener {
   @OnEvent(EVENTS.ORDER_CANCELLED)
   async onOrderCancelled(event: OrderCancelledEvent): Promise<void> {
     this.logger.log(
-      { orderId: event.orderId, orderNumber: event.orderNumber },
-      '[BOB notify] ORDER_CANCELLED received — preparing /orders-cancelled',
+      {
+        whatsappKind: 'order_cancelled',
+        decision: 'call',
+        api: '/orders-cancelled',
+        orderId: event.orderId,
+        orderNumber: event.orderNumber,
+      },
+      '[BOB notify] ORDER_CANCELLED — preparing /orders-cancelled',
     );
     try {
       const full = await this.loadOrder(event.orderId, event.orderNumber);
       if (!full) {
         this.logger.warn(
-          { orderId: event.orderId, orderNumber: event.orderNumber },
-          '[BOB notify] order cancelled but order missing — /orders-cancelled skipped',
+          {
+            decision: 'skip',
+            reason: 'order_missing',
+            api: '/orders-cancelled',
+            orderId: event.orderId,
+            orderNumber: event.orderNumber,
+          },
+          '[BOB notify] /orders-cancelled skipped — order missing',
         );
         return;
       }
       const shipment = await this.shipmentsRepository.findByOrderId(full.id);
       const imageByKey = await this.signOrderImages(full);
       await this.bobNotifyService.post('/orders-cancelled', mapBobOrder(full, shipment, imageByKey));
+      this.logger.log(
+        {
+          whatsappKind: 'order_cancelled',
+          decision: 'posted',
+          api: '/orders-cancelled',
+          orderId: full.id,
+          orderNumber: full.orderNumber,
+        },
+        '[BOB notify] /orders-cancelled handed to BobNotifyService',
+      );
     } catch (error) {
       this.logger.warn(
         {
+          decision: 'error',
+          api: '/orders-cancelled',
           orderId: event.orderId,
           orderNumber: event.orderNumber,
           error: error instanceof Error ? error.message : String(error),
@@ -97,79 +151,149 @@ export class BobNotifyListener {
   }
 
   /**
-   * Notifications API: POST /fulfillments-create when AWB exists.
-   * POST /fulfillments-events-create for Delivered / In-transit / Returned.
+   * WhatsApp #2: POST /fulfillments-create once — first Dispatched (or later) + AWB.
+   * Tracker still updates Confirmed → Dispatched → OFD → Delivered from Shipway.
+   * No /fulfillments-events-create (keeps WhatsApp to 2 messages).
    */
   @OnEvent(EVENTS.SHIPMENT_UPDATED)
   async onShipmentUpdated(event: ShipmentUpdatedEvent): Promise<void> {
+    const previousStatus = event.previousStatus ?? null;
+    this.logger.log(
+      {
+        trigger: 'EVENTS.SHIPMENT_UPDATED',
+        orderId: event.orderId,
+        shipmentId: event.shipmentId,
+        previousStatus,
+        previousTrackerStep: bobTrackerStepLabel(previousStatus),
+      },
+      '[BOB notify] SHIPMENT_UPDATED received — evaluating WhatsApp #2 /fulfillments-create',
+    );
+
     try {
       const shipment = await this.shipmentsRepository.findByOrderId(event.orderId);
       const order = await this.ordersRepository.findByIdOrRefId(event.orderId);
       if (!shipment || !order) {
         this.logger.warn(
-          { orderId: event.orderId, shipmentId: event.shipmentId },
-          '[BOB notify] shipment updated but order/shipment missing',
+          {
+            whatsappSlot: 2,
+            decision: 'skip',
+            reason: 'order_or_shipment_missing',
+            orderId: event.orderId,
+            shipmentId: event.shipmentId,
+          },
+          '[BOB notify] WhatsApp #2 skipped — order/shipment missing',
         );
         return;
       }
-      if (!shipment.awbNumber) {
+
+      const currentStatus = shipment.shipmentStatus;
+      const currentTrackerStep = bobTrackerStepLabel(currentStatus);
+      const enteredDispatched =
+        isBobDispatchedOrLater(currentStatus) && !isBobDispatchedOrLater(previousStatus);
+      const hasAwb = Boolean(shipment.awbNumber);
+
+      if (!hasAwb) {
         this.logger.log(
-          { orderId: event.orderId, shipmentId: event.shipmentId },
-          '[BOB notify] shipment updated without AWB — fulfillment notify skipped',
+          {
+            whatsappSlot: 2,
+            decision: 'skip',
+            reason: 'no_awb',
+            api: '/fulfillments-create',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shipmentId: shipment.id,
+            previousStatus,
+            shipmentStatus: currentStatus,
+            previousTrackerStep: bobTrackerStepLabel(previousStatus),
+            currentTrackerStep,
+            hasAwb: false,
+          },
+          '[BOB notify] WhatsApp #2 skipped — no AWB yet (tracker may still update)',
         );
         return;
       }
-      const shippingStatus = mapBobEventStatus(shipment.shipmentStatus);
+
+      if (!enteredDispatched) {
+        this.logger.log(
+          {
+            whatsappSlot: 2,
+            decision: 'skip',
+            reason: 'not_first_dispatched_transition',
+            api: '/fulfillments-create',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shipmentId: shipment.id,
+            previousStatus,
+            shipmentStatus: currentStatus,
+            previousTrackerStep: bobTrackerStepLabel(previousStatus),
+            currentTrackerStep,
+            hasAwb: true,
+            awbNumber: shipment.awbNumber,
+            note: 'OFD/Delivered updates do not send another WhatsApp',
+          },
+          '[BOB notify] WhatsApp #2 skipped — not first Dispatched transition',
+        );
+        return;
+      }
+
       this.logger.log(
         {
+          whatsappSlot: 2,
+          whatsappKind: 'order_dispatched',
+          decision: 'call',
+          api: '/fulfillments-create',
           trigger: 'EVENTS.SHIPMENT_UPDATED',
-          sources: ['Shipway push after place-order', 'Shipway webhook POST /api/v1/shipments/webhook', 'Shipway poll sync'],
+          sources: [
+            'Shipway push after place-order',
+            'Shipway webhook POST /api/v1/shipments/webhook',
+            'Shipway poll sync',
+          ],
           orderId: order.id,
           orderNumber: order.orderNumber,
           shipmentId: shipment.id,
-          shipmentStatus: shipment.shipmentStatus,
-          shippingStatus,
+          previousStatus,
+          shipmentStatus: currentStatus,
+          previousTrackerStep: bobTrackerStepLabel(previousStatus),
+          currentTrackerStep,
+          bobShippingStatus: 'shipped',
+          mappedEventStatus: mapBobEventStatus(currentStatus),
           hasAwb: true,
           awbNumber: shipment.awbNumber,
-          apis: [
-            '/fulfillments-create',
-            ...(shippingStatus !== 'Dispatched' ? ['/fulfillments-events-create'] : []),
-          ],
+          phoneMasked: this.maskPhone(order.phoneNumber),
         },
-        '[BOB notify] SHIPMENT_UPDATED — calling BOB fulfillment APIs now',
+        '[BOB notify] WhatsApp #2 first Dispatched — calling /fulfillments-create',
       );
+
       const imageByKey = await this.signOrderImages(order);
-      await this.bobNotifyService.post(
-        '/fulfillments-create',
-        mapBobFulfillment(order, shipment, imageByKey),
-      );
-      if (shippingStatus !== 'Dispatched') {
-        await this.bobNotifyService.post(
-          '/fulfillments-events-create',
-          mapBobFulfillmentEvent(order, shipment),
-        );
-      }
+      const payload = mapBobFulfillment(order, shipment, imageByKey);
+      await this.bobNotifyService.post('/fulfillments-create', payload);
+
       this.logger.log(
         {
+          whatsappSlot: 2,
+          whatsappKind: 'order_dispatched',
+          decision: 'posted',
+          api: '/fulfillments-create',
           orderId: order.id,
           orderNumber: order.orderNumber,
-          shipmentStatus: shipment.shipmentStatus,
-          shippingStatus,
-          posted: [
-            '/fulfillments-create',
-            ...(shippingStatus !== 'Dispatched' ? ['/fulfillments-events-create'] : []),
-          ],
+          shipmentStatus: currentStatus,
+          currentTrackerStep,
+          awbNumber: shipment.awbNumber,
         },
-        '[BOB notify] fulfillment notify finished (see BobNotifyService response logs)',
+        '[BOB notify] WhatsApp #2 /fulfillments-create handed to BobNotifyService',
       );
     } catch (error) {
       this.logger.warn(
         {
+          whatsappSlot: 2,
+          decision: 'error',
+          api: '/fulfillments-create',
           orderId: event.orderId,
           shipmentId: event.shipmentId,
+          previousStatus,
           error: error instanceof Error ? error.message : String(error),
         },
-        '[BOB notify] fulfillment notify crashed (non-blocking)',
+        '[BOB notify] WhatsApp #2 fulfillment notify crashed (non-blocking)',
       );
     }
   }
@@ -177,6 +301,15 @@ export class BobNotifyListener {
   /** Notifications API: POST /abandoned-cart */
   @OnEvent(EVENTS.CHECKOUT_CART_ABANDONED)
   async onCartAbandoned(event: CheckoutCartAbandonedEvent): Promise<void> {
+    this.logger.log(
+      {
+        whatsappKind: 'abandoned_cart',
+        decision: 'call',
+        api: '/abandoned-cart',
+        checkoutId: event.checkoutId,
+      },
+      '[BOB notify] CHECKOUT_CART_ABANDONED — preparing /abandoned-cart',
+    );
     try {
       const storefront =
         this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ?? '';
@@ -192,6 +325,8 @@ export class BobNotifyListener {
     } catch (error) {
       this.logger.warn(
         {
+          decision: 'error',
+          api: '/abandoned-cart',
           checkoutId: event.checkoutId,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -205,6 +340,13 @@ export class BobNotifyListener {
       (await this.ordersRepository.findByOrderNumber(orderNumber)) ??
       (await this.ordersRepository.findByIdOrRefId(id))
     );
+  }
+
+  private maskPhone(phone: string | null | undefined): string | null {
+    const digits = String(phone ?? '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.length < 4) return '****';
+    return `${digits.slice(0, 2)}******${digits.slice(-2)}`;
   }
 
   private async signOrderImages(order: OrderEntity): Promise<Map<string, string>> {
