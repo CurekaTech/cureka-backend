@@ -255,7 +255,7 @@ export class BobNotifyListener {
           shipmentStatus: currentStatus,
           previousTrackerStep: bobTrackerStepLabel(previousStatus),
           currentTrackerStep,
-          bobShippingStatus: 'Dispatched',
+          bobShippingStatus: 'shipped',
           mappedEventStatus: mapBobEventStatus(currentStatus),
           hasAwb: true,
           awbNumber: shipment.awbNumber,
@@ -266,7 +266,6 @@ export class BobNotifyListener {
 
       const imageByKey = await this.signOrderImages(order);
       const payload = mapBobFulfillment(order, shipment, imageByKey);
-      payload.tracking_info.shipping_status = 'Dispatched';
       await this.bobNotifyService.post('/fulfillments-create', payload);
 
       this.logger.log(

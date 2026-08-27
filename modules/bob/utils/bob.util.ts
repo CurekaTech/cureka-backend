@@ -11,6 +11,26 @@ export function toBobIndianMobile(input: string): string {
   return parseIndianMobileNumber(digits);
 }
 
+/** BOB notify examples use E.164: +919150826341 */
+export function toBobE164Phone(input: string | null | undefined): string {
+  const raw = String(input ?? '').trim();
+  if (!raw) return '';
+  const digits = normalizeMobileNumber(raw);
+  const ten = digits.length >= 10 ? digits.slice(-10) : '';
+  if (ten.length === 10) {
+    return `+91${ten}`;
+  }
+  if (raw.startsWith('+')) return raw;
+  return digits ? `+${digits}` : raw;
+}
+
+/** BOB examples use id / id_alias like #ORD415182630438 */
+export function toBobOrderAlias(orderNumber: string | null | undefined): string {
+  const value = String(orderNumber ?? '').trim();
+  if (!value) return '';
+  return value.startsWith('#') ? value : `#${value}`;
+}
+
 export function parseMoneyAmount(value: string | number | undefined, fallback = 0): number {
   if (value === undefined || value === null || value === '') {
     return fallback;
