@@ -126,3 +126,15 @@ npm run product:mark-top
 npm run product:mark-top -- --apply
 
 npm run sitemap:generate -- --group=products
+
+-------------------------------------
+
+// Above the fold master data import
+# Dry-run (default)
+npm run category:above-the-fold
+
+# Apply to DB
+npm run category:above-the-fold -- --apply
+
+# Optional
+npm run category:above-the-fold -- --file="docs/Master-Data-Sheets/cureka_category_page_
