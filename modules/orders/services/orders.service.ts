@@ -480,6 +480,16 @@ export class OrdersService {
         existing.orderStatus === OrderStatus.PROCESSING
       ) {
         shouldPushFulfillment = false;
+        this.logger.warn(
+          {
+            orderId: existing.id,
+            orderNumber: existing.orderNumber,
+            orderStatus: existing.orderStatus,
+            paymentMethod: existing.paymentMethod,
+            paymentStatus: existing.paymentStatus,
+          },
+          '[GoKwik] confirmDraftOrder idempotent — already placed (likely transaction webhook raced place-order). BOB WhatsApp should come from webhook notify, not this path.',
+        );
         return existing;
       }
 
@@ -1904,6 +1914,25 @@ export class OrdersService {
         '[FULFILLMENT] Failed to enqueue UniCommerce push — check Redis (REDIS_HOST, REDIS_TLS)',
       );
     }
+  }
+
+  /**
+   * Public entry for GoKwik transaction webhook (and similar) when payment
+   * confirms the order before /gokwik/place-order finishes — otherwise BOB
+   * WhatsApp is skipped because confirmDraftOrder becomes idempotent.
+   */
+  async notifyOrderPlacedFromExternal(orderId: string, source: string): Promise<void> {
+    const order =
+      (await this.ordersRepository.findByIdOrRefId(orderId)) ??
+      (await this.ordersRepository.findByOrderNumber(orderId));
+    if (!order) {
+      this.logger.warn(
+        { orderId, source },
+        '[OrderNotify] skip — order not found for external notify',
+      );
+      return;
+    }
+    await this.notifyOrderPlacedSafely(order, source);
   }
 
   private async notifyOrderPlacedSafely(order: OrderEntity, source: string): Promise<void> {
