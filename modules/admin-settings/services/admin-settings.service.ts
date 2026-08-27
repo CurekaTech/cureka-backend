@@ -26,6 +26,8 @@ const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY, GOKWIK_CHECKOUT_E
  */
 const REQUIRED_NATIVE_PG_KEYS = ['razor_pay', 'cash_free'];
 const ALLOW_GUEST_LOGIN_KEY = 'allowGuestLogin';
+const ENABLE_TYPESENSE_KEY = 'enableTypesense';
+const STORE_CONFIGURATION_KEYS = [ALLOW_GUEST_LOGIN_KEY, ENABLE_TYPESENSE_KEY];
 
 @Injectable()
 export class AdminSettingsService {
@@ -65,6 +67,12 @@ export class AdminSettingsService {
       return response.filter((setting) => chargeKeys.includes(setting.key));
     }
 
+    if (normalizedType === 'store_configuration' || normalizedType === 'store-configuration') {
+      await Promise.all([this.ensureAllowGuestLoginSetting(), this.ensureEnableTypesenseSetting()]);
+      const refreshed = mapAdminSettingEntitiesToResponse(await this.adminSettingsRepository.findAll());
+      return refreshed.filter((setting) => STORE_CONFIGURATION_KEYS.includes(setting.key));
+    }
+
     if (normalizedType === 'logistic_partners') {
       return [];
     }
@@ -81,13 +89,36 @@ export class AdminSettingsService {
     enabled: boolean,
     updatedBy: string,
   ): Promise<{ allowGuestLogin: boolean }> {
-    const setting = await this.ensureAllowGuestLoginSetting();
+    await this.ensureAllowGuestLoginSetting();
     await this.adminSettingsRepository.updateByKey(ALLOW_GUEST_LOGIN_KEY, {
       value: enabled ? 'true' : 'false',
       status: enabled ? AdminSettingStatus.ACTIVE : AdminSettingStatus.INACTIVE,
       updatedBy,
     });
     return { allowGuestLogin: enabled };
+  }
+
+  async getEnableTypesense(): Promise<{ enableTypesense: boolean }> {
+    const setting = await this.ensureEnableTypesenseSetting();
+    return { enableTypesense: this.toBoolean(setting.value) };
+  }
+
+  async isTypesenseSearchEnabled(): Promise<boolean> {
+    const { enableTypesense } = await this.getEnableTypesense();
+    return enableTypesense;
+  }
+
+  async updateEnableTypesense(
+    enabled: boolean,
+    updatedBy: string,
+  ): Promise<{ enableTypesense: boolean }> {
+    await this.ensureEnableTypesenseSetting();
+    await this.adminSettingsRepository.updateByKey(ENABLE_TYPESENSE_KEY, {
+      value: enabled ? 'true' : 'false',
+      status: enabled ? AdminSettingStatus.ACTIVE : AdminSettingStatus.INACTIVE,
+      updatedBy,
+    });
+    return { enableTypesense: enabled };
   }
 
   async bulkUpdate(
@@ -410,6 +441,28 @@ export class AdminSettingsService {
       value: 'false',
       status: AdminSettingStatus.INACTIVE,
       description: 'Controls whether guest login is allowed on storefront.',
+      createdBy: 'system',
+      updatedBy: 'system',
+    });
+  }
+
+  private async ensureEnableTypesenseSetting(): Promise<AdminSettingEntity> {
+    const existing = await this.adminSettingsRepository.findByKey(ENABLE_TYPESENSE_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const refId = await generateUniqueRefId('SET', (candidate) =>
+      this.adminSettingsRepository.existsByRefId(candidate),
+    );
+
+    return this.adminSettingsRepository.create({
+      refId,
+      key: ENABLE_TYPESENSE_KEY,
+      value: 'false',
+      status: AdminSettingStatus.INACTIVE,
+      description:
+        'Controls whether Typesense powers storefront search. When false, native search fallback is used.',
       createdBy: 'system',
       updatedBy: 'system',
     });

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { MasterModule } from '@modules/master/master.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
@@ -13,7 +14,7 @@ import { TypesenseCollectionService } from './services/typesense-collection.serv
 import { TypesenseIndexerService } from './services/typesense-indexer.service';
 
 @Module({
-  imports: [ProductModule, MasterModule, UploadsModule],
+  imports: [ProductModule, MasterModule, UploadsModule, AdminSettingsModule],
   controllers: [PublicSearchController],
   providers: [
     TypesenseClientService,
