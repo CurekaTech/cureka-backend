@@ -33,18 +33,33 @@ export type OrderItemResponse = {
   imageUrl: string | null;
 };
 
-export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> & {
-  /** Sum of line-item quantities — matches "N Item(s)" in UI. */
-  itemCount: number;
-  /** Number of distinct line items in the order. */
-  lineItemCount: number;
-  items: OrderItemResponse[];
-  /**
-   * Tracking block for FE status UI.
-   * Always present: Shipway-driven when available, otherwise default 4-step from order status.
-   */
-  shipment: ShipmentResponse;
+/** Per-status times on the order row (set once when that status is first reached). */
+export type OrderStatusTimestampsResponse = {
+  placedAt: Date | null;
+  confirmedAt: Date | null;
+  processingAt: Date | null;
+  shippedAt: Date | null;
+  outForDeliveryAt: Date | null;
+  deliveredAt: Date | null;
+  cancelledAt: Date | null;
+  failedDeliveryAt: Date | null;
+  rtoAt: Date | null;
 };
+
+export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
+  OrderStatusTimestampsResponse & {
+    /** Sum of line-item quantities — matches "N Item(s)" in UI. */
+    itemCount: number;
+    /** Number of distinct line items in the order. */
+    lineItemCount: number;
+    items: OrderItemResponse[];
+    /**
+     * Tracking block for FE status UI.
+     * Always present: Shipway-driven when available, otherwise default 4-step from order status.
+     * `shipment.statusFlow[].happenedAt` prefers these order timestamp columns.
+     */
+    shipment: ShipmentResponse;
+  };
 
 export type AdminOrderCustomerResponse = {
   id: string;
@@ -105,10 +120,38 @@ function resolveShipmentResponse(order: OrderWithShipment): ShipmentResponse {
     return mapShipmentToResponse(order.shipment, {
       shipwayStatus: order.shipwayStatus ?? false,
       orderStatus: order.orderStatus,
+      orderTimestamps: order,
     });
   }
 
   return mapDefaultShipmentResponse(order);
+}
+
+function pickOrderStatusTimestamps(
+  order: Pick<
+    OrderEntity,
+    | 'placedAt'
+    | 'confirmedAt'
+    | 'processingAt'
+    | 'shippedAt'
+    | 'outForDeliveryAt'
+    | 'deliveredAt'
+    | 'cancelledAt'
+    | 'failedDeliveryAt'
+    | 'rtoAt'
+  >,
+): OrderStatusTimestampsResponse {
+  return {
+    placedAt: order.placedAt ?? null,
+    confirmedAt: order.confirmedAt ?? null,
+    processingAt: order.processingAt ?? null,
+    shippedAt: order.shippedAt ?? null,
+    outForDeliveryAt: order.outForDeliveryAt ?? null,
+    deliveredAt: order.deliveredAt ?? null,
+    cancelledAt: order.cancelledAt ?? null,
+    failedDeliveryAt: order.failedDeliveryAt ?? null,
+    rtoAt: order.rtoAt ?? null,
+  };
 }
 
 export async function mapOrderToResponse(
@@ -133,6 +176,7 @@ export async function mapOrderToResponse(
 
   return {
     ...orderFields,
+    ...pickOrderStatusTimestamps(order),
     itemCount,
     lineItemCount,
     items,
