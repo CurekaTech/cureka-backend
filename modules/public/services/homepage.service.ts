@@ -143,7 +143,7 @@ export class HomepageService {
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadBestSellersUncached(),
     });
-  }
+  }image.png
 
   /** Used by cache refresh after product/category mutations. */
   async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
