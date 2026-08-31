@@ -102,6 +102,22 @@ npm run product:sku-fix -- --apply --limit=10
 
 ---------------------------
 
+# Return policy from no-returnable-products sheet
+# Sheet ID → external_product_id, SKU Code → sku (BOTH must match)
+# Matches: returnAllowed=false (returnWindowDays unchanged)
+# Everyone else: returnAllowed=true, returnWindowDays=2
+
+# Dry-run first
+npm run product:return-allowed
+
+# Apply
+npm run product:return-allowed -- --apply
+
+# Optional
+npm run product:return-allowed -- --file="docs/Master-Data-Sheets/no-returnable-products-31.08.2026.xlsx" --apply
+
+---------------------------
+
 # Sitemap — exclude empty listing groups / regenerate products
 npm run sitemap:generate -- --group=categories
 npm run sitemap:generate -- --group=brands
