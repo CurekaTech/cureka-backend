@@ -21,6 +21,14 @@ export class ProductInformationItemDto {
   @IsUUID()
   id?: string;
 
+  @ApiPropertyOptional({
+    example: 'HIG20261234',
+    description: 'Master product information label refId. Resolved from label name when omitted.',
+  })
+  @IsOptional()
+  @IsRefId()
+  labelRefId?: string;
+
   @ApiProperty({ example: 'Benefits' })
   @IsNotEmpty()
   @IsString()

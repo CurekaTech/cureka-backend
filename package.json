@@ -33,6 +33,7 @@
     "listing:meta-update": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/listing-meta-update.runner.ts",
     "listing:meta-sql": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/listing-meta-update.runner.ts --sql-out=docs/Master-Data-Sheets/listing-meta-update.sql",
     "category:above-the-fold": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/category-above-the-fold.runner.ts",
+    "category:above-the-fold:fix-urls": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/fix-category-above-the-fold-urls.runner.ts",
     "product:sku-fix": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-fix.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product:backfill-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-backfill.runner.ts",

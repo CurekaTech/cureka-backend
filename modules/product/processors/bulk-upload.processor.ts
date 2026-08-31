@@ -1054,7 +1054,7 @@ export class BulkUploadProcessor extends WorkerHost {
                   : processedVariants;
 
               const normalizedProductInformation = group.productInformation.length
-                ? normalizeProductInformation(group.productInformation, labelSortOrders)
+                ? normalizeProductInformation(group.productInformation, { labelSortOrders })
                 : undefined;
               const descriptionFromProductInformation = normalizedProductInformation?.find(
                 (item) => item.label.toLowerCase().trim() === 'description',

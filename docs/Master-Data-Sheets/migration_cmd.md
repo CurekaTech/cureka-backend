@@ -129,6 +129,9 @@ npm run sitemap:generate -- --group=products
 
 -------------------------------------
 
+npm run category:above-the-fold:fix-urls          # apply fixes to sheet
+npm run category:above-the-fold:fix-urls -- --dry-run   # preview only
+
 // Above the fold master data import
 # Dry-run (default)
 npm run category:above-the-fold

@@ -27,7 +27,7 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductMasterResolverService } from '@modules/product/services/product-master-resolver.service';
 import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
-import { enrichProductInformation } from '@modules/product/utils/product-information.util';
+import { enrichPublicProductInformation } from '@modules/product/utils/product-information.util';
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -862,11 +862,11 @@ export class PublicProductsService {
       }),
     );
 
-    const labelSortOrders =
-      await this.productInformationLabelsRepository.findActiveSortOrdersByName();
-    const productInformation = enrichProductInformation(
+    const labelCatalog =
+      await this.productInformationLabelsRepository.findActiveLabelCatalog();
+    const productInformation = enrichPublicProductInformation(
       product.productInformation,
-      labelSortOrders,
+      labelCatalog,
     );
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
@@ -884,9 +884,9 @@ export class PublicProductsService {
           : null;
         return {
           ...variant,
-          productInformation: enrichProductInformation(
+          productInformation: enrichPublicProductInformation(
             variant.productInformation,
-            labelSortOrders,
+            labelCatalog,
           ),
           sizeChart: variantSizeChart,
           expiryDate: resolvePublicExpiryDate(
@@ -935,9 +935,9 @@ export class PublicProductsService {
         subscriptionEnabled,
         subscriptionConfig: sharedSubscriptionConfig,
       })),
-      productInformation: enrichProductInformation(
+      productInformation: enrichPublicProductInformation(
         merged.productInformation,
-        labelSortOrders,
+        labelCatalog,
       ),
     };
   }

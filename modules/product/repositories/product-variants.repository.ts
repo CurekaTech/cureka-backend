@@ -166,6 +166,115 @@ export class ProductVariantsRepository {
     return updatedCount;
   }
 
+  async countVariantsWithInformationLabelRefId(
+    labelRefId: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM product_variants v
+      WHERE v.product_information IS NOT NULL
+        AND jsonb_typeof(v.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(v.product_information) item
+          WHERE item->>'labelRefId' = $1::text
+        )
+      `,
+      [labelRefId],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
+  async updateProductInformationLabelByRefId(
+    labelRefId: string,
+    newLabel: string,
+    legacyLabelNames: string[],
+    manager?: EntityManager,
+  ): Promise<number> {
+    const refId = labelRefId.trim();
+    const to = newLabel.trim();
+    const legacyNames = [...new Set(legacyLabelNames.map((name) => name.trim()).filter(Boolean))];
+
+    this.logger.log(
+      `[PIL-UPDATE-BY-REF][variants] start labelRefId="${refId}" to="${to}" ` +
+        `legacyNames=[${legacyNames.join(' | ')}] hasManager=${Boolean(manager)}`,
+    );
+
+    if (!refId || !to) {
+      this.logger.warn(
+        `[PIL-UPDATE-BY-REF][variants] skipped empty labelRefId="${refId}" to="${to}"`,
+      );
+      return 0;
+    }
+
+    const runner = manager ?? this.repo.manager;
+    const beforeRefIdCount = await this.countVariantsWithInformationLabelRefId(refId, manager);
+    this.logger.log(
+      `[PIL-UPDATE-BY-REF][variants] rows with labelRefId before update: ${beforeRefIdCount}`,
+    );
+
+    const rows = (await runner.query(
+      `
+      WITH updated AS (
+        UPDATE product_variants v
+        SET
+          product_information = (
+            SELECT COALESCE(
+              jsonb_agg(
+                CASE
+                  WHEN item->>'labelRefId' = $1::text
+                    THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                  WHEN COALESCE(btrim(item->>'labelRefId'), '') = ''
+                    AND lower(btrim(item->>'label')) = ANY(
+                      SELECT lower(btrim(name)) FROM unnest($3::text[]) AS name
+                    )
+                    THEN jsonb_set(
+                      jsonb_set(item, '{label}', to_jsonb($2::text), true),
+                      '{labelRefId}', to_jsonb($1::text), true
+                    )
+                  ELSE item
+                END
+                ORDER BY ordinality
+              ),
+              '[]'::jsonb
+            )
+            FROM jsonb_array_elements(COALESCE(v.product_information, '[]'::jsonb))
+              WITH ORDINALITY AS elem(item, ordinality)
+          ),
+          updated_at = NOW()
+        WHERE v.product_information IS NOT NULL
+          AND jsonb_typeof(v.product_information) = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(v.product_information) item
+            WHERE item->>'labelRefId' = $1::text
+              OR (
+                COALESCE(btrim(item->>'labelRefId'), '') = ''
+                AND cardinality($3::text[]) > 0
+                AND lower(btrim(item->>'label')) = ANY(
+                  SELECT lower(btrim(name)) FROM unnest($3::text[]) AS name
+                )
+              )
+          )
+        RETURNING v.id
+      )
+      SELECT COUNT(*)::int AS count FROM updated
+      `,
+      [refId, to, legacyNames],
+    )) as Array<{ count: number | string }>;
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterRefIdCount = await this.countVariantsWithInformationLabelRefId(refId, manager);
+    this.logger.log(
+      `[PIL-UPDATE-BY-REF][variants] done updatedCount=${updatedCount} ` +
+        `rowsWithLabelRefIdAfter=${afterRefIdCount}`,
+    );
+    return updatedCount;
+  }
+
   /**
    * Next SKU in format CAT/BRA/NNN (first 3 letters of category + brand + sequence).
    * Same format as bulk-upload auto SKUs.
