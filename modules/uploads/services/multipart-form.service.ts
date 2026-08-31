@@ -12,6 +12,15 @@ import { UploadFolder } from '../enums/upload-folder.enum';
 
 export type MultipartFileFieldMap = Record<string, UploadFolder>;
 
+export type IndexedFileFieldRule = {
+  prefix: string;
+  folder: UploadFolder;
+};
+
+export type ParseAndValidateOptions = {
+  indexedFileFields?: IndexedFileFieldRule[];
+};
+
 /** Uploaded object path, or `null` when the client explicitly cleared the media field. */
 export type MultipartUploadedUrls = Record<string, string | null>;
 
@@ -42,11 +51,15 @@ export class MultipartFormService {
     req: FastifyRequest,
     dtoClass: ClassConstructor<T>,
     fileFields: MultipartFileFieldMap,
+    options?: ParseAndValidateOptions,
   ): Promise<{ dto: T; uploadedUrls: MultipartUploadedUrls }> {
-    const { fields, uploadedUrls } = await this.parseMultipart(req, fileFields);
+    const { fields, uploadedUrls } = await this.parseMultipart(req, fileFields, options);
     const mergedFields = this.mergeFormFields(fields);
-    this.applyMediaClearSignals(mergedFields, fileFields, uploadedUrls);
-    const dto = await this.validateDto(dtoClass, this.sanitizeDtoFields(mergedFields, fileFields));
+    this.applyMediaClearSignals(mergedFields, fileFields, uploadedUrls, options);
+    const dto = await this.validateDto(
+      dtoClass,
+      this.sanitizeDtoFields(mergedFields, fileFields, options),
+    );
     return { dto, uploadedUrls };
   }
 
@@ -93,8 +106,14 @@ export class MultipartFormService {
     fields: Record<string, string>,
     fileFields: MultipartFileFieldMap,
     uploadedUrls: MultipartUploadedUrls,
+    options?: ParseAndValidateOptions,
   ): void {
-    for (const fieldName of Object.keys(fileFields)) {
+    const fieldNames = new Set([
+      ...Object.keys(fileFields),
+      ...Object.keys(fields).filter((key) => this.isIndexedFileField(key, options)),
+    ]);
+
+    for (const fieldName of fieldNames) {
       if (Object.prototype.hasOwnProperty.call(uploadedUrls, fieldName)) continue;
       if (isMediaClearValue(fields[fieldName])) {
         uploadedUrls[fieldName] = null;
@@ -110,11 +129,12 @@ export class MultipartFormService {
   private sanitizeDtoFields(
     fields: Record<string, string>,
     fileFields: MultipartFileFieldMap,
+    options?: ParseAndValidateOptions,
   ): Record<string, string> {
     const cleaned: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(fields)) {
-      if (key in fileFields) continue;
+      if (key in fileFields || this.isIndexedFileField(key, options)) continue;
 
       const trimmed = value.trim();
       if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') continue;
@@ -125,9 +145,34 @@ export class MultipartFormService {
     return cleaned;
   }
 
+  private isIndexedFileField(fieldname: string, options?: ParseAndValidateOptions): boolean {
+    return this.resolveIndexedFolder(fieldname, options) !== undefined;
+  }
+
+  private resolveIndexedFolder(
+    fieldname: string,
+    options?: ParseAndValidateOptions,
+  ): UploadFolder | undefined {
+    for (const rule of options?.indexedFileFields ?? []) {
+      if (!fieldname.startsWith(rule.prefix)) continue;
+      const suffix = fieldname.slice(rule.prefix.length);
+      if (/^\d+$/.test(suffix)) return rule.folder;
+    }
+    return undefined;
+  }
+
+  private resolveFileFolder(
+    fieldname: string,
+    fileFields: MultipartFileFieldMap,
+    options?: ParseAndValidateOptions,
+  ): UploadFolder | undefined {
+    return fileFields[fieldname] ?? this.resolveIndexedFolder(fieldname, options);
+  }
+
   private async parseMultipart(
     req: FastifyRequest,
     fileFields: MultipartFileFieldMap,
+    options?: ParseAndValidateOptions,
   ): Promise<{ fields: Record<string, string>; uploadedUrls: MultipartUploadedUrls }> {
     const contentType = req.headers['content-type'] ?? '';
     if (!contentType.includes('multipart/form-data')) {
@@ -141,7 +186,7 @@ export class MultipartFormService {
 
     for await (const part of req.parts()) {
       if (part.type === 'file') {
-        await this.handleFilePart(part, fileFields, uploadedUrls);
+        await this.handleFilePart(part, fileFields, uploadedUrls, options);
       } else {
         const val = part.value as string;
         if (rawFields[part.fieldname]) {
@@ -165,8 +210,9 @@ export class MultipartFormService {
     part: MultipartFile,
     fileFields: MultipartFileFieldMap,
     uploadedUrls: MultipartUploadedUrls,
+    options?: ParseAndValidateOptions,
   ): Promise<void> {
-    const folder = fileFields[part.fieldname];
+    const folder = this.resolveFileFolder(part.fieldname, fileFields, options);
 
     if (!folder) {
       part.file.resume();

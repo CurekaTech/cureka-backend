@@ -17,22 +17,24 @@ import { BlogPostUpdatedEvent, EVENTS } from '@packages/events';
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { AuditService } from '@modules/master/services/audit.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
-import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
+import { MultipartFormService, MultipartUploadedUrls } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { IStorageFileReference } from '@packages/storage';
 import { mapProductEntitiesToPublicCards } from '@modules/public/mappers/public-product.mapper';
 import {
   BlogPostQueryDto,
+  BlogVideoDto,
   CreateBlogPostDto,
   PublicBlogSearchQueryDto,
   UpdateBlogPostDto,
   UpdateBlogPostStatusDto,
 } from '../dto/blog.dto';
-import { BlogPostEntity } from '../entities/blog-post.entity';
+import { BlogPostEntity, BlogPostVideo } from '../entities/blog-post.entity';
 import { BlogAuditAction } from '../enums/blog-audit-action.enum';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
+import { BlogVideoType } from '../enums/blog-video-type.enum';
 import { mapBlogPost, mapBlogPostCard, mapStorefrontBlogPost } from '../mappers/blog.mapper';
 import { BlogPostProductsRepository } from '../repositories/blog-post-products.repository';
 import { BlogPostsRepository } from '../repositories/blog-posts.repository';
@@ -43,6 +45,8 @@ const BLOG_UPLOAD_FIELDS = {
   featuredImageFile: UploadFolder.BLOG_IMAGES,
   featuredVideoFile: UploadFolder.BLOG_VIDEOS,
 } as const;
+
+const BLOG_INDEXED_VIDEO_FIELDS = [{ prefix: 'videoFile_', folder: UploadFolder.BLOG_VIDEOS }];
 
 const HEALTH_READS_HOMEPAGE_LIMIT = 3;
 
@@ -69,20 +73,18 @@ export class BlogPostsService {
       req,
       CreateBlogPostDto,
       BLOG_UPLOAD_FIELDS,
+      { indexedFileFields: BLOG_INDEXED_VIDEO_FIELDS },
     );
 
     return this.create(
       {
         ...dto,
+        videos: this.mergeUploadedVideos(dto.videos, uploadedUrls),
         ...(uploadedUrls.featuredImageFile
           ? { featuredImage: this.storageUrlEnricher.persist(uploadedUrls.featuredImageFile) }
           : {}),
-        ...(uploadedUrls.featuredVideoFile
-          ? { featuredVideo: this.storageUrlEnricher.persist(uploadedUrls.featuredVideoFile) }
-          : {}),
       } as CreateBlogPostDto & {
         featuredImage?: IStorageFileReference | null;
-        featuredVideo?: IStorageFileReference | null;
       },
       actor,
     );
@@ -91,7 +93,6 @@ export class BlogPostsService {
   private async create(
     dto: CreateBlogPostDto & {
       featuredImage?: IStorageFileReference | null;
-      featuredVideo?: IStorageFileReference | null;
     },
     actor: string,
   ) {
@@ -120,7 +121,7 @@ export class BlogPostsService {
       categoryRefId: dto.categoryRefId,
       author: dto.author ?? null,
       featuredImage: dto.featuredImage ?? null,
-      featuredVideo: dto.featuredVideo ?? null,
+      videos: this.normalizeVideos(dto.videos),
       tags: dto.tags ?? null,
       status,
       visibility: dto.visibility ?? BlogPostVisibility.PUBLIC,
@@ -439,21 +440,19 @@ export class BlogPostsService {
       req,
       UpdateBlogPostDto,
       BLOG_UPLOAD_FIELDS,
+      { indexedFileFields: BLOG_INDEXED_VIDEO_FIELDS },
     );
 
     return this.update(
       refId,
       {
         ...dto,
+        videos: this.mergeUploadedVideos(dto.videos, uploadedUrls),
         ...(uploadedUrls.featuredImageFile
           ? { featuredImage: this.storageUrlEnricher.persist(uploadedUrls.featuredImageFile) }
           : {}),
-        ...(uploadedUrls.featuredVideoFile
-          ? { featuredVideo: this.storageUrlEnricher.persist(uploadedUrls.featuredVideoFile) }
-          : {}),
       } as UpdateBlogPostDto & {
         featuredImage?: IStorageFileReference | null;
-        featuredVideo?: IStorageFileReference | null;
       },
       actor,
     );
@@ -463,7 +462,6 @@ export class BlogPostsService {
     refId: string,
     dto: UpdateBlogPostDto & {
       featuredImage?: IStorageFileReference | null;
-      featuredVideo?: IStorageFileReference | null;
     },
     actor: string,
   ) {
@@ -494,11 +492,12 @@ export class BlogPostsService {
           )
         : existing.publishedAt;
 
-    const { productRefIds, faqs, ...postDto } = dto;
+    const { productRefIds, faqs, videos, ...postDto } = dto;
 
     const updated = await this.postsRepo.updateByRefId(refId, {
       ...postDto,
       ...(faqs !== undefined ? { faqs: this.normalizeFaqs(faqs) } : {}),
+      ...(videos !== undefined ? { videos: this.normalizeVideos(videos) } : {}),
       publishedAt,
       scheduledAt:
         dto.scheduledAt !== undefined
@@ -617,6 +616,56 @@ export class BlogPostsService {
       .filter((faq) => faq.question && faq.answer);
   }
 
+  /**
+   * Merge indexed `videoFile_N` uploads (and legacy `featuredVideoFile`) into the videos DTO.
+   * Returns `undefined` when neither videos nor a legacy file was provided (update: leave unchanged).
+   */
+  private mergeUploadedVideos(
+    videos: BlogVideoDto[] | undefined,
+    uploadedUrls: MultipartUploadedUrls,
+  ): BlogVideoDto[] | undefined {
+    const legacyFile = uploadedUrls.featuredVideoFile
+      ? this.storageUrlEnricher.persist(uploadedUrls.featuredVideoFile)
+      : null;
+
+    if (videos === undefined) {
+      if (!legacyFile) return undefined;
+      return [{ type: BlogVideoType.FILE, file: legacyFile }];
+    }
+
+    return videos.map((video, index) => {
+      if (video.type !== BlogVideoType.FILE) return video;
+      const uploaded = uploadedUrls[`videoFile_${index}`];
+      if (!uploaded) return video;
+      return {
+        ...video,
+        file: this.storageUrlEnricher.persist(uploaded) ?? video.file,
+      };
+    });
+  }
+
+  private normalizeVideos(videos?: BlogVideoDto[]): BlogPostVideo[] {
+    if (!videos?.length) return [];
+
+    return videos.map((video, index) => {
+      if (video.type === BlogVideoType.URL) {
+        const url = video.url?.trim() ?? '';
+        if (!url) {
+          throw new BadRequestException(`videos[${index}].url is required when type is url`);
+        }
+        return { type: BlogVideoType.URL, url };
+      }
+
+      const file = this.storageUrlEnricher.persist(
+        video.file as string | IStorageFileReference | null | undefined,
+      );
+      if (!file) {
+        throw new BadRequestException(`videos[${index}].file is required when type is file`);
+      }
+      return { type: BlogVideoType.FILE, file };
+    });
+  }
+
   private async assertProductsExist(productRefIds: string[]) {
     for (const productRefId of [...new Set(productRefIds)]) {
       const product = await this.productsRepo.findByRefId(productRefId);
@@ -636,13 +685,8 @@ export class BlogPostsService {
     return this.storageUrlEnricher.enrichFields(post, ['featuredImage']) as Promise<T>;
   }
 
-  private async enrichPost<T extends { featuredImage?: unknown; featuredVideo?: unknown }>(
-    post: T,
-  ): Promise<T> {
-    return this.storageUrlEnricher.enrichFields(post, [
-      'featuredImage',
-      'featuredVideo',
-    ]) as Promise<T>;
+  private async enrichPost<T extends object>(post: T): Promise<T> {
+    return this.storageUrlEnricher.enrichDeep(post);
   }
 
   private async loadLinkedProducts(productRefIds: string[]) {
