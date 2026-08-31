@@ -35,6 +35,7 @@
     "category:above-the-fold": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/category-above-the-fold.runner.ts",
     "category:above-the-fold:fix-urls": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/fix-category-above-the-fold-urls.runner.ts",
     "product:sku-fix": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-fix.runner.ts",
+    "product:return-allowed": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product:backfill-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-backfill.runner.ts",
     "bulk-upload:diagnose": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bulk-upload-diagnose.runner.ts",
