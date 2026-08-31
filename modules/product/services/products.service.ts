@@ -92,7 +92,7 @@ export class ProductsService {
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
     try {
-      const dto = await this.productMultipartService.parseCreateProduct(req);
+    const dto = await this.productMultipartService.parseCreateProduct(req);
       return await this.createDraft(dto, createdBy);
     } catch (error) {
       this.logProductCreateFailure('multipart', error);
@@ -236,7 +236,7 @@ export class ProductsService {
 
   async createFromJsonBody(body: unknown, createdBy: string): Promise<IProduct> {
     try {
-      const dto = await this.productMultipartService.validateJsonBody(body);
+    const dto = await this.productMultipartService.validateJsonBody(body);
       return await this.createDraft(dto, createdBy);
     } catch (error) {
       this.logProductCreateFailure('json', error);
@@ -576,14 +576,14 @@ export class ProductsService {
     const masters =
       dto.productNatureRefId ||
         dtoHasCategoryHierarchyChanges(dto) ||
-        dto.brandRefId ||
-        dto.countryOfOriginRefId ||
-        dto.attributeRefIds
+      dto.brandRefId ||
+      dto.countryOfOriginRefId ||
+      dto.attributeRefIds
         ? await this.masterResolver.resolve({
-          ...dto,
+            ...dto,
           productType: effectiveProductType,
-          productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
-          categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
+            productNatureRefId: dto.productNatureRefId ?? existing.productNature?.refId,
+            categoryRefId: dto.categoryRefId ?? existing.category?.refId ?? '',
           subCategoryRefId:
             dto.subCategoryRefId !== undefined
               ? dto.subCategoryRefId
@@ -614,9 +614,9 @@ export class ProductsService {
                         subSubSubCategoryRefId: item.subSubSubCategory?.refId ?? undefined,
                       }))
                   : undefined,
-          brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
-          name: dto.name ?? existing.name,
-        } as CreateProductDto)
+            brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
+            name: dto.name ?? existing.name,
+          } as CreateProductDto)
         : null;
 
     if (masters) {
@@ -629,16 +629,16 @@ export class ProductsService {
       // Only overwrite optional masters when the DTO explicitly sends them.
       // Bulk re-upload often omits manufacturerRefId; clearing would wipe existing links.
       if (dto.manufacturerRefId !== undefined) {
-        payload.manufacturerId = masters.manufacturerId;
+      payload.manufacturerId = masters.manufacturerId;
       }
       if (dto.packerRefId !== undefined) {
-        payload.packerId = masters.packerId;
+      payload.packerId = masters.packerId;
       }
       if (dto.importerRefId !== undefined) {
-        payload.importerId = masters.importerId;
+      payload.importerId = masters.importerId;
       }
       if (dto.countryOfOriginRefId !== undefined) {
-        payload.countryOfOriginId = masters.countryOfOriginId;
+      payload.countryOfOriginId = masters.countryOfOriginId;
       }
     }
 
@@ -646,14 +646,14 @@ export class ProductsService {
     const hasTagNamesInput = dto.tagNames !== undefined;
     const needsRelationSync = Boolean(
       dto.healthConcernRefIds ||
-      dto.wellnessGoalRefIds ||
+        dto.wellnessGoalRefIds ||
       hasTagNamesInput ||
-      dto.faqRefIds ||
-      dto.customFaqs ||
-      dto.attributeRefIds ||
+        dto.faqRefIds ||
+        dto.customFaqs ||
+        dto.attributeRefIds ||
       dto.categoryFilters !== undefined ||
       dtoHasCategoryHierarchyChanges(dto) ||
-      masters?.attributeIds,
+        masters?.attributeIds,
     );
     const needsVariantSync = dto.variants !== undefined || (
       effectiveProductType === ProductType.BUNDLE &&
@@ -673,8 +673,8 @@ export class ProductsService {
     if (needsVariantSync && effectiveProductType === ProductType.VARIABLE) {
       const allowed = new Set(
         dto.attributeRefIds ??
-        existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
-        [],
+          existing.attributeMappings?.map((mapping) => mapping.attribute?.refId ?? '') ??
+          [],
       );
       for (const variant of dto.variants ?? []) {
         validateVariantAttributeScope(variant.attributes ?? [], allowed);
@@ -684,17 +684,17 @@ export class ProductsService {
     const resolved =
       needsRelationSync || needsVariantSync
         ? masters ??
-        (await this.masterResolver.resolve({
+          (await this.masterResolver.resolve({
           productType: effectiveProductType,
-          productNatureRefId: existing.productNature?.refId,
-          categoryRefId: existing.category?.refId ?? '',
-          brandRefId: existing.brand?.refId ?? '',
-          name: existing.name,
-          healthConcernRefIds: dto.healthConcernRefIds,
-          wellnessGoalRefIds: dto.wellnessGoalRefIds,
-          faqRefIds: dto.faqRefIds,
-          attributeRefIds: dto.attributeRefIds,
-        } as CreateProductDto))
+            productNatureRefId: existing.productNature?.refId,
+            categoryRefId: existing.category?.refId ?? '',
+            brandRefId: existing.brand?.refId ?? '',
+            name: existing.name,
+            healthConcernRefIds: dto.healthConcernRefIds,
+            wellnessGoalRefIds: dto.wellnessGoalRefIds,
+            faqRefIds: dto.faqRefIds,
+            attributeRefIds: dto.attributeRefIds,
+          } as CreateProductDto))
         : null;
 
     const attributeRefIdsForVariants = [
