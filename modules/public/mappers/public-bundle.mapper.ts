@@ -1,17 +1,12 @@
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import {
-  buildProductCategorySlugPathFromRelations,
-  buildProductPermalink,
-} from '../utils/category-permalink.util';
-import {
   IPublicBundleBrand,
   IPublicBundleCard,
   IPublicBundleDetail,
 } from '../interfaces/public-bundle.interface';
 import {
-  buildListVariantPricing,
+  mapProductEntityToPublicCard,
   mapProductEntityToPublicDetail,
-  pickPreferredPublicVariant,
 } from './public-product.mapper';
 
 const mapBundleBrand = (entity: ProductEntity): IPublicBundleBrand | null => {
@@ -26,44 +21,28 @@ const mapBundleBrand = (entity: ProductEntity): IPublicBundleBrand | null => {
 };
 
 export const mapProductEntityToPublicBundleCard = (entity: ProductEntity): IPublicBundleCard => {
-  const detail = mapProductEntityToPublicDetail(entity);
-  const listVariant = pickPreferredPublicVariant(detail.variants);
-  const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
-  const productPageUrl = listVariant
-    ? (entity.variants ?? []).find((variant) => variant.id === listVariant.id)?.productPageUrl ??
-      null
-    : null;
-
-  const primaryMedia =
-    detail.media.find((item) => item.isPrimary && item.url) ??
-    detail.media.find((item) => Boolean(item.url)) ??
-    null;
-
-  const defaultVariantId = listVariant?.id ?? null;
+  const card = mapProductEntityToPublicCard(entity);
+  const variantId = card.variantId;
 
   return {
     id: entity.id,
     productId: entity.id,
     refId: entity.refId,
-    name: entity.name,
+    name: card.name,
     slug: entity.slug,
     description: entity.description,
     bundleIcon: entity.bundleIcon ?? null,
-    primaryImageUrl: primaryMedia?.url ?? null,
+    primaryImageUrl: card.primaryImageUrl,
     brand: mapBundleBrand(entity),
     curatedBy: entity.curatedBy ?? null,
     curatedFor: entity.curatedFor ?? null,
-    pricing: buildListVariantPricing(
-      listVariant
-        ? (entity.variants ?? []).find((variant) => variant.id === listVariant.id) ?? null
-        : null,
-    ),
-    outOfStock: listVariant?.outOfStock ?? true,
+    pricing: card.pricing,
+    outOfStock: card.outOfStock,
     publishedAt: entity.publishedAt,
-    permalink: productPageUrl || buildProductPermalink(categorySlugPath, entity.slug),
-    productPageUrl,
-    defaultVariantId,
-    variantId: defaultVariantId,
+    permalink: card.permalink,
+    productPageUrl: card.productPageUrl,
+    defaultVariantId: variantId,
+    variantId,
   };
 };
 

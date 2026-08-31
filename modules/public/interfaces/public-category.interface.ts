@@ -62,11 +62,15 @@ export interface IPublicHeaderCategory {
   slugPath: string[];
   /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda/herbal-oil/castor-oil */
   permalink: string;
-  image: IStorageFileReference | IStorageFileReferenceResponse | null;
-  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
-  position: number;
-  hierarchyLevel: CategoryHierarchyLevel;
-  isInHeader: boolean;
-  isInShopBy: boolean;
   children: IPublicHeaderCategory[];
+  /**
+   * Omitted from GET /homepage/category/header — mega-menu only needs nav links.
+   * Still present on shop-by-category and other category tree payloads.
+   */
+  image?: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner?: IStorageFileReference | IStorageFileReferenceResponse | null;
+  position?: number;
+  hierarchyLevel?: CategoryHierarchyLevel;
+  isInHeader?: boolean;
+  isInShopBy?: boolean;
 }

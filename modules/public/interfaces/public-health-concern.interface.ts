@@ -20,13 +20,14 @@ export interface IPublicHomePageHealthConcern {
   refId: string;
   name: string;
   slug: string;
-  description: string | null;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;
-  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
   /** Homepage display order. Lower = first; null = unordered (sorted after indexed items). */
   sortIndex: number | null;
-  metaTitle: string | null;
-  metaDescription: string | null;
+  /** Included on view-all listing responses; omitted from the homepage strip endpoint. */
+  description?: string | null;
+  banner?: IStorageFileReference | IStorageFileReferenceResponse | null;
+  metaTitle?: string | null;
+  metaDescription?: string | null;
 }
 
 /** Active health concern for public view-all listing (not limited to inHomePage). */
