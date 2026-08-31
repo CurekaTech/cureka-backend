@@ -116,6 +116,9 @@ npm run product:return-allowed -- --apply
 # Optional
 npm run product:return-allowed -- --file="docs/Master-Data-Sheets/no-returnable-products-31.08.2026.xlsx" --apply
 
+# Export Excel SKUs not found in DB (read-only, no variant updates)
+npm run product:return-allowed:unmatched
+
 ---------------------------
 
 # Sitemap — exclude empty listing groups / regenerate products
