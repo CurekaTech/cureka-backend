@@ -10,6 +10,10 @@ import { MasterListOptions } from '@modules/master/utils/master-list-query.util'
 import { buildSkipTake } from '@packages/database';
 import { ProductInformationLabelEntity } from '../entities/product-information-label.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import {
+  buildProductInformationLabelCatalog,
+  ProductInformationLabelCatalog,
+} from '../utils/product-information.util';
 
 @Injectable()
 export class ProductInformationLabelsRepository {
@@ -81,6 +85,38 @@ export class ProductInformationLabelsRepository {
       .getMany();
 
     return new Map(labels.map((label) => [label.name, label.sortOrder]));
+  }
+
+  async findActiveRefIdsByName(): Promise<Map<string, string>> {
+    const labels = await this.repo
+      .createQueryBuilder('label')
+      .select(['label.name', 'label.refId'])
+      .where('label.deletedAt IS NULL')
+      .andWhere('label.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('label.sortOrder', 'ASC')
+      .addOrderBy('label.createdAt', 'ASC')
+      .getMany();
+
+    return new Map(labels.map((label) => [label.name, label.refId]));
+  }
+
+  async findActiveLabelCatalog(): Promise<ProductInformationLabelCatalog> {
+    const labels = await this.repo
+      .createQueryBuilder('label')
+      .select(['label.refId', 'label.name', 'label.sortOrder'])
+      .where('label.deletedAt IS NULL')
+      .andWhere('label.status = :status', { status: MasterStatus.ACTIVE })
+      .orderBy('label.sortOrder', 'ASC')
+      .addOrderBy('label.createdAt', 'ASC')
+      .getMany();
+
+    return buildProductInformationLabelCatalog(
+      labels.map((label) => ({
+        refId: label.refId,
+        name: label.name,
+        sortOrder: label.sortOrder,
+      })),
+    );
   }
 
   async updateSortOrders(
