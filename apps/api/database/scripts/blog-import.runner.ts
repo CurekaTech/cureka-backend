@@ -575,7 +575,7 @@ const run = async (options: CliOptions): Promise<void> => {
                 categoryRefId,
                 author: options.author?.trim() || null,
                 featuredImage: null,
-                featuredVideo: null,
+                videos: [],
                 tags: null,
                 status: publishedAt ? BlogPostStatus.PUBLISHED : BlogPostStatus.DRAFT,
                 visibility: BlogPostVisibility.PUBLIC,

@@ -3,6 +3,11 @@ import { BaseEntity } from '@packages/database';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
+import { BlogVideoType } from '../enums/blog-video-type.enum';
+
+export type BlogPostVideo =
+  | { type: BlogVideoType.FILE; file: IStorageFileReference }
+  | { type: BlogVideoType.URL; url: string };
 
 @Entity('blog_posts')
 export class BlogPostEntity extends BaseEntity {
@@ -32,8 +37,8 @@ export class BlogPostEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'featured_image', nullable: true }))
   featuredImage!: IStorageFileReference | null;
 
-  @Column(storageFileReferenceColumn({ name: 'featured_video', nullable: true }))
-  featuredVideo!: IStorageFileReference | null;
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  videos!: BlogPostVideo[];
 
   @Column({ type: 'simple-array', nullable: true })
   tags!: string[] | null;
