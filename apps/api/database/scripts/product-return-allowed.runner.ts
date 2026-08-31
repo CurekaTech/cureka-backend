@@ -1,11 +1,9 @@
 /**
  * Set variant return policy from the no-returnable-products Excel sheet.
  *
- * Sheet columns:
- *   ID        → variant.external_product_id
- *   SKU Code  → variant.sku
+ * Sheet column:
+ *   SKU Code → variant.sku  (case-insensitive; the only match key)
  *
- * A variant is non-returnable only when BOTH fields match the same sheet row.
  * Matching variants:  returnAllowed = false; returnWindowDays left unchanged.
  * All other variants: returnAllowed = true;  returnWindowDays = 2.
  *
@@ -49,7 +47,7 @@ interface VariantRow {
   returnWindowDays: number | null;
 }
 
-const pairKey = (externalId: string, sku: string): string => `${externalId}\u0000${sku}`;
+const skuKey = (sku: string): string => sku.trim().toLowerCase();
 
 const absolutePath = (p: string): string => (isAbsolute(p) ? p : resolve(process.cwd(), p));
 
@@ -133,18 +131,18 @@ const readSheet = async (
     else if (header === 'sku code' || header === 'sku') skuCol = colNumber;
   });
 
-  if (!idCol || !skuCol) {
+  if (!skuCol) {
     const found = (worksheet.getRow(1).values as (string | undefined)[])
       ?.slice(1)
       .filter(Boolean)
       .join(', ');
     throw new Error(
-      `Could not find required columns "ID" and "SKU Code" in sheet "${worksheet.name}". Found: ${found}`,
+      `Could not find required column "SKU Code" in sheet "${worksheet.name}". Found: ${found}`,
     );
   }
 
   console.log(
-    `[return-allowed] columns → ID=${idCol} "SKU Code"=${skuCol} in sheet "${worksheet.name}"`,
+    `[return-allowed] columns → ID=${idCol || 'n/a'} "SKU Code"=${skuCol} in sheet "${worksheet.name}"`,
   );
 
   const rows: SheetRow[] = [];
@@ -152,11 +150,10 @@ const readSheet = async (
 
   for (let r = 2; r <= worksheet.rowCount; r++) {
     const row = worksheet.getRow(r);
-    const externalId = normalizeText(row.getCell(idCol));
+    const externalId = idCol ? normalizeText(row.getCell(idCol)) : '';
     const sku = normalizeText(row.getCell(skuCol));
-    if (!externalId && !sku) continue;
-    if (!externalId || !sku) {
-      skippedMissing += 1;
+    if (!sku) {
+      if (externalId) skippedMissing += 1;
       continue;
     }
     rows.push({ rowNumber: r, externalId, sku });
@@ -180,33 +177,31 @@ async function run(): Promise<void> {
 
   const { rows: sheetRows, skippedMissing } = await readSheet(filePath, opts.sheet);
   if (!sheetRows.length) {
-    throw new Error('Sheet is empty or has no rows with both ID and SKU Code');
+    throw new Error('Sheet is empty or has no rows with SKU Code');
   }
 
-  const pairCounts = new Map<string, { externalId: string; sku: string; count: number }>();
+  const skuCounts = new Map<string, { sku: string; externalId: string; count: number }>();
   for (const row of sheetRows) {
-    const key = pairKey(row.externalId, row.sku);
-    const existing = pairCounts.get(key);
+    const key = skuKey(row.sku);
+    const existing = skuCounts.get(key);
     if (existing) existing.count += 1;
-    else pairCounts.set(key, { externalId: row.externalId, sku: row.sku, count: 1 });
+    else skuCounts.set(key, { sku: row.sku, externalId: row.externalId, count: 1 });
   }
 
-  const uniquePairs = [...pairCounts.values()];
-  const duplicatePairs = uniquePairs.filter((p) => p.count > 1);
-  const duplicateRowCount = sheetRows.length - uniquePairs.length;
-  const uniqueKeys = new Set(pairCounts.keys());
-  const sheetSkus = new Set(uniquePairs.map((p) => p.sku));
-  const sheetIds = new Set(uniquePairs.map((p) => p.externalId));
+  const uniqueSkus = [...skuCounts.values()];
+  const duplicateSkus = uniqueSkus.filter((p) => p.count > 1);
+  const duplicateRowCount = sheetRows.length - uniqueSkus.length;
+  const sheetSkuKeys = new Set(skuCounts.keys());
 
-  console.log(`[return-allowed] excel rows with ID+SKU=${sheetRows.length}`);
-  console.log(`[return-allowed] unique (external_product_id, SKU) pairs=${uniquePairs.length}`);
+  console.log(`[return-allowed] excel rows with SKU Code=${sheetRows.length}`);
+  console.log(`[return-allowed] unique SKUs (case-insensitive)=${uniqueSkus.length}`);
   if (duplicateRowCount) {
     console.log(
-      `[return-allowed] duplicate extra rows=${duplicateRowCount} (unique pairs with dupes=${duplicatePairs.length})`,
+      `[return-allowed] duplicate extra SKU rows=${duplicateRowCount} (unique SKUs with dupes=${duplicateSkus.length})`,
     );
   }
   if (skippedMissing) {
-    console.log(`[return-allowed] skipped rows missing ID or SKU Code=${skippedMissing}`);
+    console.log(`[return-allowed] skipped rows missing SKU Code=${skippedMissing}`);
   }
 
   await AppDataSource.initialize();
@@ -236,30 +231,19 @@ async function run(): Promise<void> {
 
     const matching: VariantRow[] = [];
     const nonMatching: VariantRow[] = [];
-    const matchedKeys = new Set<string>();
-    let skuOnlyHits = 0;
-    let idOnlyHits = 0;
+    const matchedSkuKeys = new Set<string>();
 
     for (const variant of variants) {
-      const extId = variant.externalProductId;
-      if (extId) {
-        const key = pairKey(extId, variant.sku);
-        if (uniqueKeys.has(key)) {
-          matching.push(variant);
-          matchedKeys.add(key);
-          continue;
-        }
+      const key = skuKey(variant.sku);
+      if (key && sheetSkuKeys.has(key)) {
+        matching.push(variant);
+        matchedSkuKeys.add(key);
+        continue;
       }
-
-      const skuInSheet = sheetSkus.has(variant.sku);
-      const idInSheet = extId ? sheetIds.has(extId) : false;
-      if (skuInSheet && !idInSheet) skuOnlyHits += 1;
-      else if (idInSheet && !skuInSheet) idOnlyHits += 1;
-
       nonMatching.push(variant);
     }
 
-    const unmatchedExcel = uniquePairs.filter((p) => !matchedKeys.has(pairKey(p.externalId, p.sku)));
+    const unmatchedExcel = uniqueSkus.filter((p) => !matchedSkuKeys.has(skuKey(p.sku)));
 
     let matchingToUpdate = matching;
     let nonMatchingToUpdate = nonMatching;
@@ -280,10 +264,10 @@ async function run(): Promise<void> {
     );
 
     console.log('[return-allowed] --- summary ---');
-    console.log(`  Total Excel rows (ID + SKU Code):           ${sheetRows.length}`);
-    console.log(`  Unique (external_product_id, SKU) pairs:    ${uniquePairs.length}`);
-    console.log(`  Duplicate extra Excel rows:                 ${duplicateRowCount}`);
-    console.log(`  Skipped Excel rows (missing ID or SKU):     ${skippedMissing}`);
+    console.log(`  Total Excel rows (SKU Code):                ${sheetRows.length}`);
+    console.log(`  Unique SKUs (case-insensitive):             ${uniqueSkus.length}`);
+    console.log(`  Duplicate extra Excel SKU rows:             ${duplicateRowCount}`);
+    console.log(`  Skipped Excel rows (missing SKU):           ${skippedMissing}`);
     console.log(`  Matching variants → returnAllowed=false:    ${matchingToUpdate.length}`);
     console.log(`    already non-returnable:                   ${matchingToUpdate.length - matchingChanging.length}`);
     console.log(`    will change returnAllowed → false:        ${matchingChanging.length}`);
@@ -291,16 +275,13 @@ async function run(): Promise<void> {
     console.log(`  Non-matching variants → returnAllowed=true: ${nonMatchingToUpdate.length}`);
     console.log(`    returnWindowDays will be set to ${RETURNABLE_WINDOW_DAYS}:     ${windowChanging.length}`);
     console.log(`    already returnable with window=${RETURNABLE_WINDOW_DAYS}: ${nonMatchingToUpdate.length - returnableChanging.length}`);
-    console.log(`  Unmatched Excel pairs (no DB variant):      ${unmatchedExcel.length}`);
-    console.log(`  SKU-only hits (NOT treated as match):       ${skuOnlyHits}`);
-    console.log(`  external_product_id-only hits (NOT match):  ${idOnlyHits}`);
+    console.log(`  Unmatched Excel SKUs (no DB variant):       ${unmatchedExcel.length}`);
     console.log(`  Total variants scanned:                     ${variants.length}`);
 
-    if (duplicatePairs.length) {
+    if (duplicateSkus.length) {
       console.log(
-        '[return-allowed] duplicate pairs (first 20):',
-        duplicatePairs.slice(0, 20).map((p) => ({
-          externalProductId: p.externalId,
+        '[return-allowed] duplicate SKUs (first 20):',
+        duplicateSkus.slice(0, 20).map((p) => ({
           sku: p.sku,
           occurrences: p.count,
         })),
@@ -309,10 +290,10 @@ async function run(): Promise<void> {
 
     if (unmatchedExcel.length) {
       console.log(
-        '[return-allowed] unmatched Excel pairs (first 30):',
+        '[return-allowed] unmatched Excel SKUs (first 30):',
         unmatchedExcel.slice(0, 30).map((p) => ({
-          externalProductId: p.externalId,
           sku: p.sku,
+          externalProductId: p.externalId || null,
         })),
       );
     }
@@ -416,8 +397,8 @@ async function run(): Promise<void> {
     console.log(`  Matching variants marked non-returnable:    ${matchingUpdated}`);
     console.log(`  Variants marked returnable:                 ${returnableUpdated}`);
     console.log(`  Variants with returnWindowDays set to 2:    ${windowChanging.length}`);
-    console.log(`  Unmatched Excel pairs:                      ${unmatchedExcel.length}`);
-    console.log(`  Duplicate extra Excel rows:                 ${duplicateRowCount}`);
+    console.log(`  Unmatched Excel SKUs:                       ${unmatchedExcel.length}`);
+    console.log(`  Duplicate extra Excel SKU rows:             ${duplicateRowCount}`);
     console.log(`  cacheKeysDeleted=${cacheKeysDeleted} redis=${redisConnected}`);
   } finally {
     if (AppDataSource.isInitialized) await AppDataSource.destroy();
