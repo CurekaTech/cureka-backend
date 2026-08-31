@@ -749,6 +749,79 @@ export class ProductsRepository {
   }
 
   /**
+   * Batched best-sellers load for homepage: top N tagged products per category in
+   * one query + a single attachPublicListRelations pass (replaces N paginated calls).
+   */
+  async findPublishedByCategoryIdsAndTag(
+    categoryIds: string[],
+    tagSlug: string,
+    limitPerCategory: number,
+  ): Promise<Map<string, ProductEntity[]>> {
+    const result = new Map<string, ProductEntity[]>();
+    const uniqueCategoryIds = [...new Set(categoryIds.filter(Boolean))];
+
+    if (!uniqueCategoryIds.length || !tagSlug || limitPerCategory <= 0) {
+      return result;
+    }
+
+    const rows = await this.repo.manager.query<Array<{ id: string; categoryId: string }>>(
+      `
+      WITH ranked AS (
+        SELECT
+          p.id AS id,
+          p.category_id AS "categoryId",
+          ROW_NUMBER() OVER (
+            PARTITION BY p.category_id
+            ORDER BY ptm.sort_order ASC NULLS LAST, p.name ASC
+          ) AS row_num
+        FROM products p
+        INNER JOIN product_tag_mappings ptm ON ptm.product_id = p.id
+        INNER JOIN product_tags tag ON tag.id = ptm.tag_id AND tag.slug = $1
+        WHERE p.deleted_at IS NULL
+          AND p.status = $2
+          AND p.category_id = ANY($3::uuid[])
+      )
+      SELECT id, "categoryId"
+      FROM ranked
+      WHERE row_num <= $4
+      ORDER BY "categoryId", row_num
+      `,
+      [tagSlug, ProductStatus.PUBLISHED, uniqueCategoryIds, limitPerCategory],
+    );
+
+    if (!rows.length) {
+      return result;
+    }
+
+    const productIds = rows.map((row) => row.id);
+    const products = await this.repo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.productNature', 'productNature')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .where('product.id IN (:...productIds)', { productIds })
+      .getMany();
+
+    if (products.length) {
+      await this.attachPublicListRelations(products);
+    }
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    for (const row of rows) {
+      const product = productById.get(row.id);
+      if (!product) continue;
+      const bucket = result.get(row.categoryId) ?? [];
+      bucket.push(product);
+      result.set(row.categoryId, bucket);
+    }
+
+    return result;
+  }
+
+  /**
    * Admin indexing list: all products (any status) in a category with the bestsellers tag.
    */
   async findBestSellerProductsForIndexing(

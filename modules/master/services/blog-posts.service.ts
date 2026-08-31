@@ -207,6 +207,12 @@ export class BlogPostsService {
 
   /** Homepage Health Reads — storage refs only; signed URLs are added after cache read. */
   async loadHealthReadsUncached(): Promise<IBlogHealthReadsSection> {
+    const [featured, trending, latest] = await Promise.all([
+      this.postsRepo.findFeatured(HEALTH_READS_HOMEPAGE_LIMIT),
+      this.postsRepo.findTrending(HEALTH_READS_HOMEPAGE_LIMIT),
+      this.postsRepo.findLatestPublished(HEALTH_READS_HOMEPAGE_LIMIT),
+    ]);
+
     const collected: BlogPostEntity[] = [];
     const seen = new Set<string>();
 
@@ -219,12 +225,12 @@ export class BlogPostsService {
       }
     };
 
-    appendUnique(await this.postsRepo.findFeatured(HEALTH_READS_HOMEPAGE_LIMIT));
+    appendUnique(featured);
     if (collected.length < HEALTH_READS_HOMEPAGE_LIMIT) {
-      appendUnique(await this.postsRepo.findTrending(HEALTH_READS_HOMEPAGE_LIMIT));
+      appendUnique(trending);
     }
     if (collected.length < HEALTH_READS_HOMEPAGE_LIMIT) {
-      appendUnique(await this.postsRepo.findLatestPublished(HEALTH_READS_HOMEPAGE_LIMIT));
+      appendUnique(latest);
     }
 
     const posts = collected.slice(0, HEALTH_READS_HOMEPAGE_LIMIT).map((entity) => {

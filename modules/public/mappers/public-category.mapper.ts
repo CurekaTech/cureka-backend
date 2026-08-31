@@ -43,12 +43,6 @@ export const mapHeaderCategoryEntity = (
     slug: entity.slug,
     slugPath,
     permalink: buildCategoryPermalink(slugPath),
-    image: entity.image,
-    banner: entity.banner,
-    position: entity.position,
-    hierarchyLevel: entity.hierarchyLevel,
-    isInHeader: entity.isInHeader,
-    isInShopBy: entity.isInShopBy,
     children,
   };
 };

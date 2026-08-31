@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   CacheKeys,
   CacheModuleName,
@@ -99,26 +99,28 @@ type SectionMeta = {
 };
 
 @Injectable()
-export class HomepageSectionsService {
+export class HomepageSectionsService implements OnModuleInit {
   private readonly logger = new Logger(HomepageSectionsService.name);
 
   /** Data loaders keyed by section type. Types without a loader return null data. */
   private readonly loaders: Partial<
     Record<HomeSectionType, () => Promise<HomepageSectionData>>
   > = {
-    [HomeSectionType.HERO_BANNER]: () => this.homepageService.getHeroBannerSection(),
     [HomeSectionType.SHOP_BY_CATEGORY]: () => this.homepageService.getShopByCategoryTree(),
     [HomeSectionType.SHOP_BY_WELLNESS_GOALS]: () => this.homepageService.getShopByWellnessGoals(),
     [HomeSectionType.BRANDS_WE_TRUST]: () => this.homepageService.getBrandsWeTrust(),
-    [HomeSectionType.EXPERT_CURATED_BUNDLES]: () => this.homepageService.getExpertCuratedBundles(),
-    [HomeSectionType.FESTIVAL_BANNERS]: () => this.homepageService.getFestivalBanners(),
-    [HomeSectionType.BRAND_BANNERS]: () => this.homepageService.getBrandBanners(),
     [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
     [HomeSectionType.WATCH_AND_SHOP]: () => this.homepageService.getWatchAndShop(),
     [HomeSectionType.HEALTH_READS]: () => this.homepageService.getHealthReads(),
     [HomeSectionType.CURATED_WELLNESS_ESSENTIALS]: () =>
       this.homepageService.getCuratedWellnessEssentials(),
   };
+
+  private static readonly BANNER_SECTION_TYPES = new Set<HomeSectionType>([
+    HomeSectionType.HERO_BANNER,
+    HomeSectionType.FESTIVAL_BANNERS,
+    HomeSectionType.BRAND_BANNERS,
+  ]);
 
   constructor(
     private readonly homepageService: HomepageService,
@@ -129,6 +131,19 @@ export class HomepageSectionsService {
     private readonly categoriesRepository: CategoriesRepository,
   ) {}
 
+  onModuleInit(): void {
+    // Warm unsigned sections payload so the first storefront request avoids a cold miss.
+    setImmediate(() => {
+      void this.getSections().catch((error) => {
+        this.logger.warn(
+          `Homepage sections cache warm failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+    });
+  }
+
   /**
    * Returns every active home section (in configured index order). Sections whose
    * type has a registered loader carry rendered data; the rest carry `data: null`
@@ -138,8 +153,8 @@ export class HomepageSectionsService {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v7: bestSellers uses findPublishedPaginated (fixes empty/500 section data).
-      key: CacheKeys.homepage.sections(`v7-${this.buildVariantKey(requested)}`),
+      // v9: sign URLs only after outer cache read (no nested enrichDeep in section loaders).
+      key: CacheKeys.homepage.sections(`v9-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
@@ -217,11 +232,18 @@ export class HomepageSectionsService {
       .filter((section) => (requestedTypes ? requestedTypes.has(section.type) : true))
       .sort((a, b) => a.index - b.index || a.type.localeCompare(b.type));
 
+    const needsBanners = visibleSections.some((section) =>
+      HomepageSectionsService.BANNER_SECTION_TYPES.has(section.type),
+    );
+    const bannerBundle = needsBanners
+      ? await this.homepageService.loadHomepageBannerReferences()
+      : null;
+
     const built = await Promise.all(
       visibleSections.map(async (section): Promise<IHomepageSection> => {
         let data: HomepageSectionData | null = null;
         try {
-          data = await this.resolveSectionData(section);
+          data = await this.resolveSectionData(section, bannerBundle);
         } catch (error) {
           // Keep the rest of the homepage usable if one section loader fails.
           this.logger.error(
@@ -244,7 +266,27 @@ export class HomepageSectionsService {
     return { sections: built };
   }
 
-  private async resolveSectionData(section: SectionMeta): Promise<HomepageSectionData | null> {
+  private async resolveSectionData(
+    section: SectionMeta,
+    bannerBundle: Awaited<
+      ReturnType<HomepageService['loadHomepageBannerReferences']>
+    > | null,
+  ): Promise<HomepageSectionData | null> {
+    if (bannerBundle) {
+      if (section.type === HomeSectionType.HERO_BANNER) {
+        return {
+          primary: bannerBundle.hero.primary,
+          secondary: bannerBundle.hero.secondary,
+        };
+      }
+      if (section.type === HomeSectionType.FESTIVAL_BANNERS) {
+        return bannerBundle.mainPromo;
+      }
+      if (section.type === HomeSectionType.BRAND_BANNERS) {
+        return { left: bannerBundle.brandWise.left, right: bannerBundle.brandWise.right };
+      }
+    }
+
     if (isCustomHomeSectionType(section.type) && section.source) {
       return this.loadCustomSectionData(section.source);
     }
