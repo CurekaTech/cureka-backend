@@ -103,7 +103,7 @@ npm run product:sku-fix -- --apply --limit=10
 ---------------------------
 
 # Return policy from no-returnable-products sheet
-# Sheet ID → external_product_id, SKU Code → sku (BOTH must match)
+# Sheet SKU Code → variant.sku (case-insensitive; SKU is the only match key)
 # Matches: returnAllowed=false (returnWindowDays unchanged)
 # Everyone else: returnAllowed=true, returnWindowDays=2
 
