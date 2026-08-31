@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  Allow,
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -8,7 +10,9 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
@@ -16,6 +20,7 @@ import { BlogCategoryStatus } from '../enums/blog-category-status.enum';
 import { BlogCommentStatus } from '../enums/blog-comment-status.enum';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
+import { BlogVideoType } from '../enums/blog-video-type.enum';
 
 export class BlogFaqDto {
   @ApiProperty({ example: 'What is this blog about?' })
@@ -82,6 +87,103 @@ const parseFaqArray = ({ value }: { value: unknown }): BlogFaqDto[] | undefined 
     .filter((item) => item.question && item.answer);
 
   return plainToInstance(BlogFaqDto, items);
+};
+
+export class BlogVideoFileDto {
+  @IsString()
+  @IsNotEmpty()
+  key!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+}
+
+/**
+ * Normalize video file from multipart JSON:
+ * - storage path string → string
+ * - { key, name } → BlogVideoFileDto
+ */
+const parseVideoFile = ({
+  value,
+}: {
+  value: unknown;
+}): string | BlogVideoFileDto | undefined => {
+  if (value === undefined || value === null || value === '' || value === 'null') {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === 'null') return undefined;
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return plainToInstance(BlogVideoFileDto, parsed);
+        }
+      } catch {
+        // treat as plain storage path
+      }
+    }
+    return trimmed;
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return plainToInstance(BlogVideoFileDto, value);
+  }
+  return undefined;
+};
+
+export class BlogVideoDto {
+  @ApiProperty({ enum: BlogVideoType, example: BlogVideoType.FILE })
+  @IsEnum(BlogVideoType)
+  type!: BlogVideoType;
+
+  @ApiPropertyOptional({
+    description:
+      'Required after upload merge when type is file. Accepts a storage path, { key, name }, or omit when sending videoFile_N.',
+  })
+  @IsOptional()
+  @Transform(parseVideoFile)
+  @ValidateIf(
+    (item: BlogVideoDto) =>
+      item.type === BlogVideoType.FILE && item.file !== undefined && typeof item.file === 'object',
+  )
+  @ValidateNested()
+  @Type(() => BlogVideoFileDto)
+  @Allow()
+  file?: string | BlogVideoFileDto;
+
+  @ApiPropertyOptional({ example: 'https://www.youtube.com/watch?v=example' })
+  @ValidateIf((item: BlogVideoDto) => item.type === BlogVideoType.URL)
+  @IsNotEmpty()
+  @IsUrl({ require_protocol: true })
+  @MaxLength(2000)
+  url?: string;
+}
+
+/**
+ * Multipart mergeFormFields JSON.stringifies nested arrays.
+ * Parse them back and return BlogVideoDto class instances so ValidateNested works.
+ */
+const parseVideoArray = ({ value }: { value: unknown }): BlogVideoDto[] | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (!Array.isArray(parsed)) return undefined;
+
+  return parsed
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => plainToInstance(BlogVideoDto, item));
 };
 
 export class BlogCategoryQueryDto extends PaginationQueryDto {
@@ -225,6 +327,19 @@ export class CreateBlogPostDto {
   @Type(() => BlogFaqDto)
   faqs?: BlogFaqDto[];
 
+  @ApiPropertyOptional({
+    type: [BlogVideoDto],
+    description:
+      'Blog videos. type=file stores a storage file reference; type=url stores an external video URL. File uploads may use indexed multipart fields videoFile_0, videoFile_1, …',
+  })
+  @IsOptional()
+  @Transform(parseVideoArray)
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => BlogVideoDto)
+  videos?: BlogVideoDto[];
+
   @ApiPropertyOptional({ enum: BlogPostStatus })
   @IsOptional()
   @IsEnum(BlogPostStatus)
@@ -286,6 +401,15 @@ export class UpdateBlogPostDto extends PartialType(CreateBlogPostDto) {
   @ValidateNested({ each: true })
   @Type(() => BlogFaqDto)
   faqs?: BlogFaqDto[];
+
+  @ApiPropertyOptional({ type: [BlogVideoDto] })
+  @IsOptional()
+  @Transform(parseVideoArray)
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => BlogVideoDto)
+  videos?: BlogVideoDto[];
 }
 
 export class UpdateBlogPostStatusDto {
