@@ -192,7 +192,6 @@ export class ProductVariantsRepository {
     labelRefId: string,
     newLabel: string,
     legacyLabelNames: string[],
-    updatedBy: string,
     manager?: EntityManager,
   ): Promise<number> {
     const refId = labelRefId.trim();
@@ -230,7 +229,7 @@ export class ProductVariantsRepository {
                     THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
                   WHEN COALESCE(btrim(item->>'labelRefId'), '') = ''
                     AND lower(btrim(item->>'label')) = ANY(
-                      SELECT lower(btrim(name)) FROM unnest($4::text[]) AS name
+                      SELECT lower(btrim(name)) FROM unnest($3::text[]) AS name
                     )
                     THEN jsonb_set(
                       jsonb_set(item, '{label}', to_jsonb($2::text), true),
@@ -254,9 +253,9 @@ export class ProductVariantsRepository {
             WHERE item->>'labelRefId' = $1::text
               OR (
                 COALESCE(btrim(item->>'labelRefId'), '') = ''
-                AND cardinality($4::text[]) > 0
+                AND cardinality($3::text[]) > 0
                 AND lower(btrim(item->>'label')) = ANY(
-                  SELECT lower(btrim(name)) FROM unnest($4::text[]) AS name
+                  SELECT lower(btrim(name)) FROM unnest($3::text[]) AS name
                 )
               )
           )

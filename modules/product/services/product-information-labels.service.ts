@@ -197,7 +197,6 @@ export class ProductInformationLabelsService {
           refId,
           targetName,
           legacyLabelNames,
-          updatedBy,
           manager,
         );
         this.logger.log(
