@@ -220,6 +220,122 @@ export class ProductsRepository {
     return updatedCount;
   }
 
+  async countProductsWithInformationLabelRefId(
+    labelRefId: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const runner = manager ?? this.repo.manager;
+    const rows = (await runner.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM products p
+      WHERE p.product_information IS NOT NULL
+        AND jsonb_typeof(p.product_information) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(p.product_information) item
+          WHERE item->>'labelRefId' = $1::text
+        )
+      `,
+      [labelRefId],
+    )) as Array<{ count: number | string }>;
+    return Number(rows?.[0]?.count ?? 0);
+  }
+
+  /**
+   * Rewrite product_information.label for all rows tied to a master label refId.
+   * Legacy rows without labelRefId are matched by label text (case-insensitive).
+   */
+  async updateProductInformationLabelByRefId(
+    labelRefId: string,
+    newLabel: string,
+    legacyLabelNames: string[],
+    updatedBy: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const refId = labelRefId.trim();
+    const to = newLabel.trim();
+    const legacyNames = [...new Set(legacyLabelNames.map((name) => name.trim()).filter(Boolean))];
+
+    this.logger.log(
+      `[PIL-UPDATE-BY-REF][products] start labelRefId="${refId}" to="${to}" ` +
+        `legacyNames=[${legacyNames.join(' | ')}] updatedBy="${updatedBy}" ` +
+        `hasManager=${Boolean(manager)}`,
+    );
+
+    if (!refId || !to) {
+      this.logger.warn(
+        `[PIL-UPDATE-BY-REF][products] skipped empty labelRefId="${refId}" to="${to}"`,
+      );
+      return 0;
+    }
+
+    const runner = manager ?? this.repo.manager;
+    const beforeRefIdCount = await this.countProductsWithInformationLabelRefId(refId, manager);
+    this.logger.log(
+      `[PIL-UPDATE-BY-REF][products] rows with labelRefId before update: ${beforeRefIdCount}`,
+    );
+
+    const rows = (await runner.query(
+      `
+      WITH updated AS (
+        UPDATE products p
+        SET
+          product_information = (
+            SELECT COALESCE(
+              jsonb_agg(
+                CASE
+                  WHEN item->>'labelRefId' = $1::text
+                    THEN jsonb_set(item, '{label}', to_jsonb($2::text), true)
+                  WHEN COALESCE(btrim(item->>'labelRefId'), '') = ''
+                    AND lower(btrim(item->>'label')) = ANY(
+                      SELECT lower(btrim(name)) FROM unnest($4::text[]) AS name
+                    )
+                    THEN jsonb_set(
+                      jsonb_set(item, '{label}', to_jsonb($2::text), true),
+                      '{labelRefId}', to_jsonb($1::text), true
+                    )
+                  ELSE item
+                END
+                ORDER BY ordinality
+              ),
+              '[]'::jsonb
+            )
+            FROM jsonb_array_elements(COALESCE(p.product_information, '[]'::jsonb))
+              WITH ORDINALITY AS elem(item, ordinality)
+          ),
+          updated_by = $3,
+          updated_at = NOW()
+        WHERE p.product_information IS NOT NULL
+          AND jsonb_typeof(p.product_information) = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(p.product_information) item
+            WHERE item->>'labelRefId' = $1::text
+              OR (
+                COALESCE(btrim(item->>'labelRefId'), '') = ''
+                AND cardinality($4::text[]) > 0
+                AND lower(btrim(item->>'label')) = ANY(
+                  SELECT lower(btrim(name)) FROM unnest($4::text[]) AS name
+                )
+              )
+          )
+        RETURNING p.id
+      )
+      SELECT COUNT(*)::int AS count FROM updated
+      `,
+      [refId, to, updatedBy, legacyNames],
+    )) as Array<{ count: number | string }>;
+
+    const updatedCount = Number(rows?.[0]?.count ?? 0);
+    const afterRefIdCount = await this.countProductsWithInformationLabelRefId(refId, manager);
+    this.logger.log(
+      `[PIL-UPDATE-BY-REF][products] done updatedCount=${updatedCount} ` +
+        `rowsWithLabelRefIdAfter=${afterRefIdCount}`,
+    );
+    return updatedCount;
+  }
+
   /**
    * Lightweight load for create/update mutations (skips media/faqs/tags/etc.).
    * Used by bulk upload to avoid full-detail hydration per row.

@@ -175,41 +175,41 @@ export class ProductInformationLabelsService {
 
       let productsUpdated = 0;
       let variantsUpdated = 0;
-      if (cascadeFromNames.size === 0) {
-        this.logger.warn('[PIL-UPDATE] SKIPPED JSON cascade — cascadeFromNames is empty');
-      }
+      const shouldCascadeJson =
+        cascadeFromNames.size > 0 || (nextName !== undefined && nextName !== oldName);
 
-      for (const fromName of cascadeFromNames) {
+      if (!shouldCascadeJson) {
+        this.logger.warn('[PIL-UPDATE] SKIPPED JSON cascade — no label text changes to apply');
+      } else {
+        const legacyLabelNames = [...cascadeFromNames];
         this.logger.log(
-          `[PIL-UPDATE] cascading JSON rename "${fromName}" → "${targetName}"`,
+          `[PIL-UPDATE] cascading JSON by labelRefId="${refId}" to="${targetName}" ` +
+            `legacyNames=[${legacyLabelNames.join(' | ')}]`,
         );
-        const pCount = await this.productsRepository.renameProductInformationLabel(
-          fromName,
+        productsUpdated = await this.productsRepository.updateProductInformationLabelByRefId(
+          refId,
           targetName,
+          legacyLabelNames,
           updatedBy,
           manager,
         );
-        const vCount = await this.productVariantsRepository.renameProductInformationLabel(
-          fromName,
+        variantsUpdated = await this.productVariantsRepository.updateProductInformationLabelByRefId(
+          refId,
           targetName,
+          legacyLabelNames,
           updatedBy,
           manager,
         );
-        productsUpdated += pCount;
-        variantsUpdated += vCount;
         this.logger.log(
-          `[PIL-UPDATE] cascade step done from="${fromName}" products=${pCount} variants=${vCount}`,
+          `[PIL-UPDATE] cascade by refId done products=${productsUpdated} variants=${variantsUpdated}`,
         );
       }
 
-      this.logger.log(
-        `[PIL-UPDATE] cascade totals products=${productsUpdated} variants=${variantsUpdated}`,
-      );
-      if (cascadeFromNames.size > 0 && productsUpdated === 0 && variantsUpdated === 0) {
+      if (shouldCascadeJson && productsUpdated === 0 && variantsUpdated === 0) {
         this.logger.warn(
-          `[PIL-UPDATE] ZERO rows updated. JSON likely still has a different label text than ` +
-            `[${[...cascadeFromNames].join(', ')}]. ` +
-            `Retry PATCH with previousName set to the exact label in productInformation (e.g. "Offers").`,
+          `[PIL-UPDATE] ZERO rows updated for labelRefId="${refId}". ` +
+            `Run migration to backfill labelRefId, or retry PATCH with previousName ` +
+            `set to the exact label in productInformation JSON.`,
         );
       }
 

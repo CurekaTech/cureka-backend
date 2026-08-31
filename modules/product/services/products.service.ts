@@ -28,7 +28,7 @@ import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatu
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
-import { enrichProductInformation } from '../utils/product-information.util';
+import { enrichProductInformation, ProductInformationLabelCatalog } from '../utils/product-information.util';
 import { mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
@@ -302,6 +302,7 @@ export class ProductsService {
     );
     const attributeIdByRefId = masters.attributeIdByRefId;
     const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const labelRefIdsByName = await this.productInformationLabelsRepository.findActiveRefIdsByName();
 
     const product = await this.dataSource.transaction(async (manager) => {
       const created = await this.productsRepository.create(
@@ -322,7 +323,7 @@ export class ProductsService {
           countryOfOriginId: masters.countryOfOriginId,
           status: ProductStatus.DRAFT,
           rejectionReason: null,
-          ...mapSpecificationFields(normalizedDto, { labelSortOrders }),
+          ...mapSpecificationFields(normalizedDto, { labelSortOrders, labelRefIdsByName }),
           description: normalizedDto.description ?? null,
           refId,
           createdBy,
@@ -521,9 +522,10 @@ export class ProductsService {
     this.assertEditable(existing);
 
     const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const labelRefIdsByName = await this.productInformationLabelsRepository.findActiveRefIdsByName();
     const payload: Partial<ProductEntity> = {
       updatedBy,
-      ...mapSpecificationFields(dto, { labelSortOrders }),
+      ...mapSpecificationFields(dto, { labelSortOrders, labelRefIdsByName }),
     };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.description !== undefined) payload.description = dto.description ?? null;
@@ -1356,7 +1358,7 @@ export class ProductsService {
 
   private async enrichProduct(
     product: IProduct,
-    labelSortOrders?: Map<string, number>,
+    labelCatalog?: ProductInformationLabelCatalog,
   ): Promise<IProduct> {
     const media = await Promise.all(
       (product.media ?? []).map(async (item) => {
@@ -1427,11 +1429,11 @@ export class ProductsService {
       images: (variantImagesById.get(variant.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
     }));
 
-    const resolvedLabelSortOrders =
-      labelSortOrders ?? (await this.productInformationLabelsRepository.findActiveSortOrdersByName());
+    const resolvedLabelCatalog =
+      labelCatalog ?? (await this.productInformationLabelsRepository.findActiveLabelCatalog());
     const productInformation = enrichProductInformation(
       product.productInformation,
-      resolvedLabelSortOrders,
+      resolvedLabelCatalog,
     );
 
     return { ...product, productInformation, media, wellnessGoals, sizeChart, bundleIcon, variants };
@@ -1440,11 +1442,11 @@ export class ProductsService {
   private async enrichPaginatedProducts(
     result: PaginatedResult<IProduct>,
   ): Promise<PaginatedResult<IProduct>> {
-    const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
+    const labelCatalog = await this.productInformationLabelsRepository.findActiveLabelCatalog();
     return {
       ...result,
       data: await Promise.all(
-        result.data.map((product) => this.enrichProduct(product, labelSortOrders)),
+        result.data.map((product) => this.enrichProduct(product, labelCatalog)),
       ),
     };
   }

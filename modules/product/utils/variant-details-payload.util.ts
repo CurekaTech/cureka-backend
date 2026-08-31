@@ -4,6 +4,7 @@ import { IVariantInlineFaq } from '../interfaces/variant-details.interface';
 import {
   normalizeProductInformation,
   ProductInformationLabelSortOrders,
+  ProductInformationLabelRefIdsByName,
 } from './product-information.util';
 
 export type VariantDetailMasterIds = {
@@ -25,11 +26,14 @@ export const extractDescriptionFromProductInformation = (
 export const mapVariantDetailDtoToEntityColumns = (
   dto: CreateVariantDto,
   masterIds: VariantDetailMasterIds = {},
-  options?: { labelSortOrders?: ProductInformationLabelSortOrders },
+  options?: {
+    labelSortOrders?: ProductInformationLabelSortOrders;
+    labelRefIdsByName?: ProductInformationLabelRefIdsByName;
+  },
 ): Partial<ProductVariantEntity> => {
   const normalizedProductInformation =
     dto.productInformation !== undefined
-      ? normalizeProductInformation(dto.productInformation, options?.labelSortOrders)
+      ? normalizeProductInformation(dto.productInformation, options)
       : undefined;
 
   const description =

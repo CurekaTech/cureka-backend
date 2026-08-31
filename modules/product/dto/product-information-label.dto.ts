@@ -45,7 +45,8 @@ export class UpdateProductInformationLabelDto extends PartialType(CreateProductI
   @ApiPropertyOptional({
     example: 'Age Group',
     description:
-      'Existing product_information.label text to rewrite when cascading a rename',
+      'Legacy: label text currently stored on products/variants JSON when labelRefId is missing. ' +
+      'Cascade prefers matching by master refId from the URL path.',
   })
   @IsOptional()
   @IsString()

@@ -1,7 +1,7 @@
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
-import { IProductInformationItem } from '@modules/product/interfaces/product-information.interface';
+import { PublicProductInformationItem } from '@modules/product/interfaces/product-information.interface';
 import { IProductCategoryFilterBinding } from '@modules/product/interfaces/product.interface';
 import { IVariantInlineFaq } from '@modules/product/interfaces/variant-details.interface';
 import { IProductPackMetadataItem } from '@modules/product/interfaces/product-pack-metadata.interface';
@@ -144,7 +144,7 @@ export interface IPublicProductVariant {
   slug: string;
   displayName?: string | null;
   description?: string | null;
-  productInformation?: IProductInformationItem[];
+  productInformation?: PublicProductInformationItem[];
   faqs?: IVariantInlineFaq[];
   metaTitle?: string | null;
   metaDescription?: string | null;
@@ -265,7 +265,7 @@ export interface IPublicProductDetail {
   importer?: IPublicImporterSummary | null;
   countryOfOriginRefId: string | null;
   countryOfOriginName: string | null;
-  productInformation: IProductInformationItem[];
+  productInformation: PublicProductInformationItem[];
   expiresInMonths: number | null;
   subscriptionEnabled: boolean;
   codAvailable: boolean;
