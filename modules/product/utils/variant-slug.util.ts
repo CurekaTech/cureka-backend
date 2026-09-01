@@ -9,28 +9,53 @@ export const buildVariantSlugSuffix = (attributeValues: string[]): string =>
     .filter(Boolean)
     .join('-');
 
-export const buildVariantSlug = (
+const pushUnique = (candidates: string[], value: string): void => {
+  const slug = value.slice(0, maxSlugLength());
+  if (slug && !candidates.includes(slug)) {
+    candidates.push(slug);
+  }
+};
+
+/**
+ * Preferred slugs for a new variant, in order:
+ * 1. Explicit slug (when provided)
+ * 2. Product name slug
+ * 3. Product name + variant attribute values (size, pack, etc.) — only used if #2 is taken
+ *
+ * SKU is never included.
+ */
+export const buildVariantSlugCandidates = (
   productSlug: string,
-  input: { slug?: string; sku?: string; attributeValues?: string[] },
-): string => {
+  input: { slug?: string; attributeValues?: string[] },
+): string[] => {
+  const candidates: string[] = [];
+  const base = productSlug.slice(0, maxSlugLength());
+
   if (input.slug?.trim()) {
     const normalized = generateProductSlug(input.slug.trim());
     if (normalized) {
-      return normalized.slice(0, maxSlugLength());
+      pushUnique(candidates, normalized);
+      return candidates;
     }
+  }
+
+  if (base) {
+    pushUnique(candidates, base);
   }
 
   const attributeSuffix = buildVariantSlugSuffix(input.attributeValues ?? []);
-  if (attributeSuffix) {
-    return `${productSlug}-${attributeSuffix}`.slice(0, maxSlugLength());
+  if (base && attributeSuffix) {
+    pushUnique(candidates, `${base}-${attributeSuffix}`);
   }
 
-  if (input.sku?.trim()) {
-    const skuSuffix = generateProductSlug(input.sku.trim());
-    if (skuSuffix) {
-      return `${productSlug}-${skuSuffix}`.slice(0, maxSlugLength());
-    }
-  }
+  return candidates;
+};
 
-  return productSlug.slice(0, maxSlugLength());
+/** First preferred slug (name-only, or explicit). Does not append SKU. */
+export const buildVariantSlug = (
+  productSlug: string,
+  input: { slug?: string; attributeValues?: string[] },
+): string => {
+  const [first] = buildVariantSlugCandidates(productSlug, input);
+  return (first ?? productSlug).slice(0, maxSlugLength());
 };

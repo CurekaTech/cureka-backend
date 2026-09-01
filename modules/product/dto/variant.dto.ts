@@ -71,8 +71,8 @@ export class CreateVariantDto {
   sku!: string;
 
   @ApiPropertyOptional({
-    example: 'cetaphil-gentle-skin-cleanser-red-xl',
-    description: `Unique URL slug (max ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters). Auto-generated from product slug + attribute values when omitted.`,
+    example: 'cetaphil-gentle-skin-cleanser',
+    description: `Unique URL slug (max ${APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH} characters). Auto-generated from the product name. Variant size/pack values are appended only when needed for uniqueness. SKU is never included.`,
   })
   @IsOptional()
   @IsString()
