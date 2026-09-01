@@ -14,7 +14,7 @@ import {
   buildVariantCombinationKey,
   IVariantAttributeInput,
 } from '../utils/variant-combination-key.util';
-import { buildVariantSlug } from '../utils/variant-slug.util';
+import { buildVariantSlugCandidates } from '../utils/variant-slug.util';
 import { assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { APP_CONSTANTS } from '@packages/common';
 import {
@@ -356,14 +356,15 @@ export class ProductVariantsRepository {
       const discountPercentage =
         dto.discountPercentage ?? computeDiscountPercentage(dto.mrp, dto.sellingPrice);
       const attributeValues = (dto.attributes ?? []).map((item) => item.value);
+      const reservedSlugs = saved.map((item) => item.slug);
       const slug = await this.resolveUniqueVariantSlug(
         productSlug,
         {
           slug: dto.slug,
-          sku: dto.sku,
           attributeValues,
         },
         undefined,
+        reservedSlugs,
       );
 
       const variant = variantRepo.create({
@@ -533,21 +534,35 @@ export class ProductVariantsRepository {
 
   private async resolveUniqueVariantSlug(
     productSlug: string,
-    input: { slug?: string; sku?: string; attributeValues?: string[] },
+    input: { slug?: string; attributeValues?: string[] },
     excludeVariantId?: string,
+    reservedSlugs: string[] = [],
   ): Promise<string> {
     const max = APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH;
-    let candidate = buildVariantSlug(productSlug, input);
-    assertProductUrlSlugLength(candidate, 'Variant');
-    let counter = 2;
+    const reserved = new Set(reservedSlugs);
+    const candidates = buildVariantSlugCandidates(productSlug, input);
 
-    while (
-      await this.productsRepository.isSlugTakenGlobally(candidate, {
+    const isTaken = async (slug: string): Promise<boolean> => {
+      if (reserved.has(slug)) return true;
+      return this.productsRepository.isSlugTakenGlobally(slug, {
         variantId: excludeVariantId,
-      })
-    ) {
-      candidate = `${buildVariantSlug(productSlug, input)}-${counter}`.slice(0, max);
+      });
+    };
+
+    for (const candidate of candidates) {
+      assertProductUrlSlugLength(candidate, 'Variant');
+      if (!(await isTaken(candidate))) {
+        return candidate;
+      }
+    }
+
+    const uniquenessBase = candidates[candidates.length - 1] ?? productSlug.slice(0, max);
+    assertProductUrlSlugLength(uniquenessBase, 'Variant');
+    let counter = 2;
+    let candidate = `${uniquenessBase}-${counter}`.slice(0, max);
+    while (await isTaken(candidate)) {
       counter += 1;
+      candidate = `${uniquenessBase}-${counter}`.slice(0, max);
     }
 
     return candidate;
@@ -591,15 +606,16 @@ export class ProductVariantsRepository {
     const discountPercentage =
       dto.discountPercentage ?? computeDiscountPercentage(dto.mrp, dto.sellingPrice);
     const attributeValues = (dto.attributes ?? []).map((item) => item.value);
-    const slug = await this.resolveUniqueVariantSlug(
-      productSlug,
-      {
-        slug: dto.slug,
-        sku: dto.sku,
-        attributeValues,
-      },
-      existing.id,
-    );
+    const slug = dto.slug?.trim()
+      ? await this.resolveUniqueVariantSlug(
+          productSlug,
+          {
+            slug: dto.slug,
+            attributeValues,
+          },
+          existing.id,
+        )
+      : existing.slug;
 
     try {
       await variantRepo.update(
