@@ -13,6 +13,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { GokwikLineItemDto } from './gokwik-line-item.dto';
 
 export class GokwikPaymentDetailsDto {
   @IsNotEmpty()
@@ -257,4 +258,11 @@ export class GokwikCreateOrderDto {
   @ValidateNested()
   @Type(() => GokwikCreateOrderMetaDataDto)
   meta_data?: GokwikCreateOrderMetaDataDto;
+
+  /** GoKwik checkout snapshot — includes auto-added complimentary products. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GokwikLineItemDto)
+  line_items?: GokwikLineItemDto[];
 }

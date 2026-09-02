@@ -36,6 +36,7 @@ import { GokwikQueueService } from './services/gokwik-queue.service';
 import { GokwikWebhookService } from './services/gokwik-webhook.service';
 import { GokwikCatalogSyncService } from './services/gokwik-catalog-sync.service';
 import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service';
+import { GokwikComplimentaryOrderItemsService } from './services/gokwik-complimentary-order-items.service';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service'
   providers: [
     GokwikCartService,
     GokwikOrderService,
+    GokwikComplimentaryOrderItemsService,
     GokwikApiService,
     GokwikCallbackGuard,
     GokwikCartOwnerGuard,

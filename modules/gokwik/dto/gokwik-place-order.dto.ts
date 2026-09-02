@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsEmail,
   IsDefined,
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -16,6 +17,7 @@ import {
   GokwikCreateOrderMetaDataDto,
   GokwikPaymentDetailsDto,
 } from './gokwik-create-order.dto';
+import { GokwikLineItemDto } from './gokwik-line-item.dto';
 
 export class GokwikUserDetailsDto {
   @IsOptional()
@@ -134,4 +136,11 @@ export class GokwikPlaceOrderDto {
   @ValidateNested()
   @Type(() => GokwikCreateOrderMetaDataDto)
   meta_data?: GokwikCreateOrderMetaDataDto;
+
+  /** GoKwik checkout snapshot — includes auto-added complimentary products. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GokwikLineItemDto)
+  line_items?: GokwikLineItemDto[];
 }
