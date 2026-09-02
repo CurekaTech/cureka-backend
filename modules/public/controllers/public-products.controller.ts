@@ -60,7 +60,7 @@ export class PublicProductsController {
    * the PDP variant so suggestions stay relevant; when `variantIds` is omitted entirely,
    * results fall back to site bestsellers.
    *
-   * Cascade: FBT category rules → same root-category bestsellers → global bestsellers.
+   * Cascade: FBT category rules → same deepest-category bestsellers → global bestsellers.
    * Seed/cart products are always excluded when variant IDs are provided.
    *
    * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
