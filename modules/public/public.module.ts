@@ -16,6 +16,7 @@ import { PublicCommonService } from './services/public-common.service';
 import { PublicWatchAndShopService } from './services/public-watch-and-shop.service';
 import { PublicProductsService } from './services/public-products.service';
 import { PublicBundlesService } from './services/public-bundles.service';
+import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.listener';
 
 @Module({
   imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule],
@@ -34,6 +35,7 @@ import { PublicBundlesService } from './services/public-bundles.service';
     PublicWatchAndShopService,
     PublicProductsService,
     PublicBundlesService,
+    PublicHomepageCacheListener,
   ],
 })
 export class PublicModule {}

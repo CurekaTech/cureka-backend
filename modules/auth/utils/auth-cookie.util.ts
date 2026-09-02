@@ -65,6 +65,11 @@ export const getAuthCookieOptions = (
   maxAge: maxAgeSeconds,
 });
 
+export const getClearAuthCookieOptions = (req?: FastifyRequest) => {
+  const { maxAge: _maxAge, ...options } = getAuthCookieOptions(req, 0);
+  return options;
+};
+
 export const setUserSessionCookie = (
   reply: FastifyReply,
   sessionToken: string,
@@ -78,8 +83,8 @@ export const setUserSessionCookie = (
   );
 };
 
-export const clearUserSessionCookie = (reply: FastifyReply): void => {
-  reply.clearCookie(AUTH_COOKIE_NAMES.USER_SESSION, { path: '/' });
+export const clearUserSessionCookie = (reply: FastifyReply, req?: FastifyRequest): void => {
+  reply.clearCookie(AUTH_COOKIE_NAMES.USER_SESSION, getClearAuthCookieOptions(req));
 };
 
 /**

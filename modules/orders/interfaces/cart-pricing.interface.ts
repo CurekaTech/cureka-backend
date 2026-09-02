@@ -48,6 +48,12 @@ export type CartCheckoutRules = {
   codMaxOrderAmount: number;
 };
 
+export type CartCodEligibility = {
+  available: boolean;
+  minimumOrderAmount: number;
+  message: string;
+};
+
 export type CartPricing = {
   subtotal: number;
   coupon: CartCouponSummary;
@@ -61,6 +67,8 @@ export type CartPricing = {
   grandTotal: number;
   /** Live admin rules for FE (prepaid % + COD limits). */
   checkoutRules: CartCheckoutRules;
+  /** Backend-computed COD availability for the current cart payable merchandise. */
+  cod: CartCodEligibility;
 };
 
 export type CartResponse = {

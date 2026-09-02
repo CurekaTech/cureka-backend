@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
+import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
@@ -13,6 +14,7 @@ import {
   SEARCH_NATIVE_FALLBACK_MIN_CHARS,
   SEARCH_RESPONSE_CACHE_MAX_ENTRIES,
   SEARCH_RESPONSE_CACHE_TTL_MS,
+  SEARCH_POPULAR_CACHE_TTL_SECONDS,
   TYPESENSE_FAST_SEARCH_PARAMS,
 } from '../constants/typesense-search-performance.constant';
 import { PRODUCT_POPULAR_SORT_FIELD } from '../constants/typesense-product.schema';
@@ -58,6 +60,7 @@ export class PublicSearchService {
     private readonly brandsRepository: BrandsRepository,
     private readonly categoriesRepository: CategoriesRepository,
     private readonly healthConcernsRepository: HealthConcernsRepository,
+    private readonly cacheStrategy: CacheStrategyService,
   ) {}
 
   async search(query: string, perPage = 10): Promise<IPublicSearchResult[]> {
@@ -103,6 +106,16 @@ export class PublicSearchService {
       return [];
     }
 
+    const normalizedPerPage = Math.min(Math.max(1, perPage), 30);
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.publicSearch.popular(normalizedPerPage),
+      module: CacheModuleName.DEFAULT,
+      ttlSeconds: SEARCH_POPULAR_CACHE_TTL_SECONDS,
+      loader: () => this.loadPopularFromTypesense(normalizedPerPage),
+    });
+  }
+
+  private async loadPopularFromTypesense(perPage: number): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
     const filterBy = config.hasEntityType
