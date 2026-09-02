@@ -160,3 +160,14 @@ npm run category:above-the-fold -- --apply
 
 # Optional
 npm run category:above-the-fold -- --file="docs/Master-Data-Sheets/cureka_category_page_
+
+------------------------------
+
+# Dry-run (default)
+npm run product:update-dyna-prices
+
+# Apply changes
+npm run product:update-dyna-prices -- --apply
+
+# Custom file
+npm run product:update-dyna-prices -- --file="docs/Master-Data-Sheets/Dyna-Price-List-changed.xlsx"
