@@ -239,4 +239,43 @@ describe('mapOrderToUnicommercePayload', () => {
     const payload = mapOrderToUnicommercePayload(buildOrder());
     expect(payload.saleOrder.channel).toBe('CUSTOM');
   });
+
+  it('includes complimentary GoKwik items at zero selling price', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        items: [
+          {
+            sku: 'SKU-001',
+            productName: 'Vitamin C Serum',
+            variantName: '30ml',
+            quantity: 2,
+            unitPrice: '499.00',
+            totalPrice: '998.00',
+          } as OrderItemEntity,
+          {
+            sku: 'SKU-FREE',
+            productName: 'Complimentary Gel',
+            variantName: null,
+            quantity: 1,
+            unitPrice: '0.00',
+            totalPrice: '0.00',
+          } as OrderItemEntity,
+        ],
+        subtotal: '998.00',
+        shippingAmount: '0.00',
+        handlingAmount: '0.00',
+        platformFee: '0.00',
+        codCharge: '0.00',
+        grandTotal: '948.00',
+        discountAmount: '50.00',
+      }),
+    );
+    const so = payload.saleOrder;
+
+    expect(so.saleOrderItems).toHaveLength(3);
+    const complimentary = so.saleOrderItems.find((item) => item.itemSku === 'SKU-FREE');
+    expect(complimentary?.sellingPrice).toBe('0.00');
+    expect(complimentary?.totalPrice).toBe('0.00');
+    expect(so.totalPrepaidAmount).toBe(948);
+  });
 });

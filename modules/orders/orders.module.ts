@@ -70,6 +70,7 @@ import { OrdersService } from './services/orders.service';
   exports: [
     OrdersService,
     OrdersRepository,
+    OrderItemsRepository,
     CartService,
     CheckoutService,
     CouponCheckoutService,

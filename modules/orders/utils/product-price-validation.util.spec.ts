@@ -60,4 +60,24 @@ describe('assertCurrentProductPrices', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('skips catalog price validation for GoKwik complimentary lines', async () => {
+    await expect(
+      assertCurrentProductPrices(
+        [
+          {
+            productId: 'p1',
+            variantId: 'v1',
+            quantity: 1,
+            unitPrice: 0,
+            totalPrice: 0,
+            skipCatalogPriceCheck: true,
+          },
+        ],
+        manager,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(findOne).not.toHaveBeenCalled();
+  });
 });

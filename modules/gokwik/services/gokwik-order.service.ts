@@ -30,11 +30,13 @@ import {
   GokwikPlaceOrderResponse,
 } from '../interfaces/gokwik-order.interface';
 import { GokwikQueueService } from './gokwik-queue.service';
+import { GokwikComplimentaryOrderItemsService } from './gokwik-complimentary-order-items.service';
 import { GokwikRepository } from '../repositories/gokwik.repository';
 import {
   buildGokwikFinancialSnapshot,
   GokwikFinancialSnapshot,
 } from '../utils/gokwik-financial-snapshot.util';
+import { GokwikLineItemDto } from '../dto/gokwik-line-item.dto';
 
 @Injectable()
 export class GokwikOrderService {
@@ -47,6 +49,7 @@ export class GokwikOrderService {
     private readonly usersService: UsersService,
     private readonly gokwikRepository: GokwikRepository,
     private readonly gokwikQueueService: GokwikQueueService,
+    private readonly gokwikComplimentaryOrderItemsService: GokwikComplimentaryOrderItemsService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {}
@@ -111,9 +114,14 @@ export class GokwikOrderService {
             // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
             ignorePaymentMethodPricing: !isCodPayment,
           });
+          const orderWithComplimentary = await this.withComplimentaryItems(
+            cart.userId,
+            refreshedOrder,
+            dto.line_items,
+          );
           const { order: snapshotOrder, snapshot: refreshedSnapshot } =
             await this.applyGokwikFinancialSnapshot(
-              refreshedOrder,
+              orderWithComplimentary,
               dto.payment_details,
               dto.meta_data,
             );
@@ -154,9 +162,14 @@ export class GokwikOrderService {
           });
           return { status: 'success', order_id: snapshotOrder.orderNumber };
         }
+        const syncedExistingOrder = await this.withComplimentaryItems(
+          cart.userId,
+          existing.order,
+          dto.line_items,
+        );
         const { order: snapshotOrder, snapshot: existingSnapshot } =
           await this.applyGokwikFinancialSnapshot(
-            existing.order,
+            syncedExistingOrder,
             dto.payment_details,
             dto.meta_data,
           );
@@ -207,9 +220,18 @@ export class GokwikOrderService {
         // COD must include COD fee; prepaid discounts are owned by GoKwik totals.
         ignorePaymentMethodPricing: !isCodPayment,
       });
+      const orderWithComplimentary = await this.withComplimentaryItems(
+        cart.userId,
+        order,
+        dto.line_items,
+      );
 
       const { order: snapshotOrder, snapshot: createdSnapshot } =
-        await this.applyGokwikFinancialSnapshot(order, dto.payment_details, dto.meta_data);
+        await this.applyGokwikFinancialSnapshot(
+          orderWithComplimentary,
+          dto.payment_details,
+          dto.meta_data,
+        );
       this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(snapshotOrder.grandTotal));
       this.assertDiscountTotal(
         dto.meta_data,
@@ -327,7 +349,16 @@ export class GokwikOrderService {
           dto.payment_details,
           dto.meta_data,
         );
-      this.assertPaymentTotal(dto.payment_details, dto.meta_data, Number(snapshotOrder.grandTotal));
+      const orderReadyForConfirm = await this.withComplimentaryItems(
+        cart.userId,
+        snapshotOrder,
+        dto.line_items,
+      );
+      this.assertPaymentTotal(
+        dto.payment_details,
+        dto.meta_data,
+        Number(orderReadyForConfirm.grandTotal),
+      );
       const { paymentMethod, paymentStatus } = this.mapPayment(dto.payment_details);
 
       await this.gokwikRepository.updateOrderLink(link.id, {
@@ -354,7 +385,7 @@ export class GokwikOrderService {
       });
 
       const order = await this.ordersService.confirmDraftOrder(cart.userId, {
-        orderNumber: snapshotOrder.orderNumber,
+        orderNumber: orderReadyForConfirm.orderNumber,
         cartId,
         paymentMethod,
         paymentStatus,
@@ -953,5 +984,18 @@ export class GokwikOrderService {
     } catch {
       return null;
     }
+  }
+
+  private async withComplimentaryItems(
+    userId: string,
+    order: OrderEntity,
+    lineItems: GokwikLineItemDto[] | undefined,
+  ): Promise<OrderEntity> {
+    const result = await this.gokwikComplimentaryOrderItemsService.syncComplimentaryItems(
+      userId,
+      order,
+      lineItems,
+    );
+    return result.order;
   }
 }
