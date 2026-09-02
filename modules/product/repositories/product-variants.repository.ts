@@ -28,10 +28,12 @@ import {
   mapVariantDetailDtoToEntityColumns,
   VariantDetailMasterIds,
 } from '../utils/variant-details-payload.util';
+import { shouldMirrorSimpleVariantDisplayName } from '../utils/simple-product-display-name.util';
 import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
 import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
+import { IProductInformationItem } from '../interfaces/product-information.interface';
 import {
   buildSkuPrefix,
   findMaxSkuSequenceForPrefix,
@@ -736,6 +738,39 @@ export class ProductVariantsRepository {
   }
 
   /**
+   * Keep a simple product's single variant displayName aligned with the product title
+   * when the variant title still mirrors the previous product name.
+   */
+  async mirrorSimpleProductVariantDisplayName(
+    manager: EntityManager,
+    productId: string,
+    productName: string,
+    previousProductName: string,
+  ): Promise<boolean> {
+    const variantRepo = manager.getRepository(ProductVariantEntity);
+    const variants = await variantRepo.find({
+      where: { productId },
+      select: ['id', 'displayName'],
+    });
+    if (variants.length !== 1) {
+      return false;
+    }
+
+    const [variant] = variants;
+    if (!shouldMirrorSimpleVariantDisplayName(variant.displayName, previousProductName)) {
+      return false;
+    }
+
+    const nextDisplayName = productName.trim();
+    if ((variant.displayName?.trim() ?? '') === nextDisplayName) {
+      return false;
+    }
+
+    await variantRepo.update(variant.id, { displayName: nextDisplayName });
+    return true;
+  }
+
+  /**
    * Sets stock on all non-deleted variants for the given products and clears
    * outOfStock (restores in-stock / reverses bulk mark-out-of-stock).
    */
@@ -877,6 +912,26 @@ export class ProductVariantsRepository {
       .createQueryBuilder()
       .update(ProductVariantEntity)
       .set(Object.fromEntries(entries) as Partial<ProductVariantEntity>)
+      .where('product_id = :productId', { productId })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
+  /**
+   * Copies product-level productInformation JSON onto every non-deleted variant.
+   */
+  async cascadeProductInformationToVariants(
+    productId: string,
+    productInformation: IProductInformationItem[],
+    manager?: EntityManager,
+  ): Promise<number> {
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    const result = await repo
+      .createQueryBuilder()
+      .update(ProductVariantEntity)
+      .set({ productInformation })
       .where('product_id = :productId', { productId })
       .andWhere('deleted_at IS NULL')
       .execute();
