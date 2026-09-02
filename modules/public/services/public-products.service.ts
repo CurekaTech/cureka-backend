@@ -71,6 +71,10 @@ import {
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
+import {
+  resolveFbtFallbackCategoryIds,
+  resolveFbtSourceCategoryName,
+} from '../utils/fbt-category-scope.util';
 
 /** Tag slug that marks a product as a best seller (see homepage Best Sellers section). */
 const BEST_SELLERS_TAG_SLUG = 'bestsellers';
@@ -1070,7 +1074,7 @@ export class PublicProductsService {
    *
    * Cascade (stop when page 1 has enough results, or always for page > 1 once chosen):
    *  1. FBT category-pair rules → complementary categories (±35% price, then without).
-   *  2. Same root-category bestsellers (exclude seed products).
+   *  2. Same deepest-category bestsellers (e.g. Skin Care, not all of Personal Care).
    *  3. Global bestsellers (exclude seed products when any).
    *
    * Manual overrides (admin-configured) will always take priority once that
@@ -1121,7 +1125,7 @@ export class PublicProductsService {
       const sourceCategoryNames = [
         ...new Set(
           variantInfos
-            .map((v) => (v.subCategoryName ?? v.categoryName ?? '').toLowerCase().trim())
+            .map((v) => resolveFbtSourceCategoryName(v))
             .filter(Boolean),
         ),
       ];
@@ -1129,7 +1133,12 @@ export class PublicProductsService {
       const sourceCategoryIds = [
         ...new Set(
           variantInfos
-            .flatMap((v) => [v.subCategoryId, v.categoryId])
+            .flatMap((v) => [
+              v.subSubSubCategoryId,
+              v.subSubCategoryId,
+              v.subCategoryId,
+              v.categoryId,
+            ])
             .filter((id): id is string => Boolean(id)),
         ),
       ];
@@ -1185,19 +1194,13 @@ export class PublicProductsService {
         }
       }
 
-      // ── 2) Same root category bestsellers (PDP / unmatched rules) ──
-      const rootCategoryIds = [
-        ...new Set(
-          variantInfos
-            .map((v) => v.categoryId)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      ];
+      // ── 2) Same deepest-category bestsellers (PDP / unmatched rules) ──
+      const fallbackCategoryIds = resolveFbtFallbackCategoryIds(variantInfos);
 
-      if (rootCategoryIds.length) {
+      if (fallbackCategoryIds.length) {
         const { data, total } = await this.productsRepository.findPublishedPaginated({
           ...listBase,
-          categoryIds: rootCategoryIds,
+          categoryIds: fallbackCategoryIds,
         });
 
         if (total > 0 || resolvedPage > 1) {
