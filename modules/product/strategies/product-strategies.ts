@@ -13,6 +13,7 @@ import {
   ensureBundlePricingVariants,
   resolveBundleChildItems,
 } from '../utils/bundle-product.util';
+import { resolveSimpleVariantDisplayName } from '../utils/simple-product-display-name.util';
 
 @Injectable()
 export class SimpleProductStrategy implements IProductCreationStrategy {
@@ -52,6 +53,7 @@ export class SimpleProductStrategy implements IProductCreationStrategy {
     const variantsWithExpiry = [
       {
         ...variant!,
+        displayName: resolveSimpleVariantDisplayName(dto.name, variant!.displayName),
         expiryDate: variant!.expiryDate ?? dto.expiryDate,
         expiresIn: variant!.expiresIn ?? dto.expiresIn,
       },

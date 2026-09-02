@@ -519,6 +519,10 @@ export class OrdersService {
           isSubscription: item.isSubscription,
           frequency: item.frequency ?? null,
           sku: item.sku,
+          skipCatalogPriceCheck:
+            existing.orderSource === OrderSource.GOKWIK &&
+            parseFloat(item.unitPrice) === 0 &&
+            parseFloat(item.totalPrice) === 0,
         })),
         manager,
       );
