@@ -62,6 +62,7 @@ import { ProductInformationLabelsService } from './services/product-information-
 import { ProductWizardBootstrapService } from './services/product-wizard-bootstrap.service';
 import { BulkUploadService } from './services/bulk-upload.service';
 import { BulkUploadExportStreamService } from './services/bulk-upload-export-stream.service';
+import { BulkUploadImageComparisonExportService } from './services/bulk-upload-image-comparison-export.service';
 import { BulkUploadParserService } from './services/bulk-upload-parser.service';
 import { BulkUploadValidatorService } from './services/bulk-upload-validator.service';
 
@@ -186,6 +187,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     BulkUploadsRepository,
     BulkUploadService,
     BulkUploadExportStreamService,
+    BulkUploadImageComparisonExportService,
     ...(BULK_UPLOAD_PROCESSOR_ENABLED ? [BulkUploadProcessor] : []),
     BulkUploadParserService,
     BulkUploadValidatorService,
