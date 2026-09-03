@@ -47,7 +47,7 @@ import { PaymentRequestItemsRepository } from '../repositories/payment-request-i
 import { PaymentRequestsRepository } from '../repositories/payment-requests.repository';
 import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
 import { CheckoutVerifyPaymentDto } from '../dto/checkout-verify.dto';
-import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
+import { parseIndianMobileNumber, normalizeMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
@@ -965,6 +965,8 @@ export class PaymentRequestsService {
       dto.finalAmount,
     );
 
+    const addressId = await this.resolveAdminCreateAddressId(customerId, dto.addressId);
+
     return this.dataSource.transaction(async (manager) => {
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
         this.paymentRequestsRepository.existsByRefId(candidate),
@@ -973,6 +975,7 @@ export class PaymentRequestsService {
         {
           refId,
           customerId,
+          addressId,
           status: PaymentRequestStatus.PAYMENT_PENDING,
           subtotal: totals.subtotal,
           discount: totals.discount,
@@ -1212,6 +1215,12 @@ export class PaymentRequestsService {
     ].includes(existing.status)) {
       throw new BadRequestException('Payment link can only be generated for pending requests');
     }
+    if (
+      existing.status === PaymentRequestStatus.LINK_GENERATED &&
+      existing.paymentLink
+    ) {
+      return existing;
+    }
     if (!existing.items.length) {
       throw new BadRequestException('Cannot create payment link without products');
     }
@@ -1234,19 +1243,18 @@ export class PaymentRequestsService {
 
     const customer = await this.usersRepository.findById(existing.customerId);
 
-    // Validate prefill if provided
-    if (prefill && Object.keys(prefill).length > 0 && !prefill.phone) {
-      throw new BadRequestException('phone is mandatory when custom prefill details are provided');
-    }
-
-    const finalPhone = prefill?.phone || customer?.mobileNumber;
-    const finalEmail = prefill?.email || customer?.email;
+    const prefillPhone = prefill?.phone?.trim() || undefined;
+    const prefillEmail = prefill?.email?.trim() || undefined;
+    const finalPhone = this.normalizeRazorpayContact(
+      prefillPhone || customer?.mobileNumber || '',
+    );
+    const finalEmail = prefillEmail || customer?.email;
 
     if (!finalPhone) {
       throw new BadRequestException('Customer phone is required for payment link');
     }
 
-    const reference = existing.refId;
+    const reference = this.buildRazorpayReferenceId(existing.refId);
     const expireBy = this.razorpayService.getLinkExpiryTimestamp();
 
     const payload: Record<string, any> = {
@@ -1815,6 +1823,43 @@ export class PaymentRequestsService {
 
     return result;
   }
+
+  private async resolveAdminCreateAddressId(
+    customerId: string,
+    addressId?: string,
+  ): Promise<string | null> {
+    if (addressId) {
+      await this.userAddressesService.findOne(customerId, addressId);
+      return addressId;
+    }
+    const addresses = await this.userAddressesService.findAll(customerId);
+    return addresses.find((address) => address.isDefault)?.id ?? addresses[0]?.id ?? null;
+  }
+
+  private normalizeRazorpayContact(phone: string): string | null {
+    const digits = normalizeMobileNumber(phone);
+    if (!digits) {
+      return null;
+    }
+    const local =
+      digits.length === 12 && digits.startsWith('91')
+        ? digits.slice(2)
+        : digits.length === 11 && digits.startsWith('0')
+          ? digits.slice(1)
+          : digits;
+    try {
+      return parseIndianMobileNumber(local);
+    } catch {
+      return null;
+    }
+  }
+
+  private buildRazorpayReferenceId(refId: string): string {
+    const suffix = Date.now().toString(36);
+    const reference = `${refId}-${suffix}`;
+    return reference.length <= 40 ? reference : reference.slice(0, 40);
+  }
+
   private async resolveCustomerId(dto: CreatePaymentRequestDto): Promise<string> {
     if (dto.customerId) {
       const customer = await this.usersRepository.findById(dto.customerId);

@@ -96,8 +96,12 @@ export class RazorpayPaymentLinksService {
         payload,
       )) as Record<string, unknown>;
     } catch (error) {
-      this.logger.error('Failed to create payment link', error instanceof Error ? error.stack : undefined);
-      throw new InternalServerErrorException('Failed to generate Razorpay payment link');
+      const description = this.extractRazorpayError(error);
+      this.logger.error(
+        { error: description },
+        'Failed to create payment link',
+      );
+      throw new BadRequestException(description);
     }
   }
 
@@ -126,5 +130,24 @@ export class RazorpayPaymentLinksService {
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
       throw new BadRequestException('Invalid Razorpay webhook signature');
     }
+  }
+
+  private extractRazorpayError(error: unknown): string {
+    if (error && typeof error === 'object') {
+      const razorpayError = error as {
+        error?: { description?: string; code?: string };
+        message?: string;
+      };
+      if (razorpayError.error?.description) {
+        return razorpayError.error.description;
+      }
+      if (razorpayError.message) {
+        return razorpayError.message;
+      }
+    }
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return 'Failed to generate Razorpay payment link';
   }
 }

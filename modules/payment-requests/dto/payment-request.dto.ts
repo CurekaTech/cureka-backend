@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
@@ -44,6 +44,10 @@ export class CreatePaymentRequestDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  addressId?: string;
 
   @IsOptional()
   @IsString()
@@ -202,10 +206,12 @@ export class PaymentRequestQueryDto extends PaginationQueryDto {
 
 export class GenerateLinkPrefillDto {
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsString()
   phone?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsEmail()
   email?: string;
 }
