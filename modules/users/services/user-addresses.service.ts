@@ -85,7 +85,7 @@ export class UserAddressesService {
 
   /**
    * Upsert customer addresses from admin panel.
-   * Items with refId are updated; items without refId are created.
+   * Items with id or refId are updated; items without either are created.
    * Existing addresses omitted from the payload are soft-deleted.
    */
   async syncForUser(
@@ -96,13 +96,29 @@ export class UserAddressesService {
       const existing = await manager.getRepository(UserAddressEntity).find({
         where: { userId },
       });
+      const existingById = new Map(existing.map((address) => [address.id, address]));
       const existingByRefId = new Map(existing.map((address) => [address.refId, address]));
-      const payloadRefIds = new Set(
-        addresses.map((address) => address.refId).filter((refId): refId is string => !!refId),
-      );
+
+      const resolveOwned = (dto: AdminCustomerAddressDto): UserAddressEntity | undefined => {
+        if (dto.id) {
+          return existingById.get(dto.id);
+        }
+        if (dto.refId) {
+          return existingByRefId.get(dto.refId);
+        }
+        return undefined;
+      };
+
+      const payloadKeepIds = new Set<string>();
+      for (const dto of addresses) {
+        const owned = resolveOwned(dto);
+        if (owned) {
+          payloadKeepIds.add(owned.id);
+        }
+      }
 
       for (const address of existing) {
-        if (!payloadRefIds.has(address.refId)) {
+        if (!payloadKeepIds.has(address.id)) {
           await this.addressesRepository.softDeleteById(address.id, manager);
         }
       }
@@ -128,11 +144,15 @@ export class UserAddressesService {
 
       for (let index = 0; index < addresses.length; index += 1) {
         const dto = addresses[index];
+        const owned = resolveOwned(dto);
 
-        if (dto.refId) {
-          const owned = existingByRefId.get(dto.refId);
+        if (dto.id || dto.refId) {
           if (!owned) {
-            throw new NotFoundException(`Address with refId "${dto.refId}" not found`);
+            throw new NotFoundException(
+              dto.id
+                ? `Address with id "${dto.id}" not found`
+                : `Address with refId "${dto.refId}" not found`,
+            );
           }
 
           const isDefault =
@@ -161,7 +181,11 @@ export class UserAddressesService {
           );
 
           if (!updated) {
-            throw new NotFoundException(`Address with refId "${dto.refId}" not found`);
+            throw new NotFoundException(
+              dto.id
+                ? `Address with id "${dto.id}" not found`
+                : `Address with refId "${dto.refId}" not found`,
+            );
           }
 
           synced.push(mapUserAddressEntityToResponse(updated));

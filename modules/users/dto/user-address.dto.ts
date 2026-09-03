@@ -1,11 +1,13 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
+  Allow,
   IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -98,10 +100,42 @@ export class CreateUserAddressDto {
 
 export class UpdateUserAddressDto extends PartialType(CreateUserAddressDto) {}
 
-/** Admin customer wizard — create or update an address (refId present = update). */
+/** Admin customer wizard — create or update an address (id or refId present = update). */
 export class AdminCustomerAddressDto extends CreateUserAddressDto {
+  @ApiPropertyOptional({
+    example: '2701a5b8-501b-402c-aef6-92d507ad62d2',
+    description: 'Existing address UUID from GET customer. Omit with refId to create.',
+  })
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
   @ApiPropertyOptional({ example: 'RAH20261234', description: 'Omit to create; include to update existing address' })
   @IsOptional()
   @IsRefId()
   refId?: string;
+
+  @IsOptional()
+  @Allow()
+  userId?: string;
+
+  @IsOptional()
+  @Allow()
+  createdBy?: string;
+
+  @IsOptional()
+  @Allow()
+  updatedBy?: string;
+
+  @IsOptional()
+  @Allow()
+  createdAt?: Date;
+
+  @IsOptional()
+  @Allow()
+  updatedAt?: Date;
+
+  @IsOptional()
+  @Allow()
+  deletedAt?: Date;
 }
