@@ -111,16 +111,20 @@ export class BulkUploadImageComparisonExportService {
       storageRefs.set(key, locator.ref);
     }
 
-    const entries = [...storageRefs.entries()];
+    const items = [...storageRefs.entries()].map(([key, ref]) => ({
+      key,
+      ref,
+      url: '',
+    }));
     const resolved = await this.storageUrlEnricher.enrichReferences(
-      entries,
-      ([, ref]) => ref,
-      (item, reference) => [item[0], reference?.url ?? ''] as const,
+      items,
+      (item) => item.ref,
+      (item, reference) => ({ ...item, url: reference?.url ?? '' }),
     );
 
     const urls = new Map<string, string>();
-    for (const [key, url] of resolved) {
-      if (url) urls.set(key, url);
+    for (const item of resolved) {
+      if (item.url) urls.set(item.key, item.url);
     }
     return urls;
   }
