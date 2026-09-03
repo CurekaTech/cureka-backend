@@ -195,6 +195,90 @@ export const loadImageUrlsByProductId = async (
   return { path: filePath, loaded: true, byProductId };
 };
 
+const parseImageUrlList = (imagesRaw: string): string[] =>
+  imagesRaw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+export const normalizeLookupSku = (value: string | number | null | undefined): string => {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().toLowerCase();
+};
+
+/**
+ * WC product export: SKU + ID → ordered image URLs.
+ * Read once. SKU is preferred for the image-URL comparison export;
+ * ID remains for bulk-upload image lookup.
+ */
+export const loadWpImageLookup = async (
+  filePath = resolveLookupPath(
+    process.env['BULK_UPLOAD_IMAGE_LOOKUP_FILE'],
+    DEFAULT_IMAGE_LOOKUP_FILE,
+  ),
+): Promise<{
+  path: string;
+  loaded: boolean;
+  bySku: Map<string, string[]>;
+  byProductId: Map<string, string[]>;
+}> => {
+  const bySku = new Map<string, string[]>();
+  const byProductId = new Map<string, string[]>();
+  if (!(await fileExists(filePath))) {
+    return { path: filePath, loaded: false, bySku, byProductId };
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) {
+    return { path: filePath, loaded: false, bySku, byProductId };
+  }
+
+  const headers = new Map<string, number>();
+  worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, columnNumber) => {
+    const header = normalizeHeader(cellText(cell));
+    if (header) headers.set(header, columnNumber);
+  });
+
+  const idColumn = getHeaderIndex(headers, ['ID', 'Product ID', 'External Product ID']);
+  const skuColumn = getHeaderIndex(headers, ['SKU', 'Sku', 'Product SKU']);
+  const imagesColumn = getHeaderIndex(headers, ['Images', 'Image', 'Image URLs', 'Image Url']);
+
+  if (imagesColumn === undefined || (idColumn === undefined && skuColumn === undefined)) {
+    return { path: filePath, loaded: false, bySku, byProductId };
+  }
+
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const imagesRaw = cellText(row.getCell(imagesColumn));
+    if (!imagesRaw) continue;
+    const urls = parseImageUrlList(imagesRaw);
+    if (!urls.length) continue;
+
+    if (skuColumn !== undefined) {
+      const sku = normalizeLookupSku(cellText(row.getCell(skuColumn)));
+      if (sku && !bySku.has(sku)) {
+        bySku.set(sku, urls);
+      }
+    }
+
+    if (idColumn !== undefined) {
+      const productId = normalizeLookupProductId(cellText(row.getCell(idColumn)));
+      if (productId && !byProductId.has(productId)) {
+        byProductId.set(productId, urls);
+      }
+    }
+  }
+
+  return {
+    path: filePath,
+    loaded: bySku.size > 0 || byProductId.size > 0,
+    bySku,
+    byProductId,
+  };
+};
+
 /**
  * Client slug sheet: Product ID → slug.
  * The lookup value replaces the current product/variant slug during a

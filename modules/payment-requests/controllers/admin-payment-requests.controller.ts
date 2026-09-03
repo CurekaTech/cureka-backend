@@ -54,7 +54,13 @@ export class AdminPaymentRequestsController {
     return this.paymentRequestsService.validateAdminCoupon(dto);
   }
 
-  @ApiOperation({ summary: 'Create payment request' })
+  @ApiOperation({
+    summary: 'Create payment request / admin order',
+    description:
+      'Admin create-order wizard. Pass `paymentMethod`: `PREPAID` (default) or `COD`. ' +
+      'Prepaid stays PAYMENT_PENDING until a payment link is paid. ' +
+      'COD requires a delivery address and immediately creates a confirmed order (payment remains pending until delivery). Do not generate a payment link for COD.',
+  })
   @ResponseMessage('Payment request created successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
   @RequirePermissions('payment-request.create')
