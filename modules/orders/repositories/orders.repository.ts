@@ -153,6 +153,15 @@ export class OrdersRepository {
     });
   }
 
+  /** Real order created from a payment request (paid or failed), linked via notes. */
+  findLinkedToPaymentRequestRef(paymentRequestRefId: string): Promise<OrderEntity | null> {
+    return this.repo.findOne({
+      where: { notes: ILike(`%payment request ${paymentRequestRefId}%`) },
+      relations: { user: true, items: { product: { media: true }, variant: true } },
+      order: { createdAt: 'DESC', items: { createdAt: 'ASC' } },
+    });
+  }
+
   findRecentPlacedByUserId(userId: string, limit = 3): Promise<OrderEntity[]> {
     return this.repo.find({
       where: { userId, orderStatus: Not(OrderStatus.PENDING) },

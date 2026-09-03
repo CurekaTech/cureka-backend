@@ -965,6 +965,8 @@ export class PaymentRequestsService {
       dto.finalAmount,
     );
 
+    const addressId = await this.resolveAdminCreateAddressId(customerId, dto.addressId);
+
     return this.dataSource.transaction(async (manager) => {
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
         this.paymentRequestsRepository.existsByRefId(candidate),
@@ -973,6 +975,7 @@ export class PaymentRequestsService {
         {
           refId,
           customerId,
+          addressId,
           status: PaymentRequestStatus.PAYMENT_PENDING,
           subtotal: totals.subtotal,
           discount: totals.discount,
@@ -1815,6 +1818,19 @@ export class PaymentRequestsService {
 
     return result;
   }
+
+  private async resolveAdminCreateAddressId(
+    customerId: string,
+    addressId?: string,
+  ): Promise<string | null> {
+    if (addressId) {
+      await this.userAddressesService.findOne(customerId, addressId);
+      return addressId;
+    }
+    const addresses = await this.userAddressesService.findAll(customerId);
+    return addresses.find((address) => address.isDefault)?.id ?? addresses[0]?.id ?? null;
+  }
+
   private async resolveCustomerId(dto: CreatePaymentRequestDto): Promise<string> {
     if (dto.customerId) {
       const customer = await this.usersRepository.findById(dto.customerId);
