@@ -82,7 +82,27 @@ describe('bulk-upload-image-url-comparison.util', () => {
     });
     expect(extractMediaLocator({ key: 'images/a.webp', name: 'bucket' })).toEqual({
       type: 'storage',
-      ref: { key: 'images/a.webp', name: 'bucket' },
+      ref: 'images/a.webp',
+    });
+  });
+
+  it('re-signs GCS URLs instead of exporting an expired X-Goog-Credential query string', () => {
+    const signed =
+      'https://storage.googleapis.com/cureka-files-prod/images/cf9f6da7-bbb4-4ddd-b21a-b531c57afa88.jpg' +
+      '?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=acct%2F20260902%2Fauto%2Fstorage%2Fgoog4_request';
+    expect(extractMediaLocator(signed)).toEqual({
+      type: 'storage',
+      ref: 'images/cf9f6da7-bbb4-4ddd-b21a-b531c57afa88.jpg',
+    });
+    expect(
+      extractMediaLocator({
+        key: 'images/a.webp',
+        name: 'bucket',
+        url: signed,
+      }),
+    ).toEqual({
+      type: 'storage',
+      ref: 'images/a.webp',
     });
   });
 

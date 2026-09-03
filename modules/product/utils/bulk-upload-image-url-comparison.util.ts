@@ -1,4 +1,4 @@
-import { IStorageFileReference } from '@packages/storage';
+import { IStorageFileReference, normalizeStorageKey } from '@packages/storage';
 import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { normalizeLookupProductId, normalizeLookupSku } from './bulk-upload-reference-lookup.util';
@@ -65,28 +65,41 @@ export type MediaLocator =
 
 const isAbsoluteHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value.trim());
 
+const isReSignableStorageUrl = (value: string): boolean =>
+  /storage\.googleapis\.com/i.test(value) ||
+  value.includes('/files/') ||
+  value.includes('/uploads/');
+
+const locatorFromString = (value: string): MediaLocator | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const storageKey = normalizeStorageKey(trimmed);
+  if (storageKey && (!isAbsoluteHttpUrl(trimmed) || isReSignableStorageUrl(trimmed))) {
+    return { type: 'storage', ref: storageKey };
+  }
+  if (isAbsoluteHttpUrl(trimmed)) {
+    return { type: 'absolute', url: trimmed };
+  }
+  return { type: 'storage', ref: trimmed };
+};
+
 export const extractMediaLocator = (
   url: string | (IStorageFileReference & { url?: string }) | null | undefined,
 ): MediaLocator | null => {
   if (!url) return null;
 
   if (typeof url === 'string') {
-    const trimmed = url.trim();
-    if (!trimmed) return null;
-    if (isAbsoluteHttpUrl(trimmed)) {
-      return { type: 'absolute', url: trimmed };
-    }
-    return { type: 'storage', ref: trimmed };
+    return locatorFromString(url);
   }
 
-  if (typeof url.url === 'string' && isAbsoluteHttpUrl(url.url)) {
-    return { type: 'absolute', url: url.url };
-  }
-  if (typeof url.key === 'string' && isAbsoluteHttpUrl(url.key)) {
-    return { type: 'absolute', url: url.key };
-  }
+  // Prefer the stored object key so a cached/expired signed `url` is not exported.
   if (typeof url.key === 'string' && url.key.trim()) {
-    return { type: 'storage', ref: url };
+    const fromKey = locatorFromString(url.key);
+    if (fromKey) return fromKey;
+  }
+  if (typeof url.url === 'string' && url.url.trim()) {
+    return locatorFromString(url.url);
   }
   return null;
 };
