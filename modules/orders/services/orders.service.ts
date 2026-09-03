@@ -13,6 +13,8 @@ import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
+import { PaymentRequestsService } from '@modules/payment-requests/services/payment-requests.service';
+import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -77,6 +79,8 @@ export class OrdersService {
     private readonly eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => ProductSubscriptionsService))
     private readonly productSubscriptionsService: ProductSubscriptionsService,
+    @Inject(forwardRef(() => PaymentRequestsService))
+    private readonly paymentRequestsService: PaymentRequestsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -1093,6 +1097,44 @@ export class OrdersService {
     }
 
     throw new NotFoundException(`Order ${idOrRefId} not found`);
+  }
+
+  async generatePaymentLinkForAdmin(
+    idOrRefId: string,
+    dto: GenerateLinkPrefillDto,
+    updatedBy: string,
+  ) {
+    const paymentRequest = await this.resolvePaymentRequestForAdminLink(idOrRefId);
+    await this.paymentRequestsService.generateLink(paymentRequest.id, updatedBy, dto ?? {});
+    return this.findOneForAdmin(paymentRequest.refId);
+  }
+
+  async regeneratePaymentLinkForAdmin(
+    idOrRefId: string,
+    dto: GenerateLinkPrefillDto,
+    updatedBy: string,
+  ) {
+    const paymentRequest = await this.resolvePaymentRequestForAdminLink(idOrRefId);
+    await this.paymentRequestsService.regenerateLink(paymentRequest.id, updatedBy, dto ?? {});
+    return this.findOneForAdmin(paymentRequest.refId);
+  }
+
+  private async resolvePaymentRequestForAdminLink(
+    idOrRefId: string,
+  ): Promise<PaymentRequestEntity> {
+    const paymentRequest = await this.findPaymentRequestForAdminOrder(idOrRefId);
+    if (paymentRequest) {
+      return paymentRequest;
+    }
+
+    const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (order) {
+      throw new BadRequestException(
+        'Payment link can only be generated for unpaid admin-created payment requests',
+      );
+    }
+
+    throw new NotFoundException(`Payment request ${idOrRefId} not found`);
   }
 
   private async mapAdminOrderDetail(order: OrderEntity) {
