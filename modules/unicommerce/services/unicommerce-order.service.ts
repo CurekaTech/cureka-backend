@@ -81,6 +81,7 @@ export class UnicommerceOrderService implements OnModuleInit {
         {
           orderId: order.id,
           orderNumber: order.orderNumber,
+          orderSource: order.orderSource,
           paymentMethod: order.paymentMethod,
           paymentStatus: order.paymentStatus,
           orderStatus: order.orderStatus,
@@ -110,6 +111,7 @@ export class UnicommerceOrderService implements OnModuleInit {
       {
         orderId: order.id,
         orderNumber: order.orderNumber,
+        orderSource: order.orderSource,
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
         orderStatus: order.orderStatus,

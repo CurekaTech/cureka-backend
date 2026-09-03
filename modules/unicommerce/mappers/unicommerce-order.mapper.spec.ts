@@ -3,6 +3,7 @@ import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
+import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { mapOrderToUnicommercePayload } from './unicommerce-order.mapper';
 
 function buildOrder(overrides: Partial<OrderEntity> = {}): OrderEntity {
@@ -233,6 +234,17 @@ describe('mapOrderToUnicommercePayload', () => {
       0,
     );
     expect(itemsTotal + so.totalShippingCharges!).toBe(335);
+  });
+
+  it('includes order source in additionalInfo so admin orders are identifiable', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        orderSource: OrderSource.ADMIN,
+        paymentMethod: OrderPaymentMethod.COD,
+        notes: null,
+      }),
+    );
+    expect(payload.saleOrder.additionalInfo).toContain('Source: Admin');
   });
 
   it('defaults channel to CUSTOM when no options given', () => {

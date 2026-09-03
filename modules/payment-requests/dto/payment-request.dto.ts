@@ -9,12 +9,14 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsIn,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
+import { AdminPaymentMethod } from '../enums/admin-payment-method.enum';
 
 export class PaymentRequestItemInputDto {
   @IsUUID()
@@ -48,6 +50,11 @@ export class CreatePaymentRequestDto {
   @IsOptional()
   @IsUUID()
   addressId?: string;
+
+  /** `COD` places a real order immediately (no payment link). `PREPAID` (default) waits for Razorpay. */
+  @IsOptional()
+  @IsIn([AdminPaymentMethod.COD, AdminPaymentMethod.PREPAID])
+  paymentMethod?: AdminPaymentMethod;
 
   @IsOptional()
   @IsString()
@@ -224,6 +231,10 @@ export class ValidateAdminCouponDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsIn([AdminPaymentMethod.COD, AdminPaymentMethod.PREPAID])
+  paymentMethod?: AdminPaymentMethod;
 
   @IsArray()
   @ValidateNested({ each: true })

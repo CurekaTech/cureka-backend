@@ -27,13 +27,19 @@ export interface IPublicCategoryProductListingContext {
   metaTitle: string | null;
   metaDescription: string | null;
   categoryFilters: IPublicCategoryFilterFacet[];
-  /** Set when the listing is filtered by a child category (non-root). */
+  /** The category from categorySlug / categoryRefId (root or child). */
   selectedCategory?: {
     refId: string;
     name: string;
     slug: string;
     slugPath: string[];
     permalink: string;
+    image: IStorageFileReference | IStorageFileReferenceResponse | null;
+    banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    aboveTheFold: string | null;
+    belowTheFold: string | null;
+    metaTitle: string | null;
+    metaDescription: string | null;
   } | null;
 }
 

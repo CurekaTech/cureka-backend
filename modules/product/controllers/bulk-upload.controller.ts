@@ -1,6 +1,5 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
@@ -8,6 +7,7 @@ import { RequirePermissions } from '@modules/roles/decorators/permissions.decora
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { BulkUploadService } from '../services/bulk-upload.service';
+import { BulkUploadImageComparisonExportService } from '../services/bulk-upload-image-comparison-export.service';
 
 @ApiTags('Product Bulk Upload')
 @ApiBearerAuth()
@@ -16,7 +16,7 @@ import { BulkUploadService } from '../services/bulk-upload.service';
 export class BulkUploadController {
   constructor(
     private readonly bulkUploadService: BulkUploadService,
-    private readonly configService: ConfigService,
+    private readonly imageComparisonExportService: BulkUploadImageComparisonExportService,
   ) {}
 
   @ApiOperation({ summary: 'Upload Excel/CSV product sheet and queue job' })
@@ -41,6 +41,31 @@ export class BulkUploadController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       )
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
+
+  @ApiOperation({
+    summary: 'Download Excel comparing current product image URLs with WordPress export URLs',
+    description:
+      'One row per current product variant. Product Id and SKU come from the database. ' +
+      'WP Image URLs are enriched from docs/wc-product-export-*.xlsx (SKU, then external product id).',
+  })
+  @RawResponse()
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('products.read')
+  @Get('export/image-url-comparison')
+  async downloadImageUrlComparison(@Res() reply: FastifyReply) {
+    reply.raw.setTimeout(this.imageComparisonExportService.getExportTimeoutMs());
+    const { fileName, fileBuffer } =
+      await this.imageComparisonExportService.buildWorkbookBuffer();
+    return reply
+      .code(200)
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Length', String(fileBuffer.length))
       .header('Content-Disposition', `attachment; filename="${fileName}"`)
       .send(fileBuffer);
   }

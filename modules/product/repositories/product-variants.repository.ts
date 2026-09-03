@@ -678,6 +678,47 @@ export class ProductVariantsRepository {
     });
   }
 
+  async findAllForImageUrlComparison(): Promise<
+    Array<Pick<ProductVariantEntity, 'id' | 'sku' | 'externalProductId' | 'productId'>>
+  > {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoin('variant.product', 'product')
+      .select([
+        'variant.id',
+        'variant.sku',
+        'variant.externalProductId',
+        'variant.productId',
+      ])
+      .where('variant.deletedAt IS NULL')
+      .andWhere('product.deletedAt IS NULL')
+      .orderBy('variant.sku', 'ASC')
+      .getMany();
+  }
+
+  async findImageMediaByProductIds(productIds: string[]): Promise<ProductMediaEntity[]> {
+    if (!productIds.length) return [];
+
+    const mediaRepo = this.repo.manager.getRepository(ProductMediaEntity);
+    const uniqueIds = [...new Set(productIds)];
+    const chunkSize = 500;
+    const rows: ProductMediaEntity[] = [];
+
+    for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+      const chunk = uniqueIds.slice(index, index + chunkSize);
+      const batch = await mediaRepo.find({
+        where: {
+          productId: In(chunk),
+          type: In([ProductMediaType.IMAGE, ProductMediaType.COMMON]),
+        },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      });
+      rows.push(...batch);
+    }
+
+    return rows;
+  }
+
   async findById(variantId: string): Promise<ProductVariantEntity | null> {
     return this.repo.findOne({
       where: { id: variantId },

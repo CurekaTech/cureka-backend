@@ -734,6 +734,14 @@ export class PublicProductsService {
         : Promise.resolve([] as string[]),
     ]);
 
+    const selectedPath = isChildFilter ? selectedSlugPath : rootSlugPath;
+    const selectedAboveTheFold = matchedCategory.aboveTheFold?.trim()
+      ? matchedCategory.aboveTheFold
+      : rootCategory.aboveTheFold;
+    const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
+      ? matchedCategory.belowTheFold
+      : rootCategory.belowTheFold;
+
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
       name: rootCategory.name,
@@ -743,14 +751,8 @@ export class PublicProductsService {
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
       banner:
         isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
-      aboveTheFold:
-        isChildFilter && matchedCategory.aboveTheFold?.trim()
-          ? matchedCategory.aboveTheFold
-          : rootCategory.aboveTheFold,
-      belowTheFold:
-        isChildFilter && matchedCategory.belowTheFold?.trim()
-          ? matchedCategory.belowTheFold
-          : rootCategory.belowTheFold,
+      aboveTheFold: selectedAboveTheFold,
+      belowTheFold: selectedBelowTheFold,
       metaTitle:
         isChildFilter && matchedCategory.metaTitle?.trim()
           ? matchedCategory.metaTitle
@@ -771,18 +773,29 @@ export class PublicProductsService {
           values: productValues.length > 0 ? productValues : masterValues,
         };
       }),
-      selectedCategory: isChildFilter
-        ? {
-            refId: matchedCategory.refId,
-            name: matchedCategory.name,
-            slug: matchedCategory.slug,
-            slugPath: selectedSlugPath,
-            permalink: buildCategoryPermalink(selectedSlugPath),
-          }
-        : null,
+      selectedCategory: {
+        refId: matchedCategory.refId,
+        name: matchedCategory.name,
+        slug: matchedCategory.slug,
+        slugPath: selectedPath,
+        permalink: buildCategoryPermalink(selectedPath),
+        image: matchedCategory.image,
+        banner: matchedCategory.banner,
+        aboveTheFold: selectedAboveTheFold,
+        belowTheFold: selectedBelowTheFold,
+        metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,
+        metaDescription: matchedCategory.metaDescription?.trim() || rootCategory.metaDescription,
+      },
     };
 
-    return this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+    const enriched = await this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+    if (enriched.selectedCategory) {
+      enriched.selectedCategory = await this.storageUrlEnricher.enrichFields(
+        enriched.selectedCategory,
+        ['image', 'banner'],
+      );
+    }
+    return enriched;
   }
 
   private async enrichPaginatedVariantSearch(
