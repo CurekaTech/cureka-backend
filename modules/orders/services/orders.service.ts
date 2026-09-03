@@ -1,6 +1,6 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -1012,7 +1012,7 @@ export class OrdersService {
 
   async findAllForAdmin(query: AdminOrderQueryDto) {
     const paginationOptions = buildPaginationOptions(query);
-    const { data, total } = await this.ordersRepository.findAllPaginated({
+    const { keys, total } = await this.ordersRepository.findAdminListKeys({
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -1027,10 +1027,44 @@ export class OrdersService {
       sortOrder: paginationOptions.sortOrder,
     });
 
-    const mapped = await Promise.all(
-      data.map((order) => mapOrderToAdminResponse(order, this.storageUrlEnricher)),
+    const orderIds = keys.filter((key) => key.recordType === 'ORDER').map((key) => key.id);
+    const paymentRequestIds = keys
+      .filter((key) => key.recordType === 'PAYMENT_REQUEST')
+      .map((key) => key.id);
+
+    const [orders, paymentRequests] = await Promise.all([
+      this.ordersRepository.findByIds(orderIds),
+      this.findPaymentRequestsByIds(paymentRequestIds),
+    ]);
+    const orderById = new Map(orders.map((order) => [order.id, order]));
+    const paymentRequestById = new Map(paymentRequests.map((request) => [request.id, request]));
+    const addressById = await this.findAddressesByIds(
+      paymentRequests
+        .map((request) => request.addressId)
+        .filter((id): id is string => Boolean(id)),
     );
-    return buildPaginatedResult(mapped, total, paginationOptions);
+
+    const mapped = await Promise.all(
+      keys.map(async (key) => {
+        if (key.recordType === 'PAYMENT_REQUEST') {
+          const request = paymentRequestById.get(key.id);
+          if (!request) {
+            return null;
+          }
+          const address = request.addressId ? (addressById.get(request.addressId) ?? null) : null;
+          return mapPaymentRequestToAdminOrderResponse(request, address, this.storageUrlEnricher);
+        }
+
+        const order = orderById.get(key.id);
+        return order ? mapOrderToAdminResponse(order, this.storageUrlEnricher) : null;
+      }),
+    );
+
+    return buildPaginatedResult(
+      mapped.filter((row): row is NonNullable<typeof row> => row != null),
+      total,
+      paginationOptions,
+    );
   }
 
   async findOneForAdmin(idOrRefId: string) {
@@ -1116,6 +1150,34 @@ export class OrdersService {
 
     const addresses = await this.userAddressesService.findAll(request.customerId);
     return addresses.find((address) => address.isDefault) ?? addresses[0] ?? null;
+  }
+
+  private async findPaymentRequestsByIds(ids: string[]): Promise<PaymentRequestEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+    return this.dataSource.getRepository(PaymentRequestEntity).find({
+      where: { id: In(ids) },
+      relations: {
+        customer: true,
+        items: {
+          product: { media: true },
+          variant: { attributeValues: true },
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  private async findAddressesByIds(ids: string[]): Promise<Map<string, UserAddressEntity>> {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      return new Map();
+    }
+    const addresses = await this.dataSource.getRepository(UserAddressEntity).find({
+      where: { id: In(uniqueIds) },
+    });
+    return new Map(addresses.map((address) => [address.id, address]));
   }
 
   async findOne(userId: string, id: string) {
