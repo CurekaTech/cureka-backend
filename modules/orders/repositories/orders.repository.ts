@@ -457,6 +457,7 @@ export class OrdersRepository {
         'pr.deleted_at IS NULL',
         `pr.order_source = ${push(OrderSource.ADMIN)}`,
         `pr.status IN (${prStatuses.map((status) => push(status)).join(', ')})`,
+        `UPPER(COALESCE(pr.payment_provider, '')) <> 'COD'`,
         `NOT EXISTS (
           SELECT 1 FROM orders linked
           WHERE linked.deleted_at IS NULL

@@ -67,7 +67,8 @@ export class AdminOrdersController {
   @ApiOperation({
     summary: 'Generate Razorpay payment link for an admin-created order',
     description:
-      'Creates a Razorpay payment link for an unpaid admin payment request. ' +
+      'Creates a Razorpay payment link for an unpaid admin prepaid order. ' +
+      'Do not call this for COD orders. ' +
       'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders. ' +
       'If a link already exists, returns it instead of creating a duplicate. ' +
       'Optional body: `{ "phone": "9876543210", "email": "user@example.com" }`.',
