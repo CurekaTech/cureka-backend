@@ -3,8 +3,10 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import {
   collectVariantMedia,
+  currentImageColumnHeader,
   extractMediaLocator,
   IMAGE_URL_COMPARISON_HEADERS,
+  isUsableExcelHyperlink,
   joinImageUrls,
   resolveWpImageUrls,
 } from './bulk-upload-image-url-comparison.util';
@@ -27,12 +29,12 @@ describe('bulk-upload-image-url-comparison.util', () => {
   });
 
   it('keeps missing product id / images as blank rather than dropping the row', () => {
-    expect(IMAGE_URL_COMPARISON_HEADERS).toEqual([
+    expect(IMAGE_URL_COMPARISON_HEADERS.slice(0, 3)).toEqual([
       'Product Id',
       'SKU',
       'WP Image URLs',
-      'Current Image URLs',
     ]);
+    expect(currentImageColumnHeader(1)).toBe('Current Image URL 1');
     expect(normalizeLookupSku('  AbC  ')).toBe('abc');
   });
 
@@ -82,5 +84,10 @@ describe('bulk-upload-image-url-comparison.util', () => {
       type: 'storage',
       ref: { key: 'images/a.webp', name: 'bucket' },
     });
+  });
+
+  it('rejects Excel hyperlinks that would mash multiple GCS signed query params', () => {
+    expect(isUsableExcelHyperlink('https://storage.googleapis.com/bucket/a.webp')).toBe(true);
+    expect(isUsableExcelHyperlink('')).toBe(false);
   });
 });

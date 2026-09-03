@@ -7,7 +7,7 @@ export const IMAGE_URL_COMPARISON_HEADERS = [
   'Product Id',
   'SKU',
   'WP Image URLs',
-  'Current Image URLs',
+  'Current Image URL 1',
 ] as const;
 
 export const IMAGE_URL_COMPARISON_FILE_NAME = 'product-image-url-comparison.xlsx';
@@ -16,8 +16,17 @@ export type ImageUrlComparisonRow = {
   productId: string;
   sku: string;
   wpImageUrls: string;
-  currentImageUrls: string;
+  currentImageUrls: string[];
 };
+
+export const currentImageColumnHeader = (index: number): string =>
+  `Current Image URL ${index}`;
+
+/** Excel hyperlinks break GCS signed URLs if more than one is packed into a cell. */
+export const MAX_EXCEL_HYPERLINK_LENGTH = 2079;
+
+export const isUsableExcelHyperlink = (url: string): boolean =>
+  url.length > 0 && url.length <= MAX_EXCEL_HYPERLINK_LENGTH;
 
 export const joinImageUrls = (urls: string[]): string =>
   urls
