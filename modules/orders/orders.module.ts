@@ -9,6 +9,7 @@ import { ShippingModule } from '@modules/shipping/shipping.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
+import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
@@ -51,6 +52,7 @@ import { OrdersService } from './services/orders.service';
     UnicommerceOrderModule,
     NotificationsModule,
     forwardRef(() => SubscriptionModule),
+    forwardRef(() => PaymentRequestsModule),
   ],
   controllers: [CartController, OrdersController, AdminOrdersController, AdminAbandonedCartsController],
   providers: [

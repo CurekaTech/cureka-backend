@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import {
 } from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { AdminOrderQueryDto, CancelOrderDto } from '../dto/order.dto';
 import { OrdersService } from '../services/orders.service';
 
@@ -60,6 +62,42 @@ export class AdminOrdersController {
     @CurrentAdminUser() admin: IAdminJwtPayload,
   ) {
     return this.ordersService.cancelForAdmin(id, dto, admin.sub);
+  }
+
+  @ApiOperation({
+    summary: 'Generate Razorpay payment link for an admin-created order',
+    description:
+      'Creates a Razorpay payment link for an unpaid admin payment request. ' +
+      'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders. ' +
+      'If a link already exists, returns it instead of creating a duplicate. ' +
+      'Optional body: `{ "phone": "9876543210", "email": "user@example.com" }`.',
+  })
+  @ResponseMessage('Payment link generated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':id/generate-link')
+  generateLink(
+    @Param('id') id: string,
+    @Body() dto: GenerateLinkPrefillDto = {},
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.generatePaymentLinkForAdmin(id, dto, admin.email);
+  }
+
+  @ApiOperation({
+    summary: 'Regenerate Razorpay payment link for an admin-created order',
+    description:
+      'Cancels the existing Razorpay link (if any) and creates a new one. ' +
+      'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders.',
+  })
+  @ResponseMessage('Payment link regenerated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':id/regenerate-link')
+  regenerateLink(
+    @Param('id') id: string,
+    @Body() dto: GenerateLinkPrefillDto = {},
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.regeneratePaymentLinkForAdmin(id, dto, admin.email);
   }
 
   @ApiOperation({
