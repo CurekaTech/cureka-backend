@@ -33,6 +33,7 @@ export class AdminOrdersController {
     summary: 'List all orders (super admin)',
     description:
       'Paginated order list with search, status filters, date range, and sorting. Search matches order refId, order number, customer name/email/phone, product name, and grand total. ' +
+      'Includes unpaid admin-created payment requests (`PAY…`, orderSource=Admin) until payment is captured and a real order is created. ' +
       'Each row includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt.',
   })
   @ResponseMessage('Orders fetched successfully')
