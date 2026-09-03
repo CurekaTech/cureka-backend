@@ -1129,8 +1129,11 @@ export class OrdersService {
 
     const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
     if (order) {
+      if (order.paymentMethod === OrderPaymentMethod.COD) {
+        throw new BadRequestException('Payment link cannot be generated for COD orders');
+      }
       throw new BadRequestException(
-        'Payment link can only be generated for unpaid admin-created payment requests',
+        'Payment link can only be generated for unpaid admin-created prepaid orders',
       );
     }
 
@@ -1530,6 +1533,7 @@ export class OrdersService {
     grandTotal: string;
     notes: string | null;
     paymentMethod?: OrderPaymentMethod;
+    paymentStatus?: OrderPaymentStatus;
     orderSource?: OrderSource;
     createdBy?: string;
     couponId?: string | null;
@@ -1585,6 +1589,18 @@ export class OrdersService {
       );
       const orderNumber = await this.generateOrderNumber();
 
+      const paymentMethod = params.paymentMethod ?? OrderPaymentMethod.RAZORPAY;
+      const isCod = paymentMethod === OrderPaymentMethod.COD;
+      const paymentStatus =
+        params.paymentStatus ??
+        (isCod ? OrderPaymentStatus.PENDING : OrderPaymentStatus.PAID);
+      const notes = [
+        params.notes?.trim(),
+        `Generated from payment request ${params.paymentRequestRefId}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
       const createdOrder = await this.ordersRepository.create(
         {
           refId: orderRefId,
@@ -1602,8 +1618,8 @@ export class OrdersService {
           couponCode: params.couponCode ?? null,
           couponTitle: params.couponTitle ?? null,
           couponDiscountType: params.couponDiscountType ?? null,
-          paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
-          paymentStatus: OrderPaymentStatus.PAID,
+          paymentMethod,
+          paymentStatus,
           orderStatus: OrderStatus.CONFIRMED,
           orderSource: params.orderSource ?? OrderSource.WEBSITE,
           recipientName: address.recipientName,
@@ -1614,7 +1630,7 @@ export class OrdersService {
           landmark: address.landmark ?? null,
           city: address.city,
           state: address.state,
-          notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
+          notes,
           placedAt: new Date(),
           ...applyOrderStatusTimestamps(
             EMPTY_ORDER_STATUS_TIMESTAMPS,
