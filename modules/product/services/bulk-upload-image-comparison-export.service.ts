@@ -7,11 +7,12 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { loadWpImageLookup } from '../utils/bulk-upload-reference-lookup.util';
 import {
   collectVariantMedia,
+  currentImageColumnHeader,
   extractMediaLocator,
   IMAGE_URL_COMPARISON_FILE_NAME,
   IMAGE_URL_COMPARISON_HEADERS,
   ImageUrlComparisonRow,
-  joinImageUrls,
+  isUsableExcelHyperlink,
   resolveWpImageUrls,
 } from '../utils/bulk-upload-image-url-comparison.util';
 
@@ -70,7 +71,7 @@ export class BulkUploadImageComparisonExportService {
           wpLookup.bySku,
           wpLookup.byProductId,
         ),
-        currentImageUrls: joinImageUrls(currentUrls),
+        currentImageUrls: currentUrls,
       };
     });
 
@@ -132,15 +133,26 @@ export class BulkUploadImageComparisonExportService {
   private async writeWorkbook(rows: ImageUrlComparisonRow[]): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Cureka';
+    const maxCurrentImages = rows.reduce(
+      (max, row) => Math.max(max, row.currentImageUrls.length),
+      1,
+    );
     const sheet = workbook.addWorksheet('Image URL Comparison', {
       views: [{ state: 'frozen', ySplit: 1 }],
     });
 
+    const currentImageHeaders = Array.from({ length: maxCurrentImages }, (_, index) =>
+      currentImageColumnHeader(index + 1),
+    );
     sheet.columns = [
       { header: IMAGE_URL_COMPARISON_HEADERS[0], key: 'productId', width: 18 },
       { header: IMAGE_URL_COMPARISON_HEADERS[1], key: 'sku', width: 28 },
       { header: IMAGE_URL_COMPARISON_HEADERS[2], key: 'wpImageUrls', width: 60 },
-      { header: IMAGE_URL_COMPARISON_HEADERS[3], key: 'currentImageUrls', width: 60 },
+      ...currentImageHeaders.map((header, index) => ({
+        header,
+        key: `currentImage${index + 1}`,
+        width: 60,
+      })),
     ];
 
     const headerRow = sheet.getRow(1);
@@ -148,12 +160,18 @@ export class BulkUploadImageComparisonExportService {
     headerRow.alignment = { vertical: 'middle', wrapText: true };
 
     for (const row of rows) {
-      sheet.addRow({
+      const values: Record<string, string | ExcelJS.CellHyperlinkValue> = {
         productId: row.productId,
         sku: row.sku,
         wpImageUrls: row.wpImageUrls,
-        currentImageUrls: row.currentImageUrls,
-      });
+      };
+      for (let index = 0; index < maxCurrentImages; index += 1) {
+        const url = row.currentImageUrls[index] ?? '';
+        values[`currentImage${index + 1}`] = isUsableExcelHyperlink(url)
+          ? { text: url, hyperlink: url }
+          : url;
+      }
+      sheet.addRow(values);
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
