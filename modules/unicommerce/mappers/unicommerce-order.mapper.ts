@@ -113,6 +113,10 @@ function buildSaleOrderItems(
 function buildAdditionalInfo(order: OrderEntity): string | undefined {
   const parts: string[] = [];
 
+  if (order.orderSource) {
+    parts.push(`Source: ${order.orderSource}`);
+  }
+
   if (order.couponCode?.trim()) {
     parts.push(`Coupon: ${order.couponCode.trim()}`);
   }
