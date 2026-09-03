@@ -32,7 +32,12 @@ import { applyOrderStatusTimestamps, EMPTY_ORDER_STATUS_TIMESTAMPS } from '../ut
 import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
-import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
+import {
+  mapOrderToResponse,
+  mapOrderToAdminResponse,
+  mapPaymentRequestToAdminOrderResponse,
+  withPaymentRequestOnAdminOrder,
+} from '../mappers/order.mapper';
 import {
   mapDefaultShipmentResponse,
   mapShipmentToResponse,
@@ -1029,11 +1034,34 @@ export class OrdersService {
   }
 
   async findOneForAdmin(idOrRefId: string) {
-    const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    let order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    let paymentRequest: PaymentRequestEntity | null = null;
+
     if (!order) {
-      throw new NotFoundException(`Order ${idOrRefId} not found`);
+      paymentRequest = await this.findPaymentRequestForAdminOrder(idOrRefId);
+      if (paymentRequest) {
+        order = await this.ordersRepository.findLinkedToPaymentRequestRef(paymentRequest.refId);
+      }
     }
 
+    if (order) {
+      const response = await this.mapAdminOrderDetail(order);
+      return paymentRequest ? withPaymentRequestOnAdminOrder(response, paymentRequest) : response;
+    }
+
+    if (paymentRequest) {
+      const address = await this.resolveAddressForPaymentRequest(paymentRequest);
+      return mapPaymentRequestToAdminOrderResponse(
+        paymentRequest,
+        address,
+        this.storageUrlEnricher,
+      );
+    }
+
+    throw new NotFoundException(`Order ${idOrRefId} not found`);
+  }
+
+  private async mapAdminOrderDetail(order: OrderEntity) {
     const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
       order.id,
       order.orderNumber,
@@ -1050,6 +1078,44 @@ export class OrdersService {
       { ...order, shipment, shipmentResponse, shipwayStatus },
       this.storageUrlEnricher,
     );
+  }
+
+  private async findPaymentRequestForAdminOrder(
+    idOrRefId: string,
+  ): Promise<PaymentRequestEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    return this.dataSource.getRepository(PaymentRequestEntity).findOne({
+      where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
+      relations: {
+        customer: true,
+        items: {
+          product: { media: true },
+          variant: { attributeValues: true },
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  private async resolveAddressForPaymentRequest(request: PaymentRequestEntity) {
+    if (request.addressId) {
+      try {
+        return await this.userAddressesService.findOne(request.customerId, request.addressId);
+      } catch {
+        this.logger.warn(
+          {
+            paymentRequestId: request.id,
+            paymentRequestRefId: request.refId,
+            addressId: request.addressId,
+          },
+          'Payment request address was not found; falling back to customer default',
+        );
+      }
+    }
+
+    const addresses = await this.userAddressesService.findAll(request.customerId);
+    return addresses.find((address) => address.isDefault) ?? addresses[0] ?? null;
   }
 
   async findOne(userId: string, id: string) {

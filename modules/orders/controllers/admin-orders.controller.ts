@@ -66,7 +66,8 @@ export class AdminOrdersController {
     description:
       'Returns full order detail including line items, customer, shipment tracking, and all status timestamps ' +
       '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt). ' +
-      'Accepts order UUID (`id`) or business refId (e.g. order20261234).',
+      'Accepts order UUID (`id`), order business refId (e.g. ORD2026123456), or admin payment-request refId (e.g. PAY2026123456). ' +
+      'Payment-request IDs are used by the admin create-order wizard before payment is captured.',
   })
   @ResponseMessage('Order fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN)

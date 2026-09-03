@@ -46,6 +46,10 @@ export class CreatePaymentRequestDto {
   customerId?: string;
 
   @IsOptional()
+  @IsUUID()
+  addressId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(100)
   customerName?: string;
