@@ -90,6 +90,10 @@ export const CacheKeys = {
     detail: (slug: string) => `public:products:v6:detail:${slug}`,
     detailPattern: (slug?: string) =>
       slug ? `public:products:v6:detail:${slug}` : 'public:products:v6:detail:*',
+    filters: (queryHash: string) => `public:products:v1:filters:${queryHash}`,
+    filtersPattern: () => 'public:products:v1:filters:*',
+    filterBrands: (queryHash: string) => `public:products:v1:filter-brands:${queryHash}`,
+    filterBrandsPattern: () => 'public:products:v1:filter-brands:*',
   },
   publicBundles: {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.

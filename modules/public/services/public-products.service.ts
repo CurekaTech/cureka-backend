@@ -589,21 +589,26 @@ export class PublicProductsService {
     return '(unrecognized)';
   }
 
+  async resolvePublishedListFilters(query: PublicProductQueryDto) {
+    return this.resolveListFilters(query);
+  }
+
   private async resolveBrandFilters(query: PublicProductQueryDto): Promise<{
     brandId?: string;
     brandIds?: string[];
     brand?: BrandEntity | null;
+    selectedBrands: BrandEntity[];
   }> {
     if (query.brandRefId) {
       const brand = await this.brandsRepository.findActiveByRefId(query.brandRefId);
       if (!brand) {
         throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
       }
-      return { brandId: brand.id, brand };
+      return { brandId: brand.id, brand, selectedBrands: [brand] };
     }
 
     if (!query.brandSlug?.trim()) {
-      return {};
+      return { selectedBrands: [] };
     }
 
     const slugs = [
@@ -616,7 +621,7 @@ export class PublicProductsService {
     ];
 
     if (slugs.length === 0) {
-      return {};
+      return { selectedBrands: [] };
     }
 
     if (slugs.length === 1) {
@@ -624,7 +629,7 @@ export class PublicProductsService {
       if (!brand) {
         throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
       }
-      return { brandId: brand.id, brand };
+      return { brandId: brand.id, brand, selectedBrands: [brand] };
     }
 
     const brands = await this.brandsRepository.findActiveBySlugs(slugs);
@@ -634,7 +639,7 @@ export class PublicProductsService {
       throw new NotFoundException(`Brand with slug "${missingSlugs.join('", "')}" not found`);
     }
 
-    return { brandIds: brands.map((brand) => brand.id) };
+    return { brandIds: brands.map((brand) => brand.id), selectedBrands: brands };
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
@@ -701,6 +706,7 @@ export class PublicProductsService {
       categoryFilterCriteria,
       category,
       brand: brandFilters.brand ?? null,
+      selectedBrands: brandFilters.selectedBrands,
     };
   }
 
@@ -775,14 +781,10 @@ export class PublicProductsService {
           : rootCategory.metaDescription,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
-        const masterValues = (filter.values ?? [])
-          .map((value) => String(value).trim())
-          .filter(Boolean);
-
         return {
           refId: filter.refId,
           name: filter.name,
-          values: productValues.length > 0 ? productValues : masterValues,
+          values: productValues,
         };
       }),
       selectedCategory: {

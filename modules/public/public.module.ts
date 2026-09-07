@@ -15,6 +15,7 @@ import { HomepageSectionsService } from './services/homepage-sections.service';
 import { PublicCommonService } from './services/public-common.service';
 import { PublicWatchAndShopService } from './services/public-watch-and-shop.service';
 import { PublicProductsService } from './services/public-products.service';
+import { PublicProductFiltersService } from './services/public-product-filters.service';
 import { PublicBundlesService } from './services/public-bundles.service';
 
 @Module({
@@ -33,6 +34,7 @@ import { PublicBundlesService } from './services/public-bundles.service';
     PublicCommonService,
     PublicWatchAndShopService,
     PublicProductsService,
+    PublicProductFiltersService,
     PublicBundlesService,
   ],
 })

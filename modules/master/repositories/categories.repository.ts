@@ -81,6 +81,39 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  async findActiveWithAncestorsByIds(ids: string[]): Promise<CategoryEntity[]> {
+    if (!ids.length) return [];
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_category_id
+        FROM categories
+        WHERE id = ANY($1::uuid[])
+          AND deleted_at IS NULL
+        UNION ALL
+        SELECT c.id, c.parent_category_id
+        FROM categories c
+        INNER JOIN ancestors a ON c.id = a.parent_category_id
+        WHERE c.deleted_at IS NULL
+      )
+      SELECT DISTINCT id FROM ancestors
+      `,
+      [ids],
+    );
+    return this.findActiveByIds(rows.map((row) => row.id));
+  }
+
+  async findActiveByIds(ids: string[]): Promise<CategoryEntity[]> {
+    if (!ids.length) return [];
+    return this.repo
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .where('category.id IN (:...ids)', { ids })
+      .andWhere('category.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('category.deletedAt IS NULL')
+      .getMany();
+  }
+
   async findActiveBySlug(slug: string): Promise<CategoryEntity | null> {
     return this.repo
       .createQueryBuilder('category')
