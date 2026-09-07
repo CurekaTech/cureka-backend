@@ -29,7 +29,12 @@ export class CmsPageEntity extends BaseEntity {
   })
   status!: MasterStatus;
 
-  /** Seeded policy pages cannot be deleted or have their slug changed. */
+  /** Stable identifier for seeded policy pages; used by storefront bundles even if slug changes. */
+  @Index()
+  @Column({ name: 'predefined_key', type: 'varchar', length: 100, nullable: true })
+  predefinedKey!: string | null;
+
+  /** Seeded policy pages cannot be deleted. */
   @Column({ name: 'is_predefined', type: 'boolean', default: false })
   isPredefined!: boolean;
 }

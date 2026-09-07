@@ -46,6 +46,7 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     RazorpayPaymentLinksService,
     CashfreePaymentService,
     PaymentGatewayResolverService,
+    PaymentRequestsService,
   ],
 })
 export class PaymentRequestsModule {}

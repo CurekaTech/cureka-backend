@@ -2583,6 +2583,10 @@ export class ProductsRepository {
       categoryName: string | null;
       subCategoryId: string | null;
       subCategoryName: string | null;
+      subSubCategoryId: string | null;
+      subSubCategoryName: string | null;
+      subSubSubCategoryId: string | null;
+      subSubSubCategoryName: string | null;
       sellingPrice: number;
     }>
   > {
@@ -2596,6 +2600,10 @@ export class ProductsRepository {
         categoryName: string | null;
         subCategoryId: string | null;
         subCategoryName: string | null;
+        subSubCategoryId: string | null;
+        subSubCategoryName: string | null;
+        subSubSubCategoryId: string | null;
+        subSubSubCategoryName: string | null;
         sellingPrice: string;
       }>
     >(
@@ -2607,11 +2615,17 @@ export class ProductsRepository {
         cat.name                  AS "categoryName",
         p.sub_category_id         AS "subCategoryId",
         subcat.name               AS "subCategoryName",
+        p.sub_sub_category_id     AS "subSubCategoryId",
+        subsubcat.name            AS "subSubCategoryName",
+        p.sub_sub_sub_category_id AS "subSubSubCategoryId",
+        subsubsubcat.name         AS "subSubSubCategoryName",
         pv.selling_price::numeric AS "sellingPrice"
       FROM product_variants pv
       INNER JOIN products p ON p.id = pv.product_id
-      LEFT  JOIN categories cat    ON cat.id    = p.category_id    AND cat.deleted_at IS NULL
-      LEFT  JOIN categories subcat ON subcat.id = p.sub_category_id AND subcat.deleted_at IS NULL
+      LEFT  JOIN categories cat         ON cat.id         = p.category_id             AND cat.deleted_at IS NULL
+      LEFT  JOIN categories subcat      ON subcat.id      = p.sub_category_id         AND subcat.deleted_at IS NULL
+      LEFT  JOIN categories subsubcat   ON subsubcat.id   = p.sub_sub_category_id     AND subsubcat.deleted_at IS NULL
+      LEFT  JOIN categories subsubsubcat ON subsubsubcat.id = p.sub_sub_sub_category_id AND subsubsubcat.deleted_at IS NULL
       WHERE pv.id = ANY($1)
         AND pv.deleted_at IS NULL
         AND p.deleted_at IS NULL
@@ -2626,6 +2640,10 @@ export class ProductsRepository {
       categoryName: row.categoryName,
       subCategoryId: row.subCategoryId,
       subCategoryName: row.subCategoryName,
+      subSubCategoryId: row.subSubCategoryId,
+      subSubCategoryName: row.subSubCategoryName,
+      subSubSubCategoryId: row.subSubSubCategoryId,
+      subSubSubCategoryName: row.subSubSubCategoryName,
       sellingPrice: Number(row.sellingPrice) || 0,
     }));
   }

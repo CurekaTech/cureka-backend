@@ -17,7 +17,7 @@
  *
  * Runtime fallbacks (see PublicProductsService.findFrequentlyBoughtTogether):
  *   1. These complementary rules
- *   2. Same root-category bestsellers (e.g. PDP / unmatched category names)
+ *   2. Same deepest-category bestsellers (sub-category when set, not the full root)
  *   3. Global bestsellers (empty cart / no seed variantIds)
  */
 export interface FbtCategoryRule {

@@ -17,6 +17,8 @@ export type ProductPriceLine = {
   isSubscription?: boolean;
   frequency?: ProductSubscriptionFrequency | string | null;
   sku?: string;
+  /** GoKwik complimentary auto-add lines are stored at zero and skip catalog price checks. */
+  skipCatalogPriceCheck?: boolean;
 };
 
 /**
@@ -43,6 +45,10 @@ export async function assertCurrentProductPrices(
       : null;
 
   for (const line of lines) {
+    if (line.skipCatalogPriceCheck) {
+      continue;
+    }
+
     const variant = await manager.getRepository(ProductVariantEntity).findOne({
       where: { id: line.variantId },
     });

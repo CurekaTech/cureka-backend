@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, ILike, Not, Repository } from 'typeorm';
+import { EntityManager, ILike, In, Not, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderSource } from '../enums/order-source.enum';
 import { OrderStatus } from '../enums/order-status.enum';
+import { resolveAdminListPaymentRequestStatuses } from '../utils/admin-order-list-payment-requests.util';
 
 export interface AdminOrderListOptions {
   page: number;
@@ -150,6 +151,15 @@ export class OrdersRepository {
       },
       relations: { items: true },
       order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Real order created from a payment request (paid or failed), linked via notes. */
+  findLinkedToPaymentRequestRef(paymentRequestRefId: string): Promise<OrderEntity | null> {
+    return this.repo.findOne({
+      where: { notes: ILike(`%payment request ${paymentRequestRefId}%`) },
+      relations: { user: true, items: { product: { media: true }, variant: true } },
+      order: { createdAt: 'DESC', items: { createdAt: 'ASC' } },
     });
   }
 
@@ -339,6 +349,235 @@ export class OrdersRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  findByIds(ids: string[]): Promise<OrderEntity[]> {
+    if (!ids.length) {
+      return Promise.resolve([]);
+    }
+    return this.repo.find({
+      where: { id: In(ids) },
+      relations: { user: true, items: { product: { media: true }, variant: true } },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  /**
+   * Admin list keys: real orders plus unpaid admin-created payment requests (`PAY…`).
+   * Those drafts are not `orders` rows until payment is captured.
+   */
+  async findAdminListKeys(options: AdminOrderListOptions): Promise<{
+    keys: Array<{ id: string; recordType: 'ORDER' | 'PAYMENT_REQUEST' }>;
+    total: number;
+  }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const sortOrderSql = options.sortOrder === 'ASC' ? 'ASC' : 'DESC';
+    const sortColumnSql = this.resolveAdminListSortColumn(options.sortBy);
+    const params: unknown[] = [];
+    const push = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    const orderWhere: string[] = ['o.deleted_at IS NULL'];
+    if (options.orderStatus) {
+      orderWhere.push(`o.order_status = ${push(options.orderStatus)}`);
+    }
+    if (options.paymentStatus) {
+      orderWhere.push(`o.payment_status = ${push(options.paymentStatus)}`);
+    }
+    if (options.paymentMethod) {
+      orderWhere.push(`o.payment_method = ${push(options.paymentMethod)}`);
+    }
+    if (options.orderSource) {
+      orderWhere.push(`o.order_source = ${push(options.orderSource)}`);
+    }
+    if (options.userId) {
+      orderWhere.push(`o.user_id = ${push(options.userId)}`);
+    }
+    if (options.fromDate) {
+      orderWhere.push(`o.created_at >= ${push(options.fromDate)}`);
+    }
+    if (options.toDate) {
+      orderWhere.push(`o.created_at <= ${push(options.toDate)}`);
+    }
+    if (options.search?.trim()) {
+      const searchLike = push(`%${options.search.trim()}%`);
+      const searchExact = push(`${options.search.trim()}%`);
+      orderWhere.push(`(
+        o.ref_id ILIKE ${searchLike}
+        OR o.order_number ILIKE ${searchLike}
+        OR o.recipient_name ILIKE ${searchLike}
+        OR o.phone_number ILIKE ${searchLike}
+        OR EXISTS (
+          SELECT 1 FROM users u
+          WHERE u.id = o.user_id
+            AND u.deleted_at IS NULL
+            AND (
+              u.first_name ILIKE ${searchLike}
+              OR u.last_name ILIKE ${searchLike}
+              OR u.email ILIKE ${searchLike}
+              OR u.mobile_number ILIKE ${searchLike}
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM order_items oi
+          WHERE oi.order_id = o.id
+            AND oi.deleted_at IS NULL
+            AND oi.product_name ILIKE ${searchLike}
+        )
+        OR CAST(o.grand_total AS text) LIKE ${searchExact}
+      )`);
+    }
+
+    const orderSelect = `
+      SELECT
+        o.id::text AS id,
+        'ORDER' AS "recordType",
+        COALESCE(o.placed_at, o.created_at) AS "sortAt",
+        o.created_at AS "createdAt",
+        o.order_number AS "orderNumber",
+        o.grand_total AS "grandTotal",
+        o.order_status::text AS "orderStatus",
+        o.payment_status::text AS "paymentStatus",
+        o.recipient_name AS "recipientName"
+      FROM orders o
+      WHERE ${orderWhere.join(' AND ')}
+    `;
+
+    const prStatuses = resolveAdminListPaymentRequestStatuses({
+      orderSource: options.orderSource,
+      orderStatus: options.orderStatus,
+      paymentStatus: options.paymentStatus,
+    });
+
+    let prSelect: string | null = null;
+    if (prStatuses.length) {
+      const prWhere: string[] = [
+        'pr.deleted_at IS NULL',
+        `pr.order_source = ${push(OrderSource.ADMIN)}`,
+        `pr.status IN (${prStatuses.map((status) => push(status)).join(', ')})`,
+        `UPPER(COALESCE(pr.payment_provider, '')) <> 'COD'`,
+        `NOT EXISTS (
+          SELECT 1 FROM orders linked
+          WHERE linked.deleted_at IS NULL
+            AND linked.notes ILIKE ('%payment request ' || pr.ref_id || '%')
+        )`,
+      ];
+
+      if (options.paymentMethod) {
+        prWhere.push(
+          `${this.adminListPaymentRequestMethodSql('pr')} = ${push(options.paymentMethod)}`,
+        );
+      }
+      if (options.userId) {
+        prWhere.push(`pr.customer_id = ${push(options.userId)}`);
+      }
+      if (options.fromDate) {
+        prWhere.push(`pr.created_at >= ${push(options.fromDate)}`);
+      }
+      if (options.toDate) {
+        prWhere.push(`pr.created_at <= ${push(options.toDate)}`);
+      }
+      if (options.search?.trim()) {
+        const searchLike = push(`%${options.search.trim()}%`);
+        const searchExact = push(`${options.search.trim()}%`);
+        prWhere.push(`(
+          pr.ref_id ILIKE ${searchLike}
+          OR EXISTS (
+            SELECT 1 FROM users u
+            WHERE u.id = pr.customer_id
+              AND u.deleted_at IS NULL
+              AND (
+                u.first_name ILIKE ${searchLike}
+                OR u.last_name ILIKE ${searchLike}
+                OR u.email ILIKE ${searchLike}
+                OR u.mobile_number ILIKE ${searchLike}
+              )
+          )
+          OR EXISTS (
+            SELECT 1 FROM payment_request_items pri
+            INNER JOIN products p ON p.id = pri.product_id AND p.deleted_at IS NULL
+            WHERE pri.payment_request_id = pr.id
+              AND pri.deleted_at IS NULL
+              AND p.name ILIKE ${searchLike}
+          )
+          OR CAST(pr.total_amount AS text) LIKE ${searchExact}
+        )`);
+      }
+
+      prSelect = `
+        SELECT
+          pr.id::text AS id,
+          'PAYMENT_REQUEST' AS "recordType",
+          pr.created_at AS "sortAt",
+          pr.created_at AS "createdAt",
+          pr.ref_id AS "orderNumber",
+          pr.total_amount AS "grandTotal",
+          CASE pr.status::text
+            WHEN 'PAID' THEN 'CONFIRMED'
+            WHEN 'CANCELLED' THEN 'CANCELLED'
+            WHEN 'EXPIRED' THEN 'CANCELLED'
+            ELSE 'PENDING'
+          END AS "orderStatus",
+          CASE pr.status::text
+            WHEN 'PAID' THEN 'PAID'
+            WHEN 'FAILED' THEN 'FAILED'
+            ELSE 'PENDING'
+          END AS "paymentStatus",
+          COALESCE(u.first_name, u.last_name, '') AS "recipientName"
+        FROM payment_requests pr
+        LEFT JOIN users u ON u.id = pr.customer_id AND u.deleted_at IS NULL
+        WHERE ${prWhere.join(' AND ')}
+      `;
+    }
+
+    const unionBody = [orderSelect, prSelect].filter(Boolean).join(' UNION ALL ');
+    const limitParam = push(take);
+    const offsetParam = push(skip);
+
+    const rows = (await this.repo.query(
+      `
+        SELECT id, "recordType"
+        FROM (${unionBody}) AS combined
+        ORDER BY ${sortColumnSql} ${sortOrderSql} NULLS LAST
+        LIMIT ${limitParam} OFFSET ${offsetParam}
+      `,
+      params,
+    )) as Array<{ id: string; recordType: 'ORDER' | 'PAYMENT_REQUEST' }>;
+
+    const countRows = (await this.repo.query(
+      `SELECT COUNT(*)::int AS total FROM (${unionBody}) AS combined`,
+      params.slice(0, params.length - 2),
+    )) as Array<{ total: number }>;
+
+    return {
+      keys: rows,
+      total: countRows[0]?.total ?? 0,
+    };
+  }
+
+  private resolveAdminListSortColumn(sortBy?: string): string {
+    const SORTABLE: Record<string, string> = {
+      createdAt: '"createdAt"',
+      placedAt: '"sortAt"',
+      orderNumber: '"orderNumber"',
+      grandTotal: '"grandTotal"',
+      orderStatus: '"orderStatus"',
+      paymentStatus: '"paymentStatus"',
+      recipientName: '"recipientName"',
+    };
+    return (sortBy && SORTABLE[sortBy]) ?? SORTABLE.placedAt!;
+  }
+
+  private adminListPaymentRequestMethodSql(alias: string): string {
+    return `CASE
+      WHEN UPPER(COALESCE(${alias}.payment_provider, '')) = 'COD' THEN 'COD'
+      WHEN UPPER(COALESCE(${alias}.payment_provider, '')) = 'CASHFREE' THEN 'CASHFREE'
+      WHEN UPPER(COALESCE(${alias}.payment_provider, '')) = 'WALLET' THEN 'WALLET'
+      WHEN UPPER(COALESCE(${alias}.payment_provider, '')) = 'GOKWIK_PREPAID' THEN 'GOKWIK_PREPAID'
+      ELSE 'RAZORPAY'
+    END`;
   }
 
   async findPaidForSubscriptionAttach(params: {

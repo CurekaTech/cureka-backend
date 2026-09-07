@@ -22,6 +22,7 @@ import { CheckoutService } from '@modules/orders/services/checkout.service';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
+import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
 import { roundMoney } from '@modules/orders/utils/money.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
@@ -39,6 +40,7 @@ import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
+import { AdminPaymentMethod } from '../enums/admin-payment-method.enum';
 import {
   mapCodOrderToAdminListItem,
   mapPaymentRequestToAdminListItem,
@@ -47,7 +49,7 @@ import { PaymentRequestItemsRepository } from '../repositories/payment-request-i
 import { PaymentRequestsRepository } from '../repositories/payment-requests.repository';
 import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
 import { CheckoutVerifyPaymentDto } from '../dto/checkout-verify.dto';
-import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
+import { parseIndianMobileNumber, normalizeMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
@@ -942,6 +944,7 @@ export class PaymentRequestsService {
 
   async create(dto: CreatePaymentRequestDto, createdBy: string): Promise<PaymentRequestEntity> {
     const customerId = await this.resolveCustomerId(dto);
+    const isCod = dto.paymentMethod === AdminPaymentMethod.COD;
     const pricedItems = await this.resolveAndValidateItems(dto.items);
 
     const subtotal = pricedItems.reduce((sum, item) => sum + parseFloat(item.total), 0);
@@ -952,7 +955,17 @@ export class PaymentRequestsService {
     const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
     const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
     const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
+    const payableSubtotal = Math.max(0, subtotal - Number(finalDiscountVal));
     const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
+
+    const codSlabs = isCod ? await this.cartCheckoutAdminSettingsService.resolveCodSlabs() : [];
+    const codCharge = isCod
+      ? this.cartCheckoutAdminSettingsService.resolveCodChargeAmount(
+          payableSubtotal,
+          codSlabs,
+          checkoutAdminSettings,
+        )
+      : 0;
 
     const totals = this.computeTotals(
       pricedItems,
@@ -961,18 +974,24 @@ export class PaymentRequestsService {
       dto.shipping,
       dto.handling,
       platformFee.toFixed(2),
-      '0.00',
+      codCharge.toFixed(2),
       dto.finalAmount,
     );
 
-    return this.dataSource.transaction(async (manager) => {
+    const addressId = await this.resolveAdminCreateAddressId(customerId, dto.addressId);
+    if (isCod && !addressId) {
+      throw new BadRequestException('addressId is required for COD orders');
+    }
+
+    const created = await this.dataSource.transaction(async (manager) => {
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
         this.paymentRequestsRepository.existsByRefId(candidate),
       );
-      const created = await this.paymentRequestsRepository.create(
+      const createdRequest = await this.paymentRequestsRepository.create(
         {
           refId,
           customerId,
+          addressId,
           status: PaymentRequestStatus.PAYMENT_PENDING,
           subtotal: totals.subtotal,
           discount: totals.discount,
@@ -988,6 +1007,7 @@ export class PaymentRequestsService {
           currency: 'INR',
           notes: dto.notes ?? null,
           orderSource: OrderSource.ADMIN,
+          paymentProvider: isCod ? 'COD' : 'RAZORPAY',
           createdBy,
           updatedBy: createdBy,
         },
@@ -997,7 +1017,7 @@ export class PaymentRequestsService {
       await this.paymentRequestItemsRepository.createMany(
         pricedItems.map((item) => ({
           refId: item.refId,
-          paymentRequestId: created.id,
+          paymentRequestId: createdRequest.id,
           productId: item.productId,
           variantId: item.variantId,
           quantity: item.quantity,
@@ -1011,8 +1031,96 @@ export class PaymentRequestsService {
         manager,
       );
 
-      return (await this.paymentRequestsRepository.findById(created.id, manager)) as PaymentRequestEntity;
+      return (await this.paymentRequestsRepository.findById(
+        createdRequest.id,
+        manager,
+      )) as PaymentRequestEntity;
     });
+
+    if (isCod) {
+      await this.placeAdminCodOrder(created, createdBy);
+      return (await this.paymentRequestsRepository.findById(created.id)) as PaymentRequestEntity;
+    }
+
+    return created;
+  }
+
+  private async placeAdminCodOrder(
+    paymentRequest: PaymentRequestEntity,
+    createdBy: string,
+  ): Promise<void> {
+    let couponDetails: {
+      couponId: string | null;
+      couponCode: string | null;
+      couponTitle: string | null;
+      couponDiscountType: string | null;
+    } = {
+      couponId: null,
+      couponCode: null,
+      couponTitle: null,
+      couponDiscountType: null,
+    };
+
+    if (paymentRequest.couponCode) {
+      const coupon = await this.couponCheckoutService.findByCode(paymentRequest.couponCode);
+      if (coupon) {
+        couponDetails = {
+          couponId: coupon.id,
+          couponCode: coupon.code,
+          couponTitle: coupon.title,
+          couponDiscountType: coupon.discountType,
+        };
+      }
+    }
+
+    if (!paymentRequest.items?.length) {
+      throw new BadRequestException('Cannot place COD order without products');
+    }
+
+    const createdOrder = await this.ordersService.createOrderFromPaymentRequest({
+      customerId: paymentRequest.customerId,
+      addressId: paymentRequest.addressId,
+      paymentRequestId: paymentRequest.id,
+      paymentRequestRefId: paymentRequest.refId,
+      subtotal: paymentRequest.subtotal,
+      discountAmount: paymentRequest.discount,
+      shippingAmount: paymentRequest.shipping ?? '0.00',
+      handlingAmount: paymentRequest.handling ?? '0.00',
+      prepaidDiscount: paymentRequest.prepaidDiscount ?? '0.00',
+      grandTotal: paymentRequest.totalAmount,
+      notes: paymentRequest.notes ?? null,
+      paymentMethod: OrderPaymentMethod.COD,
+      paymentStatus: OrderPaymentStatus.PENDING,
+      orderSource: OrderSource.ADMIN,
+      createdBy,
+      ...couponDetails,
+      platformFee: paymentRequest.platformFee,
+      codCharge: paymentRequest.codCharge,
+      items: paymentRequest.items.map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.total,
+        isSubscription: item.isSubscription,
+        frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
+      })),
+    });
+
+    await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+      paymentProvider: 'COD',
+      paymentReference: createdOrder.orderNumber,
+      updatedBy: createdBy,
+    });
+    this.logger.log(
+      {
+        paymentRequestId: paymentRequest.id,
+        paymentRequestRefId: paymentRequest.refId,
+        orderId: createdOrder.id,
+        orderNumber: createdOrder.orderNumber,
+      },
+      'Admin COD order created from payment request',
+    );
   }
 
   async update(id: string, dto: UpdatePaymentRequestDto, updatedBy: string): Promise<PaymentRequestEntity> {
@@ -1212,6 +1320,12 @@ export class PaymentRequestsService {
     ].includes(existing.status)) {
       throw new BadRequestException('Payment link can only be generated for pending requests');
     }
+    if (
+      existing.status === PaymentRequestStatus.LINK_GENERATED &&
+      existing.paymentLink
+    ) {
+      return existing;
+    }
     if (!existing.items.length) {
       throw new BadRequestException('Cannot create payment link without products');
     }
@@ -1234,19 +1348,18 @@ export class PaymentRequestsService {
 
     const customer = await this.usersRepository.findById(existing.customerId);
 
-    // Validate prefill if provided
-    if (prefill && Object.keys(prefill).length > 0 && !prefill.phone) {
-      throw new BadRequestException('phone is mandatory when custom prefill details are provided');
-    }
-
-    const finalPhone = prefill?.phone || customer?.mobileNumber;
-    const finalEmail = prefill?.email || customer?.email;
+    const prefillPhone = prefill?.phone?.trim() || undefined;
+    const prefillEmail = prefill?.email?.trim() || undefined;
+    const finalPhone = this.normalizeRazorpayContact(
+      prefillPhone || customer?.mobileNumber || '',
+    );
+    const finalEmail = prefillEmail || customer?.email;
 
     if (!finalPhone) {
       throw new BadRequestException('Customer phone is required for payment link');
     }
 
-    const reference = existing.refId;
+    const reference = this.buildRazorpayReferenceId(existing.refId);
     const expireBy = this.razorpayService.getLinkExpiryTimestamp();
 
     const payload: Record<string, any> = {
@@ -1303,6 +1416,9 @@ export class PaymentRequestsService {
     prefill?: GenerateLinkPrefillDto,
   ): Promise<PaymentRequestEntity> {
     const existing = await this.getRequestOrThrow(id);
+    if (existing.paymentProvider === 'COD') {
+      throw new BadRequestException('Payment link cannot be generated for COD orders');
+    }
     if (existing.status === PaymentRequestStatus.PAID) {
       throw new BadRequestException('Cannot regenerate link for paid request');
     }
@@ -1815,6 +1931,43 @@ export class PaymentRequestsService {
 
     return result;
   }
+
+  private async resolveAdminCreateAddressId(
+    customerId: string,
+    addressId?: string,
+  ): Promise<string | null> {
+    if (addressId) {
+      await this.userAddressesService.findOne(customerId, addressId);
+      return addressId;
+    }
+    const addresses = await this.userAddressesService.findAll(customerId);
+    return addresses.find((address) => address.isDefault)?.id ?? addresses[0]?.id ?? null;
+  }
+
+  private normalizeRazorpayContact(phone: string): string | null {
+    const digits = normalizeMobileNumber(phone);
+    if (!digits) {
+      return null;
+    }
+    const local =
+      digits.length === 12 && digits.startsWith('91')
+        ? digits.slice(2)
+        : digits.length === 11 && digits.startsWith('0')
+          ? digits.slice(1)
+          : digits;
+    try {
+      return parseIndianMobileNumber(local);
+    } catch {
+      return null;
+    }
+  }
+
+  private buildRazorpayReferenceId(refId: string): string {
+    const suffix = Date.now().toString(36);
+    const reference = `${refId}-${suffix}`;
+    return reference.length <= 40 ? reference : reference.slice(0, 40);
+  }
+
   private async resolveCustomerId(dto: CreatePaymentRequestDto): Promise<string> {
     if (dto.customerId) {
       const customer = await this.usersRepository.findById(dto.customerId);
@@ -1980,15 +2133,26 @@ export class PaymentRequestsService {
     const checkoutAdminSettings = await this.cartCheckoutAdminSettingsService.resolveAmounts();
     const platformFeeVal = this.cartCheckoutAdminSettingsService.getPlatformFee(checkoutAdminSettings);
     const platformFeeThreshold = this.cartCheckoutAdminSettingsService.getPlatformFeeThreshold(checkoutAdminSettings);
+    const isCod = dto.paymentMethod === AdminPaymentMethod.COD;
+    const payableSubtotal = Math.max(0, subtotal - result.discount);
     const platformFee = subtotal < platformFeeThreshold ? platformFeeVal : 0;
+    const codSlabs = isCod ? await this.cartCheckoutAdminSettingsService.resolveCodSlabs() : [];
+    const codCharge = isCod
+      ? this.cartCheckoutAdminSettingsService.resolveCodChargeAmount(
+          payableSubtotal,
+          codSlabs,
+          checkoutAdminSettings,
+        )
+      : 0;
 
-    const finalAmount = Math.max(0, subtotal - result.discount + platformFee);
+    const finalAmount = Math.max(0, payableSubtotal + platformFee + codCharge);
 
     return {
       couponCode: result.code,
       discountAmount: result.discount.toFixed(2),
       subtotal: subtotal.toFixed(2),
       platformFee: platformFee.toFixed(2),
+      codCharge: codCharge.toFixed(2),
       finalAmount: finalAmount.toFixed(2),
     };
   }

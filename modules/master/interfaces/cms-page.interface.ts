@@ -37,10 +37,10 @@ export type PublicCmsPageKey =
 /** One payload with every policy page keyed for storefront footer / links. */
 export type IPublicCmsPagesByKey = Record<PublicCmsPageKey, IPublicCmsPage | null>;
 
-export const PUBLIC_CMS_PAGE_KEY_BY_SLUG: Record<string, PublicCmsPageKey> = {
-  'about-cureka': 'aboutCureka',
-  'privacy-policy': 'privacyPolicy',
-  'terms-and-conditions': 'termsAndConditions',
-  'returns-refunds': 'returnsRefunds',
-  'shipping-policy': 'shippingPolicy',
-};
+export const PUBLIC_CMS_PAGE_KEYS: readonly PublicCmsPageKey[] = [
+  'aboutCureka',
+  'privacyPolicy',
+  'termsAndConditions',
+  'returnsRefunds',
+  'shippingPolicy',
+];

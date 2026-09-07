@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import {
 } from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { AdminOrderQueryDto, CancelOrderDto } from '../dto/order.dto';
 import { OrdersService } from '../services/orders.service';
 
@@ -33,6 +35,7 @@ export class AdminOrdersController {
     summary: 'List all orders (super admin)',
     description:
       'Paginated order list with search, status filters, date range, and sorting. Search matches order refId, order number, customer name/email/phone, product name, and grand total. ' +
+      'Includes unpaid admin-created payment requests (`PAY…`, orderSource=Admin) until payment is captured and a real order is created. ' +
       'Each row includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt.',
   })
   @ResponseMessage('Orders fetched successfully')
@@ -62,11 +65,49 @@ export class AdminOrdersController {
   }
 
   @ApiOperation({
+    summary: 'Generate Razorpay payment link for an admin-created order',
+    description:
+      'Creates a Razorpay payment link for an unpaid admin prepaid order. ' +
+      'Do not call this for COD orders. ' +
+      'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders. ' +
+      'If a link already exists, returns it instead of creating a duplicate. ' +
+      'Optional body: `{ "phone": "9876543210", "email": "user@example.com" }`.',
+  })
+  @ResponseMessage('Payment link generated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':id/generate-link')
+  generateLink(
+    @Param('id') id: string,
+    @Body() dto: GenerateLinkPrefillDto = {},
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.generatePaymentLinkForAdmin(id, dto, admin.email);
+  }
+
+  @ApiOperation({
+    summary: 'Regenerate Razorpay payment link for an admin-created order',
+    description:
+      'Cancels the existing Razorpay link (if any) and creates a new one. ' +
+      'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders.',
+  })
+  @ResponseMessage('Payment link regenerated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':id/regenerate-link')
+  regenerateLink(
+    @Param('id') id: string,
+    @Body() dto: GenerateLinkPrefillDto = {},
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.regeneratePaymentLinkForAdmin(id, dto, admin.email);
+  }
+
+  @ApiOperation({
     summary: 'Get order detail (super admin)',
     description:
       'Returns full order detail including line items, customer, shipment tracking, and all status timestamps ' +
       '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt). ' +
-      'Accepts order UUID (`id`) or business refId (e.g. order20261234).',
+      'Accepts order UUID (`id`), order business refId (e.g. ORD2026123456), or admin payment-request refId (e.g. PAY2026123456). ' +
+      'Payment-request IDs are used by the admin create-order wizard before payment is captured.',
   })
   @ResponseMessage('Order fetched successfully')
   @Roles(AdminUserRole.SUPER_ADMIN)

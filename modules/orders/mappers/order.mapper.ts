@@ -1,4 +1,5 @@
 import { UserEntity } from '@modules/users/entities/user.entity';
+import { IUserAddress } from '@modules/users/interfaces/user-address.interface';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 import {
   mapDefaultShipmentResponse,
@@ -6,9 +7,13 @@ import {
   ShipmentResponse,
 } from '@modules/shipping/mappers/shipment.mapper';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
+import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
+import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
+import { OrderStatus } from '../enums/order-status.enum';
 import { parseMoney } from '../utils/money.util';
 import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { resolvePrimaryProductImageRef } from '../utils/resolve-primary-product-image.util';
@@ -86,6 +91,11 @@ export type AdminOrderCustomerResponse = {
 
 export type AdminOrderResponse = OrderResponse & {
   customer: AdminOrderCustomerResponse | null;
+  /** Present when admin order detail is resolved from a payment request (`PAY…`). */
+  paymentRequestId?: string;
+  paymentRequestRefId?: string;
+  paymentRequestStatus?: PaymentRequestStatus;
+  paymentLink?: string | null;
 };
 
 type OrderWithShipment = OrderEntity & {
@@ -250,5 +260,169 @@ export async function mapOrderToAdminResponse(
   return {
     ...base,
     customer: mapOrderCustomer(order.user),
+  };
+}
+
+export function mapPaymentRequestToOrderStatuses(status: PaymentRequestStatus): {
+  orderStatus: OrderStatus;
+  paymentStatus: OrderPaymentStatus;
+} {
+  switch (status) {
+    case PaymentRequestStatus.PAID:
+      return { orderStatus: OrderStatus.CONFIRMED, paymentStatus: OrderPaymentStatus.PAID };
+    case PaymentRequestStatus.FAILED:
+      return { orderStatus: OrderStatus.PENDING, paymentStatus: OrderPaymentStatus.FAILED };
+    case PaymentRequestStatus.CANCELLED:
+    case PaymentRequestStatus.EXPIRED:
+      return { orderStatus: OrderStatus.CANCELLED, paymentStatus: OrderPaymentStatus.PENDING };
+    default:
+      return { orderStatus: OrderStatus.PENDING, paymentStatus: OrderPaymentStatus.PENDING };
+  }
+}
+
+function mapPaymentProviderToOrderMethod(provider?: string | null): OrderPaymentMethod {
+  const normalized = String(provider ?? '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'CASHFREE') return OrderPaymentMethod.CASHFREE;
+  if (normalized === 'COD') return OrderPaymentMethod.COD;
+  if (normalized === 'WALLET') return OrderPaymentMethod.WALLET;
+  if (normalized === 'GOKWIK_PREPAID') return OrderPaymentMethod.GOKWIK_PREPAID;
+  return OrderPaymentMethod.RAZORPAY;
+}
+
+function buildSyntheticOrderFromPaymentRequest(
+  request: PaymentRequestEntity,
+  address: Pick<
+    IUserAddress,
+    | 'recipientName'
+    | 'phoneNumber'
+    | 'pincode'
+    | 'addressLine1'
+    | 'addressLine2'
+    | 'landmark'
+    | 'city'
+    | 'state'
+  > | null,
+): OrderWithShipment {
+  const { orderStatus, paymentStatus } = mapPaymentRequestToOrderStatuses(request.status);
+  const cancelledAt =
+    orderStatus === OrderStatus.CANCELLED ? (request.updatedAt ?? request.createdAt) : null;
+
+  const items = (request.items ?? []).map((item) => {
+    const variantName = item.variant?.attributeValues?.length
+      ? item.variant.attributeValues.map((value) => value.value).join(' / ')
+      : null;
+    return {
+      id: item.id,
+      refId: item.refId,
+      orderId: request.id,
+      productId: item.productId,
+      variantId: item.variantId,
+      sku: item.variant?.sku ?? '',
+      productName: item.product?.name ?? '',
+      variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.total,
+      isSubscription: !!item.isSubscription,
+      frequency: item.frequency ?? null,
+      subscriptionId: null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      product: item.product,
+      variant: item.variant,
+    } as OrderItemEntity;
+  });
+
+  return {
+    id: request.id,
+    refId: request.refId,
+    orderNumber: request.refId,
+    userId: request.customerId,
+    subtotal: request.subtotal,
+    discountAmount: request.discount,
+    shippingAmount: request.shipping ?? '0.00',
+    handlingAmount: request.handling ?? '0.00',
+    platformFee: request.platformFee ?? '0.00',
+    codCharge: request.codCharge ?? '0.00',
+    prepaidDiscount: request.prepaidDiscount ?? '0.00',
+    grandTotal: request.totalAmount,
+    couponId: null,
+    couponCode: request.couponCode,
+    couponTitle: null,
+    couponDiscountType: null,
+    paymentMethod: mapPaymentProviderToOrderMethod(request.paymentProvider),
+    paymentStatus,
+    orderStatus,
+    orderSource: request.orderSource,
+    recipientName: address?.recipientName ?? request.customer?.firstName ?? 'Customer',
+    phoneNumber: address?.phoneNumber ?? request.customer?.mobileNumber ?? '0000000000',
+    pincode: address?.pincode ?? '000000',
+    addressLine1: address?.addressLine1 ?? 'Address not yet confirmed',
+    addressLine2: address?.addressLine2 ?? null,
+    landmark: address?.landmark ?? null,
+    city: address?.city ?? 'N/A',
+    state: address?.state ?? 'N/A',
+    notes: request.notes,
+    cancelReason: null,
+    placedAt: request.createdAt,
+    confirmedAt: request.paidAt ?? null,
+    processingAt: null,
+    shippedAt: null,
+    outForDeliveryAt: null,
+    deliveredAt: null,
+    cancelledAt,
+    failedDeliveryAt: null,
+    rtoAt: null,
+    subscriptionId: null,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    createdBy: request.createdBy,
+    updatedBy: request.updatedBy,
+    deletedAt: request.deletedAt ?? null,
+    user: request.customer ?? null,
+    items,
+  } as OrderWithShipment;
+}
+
+export async function mapPaymentRequestToAdminOrderResponse(
+  request: PaymentRequestEntity,
+  address: Pick<
+    IUserAddress,
+    | 'recipientName'
+    | 'phoneNumber'
+    | 'pincode'
+    | 'addressLine1'
+    | 'addressLine2'
+    | 'landmark'
+    | 'city'
+    | 'state'
+  > | null,
+  enricher: StorageUrlEnricher,
+): Promise<AdminOrderResponse> {
+  const response = await mapOrderToAdminResponse(
+    buildSyntheticOrderFromPaymentRequest(request, address),
+    enricher,
+  );
+  return {
+    ...response,
+    paymentRequestId: request.id,
+    paymentRequestRefId: request.refId,
+    paymentRequestStatus: request.status,
+    paymentLink: request.paymentLink,
+  };
+}
+
+export function withPaymentRequestOnAdminOrder(
+  response: AdminOrderResponse,
+  request: PaymentRequestEntity,
+): AdminOrderResponse {
+  return {
+    ...response,
+    paymentRequestId: request.id,
+    paymentRequestRefId: request.refId,
+    paymentRequestStatus: request.status,
+    paymentLink: request.paymentLink,
   };
 }

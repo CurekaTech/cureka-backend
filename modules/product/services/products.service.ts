@@ -38,6 +38,8 @@ import {
   normalizeBundleCreateDto,
   resolveBundleChildItems,
 } from '../utils/bundle-product.util';
+import { resolveSimpleVariantDisplayName } from '../utils/simple-product-display-name.util';
+import { pickVariableProductInformationCascade } from '../utils/variable-product-information-cascade.util';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductRelationsRepository } from '../repositories/product-relations.repository';
 import { ProductVariantsRepository } from '../repositories/product-variants.repository';
@@ -384,6 +386,17 @@ export class ProductsService {
           sharedCommerce,
           manager,
         );
+      }
+
+      if (normalizedDto.productType === ProductType.VARIABLE) {
+        const productInformation = pickVariableProductInformationCascade(normalizedDto, created);
+        if (productInformation) {
+          await this.variantsRepository.cascadeProductInformationToVariants(
+            created.id,
+            productInformation,
+            manager,
+          );
+        }
       }
 
       return created;
@@ -834,15 +847,26 @@ export class ProductsService {
                 description: dto.description,
               })
             : effectiveProductType === ProductType.SIMPLE
-              ? dto.variants.map((variant, index) =>
-                  index === 0
-                    ? {
-                        ...variant,
-                        expiryDate: variant.expiryDate ?? dto.expiryDate,
-                        expiresIn: variant.expiresIn ?? dto.expiresIn,
-                      }
-                    : variant,
-                )
+              ? dto.variants.map((variant, index) => {
+                  const base =
+                    index === 0
+                      ? {
+                          ...variant,
+                          expiryDate: variant.expiryDate ?? dto.expiryDate,
+                          expiresIn: variant.expiresIn ?? dto.expiresIn,
+                        }
+                      : variant;
+                  return {
+                    ...base,
+                    displayName:
+                      base.displayName !== undefined
+                        ? base.displayName
+                        : resolveSimpleVariantDisplayName(
+                            dto.name ?? existing.name,
+                            base.displayName,
+                          ),
+                  };
+                })
               : dto.variants;
 
         if (effectiveProductType === ProductType.BUNDLE) {
@@ -897,9 +921,34 @@ export class ProductsService {
         );
       }
 
+      if (
+        dto.name !== undefined &&
+        effectiveProductType === ProductType.SIMPLE &&
+        dto.name.trim() !== existing.name.trim() &&
+        (!needsVariantSync || !dto.variants?.length)
+      ) {
+        await this.variantsRepository.mirrorSimpleProductVariantDisplayName(
+          manager,
+          existing.id,
+          dto.name,
+          existing.name,
+        );
+      }
+
       // Variant sync can overwrite faqs from variant DTO — re-apply product FAQs last.
       if (dto.faqRefIds !== undefined || dto.customFaqs !== undefined) {
         await this.relationsRepository.cascadeProductFaqsToVariants(manager, existing.id);
+      }
+
+      if (effectiveProductType === ProductType.VARIABLE) {
+        const productInformation = pickVariableProductInformationCascade(dto, payload);
+        if (productInformation) {
+          await this.variantsRepository.cascadeProductInformationToVariants(
+            existing.id,
+            productInformation,
+            manager,
+          );
+        }
       }
 
       if (isVariableToSimple) {

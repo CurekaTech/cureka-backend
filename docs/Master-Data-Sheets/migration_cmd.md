@@ -160,3 +160,33 @@ npm run category:above-the-fold -- --apply
 
 # Optional
 npm run category:above-the-fold -- --file="docs/Master-Data-Sheets/cureka_category_page_
+
+------------------------------
+
+# Dry-run (default)
+npm run product:update-dyna-prices
+
+# Apply changes
+npm run product:update-dyna-prices -- --apply
+
+# Custom file
+npm run product:update-dyna-prices -- --file="docs/Master-Data-Sheets/Dyna-Price-List-changed.xlsx"
+
+-----------------------------------------
+
+unicommerce order push script
+
+// Dry-run (loads Cureka orders, does not call Unicommerce):
+npm run unicommerce:push-orders
+
+// Push to Unicommerce:
+npm run unicommerce:push-orders -- --apply
+
+// If prepaid is still unpaid / status is PENDING and you still want the push:
+npm run unicommerce:push-orders -- --force --apply
+
+//Override the array without editing the file:
+npm run unicommerce:push-orders -- --orders=ORD111,ORD222 --apply
+
+
+

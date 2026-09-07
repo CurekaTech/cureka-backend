@@ -115,7 +115,7 @@ export class PublicCommonService {
       return undefined;
     }
 
-    const parent = await this.categoriesRepository.findByRefId(parentCategoryRefId);
+    const parent = await this.categoriesRepository.findActiveByRefId(parentCategoryRefId);
     if (!parent) {
       throw new NotFoundException(
         `Parent category with refId "${parentCategoryRefId}" not found`,

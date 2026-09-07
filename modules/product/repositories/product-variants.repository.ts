@@ -14,7 +14,7 @@ import {
   buildVariantCombinationKey,
   IVariantAttributeInput,
 } from '../utils/variant-combination-key.util';
-import { buildVariantSlug } from '../utils/variant-slug.util';
+import { buildVariantSlugCandidates } from '../utils/variant-slug.util';
 import { assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { APP_CONSTANTS } from '@packages/common';
 import {
@@ -28,10 +28,12 @@ import {
   mapVariantDetailDtoToEntityColumns,
   VariantDetailMasterIds,
 } from '../utils/variant-details-payload.util';
+import { shouldMirrorSimpleVariantDisplayName } from '../utils/simple-product-display-name.util';
 import { ManufacturerEntity } from '@modules/master/entities/manufacturer.entity';
 import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
+import { IProductInformationItem } from '../interfaces/product-information.interface';
 import {
   buildSkuPrefix,
   findMaxSkuSequenceForPrefix,
@@ -356,14 +358,15 @@ export class ProductVariantsRepository {
       const discountPercentage =
         dto.discountPercentage ?? computeDiscountPercentage(dto.mrp, dto.sellingPrice);
       const attributeValues = (dto.attributes ?? []).map((item) => item.value);
+      const reservedSlugs = saved.map((item) => item.slug);
       const slug = await this.resolveUniqueVariantSlug(
         productSlug,
         {
           slug: dto.slug,
-          sku: dto.sku,
           attributeValues,
         },
         undefined,
+        reservedSlugs,
       );
 
       const variant = variantRepo.create({
@@ -533,21 +536,35 @@ export class ProductVariantsRepository {
 
   private async resolveUniqueVariantSlug(
     productSlug: string,
-    input: { slug?: string; sku?: string; attributeValues?: string[] },
+    input: { slug?: string; attributeValues?: string[] },
     excludeVariantId?: string,
+    reservedSlugs: string[] = [],
   ): Promise<string> {
     const max = APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH;
-    let candidate = buildVariantSlug(productSlug, input);
-    assertProductUrlSlugLength(candidate, 'Variant');
-    let counter = 2;
+    const reserved = new Set(reservedSlugs);
+    const candidates = buildVariantSlugCandidates(productSlug, input);
 
-    while (
-      await this.productsRepository.isSlugTakenGlobally(candidate, {
+    const isTaken = async (slug: string): Promise<boolean> => {
+      if (reserved.has(slug)) return true;
+      return this.productsRepository.isSlugTakenGlobally(slug, {
         variantId: excludeVariantId,
-      })
-    ) {
-      candidate = `${buildVariantSlug(productSlug, input)}-${counter}`.slice(0, max);
+      });
+    };
+
+    for (const candidate of candidates) {
+      assertProductUrlSlugLength(candidate, 'Variant');
+      if (!(await isTaken(candidate))) {
+        return candidate;
+      }
+    }
+
+    const uniquenessBase = candidates[candidates.length - 1] ?? productSlug.slice(0, max);
+    assertProductUrlSlugLength(uniquenessBase, 'Variant');
+    let counter = 2;
+    let candidate = `${uniquenessBase}-${counter}`.slice(0, max);
+    while (await isTaken(candidate)) {
       counter += 1;
+      candidate = `${uniquenessBase}-${counter}`.slice(0, max);
     }
 
     return candidate;
@@ -591,15 +608,16 @@ export class ProductVariantsRepository {
     const discountPercentage =
       dto.discountPercentage ?? computeDiscountPercentage(dto.mrp, dto.sellingPrice);
     const attributeValues = (dto.attributes ?? []).map((item) => item.value);
-    const slug = await this.resolveUniqueVariantSlug(
-      productSlug,
-      {
-        slug: dto.slug,
-        sku: dto.sku,
-        attributeValues,
-      },
-      existing.id,
-    );
+    const slug = dto.slug?.trim()
+      ? await this.resolveUniqueVariantSlug(
+          productSlug,
+          {
+            slug: dto.slug,
+            attributeValues,
+          },
+          existing.id,
+        )
+      : existing.slug;
 
     try {
       await variantRepo.update(
@@ -660,6 +678,47 @@ export class ProductVariantsRepository {
     });
   }
 
+  async findAllForImageUrlComparison(): Promise<
+    Array<Pick<ProductVariantEntity, 'id' | 'sku' | 'externalProductId' | 'productId'>>
+  > {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoin('variant.product', 'product')
+      .select([
+        'variant.id',
+        'variant.sku',
+        'variant.externalProductId',
+        'variant.productId',
+      ])
+      .where('variant.deletedAt IS NULL')
+      .andWhere('product.deletedAt IS NULL')
+      .orderBy('variant.sku', 'ASC')
+      .getMany();
+  }
+
+  async findImageMediaByProductIds(productIds: string[]): Promise<ProductMediaEntity[]> {
+    if (!productIds.length) return [];
+
+    const mediaRepo = this.repo.manager.getRepository(ProductMediaEntity);
+    const uniqueIds = [...new Set(productIds)];
+    const chunkSize = 500;
+    const rows: ProductMediaEntity[] = [];
+
+    for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+      const chunk = uniqueIds.slice(index, index + chunkSize);
+      const batch = await mediaRepo.find({
+        where: {
+          productId: In(chunk),
+          type: In([ProductMediaType.IMAGE, ProductMediaType.COMMON]),
+        },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      });
+      rows.push(...batch);
+    }
+
+    return rows;
+  }
+
   async findById(variantId: string): Promise<ProductVariantEntity | null> {
     return this.repo.findOne({
       where: { id: variantId },
@@ -717,6 +776,39 @@ export class ProductVariantsRepository {
         replaceWindowDays: flags.replaceWindowDays,
       },
     );
+  }
+
+  /**
+   * Keep a simple product's single variant displayName aligned with the product title
+   * when the variant title still mirrors the previous product name.
+   */
+  async mirrorSimpleProductVariantDisplayName(
+    manager: EntityManager,
+    productId: string,
+    productName: string,
+    previousProductName: string,
+  ): Promise<boolean> {
+    const variantRepo = manager.getRepository(ProductVariantEntity);
+    const variants = await variantRepo.find({
+      where: { productId },
+      select: ['id', 'displayName'],
+    });
+    if (variants.length !== 1) {
+      return false;
+    }
+
+    const [variant] = variants;
+    if (!shouldMirrorSimpleVariantDisplayName(variant.displayName, previousProductName)) {
+      return false;
+    }
+
+    const nextDisplayName = productName.trim();
+    if ((variant.displayName?.trim() ?? '') === nextDisplayName) {
+      return false;
+    }
+
+    await variantRepo.update(variant.id, { displayName: nextDisplayName });
+    return true;
   }
 
   /**
@@ -861,6 +953,26 @@ export class ProductVariantsRepository {
       .createQueryBuilder()
       .update(ProductVariantEntity)
       .set(Object.fromEntries(entries) as Partial<ProductVariantEntity>)
+      .where('product_id = :productId', { productId })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
+  /**
+   * Copies product-level productInformation JSON onto every non-deleted variant.
+   */
+  async cascadeProductInformationToVariants(
+    productId: string,
+    productInformation: IProductInformationItem[],
+    manager?: EntityManager,
+  ): Promise<number> {
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    const result = await repo
+      .createQueryBuilder()
+      .update(ProductVariantEntity)
+      .set({ productInformation })
       .where('product_id = :productId', { productId })
       .andWhere('deleted_at IS NULL')
       .execute();

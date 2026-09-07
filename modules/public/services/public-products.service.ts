@@ -71,6 +71,10 @@ import {
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
+import {
+  resolveFbtFallbackCategoryIds,
+  resolveFbtSourceCategoryName,
+} from '../utils/fbt-category-scope.util';
 
 /** Tag slug that marks a product as a best seller (see homepage Best Sellers section). */
 const BEST_SELLERS_TAG_SLUG = 'bestsellers';
@@ -206,8 +210,8 @@ export class PublicProductsService {
     }
 
     const brand = brandRefId
-      ? await this.brandsRepository.findByRefId(brandRefId)
-      : await this.brandsRepository.findBySlug(brandSlug!);
+      ? await this.brandsRepository.findActiveByRefId(brandRefId)
+      : await this.brandsRepository.findActiveBySlug(brandSlug!);
     if (!brand) {
       throw new NotFoundException(
         brandRefId
@@ -591,7 +595,7 @@ export class PublicProductsService {
     brand?: BrandEntity | null;
   }> {
     if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
+      const brand = await this.brandsRepository.findActiveByRefId(query.brandRefId);
       if (!brand) {
         throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
       }
@@ -616,14 +620,14 @@ export class PublicProductsService {
     }
 
     if (slugs.length === 1) {
-      const brand = await this.brandsRepository.findBySlug(slugs[0]);
+      const brand = await this.brandsRepository.findActiveBySlug(slugs[0]);
       if (!brand) {
         throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
       }
       return { brandId: brand.id, brand };
     }
 
-    const brands = await this.brandsRepository.findBySlugs(slugs);
+    const brands = await this.brandsRepository.findActiveBySlugs(slugs);
     const foundSlugs = new Set(brands.map((brand) => brand.slug));
     const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
     if (missingSlugs.length > 0) {
@@ -644,15 +648,15 @@ export class PublicProductsService {
             : Promise.resolve(null),
         this.resolveBrandFilters(query),
         query.productNatureRefId
-          ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
+          ? this.productNaturesRepository.findActiveByRefId(query.productNatureRefId)
           : Promise.resolve(null),
         query.healthConcernRefId
-          ? this.healthConcernsRepository.findByRefId(query.healthConcernRefId)
+          ? this.healthConcernsRepository.findActiveByRefId(query.healthConcernRefId)
           : query.healthConcernSlug
-            ? this.healthConcernsRepository.findBySlug(query.healthConcernSlug)
+            ? this.healthConcernsRepository.findActiveBySlug(query.healthConcernSlug)
             : Promise.resolve(null),
         query.wellnessGoalRefId
-          ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
+          ? this.wellnessGoalsRepository.findActiveByRefId(query.wellnessGoalRefId)
           : Promise.resolve(null),
         queryBindings
           ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
@@ -672,6 +676,18 @@ export class PublicProductsService {
         query.healthConcernRefId
           ? `Health concern with refId "${query.healthConcernRefId}" not found`
           : `Health concern with slug "${query.healthConcernSlug}" not found`,
+      );
+    }
+
+    if (query.productNatureRefId && !nature) {
+      throw new NotFoundException(
+        `Product nature with refId "${query.productNatureRefId}" not found`,
+      );
+    }
+
+    if (query.wellnessGoalRefId && !wellnessGoal) {
+      throw new NotFoundException(
+        `Wellness goal with refId "${query.wellnessGoalRefId}" not found`,
       );
     }
 
@@ -730,6 +746,14 @@ export class PublicProductsService {
         : Promise.resolve([] as string[]),
     ]);
 
+    const selectedPath = isChildFilter ? selectedSlugPath : rootSlugPath;
+    const selectedAboveTheFold = matchedCategory.aboveTheFold?.trim()
+      ? matchedCategory.aboveTheFold
+      : rootCategory.aboveTheFold;
+    const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
+      ? matchedCategory.belowTheFold
+      : rootCategory.belowTheFold;
+
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
       name: rootCategory.name,
@@ -739,14 +763,8 @@ export class PublicProductsService {
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
       banner:
         isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
-      aboveTheFold:
-        isChildFilter && matchedCategory.aboveTheFold?.trim()
-          ? matchedCategory.aboveTheFold
-          : rootCategory.aboveTheFold,
-      belowTheFold:
-        isChildFilter && matchedCategory.belowTheFold?.trim()
-          ? matchedCategory.belowTheFold
-          : rootCategory.belowTheFold,
+      aboveTheFold: selectedAboveTheFold,
+      belowTheFold: selectedBelowTheFold,
       metaTitle:
         isChildFilter && matchedCategory.metaTitle?.trim()
           ? matchedCategory.metaTitle
@@ -767,18 +785,29 @@ export class PublicProductsService {
           values: productValues.length > 0 ? productValues : masterValues,
         };
       }),
-      selectedCategory: isChildFilter
-        ? {
-            refId: matchedCategory.refId,
-            name: matchedCategory.name,
-            slug: matchedCategory.slug,
-            slugPath: selectedSlugPath,
-            permalink: buildCategoryPermalink(selectedSlugPath),
-          }
-        : null,
+      selectedCategory: {
+        refId: matchedCategory.refId,
+        name: matchedCategory.name,
+        slug: matchedCategory.slug,
+        slugPath: selectedPath,
+        permalink: buildCategoryPermalink(selectedPath),
+        image: matchedCategory.image,
+        banner: matchedCategory.banner,
+        aboveTheFold: selectedAboveTheFold,
+        belowTheFold: selectedBelowTheFold,
+        metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,
+        metaDescription: matchedCategory.metaDescription?.trim() || rootCategory.metaDescription,
+      },
     };
 
-    return this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+    const enriched = await this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+    if (enriched.selectedCategory) {
+      enriched.selectedCategory = await this.storageUrlEnricher.enrichFields(
+        enriched.selectedCategory,
+        ['image', 'banner'],
+      );
+    }
+    return enriched;
   }
 
   private async enrichPaginatedVariantSearch(
@@ -1070,7 +1099,7 @@ export class PublicProductsService {
    *
    * Cascade (stop when page 1 has enough results, or always for page > 1 once chosen):
    *  1. FBT category-pair rules → complementary categories (±35% price, then without).
-   *  2. Same root-category bestsellers (exclude seed products).
+   *  2. Same deepest-category bestsellers (e.g. Skin Care, not all of Personal Care).
    *  3. Global bestsellers (exclude seed products when any).
    *
    * Manual overrides (admin-configured) will always take priority once that
@@ -1121,7 +1150,7 @@ export class PublicProductsService {
       const sourceCategoryNames = [
         ...new Set(
           variantInfos
-            .map((v) => (v.subCategoryName ?? v.categoryName ?? '').toLowerCase().trim())
+            .map((v) => resolveFbtSourceCategoryName(v))
             .filter(Boolean),
         ),
       ];
@@ -1129,7 +1158,12 @@ export class PublicProductsService {
       const sourceCategoryIds = [
         ...new Set(
           variantInfos
-            .flatMap((v) => [v.subCategoryId, v.categoryId])
+            .flatMap((v) => [
+              v.subSubSubCategoryId,
+              v.subSubCategoryId,
+              v.subCategoryId,
+              v.categoryId,
+            ])
             .filter((id): id is string => Boolean(id)),
         ),
       ];
@@ -1185,19 +1219,13 @@ export class PublicProductsService {
         }
       }
 
-      // ── 2) Same root category bestsellers (PDP / unmatched rules) ──
-      const rootCategoryIds = [
-        ...new Set(
-          variantInfos
-            .map((v) => v.categoryId)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      ];
+      // ── 2) Same deepest-category bestsellers (PDP / unmatched rules) ──
+      const fallbackCategoryIds = resolveFbtFallbackCategoryIds(variantInfos);
 
-      if (rootCategoryIds.length) {
+      if (fallbackCategoryIds.length) {
         const { data, total } = await this.productsRepository.findPublishedPaginated({
           ...listBase,
-          categoryIds: rootCategoryIds,
+          categoryIds: fallbackCategoryIds,
         });
 
         if (total > 0 || resolvedPage > 1) {

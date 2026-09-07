@@ -1,6 +1,6 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -13,6 +13,8 @@ import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
+import { PaymentRequestsService } from '@modules/payment-requests/services/payment-requests.service';
+import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -32,7 +34,12 @@ import { applyOrderStatusTimestamps, EMPTY_ORDER_STATUS_TIMESTAMPS } from '../ut
 import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
-import { mapOrderToResponse, mapOrderToAdminResponse } from '../mappers/order.mapper';
+import {
+  mapOrderToResponse,
+  mapOrderToAdminResponse,
+  mapPaymentRequestToAdminOrderResponse,
+  withPaymentRequestOnAdminOrder,
+} from '../mappers/order.mapper';
 import {
   mapDefaultShipmentResponse,
   mapShipmentToResponse,
@@ -72,6 +79,8 @@ export class OrdersService {
     private readonly eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => ProductSubscriptionsService))
     private readonly productSubscriptionsService: ProductSubscriptionsService,
+    @Inject(forwardRef(() => PaymentRequestsService))
+    private readonly paymentRequestsService: PaymentRequestsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -525,6 +534,10 @@ export class OrdersService {
           isSubscription: item.isSubscription,
           frequency: item.frequency ?? null,
           sku: item.sku,
+          skipCatalogPriceCheck:
+            existing.orderSource === OrderSource.GOKWIK &&
+            parseFloat(item.unitPrice) === 0 &&
+            parseFloat(item.totalPrice) === 0,
         })),
         manager,
       );
@@ -1009,7 +1022,7 @@ export class OrdersService {
 
   async findAllForAdmin(query: AdminOrderQueryDto) {
     const paginationOptions = buildPaginationOptions(query);
-    const { data, total } = await this.ordersRepository.findAllPaginated({
+    const { keys, total } = await this.ordersRepository.findAdminListKeys({
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
@@ -1024,18 +1037,116 @@ export class OrdersService {
       sortOrder: paginationOptions.sortOrder,
     });
 
-    const mapped = await Promise.all(
-      data.map((order) => mapOrderToAdminResponse(order, this.storageUrlEnricher)),
+    const orderIds = keys.filter((key) => key.recordType === 'ORDER').map((key) => key.id);
+    const paymentRequestIds = keys
+      .filter((key) => key.recordType === 'PAYMENT_REQUEST')
+      .map((key) => key.id);
+
+    const [orders, paymentRequests] = await Promise.all([
+      this.ordersRepository.findByIds(orderIds),
+      this.findPaymentRequestsByIds(paymentRequestIds),
+    ]);
+    const orderById = new Map(orders.map((order) => [order.id, order]));
+    const paymentRequestById = new Map(paymentRequests.map((request) => [request.id, request]));
+    const addressById = await this.findAddressesByIds(
+      paymentRequests
+        .map((request) => request.addressId)
+        .filter((id): id is string => Boolean(id)),
     );
-    return buildPaginatedResult(mapped, total, paginationOptions);
+
+    const mapped = await Promise.all(
+      keys.map(async (key) => {
+        if (key.recordType === 'PAYMENT_REQUEST') {
+          const request = paymentRequestById.get(key.id);
+          if (!request) {
+            return null;
+          }
+          const address = request.addressId ? (addressById.get(request.addressId) ?? null) : null;
+          return mapPaymentRequestToAdminOrderResponse(request, address, this.storageUrlEnricher);
+        }
+
+        const order = orderById.get(key.id);
+        return order ? mapOrderToAdminResponse(order, this.storageUrlEnricher) : null;
+      }),
+    );
+
+    return buildPaginatedResult(
+      mapped.filter((row): row is NonNullable<typeof row> => row != null),
+      total,
+      paginationOptions,
+    );
   }
 
   async findOneForAdmin(idOrRefId: string) {
-    const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    let order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    let paymentRequest: PaymentRequestEntity | null = null;
+
     if (!order) {
-      throw new NotFoundException(`Order ${idOrRefId} not found`);
+      paymentRequest = await this.findPaymentRequestForAdminOrder(idOrRefId);
+      if (paymentRequest) {
+        order = await this.ordersRepository.findLinkedToPaymentRequestRef(paymentRequest.refId);
+      }
     }
 
+    if (order) {
+      const response = await this.mapAdminOrderDetail(order);
+      return paymentRequest ? withPaymentRequestOnAdminOrder(response, paymentRequest) : response;
+    }
+
+    if (paymentRequest) {
+      const address = await this.resolveAddressForPaymentRequest(paymentRequest);
+      return mapPaymentRequestToAdminOrderResponse(
+        paymentRequest,
+        address,
+        this.storageUrlEnricher,
+      );
+    }
+
+    throw new NotFoundException(`Order ${idOrRefId} not found`);
+  }
+
+  async generatePaymentLinkForAdmin(
+    idOrRefId: string,
+    dto: GenerateLinkPrefillDto,
+    updatedBy: string,
+  ) {
+    const paymentRequest = await this.resolvePaymentRequestForAdminLink(idOrRefId);
+    await this.paymentRequestsService.generateLink(paymentRequest.id, updatedBy, dto ?? {});
+    return this.findOneForAdmin(paymentRequest.refId);
+  }
+
+  async regeneratePaymentLinkForAdmin(
+    idOrRefId: string,
+    dto: GenerateLinkPrefillDto,
+    updatedBy: string,
+  ) {
+    const paymentRequest = await this.resolvePaymentRequestForAdminLink(idOrRefId);
+    await this.paymentRequestsService.regenerateLink(paymentRequest.id, updatedBy, dto ?? {});
+    return this.findOneForAdmin(paymentRequest.refId);
+  }
+
+  private async resolvePaymentRequestForAdminLink(
+    idOrRefId: string,
+  ): Promise<PaymentRequestEntity> {
+    const paymentRequest = await this.findPaymentRequestForAdminOrder(idOrRefId);
+    if (paymentRequest) {
+      return paymentRequest;
+    }
+
+    const order = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (order) {
+      if (order.paymentMethod === OrderPaymentMethod.COD) {
+        throw new BadRequestException('Payment link cannot be generated for COD orders');
+      }
+      throw new BadRequestException(
+        'Payment link can only be generated for unpaid admin-created prepaid orders',
+      );
+    }
+
+    throw new NotFoundException(`Payment request ${idOrRefId} not found`);
+  }
+
+  private async mapAdminOrderDetail(order: OrderEntity) {
     const { shipment, shipwayStatus } = await this.shippingService.resolveShipmentForOrder(
       order.id,
       order.orderNumber,
@@ -1052,6 +1163,72 @@ export class OrdersService {
       { ...order, shipment, shipmentResponse, shipwayStatus },
       this.storageUrlEnricher,
     );
+  }
+
+  private async findPaymentRequestForAdminOrder(
+    idOrRefId: string,
+  ): Promise<PaymentRequestEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrRefId);
+    return this.dataSource.getRepository(PaymentRequestEntity).findOne({
+      where: isUuid ? { id: idOrRefId } : { refId: idOrRefId },
+      relations: {
+        customer: true,
+        items: {
+          product: { media: true },
+          variant: { attributeValues: true },
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  private async resolveAddressForPaymentRequest(request: PaymentRequestEntity) {
+    if (request.addressId) {
+      try {
+        return await this.userAddressesService.findOne(request.customerId, request.addressId);
+      } catch {
+        this.logger.warn(
+          {
+            paymentRequestId: request.id,
+            paymentRequestRefId: request.refId,
+            addressId: request.addressId,
+          },
+          'Payment request address was not found; falling back to customer default',
+        );
+      }
+    }
+
+    const addresses = await this.userAddressesService.findAll(request.customerId);
+    return addresses.find((address) => address.isDefault) ?? addresses[0] ?? null;
+  }
+
+  private async findPaymentRequestsByIds(ids: string[]): Promise<PaymentRequestEntity[]> {
+    if (!ids.length) {
+      return [];
+    }
+    return this.dataSource.getRepository(PaymentRequestEntity).find({
+      where: { id: In(ids) },
+      relations: {
+        customer: true,
+        items: {
+          product: { media: true },
+          variant: { attributeValues: true },
+        },
+      },
+      order: { items: { createdAt: 'ASC' } },
+    });
+  }
+
+  private async findAddressesByIds(ids: string[]): Promise<Map<string, UserAddressEntity>> {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      return new Map();
+    }
+    const addresses = await this.dataSource.getRepository(UserAddressEntity).find({
+      where: { id: In(uniqueIds) },
+    });
+    return new Map(addresses.map((address) => [address.id, address]));
   }
 
   async findOne(userId: string, id: string) {
@@ -1362,6 +1539,7 @@ export class OrdersService {
     grandTotal: string;
     notes: string | null;
     paymentMethod?: OrderPaymentMethod;
+    paymentStatus?: OrderPaymentStatus;
     orderSource?: OrderSource;
     createdBy?: string;
     couponId?: string | null;
@@ -1417,6 +1595,18 @@ export class OrdersService {
       );
       const orderNumber = await this.generateOrderNumber();
 
+      const paymentMethod = params.paymentMethod ?? OrderPaymentMethod.RAZORPAY;
+      const isCod = paymentMethod === OrderPaymentMethod.COD;
+      const paymentStatus =
+        params.paymentStatus ??
+        (isCod ? OrderPaymentStatus.PENDING : OrderPaymentStatus.PAID);
+      const notes = [
+        params.notes?.trim(),
+        `Generated from payment request ${params.paymentRequestRefId}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
       const createdOrder = await this.ordersRepository.create(
         {
           refId: orderRefId,
@@ -1434,8 +1624,8 @@ export class OrdersService {
           couponCode: params.couponCode ?? null,
           couponTitle: params.couponTitle ?? null,
           couponDiscountType: params.couponDiscountType ?? null,
-          paymentMethod: params.paymentMethod ?? OrderPaymentMethod.RAZORPAY,
-          paymentStatus: OrderPaymentStatus.PAID,
+          paymentMethod,
+          paymentStatus,
           orderStatus: OrderStatus.CONFIRMED,
           orderSource: params.orderSource ?? OrderSource.WEBSITE,
           recipientName: address.recipientName,
@@ -1446,7 +1636,7 @@ export class OrdersService {
           landmark: address.landmark ?? null,
           city: address.city,
           state: address.state,
-          notes: params.notes ?? `Generated from payment request ${params.paymentRequestRefId}`,
+          notes,
           placedAt: new Date(),
           ...applyOrderStatusTimestamps(
             EMPTY_ORDER_STATUS_TIMESTAMPS,

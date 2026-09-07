@@ -28,6 +28,10 @@ export class WellnessGoalsRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findActiveByRefId(refId: string): Promise<WellnessGoalEntity | null> {
+    return this.repo.findOne({ where: { refId, status: MasterStatus.ACTIVE } });
+  }
+
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }

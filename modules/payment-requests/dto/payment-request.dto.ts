@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
@@ -9,12 +9,14 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsIn,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
 import { PaymentRequestStatus } from '../enums/payment-request-status.enum';
+import { AdminPaymentMethod } from '../enums/admin-payment-method.enum';
 
 export class PaymentRequestItemInputDto {
   @IsUUID()
@@ -44,6 +46,15 @@ export class CreatePaymentRequestDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  addressId?: string;
+
+  /** `COD` places a real order immediately (no payment link). `PREPAID` (default) waits for Razorpay. */
+  @IsOptional()
+  @IsIn([AdminPaymentMethod.COD, AdminPaymentMethod.PREPAID])
+  paymentMethod?: AdminPaymentMethod;
 
   @IsOptional()
   @IsString()
@@ -202,10 +213,12 @@ export class PaymentRequestQueryDto extends PaginationQueryDto {
 
 export class GenerateLinkPrefillDto {
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsString()
   phone?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsEmail()
   email?: string;
 }
@@ -218,6 +231,10 @@ export class ValidateAdminCouponDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsIn([AdminPaymentMethod.COD, AdminPaymentMethod.PREPAID])
+  paymentMethod?: AdminPaymentMethod;
 
   @IsArray()
   @ValidateNested({ each: true })
