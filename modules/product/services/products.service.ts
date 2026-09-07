@@ -880,6 +880,7 @@ export class ProductsService {
         await this.variantsRepository.syncVariants(
           manager,
           existing.id,
+          existing.slug,
           productSlug,
           effectiveProductType,  // use the new type, not the old one
           variantsForSync,
@@ -914,6 +915,7 @@ export class ProductsService {
         await this.variantsRepository.syncVariants(
           manager,
           existing.id,
+          existing.slug,
           productSlug,
           ProductType.BUNDLE,
           pricingVariants,
