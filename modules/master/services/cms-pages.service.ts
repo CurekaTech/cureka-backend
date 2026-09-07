@@ -22,7 +22,7 @@ import {
   ICmsPage,
   IPublicCmsPage,
   IPublicCmsPagesByKey,
-  PUBLIC_CMS_PAGE_KEY_BY_SLUG,
+  PUBLIC_CMS_PAGE_KEYS,
   PublicCmsPageKey,
 } from '../interfaces/cms-page.interface';
 import {
@@ -84,14 +84,17 @@ export class CmsPagesService {
    * Inactive / missing pages are `null` so the response shape stays fixed.
    */
   async findPublicPagesByKey(): Promise<IPublicCmsPagesByKey> {
-    const slugs = PREDEFINED_CMS_PAGES.map((page) => page.slug);
-    const entities = await this.cmsPagesRepository.findActiveBySlugs([...slugs]);
-    const bySlug = new Map(entities.map((entity) => [entity.slug, entity]));
+    const predefinedKeys = PREDEFINED_CMS_PAGES.map((page) => page.predefinedKey);
+    const entities = await this.cmsPagesRepository.findActiveByPredefinedKeys([...predefinedKeys]);
+    const byPredefinedKey = new Map(
+      entities
+        .filter((entity): entity is CmsPageEntity & { predefinedKey: string } => Boolean(entity.predefinedKey))
+        .map((entity) => [entity.predefinedKey, entity]),
+    );
 
     const result = {} as IPublicCmsPagesByKey;
-    for (const page of PREDEFINED_CMS_PAGES) {
-      const key = PUBLIC_CMS_PAGE_KEY_BY_SLUG[page.slug] as PublicCmsPageKey;
-      const entity = bySlug.get(page.slug);
+    for (const key of PUBLIC_CMS_PAGE_KEYS) {
+      const entity = byPredefinedKey.get(key);
       result[key] = entity ? mapCmsPageToPublicResponse(entity) : null;
     }
     return result;
@@ -139,9 +142,6 @@ export class CmsPagesService {
       if (!slug) {
         throw new BadRequestException('Slug is required');
       }
-      if (existing.isPredefined && slug !== existing.slug) {
-        throw new BadRequestException('Slug cannot be changed for predefined CMS pages');
-      }
       if (slug !== existing.slug && (await this.cmsPagesRepository.existsBySlug(slug, refId))) {
         throw new BadRequestException(`Slug "${slug}" is already in use`);
       }
@@ -157,7 +157,7 @@ export class CmsPagesService {
       updateData.metaDescription = dto.metaDescription?.trim() || null;
     }
     if (dto.status !== undefined) updateData.status = dto.status;
-    if (dto.slug !== undefined && !existing.isPredefined) {
+    if (dto.slug !== undefined) {
       updateData.slug = dto.slug!.trim().toLowerCase();
     }
 

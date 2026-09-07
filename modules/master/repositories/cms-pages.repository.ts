@@ -11,11 +11,11 @@ export interface CmsPageFindOptions extends PaginationOptions {
 }
 
 export const PREDEFINED_CMS_PAGES = [
-  { title: 'About Cureka', slug: 'about-cureka' },
-  { title: 'Privacy Policy', slug: 'privacy-policy' },
-  { title: 'Terms & Conditions', slug: 'terms-and-conditions' },
-  { title: 'Returns & Refunds', slug: 'returns-refunds' },
-  { title: 'Shipping Policy', slug: 'shipping-policy' },
+  { title: 'About Cureka', slug: 'about-cureka', predefinedKey: 'aboutCureka' },
+  { title: 'Privacy Policy', slug: 'privacy-policy', predefinedKey: 'privacyPolicy' },
+  { title: 'Terms & Conditions', slug: 'terms-and-conditions', predefinedKey: 'termsAndConditions' },
+  { title: 'Returns & Refunds', slug: 'returns-refunds', predefinedKey: 'returnsRefunds' },
+  { title: 'Shipping Policy', slug: 'shipping-policy', predefinedKey: 'shippingPolicy' },
 ] as const;
 
 @Injectable()
@@ -114,6 +114,15 @@ export class CmsPagesRepository {
     return this.repo
       .createQueryBuilder('page')
       .where('page.slug IN (:...slugs)', { slugs })
+      .andWhere('page.status = :status', { status: MasterStatus.ACTIVE })
+      .getMany();
+  }
+
+  async findActiveByPredefinedKeys(predefinedKeys: string[]): Promise<CmsPageEntity[]> {
+    if (!predefinedKeys.length) return [];
+    return this.repo
+      .createQueryBuilder('page')
+      .where('page.predefinedKey IN (:...predefinedKeys)', { predefinedKeys })
       .andWhere('page.status = :status', { status: MasterStatus.ACTIVE })
       .getMany();
   }
