@@ -430,8 +430,8 @@ export class PublicProductsService {
 
         for (const slugKey of slugKeys) {
           const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
-          if (byProductSlug) {
-            const detail = mapProductEntityToPublicDetail(byProductSlug);
+        if (byProductSlug) {
+          const detail = mapProductEntityToPublicDetail(byProductSlug);
             const requestSlug = sanitizedSlug || slugKey;
             const matchedVariant =
               detail.variants.find((variant) =>
@@ -441,12 +441,12 @@ export class PublicProductsService {
               pickVariantForRequestSlug(detail.variants, requestSlug) ??
               pickPreferredPublicVariant(detail.variants);
             this.logger.log(`[PERF] findBySlug | DB query: ${Date.now() - tDb}ms`);
-            if (!matchedVariant) {
-              return detail;
-            }
-            return {
-              ...detail,
-              selectedVariantId: matchedVariant.id,
+          if (!matchedVariant) {
+            return detail;
+          }
+          return {
+            ...detail,
+            selectedVariantId: matchedVariant.id,
               selectedVariantSlug: sanitizeProductSlugSegment(matchedVariant.slug) || matchedVariant.slug,
               permalink: resolvePermalink(
                 matchedVariant.productPageUrl,
@@ -509,9 +509,9 @@ export class PublicProductsService {
             sanitizeProductSlugSegment(matchedVariant?.slug ?? key) ||
             matchedVariant?.slug ||
             key;
-          return {
-            ...detail,
-            selectedVariantId: matchedVariant?.id ?? null,
+        return {
+          ...detail,
+          selectedVariantId: matchedVariant?.id ?? null,
             selectedVariantSlug,
             permalink: resolvePermalink(
               matchedVariant?.productPageUrl,
