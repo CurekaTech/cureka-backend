@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ProductNatureEntity } from '../entities/product-nature.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
 export class ProductNaturesRepository {
@@ -19,6 +20,10 @@ export class ProductNaturesRepository {
 
   async findByRefId(refId: string): Promise<ProductNatureEntity | null> {
     return this.repo.findOne({ where: { refId } });
+  }
+
+  async findActiveByRefId(refId: string): Promise<ProductNatureEntity | null> {
+    return this.repo.findOne({ where: { refId, status: MasterStatus.ACTIVE } });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
