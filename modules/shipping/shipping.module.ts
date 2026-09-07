@@ -13,6 +13,9 @@ import { ShipwayService } from './services/shipway.service';
 import { ShippingService } from './services/shipping.service';
 import { ShipmentsService } from './services/shipments.service';
 import { ShipwayWebhookController } from './controllers/shipway-webhook.controller';
+import { ShipwayShipmentReconciliationService } from './services/shipway-shipment-reconciliation.service';
+import { ShipwayWebhookUnresolvedEntity } from './entities/shipway-webhook-unresolved.entity';
+import { ShipwayWebhookUnresolvedRepository } from './repositories/shipway-webhook-unresolved.repository';
 
 @Module({
   imports: [
@@ -22,6 +25,7 @@ import { ShipwayWebhookController } from './controllers/shipway-webhook.controll
       ShipmentEntity,
       ShipmentEventEntity,
       ShipmentItemEntity,
+      ShipwayWebhookUnresolvedEntity,
     ]),
   ],
   controllers: [ShipwayWebhookController, ShipmentsController],
@@ -29,10 +33,12 @@ import { ShipwayWebhookController } from './controllers/shipway-webhook.controll
     OrdersRepository,
     ShipmentsRepository,
     ShipmentEventsRepository,
+    ShipwayWebhookUnresolvedRepository,
     ShipwayService,
     ShippingService,
     ShipmentsService,
+    ShipwayShipmentReconciliationService,
   ],
-  exports: [ShippingService, ShipmentsRepository],
+  exports: [ShippingService, ShipmentsRepository, ShipwayShipmentReconciliationService],
 })
 export class ShippingModule {}
