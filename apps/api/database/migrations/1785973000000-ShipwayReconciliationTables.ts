@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - unresolved webhook inbox for controlled retry
  * - durable BOB fulfillment notify outbox (PM2-safe idempotency)
  */
-export class ShipwayReconciliationTables1785972000000 implements MigrationInterface {
-  name = 'ShipwayReconciliationTables1785972000000';
+export class ShipwayReconciliationTables1785973000000 implements MigrationInterface {
+  name = 'ShipwayReconciliationTables1785973000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
