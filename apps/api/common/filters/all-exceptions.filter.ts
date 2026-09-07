@@ -75,6 +75,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message: normalized.message,
       timestamp: new Date().toISOString(),
       path: request.url,
+      ...(normalized.code ? { code: normalized.code } : {}),
+      ...(normalized.minimumOrderAmount !== undefined
+        ? { minimumOrderAmount: normalized.minimumOrderAmount }
+        : {}),
+      ...(normalized.maximumOrderAmount !== undefined
+        ? { maximumOrderAmount: normalized.maximumOrderAmount }
+        : {}),
     };
 
     try {
@@ -91,6 +98,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     statusCode: number;
     error: string;
     message: string | string[];
+    code?: string;
+    minimumOrderAmount?: number;
+    maximumOrderAmount?: number;
   } {
     if (exception instanceof UploadSizeLimitExceededError) {
       return {
@@ -113,11 +123,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
 
       if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-        const payload = exceptionResponse as { message?: string | string[]; error?: string };
+        const payload = exceptionResponse as {
+          message?: string | string[];
+          error?: string;
+          code?: string;
+          minimumOrderAmount?: number;
+          maximumOrderAmount?: number;
+        };
         return {
           statusCode,
           error: payload.error ?? HttpStatus[statusCode] ?? 'Error',
           message: payload.message ?? exception.message,
+          code: payload.code,
+          minimumOrderAmount: payload.minimumOrderAmount,
+          maximumOrderAmount: payload.maximumOrderAmount,
         };
       }
     }

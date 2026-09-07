@@ -22,10 +22,18 @@ export class ShipmentEntity extends BaseEntity {
 
   // ── What Shipway sent to us when we pushed the order ─────────────────────────
 
-  /** The `order_id` we sent to Shipway — equals our orderNumber. */
+  /** The merchant `order_id` we sent to Shipway — equals our orderNumber (ORD…). */
   @Index({ unique: true })
   @Column({ name: 'shipway_order_id', type: 'varchar', length: 100 })
   shipwayOrderId!: string;
+
+  /**
+   * Shipway / EzySlip internal OMS order id (e.g. ezyslip_order_id).
+   * Distinct from merchant ORD… and from booking shipment_id.
+   */
+  @Index()
+  @Column({ name: 'oms_order_id', type: 'varchar', length: 100, nullable: true })
+  omsOrderId!: string | null;
 
   // ── What Shipway returned after booking ──────────────────────────────────────
 

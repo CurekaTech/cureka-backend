@@ -12,6 +12,9 @@ export interface ApiErrorResponse {
   statusCode: number;
   timestamp: string;
   path: string;
+  code?: string;
+  minimumOrderAmount?: number;
+  maximumOrderAmount?: number;
 }
 
 export const buildSuccessResponse = <T>(data: T, message?: string): ApiResponse<T> => ({

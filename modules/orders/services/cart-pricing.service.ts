@@ -51,6 +51,7 @@ export class CartPricingService {
     };
 
     if (!params.items.length) {
+      const cod = settings.resolveCodEligibility(0, checkoutAdminSettings);
       return this.buildPricing({
         subtotal,
         coupon: null,
@@ -61,6 +62,7 @@ export class CartPricingService {
         codCharge: 0,
         prepaidDiscount: 0,
         checkoutRules,
+        cod,
       });
     }
 
@@ -206,6 +208,7 @@ export class CartPricingService {
       codCharge,
       prepaidDiscount,
       checkoutRules,
+      cod: settings.resolveCodEligibility(payableSubtotal, checkoutAdminSettings),
     });
   }
 
@@ -219,6 +222,7 @@ export class CartPricingService {
     codCharge: number;
     prepaidDiscount: number;
     checkoutRules: CartPricing['checkoutRules'];
+    cod: CartPricing['cod'];
   }): CartPricing {
     const grandTotal = roundMoney(
       parts.subtotal -
@@ -241,6 +245,7 @@ export class CartPricingService {
       prepaidDiscount: parts.prepaidDiscount,
       grandTotal: Math.max(0, grandTotal),
       checkoutRules: parts.checkoutRules,
+      cod: parts.cod,
     };
   }
 

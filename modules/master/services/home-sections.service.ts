@@ -136,12 +136,6 @@ export class HomeSectionsService implements OnModuleInit {
   }
 
   async findActive(): Promise<IHomeSectionListResponse> {
-    const cleaned = await this.cleanupSections();
-    const seeded = await this.seedMissingDefaults();
-    if (cleaned || seeded) {
-      await this.invalidateHomeSectionsCache();
-    }
-
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.homeSections(),
       module: CacheModuleName.HOMEPAGE,

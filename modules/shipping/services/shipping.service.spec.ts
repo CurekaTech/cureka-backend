@@ -1,4 +1,3 @@
-import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
@@ -9,6 +8,7 @@ import { ShipmentsRepository } from '../repositories/shipments.repository';
 import { ShipmentEventsRepository } from '../repositories/shipment-events.repository';
 import { ShipwayService } from './shipway.service';
 import { ShippingService } from './shipping.service';
+import { ShipwayShipmentReconciliationService } from './shipway-shipment-reconciliation.service';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 
@@ -20,6 +20,7 @@ describe('ShippingService webhook handling', () => {
     orderNumber: 'CUR1',
     groupKey: 'default',
     shipwayOrderId: 'CUR1',
+    omsOrderId: null,
     shipmentId: null,
     awbNumber: 'AWB1',
     courierName: 'Test',
@@ -65,6 +66,12 @@ describe('ShippingService webhook handling', () => {
   >;
   let ordersRepository: jest.Mocked<Pick<OrdersRepository, 'updateById' | 'findById'>>;
   let shipwayService: jest.Mocked<Pick<ShipwayService, 'getShipmentDetails'>>;
+  let reconciliationService: jest.Mocked<
+    Pick<
+      ShipwayShipmentReconciliationService,
+      'resolveWebhookShipment' | 'looksNumericId' | 'verifyUnsignedWebhookAgainstOms'
+    >
+  >;
   let eventEmitter: jest.Mocked<Pick<EventEmitter2, 'emitAsync'>>;
   let dataSource: { transaction: jest.Mock };
   let configService: { get: jest.Mock };
@@ -95,6 +102,17 @@ describe('ShippingService webhook handling', () => {
     shipwayService = {
       getShipmentDetails: jest.fn(),
     };
+    reconciliationService = {
+      resolveWebhookShipment: jest.fn().mockResolvedValue({
+        shipment: { ...shipment, events: [...(shipment.events ?? [])] },
+        outcome: 'found',
+      }),
+      looksNumericId: jest.fn((value?: string | null) => Boolean(value && /^\d{5,}$/.test(value))),
+      verifyUnsignedWebhookAgainstOms: jest.fn().mockResolvedValue({
+        ok: true,
+        payload: undefined,
+      }),
+    };
     eventEmitter = {
       emitAsync: jest.fn().mockResolvedValue(undefined),
     };
@@ -115,14 +133,15 @@ describe('ShippingService webhook handling', () => {
       shipmentsRepository as unknown as ShipmentsRepository,
       shipmentEventsRepository as unknown as ShipmentEventsRepository,
       shipwayService as unknown as ShipwayService,
+      reconciliationService as unknown as ShipwayShipmentReconciliationService,
       eventEmitter as unknown as EventEmitter2,
     );
   });
 
   it('skips duplicate event_id', async () => {
-    shipmentsRepository.findByShipwayOrderId.mockResolvedValue({
-      ...shipment,
-      lastWebhookEventId: 'eid:evt-99',
+    reconciliationService.resolveWebhookShipment.mockResolvedValue({
+      shipment: { ...shipment, lastWebhookEventId: 'eid:evt-99' },
+      outcome: 'found',
     });
 
     const result = await service.handleShipwayWebhook({
@@ -162,11 +181,16 @@ describe('ShippingService webhook handling', () => {
     expect(saved.shipmentStatus).toBe(ShipmentStatus.IN_TRANSIT);
   });
 
-  it('throws not found for unknown shipway order id', async () => {
-    shipmentsRepository.findByShipwayOrderId.mockResolvedValue(null);
-    await expect(
-      service.handleShipwayWebhook({ order_id: 'MISSING', status: 'OOD' }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+  it('returns unresolved when shipment cannot be found or reconciled', async () => {
+    reconciliationService.resolveWebhookShipment.mockResolvedValue({
+      shipment: null,
+      outcome: 'unresolved',
+      reason: 'unknown_or_legacy_order',
+    });
+
+    const result = await service.handleShipwayWebhook({ order_id: 'MISSING', status: 'OOD' });
+    expect(result.outcome).toBe('unresolved');
+    expect(result.reason).toBe('unknown_or_legacy_order');
   });
 
   it('processes a newer status update', async () => {
@@ -178,7 +202,7 @@ describe('ShippingService webhook handling', () => {
     });
 
     expect(result.outcome).toBe('processed');
-    expect(result.shipment.shipmentStatus).toBe(ShipmentStatus.OUT_FOR_DELIVERY);
+    expect(result.shipment?.shipmentStatus).toBe(ShipmentStatus.OUT_FOR_DELIVERY);
     expect(shipmentEventsRepository.create).toHaveBeenCalled();
   });
 
@@ -206,7 +230,7 @@ describe('ShippingService webhook handling', () => {
     });
 
     expect(result.outcome).toBe('processed');
-    expect(result.shipment.shipmentStatus).toBe(ShipmentStatus.DELIVERED);
+    expect(result.shipment?.shipmentStatus).toBe(ShipmentStatus.DELIVERED);
     expect(ordersRepository.updateById).toHaveBeenCalledWith(
       'ord-1',
       expect.objectContaining({
@@ -250,17 +274,24 @@ describe('ShippingService webhook handling', () => {
     expect(call?.[1]).not.toHaveProperty('paymentStatus');
   });
 
-  it('batch marks missing shipments as not_found without failing the batch', async () => {
-    shipmentsRepository.findByShipwayOrderId
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ ...shipment, lastWebhookEventId: null });
+  it('batch marks missing shipments as unresolved without failing the batch', async () => {
+    reconciliationService.resolveWebhookShipment
+      .mockResolvedValueOnce({
+        shipment: null,
+        outcome: 'unresolved',
+        reason: 'unknown_or_legacy_order',
+      })
+      .mockResolvedValueOnce({
+        shipment: { ...shipment, lastWebhookEventId: null },
+        outcome: 'found',
+      });
 
     const batch = await service.handleShipwayWebhookBatch([
       { order_id: 'MISSING', status: 'OOD' },
       { order_id: 'CUR1', status: 'OOD', status_date: '2026-08-11T12:00:00.000Z' },
     ]);
 
-    expect(batch.notFound).toBe(1);
+    expect(batch.unresolved).toBe(1);
     expect(batch.processed).toBe(1);
   });
 
@@ -280,7 +311,7 @@ describe('ShippingService webhook handling', () => {
     expect(shipwayService.getShipmentDetails).not.toHaveBeenCalled();
   });
 
-  it('falls back to live GET when local data is stale', async () => {
+  it('falls back to live GET when local data is stale without emitting customer notify', async () => {
     shipmentsRepository.findByOrderId.mockResolvedValue({
       ...shipment,
       lastSyncedAt: new Date(Date.now() - 60 * 60 * 1000),
@@ -293,10 +324,32 @@ describe('ShippingService webhook handling', () => {
       awb_number: 'AWB1',
     });
 
-    // persistTrackingUpdate uses transaction + save; keep mocks loose
     const result = await service.resolveShipmentForOrder('ord-1', 'CUR1');
 
     expect(shipwayService.getShipmentDetails).toHaveBeenCalled();
     expect(result.shipwayStatus).toBe(true);
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsigned webhook updates when OMS verification fails (existing shipment)', async () => {
+    reconciliationService.verifyUnsignedWebhookAgainstOms.mockResolvedValue({
+      ok: false,
+      reason: 'oms_awb_mismatch',
+    });
+
+    const result = await service.handleShipwayWebhook(
+      {
+        order_id: '97102845',
+        status: 'OOD',
+        awb_number: 'AWB1',
+        status_date: '2026-08-11T12:00:00.000Z',
+      },
+      'unsigned',
+    );
+
+    expect(result.outcome).toBe('skipped');
+    expect(result.reason).toBe('oms_awb_mismatch');
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
   });
 });

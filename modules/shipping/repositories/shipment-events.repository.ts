@@ -24,6 +24,7 @@ export class ShipmentEventsRepository {
     status: string,
     happenedAt: Date | null,
     description: string | null,
+    source?: string,
   ): Promise<boolean> {
     return this.repo.exists({
       where: {
@@ -31,7 +32,7 @@ export class ShipmentEventsRepository {
         status,
         happenedAt: happenedAt === null ? IsNull() : happenedAt,
         description: description === null ? IsNull() : description,
-        source: 'webhook',
+        ...(source ? { source } : {}),
       },
     });
   }

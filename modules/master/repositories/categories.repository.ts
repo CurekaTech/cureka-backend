@@ -415,6 +415,44 @@ export class CategoriesRepository {
       .getMany();
   }
 
+  /**
+   * Active categories that appear in the header mega-menu tree only — header roots
+   * (`is_in_header` + root level) and all descendants. Avoids loading the full catalog.
+   */
+  async findActiveHeaderCategories(): Promise<CategoryEntity[]> {
+    const rows = await this.repo.manager.query<Array<{ id: string }>>(
+      `
+      WITH RECURSIVE header_tree AS (
+        SELECT c.id
+        FROM categories c
+        WHERE c.deleted_at IS NULL
+          AND c.status = 'active'
+          AND c.is_in_header = true
+          AND c.hierarchy_level = '0'
+        UNION ALL
+        SELECT child.id
+        FROM categories child
+        INNER JOIN header_tree parent ON child.parent_category_id = parent.id
+        WHERE child.deleted_at IS NULL
+          AND child.status = 'active'
+      )
+      SELECT id FROM header_tree
+      `,
+    );
+
+    const ids = rows.map((row) => row.id);
+    if (!ids.length) {
+      return [];
+    }
+
+    return this.repo
+      .createQueryBuilder('category')
+      .where('category.id IN (:...ids)', { ids })
+      .orderBy('category.position', 'ASC')
+      .addOrderBy('category.hierarchyId', 'ASC')
+      .getMany();
+  }
+
   async findWizardCursorPaginated(
     options: MasterCursorStatusOptions & {
       hierarchyLevel?: CategoryHierarchyLevel;

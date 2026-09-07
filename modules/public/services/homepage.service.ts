@@ -25,6 +25,8 @@ import { IPublicWatchAndShopItem, IPublicWatchAndShopSection } from '../interfac
 import { IPublicHealthReadsSection } from '../interfaces/public-health-reads.interface';
 import { IPublicCuratedWellnessEssentialsSection } from '../interfaces/public-expert-talk.interface';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
+import { CmsPagesService } from '@modules/master/services/cms-pages.service';
+import { IPublicCmsPagesByKey } from '@modules/master/interfaces/cms-page.interface';
 import {
   IPublicBrandBannersSection,
   IPublicHeroBannerSection,
@@ -75,11 +77,33 @@ export class HomepageService {
     private readonly expertTalkService: ExpertTalkService,
     private readonly testimonialService: TestimonialService,
     private readonly blogPostsService: BlogPostsService,
+    private readonly cmsPagesService: CmsPagesService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
   getHomepageBanners(): Promise<IHomepageBannersBundle> {
     return this.bannersService.getHomepageBanners();
+  }
+
+  /** Cached predefined CMS pages bundle for storefront footer / legal links. */
+  getPublicCmsPages(): Promise<IPublicCmsPagesByKey> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.cmsPages(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.cmsPagesService.findPublicPagesByKey(),
+    });
+  }
+
+  /** Used by cache invalidation after CMS page mutations. */
+  invalidatePublicCmsPagesCache(): Promise<void> {
+    return this.cacheStrategy.invalidateOnly({
+      patterns: [CacheKeys.homepage.cmsPagesPattern()],
+    });
+  }
+
+  /** Cached banner bundle (unsigned refs) — fetch once per `/sections` build. */
+  loadHomepageBannerReferences(): Promise<IHomepageBannersBundle> {
+    return this.bannersService.getHomepageBannerReferences();
   }
 
   /**
@@ -104,19 +128,17 @@ export class HomepageService {
   }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
-    const cached = await this.cacheStrategy.cacheAside({
+    // Nav tree has no storage refs — skip enrichDeep (was signing unused image/banner URLs).
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.categoryHeader(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHeaderCategoryTreeUncached(),
     });
-
-    // Sign storage references after cache read so signed URLs stay fresh.
-    return this.storageUrlEnricher.enrichDeep(cached);
   }
 
   /** Used by cache refresh after category mutations. */
   async loadHeaderCategoryTreeUncached(): Promise<IPublicHeaderCategory[]> {
-    const categories = await this.categoriesRepository.findActiveCategories();
+    const categories = await this.categoriesRepository.findActiveHeaderCategories();
     return this.buildHeaderCategoryTree(categories);
   }
 
@@ -135,14 +157,11 @@ export class HomepageService {
   }
 
   async getBestSellers(): Promise<IPublicBestSellersSection> {
-    const raw = await this.cacheStrategy.cacheAside({
-      // v2: load products via findPublishedPaginated (same path as list API).
-      key: `${CacheKeys.homepage.bestSellers()}:v2`,
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.bestSellers(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadBestSellersUncached(),
     });
-    // Sign storage references AFTER cache read so signed URLs are never persisted.
-    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after product/category mutations. */
@@ -152,13 +171,23 @@ export class HomepageService {
       { limit: BEST_SELLERS_MAX_CATEGORIES, publishedOnly: true },
     );
 
-    const tabs = await Promise.all(
-      categories.map(async (category, position) => {
-        const products = await this.productsRepository.findPublishedByCategoryAndTag(
-          category.id,
-          BEST_SELLERS_TAG_SLUG,
-          BEST_SELLERS_PRODUCTS_PER_CATEGORY,
-        );
+    if (!categories.length) {
+      return { categories: [] };
+    }
+
+    const productsByCategoryId =
+      await this.productsRepository.findPublishedByCategoryIdsAndTag(
+        categories.map((category) => category.id),
+        BEST_SELLERS_TAG_SLUG,
+        BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+      );
+
+    const tabs = categories
+      .map((category, position) => {
+        const products = productsByCategoryId.get(category.id) ?? [];
+        if (!products.length) {
+          return null;
+        }
 
         return {
           index: position + 1,
@@ -167,20 +196,18 @@ export class HomepageService {
           slug: category.slug,
           products: mapProductEntitiesToPublicCards(products),
         };
-      }),
-    );
+      })
+      .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
 
-    return { categories: tabs.filter((tab) => tab.products.length > 0) };
+    return { categories: tabs };
   }
 
   async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {
-    const raw = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.watchAndShop(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadWatchAndShopUncached(),
     });
-    // Sign storage references AFTER cache read so signed URLs are never persisted.
-    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after Watch & Shop item mutations. */
@@ -196,23 +223,21 @@ export class HomepageService {
     const products = await this.productsRepository.findPublishedByRefIds(productRefIds);
     const productByRefId = new Map(products.map((product) => [product.refId, product]));
 
-    const items = (
-      await Promise.all(
-        storefrontItems.map(async (item) => {
-          const product = productByRefId.get(item.productRefId);
-          if (!product) return null;
+    const items = storefrontItems
+      .map((item) => {
+        const product = productByRefId.get(item.productRefId);
+        if (!product) return null;
 
-          return {
-            refId: item.refId,
-            title: item.title,
-            videoUrl: item.videoUrl,
-            mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
-            sortOrder: item.sortOrder,
-            product: mapProductEntitiesToPublicCards([product])[0]!,
-          };
-        }),
-      )
-    ).filter((item): item is IPublicWatchAndShopItem => item !== null);
+        return {
+          refId: item.refId,
+          title: item.title,
+          videoUrl: item.videoUrl,
+          mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
+          sortOrder: item.sortOrder,
+          product: mapProductEntitiesToPublicCards([product])[0]!,
+        };
+      })
+      .filter((item): item is IPublicWatchAndShopItem => item !== null);
 
     return { items };
   }
@@ -263,12 +288,11 @@ export class HomepageService {
   }
 
   async getShopByWellnessGoals(): Promise<IPublicWellnessGoalCard[]> {
-    const raw = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.shopByWellnessGoals(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadShopByWellnessGoalsUncached(),
     });
-    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after wellness goal mutations. */
@@ -329,22 +353,17 @@ export class HomepageService {
       refId: concern.refId,
       name: concern.name,
       slug: concern.slug,
-      description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
-      banner: this.storageUrlEnricher.persist(concern.banner),
       sortIndex: concern.sortIndex,
-      metaTitle: concern.metaTitle,
-      metaDescription: concern.metaDescription,
     }));
   }
 
   async getBrandsWeTrust(): Promise<IPublicBrandCard[]> {
-    const raw = await this.cacheStrategy.cacheAside({
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.brandsWeTrust(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadBrandsWeTrustUncached(),
     });
-    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after brand mutations. */

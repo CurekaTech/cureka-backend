@@ -26,6 +26,15 @@ export type ShippingSlab = {
 
 export type ChargeSlab = ShippingSlab;
 
+export const COD_MINIMUM_ORDER_NOT_MET = 'COD_MINIMUM_ORDER_NOT_MET';
+export const COD_MAXIMUM_ORDER_EXCEEDED = 'COD_MAXIMUM_ORDER_EXCEEDED';
+
+export type CodEligibility = {
+  available: boolean;
+  minimumOrderAmount: number;
+  message: string;
+};
+
 const DEFAULT_GOKWIK_SHIPPING_SLABS: ShippingSlab[] = [
   { min: 0, max: 199.99, charge: 75 },
   { min: 200, max: 399.99, charge: 55 },
@@ -205,6 +214,28 @@ export class CartCheckoutAdminSettingsService {
     return amounts[CartCheckoutAdminSettingKey.SHIPPING_CHARGE] ?? 50;
   }
 
+  buildCodMinimumMessage(minimumOrderAmount: number): string {
+    return `Cash on Delivery is available for orders of ₹${minimumOrderAmount} or more.`;
+  }
+
+  /**
+   * COD eligibility is based on merchandise payable (subtotal − coupon discount).
+   */
+  resolveCodEligibility(
+    payableAmount: number,
+    amounts: ResolvedCartCheckoutAdminSettings,
+  ): CodEligibility {
+    const min = this.getCodMinOrderAmount(amounts);
+    const payable = roundMoney(payableAmount);
+    const message = this.buildCodMinimumMessage(min);
+
+    return {
+      available: payable >= min && payable <= this.getCodMaxOrderAmount(amounts),
+      minimumOrderAmount: min,
+      message,
+    };
+  }
+
   /**
    * COD eligibility is based on merchandise payable (subtotal − coupon discount).
    */
@@ -217,14 +248,18 @@ export class CartCheckoutAdminSettingsService {
     const payable = roundMoney(payableAmount);
 
     if (payable < min) {
-      throw new BadRequestException(
-        `Cash on Delivery is available for orders of at least Rs. ${min.toFixed(0)}`,
-      );
+      throw new BadRequestException({
+        code: COD_MINIMUM_ORDER_NOT_MET,
+        message: this.buildCodMinimumMessage(min),
+        minimumOrderAmount: min,
+      });
     }
     if (payable > max) {
-      throw new BadRequestException(
-        `Cash on Delivery is available for orders up to Rs. ${max.toFixed(0)}`,
-      );
+      throw new BadRequestException({
+        code: COD_MAXIMUM_ORDER_EXCEEDED,
+        message: `Cash on Delivery is available for orders up to ₹${max}.`,
+        maximumOrderAmount: max,
+      });
     }
   }
 

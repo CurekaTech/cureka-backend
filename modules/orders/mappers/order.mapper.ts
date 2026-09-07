@@ -14,6 +14,7 @@ import { OrderItemEntity } from '../entities/order-item.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
+import { parseMoney } from '../utils/money.util';
 import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { resolvePrimaryProductImageRef } from '../utils/resolve-primary-product-image.util';
 
@@ -52,6 +53,17 @@ export type OrderStatusTimestampsResponse = {
   rtoAt: Date | null;
 };
 
+export type OrderPaymentSummaryResponse = {
+  itemTotal: number;
+  discount: number;
+  shipping: number;
+  tax: number;
+  grandTotal: number;
+  paidAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+};
+
 export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
   OrderStatusTimestampsResponse & {
     /** Sum of line-item quantities — matches "N Item(s)" in UI. */
@@ -59,6 +71,8 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
     /** Number of distinct line items in the order. */
     lineItemCount: number;
     items: OrderItemResponse[];
+    /** Authoritative payment breakdown from stored order snapshots. */
+    paymentSummary: OrderPaymentSummaryResponse;
     /**
      * Tracking block for FE status UI.
      * Always present: Shipway-driven when available, otherwise default 4-step from order status.
@@ -138,6 +152,37 @@ function resolveShipmentResponse(order: OrderWithShipment): ShipmentResponse {
   return mapDefaultShipmentResponse(order);
 }
 
+function resolvePaidAmount(order: Pick<OrderEntity, 'paymentStatus' | 'grandTotal'>): number {
+  const grandTotal = parseMoney(order.grandTotal);
+  if (order.paymentStatus === OrderPaymentStatus.PAID) {
+    return grandTotal;
+  }
+  return 0;
+}
+
+export function mapOrderPaymentSummary(
+  order: Pick<
+    OrderEntity,
+    | 'subtotal'
+    | 'discountAmount'
+    | 'shippingAmount'
+    | 'grandTotal'
+    | 'paymentMethod'
+    | 'paymentStatus'
+  >,
+): OrderPaymentSummaryResponse {
+  return {
+    itemTotal: parseMoney(order.subtotal),
+    discount: parseMoney(order.discountAmount),
+    shipping: parseMoney(order.shippingAmount),
+    tax: 0,
+    grandTotal: parseMoney(order.grandTotal),
+    paidAmount: resolvePaidAmount(order),
+    paymentMethod: String(order.paymentMethod),
+    paymentStatus: String(order.paymentStatus),
+  };
+}
+
 function pickOrderStatusTimestamps(
   order: Pick<
     OrderEntity,
@@ -191,6 +236,7 @@ export async function mapOrderToResponse(
     itemCount,
     lineItemCount,
     items,
+    paymentSummary: mapOrderPaymentSummary(order),
     shipment: resolveShipmentResponse(order),
   };
 }

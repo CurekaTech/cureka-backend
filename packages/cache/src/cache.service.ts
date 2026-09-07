@@ -6,6 +6,7 @@ import { RedisConnectionService } from './redis-connection.service';
 @Injectable()
 export class CacheService {
   private readonly logger = new Logger(CacheService.name);
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
@@ -52,13 +53,28 @@ export class CacheService {
       return { value: cached.value, cacheHit: true };
     }
 
-    const value = await factory();
-
-    if (this.redisConnection.isReachable()) {
-      await this.set(key, value, ttlSeconds);
+    const pending = this.inFlight.get(key) as Promise<T> | undefined;
+    if (pending) {
+      return { value: await pending, cacheHit: false };
     }
 
-    return { value, cacheHit: false };
+    const loadPromise = (async () => {
+      const value = await factory();
+
+      if (this.redisConnection.isReachable()) {
+        await this.set(key, value, ttlSeconds);
+      }
+
+      return value;
+    })();
+
+    this.inFlight.set(key, loadPromise);
+
+    try {
+      return { value: await loadPromise, cacheHit: false };
+    } finally {
+      this.inFlight.delete(key);
+    }
   }
 
   private async safeOp<T>(

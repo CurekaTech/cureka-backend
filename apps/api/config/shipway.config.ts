@@ -20,6 +20,12 @@ export const shipwayConfig = registerAs('shipway', () => ({
     'https://shipway.in',
 
   /**
+   * When false, skip Classic shipway.in tracking (useful when Classic auth fails
+   * while OMS app.shipway.com credentials still work). Default true for backward compatibility.
+   */
+  classicTrackingEnabled: process.env['SHIPWAY_CLASSIC_TRACKING_ENABLED'] !== 'false',
+
+  /**
    * Warehouse ID registered in Shipway.
    * Required for label-generation mode (push order with AWB assignment).
    * Leave empty to use tracking-only mode.

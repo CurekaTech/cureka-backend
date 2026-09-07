@@ -104,7 +104,15 @@ export interface IShipwayTrackingResponse {
   /** Classic API uses status: "Success" | "Error" */
   status?: string;
   message?: string;
+  /** Merchant order id when known (ORD…). */
   order_id?: string;
+  /**
+   * Shipway / EzySlip internal OMS id (numeric panel id / ezyslip_order_id).
+   * Distinct from merchant order_id.
+   */
+  oms_order_id?: string;
+  /** Alias some OMS payloads use for oms_order_id. */
+  ezyslip_order_id?: string;
   awb_number?: string;
   courier_name?: string;
   courier_id?: string | number;
