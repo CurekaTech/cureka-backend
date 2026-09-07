@@ -210,8 +210,8 @@ export class PublicProductsService {
     }
 
     const brand = brandRefId
-      ? await this.brandsRepository.findByRefId(brandRefId)
-      : await this.brandsRepository.findBySlug(brandSlug!);
+      ? await this.brandsRepository.findActiveByRefId(brandRefId)
+      : await this.brandsRepository.findActiveBySlug(brandSlug!);
     if (!brand) {
       throw new NotFoundException(
         brandRefId
@@ -595,7 +595,7 @@ export class PublicProductsService {
     brand?: BrandEntity | null;
   }> {
     if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
+      const brand = await this.brandsRepository.findActiveByRefId(query.brandRefId);
       if (!brand) {
         throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
       }
@@ -620,14 +620,14 @@ export class PublicProductsService {
     }
 
     if (slugs.length === 1) {
-      const brand = await this.brandsRepository.findBySlug(slugs[0]);
+      const brand = await this.brandsRepository.findActiveBySlug(slugs[0]);
       if (!brand) {
         throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
       }
       return { brandId: brand.id, brand };
     }
 
-    const brands = await this.brandsRepository.findBySlugs(slugs);
+    const brands = await this.brandsRepository.findActiveBySlugs(slugs);
     const foundSlugs = new Set(brands.map((brand) => brand.slug));
     const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
     if (missingSlugs.length > 0) {
@@ -648,15 +648,15 @@ export class PublicProductsService {
             : Promise.resolve(null),
         this.resolveBrandFilters(query),
         query.productNatureRefId
-          ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
+          ? this.productNaturesRepository.findActiveByRefId(query.productNatureRefId)
           : Promise.resolve(null),
         query.healthConcernRefId
-          ? this.healthConcernsRepository.findByRefId(query.healthConcernRefId)
+          ? this.healthConcernsRepository.findActiveByRefId(query.healthConcernRefId)
           : query.healthConcernSlug
-            ? this.healthConcernsRepository.findBySlug(query.healthConcernSlug)
+            ? this.healthConcernsRepository.findActiveBySlug(query.healthConcernSlug)
             : Promise.resolve(null),
         query.wellnessGoalRefId
-          ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
+          ? this.wellnessGoalsRepository.findActiveByRefId(query.wellnessGoalRefId)
           : Promise.resolve(null),
         queryBindings
           ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
@@ -676,6 +676,18 @@ export class PublicProductsService {
         query.healthConcernRefId
           ? `Health concern with refId "${query.healthConcernRefId}" not found`
           : `Health concern with slug "${query.healthConcernSlug}" not found`,
+      );
+    }
+
+    if (query.productNatureRefId && !nature) {
+      throw new NotFoundException(
+        `Product nature with refId "${query.productNatureRefId}" not found`,
+      );
+    }
+
+    if (query.wellnessGoalRefId && !wellnessGoal) {
+      throw new NotFoundException(
+        `Wellness goal with refId "${query.wellnessGoalRefId}" not found`,
       );
     }
 

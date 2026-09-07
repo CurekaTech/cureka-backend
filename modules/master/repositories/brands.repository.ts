@@ -31,6 +31,10 @@ export class BrandsRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findActiveByRefId(refId: string): Promise<BrandEntity | null> {
+    return this.repo.findOne({ where: { refId, status: MasterStatus.ACTIVE } });
+  }
+
   async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
     if (!refIds.length) return [];
     return this.repo.find({ where: { refId: In(refIds) } });
@@ -44,12 +48,32 @@ export class BrandsRepository {
       .getOne();
   }
 
+  async findActiveBySlug(slug: string): Promise<BrandEntity | null> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .getOne();
+  }
+
   async findBySlugs(slugs: string[]): Promise<BrandEntity[]> {
     if (!slugs.length) return [];
 
     return this.repo
       .createQueryBuilder('brand')
       .where('brand.slug IN (:...slugs)', { slugs })
+      .andWhere('brand.deletedAt IS NULL')
+      .getMany();
+  }
+
+  async findActiveBySlugs(slugs: string[]): Promise<BrandEntity[]> {
+    if (!slugs.length) return [];
+
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug IN (:...slugs)', { slugs })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .getMany();
   }

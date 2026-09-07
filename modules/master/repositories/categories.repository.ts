@@ -222,6 +222,16 @@ export class CategoriesRepository {
     return this.repo.find({ where: { refId: In([...new Set(refIds)]) } });
   }
 
+  async findActiveByRefIds(refIds: string[]): Promise<CategoryEntity[]> {
+    if (!refIds.length) return [];
+    return this.repo.find({
+      where: {
+        refId: In([...new Set(refIds)]),
+        status: MasterStatus.ACTIVE,
+      },
+    });
+  }
+
   async existsByNameAmongSiblings(
     name: string,
     parentCategoryId: string | null,
