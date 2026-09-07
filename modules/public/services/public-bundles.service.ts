@@ -98,14 +98,14 @@ export class PublicBundlesService {
 
   private async resolveBrandId(query: PublicBundleQueryDto): Promise<string | undefined> {
     if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
+      const brand = await this.brandsRepository.findActiveByRefId(query.brandRefId);
       if (!brand) {
         throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
       }
       return brand.id;
     }
     if (query.brandSlug) {
-      const brand = await this.brandsRepository.findBySlug(query.brandSlug);
+      const brand = await this.brandsRepository.findActiveBySlug(query.brandSlug);
       if (!brand) {
         throw new NotFoundException(`Brand with slug "${query.brandSlug}" not found`);
       }

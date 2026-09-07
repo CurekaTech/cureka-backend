@@ -317,7 +317,7 @@ export class HomepageSectionsService implements OnModuleInit {
 
     if (section.type === HomeSectionType.CATEGORY_SLIDER) {
       const refIds = section.categoryRefIds ?? [];
-      const categories = await this.categoriesRepository.findByRefIds(refIds);
+      const categories = await this.categoriesRepository.findActiveByRefIds(refIds);
       const byRefId = new Map(categories.map((category) => [category.refId, category]));
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
