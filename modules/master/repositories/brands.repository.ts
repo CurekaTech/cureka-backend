@@ -27,19 +27,20 @@ export class BrandsRepository {
     return this.repo.findOne({ where: { id } });
   }
 
-  async findByRefId(refId: string): Promise<BrandEntity | null> {
-    return this.repo.findOne({ where: { refId } });
-  }
-
-  async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
-    if (!refIds.length) return [];
-    return this.repo.find({ where: { refId: In(refIds) } });
-  }
-
   async findBySlug(slug: string): Promise<BrandEntity | null> {
     return this.repo
       .createQueryBuilder('brand')
       .where('brand.slug = :slug', { slug })
+      .andWhere('brand.deletedAt IS NULL')
+      .getOne();
+  }
+
+  /** Storefront/public lookup — inactive brands must not resolve. */
+  async findActiveBySlug(slug: string): Promise<BrandEntity | null> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug = :slug', { slug })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .getOne();
   }
@@ -52,6 +53,37 @@ export class BrandsRepository {
       .where('brand.slug IN (:...slugs)', { slugs })
       .andWhere('brand.deletedAt IS NULL')
       .getMany();
+  }
+
+  /** Storefront/public multi-slug lookup — only ACTIVE brands. */
+  async findActiveBySlugs(slugs: string[]): Promise<BrandEntity[]> {
+    if (!slugs.length) return [];
+
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.slug IN (:...slugs)', { slugs })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .getMany();
+  }
+
+  async findByRefId(refId: string): Promise<BrandEntity | null> {
+    return this.repo.findOne({ where: { refId } });
+  }
+
+  async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
+    if (!refIds.length) return [];
+    return this.repo.find({ where: { refId: In(refIds) } });
+  }
+
+  /** Storefront/public lookup — inactive brands must not resolve. */
+  async findActiveByRefId(refId: string): Promise<BrandEntity | null> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.refId = :refId', { refId })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .getOne();
   }
 
   async existsByRefId(refId: string): Promise<boolean> {

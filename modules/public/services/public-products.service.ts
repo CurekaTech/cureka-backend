@@ -210,8 +210,8 @@ export class PublicProductsService {
     }
 
     const brand = brandRefId
-      ? await this.brandsRepository.findByRefId(brandRefId)
-      : await this.brandsRepository.findBySlug(brandSlug!);
+      ? await this.brandsRepository.findActiveByRefId(brandRefId)
+      : await this.brandsRepository.findActiveBySlug(brandSlug!);
     if (!brand) {
       throw new NotFoundException(
         brandRefId
@@ -595,7 +595,7 @@ export class PublicProductsService {
     brand?: BrandEntity | null;
   }> {
     if (query.brandRefId) {
-      const brand = await this.brandsRepository.findByRefId(query.brandRefId);
+      const brand = await this.brandsRepository.findActiveByRefId(query.brandRefId);
       if (!brand) {
         throw new NotFoundException(`Brand with refId "${query.brandRefId}" not found`);
       }
@@ -620,14 +620,14 @@ export class PublicProductsService {
     }
 
     if (slugs.length === 1) {
-      const brand = await this.brandsRepository.findBySlug(slugs[0]);
+      const brand = await this.brandsRepository.findActiveBySlug(slugs[0]);
       if (!brand) {
         throw new NotFoundException(`Brand with slug "${slugs[0]}" not found`);
       }
       return { brandId: brand.id, brand };
     }
 
-    const brands = await this.brandsRepository.findBySlugs(slugs);
+    const brands = await this.brandsRepository.findActiveBySlugs(slugs);
     const foundSlugs = new Set(brands.map((brand) => brand.slug));
     const missingSlugs = slugs.filter((slug) => !foundSlugs.has(slug));
     if (missingSlugs.length > 0) {
