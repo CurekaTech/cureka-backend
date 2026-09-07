@@ -15,6 +15,7 @@ import { HomepageSectionsService } from './services/homepage-sections.service';
 import { PublicCommonService } from './services/public-common.service';
 import { PublicWatchAndShopService } from './services/public-watch-and-shop.service';
 import { PublicProductsService } from './services/public-products.service';
+import { PublicProductFiltersService } from './services/public-product-filters.service';
 import { PublicBundlesService } from './services/public-bundles.service';
 import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.listener';
 
@@ -34,6 +35,7 @@ import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.l
     PublicCommonService,
     PublicWatchAndShopService,
     PublicProductsService,
+    PublicProductFiltersService,
     PublicBundlesService,
     PublicHomepageCacheListener,
   ],

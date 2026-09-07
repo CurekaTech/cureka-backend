@@ -35,6 +35,13 @@ export class BrandsRepository {
     return this.repo.findOne({ where: { refId, status: MasterStatus.ACTIVE } });
   }
 
+  async findActiveByIds(ids: string[]): Promise<BrandEntity[]> {
+    if (!ids.length) return [];
+    return this.repo.find({
+      where: { id: In(ids), status: MasterStatus.ACTIVE },
+    });
+  }
+
   async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
     if (!refIds.length) return [];
     return this.repo.find({ where: { refId: In(refIds) } });

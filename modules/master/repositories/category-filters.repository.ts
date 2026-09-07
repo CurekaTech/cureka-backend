@@ -27,6 +27,14 @@ export class CategoryFiltersRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findActiveByIds(ids: string[]): Promise<CategoryFilterEntity[]> {
+    if (!ids.length) return [];
+    return this.repo.find({
+      where: { id: In([...new Set(ids)]), status: MasterStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
+  }
+
   async findByRefIds(refIds: string[]): Promise<CategoryFilterEntity[]> {
     if (!refIds.length) return [];
     return this.repo.find({

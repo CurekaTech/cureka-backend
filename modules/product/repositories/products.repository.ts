@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { decodeCursor } from '@packages/common';
+import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
@@ -24,6 +26,27 @@ import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-h
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
   values: string[];
+}
+
+export type PublicFacetOmit = 'brand' | 'category' | 'price' | `categoryFilter:${string}`;
+
+export interface PublicFacetBrandRow {
+  id: string;
+  refId: string;
+  name: string;
+  slug: string;
+  productCount: number;
+}
+
+export interface PublicFacetCategoryCountRow {
+  categoryId: string;
+  productCount: number;
+}
+
+export interface PublicFacetFilterValueRow {
+  categoryFilterId: string;
+  value: string;
+  productCount: number;
 }
 
 export interface ProductListOptions {
@@ -696,21 +719,17 @@ export class ProductsRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const sortOrder = options.sortOrder ?? 'DESC';
 
-    const qb = this.repo
-      .createQueryBuilder('product')
+    const qb = this.createEligibleProductsQb(options)
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
       .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
       .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
-      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
       .skip(skip)
       .take(take);
 
-    this.applyPublicListFilters(qb, options);
     this.applyPublicListSort(qb, options.sortBy, sortOrder, options);
-    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
 
     const [data, total] = await qb.getManyAndCount();
 
@@ -1350,11 +1369,13 @@ export class ProductsRepository {
   private applyCategoryFilterCriteria(
     qb: SelectQueryBuilder<ObjectLiteral>,
     criteria: ProductCategoryFilterCriterion[] | undefined,
+    omit: PublicFacetOmit[] = [],
   ): void {
     if (!criteria?.length) return;
 
     criteria.forEach((criterion, index) => {
       if (!criterion.values.length) return;
+      if (omit.includes(`categoryFilter:${criterion.categoryFilterId}`)) return;
 
       qb.andWhere(
         `EXISTS (
@@ -1738,9 +1759,235 @@ export class ProductsRepository {
     }
   }
 
+  createEligibleProductsQb(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[] = [],
+  ): SelectQueryBuilder<ProductEntity> {
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED });
+    this.applyPublicListFilters(qb, options, omit);
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria, omit);
+    return qb;
+  }
+
+  async findPublicFacetBrands(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+    paging: { limit: number; cursor?: string; facetSearch?: string },
+  ): Promise<PublicFacetBrandRow[]> {
+    const qb = this.createEligibleProductsQb(options, omit);
+    qb.innerJoin(BrandEntity, 'facetBrand', 'facetBrand.id = product.brandId')
+      .andWhere('facetBrand.status = :facetBrandStatus', { facetBrandStatus: MasterStatus.ACTIVE })
+      .andWhere('facetBrand.deletedAt IS NULL');
+
+    if (paging.facetSearch?.trim()) {
+      qb.andWhere(
+        '(facetBrand.name ILIKE :facetBrandSearch OR facetBrand.slug ILIKE :facetBrandSearch)',
+        { facetBrandSearch: `%${paging.facetSearch.trim()}%` },
+      );
+    }
+
+    if (paging.cursor?.trim()) {
+      let decoded: { id: string; sortValue: string };
+      try {
+        decoded = decodeCursor(paging.cursor.trim());
+      } catch {
+        throw new BadRequestException('Invalid cursor');
+      }
+      qb.andWhere(
+        '(facetBrand.name > :facetBrandCursorSort OR (facetBrand.name = :facetBrandCursorSort AND facetBrand.id > :facetBrandCursorId))',
+        {
+          facetBrandCursorSort: decoded.sortValue,
+          facetBrandCursorId: decoded.id,
+        },
+      );
+    }
+
+    qb.select('facetBrand.id', 'id')
+      .addSelect('facetBrand.refId', 'refId')
+      .addSelect('facetBrand.name', 'name')
+      .addSelect('facetBrand.slug', 'slug')
+      .addSelect('COUNT(DISTINCT product.id)', 'productCount')
+      .groupBy('facetBrand.id')
+      .addGroupBy('facetBrand.refId')
+      .addGroupBy('facetBrand.name')
+      .addGroupBy('facetBrand.slug')
+      .orderBy('facetBrand.name', 'ASC')
+      .addOrderBy('facetBrand.id', 'ASC')
+      .limit(paging.limit + 1);
+
+    const rows = await qb.getRawMany<{
+      id: string;
+      refId: string;
+      name: string;
+      slug: string;
+      productCount: string | number;
+    }>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      refId: row.refId,
+      name: row.name,
+      slug: row.slug,
+      productCount: Number(row.productCount) || 0,
+    }));
+  }
+
+  async findPublicFacetBrandsByIds(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+    brandIds: string[],
+  ): Promise<PublicFacetBrandRow[]> {
+    if (!brandIds.length) return [];
+
+    const qb = this.createEligibleProductsQb(options, omit);
+    qb.innerJoin(BrandEntity, 'facetBrand', 'facetBrand.id = product.brandId')
+      .andWhere('facetBrand.id IN (:...facetSelectedBrandIds)', { facetSelectedBrandIds: brandIds })
+      .andWhere('facetBrand.deletedAt IS NULL')
+      .select('facetBrand.id', 'id')
+      .addSelect('facetBrand.refId', 'refId')
+      .addSelect('facetBrand.name', 'name')
+      .addSelect('facetBrand.slug', 'slug')
+      .addSelect('COUNT(DISTINCT product.id)', 'productCount')
+      .groupBy('facetBrand.id')
+      .addGroupBy('facetBrand.refId')
+      .addGroupBy('facetBrand.name')
+      .addGroupBy('facetBrand.slug');
+
+    const rows = await qb.getRawMany<{
+      id: string;
+      refId: string;
+      name: string;
+      slug: string;
+      productCount: string | number;
+    }>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      refId: row.refId,
+      name: row.name,
+      slug: row.slug,
+      productCount: Number(row.productCount) || 0,
+    }));
+  }
+
+  async findPublicFacetCategoryCounts(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+  ): Promise<PublicFacetCategoryCountRow[]> {
+    const eligibleQb = this.createEligibleProductsQb(options, omit).select('product.id', 'id');
+    const [sql, params] = eligibleQb.getQueryAndParameters();
+
+    return this.repo.manager.query<PublicFacetCategoryCountRow[]>(
+      `
+      WITH eligible AS (${sql})
+      SELECT cat_id AS "categoryId", COUNT(DISTINCT product_id)::int AS "productCount"
+      FROM (
+        SELECT p.id AS product_id,
+          UNNEST(ARRAY[
+            p.category_id,
+            p.sub_category_id,
+            p.sub_sub_category_id,
+            p.sub_sub_sub_category_id
+          ]) AS cat_id
+        FROM products p
+        INNER JOIN eligible e ON e.id = p.id
+        UNION ALL
+        SELECT p.id AS product_id,
+          UNNEST(ARRAY[
+            pch.category_id,
+            pch.sub_category_id,
+            pch.sub_sub_category_id,
+            pch.sub_sub_sub_category_id
+          ]) AS cat_id
+        FROM product_category_hierarchies pch
+        INNER JOIN products p ON p.id = pch.product_id
+        INNER JOIN eligible e ON e.id = p.id
+      ) expanded
+      WHERE cat_id IS NOT NULL
+      GROUP BY cat_id
+      `,
+      params,
+    );
+  }
+
+  async findPublicFacetFilterIds(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+  ): Promise<string[]> {
+    const qb = this.createEligibleProductsQb(options, omit);
+    qb.innerJoin(
+      ProductCategoryFilterMappingEntity,
+      'facetPcfm',
+      'facetPcfm.productId = product.id',
+    )
+      .select('facetPcfm.categoryFilterId', 'categoryFilterId')
+      .distinct(true);
+
+    const rows = await qb.getRawMany<{ categoryFilterId: string }>();
+    return rows.map((row) => row.categoryFilterId).filter(Boolean);
+  }
+
+  async findPublicFacetFilterValues(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+    categoryFilterId: string,
+  ): Promise<PublicFacetFilterValueRow[]> {
+    const qb = this.createEligibleProductsQb(options, omit);
+    qb.innerJoin(
+      ProductCategoryFilterMappingEntity,
+      'facetPcfm',
+      'facetPcfm.productId = product.id AND facetPcfm.categoryFilterId = :facetCategoryFilterId',
+      { facetCategoryFilterId: categoryFilterId },
+    )
+      .select('facetPcfm.categoryFilterId', 'categoryFilterId')
+      .addSelect('facetPcfm.value', 'value')
+      .addSelect('COUNT(DISTINCT product.id)', 'productCount')
+      .groupBy('facetPcfm.categoryFilterId')
+      .addGroupBy('facetPcfm.value')
+      .orderBy('facetPcfm.value', 'ASC');
+
+    const rows = await qb.getRawMany<{
+      categoryFilterId: string;
+      value: string;
+      productCount: string | number;
+    }>();
+
+    return rows.map((row) => ({
+      categoryFilterId: row.categoryFilterId,
+      value: row.value,
+      productCount: Number(row.productCount) || 0,
+    }));
+  }
+
+  async findPublicFacetPriceRange(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+  ): Promise<{ min: number | null; max: number | null }> {
+    const qb = this.createEligibleProductsQb(options, omit);
+    qb.innerJoin(
+      ProductVariantEntity,
+      'facetPv',
+      'facetPv.productId = product.id AND facetPv.deletedAt IS NULL AND facetPv.status = :facetPriceVariantStatus',
+      { facetPriceVariantStatus: VariantStatus.ACTIVE },
+    )
+      .select('MIN(facetPv.selling_price::numeric)', 'min')
+      .addSelect('MAX(facetPv.selling_price::numeric)', 'max');
+
+    const row = await qb.getRawOne<{ min: string | number | null; max: string | number | null }>();
+    const min = row?.min == null ? null : Number(row.min);
+    const max = row?.max == null ? null : Number(row.max);
+    return {
+      min: min != null && Number.isFinite(min) ? min : null,
+      max: max != null && Number.isFinite(max) ? max : null,
+    };
+  }
+
   private applyPublicListFilters(
     qb: ReturnType<Repository<ProductEntity>['createQueryBuilder']>,
     options: PublicProductListOptions,
+    omit: PublicFacetOmit[] = [],
   ): void {
     if (options.search) {
       qb.andWhere(
@@ -1760,9 +2007,9 @@ export class ProductsRepository {
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
     }
-    if (options.categoryId) {
+    if (!omit.includes('category') && options.categoryId) {
       qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryId });
-    } else if (options.categoryIds?.length) {
+    } else if (!omit.includes('category') && options.categoryIds?.length) {
       if (options.categoryIds.length === 1) {
         qb.andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId: options.categoryIds[0] });
       } else {
@@ -1794,9 +2041,9 @@ export class ProductsRepository {
         excludeProductIds: options.excludeProductIds,
       });
     }
-    if (options.brandIds?.length) {
+    if (!omit.includes('brand') && options.brandIds?.length) {
       qb.andWhere('product.brandId IN (:...brandIds)', { brandIds: options.brandIds });
-    } else if (options.brandId) {
+    } else if (!omit.includes('brand') && options.brandId) {
       qb.andWhere('product.brandId = :brandId', { brandId: options.brandId });
     }
     if (options.productNatureId) {
@@ -1843,15 +2090,16 @@ export class ProductsRepository {
         { tagSlug: options.tagSlug },
       );
     }
-    this.applyPublicPriceRangeFilter(qb, options, 'product');
+    this.applyPublicPriceRangeFilter(qb, options, 'product', omit);
   }
 
   private applyPublicPriceRangeFilter(
     qb: SelectQueryBuilder<ObjectLiteral>,
     options: PublicProductListOptions,
     productAlias: string,
+    omit: PublicFacetOmit[] = [],
   ): void {
-    if (options.minPrice === undefined && options.maxPrice === undefined) {
+    if (omit.includes('price') || (options.minPrice === undefined && options.maxPrice === undefined)) {
       return;
     }
 
