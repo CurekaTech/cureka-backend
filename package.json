@@ -28,6 +28,7 @@
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
     "product:oos-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-oos-update.runner.ts",
     "shipway:reconcile-order": "ts-node -r tsconfig-paths/register apps/api/database/scripts/shipway-reconcile-order.runner.ts",
+    "bob:test-fulfillment": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bob-test-fulfillment.runner.ts",
     "product:mark-top": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-mark-top.runner.ts",
     "product:price-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-price-update.runner.ts",
     "product:update-dyna-prices": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-dyna-price-update.runner.ts",
