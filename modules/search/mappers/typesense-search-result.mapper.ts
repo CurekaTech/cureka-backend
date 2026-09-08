@@ -26,6 +26,8 @@ export function mapTypesenseDocumentToSearchResult(
   const variantId = String(document.variantId ?? '').trim() || undefined;
   const productPageUrlRaw = String(document.productPageUrl ?? '').trim();
   const productPageUrl = productPageUrlRaw || null;
+  const permalinkRaw = String(document.permalink ?? '').trim();
+  const permalink = permalinkRaw || null;
 
   if (!refId || !name || !slug) {
     return null;
@@ -38,6 +40,7 @@ export function mapTypesenseDocumentToSearchResult(
     refId,
     variantId,
     productPageUrl,
+    ...(permalink ? { permalink } : {}),
   };
 }
 

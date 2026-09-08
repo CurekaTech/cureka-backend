@@ -2,6 +2,7 @@ import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { HealthConcernEntity } from '@modules/master/entities/health-concern.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { buildCategoryPermalink } from '@modules/public/utils/category-permalink.util';
 import {
   buildBrandDocumentId,
   buildCategoryDocumentId,
@@ -12,10 +13,13 @@ import { ITypesenseSearchDocument } from '../interfaces/typesense-search-documen
 
 export function mapCategoryToTypesenseDocument(
   category: CategoryEntity,
+  slugPath?: string[],
 ): ITypesenseSearchDocument | null {
   if (category.status !== MasterStatus.ACTIVE) {
     return null;
   }
+
+  const path = slugPath?.length ? slugPath : [category.slug];
 
   return {
     id: buildCategoryDocumentId(category.refId),
@@ -23,6 +27,7 @@ export function mapCategoryToTypesenseDocument(
     entityType: SEARCH_ENTITY_TYPES.CATEGORY,
     name: category.name,
     slug: category.slug,
+    permalink: buildCategoryPermalink(path),
   };
 }
 
