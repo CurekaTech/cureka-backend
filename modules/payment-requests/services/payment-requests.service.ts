@@ -193,11 +193,11 @@ export class PaymentRequestsService {
       });
 
       const withLink = await this.generateLink(paymentRequest.id, userId, undefined, {
-        callbackUrl: this.getStorefrontPaymentCallbackUrl(),
-      });
-      if (!withLink.paymentLink) {
-        throw new BadRequestException('Failed to generate payment link');
-      }
+      callbackUrl: this.getStorefrontPaymentCallbackUrl(),
+    });
+    if (!withLink.paymentLink) {
+      throw new BadRequestException('Failed to generate payment link');
+    }
 
       this.logger.log(
         {
@@ -209,13 +209,13 @@ export class PaymentRequestsService {
         '[CHECKOUT] Razorpay payment-link/QR created with prepaid-discounted amount',
       );
 
-      return {
+    return {
         gateway: 'razorpay',
         paymentData: {
-          paymentRequestId: withLink.id,
-          refId: withLink.refId,
-          paymentLink: withLink.paymentLink,
-          expiresAt: withLink.expiresAt,
+      paymentRequestId: withLink.id,
+      refId: withLink.refId,
+      paymentLink: withLink.paymentLink,
+      expiresAt: withLink.expiresAt,
           amount: Number(totals.totalAmount),
           totalAmount: totals.totalAmount,
           prepaidDiscount: totals.prepaidDiscount,
@@ -309,9 +309,9 @@ export class PaymentRequestsService {
         '[CHECKOUT-MODAL] legacy: creating Cashfree session',
       );
 
-      const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
-        userId,
-        addressId,
+    const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
+      userId,
+      addressId,
         orderSource,
         prepaidMethod,
       );
@@ -466,18 +466,18 @@ export class PaymentRequestsService {
     return {
       gateway: 'razorpay',
       paymentData: {
-        paymentRequestId: paymentRequest.id,
-        refId: paymentRequest.refId,
-        razorpayOrderId,
-        amount: Number(razorpayOrder['amount'] ?? amountPaise),
-        currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
-        keyId: this.razorpayService.getKeyId(),
+      paymentRequestId: paymentRequest.id,
+      refId: paymentRequest.refId,
+      razorpayOrderId,
+      amount: Number(razorpayOrder['amount'] ?? amountPaise),
+      currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
+      keyId: this.razorpayService.getKeyId(),
         totalAmount: totals.totalAmount,
         prepaidDiscount: totals.prepaidDiscount,
-        customer: {
-          name: customerName,
-          email: customer.email ?? '',
-          contact: parseIndianMobileNumber(customer.mobileNumber!),
+      customer: {
+        name: customerName,
+        email: customer.email ?? '',
+        contact: parseIndianMobileNumber(customer.mobileNumber!),
         },
       },
     };
@@ -539,27 +539,27 @@ export class PaymentRequestsService {
         totalAmount: paymentRequest.totalAmount,
       };
     } else {
-      this.razorpayService.verifyPaymentSignature(
+    this.razorpayService.verifyPaymentSignature(
         dto.razorpay_order_id!,
         dto.razorpay_payment_id!,
         dto.razorpay_signature!,
-      );
+    );
 
-      const paymentRequest = await this.paymentRequestsRepository.findByProviderReferenceId(
+    const paymentRequest = await this.paymentRequestsRepository.findByProviderReferenceId(
         dto.razorpay_order_id!,
-      );
-      if (!paymentRequest || paymentRequest.customerId !== userId) {
-        throw new NotFoundException('Checkout payment request not found');
-      }
+    );
+    if (!paymentRequest || paymentRequest.customerId !== userId) {
+      throw new NotFoundException('Checkout payment request not found');
+    }
 
       await this.handlePaymentLinkPaid(dto.razorpay_order_id!, dto.razorpay_payment_id!, userId);
-      await this.cartService.clear(userId);
+    await this.cartService.clear(userId);
 
-      return {
-        paymentRequestId: paymentRequest.id,
-        refId: paymentRequest.refId,
-        totalAmount: paymentRequest.totalAmount,
-      };
+    return {
+      paymentRequestId: paymentRequest.id,
+      refId: paymentRequest.refId,
+      totalAmount: paymentRequest.totalAmount,
+    };
     }
   }
 
@@ -681,10 +681,10 @@ export class PaymentRequestsService {
 
     const totals = {
       ...this.computeTotals(
-        pricedItems,
-        summary.discountAmount > 0 ? summary.discountAmount.toFixed(2) : undefined,
-        undefined,
-        summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
+      pricedItems,
+      summary.discountAmount > 0 ? summary.discountAmount.toFixed(2) : undefined,
+      undefined,
+      summary.shippingAmount > 0 ? summary.shippingAmount.toFixed(2) : undefined,
         summary.handlingAmount > 0 ? summary.handlingAmount.toFixed(2) : undefined,
         summary.platformFee > 0 ? summary.platformFee.toFixed(2) : undefined,
         summary.codCharge > 0 ? summary.codCharge.toFixed(2) : undefined,
@@ -1475,8 +1475,8 @@ export class PaymentRequestsService {
         },
         'Payment request was already marked as paid by another notification',
       );
-      return;
-    }
+        return;
+      }
 
     this.logger.log(
       {
@@ -1690,7 +1690,7 @@ export class PaymentRequestsService {
     await this.paymentRequestsRepository.updateById(existing.id, {
       status: PaymentRequestStatus.FAILED,
       notes,
-      updatedBy,
+          updatedBy,
     });
 
     this.logger.warn(
@@ -1817,7 +1817,7 @@ export class PaymentRequestsService {
         .map((item, idx) => `${idx + 1}. ${item.product?.name || 'Product'} (Qty: ${item.quantity})`)
         .join(', ');
       baseDesc = `Items: ${itemsList}`;
-    }
+      }
 
     const fullDesc = `${baseDesc}${suffix}`;
     if (fullDesc.length > 1000) {

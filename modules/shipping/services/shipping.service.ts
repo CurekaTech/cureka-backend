@@ -29,14 +29,18 @@ import { ShipmentEventEntity } from '../entities/shipment-event.entity';
 import { ShipmentsRepository } from '../repositories/shipments.repository';
 import { ShipmentEventsRepository } from '../repositories/shipment-events.repository';
 import { ShipwayService } from './shipway.service';
+import { ShipwayShipmentReconciliationService } from './shipway-shipment-reconciliation.service';
 
 export type ShipwayWebhookBatchResult = {
   processed: number;
   skipped: number;
   notFound: number;
+  unresolved: number;
+  reconciled: number;
+  failed: number;
   results: Array<{
     orderId: string;
-    outcome: 'processed' | 'skipped' | 'not_found';
+    outcome: 'processed' | 'skipped' | 'not_found' | 'unresolved' | 'reconciled' | 'failed' | 'duplicate';
     reason?: string;
   }>;
 };
@@ -52,6 +56,7 @@ export class ShippingService {
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly shipmentEventsRepository: ShipmentEventsRepository,
     private readonly shipwayService: ShipwayService,
+    private readonly reconciliationService: ShipwayShipmentReconciliationService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -328,17 +333,29 @@ export class ShippingService {
     });
   }
 
-  async handleShipwayWebhookBatch(events: IShipwayWebhookEvent[]): Promise<ShipwayWebhookBatchResult> {
+  async handleShipwayWebhookBatch(
+    events: IShipwayWebhookEvent[],
+    authMode = 'unknown',
+  ): Promise<ShipwayWebhookBatchResult> {
     const results: ShipwayWebhookBatchResult['results'] = [];
     let processed = 0;
     let skipped = 0;
     let notFound = 0;
+    let unresolved = 0;
+    let reconciled = 0;
+    let failed = 0;
 
     for (const event of events) {
       try {
-        const outcome = await this.handleShipwayWebhook(event);
+        const outcome = await this.handleShipwayWebhook(event, authMode);
         results.push({ orderId: event.order_id, outcome: outcome.outcome, reason: outcome.reason });
         if (outcome.outcome === 'processed') processed += 1;
+        else if (outcome.outcome === 'reconciled') {
+          reconciled += 1;
+          processed += 1;
+        } else if (outcome.outcome === 'unresolved') unresolved += 1;
+        else if (outcome.outcome === 'not_found') notFound += 1;
+        else if (outcome.outcome === 'failed') failed += 1;
         else skipped += 1;
       } catch (error) {
         if (error instanceof NotFoundException) {
@@ -350,19 +367,38 @@ export class ShippingService {
           );
           continue;
         }
-        throw error;
+        failed += 1;
+        results.push({
+          orderId: event.order_id,
+          outcome: 'failed',
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        this.logger.warn(
+          {
+            shipwayOrderId: event.order_id,
+            status: event.status,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          '[Shipway] Webhook event failed — continuing batch',
+        );
       }
     }
 
-    return { processed, skipped, notFound, results };
+    return { processed, skipped, notFound, unresolved, reconciled, failed, results };
   }
 
   /**
    * Apply one Shipway status update. Returns skipped for duplicates / out-of-order / unknown-only.
+   * Missing local rows are reconciled via trusted OMS lookup (not by trusting unsigned payload alone).
    */
   async handleShipwayWebhook(
     payload: IShipwayWebhookEvent,
-  ): Promise<{ shipment: ShipmentEntity; outcome: 'processed' | 'skipped'; reason?: string }> {
+    authMode = 'unknown',
+  ): Promise<{
+    shipment: ShipmentEntity | null;
+    outcome: 'processed' | 'skipped' | 'unresolved' | 'reconciled' | 'not_found' | 'failed' | 'duplicate';
+    reason?: string;
+  }> {
     this.logger.log(
       {
         endpoint: 'POST /api/v1/shipments/webhook',
@@ -372,26 +408,61 @@ export class ShippingService {
         awbNumber: payload.awb_number ?? null,
         courierName: payload.courier_name ?? null,
         statusDate: payload.status_date ?? null,
+        authMode,
         hasMessage: Boolean(payload.message?.trim()),
       },
       '[Shipway] Webhook event received — applying status update',
     );
 
-    const shipment = await this.shipmentsRepository.findByShipwayOrderId(payload.order_id);
-    if (!shipment) {
-      throw new NotFoundException(`Shipment for Shipway order ${payload.order_id} not found`);
+    const lookup = await this.reconciliationService.resolveWebhookShipment(payload, authMode);
+    if (!lookup.shipment) {
+      return {
+        shipment: null,
+        outcome: lookup.outcome === 'unresolved' ? 'unresolved' : 'not_found',
+        reason: lookup.reason,
+      };
     }
 
-    const idempotencyKey = this.buildWebhookIdempotencyKey(payload);
+    const shipment = lookup.shipment;
+    const reconciledNow = lookup.outcome === 'reconciled';
+
+    // Unsigned payloads must not invent status/AWB/order associations — verify via OMS
+    // even when a local shipment row already exists.
+    let trustedPayload = payload;
+    if (authMode === 'unsigned') {
+      const verified = await this.reconciliationService.verifyUnsignedWebhookAgainstOms(
+        payload,
+        shipment,
+      );
+      if (!verified.ok) {
+        this.logger.warn(
+          {
+            orderId: shipment.orderId,
+            shipwayOrderId: payload.order_id,
+            reason: verified.reason,
+            authMode,
+          },
+          '[Shipway] Unsigned webhook rejected — OMS verification failed',
+        );
+        return {
+          shipment,
+          outcome: 'skipped',
+          reason: verified.reason ?? 'oms_verification_failed',
+        };
+      }
+      trustedPayload = verified.payload ?? payload;
+    }
+
+    const idempotencyKey = this.buildWebhookIdempotencyKey(trustedPayload);
     if (shipment.lastWebhookEventId === idempotencyKey) {
       this.logger.log(
-        { orderId: shipment.orderId, eventKey: idempotencyKey, shipwayOrderId: payload.order_id },
+        { orderId: shipment.orderId, eventKey: idempotencyKey, shipwayOrderId: trustedPayload.order_id },
         '[Shipway] Webhook duplicate idempotency key — skipped',
       );
       return { shipment, outcome: 'skipped', reason: 'duplicate_event' };
     }
 
-    const happenedAt = payload.status_date ? new Date(payload.status_date) : null;
+    const happenedAt = trustedPayload.status_date ? new Date(trustedPayload.status_date) : null;
     const validHappenedAt =
       happenedAt && !Number.isNaN(happenedAt.getTime()) ? happenedAt : null;
 
@@ -403,8 +474,8 @@ export class ShippingService {
         this.logger.log(
           {
             orderId: shipment.orderId,
-            shipwayOrderId: payload.order_id,
-            statusDate: payload.status_date,
+            shipwayOrderId: trustedPayload.order_id,
+            statusDate: trustedPayload.status_date,
             latestEventAt: latestEventAt.toISOString(),
           },
           '[Shipway] Webhook out-of-order status_date — skipped',
@@ -413,17 +484,17 @@ export class ShippingService {
       }
     }
 
-    const description = payload.message ?? null;
+    const description = trustedPayload.message ?? null;
     if (
       await this.shipmentEventsRepository.existsDuplicateEvent(
         shipment.id,
-        payload.status,
+        trustedPayload.status,
         validHappenedAt,
         description,
       )
     ) {
       this.logger.log(
-        { orderId: shipment.orderId, status: payload.status, statusDate: payload.status_date },
+        { orderId: shipment.orderId, status: trustedPayload.status, statusDate: trustedPayload.status_date },
         '[Shipway] Webhook duplicate event fingerprint — skipped',
       );
       shipment.lastWebhookEventId = idempotencyKey;
@@ -432,24 +503,24 @@ export class ShippingService {
     }
 
     const resolved = ShipwayStatusMapper.resolveFromTracking({
-      current_status: payload.status,
-      status: payload.status,
+      current_status: trustedPayload.status,
+      status: trustedPayload.status,
       current_status_code:
-        payload.status_code ??
-        payload.current_status_code ??
+        trustedPayload.status_code ??
+        trustedPayload.current_status_code ??
         (typeof payload['status_code'] === 'string' ? payload['status_code'] : null),
     });
     const mappedStatus =
       resolved.shipmentStatus !== ShipmentStatus.UNKNOWN
         ? resolved.shipmentStatus
-        : ShipwayStatusMapper.toShipmentStatus(payload.status);
-    const rawStatus = resolved.rawStatus || payload.status;
+        : ShipwayStatusMapper.toShipmentStatus(trustedPayload.status);
+    const rawStatus = resolved.rawStatus || trustedPayload.status;
 
     if (mappedStatus === ShipmentStatus.UNKNOWN) {
       this.logger.warn(
         {
           orderId: shipment.orderId,
-          shipwayOrderId: payload.order_id,
+          shipwayOrderId: trustedPayload.order_id,
           rawStatus,
           previousStatus: shipment.shipmentStatus,
         },
@@ -462,10 +533,10 @@ export class ShippingService {
         await this.recordShipmentEvent(
           saved.id,
           {
-            status: payload.status,
-            status_date: payload.status_date ?? new Date().toISOString(),
-            location: payload.location,
-            message: payload.message,
+            status: trustedPayload.status,
+            status_date: trustedPayload.status_date ?? new Date().toISOString(),
+            location: trustedPayload.location,
+            message: trustedPayload.message,
           },
           'webhook',
           manager,
@@ -478,13 +549,13 @@ export class ShippingService {
       {
         orderId: shipment.orderId,
         orderNumber: shipment.orderNumber,
-        shipwayOrderId: payload.order_id,
+        shipwayOrderId: trustedPayload.order_id,
         eventKey: idempotencyKey,
         rawStatus,
         shipmentStatus: mappedStatus,
         matchedFrom: resolved.matchedFrom,
         previousStatus: shipment.shipmentStatus,
-        awbNumber: payload.awb_number ?? shipment.awbNumber,
+        awbNumber: trustedPayload.awb_number ?? shipment.awbNumber,
       },
       '[Shipway] Webhook status mapped raw → shipmentStatus',
     );
@@ -492,14 +563,20 @@ export class ShippingService {
     const previousStatus = shipment.shipmentStatus;
 
     return this.dataSource.transaction(async (manager) => {
-      shipment.awbNumber = payload.awb_number ?? shipment.awbNumber;
-      shipment.courierName = payload.courier_name ?? shipment.courierName;
-      shipment.courierId = this.toNullableString(payload.courier_id) ?? shipment.courierId;
-      shipment.trackingUrl = payload.tracking_url ?? shipment.trackingUrl;
-      shipment.labelUrl = payload.label_url ?? shipment.labelUrl;
-      shipment.invoiceUrl = payload.invoice_url ?? shipment.invoiceUrl;
-      shipment.pickupId = this.toNullableString(payload.pickup_id) ?? shipment.pickupId;
-      shipment.shipmentId = this.toNullableString(payload.shipment_id) ?? shipment.shipmentId;
+      shipment.awbNumber = trustedPayload.awb_number ?? shipment.awbNumber;
+      shipment.courierName = trustedPayload.courier_name ?? shipment.courierName;
+      shipment.courierId = this.toNullableString(trustedPayload.courier_id) ?? shipment.courierId;
+      shipment.trackingUrl = trustedPayload.tracking_url ?? shipment.trackingUrl;
+      shipment.labelUrl = trustedPayload.label_url ?? shipment.labelUrl;
+      shipment.invoiceUrl = trustedPayload.invoice_url ?? shipment.invoiceUrl;
+      shipment.pickupId = this.toNullableString(trustedPayload.pickup_id) ?? shipment.pickupId;
+      shipment.shipmentId = this.toNullableString(trustedPayload.shipment_id) ?? shipment.shipmentId;
+      if (
+        !shipment.omsOrderId &&
+        this.reconciliationService.looksNumericId(trustedPayload.order_id)
+      ) {
+        shipment.omsOrderId = trustedPayload.order_id;
+      }
       shipment.shipmentStatus = mappedStatus;
       shipment.shipwayRawStatus = rawStatus;
       shipment.lastSyncedAt = new Date();
@@ -514,34 +591,35 @@ export class ShippingService {
       await this.recordShipmentEvent(
         saved.id,
         {
-          status: payload.status,
-          status_date: payload.status_date ?? new Date().toISOString(),
-          location: payload.location,
-          message: payload.message,
+          status: trustedPayload.status,
+          status_date: trustedPayload.status_date ?? new Date().toISOString(),
+          location: trustedPayload.location,
+          message: trustedPayload.message,
         },
         'webhook',
         manager,
       );
-      if (Array.isArray(payload.scans) && payload.scans.length > 0) {
-        await this.recordTrackingEvents(saved.id, payload.scans, 'webhook', manager);
+      if (Array.isArray(trustedPayload.scans) && trustedPayload.scans.length > 0) {
+        await this.recordTrackingEvents(saved.id, trustedPayload.scans, 'webhook', manager);
       }
       await this.syncOrderStatus(
         saved.orderId,
         mappedStatus,
         manager,
-        resolveOccurredAt(payload.status_date),
+        resolveOccurredAt(trustedPayload.status_date),
       );
       this.logger.log(
         {
           endpoint: 'POST /api/v1/shipments/webhook',
           orderId: saved.orderId,
           orderNumber: saved.orderNumber,
-          shipwayOrderId: payload.order_id,
+          shipwayOrderId: trustedPayload.order_id,
           previousStatus,
           shipmentStatus: saved.shipmentStatus,
           shipwayRawStatus: saved.shipwayRawStatus,
           awbNumber: saved.awbNumber,
           orderStatusSynced: true,
+          reconciledNow,
           bobWhatsApp2Eligible: this.isBobDispatchedWhatsAppEligible(
             previousStatus,
             saved.shipmentStatus,
@@ -551,7 +629,10 @@ export class ShippingService {
         },
         '[Shipway] Webhook applied — DB updated and SHIPMENT_UPDATED emitted',
       );
-      return { shipment: saved, outcome: 'processed' as const };
+      return {
+        shipment: saved,
+        outcome: (reconciledNow ? 'reconciled' : 'processed') as 'processed' | 'reconciled',
+      };
     });
   }
 
@@ -721,7 +802,10 @@ export class ShippingService {
           '[Shipway] Status found — persisting sync onto local shipment',
         );
         const synced = this.overlayLiveTrackingEvents(
-          await this.persistTrackingUpdate(local, tracking, rawStatus),
+          await this.persistTrackingUpdate(local, tracking, rawStatus, {
+            // Order-details / shipment GET must not enqueue customer WhatsApp.
+            emitEvents: false,
+          }),
           tracking,
         );
         this.logger.log(
@@ -781,6 +865,7 @@ export class ShippingService {
     shipment: ShipmentEntity,
     tracking: IShipwayTrackingResponse,
     rawStatus: string,
+    options?: { emitEvents?: boolean; suppressCustomerNotify?: boolean },
   ): Promise<ShipmentEntity> {
     const resolved = this.resolveLiveTracking(tracking);
     const shipmentStatus =
@@ -797,6 +882,8 @@ export class ShippingService {
         matchedFrom: resolved.matchedFrom,
         previousStatus: shipment.shipmentStatus,
         awbNumber: tracking.awb_number ?? shipment.awbNumber,
+        emitEvents: options?.emitEvents !== false,
+        suppressCustomerNotify: Boolean(options?.suppressCustomerNotify),
       },
       '[Shipway] persistTrackingUpdate mapped raw → shipmentStatus',
     );
@@ -812,32 +899,60 @@ export class ShippingService {
       shipment.invoiceUrl = tracking.invoice_url ?? shipment.invoiceUrl;
       shipment.pickupId = this.toNullableString(tracking.pickup_id) ?? shipment.pickupId;
       shipment.shipmentId = this.toNullableString(tracking.shipment_id) ?? shipment.shipmentId;
+      if (!shipment.omsOrderId) {
+        shipment.omsOrderId = this.toNullableString(
+          tracking.oms_order_id ?? tracking.ezyslip_order_id,
+        );
+      }
       shipment.shipmentStatus = shipmentStatus;
       shipment.shipwayRawStatus = persistedRaw;
       shipment.lastSyncedAt = new Date();
       shipment.updatedBy = 'shipway-sync';
 
       const saved = await this.shipmentsRepository.save(shipment, manager);
-      await this.eventEmitter.emitAsync(
-        EVENTS.SHIPMENT_UPDATED,
-        new ShipmentUpdatedEvent(saved.orderId, saved.id, previousStatus),
-      );
-      this.logger.log(
-        {
-          orderId: saved.orderId,
-          orderNumber: saved.orderNumber,
-          previousStatus,
-          shipmentStatus: saved.shipmentStatus,
-          awbNumber: saved.awbNumber,
-          bobWhatsApp2Eligible: this.isBobDispatchedWhatsAppEligible(
+      if (options?.emitEvents !== false) {
+        await this.eventEmitter.emitAsync(
+          EVENTS.SHIPMENT_UPDATED,
+          new ShipmentUpdatedEvent(
+            saved.orderId,
+            saved.id,
             previousStatus,
-            saved.shipmentStatus,
-            saved.awbNumber,
+            options?.suppressCustomerNotify === true,
           ),
-          next: 'EVENTS.SHIPMENT_UPDATED → BOB evaluates WhatsApp #2 /fulfillments-create',
-        },
-        '[Shipway] persistTrackingUpdate persisted — SHIPMENT_UPDATED emitted',
-      );
+        );
+        this.logger.log(
+          {
+            orderId: saved.orderId,
+            orderNumber: saved.orderNumber,
+            previousStatus,
+            shipmentStatus: saved.shipmentStatus,
+            awbNumber: saved.awbNumber,
+            suppressCustomerNotify: Boolean(options?.suppressCustomerNotify),
+            bobWhatsApp2Eligible:
+              !options?.suppressCustomerNotify &&
+              this.isBobDispatchedWhatsAppEligible(
+                previousStatus,
+                saved.shipmentStatus,
+                saved.awbNumber,
+              ),
+            next: options?.suppressCustomerNotify
+              ? 'SHIPMENT_UPDATED suppressed for customer notify'
+              : 'EVENTS.SHIPMENT_UPDATED → BOB evaluates WhatsApp #2 /fulfillments-create',
+          },
+          '[Shipway] persistTrackingUpdate persisted — SHIPMENT_UPDATED emitted',
+        );
+      } else {
+        this.logger.log(
+          {
+            orderId: saved.orderId,
+            orderNumber: saved.orderNumber,
+            previousStatus,
+            shipmentStatus: saved.shipmentStatus,
+            awbNumber: saved.awbNumber,
+          },
+          '[Shipway] persistTrackingUpdate persisted — no SHIPMENT_UPDATED (GET path)',
+        );
+      }
       await this.recordTrackingEvents(saved.id, tracking.events ?? tracking.scans ?? [], 'polling', manager);
       await this.syncOrderStatus(
         saved.orderId,
@@ -868,6 +983,7 @@ export class ShippingService {
       orderNumber,
       groupKey: 'default',
       shipwayOrderId: orderNumber,
+      omsOrderId: this.toNullableString(tracking.oms_order_id ?? tracking.ezyslip_order_id),
       shipmentId: this.toNullableString(tracking.shipment_id),
       awbNumber: tracking.awb_number ?? null,
       courierName: tracking.courier_name ?? null,

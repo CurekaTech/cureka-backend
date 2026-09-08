@@ -265,15 +265,14 @@ export class AuthController {
   }
 
   @ResponseMessage('Logged out successfully')
-  @UseGuards(SessionCookieGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(
-    @CurrentSessionUser() user: IUserSessionContext,
+    @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<null> {
-    await this.authService.logout(user.sessionId);
-    clearUserSessionCookie(reply);
+    await this.authService.logoutByToken(getSessionTokenFromRequest(req));
+    clearUserSessionCookie(reply, req);
     return null;
   }
 
@@ -283,10 +282,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logoutAll(
     @CurrentSessionUser() user: IUserSessionContext,
+    @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<null> {
     await this.authService.logoutAllDevices(user.sub);
-    clearUserSessionCookie(reply);
+    clearUserSessionCookie(reply, req);
     return null;
   }
 

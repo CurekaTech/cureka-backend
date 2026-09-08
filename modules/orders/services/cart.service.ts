@@ -51,16 +51,18 @@ export class CartService {
 
   private async buildEmptyCartResponse(): Promise<CartResponse> {
     const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    const checkoutRules = {
+      prepaidDiscountPercent:
+        this.cartCheckoutAdminSettingsService.getPrepaidDiscountPercent(amounts),
+      codMinOrderAmount:
+        this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(amounts),
+      codMaxOrderAmount:
+        this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(amounts),
+    };
     return {
       ...EMPTY_CART_BASE,
-      checkoutRules: {
-        prepaidDiscountPercent:
-          this.cartCheckoutAdminSettingsService.getPrepaidDiscountPercent(amounts),
-        codMinOrderAmount:
-          this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(amounts),
-        codMaxOrderAmount:
-          this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(amounts),
-      },
+      checkoutRules,
+      cod: this.cartCheckoutAdminSettingsService.resolveCodEligibility(0, amounts),
     };
   }
 

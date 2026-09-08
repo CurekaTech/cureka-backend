@@ -80,6 +80,12 @@ export const CacheKeys = {
     homeSectionsPattern: () => 'homepage:home-sections*',
     sections: (variant = 'all') => `homepage:sections:${variant}`,
     sectionsPattern: () => 'homepage:sections*',
+    cmsPages: () => 'homepage:cms-pages:v1',
+    cmsPagesPattern: () => 'homepage:cms-pages*',
+  },
+  publicSearch: {
+    popular: (perPage: number) => `public:search:popular:${perPage}`,
+    popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
     // v6: list Pack of 1 deep-links + slug token variant resolution (500ml ≠ 50ml).
@@ -90,6 +96,10 @@ export const CacheKeys = {
     detail: (slug: string) => `public:products:v6:detail:${slug}`,
     detailPattern: (slug?: string) =>
       slug ? `public:products:v6:detail:${slug}` : 'public:products:v6:detail:*',
+    filters: (queryHash: string) => `public:products:v1:filters:${queryHash}`,
+    filtersPattern: () => 'public:products:v1:filters:*',
+    filterBrands: (queryHash: string) => `public:products:v1:filter-brands:${queryHash}`,
+    filterBrandsPattern: () => 'public:products:v1:filter-brands:*',
   },
   publicBundles: {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.

@@ -46,16 +46,20 @@ export class BobNotifyService implements OnModuleInit {
     }
   }
 
-  async post(path: string, payload: object): Promise<void> {
+  async post(
+    path: string,
+    payload: object,
+    options?: { idempotencyKey?: string },
+  ): Promise<{ accepted: boolean; httpStatus: number | null; error?: string }> {
     const base = this.notifyBase();
     const guestId = this.guestId();
     if (!base) {
       this.logger.warn({ path }, '[BOB notify] skipped — BOB_NOTIFY_URL is not set');
-      return;
+      return { accepted: false, httpStatus: null, error: 'BOB_NOTIFY_URL_not_set' };
     }
     if (!guestId) {
       this.logger.warn({ path }, '[BOB notify] skipped — BOB_GUEST_ID is not set');
-      return;
+      return { accepted: false, httpStatus: null, error: 'BOB_GUEST_ID_not_set' };
     }
 
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
@@ -91,6 +95,12 @@ export class BobNotifyService implements OnModuleInit {
             'x-guest-id': guestId,
             'x-api-key': guestId,
             'X-API-Key': guestId,
+            ...(options?.idempotencyKey
+              ? {
+                  'Idempotency-Key': options.idempotencyKey,
+                  'X-Idempotency-Key': options.idempotencyKey,
+                }
+              : {}),
           },
           validateStatus: () => true,
         }),
@@ -127,13 +137,18 @@ export class BobNotifyService implements OnModuleInit {
           logPayload,
           '[BOB notify] BOB rejected Notifications API — WhatsApp will not send',
         );
-        return;
+        return {
+          accepted: false,
+          httpStatus,
+          error: bobError || `http_${httpStatus}`,
+        };
       }
 
       this.logger.log(
         logPayload,
         '[BOB notify] posted — BOB accepted (expected { status: "success", statusCode: 200 })',
       );
+      return { accepted: true, httpStatus };
     } catch (error) {
       this.logger.warn(
         {
@@ -145,6 +160,11 @@ export class BobNotifyService implements OnModuleInit {
         },
         '[BOB notify] failed (non-blocking) — WhatsApp will not send',
       );
+      return {
+        accepted: false,
+        httpStatus: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 

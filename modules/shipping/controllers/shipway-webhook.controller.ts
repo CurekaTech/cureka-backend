@@ -47,12 +47,12 @@ export class ShipwayWebhookController {
       '[Shipway] Incoming webhook payload',
     );
 
-    this.shipwayService.verifyWebhookAuth(payload, rawBody, signature);
+    const authMode = this.shipwayService.verifyWebhookAuth(payload, rawBody, signature);
 
     const events = this.normalizeEvents(payload);
     if (!events.length) {
       this.logger.log(
-        { requestId: req.id, reason: 'empty_status_feed_or_sample' },
+        { requestId: req.id, reason: 'empty_status_feed_or_sample', authMode },
         '[Shipway] Valid webhook with no status events — acknowledging sample/ping',
       );
       return {
@@ -61,17 +61,22 @@ export class ShipwayWebhookController {
         processed: 0,
         skipped: 0,
         notFound: 0,
+        unresolved: 0,
+        reconciled: 0,
+        failed: 0,
         sample: true,
+        authMode,
       };
     }
 
-    const results = await this.shippingService.handleShipwayWebhookBatch(events);
+    const results = await this.shippingService.handleShipwayWebhookBatch(events, authMode);
 
     this.logger.log(
       {
         requestId: req.id,
         endpoint: 'POST /api/v1/shipments/webhook',
         eventCount: events.length,
+        authMode,
         ...results,
       },
       '[Shipway] Webhook batch finished',
@@ -80,6 +85,7 @@ export class ShipwayWebhookController {
     return {
       received: true,
       requestId: req.id,
+      authMode,
       ...results,
     };
   }

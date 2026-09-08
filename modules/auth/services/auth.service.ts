@@ -176,6 +176,14 @@ export class AuthService {
     await this.sessionService.logoutCurrentSession(sessionId);
   }
 
+  /** Idempotent logout using the opaque session token (cookie or Bearer). */
+  async logoutByToken(sessionToken?: string): Promise<void> {
+    if (!sessionToken) {
+      return;
+    }
+    await this.sessionService.revokeSessionByToken(sessionToken);
+  }
+
   async logoutAllDevices(userId: string, currentSessionId?: string): Promise<void> {
     await this.sessionService.logoutAllSessions(userId, currentSessionId);
   }

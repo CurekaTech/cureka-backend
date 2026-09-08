@@ -11,6 +11,9 @@ export const TYPESENSE_FAST_SEARCH_PARAMS = {
 export const SEARCH_RESPONSE_CACHE_TTL_MS = 15_000;
 export const SEARCH_RESPONSE_CACHE_MAX_ENTRIES = 128;
 
+/** Redis cache TTL for popular search results (shared across PM2 workers). */
+export const SEARCH_POPULAR_CACHE_TTL_SECONDS = 60;
+
 /** Max hits fetched per entity bucket (dropdown merges into per_page total). */
 export const SEARCH_ENTITY_FETCH_LIMIT = 4;
 

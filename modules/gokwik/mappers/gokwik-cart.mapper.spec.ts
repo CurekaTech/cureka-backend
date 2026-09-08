@@ -19,6 +19,11 @@ describe('mapCartToGokwikCart', () => {
         codMinOrderAmount: 599,
         codMaxOrderAmount: 10000,
       },
+      cod: {
+        available: false,
+        minimumOrderAmount: 599,
+        message: 'Cash on Delivery is available for orders of ₹599 or more.',
+      },
       coupon: { id: 'coupon-1', code: 'SAVE50', title: 'Save 50' },
       items: [
         {
@@ -136,6 +141,11 @@ describe('mapCartToGokwikCart', () => {
         codMinOrderAmount: 599,
         codMaxOrderAmount: 10000,
       },
+      cod: {
+        available: true,
+        minimumOrderAmount: 599,
+        message: 'Cash on Delivery is available for orders of ₹599 or more.',
+      },
       coupon: null,
       items: [
         {
@@ -188,6 +198,11 @@ describe('mapCartToGokwikCart', () => {
         prepaidDiscountPercent: 2,
         codMinOrderAmount: 599,
         codMaxOrderAmount: 10000,
+      },
+      cod: {
+        available: true,
+        minimumOrderAmount: 599,
+        message: 'Cash on Delivery is available for orders of ₹599 or more.',
       },
       coupon: null,
       items: [
@@ -244,6 +259,11 @@ describe('mapCartToGokwikCart', () => {
         prepaidDiscountPercent: 2,
         codMinOrderAmount: 599,
         codMaxOrderAmount: 10000,
+      },
+      cod: {
+        available: true,
+        minimumOrderAmount: 599,
+        message: 'Cash on Delivery is available for orders of ₹599 or more.',
       },
       coupon: null,
       items: [

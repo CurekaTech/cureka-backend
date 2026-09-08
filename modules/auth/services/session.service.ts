@@ -160,6 +160,20 @@ export class SessionService {
     await this.userSessionsRepository.revokeById(sessionId);
   }
 
+  /**
+   * Idempotent revoke by opaque session token. Returns false when token is unknown or already revoked.
+   */
+  async revokeSessionByToken(sessionToken: string): Promise<boolean> {
+    const refreshTokenHash = hashRefreshToken(sessionToken);
+    const session = await this.userSessionsRepository.findByRefreshTokenHash(refreshTokenHash);
+    if (!session || session.isRevoked) {
+      return false;
+    }
+
+    await this.logoutCurrentSession(session.id);
+    return true;
+  }
+
   async logoutAllSessions(userId: string, exceptSessionId?: string): Promise<void> {
     await this.sessionCacheService.invalidateAllForUser(userId, exceptSessionId);
     await this.userSessionsRepository.revokeAllByUserId(userId, exceptSessionId);

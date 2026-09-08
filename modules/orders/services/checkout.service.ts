@@ -11,9 +11,9 @@ import { ProductSubscriptionPricingService } from '@modules/subscription/service
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CheckoutDto } from '../dto/checkout.dto';
 import { CartItemEntity } from '../entities/cart-item.entity';
-import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CheckoutLineItem, CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { roundMoney } from '../utils/money.util';
+import { isCodPaymentMethod } from '../utils/payment-method.util';
 import {
   assertCurrentProductPrices,
   ProductPriceLine,
@@ -80,7 +80,7 @@ export class CheckoutService {
       strict: true,
     });
 
-    if (dto.paymentMethod === OrderPaymentMethod.COD) {
+    if (isCodPaymentMethod(dto.paymentMethod)) {
       const payable = roundMoney(pricing.subtotal - pricing.discountAmount);
       const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
       this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
@@ -90,6 +90,15 @@ export class CheckoutService {
       items,
       ...pricing,
     };
+  }
+
+  /** Enforces COD min/max on backend-calculated merchandise payable (subtotal − coupon). */
+  async assertCodPaymentEligible(payableMerchandise: number): Promise<void> {
+    const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
+    this.cartCheckoutAdminSettingsService.assertCodOrderEligible(
+      roundMoney(payableMerchandise),
+      amounts,
+    );
   }
 
   /**

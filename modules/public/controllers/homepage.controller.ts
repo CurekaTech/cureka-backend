@@ -6,7 +6,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { ResponseMessage } from '@packages/common';
-import { CmsPagesService } from '@modules/master/services/cms-pages.service';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
@@ -22,7 +21,6 @@ export class HomepageController {
     private readonly homepageSectionsService: HomepageSectionsService,
     private readonly homeSectionsService: HomeSectionsService,
     private readonly publicProductsService: PublicProductsService,
-    private readonly cmsPagesService: CmsPagesService,
   ) {}
 
   @ResponseMessage('Homepage sections retrieved successfully')
@@ -45,7 +43,7 @@ export class HomepageController {
   @ResponseMessage('CMS pages retrieved successfully')
   @Get('cms-pages')
   getCmsPages() {
-    return this.cmsPagesService.findPublicPagesByKey();
+    return this.homepageService.getPublicCmsPages();
   }
 
   /** View all brands (paginated) — use from Brands We Trust "View all". */

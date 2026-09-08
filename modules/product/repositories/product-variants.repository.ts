@@ -39,6 +39,7 @@ import {
   findMaxSkuSequenceForPrefix,
   formatGeneratedSku,
 } from '../utils/bulk-upload-variable.util';
+import { shouldRegenerateVariantSlugFromProductChange } from '../utils/variant-slug-sync.util';
 
 const pickVariantUnit = (
   dto: CreateVariantDto,
@@ -427,6 +428,7 @@ export class ProductVariantsRepository {
   async syncVariants(
     manager: EntityManager,
     productId: string,
+    previousProductSlug: string,
     productSlug: string,
     productType: ProductType,
     variants: CreateVariantDto[],
@@ -516,7 +518,14 @@ export class ProductVariantsRepository {
     for (const dto of variants) {
       const matched = existingBySku.get(dto.sku);
       if (matched) {
-        await this.updateVariant(manager, matched, dto, productSlug, attributeIdByRefId);
+        await this.updateVariant(
+          manager,
+          matched,
+          dto,
+          previousProductSlug,
+          productSlug,
+          attributeIdByRefId,
+        );
       } else {
         await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId);
       }
@@ -574,6 +583,7 @@ export class ProductVariantsRepository {
     manager: EntityManager,
     existing: ProductVariantEntity,
     dto: CreateVariantDto,
+    previousProductSlug: string,
     productSlug: string,
     attributeIdByRefId: Map<string, string>,
   ): Promise<void> {
@@ -617,7 +627,21 @@ export class ProductVariantsRepository {
           },
           existing.id,
         )
-      : existing.slug;
+      : shouldRegenerateVariantSlugFromProductChange({
+            currentSlug: existing.slug,
+            previousProductSlug,
+            nextProductSlug: productSlug,
+            attributeValues,
+            sku: existing.sku,
+          })
+        ? await this.resolveUniqueVariantSlug(
+            productSlug,
+            {
+              attributeValues,
+            },
+            existing.id,
+          )
+        : existing.slug;
 
     try {
       await variantRepo.update(

@@ -28,6 +28,7 @@ export class ShipwayService {
   private readonly baseUrl: string;
   /** Classic tracking host — getOrderShipmentDetails lives here (docs: shipway.in). */
   private readonly trackingBaseUrl: string;
+  private readonly classicTrackingEnabled: boolean;
   private readonly timeoutMs: number;
   private readonly webhookSecret: string;
 
@@ -38,6 +39,8 @@ export class ShipwayService {
     this.trackingBaseUrl = this.normalizeBaseUrl(
       this.configService.get<string>('shipway.trackingBaseUrl') ?? 'https://shipway.in',
     );
+    this.classicTrackingEnabled =
+      this.configService.get<boolean>('shipway.classicTrackingEnabled') ?? true;
     this.timeoutMs = this.configService.get<number>('shipway.timeoutMs') ?? 15000;
     this.webhookSecret = this.configService.get<string>('shipway.webhookSecret') ?? '';
 
@@ -45,6 +48,7 @@ export class ShipwayService {
       {
         baseUrl: this.baseUrl,
         trackingBaseUrl: this.trackingBaseUrl,
+        classicTrackingEnabled: this.classicTrackingEnabled,
         timeoutMs: this.timeoutMs,
         emailConfigured: Boolean(this.email),
         licenseKeyConfigured: Boolean(this.licenseKey),
@@ -113,14 +117,22 @@ export class ShipwayService {
     );
 
     try {
-      const classic = await this.fetchClassicOrderShipmentDetails(orderId);
-      attempts.push({
-        source: 'classic_getOrderShipmentDetails',
-        ok: Boolean(classic.current_status || this.scanCount(classic)),
-        eventCount: this.scanCount(classic),
-        detail: classic.current_status ?? classic.current_status_code ?? classic.message ?? undefined,
-      });
-      merged = this.mergeTracking(merged, classic);
+      if (!this.classicTrackingEnabled) {
+        attempts.push({
+          source: 'classic_getOrderShipmentDetails',
+          ok: false,
+          detail: 'disabled_by_SHIPWAY_CLASSIC_TRACKING_ENABLED',
+        });
+      } else {
+        const classic = await this.fetchClassicOrderShipmentDetails(orderId);
+        attempts.push({
+          source: 'classic_getOrderShipmentDetails',
+          ok: Boolean(classic.current_status || this.scanCount(classic)),
+          eventCount: this.scanCount(classic),
+          detail: classic.current_status ?? classic.current_status_code ?? classic.message ?? undefined,
+        });
+        merged = this.mergeTracking(merged, classic);
+      }
     } catch (error) {
       attempts.push({
         source: 'classic_getOrderShipmentDetails',
@@ -360,11 +372,20 @@ export class ShipwayService {
     const courier = this.firstString(match, ['courier_name', 'carrier_name', 'carrier']);
     const courierId = this.firstString(match, ['carrier_id', 'courier_id']);
     const trackingUrl = this.firstString(match, ['tracking_url', 'track_url']);
+    const omsOrderId = this.firstString(match, [
+      'ezyslip_order_id',
+      'oms_order_id',
+      'shipway_order_id',
+      'id',
+    ]);
+    const merchantOrderId = this.firstString(match, ['order_id', 'orderid', 'merchant_order_id']);
     const scans = this.extractScanArray(match);
 
     this.logger.log(
       {
         shipwayOrderId: orderId,
+        merchantOrderId,
+        omsOrderId,
         awb,
         currentStatus,
         statusCode,
@@ -377,7 +398,9 @@ export class ShipwayService {
 
     return {
       success: Boolean(currentStatus || statusCode),
-      order_id: orderId,
+      order_id: merchantOrderId ?? orderId,
+      oms_order_id: omsOrderId ?? undefined,
+      ezyslip_order_id: omsOrderId ?? undefined,
       awb_number: awb ?? undefined,
       current_status: currentStatus ?? undefined,
       current_status_code: statusCode ?? undefined,
@@ -904,6 +927,7 @@ export class ShipwayService {
 
   /**
    * Authenticate Shipway webhooks.
+   * Returns the auth mode used so writers can decide how much to trust the payload.
    * Live panel (observed on beta Send Sample): `{ order_id, current_status }` with no hash and no HMAC.
    * Classic docs: `status_feed` + body `hash` = md5(email:licenseKey).
    * HMAC is verified only when Shipway actually sends a signature header.
@@ -912,7 +936,7 @@ export class ShipwayService {
     payload: ShipwayWebhookDto,
     rawBody: string,
     signature?: string,
-  ): void {
+  ): 'status_feed_hash' | 'body_hash' | 'hmac' | 'unsigned' {
     const isProduction = process.env['NODE_ENV'] === 'production';
     const statusFeed = payload.status_feed;
     const isStatusFeed = Array.isArray(statusFeed);
@@ -922,21 +946,22 @@ export class ShipwayService {
       if (statusFeed.length === 0) {
         if (payload.hash?.trim()) {
           this.verifyStatusFeedHash(payload.hash, isProduction);
+          return 'status_feed_hash';
         }
-        return;
+        return 'unsigned';
       }
       this.verifyStatusFeedHash(payload.hash, isProduction);
-      return;
+      return 'status_feed_hash';
     }
 
     if (payload.hash?.trim()) {
       this.verifyStatusFeedHash(payload.hash, isProduction);
-      return;
+      return 'body_hash';
     }
 
     if (signature?.trim()) {
       this.verifyWebhookSignature(rawBody, signature, isProduction);
-      return;
+      return 'hmac';
     }
 
     this.logger.warn(
@@ -946,8 +971,9 @@ export class ShipwayService {
         hashPresent: false,
         signaturePresent: false,
       },
-      '[Shipway] Unsigned webhook (panel sample / live status push) — accepted',
+      '[Shipway] Unsigned webhook (panel sample / live status push) — accepted for receipt; writes require OMS verification',
     );
+    return 'unsigned';
   }
 
   verifyStatusFeedHash(hash?: string, isProduction: boolean = process.env['NODE_ENV'] === 'production'): void {
