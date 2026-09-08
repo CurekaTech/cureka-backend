@@ -48,6 +48,31 @@ export class ShipmentsRepository {
     return repository.findOne({ where: { shipwayOrderId }, relations: { events: true } });
   }
 
+  findByAwbNumber(awbNumber: string, manager?: EntityManager): Promise<ShipmentEntity | null> {
+    const repository = manager ? manager.getRepository(ShipmentEntity) : this.repo;
+    return repository.findOne({
+      where: { awbNumber },
+      relations: { events: true },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  findByOmsOrderId(omsOrderId: string, manager?: EntityManager): Promise<ShipmentEntity | null> {
+    const repository = manager ? manager.getRepository(ShipmentEntity) : this.repo;
+    return repository.findOne({
+      where: { omsOrderId },
+      relations: { events: true },
+    });
+  }
+
+  findByOrderNumber(orderNumber: string, manager?: EntityManager): Promise<ShipmentEntity | null> {
+    const repository = manager ? manager.getRepository(ShipmentEntity) : this.repo;
+    return repository.findOne({
+      where: { orderNumber, groupKey: 'default' },
+      relations: { events: true },
+    });
+  }
+
   findByOrderIds(orderIds: string[]): Promise<ShipmentEntity[]> {
     if (orderIds.length === 0) return Promise.resolve([]);
     return this.repo

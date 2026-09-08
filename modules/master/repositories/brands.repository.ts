@@ -27,6 +27,13 @@ export class BrandsRepository {
     return this.repo.findOne({ where: { id } });
   }
 
+  async findActiveByIds(ids: string[]): Promise<BrandEntity[]> {
+    if (!ids.length) return [];
+    return this.repo.find({
+      where: { id: In(ids), status: MasterStatus.ACTIVE },
+    });
+  }
+
   async findBySlug(slug: string): Promise<BrandEntity | null> {
     return this.repo
       .createQueryBuilder('brand')
@@ -174,7 +181,7 @@ export class BrandsRepository {
   }
 
   async findCursorPaginated(
-    options: MasterCursorStatusOptions,
+    options: MasterCursorStatusOptions & { excludeComboBrand?: boolean },
   ): Promise<CursorPaginatedResult<BrandEntity>> {
     return executeMasterCursorQuery(this.repo, options, {
       alias: 'brand',
@@ -187,6 +194,12 @@ export class BrandsRepository {
       defaultSortBy: 'name',
       defaultSortOrder: 'ASC',
       searchExpression: '(brand.name ILIKE :search OR brand.slug ILIKE :search)',
+    }, (qb) => {
+      if (options.excludeComboBrand) {
+        qb.andWhere('LOWER(TRIM(brand.name)) != :comboBrandName', {
+          comboBrandName: 'combo',
+        });
+      }
     });
   }
 

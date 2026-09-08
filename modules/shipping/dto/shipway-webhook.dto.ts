@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   Allow,
   IsArray,
@@ -10,6 +10,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { normalizeOptionalTrackingIdentifier } from '../utils/normalize-optional-tracking-identifier.util';
 
 const hasStatusValue = (value?: string): boolean => Boolean(value?.trim());
 
@@ -316,7 +317,15 @@ export class ShipwayWebhookDto {
   @MaxLength(50)
   company_id?: string;
 
+  /**
+   * Optional reverse AWB from Shipway panel payloads.
+   * Providers sometimes send JSON numbers; coerce safe values before @IsString
+   * so an optional reverse field cannot 400 a valid forward-status update.
+   * Evidence: 2026-09-07T13:44:33Z request a9b3e385-322a-4240-8998-e629e7c89a34
+   * failed with "must be a string" + MaxLength (classic non-string class-validator pair).
+   */
   @IsOptional()
+  @Transform(normalizeOptionalTrackingIdentifier)
   @IsString()
   @MaxLength(100)
   reverse_tracking_number?: string;

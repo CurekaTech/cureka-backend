@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ShipwayWebhookDto } from './shipway-webhook.dto';
@@ -67,6 +68,26 @@ const SHIPWAY_PANEL_SAMPLE = {
   reverse_tracking_number: '99999999999999',
 };
 
+/**
+ * Failed production request only logged the class-validator pair
+ * (must be a string + MaxLength). That pair is produced for non-strings;
+ * numeric JSON is the usual Shipway tracking-id encoding.
+ */
+const FAILED_REVERSE_TRACKING_NUMERIC_SHAPE = {
+  order_id: 'ORD015487605062',
+  current_status: 'DEL',
+  awbno: '11633336773305',
+  reverse_tracking_number: 11633336773305,
+};
+
+const shipwayValidationPipe = () =>
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false,
+    transform: true,
+    transformOptions: { enableImplicitConversion: false },
+  });
+
 describe('ShipwayWebhookDto', () => {
   const validateBody = (body: Record<string, unknown>) =>
     validate(plainToInstance(ShipwayWebhookDto, body));
@@ -123,5 +144,95 @@ describe('ShipwayWebhookDto', () => {
       status_feed: [{ current_status: 'OOD' }],
     });
     expect(errors.length).toBeGreaterThan(0);
+  });
+
+  describe('reverse_tracking_number normalization', () => {
+    it('accepts missing reverse_tracking_number', async () => {
+      const errors = await validateBody({
+        order_id: 'CUR1',
+        current_status: 'OOD',
+      });
+      expect(errors).toHaveLength(0);
+    });
+
+    it('accepts null and empty reverse_tracking_number as omitted', async () => {
+      for (const reverse_tracking_number of [null, '', '  ']) {
+        const dto = plainToInstance(ShipwayWebhookDto, {
+          order_id: 'CUR1',
+          current_status: 'OOD',
+          reverse_tracking_number,
+        });
+        expect(dto.reverse_tracking_number).toBeUndefined();
+        expect(await validate(dto)).toHaveLength(0);
+      }
+    });
+
+    it('accepts string reverse_tracking_number and preserves leading zeros', async () => {
+      const dto = plainToInstance(ShipwayWebhookDto, {
+        order_id: 'CUR1',
+        current_status: 'OOD',
+        reverse_tracking_number: '0011663336773305',
+      });
+      expect(dto.reverse_tracking_number).toBe('0011663336773305');
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('accepts numeric reverse_tracking_number (failed production shape) as string', async () => {
+      const dto = plainToInstance(ShipwayWebhookDto, FAILED_REVERSE_TRACKING_NUMERIC_SHAPE);
+      expect(dto.reverse_tracking_number).toBe('11633336773305');
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('rejects oversized reverse_tracking_number strings', async () => {
+      const errors = await validateBody({
+        order_id: 'CUR1',
+        current_status: 'OOD',
+        reverse_tracking_number: 'x'.repeat(101),
+      });
+      expect(errors.some((error) => error.property === 'reverse_tracking_number')).toBe(true);
+    });
+
+    it('rejects unsupported reverse_tracking_number shapes without coercion', async () => {
+      for (const reverse_tracking_number of [true, ['116'], { n: 1 }, 12.5]) {
+        const errors = await validateBody({
+          order_id: 'CUR1',
+          current_status: 'OOD',
+          reverse_tracking_number,
+        });
+        expect(errors.some((error) => error.property === 'reverse_tracking_number')).toBe(true);
+      }
+    });
+
+    it('rejects unsafe integers rather than corrupting digits', async () => {
+      const unsafe = Number.MAX_SAFE_INTEGER + 2;
+      const dto = plainToInstance(ShipwayWebhookDto, {
+        order_id: 'CUR1',
+        current_status: 'OOD',
+        reverse_tracking_number: unsafe,
+      });
+      expect(typeof dto.reverse_tracking_number).toBe('number');
+      const errors = await validate(dto);
+      expect(errors.some((error) => error.property === 'reverse_tracking_number')).toBe(true);
+    });
+
+    it('passes Nest ValidationPipe for numeric reverse_tracking_number', async () => {
+      const pipe = shipwayValidationPipe();
+      const result = (await pipe.transform(FAILED_REVERSE_TRACKING_NUMERIC_SHAPE, {
+        type: 'body',
+        metatype: ShipwayWebhookDto,
+      })) as ShipwayWebhookDto;
+
+      expect(result).toBeInstanceOf(ShipwayWebhookDto);
+      expect(result.reverse_tracking_number).toBe('11633336773305');
+      expect(result.order_id).toBe('ORD015487605062');
+      expect(result.current_status).toBe('DEL');
+    });
+
+    it('still rejects empty bodies through ValidationPipe', async () => {
+      const pipe = shipwayValidationPipe();
+      await expect(
+        pipe.transform({}, { type: 'body', metatype: ShipwayWebhookDto }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
   });
 });

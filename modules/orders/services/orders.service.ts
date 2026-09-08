@@ -341,6 +341,12 @@ export class OrdersService {
       throw new BadRequestException('Cart is empty');
     }
 
+    if (isCodPaymentMethod(params.paymentMethod)) {
+      await this.checkoutService.assertCodPaymentEligible(
+        roundMoney(summary.subtotal - summary.discountAmount),
+      );
+    }
+
     const order = await this.dataSource.transaction(async (manager) => {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
@@ -1364,7 +1370,7 @@ export class OrdersService {
       await this.ordersRepository.updateById(
         orderId,
         {
-          orderStatus: OrderStatus.CANCELLED,
+      orderStatus: OrderStatus.CANCELLED,
           cancelReason: reason,
           ...applyOrderStatusTimestamps(locked, OrderStatus.CANCELLED, new Date()),
           updatedBy,

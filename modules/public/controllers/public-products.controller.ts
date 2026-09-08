@@ -3,15 +3,20 @@ import { FastifyRequest } from 'fastify';
 import { ResponseMessage } from '@packages/common';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category-filters-query.dto';
+import { PublicProductFiltersQueryDto } from '../dto/public-product-filters-query.dto';
 import { YouMayAlsoLikeQueryDto } from '../dto/you-may-also-like-query.dto';
 import { FrequentlyBoughtTogetherQueryDto } from '../dto/frequently-bought-together-query.dto';
 import { PublicProductsService } from '../services/public-products.service';
+import { PublicProductFiltersService } from '../services/public-product-filters.service';
 
 @Controller('public/products')
 export class PublicProductsController {
   private readonly logger = new Logger(PublicProductsController.name);
 
-  constructor(private readonly publicProductsService: PublicProductsService) {}
+  constructor(
+    private readonly publicProductsService: PublicProductsService,
+    private readonly publicProductFiltersService: PublicProductFiltersService,
+  ) {}
 
   @ResponseMessage('Products retrieved successfully')
   @Get()
@@ -26,6 +31,17 @@ export class PublicProductsController {
   }
 
   /**
+   * Applicable brands for the current PLP context — search + cursor pagination.
+   *
+   * GET /public/products/filters/brands?contextType=category&categorySlug=hair-care&facetSearch=abc
+   */
+  @ResponseMessage('Product brand filters retrieved successfully')
+  @Get('filters/brands')
+  findProductFilterBrands(@Query() query: PublicProductFiltersQueryDto) {
+    return this.publicProductFiltersService.findBrandFacets(query);
+  }
+
+  /**
    * Brand PLP — category filter facets for products of a brand.
    *
    * GET /public/products/filters/categories?brandSlug=similac&page=1&limit=20
@@ -34,6 +50,17 @@ export class PublicProductsController {
   @Get('filters/categories')
   findBrandCategoryFilters(@Query() query: PublicBrandCategoryFiltersQueryDto) {
     return this.publicProductsService.findBrandCategoryFilters(query);
+  }
+
+  /**
+   * Faceted PLP sidebar — categories (nested children), brands, price, category-filters.
+   *
+   * GET /public/products/filters?contextType=healthConcern&healthConcernSlug=hair-fall
+   */
+  @ResponseMessage('Product filters retrieved successfully')
+  @Get('filters')
+  findProductFilters(@Query() query: PublicProductFiltersQueryDto) {
+    return this.publicProductFiltersService.findFilters(query);
   }
 
   /**

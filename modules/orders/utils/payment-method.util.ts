@@ -16,6 +16,14 @@ export function isPrepaidPaymentMethod(
   return PREPAID_PAYMENT_METHODS.has(paymentMethod);
 }
 
+const COD_PAYMENT_METHODS = new Set<OrderPaymentMethod>([
+  OrderPaymentMethod.COD,
+  OrderPaymentMethod.GOKWIK_PARTIAL_COD,
+]);
+
 export function isCodPaymentMethod(paymentMethod?: OrderPaymentMethod | null): boolean {
-  return paymentMethod === OrderPaymentMethod.COD;
+  if (!paymentMethod) {
+    return false;
+  }
+  return COD_PAYMENT_METHODS.has(paymentMethod);
 }

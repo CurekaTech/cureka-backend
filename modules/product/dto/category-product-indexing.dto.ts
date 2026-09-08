@@ -11,3 +11,14 @@ export class SaveCategoryTopProductsDto {
   @IsUUID('4', { each: true })
   variantIds!: string[];
 }
+
+export class ReorderCategoryTopProductsDto {
+  /**
+   * Ordered Top Product variant UUIDs for the selected category.
+   * Must include the full current top-product set for that category.
+   */
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  variantIds!: string[];
+}

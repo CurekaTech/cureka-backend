@@ -6,7 +6,7 @@ export interface IPublicCategoryFilterFacet {
   name: string;
   /**
    * Distinct values from published products in this category tree.
-   * Falls back to master-defined allowed values when no products are bound yet.
+   * Empty when no published products are bound to the filter in this listing.
    */
   values: string[];
 }

@@ -25,6 +25,8 @@ import { IPublicWatchAndShopItem, IPublicWatchAndShopSection } from '../interfac
 import { IPublicHealthReadsSection } from '../interfaces/public-health-reads.interface';
 import { IPublicCuratedWellnessEssentialsSection } from '../interfaces/public-expert-talk.interface';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
+import { CmsPagesService } from '@modules/master/services/cms-pages.service';
+import { IPublicCmsPagesByKey } from '@modules/master/interfaces/cms-page.interface';
 import {
   IPublicBrandBannersSection,
   IPublicHeroBannerSection,
@@ -75,11 +77,28 @@ export class HomepageService {
     private readonly expertTalkService: ExpertTalkService,
     private readonly testimonialService: TestimonialService,
     private readonly blogPostsService: BlogPostsService,
+    private readonly cmsPagesService: CmsPagesService,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
   getHomepageBanners(): Promise<IHomepageBannersBundle> {
     return this.bannersService.getHomepageBanners();
+  }
+
+  /** Cached predefined CMS pages bundle for storefront footer / legal links. */
+  getPublicCmsPages(): Promise<IPublicCmsPagesByKey> {
+    return this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.cmsPages(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.cmsPagesService.findPublicPagesByKey(),
+    });
+  }
+
+  /** Used by cache invalidation after CMS page mutations. */
+  invalidatePublicCmsPagesCache(): Promise<void> {
+    return this.cacheStrategy.invalidateOnly({
+      patterns: [CacheKeys.homepage.cmsPagesPattern()],
+    });
   }
 
   /** Cached banner bundle (unsigned refs) — fetch once per `/sections` build. */

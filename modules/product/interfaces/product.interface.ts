@@ -40,6 +40,8 @@ export interface IProductVariant {
   outOfStock: boolean;
   /** True when this variant is marked as a Top Product for category PLP ordering. */
   isTop: boolean;
+  /** Explicit ordering within Top Products. Lower values appear first. */
+  topSortOrder: number | null;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;

@@ -22,6 +22,7 @@ import {
   mapBobOrder,
 } from '../mappers/bob.mapper';
 import { BobNotifyService } from '../services/bob-notify.service';
+import { BobFulfillmentNotifyOutboxService } from '../services/bob-fulfillment-notify-outbox.service';
 
 @Injectable()
 export class BobNotifyListener {
@@ -29,6 +30,7 @@ export class BobNotifyListener {
 
   constructor(
     private readonly bobNotifyService: BobNotifyService,
+    private readonly fulfillmentOutbox: BobFulfillmentNotifyOutboxService,
     private readonly ordersRepository: OrdersRepository,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly storageService: StorageService,
@@ -171,9 +173,9 @@ export class BobNotifyListener {
   }
 
   /**
-   * WhatsApp #2: POST /fulfillments-create once — first Dispatched (or later) + AWB.
-   * Tracker still updates Confirmed → Dispatched → OFD → Delivered from Shipway.
-   * No /fulfillments-events-create (keeps WhatsApp to 2 messages).
+   * WhatsApp #2: POST /fulfillments-create once AWB exists and status is Dispatched+.
+   * Durable outbox records BOB acceptance separately from WhatsApp delivery.
+   * "Not first transition" alone is not proof a message was sent — outbox acceptance is.
    */
   @OnEvent(EVENTS.SHIPMENT_UPDATED)
   async onShipmentUpdated(event: ShipmentUpdatedEvent): Promise<void> {
@@ -184,10 +186,25 @@ export class BobNotifyListener {
         orderId: event.orderId,
         shipmentId: event.shipmentId,
         previousStatus,
+        suppressCustomerNotify: Boolean(event.suppressCustomerNotify),
         previousTrackerStep: bobTrackerStepLabel(previousStatus),
       },
       '[BOB notify] SHIPMENT_UPDATED received — evaluating WhatsApp #2 /fulfillments-create',
     );
+
+    if (event.suppressCustomerNotify) {
+      this.logger.log(
+        {
+          whatsappSlot: 2,
+          decision: 'skip',
+          reason: 'suppress_customer_notify_flag',
+          orderId: event.orderId,
+          shipmentId: event.shipmentId,
+        },
+        '[BOB notify] WhatsApp #2 skipped — event suppresses customer notify (GET sync / recovery)',
+      );
+      return;
+    }
 
     try {
       const shipment = await this.shipmentsRepository.findByOrderId(event.orderId);
@@ -208,9 +225,11 @@ export class BobNotifyListener {
 
       const currentStatus = shipment.shipmentStatus;
       const currentTrackerStep = bobTrackerStepLabel(currentStatus);
-      const enteredDispatched =
-        isBobDispatchedOrLater(currentStatus) && !isBobDispatchedOrLater(previousStatus);
       const hasAwb = Boolean(shipment.awbNumber);
+      const dispatchedOrLater = isBobDispatchedOrLater(currentStatus);
+      const enteredDispatched =
+        dispatchedOrLater && !isBobDispatchedOrLater(previousStatus);
+      const alreadyBlocking = await this.fulfillmentOutbox.hasBlockingFulfillment(order.id);
 
       if (!hasAwb) {
         this.logger.log(
@@ -233,25 +252,37 @@ export class BobNotifyListener {
         return;
       }
 
-      if (!enteredDispatched) {
+      if (!dispatchedOrLater) {
         this.logger.log(
           {
             whatsappSlot: 2,
             decision: 'skip',
-            reason: 'not_first_dispatched_transition',
+            reason: 'not_dispatched_yet',
+            api: '/fulfillments-create',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shipmentStatus: currentStatus,
+            hasAwb: true,
+          },
+          '[BOB notify] WhatsApp #2 skipped — status not Dispatched+',
+        );
+        return;
+      }
+
+      if (alreadyBlocking) {
+        this.logger.log(
+          {
+            whatsappSlot: 2,
+            decision: 'skip',
+            reason: 'outbox_blocking_state',
             api: '/fulfillments-create',
             orderId: order.id,
             orderNumber: order.orderNumber,
             shipmentId: shipment.id,
-            previousStatus,
-            shipmentStatus: currentStatus,
-            previousTrackerStep: bobTrackerStepLabel(previousStatus),
-            currentTrackerStep,
-            hasAwb: true,
-            awbNumber: shipment.awbNumber,
-            note: 'OFD/Delivered updates do not send another WhatsApp',
+            enteredDispatched,
+            note: 'accepted/suppressed/ambiguous/sending blocks another send',
           },
-          '[BOB notify] WhatsApp #2 skipped — not first Dispatched transition',
+          '[BOB notify] WhatsApp #2 skipped — fulfillment outbox already blocking',
         );
         return;
       }
@@ -263,9 +294,12 @@ export class BobNotifyListener {
           decision: 'call',
           api: '/fulfillments-create',
           trigger: 'EVENTS.SHIPMENT_UPDATED',
+          enteredDispatched,
+          lateAwbOrRecovery: !enteredDispatched,
           sources: [
             'Shipway push after place-order',
             'Shipway webhook POST /api/v1/shipments/webhook',
+            'Shipway OMS reconciliation',
             'Shipway poll sync',
           ],
           orderId: order.id,
@@ -281,26 +315,32 @@ export class BobNotifyListener {
           awbNumber: shipment.awbNumber,
           phoneMasked: this.maskPhone(order.phoneNumber),
         },
-        '[BOB notify] WhatsApp #2 first Dispatched — calling /fulfillments-create',
+        '[BOB notify] WhatsApp #2 Dispatched eligible — enqueue durable /fulfillments-create',
       );
 
       const imageByKey = await this.signOrderImages(order);
       const payload = mapBobFulfillment(order, shipment, imageByKey);
-      await this.bobNotifyService.post('/fulfillments-create', payload);
+      const result = await this.fulfillmentOutbox.enqueueAndSendFulfillment({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        shipmentId: shipment.id,
+        payload,
+      });
 
       this.logger.log(
         {
           whatsappSlot: 2,
           whatsappKind: 'order_dispatched',
-          decision: 'posted',
+          decision: result.status,
           api: '/fulfillments-create',
           orderId: order.id,
           orderNumber: order.orderNumber,
           shipmentStatus: currentStatus,
           currentTrackerStep,
           awbNumber: shipment.awbNumber,
+          reason: result.reason,
         },
-        '[BOB notify] WhatsApp #2 /fulfillments-create handed to BobNotifyService',
+        '[BOB notify] WhatsApp #2 /fulfillments-create outbox finished',
       );
     } catch (error) {
       this.logger.warn(

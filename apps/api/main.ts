@@ -108,17 +108,20 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX);
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Cureka API')
-    .setDescription('Healthcare eCommerce marketplace backend')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  SwaggerModule.setup(
-    `${APP_CONSTANTS.API_PREFIX}/docs`,
-    app,
-    SwaggerModule.createDocument(app, swaggerConfig),
-  );
+  const swaggerEnabled = configService.get<boolean>('app.swaggerEnabled') === true;
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Cureka API')
+      .setDescription('Healthcare eCommerce marketplace backend')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup(
+      `${APP_CONSTANTS.API_PREFIX}/docs`,
+      app,
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+  }
 
   // Graceful shutdown
   app.enableShutdownHooks();
@@ -136,6 +139,9 @@ async function bootstrap(): Promise<void> {
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port} in ${nodeEnv} mode`);
   logger.log(`API available at http://0.0.0.0:${port}/${APP_CONSTANTS.API_PREFIX}`);
+  if (swaggerEnabled) {
+    logger.log(`Swagger UI at http://0.0.0.0:${port}/${APP_CONSTANTS.API_PREFIX}/docs`);
+  }
 }
 
 bootstrap().catch((err) => {

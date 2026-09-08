@@ -349,6 +349,7 @@ const mapVariant = (
   stock: variant.stock,
   outOfStock: variant.outOfStock ?? false,
   isTop: variant.isTop ?? false,
+  topSortOrder: variant.topSortOrder ?? null,
   weight: toNumber(variant.weight),
   weightUnit: variant.weightUnit,
   length: toNumber(variant.length),

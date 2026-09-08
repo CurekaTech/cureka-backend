@@ -18,7 +18,11 @@ import { BobAbandonedCartWebhookService } from './services/bob-abandoned-cart-we
 import { BobBrandService } from './services/bob-brand.service';
 import { BobCatalogService } from './services/bob-catalog.service';
 import { BobNotifyService } from './services/bob-notify.service';
+import { BobFulfillmentNotifyOutboxService } from './services/bob-fulfillment-notify-outbox.service';
 import { BobOrdersService } from './services/bob-orders.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { BobNotifyOutboxEntity } from './entities/bob-notify-outbox.entity';
+import { BobNotifyOutboxRepository } from './repositories/bob-notify-outbox.repository';
 
 @Module({
   imports: [
@@ -28,6 +32,7 @@ import { BobOrdersService } from './services/bob-orders.service';
     ShippingModule,
     MasterModule,
     UploadsModule,
+    TypeOrmModule.forFeature([BobNotifyOutboxEntity]),
     HttpModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -46,9 +51,11 @@ import { BobOrdersService } from './services/bob-orders.service';
     BobOrdersService,
     BobBrandService,
     BobNotifyService,
+    BobNotifyOutboxRepository,
+    BobFulfillmentNotifyOutboxService,
     BobNotifyListener,
     BobAbandonedCartWebhookService,
   ],
-  exports: [BobNotifyService],
+  exports: [BobNotifyService, BobFulfillmentNotifyOutboxService],
 })
 export class BobModule {}

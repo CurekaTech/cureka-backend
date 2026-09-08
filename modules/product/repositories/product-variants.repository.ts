@@ -39,6 +39,7 @@ import {
   findMaxSkuSequenceForPrefix,
   formatGeneratedSku,
 } from '../utils/bulk-upload-variable.util';
+import { shouldRegenerateVariantSlugFromProductChange } from '../utils/variant-slug-sync.util';
 
 const pickVariantUnit = (
   dto: CreateVariantDto,
@@ -427,6 +428,7 @@ export class ProductVariantsRepository {
   async syncVariants(
     manager: EntityManager,
     productId: string,
+    previousProductSlug: string,
     productSlug: string,
     productType: ProductType,
     variants: CreateVariantDto[],
@@ -516,7 +518,14 @@ export class ProductVariantsRepository {
     for (const dto of variants) {
       const matched = existingBySku.get(dto.sku);
       if (matched) {
-        await this.updateVariant(manager, matched, dto, productSlug, attributeIdByRefId);
+        await this.updateVariant(
+          manager,
+          matched,
+          dto,
+          previousProductSlug,
+          productSlug,
+          attributeIdByRefId,
+        );
       } else {
         await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId);
       }
@@ -574,6 +583,7 @@ export class ProductVariantsRepository {
     manager: EntityManager,
     existing: ProductVariantEntity,
     dto: CreateVariantDto,
+    previousProductSlug: string,
     productSlug: string,
     attributeIdByRefId: Map<string, string>,
   ): Promise<void> {
@@ -617,7 +627,21 @@ export class ProductVariantsRepository {
           },
           existing.id,
         )
-      : existing.slug;
+      : shouldRegenerateVariantSlugFromProductChange({
+            currentSlug: existing.slug,
+            previousProductSlug,
+            nextProductSlug: productSlug,
+            attributeValues,
+            sku: existing.sku,
+          })
+        ? await this.resolveUniqueVariantSlug(
+            productSlug,
+            {
+              attributeValues,
+            },
+            existing.id,
+          )
+        : existing.slug;
 
     try {
       await variantRepo.update(
@@ -1010,7 +1034,8 @@ export class ProductVariantsRepository {
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :productStatus', { productStatus: ProductStatus.PUBLISHED })
       .andWhere(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL, { categoryId })
-      .orderBy('product.name', 'ASC')
+      .orderBy('variant.topSortOrder', 'ASC', 'NULLS LAST')
+      .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.sku', 'ASC')
       .getMany();
   }
@@ -1048,7 +1073,7 @@ export class ProductVariantsRepository {
       `
       WITH cleared AS (
         UPDATE product_variants v
-        SET is_top = false, updated_at = NOW()
+        SET is_top = false, top_sort_order = NULL, updated_at = NOW()
         WHERE v.deleted_at IS NULL
           AND v.is_top = true
           AND (
@@ -1072,9 +1097,15 @@ export class ProductVariantsRepository {
         `
         WITH updated AS (
           UPDATE product_variants v
-          SET is_top = true, updated_at = NOW()
+          SET is_top = true,
+              top_sort_order = seq.sort_order,
+              updated_at = NOW()
+          FROM (
+            SELECT *
+            FROM UNNEST($2::uuid[]) WITH ORDINALITY AS ordered_ids(id, sort_order)
+          ) AS seq
           WHERE v.deleted_at IS NULL
-            AND v.id = ANY($2::uuid[])
+            AND v.id = seq.id
             AND EXISTS (
               SELECT 1 FROM products p
               WHERE p.id = v.product_id
@@ -1093,6 +1124,55 @@ export class ProductVariantsRepository {
       selectedCount,
       clearedCount: Number(clearRows?.[0]?.count ?? 0),
     };
+  }
+
+  async reorderTopVariantsForCategory(
+    categoryId: string,
+    orderedVariantIds: string[],
+  ): Promise<number> {
+    if (!orderedVariantIds.length) return 0;
+
+    const rows = (await this.repo.manager.query(
+      `
+      WITH updated AS (
+        UPDATE product_variants v
+        SET top_sort_order = seq.sort_order,
+            updated_at = NOW()
+        FROM (
+          SELECT *
+          FROM UNNEST($2::uuid[]) WITH ORDINALITY AS ordered_ids(id, sort_order)
+        ) AS seq
+        WHERE v.deleted_at IS NULL
+          AND v.is_top = true
+          AND v.id = seq.id
+          AND EXISTS (
+            SELECT 1 FROM products p
+            WHERE p.id = v.product_id
+              AND (
+                p.category_id = $1
+                OR p.sub_category_id = $1
+                OR p.sub_sub_category_id = $1
+                OR p.sub_sub_sub_category_id = $1
+                OR EXISTS (
+                  SELECT 1 FROM product_category_hierarchies pch
+                  WHERE pch.product_id = p.id
+                    AND (
+                      pch.category_id = $1
+                      OR pch.sub_category_id = $1
+                      OR pch.sub_sub_category_id = $1
+                      OR pch.sub_sub_sub_category_id = $1
+                    )
+                )
+              )
+          )
+        RETURNING v.id
+      )
+      SELECT COUNT(*)::int AS count FROM updated
+      `,
+      [categoryId, orderedVariantIds],
+    )) as Array<{ count: number | string }>;
+
+    return Number(rows?.[0]?.count ?? 0);
   }
 
   private async assertUniqueSkus(dto: CreateVariantDto, excludeId?: string): Promise<void> {
