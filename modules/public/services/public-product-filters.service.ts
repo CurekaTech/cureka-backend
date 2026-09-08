@@ -69,7 +69,8 @@ export class PublicProductFiltersService {
   async findFilters(query: PublicProductFiltersQueryDto): Promise<IPublicProductFiltersResponse> {
     const contextType = query.contextType ?? inferListingContextType(query);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
-    const queryHash = this.buildCacheHash(query, contextType, 'all');
+    // Include query.facet so facet=brands|categories|… cannot poison the full sidebar cache.
+    const queryHash = this.buildCacheHash(query, contextType, query.facet ?? 'all');
 
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.filters(queryHash),
@@ -402,6 +403,8 @@ export class PublicProductFiltersService {
       healthConcernSlug: query.healthConcernSlug,
       wellnessGoalRefId: query.wellnessGoalRefId,
       productNatureRefId: query.productNatureRefId,
+      productType: query.productType,
+      variantSlug: query.variantSlug,
       tagSlug: query.tagSlug,
       categoryFilters: query.categoryFilters,
       categoryFilterRefId: query.categoryFilterRefId,
