@@ -15,6 +15,7 @@ export const PRODUCT_COLLECTION_FIELDS = [
   { name: 'variantId', type: 'string' as const, optional: true },
   { name: 'variantSlug', type: 'string' as const, optional: true },
   { name: 'productPageUrl', type: 'string' as const, optional: true },
+  { name: 'permalink', type: 'string' as const, optional: true },
   { name: 'description', type: 'string' as const, optional: true },
   { name: 'inStock', type: 'bool' as const, optional: true },
   { name: 'minSellingPrice', type: 'float' as const, optional: true },
