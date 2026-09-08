@@ -10,6 +10,10 @@ export type CartLineItem = {
   productId: string;
   variantId: string;
   productName: string;
+  /** Variant slug when present, otherwise product slug — used for storefront PDP links. */
+  slug: string;
+  /** Exact variant product page path when present (preferred over slug for PDP href). */
+  productPageUrl: string | null;
   sku: string;
   variantLabel: string | null;
   quantity: number;

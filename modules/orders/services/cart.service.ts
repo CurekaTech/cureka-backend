@@ -480,11 +480,17 @@ export class CartService {
         const rawStock = variant?.stock ?? 0;
         const stock = getSalableStockQuantity(rawStock, item.quantity);
 
+        const variantSlug = variant?.slug?.trim() ?? '';
+        const productSlug = product?.slug?.trim() ?? '';
+        const productPageUrl = variant?.productPageUrl?.trim() || null;
+
         return {
           id: item.id,
           productId: item.productId,
           variantId: item.variantId,
           productName: product?.name ?? '',
+          slug: variantSlug || productSlug,
+          productPageUrl,
           sku: variant?.sku ?? '',
           variantLabel: this.formatVariantLabel(variant),
           quantity: item.quantity,
