@@ -1,3 +1,4 @@
+import { plainToInstance } from 'class-transformer';
 import { ShipwayWebhookController } from './shipway-webhook.controller';
 import { ShipwayWebhookDto } from '../dto/shipway-webhook.dto';
 import { ShipwayService } from '../services/shipway.service';
@@ -87,5 +88,58 @@ describe('ShipwayWebhookController.normalizeEvents', () => {
     ).toEqual([
       expect.objectContaining({ order_id: 'CUR1', status: 'SCH' }),
     ]);
+  });
+});
+
+describe('ShipwayWebhookController.webhook with reverse_tracking_number', () => {
+  it('reaches handleShipwayWebhookBatch after numeric reverse_tracking_number transform', async () => {
+    const shipwayService = {
+      verifyWebhookAuth: jest.fn().mockReturnValue('unsigned'),
+    };
+    const shippingService = {
+      handleShipwayWebhookBatch: jest.fn().mockResolvedValue({
+        processed: 1,
+        skipped: 0,
+        notFound: 0,
+        unresolved: 0,
+        reconciled: 0,
+        failed: 0,
+        results: [{ outcome: 'processed' }],
+      }),
+    };
+    const controller = new ShipwayWebhookController(
+      shipwayService as unknown as ShipwayService,
+      shippingService as unknown as ShippingService,
+    );
+
+    const dto = plainToInstance(ShipwayWebhookDto, {
+      order_id: 'ORD015487605062',
+      current_status: 'DEL',
+      awbno: '11633336773305',
+      reverse_tracking_number: 11633336773305,
+    });
+    expect(dto.reverse_tracking_number).toBe('11633336773305');
+
+    const response = await controller.webhook(
+      { id: 'a9b3e385-322a-4240-8998-e629e7c89a34', headers: {} } as never,
+      dto,
+    );
+
+    expect(shipwayService.verifyWebhookAuth).toHaveBeenCalled();
+    expect(shippingService.handleShipwayWebhookBatch).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          order_id: 'ORD015487605062',
+          status: 'DEL',
+          awb_number: '11633336773305',
+        }),
+      ],
+      'unsigned',
+    );
+    expect(response).toMatchObject({
+      received: true,
+      processed: 1,
+      authMode: 'unsigned',
+    });
   });
 });
