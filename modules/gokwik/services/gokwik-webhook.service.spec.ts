@@ -35,6 +35,11 @@ describe('GokwikWebhookService', () => {
     emitAsync: jest.fn(),
   };
 
+  const ordersService = {
+    findOne: jest.fn(),
+    notifyOrderPlacedFromExternal: jest.fn(),
+  };
+
   const dataSource = {
     getRepository: jest.fn().mockReturnValue({ update }),
   } as unknown as DataSource;
@@ -46,6 +51,7 @@ describe('GokwikWebhookService', () => {
     dataSource,
     unicommerceOrderQueueService,
     eventEmitter as any,
+    ordersService as any,
   );
 
   const successPayload = {
@@ -135,10 +141,10 @@ describe('GokwikWebhookService', () => {
 
       expect(update).toHaveBeenCalledWith(
         { id: 'order-1' },
-        {
+        expect.objectContaining({
           paymentStatus: OrderPaymentStatus.PAID,
           orderStatus: OrderStatus.CONFIRMED,
-        },
+        }),
       );
       expect(queueService.enqueueOrderStatus).toHaveBeenCalledWith('order-1', 'Confirmed');
       expect(unicommerceOrderQueueService.enqueuePushOrder).toHaveBeenCalledWith('order-1');

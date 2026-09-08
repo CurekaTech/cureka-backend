@@ -254,6 +254,71 @@ export class CashfreePaymentService {
     }
   }
 
+  async createRefund(params: {
+    merchantOrderId: string;
+    refundId: string;
+    amount: number;
+    note?: string;
+  }): Promise<Record<string, unknown>> {
+    if (!this.appId || !this.secretKey) {
+      throw new InternalServerErrorException('Cashfree is not configured properly.');
+    }
+    const url = `${this.baseUrl}/orders/${encodeURIComponent(params.merchantOrderId)}/refunds`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-client-id': this.appId,
+        'x-client-secret': this.secretKey,
+        'x-api-version': this.apiVersion,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        refund_id: params.refundId,
+        refund_amount: params.amount,
+        refund_note: params.note ?? 'Cureka refund',
+      }),
+    });
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      const message =
+        (typeof json['message'] === 'string' && json['message']) ||
+        'Failed to create Cashfree refund';
+      this.logger.error(
+        { merchantOrderId: params.merchantOrderId, status: response.status },
+        '[CASHFREE] createRefund failed',
+      );
+      throw new BadRequestException(message);
+    }
+    this.logger.log(
+      { merchantOrderId: params.merchantOrderId, refundId: params.refundId },
+      '[CASHFREE] createRefund success',
+    );
+    return json;
+  }
+
+  async getRefund(merchantOrderId: string, refundId: string): Promise<Record<string, unknown>> {
+    if (!this.appId || !this.secretKey) {
+      throw new InternalServerErrorException('Cashfree is not configured properly.');
+    }
+    const url = `${this.baseUrl}/orders/${encodeURIComponent(merchantOrderId)}/refunds/${encodeURIComponent(refundId)}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-client-id': this.appId,
+        'x-client-secret': this.secretKey,
+        'x-api-version': this.apiVersion,
+      },
+    });
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      const message =
+        (typeof json['message'] === 'string' && json['message']) ||
+        'Failed to fetch Cashfree refund';
+      throw new BadRequestException(message);
+    }
+    return json;
+  }
+
   verifyWebhookSignature(rawBody: string, timestamp: string | undefined, signature: string | undefined): void {
     this.logger.log(
       {

@@ -10,6 +10,8 @@ import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UsersModule } from '@modules/users/users.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
+import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
+import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
@@ -53,6 +55,8 @@ import { OrdersService } from './services/orders.service';
     NotificationsModule,
     forwardRef(() => SubscriptionModule),
     forwardRef(() => PaymentRequestsModule),
+    forwardRef(() => RefundRequestsModule),
+    CodBlocklistModule,
   ],
   controllers: [CartController, OrdersController, AdminOrdersController, AdminAbandonedCartsController],
   providers: [

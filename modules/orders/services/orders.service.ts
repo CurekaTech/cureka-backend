@@ -51,6 +51,8 @@ import { CheckoutResolverService } from '@modules/checkout/services/checkout-res
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
+import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
+import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
 import { roundMoney, toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
 import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
@@ -81,6 +83,8 @@ export class OrdersService {
     private readonly productSubscriptionsService: ProductSubscriptionsService,
     @Inject(forwardRef(() => PaymentRequestsService))
     private readonly paymentRequestsService: PaymentRequestsService,
+    @Inject(forwardRef(() => RefundRequestsService))
+    private readonly refundRequestsService: RefundRequestsService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -122,6 +126,17 @@ export class OrdersService {
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
+    }
+
+    if (isCodPaymentMethod(dto.paymentMethod)) {
+      await this.checkoutService.assertCodPaymentEligible(
+        roundMoney(summary.subtotal - summary.discountAmount),
+        {
+          customerId: userId,
+          mobileNumber: address.phoneNumber,
+          pincode: address.pincode,
+        },
+      );
     }
 
     const order = await this.dataSource.transaction(async (manager) => {
@@ -344,6 +359,11 @@ export class OrdersService {
     if (isCodPaymentMethod(params.paymentMethod)) {
       await this.checkoutService.assertCodPaymentEligible(
         roundMoney(summary.subtotal - summary.discountAmount),
+        {
+          customerId: userId,
+          mobileNumber: address.phoneNumber,
+          pincode: address.pincode,
+        },
       );
     }
 
@@ -1247,10 +1267,13 @@ export class OrdersService {
         })
       : mapDefaultShipmentResponse(order);
 
-    return mapOrderToResponse(
+    return {
+      ...(await mapOrderToResponse(
       { ...order, shipment, shipmentResponse, shipwayStatus },
       this.storageUrlEnricher,
-    );
+    )),
+      refund: await this.refundRequestsService.getCustomerRefund(id, userId),
+    };
   }
 
   /**
@@ -1280,6 +1303,10 @@ export class OrdersService {
     const reason = this.requireCancelReason(dto);
     await this.executeCancel({ orderId: id, reason, updatedBy: userId, ownerUserId: userId });
 
+    await this.createRefundRequestAfterCancel(id, {
+      id: userId,
+      type: RefundRequestedByType.CUSTOMER,
+    }, reason);
     const order = await this.findOne(userId, id);
     await this.eventEmitter.emitAsync(
       EVENTS.ORDER_CANCELLED,
@@ -1306,6 +1333,10 @@ export class OrdersService {
       updatedBy: adminUserId,
     });
 
+    await this.createRefundRequestAfterCancel(existing.id, {
+      id: adminUserId,
+      type: RefundRequestedByType.ADMIN,
+    }, reason);
     const order = await this.findOneForAdmin(existing.id);
     await this.eventEmitter.emitAsync(
       EVENTS.ORDER_CANCELLED,
@@ -1321,6 +1352,29 @@ export class OrdersService {
       throw new BadRequestException('Cancellation reason is required');
     }
     return reason;
+  }
+
+  private async createRefundRequestAfterCancel(
+    orderId: string,
+    actor: { id: string; type: RefundRequestedByType; email?: string },
+    reason: string,
+  ): Promise<void> {
+    const entity = await this.ordersRepository.findByIdOrRefId(orderId);
+    if (!entity) {
+      return;
+    }
+    try {
+      await this.refundRequestsService.createFromOrderCancellation(entity, actor, reason);
+    } catch (error) {
+      this.logger.error(
+        {
+          orderId,
+          orderNumber: entity.orderNumber,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to create refund request after cancellation (non-blocking)',
+      );
+    }
   }
 
   private async executeCancel(params: {
