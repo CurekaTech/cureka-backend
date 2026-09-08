@@ -1,8 +1,9 @@
 /**
- * BOB WhatsApp smoke test: POST /abandoned-cart
+ * BOB WhatsApp smoke test: POST /abancart
  *
- * Final docs path: {{businessonbot_domain_name}}/abandoned-cart
- * Resolved as:     ${BOB_NOTIFY_URL}/abandoned-cart
+ * Tenant path: {{businessonbot_domain_name}}/abancart
+ * Resolved as: ${BOB_NOTIFY_URL}/abancart
+ * (docs may say /abandoned-cart — that returns 404 on curekanew)
  *
  * SAFE BY DEFAULT — dry-run unless --send.
  *
@@ -24,8 +25,8 @@ import { mapCurekaAbandonedCartToBob } from '../../../../modules/bob/mappers/bob
 import { toBobE164Phone } from '../../../../modules/bob/utils/bob.util';
 import type { BobAbandonedCartPayload } from '../../../../modules/bob/interfaces/bob.interface';
 
-/** Docs-final path — do not change without BOB confirmation. */
-const BOB_ABANDONED_CART_PATH = '/abandoned-cart';
+/** BOB abandoned-cart notify path (tenant-confirmed). */
+const BOB_ABANDONED_CART_PATH = '/abancart';
 
 interface CliOptions {
   cartRef: string;
@@ -68,8 +69,8 @@ const printUsage = (): void => {
   console.log(`
 bob:test-abandoned-cart — POST BOB ${BOB_ABANDONED_CART_PATH}
 
-Docs URL: {{businessonbot_domain_name}}${BOB_ABANDONED_CART_PATH}
-Env URL:  \${BOB_NOTIFY_URL}${BOB_ABANDONED_CART_PATH}
+Docs URL: {{businessonbot_domain_name}}/abancart
+Env URL:  \${BOB_NOTIFY_URL}/abancart
 
 Options:
   --cart-ref CAR…       Load abandoned cart by refId (DB)
@@ -486,7 +487,7 @@ async function main(): Promise<void> {
       expectedSuccessBody: { status: 'success', statusCode: 200 },
       note404:
         result.httpStatus === 404
-          ? 'BOB returned path not found — confirm /abandoned-cart is enabled on this BOB_NOTIFY_URL tenant'
+          ? 'BOB returned path not found — confirm /abancart is enabled on this BOB_NOTIFY_URL tenant'
           : null,
     });
 
