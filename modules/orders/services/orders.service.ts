@@ -140,6 +140,10 @@ export class OrdersService {
         throw new BadRequestException('Applied coupon is no longer valid for this cart');
       }
 
+      if (isCodPaymentMethod(dto.paymentMethod)) {
+        await this.checkoutService.assertCodVariantsEligible(summary.items, manager);
+      }
+
       const orderRefId = await generateUniqueRefId('order', (candidate) =>
         this.ordersRepository.existsByRefId(candidate),
       );
@@ -366,6 +370,10 @@ export class OrdersService {
         throw new BadRequestException('Applied coupon is no longer valid for this cart');
       }
 
+      if (isCodPaymentMethod(params.paymentMethod)) {
+        await this.checkoutService.assertCodVariantsEligible(summary.items, manager);
+      }
+
       const orderRefId = await generateUniqueRefId('order', (candidate) =>
         this.ordersRepository.existsByRefId(candidate),
       );
@@ -541,6 +549,19 @@ export class OrdersService {
         })),
         manager,
       );
+
+      if (isCodPaymentMethod(params.paymentMethod)) {
+        await this.checkoutService.assertCodVariantsEligible(
+          items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: item.productName,
+            variantName: item.variantName,
+            sku: item.sku,
+          })),
+          manager,
+        );
+      }
 
       for (const item of items) {
         const variant = await manager.getRepository(ProductVariantEntity).findOne({
@@ -884,6 +905,19 @@ export class OrdersService {
       const items = existing.items ?? [];
       if (!items.length) {
         throw new BadRequestException('Order has no items');
+      }
+
+      if (!isPrepaid) {
+        await this.checkoutService.assertCodVariantsEligible(
+          items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: item.productName,
+            variantName: item.variantName,
+            sku: item.sku,
+          })),
+          manager,
+        );
       }
 
       for (const item of items) {

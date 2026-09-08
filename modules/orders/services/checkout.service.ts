@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { STOCK_VALIDATION_ENABLED, getSalableStockQuantity } from '@packages/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -81,6 +81,7 @@ export class CheckoutService {
     });
 
     if (isCodPaymentMethod(dto.paymentMethod)) {
+      await this.assertCodVariantsEligible(items, this.dataSource.manager);
       const payable = roundMoney(pricing.subtotal - pricing.discountAmount);
       const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
       this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
@@ -101,6 +102,61 @@ export class CheckoutService {
     );
   }
 
+  async assertCodVariantsEligible(
+    lines: Array<{
+      productId: string;
+      variantId: string;
+      productName: string;
+      variantName?: string | null;
+      sku?: string | null;
+    }>,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<void> {
+    const variantIds = [...new Set(lines.map((line) => line.variantId).filter(Boolean))];
+    if (!variantIds.length) {
+      return;
+    }
+
+    const variants = await manager.getRepository(ProductVariantEntity).find({
+      where: { id: In(variantIds) },
+      relations: {
+        product: true,
+        attributeValues: true,
+      },
+    });
+    const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const restrictedNames: string[] = [];
+    const seen = new Set<string>();
+
+    for (const line of lines) {
+      const variant = variantById.get(line.variantId);
+      if (!variant || variant.productId !== line.productId) {
+        continue;
+      }
+      if (variant.codAvailable) {
+        continue;
+      }
+
+      const label = this.buildCodRestrictedProductLabel(variant, line);
+      const key = label.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      restrictedNames.push(label);
+    }
+
+    if (!restrictedNames.length) {
+      return;
+    }
+
+    throw new BadRequestException(
+      `Cash on Delivery is not available for the following products:\n\n` +
+        restrictedNames.map((name) => `- ${name}`).join('\n') +
+        `\n\nYou can place a prepaid order for all products, remove the above products and continue with COD, or place separate orders.`,
+    );
+  }
+
   /**
    * Revalidate catalog product unit/line prices only (not coupons/fees/GoKwik totals).
    */
@@ -115,6 +171,36 @@ export class CheckoutService {
       subscriptionPricingService: this.productSubscriptionPricingService,
       membershipBenefits: this.membershipBenefits,
     });
+  }
+
+  private buildCodRestrictedProductLabel(
+    variant: ProductVariantEntity,
+    line: {
+      productName: string;
+      variantName?: string | null;
+      sku?: string | null;
+    },
+  ): string {
+    const displayName = variant.displayName?.trim();
+    if (displayName) {
+      return displayName;
+    }
+
+    const productName = variant.product?.name?.trim() || line.productName?.trim() || 'Product';
+    const attributeLabel = (variant.attributeValues ?? [])
+      .map((item) => item.value?.trim())
+      .filter(Boolean)
+      .join(' / ');
+    if (attributeLabel) {
+      return `${productName} - ${attributeLabel}`;
+    }
+
+    const variantName = line.variantName?.trim();
+    if (variantName) {
+      return `${productName} - ${variantName}`;
+    }
+
+    return productName || variant.sku || line.sku || 'Product';
   }
 
   private async buildCheckoutItems(
