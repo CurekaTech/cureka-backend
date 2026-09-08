@@ -18,6 +18,8 @@ import {
   assertCurrentProductPrices,
   ProductPriceLine,
 } from '../utils/product-price-validation.util';
+import { CodBlocklistService } from '@modules/cod-blocklist/services/cod-blocklist.service';
+import { EvaluateCodBlockParams } from '@modules/cod-blocklist/interfaces/cod-blocklist.interface';
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
@@ -33,11 +35,16 @@ export class CheckoutService {
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly productSubscriptionPricingService: ProductSubscriptionPricingService,
     private readonly membershipBenefits: MembershipBenefitsApplicationService,
+    private readonly codBlocklistService: CodBlocklistService,
   ) {}
 
   async validateCheckout(userId: string, dto: CheckoutDto): Promise<CheckoutSummary> {
+    let deliveryPincode: string | undefined;
+    let checkoutMobile: string | undefined;
     if (dto.addressId) {
-      await this.userAddressesService.findOne(userId, dto.addressId);
+      const address = await this.userAddressesService.findOne(userId, dto.addressId);
+      deliveryPincode = address.pincode;
+      checkoutMobile = address.phoneNumber;
     }
 
     const cart = await this.cartService.getActiveCartEntity(userId);
@@ -78,12 +85,16 @@ export class CheckoutService {
       items: lineItems,
       paymentMethod: dto.paymentMethod,
       strict: true,
+      deliveryPincode,
+      checkoutMobile,
     });
 
     if (isCodPaymentMethod(dto.paymentMethod)) {
-      const payable = roundMoney(pricing.subtotal - pricing.discountAmount);
-      const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
-      this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
+      await this.assertCodPaymentEligible(roundMoney(pricing.subtotal - pricing.discountAmount), {
+        customerId: userId,
+        mobileNumber: checkoutMobile,
+        pincode: deliveryPincode,
+      });
     }
 
     return {
@@ -92,13 +103,24 @@ export class CheckoutService {
     };
   }
 
-  /** Enforces COD min/max on backend-calculated merchandise payable (subtotal − coupon). */
-  async assertCodPaymentEligible(payableMerchandise: number): Promise<void> {
+  /**
+   * Enforces COD min/max, then the native COD blocklist (customer / pincode).
+   * GoKwik-active checkouts skip the custom blocklist inside CodBlocklistService.
+   */
+  async assertCodPaymentEligible(
+    payableMerchandise: number,
+    context?: EvaluateCodBlockParams,
+  ): Promise<void> {
     const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
     this.cartCheckoutAdminSettingsService.assertCodOrderEligible(
       roundMoney(payableMerchandise),
       amounts,
     );
+    await this.codBlocklistService.assertNativeCodAllowed({
+      customerId: context?.customerId,
+      mobileNumber: context?.mobileNumber,
+      pincode: context?.pincode,
+    });
   }
 
   /**

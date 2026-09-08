@@ -281,6 +281,16 @@ export class PermissionsService {
             key: 'orders-abandoned-carts',
             permissions: getPerms('abandoned_carts'),
           },
+          {
+            name: 'Refund Requests',
+            key: 'orders-refund-requests',
+            permissions: getPerms('refund_requests'),
+          },
+          {
+            name: 'COD Blocklist',
+            key: 'orders-cod-blocklist',
+            permissions: getPerms('cod_blocklist'),
+          },
         ],
       },
       {

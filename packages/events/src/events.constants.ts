@@ -15,7 +15,13 @@ export const EVENTS = {
   ORDER_CANCELLED: 'order.cancelled',
   SHIPMENT_UPDATED: 'shipment.updated',
   CHECKOUT_CART_ABANDONED: 'checkout.cart.abandoned',
-  PAYMENT_COMPLETED: 'payment.completed',
+  REFUND_REQUEST_CREATED: 'refund.request.created',
+  REFUND_REQUEST_APPROVED: 'refund.request.approved',
+  REFUND_REQUEST_REJECTED: 'refund.request.rejected',
+  REFUND_PROCESSING_STARTED: 'refund.processing.started',
+  REFUND_PROCESSED: 'refund.processed',
+  REFUND_FAILED: 'refund.failed',
+  REFUND_PROVIDER_UPDATED: 'refund.provider.updated',
   NOTIFICATION_SEND: 'notification.send',
 
   // Cache invalidation domain events

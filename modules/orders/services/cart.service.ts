@@ -20,6 +20,7 @@ import { CartsRepository } from '../repositories/carts.repository';
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { CartPricingService } from './cart-pricing.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
+import { CodBlocklistService } from '@modules/cod-blocklist/services/cod-blocklist.service';
 
 const EMPTY_CART_BASE = {
   cartId: '',
@@ -47,9 +48,10 @@ export class CartService {
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
+    private readonly codBlocklistService: CodBlocklistService,
   ) { }
 
-  private async buildEmptyCartResponse(): Promise<CartResponse> {
+  private async buildEmptyCartResponse(userId?: string): Promise<CartResponse> {
     const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
     const checkoutRules = {
       prepaidDiscountPercent:
@@ -62,7 +64,10 @@ export class CartService {
     return {
       ...EMPTY_CART_BASE,
       checkoutRules,
-      cod: this.cartCheckoutAdminSettingsService.resolveCodEligibility(0, amounts),
+      cod: await this.codBlocklistService.overlayNativeCodEligibility(
+        this.cartCheckoutAdminSettingsService.resolveCodEligibility(0, amounts),
+        { customerId: userId },
+      ),
     };
   }
 
@@ -144,7 +149,7 @@ export class CartService {
   ): Promise<CartResponse> {
     const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
     if (!cart) {
-      return this.buildEmptyCartResponse();
+      return this.buildEmptyCartResponse(userId);
     }
 
     return this.toCartResponse(cart, userId, manager, {
@@ -272,7 +277,7 @@ export class CartService {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) {
-        return this.buildEmptyCartResponse();
+        return this.buildEmptyCartResponse(userId);
       }
 
       if (cart.couponId) {
@@ -285,7 +290,7 @@ export class CartService {
 
       const refreshed = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!refreshed) {
-        return this.buildEmptyCartResponse();
+        return this.buildEmptyCartResponse(userId);
       }
       return this.toCartResponse(refreshed, userId, manager);
     });

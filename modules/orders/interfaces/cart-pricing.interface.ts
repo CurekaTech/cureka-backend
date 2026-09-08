@@ -52,6 +52,8 @@ export type CartCodEligibility = {
   available: boolean;
   minimumOrderAmount: number;
   message: string;
+  /** `COD_BLOCKED_FOR_PINCODE` | `COD_BLOCKED_FOR_CUSTOMER` when native checkout is blocked. */
+  reasonCode?: string | null;
 };
 
 export type CartPricing = {

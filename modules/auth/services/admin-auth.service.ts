@@ -512,6 +512,20 @@ export const MENU_HIERARCHY: MenuItem[] = [
         href: '/abandoned-carts',
         requiredPermissions: ['abandoned_carts.read'],
       },
+      {
+        name: 'Refund Requests',
+        key: 'orders-refund-requests',
+        icon: 'RotateCcw',
+        href: '/refund-requests',
+        requiredPermissions: ['refund_requests.read'],
+      },
+      {
+        name: 'COD Blocklist',
+        key: 'orders-cod-blocklist',
+        icon: 'Ban',
+        href: '/cod-blocklist',
+        requiredPermissions: ['cod_blocklist.read'],
+      },
     ],
   },
   // {
