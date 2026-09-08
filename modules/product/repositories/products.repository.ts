@@ -1448,6 +1448,7 @@ export class ProductsRepository {
     const applySecondary = (column: string): void => {
       if (options?.prioritizeTop) {
         qb.orderBy('variant.isTop', 'DESC');
+        qb.addOrderBy('variant.topSortOrder', 'ASC', 'NULLS LAST');
         qb.addOrderBy(column, sortOrder, 'NULLS LAST');
       } else {
         qb.orderBy(column, sortOrder, 'NULLS LAST');
@@ -1597,7 +1598,17 @@ export class ProductsRepository {
           ) THEN 0 ELSE 1 END)`,
         'top_rank',
       );
+      qb.addSelect(
+        `(SELECT MIN(pv_top.top_sort_order)
+          FROM product_variants pv_top
+          WHERE pv_top.product_id = product.id
+            AND pv_top.deleted_at IS NULL
+            AND pv_top.status = :topVariantStatus
+            AND pv_top.is_top = true)`,
+        'top_sort_order',
+      );
       qb.addOrderBy('top_rank', 'ASC');
+      qb.addOrderBy('top_sort_order', 'ASC', 'NULLS LAST');
     }
 
     if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {

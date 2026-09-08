@@ -7,9 +7,14 @@ import { CacheInvalidationService, CacheKeys } from '@packages/cache';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
-import { SaveCategoryTopProductsDto } from '../dto/category-product-indexing.dto';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
+import {
+  ReorderCategoryTopProductsDto,
+  SaveCategoryTopProductsDto,
+} from '../dto/category-product-indexing.dto';
 import {
   ICategoryProductIndexingCategory,
+  ICategoryTopProductsReorderResult,
   ICategoryTopProductsSaveResult,
   ICategoryTopProductVariant,
 } from '../interfaces/category-product-indexing.interface';
@@ -36,14 +41,7 @@ export class CategoryProductIndexingService {
     const rows = await this.productVariantsRepository.findTopVariantsForCategory(category.id);
     return {
       category: this.mapCategory(category),
-      variants: rows.map((row) => ({
-        id: row.id,
-        sku: row.sku,
-        slug: row.slug,
-        productRefId: row.product.refId,
-        productName: row.product.name,
-        isTop: true,
-      })),
+      variants: rows.map((row) => this.mapTopVariant(row)),
     };
   }
 
@@ -79,14 +77,39 @@ export class CategoryProductIndexingService {
       category: this.mapCategory(category),
       selectedCount,
       clearedCount,
-      variants: topRows.map((row) => ({
-        id: row.id,
-        sku: row.sku,
-        slug: row.slug,
-        productRefId: row.product.refId,
-        productName: row.product.name,
-        isTop: true,
-      })),
+      variants: topRows.map((row) => this.mapTopVariant(row)),
+    };
+  }
+
+  async reorderTopVariants(
+    categoryRefId: string,
+    dto: ReorderCategoryTopProductsDto,
+  ): Promise<ICategoryTopProductsReorderResult> {
+    const category = await this.requireCategory(categoryRefId);
+    const orderedIds = [...new Set(dto.variantIds)];
+    const currentTopRows = await this.productVariantsRepository.findTopVariantsForCategory(category.id);
+    const currentTopIds = currentTopRows.map((row) => row.id);
+
+    const missing = currentTopIds.filter((id) => !orderedIds.includes(id));
+    const extra = orderedIds.filter((id) => !currentTopIds.includes(id));
+    if (missing.length || extra.length) {
+      throw new BadRequestException(
+        'Sequence payload must contain the full current top-product set for this category.',
+      );
+    }
+
+    const updatedCount = await this.productVariantsRepository.reorderTopVariantsForCategory(
+      category.id,
+      orderedIds,
+    );
+
+    await this.invalidateCaches();
+
+    const reordered = await this.productVariantsRepository.findTopVariantsForCategory(category.id);
+    return {
+      category: this.mapCategory(category),
+      updatedCount,
+      variants: reordered.map((row) => this.mapTopVariant(row)),
     };
   }
 
@@ -105,6 +128,18 @@ export class CategoryProductIndexingService {
       slug: category.slug,
       hierarchyLevel: category.hierarchyLevel,
       hierarchyLabel: this.hierarchyLevelLabel(category.hierarchyLevel),
+    };
+  }
+
+  private mapTopVariant(row: ProductVariantEntity): ICategoryTopProductVariant {
+    return {
+      id: row.id,
+      sku: row.sku,
+      slug: row.slug,
+      productRefId: row.product?.refId ?? '',
+      productName: row.product?.name ?? '',
+      isTop: true,
+      topSortOrder: row.topSortOrder ?? null,
     };
   }
 
