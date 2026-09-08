@@ -31,8 +31,16 @@ export class HealthConcernsRepository {
     return this.repo.findOne({ where: { refId } });
   }
 
+  async findActiveByRefId(refId: string): Promise<HealthConcernEntity | null> {
+    return this.repo.findOne({ where: { refId, status: MasterStatus.ACTIVE } });
+  }
+
   async findBySlug(slug: string): Promise<HealthConcernEntity | null> {
     return this.repo.findOne({ where: { slug } });
+  }
+
+  async findActiveBySlug(slug: string): Promise<HealthConcernEntity | null> {
+    return this.repo.findOne({ where: { slug, status: MasterStatus.ACTIVE } });
   }
 
   async existsByRefId(refId: string): Promise<boolean> {

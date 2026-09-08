@@ -648,15 +648,15 @@ export class PublicProductsService {
             : Promise.resolve(null),
         this.resolveBrandFilters(query),
         query.productNatureRefId
-          ? this.productNaturesRepository.findByRefId(query.productNatureRefId)
+          ? this.productNaturesRepository.findActiveByRefId(query.productNatureRefId)
           : Promise.resolve(null),
         query.healthConcernRefId
-          ? this.healthConcernsRepository.findByRefId(query.healthConcernRefId)
+          ? this.healthConcernsRepository.findActiveByRefId(query.healthConcernRefId)
           : query.healthConcernSlug
-            ? this.healthConcernsRepository.findBySlug(query.healthConcernSlug)
+            ? this.healthConcernsRepository.findActiveBySlug(query.healthConcernSlug)
             : Promise.resolve(null),
         query.wellnessGoalRefId
-          ? this.wellnessGoalsRepository.findByRefId(query.wellnessGoalRefId)
+          ? this.wellnessGoalsRepository.findActiveByRefId(query.wellnessGoalRefId)
           : Promise.resolve(null),
         queryBindings
           ? this.masterResolver.resolveCategoryFilterBindings(queryBindings)
@@ -676,6 +676,18 @@ export class PublicProductsService {
         query.healthConcernRefId
           ? `Health concern with refId "${query.healthConcernRefId}" not found`
           : `Health concern with slug "${query.healthConcernSlug}" not found`,
+      );
+    }
+
+    if (query.productNatureRefId && !nature) {
+      throw new NotFoundException(
+        `Product nature with refId "${query.productNatureRefId}" not found`,
+      );
+    }
+
+    if (query.wellnessGoalRefId && !wellnessGoal) {
+      throw new NotFoundException(
+        `Wellness goal with refId "${query.wellnessGoalRefId}" not found`,
       );
     }
 
