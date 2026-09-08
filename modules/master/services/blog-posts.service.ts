@@ -648,12 +648,20 @@ export class BlogPostsService {
     if (!videos?.length) return [];
 
     return videos.map((video, index) => {
+      const title = video.title?.trim() || null;
+      const subtitle = video.subtitle?.trim() || null;
+
       if (video.type === BlogVideoType.URL) {
         const url = video.url?.trim() ?? '';
         if (!url) {
           throw new BadRequestException(`videos[${index}].url is required when type is url`);
         }
-        return { type: BlogVideoType.URL, url };
+        return {
+          type: BlogVideoType.URL,
+          url,
+          ...(title ? { title } : {}),
+          ...(subtitle ? { subtitle } : {}),
+        };
       }
 
       const file = this.storageUrlEnricher.persist(
@@ -662,7 +670,12 @@ export class BlogPostsService {
       if (!file) {
         throw new BadRequestException(`videos[${index}].file is required when type is file`);
       }
-      return { type: BlogVideoType.FILE, file };
+      return {
+        type: BlogVideoType.FILE,
+        file,
+        ...(title ? { title } : {}),
+        ...(subtitle ? { subtitle } : {}),
+      };
     });
   }
 
