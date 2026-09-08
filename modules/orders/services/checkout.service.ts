@@ -57,6 +57,8 @@ export class CheckoutService {
       productId: item.productId,
       variantId: item.variantId,
       productName: item.productName,
+      slug: '',
+      productPageUrl: null,
       sku: item.sku,
       variantLabel: item.variantName,
       quantity: item.quantity,
