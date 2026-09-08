@@ -2418,9 +2418,9 @@ export class ProductsRepository {
           WHEN product.slug ILIKE :search THEN 9
           ELSE 10
         END`,
-        'searchRank',
+        'search_rank',
       )
-      .orderBy('searchRank', 'ASC')
+      .orderBy('search_rank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
       .setParameters({ prefixSearch, search: containsSearch })
