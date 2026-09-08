@@ -1000,39 +1000,18 @@ export class BulkUploadProcessor extends WorkerHost {
                 (processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0) +
                 processedCommonMedia.length;
               if (lookupProductId && lookupImageUrls?.length && resolvedImageCount === 0) {
-                const firstLookupUrl = lookupImageUrls[0] ?? '';
-                return {
-                  ok: false as const,
-                  sheetRows: countSheetRowsForProductGroup(group),
-                  variantSlots: countVariantSlotsForProductGroup(group),
-                  errors: this.buildGroupFailureErrors(group, {
-                    column: 'Product images',
-                    invalidValue: firstLookupUrl || lookupProductId,
-                    reason:
-                      `No product images could be downloaded for Product ID ${lookupProductId} ` +
-                      `(${lookupImageUrls.length} image link(s) from the Product ID lookup). ` +
-                      'The image links look broken or unreachable.',
-                    suggestedFix:
-                      'Open each image link in a browser. Replace broken links, or add working Primary Image URL / product image URLs directly in the sheet, then re-upload.',
-                  }),
-                };
+                this.logger.warn(
+                  `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId} has ${lookupImageUrls.length} lookup image(s), but none could be resolved. Continuing without images temporarily.`,
+                );
               }
 
               if (unresolvedCommonMedia.length) {
                 const failed = unresolvedCommonMedia[0];
                 const failedUrl = failed?.url || failed?.filename || '';
                 const humanized = humanizeImageResolveError(failed?.resolveError, failedUrl);
-                return {
-                  ok: false as const,
-                  sheetRows: countSheetRowsForProductGroup(group),
-                  variantSlots: countVariantSlotsForProductGroup(group),
-                  errors: this.buildGroupFailureErrors(group, {
-                    column: 'Product images',
-                    invalidValue: failedUrl,
-                    reason: humanized.reason,
-                    suggestedFix: humanized.suggestedFix,
-                  }),
-                };
+                this.logger.warn(
+                  `[BULK_UPLOAD] product="${group.name}" continuing without unresolved common media "${failedUrl}": ${humanized.reason}`,
+                );
               }
 
               const attributeRefIds = new Set<string>();
