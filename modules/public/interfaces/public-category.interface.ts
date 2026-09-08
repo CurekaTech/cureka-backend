@@ -34,6 +34,12 @@ export interface IPublicCategoryProductListingContext {
     slug: string;
     slugPath: string[];
     permalink: string;
+    image: IStorageFileReference | IStorageFileReferenceResponse | null;
+    banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    aboveTheFold: string | null;
+    belowTheFold: string | null;
+    metaTitle: string | null;
+    metaDescription: string | null;
   } | null;
 }
 
