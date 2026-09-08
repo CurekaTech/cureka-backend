@@ -48,6 +48,22 @@ export class CartItemsRepository {
     return repository.delete({ id }).then(() => undefined);
   }
 
+  lockOwnedById(
+    userId: string,
+    itemId: string,
+    manager: EntityManager,
+  ): Promise<CartItemEntity | null> {
+    return manager
+      .getRepository(CartItemEntity)
+      .createQueryBuilder('item')
+      .innerJoin('item.cart', 'cart')
+      .where('item.id = :itemId', { itemId })
+      .andWhere('cart.userId = :userId', { userId })
+      .andWhere('cart.isActive = true')
+      .setLock('pessimistic_write')
+      .getOne();
+  }
+
   clearByCartId(cartId: string, manager?: EntityManager): Promise<void> {
     const repository = manager ? manager.getRepository(CartItemEntity) : this.repo;
     return repository.delete({ cartId }).then(() => undefined);
