@@ -51,6 +51,8 @@ import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { ReportsModule } from '@modules/reports/reports.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { SitemapModule } from '@modules/sitemap/sitemap.module';
+import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
+import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 
 @Module({
   imports: [
@@ -122,6 +124,8 @@ import { SitemapModule } from '@modules/sitemap/sitemap.module';
     ReportsModule,
     SubscriptionModule,
     SitemapModule,
+    RefundRequestsModule,
+    CodBlocklistModule,
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }

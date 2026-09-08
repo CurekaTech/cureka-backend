@@ -33,6 +33,8 @@ export type CodEligibility = {
   available: boolean;
   minimumOrderAmount: number;
   message: string;
+  /** Present when COD is unavailable because of the native COD blocklist. */
+  reasonCode?: string | null;
 };
 
 const DEFAULT_GOKWIK_SHIPPING_SLABS: ShippingSlab[] = [
