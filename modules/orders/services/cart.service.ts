@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { generateUniqueRefId, getSalableStockQuantity, isVariantInStock, STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
 import { ProductEntity } from '@modules/product/entities/product.entity';
@@ -17,6 +17,7 @@ import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartLineItem, CartResponse } from '../interfaces/cart-pricing.interface';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
+import { SavedForLaterItemsRepository } from '../repositories/saved-for-later-items.repository';
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { CartPricingService } from './cart-pricing.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
@@ -49,6 +50,7 @@ export class CartService {
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly codBlocklistService: CodBlocklistService,
+    private readonly savedForLaterItemsRepository: SavedForLaterItemsRepository,
   ) { }
 
   private async buildEmptyCartResponse(userId?: string): Promise<CartResponse> {
@@ -73,10 +75,28 @@ export class CartService {
 
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
-      const cart = await this.getOrCreateActiveCart(userId, manager);
-      await this.addOrIncrementItem(userId, cart.id, dto, manager);
-      return this.getCart(userId, manager);
+      return this.addItemInTransaction(userId, dto, manager);
     });
+  }
+
+  /**
+   * Same validation/merge as add-to-cart, for callers that already hold a transaction
+   * (Save for Later move-to-cart).
+   */
+  async addItemInTransaction(
+    userId: string,
+    dto: {
+      productId: string;
+      variantId: string;
+      quantity: number;
+      isSubscription?: boolean;
+      frequency?: ProductSubscriptionFrequency | null;
+    },
+    manager: EntityManager,
+  ): Promise<CartResponse> {
+    const cart = await this.getOrCreateActiveCart(userId, manager);
+    await this.addOrIncrementItem(userId, cart.id, dto, manager);
+    return this.getCart(userId, manager);
   }
 
   /**
@@ -357,68 +377,98 @@ export class CartService {
 
     await this.dataSource.transaction(async (manager) => {
       const guestCart = await this.cartsRepository.findActiveByUserId(fromUserId, manager);
-      if (!guestCart?.items?.length) {
-        return;
-      }
 
-      const targetCart = await this.getOrCreateActiveCart(toUserId, manager);
+      if (guestCart?.items?.length) {
+        const targetCart = await this.getOrCreateActiveCart(toUserId, manager);
 
-      for (const item of guestCart.items) {
-        const variant = await this.getValidVariant(item.productId, item.variantId, manager);
-        const existing = await this.cartItemsRepository.findByCartAndVariant(
-          targetCart.id,
-          item.variantId,
-          manager,
-          {
-            isSubscription: item.isSubscription,
-            frequency: item.isSubscription ? item.frequency ?? null : null,
-          },
-        );
-
-        if (existing) {
-          const nextQty = existing.quantity + item.quantity;
-          this.assertStockAvailable(nextQty, variant.stock);
-          await this.cartItemsRepository.updateById(
-            existing.id,
-            { quantity: nextQty, updatedBy: toUserId },
+        for (const item of guestCart.items) {
+          const variant = await this.getValidVariant(item.productId, item.variantId, manager);
+          const existing = await this.cartItemsRepository.findByCartAndVariant(
+            targetCart.id,
+            item.variantId,
             manager,
-          );
-        } else {
-          const refId = await generateUniqueRefId('cart-item', (candidate) =>
-            this.cartItemsRepository.existsByRefId(candidate),
-          );
-          await this.cartItemsRepository.create(
             {
-              refId,
-              cartId: targetCart.id,
-              productId: item.productId,
-              variantId: item.variantId,
-              quantity: item.quantity,
-              isSubscription: !!item.isSubscription,
+              isSubscription: item.isSubscription,
               frequency: item.isSubscription ? item.frequency ?? null : null,
-              createdBy: toUserId,
-              updatedBy: toUserId,
             },
+          );
+
+          if (existing) {
+            const nextQty = existing.quantity + item.quantity;
+            this.assertStockAvailable(nextQty, variant.stock);
+            await this.cartItemsRepository.updateById(
+              existing.id,
+              { quantity: nextQty, updatedBy: toUserId },
+              manager,
+            );
+          } else {
+            const refId = await generateUniqueRefId('cart-item', (candidate) =>
+              this.cartItemsRepository.existsByRefId(candidate),
+            );
+            await this.cartItemsRepository.create(
+              {
+                refId,
+                cartId: targetCart.id,
+                productId: item.productId,
+                variantId: item.variantId,
+                quantity: item.quantity,
+                isSubscription: !!item.isSubscription,
+                frequency: item.isSubscription ? item.frequency ?? null : null,
+                createdBy: toUserId,
+                updatedBy: toUserId,
+              },
+              manager,
+            );
+          }
+        }
+
+        if (guestCart.couponId && !targetCart.couponId) {
+          await this.cartsRepository.updateById(
+            targetCart.id,
+            { couponId: guestCart.couponId, updatedBy: toUserId },
             manager,
           );
         }
-      }
 
-      if (guestCart.couponId && !targetCart.couponId) {
+        await this.cartItemsRepository.clearByCartId(guestCart.id, manager);
         await this.cartsRepository.updateById(
-          targetCart.id,
-          { couponId: guestCart.couponId, updatedBy: toUserId },
+          guestCart.id,
+          { isActive: false, couponId: null, updatedBy: toUserId },
           manager,
         );
       }
 
-      await this.cartItemsRepository.clearByCartId(guestCart.id, manager);
-      await this.cartsRepository.updateById(
-        guestCart.id,
-        { isActive: false, couponId: null, updatedBy: toUserId },
+      await this.mergeGuestSavedForLater(fromUserId, toUserId, manager);
+    });
+  }
+
+  private async mergeGuestSavedForLater(
+    fromUserId: string,
+    toUserId: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    const guestItems = await this.savedForLaterItemsRepository.findAllByUserId(fromUserId, manager);
+    for (const item of guestItems) {
+      const existing = await this.savedForLaterItemsRepository.lockByUserAndIdentity(
+        toUserId,
+        item.identityKey,
         manager,
       );
-    });
+      if (existing) {
+        await this.savedForLaterItemsRepository.updateById(
+          existing.id,
+          { quantity: existing.quantity + item.quantity, updatedBy: toUserId },
+          manager,
+        );
+        await this.savedForLaterItemsRepository.deleteById(item.id, manager);
+      } else {
+        await this.savedForLaterItemsRepository.updateById(
+          item.id,
+          { userId: toUserId, updatedBy: toUserId },
+          manager,
+        );
+      }
+    }
   }
 
   async getOrCreateActiveCart(userId: string, manager = this.dataSource.manager): Promise<CartEntity> {
