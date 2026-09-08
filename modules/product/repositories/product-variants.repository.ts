@@ -305,6 +305,18 @@ export class ProductVariantsRepository {
     return sku;
   }
 
+  async findSkusByPrefix(prefix: string): Promise<string[]> {
+    const likePattern = `${prefix.replace(/[%_]/g, '\\$&')}%`;
+    const rows = await this.repo
+      .createQueryBuilder('variant')
+      .select(['variant.sku'])
+      .withDeleted()
+      .where('variant.sku ILIKE :pattern', { pattern: likePattern })
+      .getMany();
+
+    return rows.map((row) => row.sku).filter(Boolean);
+  }
+
   async getAllSkus(): Promise<string[]> {
     const results = await this.repo.find({ select: ['sku'] });
     return results.map((r) => r.sku);

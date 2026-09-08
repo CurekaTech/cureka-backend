@@ -488,7 +488,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
         name: 'In Transit',
         key: 'in-transit-orders',
         icon: '',
-        href: '/order-requests?status=OUT_FOR_DELIVERY',
+        href: '/order-requests?status=SHIPPED',
         requiredPermissions: ['orders.read'],
       },
       {
