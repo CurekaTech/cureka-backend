@@ -163,6 +163,51 @@ export class CreateBrandDto {
   @ValidateNested({ each: true })
   @Type(() => BrandHighlightDto)
   brandHighlights?: BrandHighlightDto[] | null;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showBanner?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showVideo?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showFeaturedBanner?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showPromotionalBanner?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showSecondaryBanner?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showSecondaryVideo?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showOfferBanner?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showBrandHighlights?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  showDescription?: boolean;
 }
 
 /**
