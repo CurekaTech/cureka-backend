@@ -1976,17 +1976,26 @@ export class ProductsRepository {
     options: PublicProductListOptions,
     omit: PublicFacetOmit[],
   ): Promise<{ min: number | null; max: number | null }> {
-    const qb = this.createEligibleProductsQb(options, omit);
-    qb.innerJoin(
-      ProductVariantEntity,
-      'facetPv',
-      'facetPv.productId = product.id AND facetPv.deletedAt IS NULL AND facetPv.status = :facetPriceVariantStatus',
-      { facetPriceVariantStatus: VariantStatus.ACTIVE },
-    )
-      .select('MIN(facetPv.selling_price::numeric)', 'min')
-      .addSelect('MAX(facetPv.selling_price::numeric)', 'max');
+    const eligibleQb = this.createEligibleProductsQb(options, omit).select('product.id', 'id');
+    const [sql, params] = eligibleQb.getQueryAndParameters();
+    const statusParamIndex = params.length + 1;
 
-    const row = await qb.getRawOne<{ min: string | number | null; max: string | number | null }>();
+    const rows = await this.repo.manager.query<
+      Array<{ min: string | number | null; max: string | number | null }>
+    >(
+      `
+      WITH eligible AS (${sql})
+      SELECT MIN(pv.selling_price::numeric) AS min,
+             MAX(pv.selling_price::numeric) AS max
+      FROM product_variants pv
+      INNER JOIN eligible e ON e.id = pv.product_id
+      WHERE pv.deleted_at IS NULL
+        AND pv.status = $${statusParamIndex}
+      `,
+      [...params, VariantStatus.ACTIVE],
+    );
+
+    const row = rows[0];
     const min = row?.min == null ? null : Number(row.min);
     const max = row?.max == null ? null : Number(row.max);
     return {
