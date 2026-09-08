@@ -2404,7 +2404,7 @@ export class ProductsRepository {
           OR variant.displayName ILIKE :search)`,
         { search: containsSearch },
       )
-      .orderBy(
+      .addSelect(
         `CASE
           WHEN variant.sku ILIKE :prefixSearch THEN 0
           WHEN variant.displayName ILIKE :prefixSearch THEN 1
@@ -2418,8 +2418,9 @@ export class ProductsRepository {
           WHEN product.slug ILIKE :search THEN 9
           ELSE 10
         END`,
-        'ASC',
+        'searchRank',
       )
+      .orderBy('searchRank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
       .setParameters({ prefixSearch, search: containsSearch })
