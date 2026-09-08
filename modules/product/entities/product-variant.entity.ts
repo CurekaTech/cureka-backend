@@ -84,6 +84,10 @@ export class ProductVariantEntity {
   @Column({ name: 'is_top', type: 'boolean', default: false })
   isTop!: boolean;
 
+  /** Explicit ordering within the Top Products group. Lower values appear first. */
+  @Column({ name: 'top_sort_order', type: 'int', nullable: true })
+  topSortOrder!: number | null;
+
   @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
   weight!: string | null;
 

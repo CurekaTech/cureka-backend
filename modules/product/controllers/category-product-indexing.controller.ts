@@ -4,7 +4,10 @@ import { JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
-import { SaveCategoryTopProductsDto } from '../dto/category-product-indexing.dto';
+import {
+  ReorderCategoryTopProductsDto,
+  SaveCategoryTopProductsDto,
+} from '../dto/category-product-indexing.dto';
 import { CategoryProductIndexingService } from '../services/category-product-indexing.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -39,5 +42,16 @@ export class CategoryProductIndexingController {
     @Body() dto: SaveCategoryTopProductsDto,
   ) {
     return this.categoryProductIndexingService.saveTopVariants(categoryRefId, dto);
+  }
+
+  @ResponseMessage('Top product sequence updated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('category_product.update')
+  @Put('categories/:categoryRefId/top-products/sequence')
+  reorderTopProducts(
+    @Param('categoryRefId', RefIdPipe) categoryRefId: string,
+    @Body() dto: ReorderCategoryTopProductsDto,
+  ) {
+    return this.categoryProductIndexingService.reorderTopVariants(categoryRefId, dto);
   }
 }
