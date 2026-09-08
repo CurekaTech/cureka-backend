@@ -4,6 +4,7 @@ import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cach
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import {
   SEARCH_ENTITY_TYPES,
@@ -226,9 +227,15 @@ export class PublicSearchService {
     );
 
     return this.mergeSearchResults(
-      categories.data.map(mapCategoryToSearchResult),
-      brands.data.map(mapBrandToSearchResult),
-      healthConcerns.data.map(mapHealthConcernToSearchResult),
+      categories.data
+        .filter((category) => category.status === MasterStatus.ACTIVE)
+        .map(mapCategoryToSearchResult),
+      brands.data
+        .filter((brand) => brand.status === MasterStatus.ACTIVE)
+        .map(mapBrandToSearchResult),
+      healthConcerns.data
+        .filter((healthConcern) => healthConcern.status === MasterStatus.ACTIVE)
+        .map(mapHealthConcernToSearchResult),
       products,
       perPage,
     );

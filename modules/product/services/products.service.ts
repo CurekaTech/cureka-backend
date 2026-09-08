@@ -997,6 +997,16 @@ export class ProductsService {
     if (!updated) {
       throw new NotFoundException(`Product with refId ${refId} not found after update`);
     }
+
+    this.validateForSubmission(updated);
+    await this.productsRepository.updateByRefId(refId, {
+      status: ProductStatus.PENDING_REVIEW,
+      rejectionReason: null,
+      updatedBy,
+    });
+    updated.status = ProductStatus.PENDING_REVIEW;
+    updated.rejectionReason = null;
+
     await this.emitProductUpdated(refId, 'updated');
     await this.syncSubscriptionConfig(updated.id, dto, updatedBy);
     if (options?.skipDetailEnrichment) {
