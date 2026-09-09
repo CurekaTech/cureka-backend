@@ -549,8 +549,9 @@ async function main(): Promise<void> {
       JSON.stringify(
         {
           next: [
+            'Search BOB abandoned-cart dashboard for the exact checkout_id sent (unique -T… suffix)',
             'Confirm WhatsApp on the phone within a few minutes',
-            'If empty: BOB dashboard → Notifications logs for checkout_id',
+            'If empty: BOB dashboard → Notifications logs for that checkout_id',
             'Send hello to Cureka WhatsApp number to confirm opt-in',
           ],
         },
