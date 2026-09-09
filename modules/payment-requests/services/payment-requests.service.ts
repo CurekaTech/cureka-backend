@@ -2183,6 +2183,7 @@ export class PaymentRequestsService {
           id: '',
           productId: item.productId,
           variantId: item.variantId,
+          productSlug: variant?.product?.slug?.trim() || null,
           productName: '',
           slug: variant?.slug?.trim() || variant?.product?.slug?.trim() || '',
           productPageUrl: variant?.productPageUrl?.trim() || null,
