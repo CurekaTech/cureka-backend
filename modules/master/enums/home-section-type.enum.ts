@@ -3,6 +3,7 @@ export enum HomeSectionType {
   BUILT_BY_DOCTORS_BANNER = 'builtByDoctorsBanner',
   SHOP_BY_CATEGORY = 'shopByCategory',
   SHOP_BY_WELLNESS_GOALS = 'shopByWellnessGoals',
+  HEALTH_CONCERNS = 'healthConcerns',
   BEST_SELLERS = 'bestSellers',
   EXPERT_CURATED_BUNDLES = 'expertCuratedBundles',
   FESTIVAL_BANNERS = 'festivalBanners',

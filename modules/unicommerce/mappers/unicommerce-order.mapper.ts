@@ -67,17 +67,19 @@ type ExpandedLine = {
  * Unicommerce createSaleOrder treats each `saleOrderItem` as ONE physical unit
  * (sellingPrice/totalPrice = price of a single item). There is no quantity field
  * in the official API — multi-qty lines must be expanded into N item rows.
+ *
+ * Complimentary GoKwik freebies are stored with unitPrice 0.00 — always push 0
+ * to UniCommerce (never fall back to lineTotal, even if GoKwik reported MRP).
  */
 function expandLines(items: OrderItemEntity[]): ExpandedLine[] {
   const lines: ExpandedLine[] = [];
   for (const item of items) {
     const quantity = Math.max(1, Math.floor(toNumber(item.quantity)) || 1);
     const unitPrice = toNumber(item.unitPrice);
-    const lineTotal = toNumber(item.totalPrice);
-    const sellingPrice =
-      unitPrice > 0 ? unitPrice : quantity > 0 ? lineTotal / quantity : lineTotal;
+    // unitPrice <= 0 means free/complimentary — keep sellingPrice at 0.
+    const sellingPrice = unitPrice > 0 ? roundMoney(unitPrice) : 0;
     for (let i = 0; i < quantity; i += 1) {
-      lines.push({ sku: item.sku, sellingPrice: roundMoney(sellingPrice) });
+      lines.push({ sku: item.sku, sellingPrice });
     }
   }
   return lines;

@@ -108,7 +108,10 @@ export class HomepageSectionsService implements OnModuleInit {
   > = {
     [HomeSectionType.SHOP_BY_CATEGORY]: () => this.homepageService.getShopByCategoryTree(),
     [HomeSectionType.SHOP_BY_WELLNESS_GOALS]: () => this.homepageService.getShopByWellnessGoals(),
+    [HomeSectionType.HEALTH_CONCERNS]: () => this.homepageService.getHomePageHealthConcernsCached(),
     [HomeSectionType.BRANDS_WE_TRUST]: () => this.homepageService.getBrandsWeTrust(),
+    [HomeSectionType.EXPERT_CURATED_BUNDLES]: () =>
+      this.homepageService.getExpertCuratedBundlesCached(),
     [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
     [HomeSectionType.WATCH_AND_SHOP]: () => this.homepageService.getWatchAndShop(),
     [HomeSectionType.HEALTH_READS]: () => this.homepageService.getHealthReads(),
@@ -153,8 +156,8 @@ export class HomepageSectionsService implements OnModuleInit {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v9: sign URLs only after outer cache read (no nested enrichDeep in section loaders).
-      key: CacheKeys.homepage.sections(`v9-${this.buildVariantKey(requested)}`),
+      // v10: sign URLs only after outer cache read (no nested enrichDeep in section loaders).
+      key: CacheKeys.homepage.sections(`v10-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
@@ -227,6 +230,21 @@ export class HomepageSectionsService implements OnModuleInit {
     const requestedTypes = requested?.length
       ? new Set<string>(requested as unknown as string[])
       : null;
+
+    // Injected only when explicitly requested so the default `/sections` payload
+    // stays unchanged. Mobile homepage uses GET /homepage/health-concerns or
+    // GET /homepage/sections?healthConcerns=true.
+    if (
+      requestedTypes?.has(HomeSectionType.HEALTH_CONCERNS) &&
+      !presentTypes.has(HomeSectionType.HEALTH_CONCERNS)
+    ) {
+      metas.push({
+        index: 5,
+        type: HomeSectionType.HEALTH_CONCERNS,
+        title: 'Health Concerns',
+        slug: 'health-concerns',
+      });
+    }
 
     const visibleSections = metas
       .filter((section) => (requestedTypes ? requestedTypes.has(section.type) : true))

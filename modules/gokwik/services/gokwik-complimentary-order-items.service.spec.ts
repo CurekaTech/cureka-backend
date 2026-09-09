@@ -20,6 +20,7 @@ describe('GokwikComplimentaryOrderItemsService', () => {
   const variantId = '6ce5adad-264d-4f6c-8623-e9ee675d1492';
 
   const createMany = jest.fn();
+  const updateById = jest.fn();
   const existsByRefId = jest.fn().mockResolvedValue(false);
   const findByIdAndUserId = jest.fn();
   const getOne = jest.fn();
@@ -41,6 +42,7 @@ describe('GokwikComplimentaryOrderItemsService', () => {
   const ordersRepository = { findByIdAndUserId } as unknown as OrdersRepository;
   const orderItemsRepository = {
     createMany,
+    updateById,
     existsByRefId,
   } as unknown as OrderItemsRepository;
 
@@ -110,7 +112,7 @@ describe('GokwikComplimentaryOrderItemsService', () => {
     expect(createMany).not.toHaveBeenCalled();
   });
 
-  it('adds complimentary items with zero effective price', async () => {
+  it('adds complimentary items with zero effective price even when GoKwik sends catalog price', async () => {
     const result = await service.syncComplimentaryItems(userId, baseOrder, [normalLine, complimentaryLine]);
 
     expect(createMany).toHaveBeenCalledWith(
@@ -129,25 +131,95 @@ describe('GokwikComplimentaryOrderItemsService', () => {
     );
     expect(result.addedItems).toHaveLength(1);
     expect(result.addedItems[0].metadata.couponCode).toBe('CARE+3000');
+    expect(result.addedItems[0].metadata.gokwikPrice).toBe(89);
     expect(result.order.items?.[0].unitPrice).toBe('0.00');
   });
 
-  it('is idempotent when complimentary variant already exists on the order', async () => {
+  it('is idempotent when complimentary variant already exists on the order at zero', async () => {
     findByIdAndUserId.mockReset();
     findByIdAndUserId
       .mockResolvedValueOnce({
         ...baseOrder,
-        items: [{ variantId, productId, sku: 'SKU-FREE', quantity: 1, unitPrice: '0.00', totalPrice: '0.00' }],
+        items: [
+          {
+            id: 'oi-1',
+            variantId,
+            productId,
+            sku: 'SKU-FREE',
+            quantity: 1,
+            unitPrice: '0.00',
+            totalPrice: '0.00',
+          },
+        ],
       })
       .mockResolvedValueOnce({
         ...baseOrder,
-        items: [{ variantId, productId, sku: 'SKU-FREE', quantity: 1, unitPrice: '0.00', totalPrice: '0.00' }],
+        items: [
+          {
+            id: 'oi-1',
+            variantId,
+            productId,
+            sku: 'SKU-FREE',
+            quantity: 1,
+            unitPrice: '0.00',
+            totalPrice: '0.00',
+          },
+        ],
       });
 
     const result = await service.syncComplimentaryItems(userId, baseOrder, [complimentaryLine]);
 
     expect(createMany).not.toHaveBeenCalled();
+    expect(updateById).not.toHaveBeenCalled();
     expect(result.addedItems).toEqual([]);
+  });
+
+  it('forces existing non-zero complimentary line back to 0.00', async () => {
+    findByIdAndUserId.mockReset();
+    findByIdAndUserId
+      .mockResolvedValueOnce({
+        ...baseOrder,
+        items: [
+          {
+            id: 'oi-paid',
+            variantId,
+            productId,
+            sku: 'SKU-FREE',
+            quantity: 1,
+            unitPrice: '89.00',
+            totalPrice: '89.00',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...baseOrder,
+        items: [
+          {
+            id: 'oi-paid',
+            variantId,
+            productId,
+            sku: 'SKU-FREE',
+            quantity: 1,
+            unitPrice: '0.00',
+            totalPrice: '0.00',
+          },
+        ],
+      });
+
+    const result = await service.syncComplimentaryItems(userId, baseOrder, [complimentaryLine]);
+
+    expect(createMany).not.toHaveBeenCalled();
+    expect(updateById).toHaveBeenCalledWith(
+      'oi-paid',
+      expect.objectContaining({
+        unitPrice: '0.00',
+        totalPrice: '0.00',
+        quantity: 1,
+      }),
+      expect.anything(),
+    );
+    expect(result.addedItems).toEqual([]);
+    expect(result.order.items?.[0].unitPrice).toBe('0.00');
   });
 
   it('throws when complimentary product/variant cannot be resolved', async () => {

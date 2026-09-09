@@ -309,12 +309,17 @@ export class HomepageService {
   }
 
   async getExpertCuratedBundles(): Promise<IPublicHealthConcernCard[]> {
-    const raw = await this.cacheStrategy.cacheAside({
+    const raw = await this.getExpertCuratedBundlesCached();
+    return this.storageUrlEnricher.enrichDeep(raw);
+  }
+
+  /** Unsigned refs for `/sections` cache. Dedicated GET signs after this. */
+  getExpertCuratedBundlesCached(): Promise<IPublicHealthConcernCard[]> {
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.expertCuratedBundles(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadExpertCuratedBundlesUncached(),
     });
-    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after health concern mutations. Banner is intentionally omitted. */
@@ -333,16 +338,21 @@ export class HomepageService {
   }
 
   /**
-   * All active health concerns flagged for the homepage, ordered by sortIndex.
-   * Includes sortIndex so the storefront can control display order.
+   * Active health concerns flagged for the homepage (`inHomePage`), ordered by sortIndex.
+   * Used by the mobile/web homepage strip — includes icon + banner for card display.
    */
   async getHomePageHealthConcerns(): Promise<IPublicHomePageHealthConcern[]> {
-    const raw = await this.cacheStrategy.cacheAside({
+    const raw = await this.getHomePageHealthConcernsCached();
+    return this.storageUrlEnricher.enrichDeep(raw);
+  }
+
+  /** Unsigned refs for `/sections` cache. Dedicated GET signs after this. */
+  getHomePageHealthConcernsCached(): Promise<IPublicHomePageHealthConcern[]> {
+    return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.healthConcerns(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHomePageHealthConcernsUncached(),
     });
-    return this.storageUrlEnricher.enrichDeep(raw);
   }
 
   /** Used by cache refresh after health concern mutations. */
@@ -353,7 +363,9 @@ export class HomepageService {
       refId: concern.refId,
       name: concern.name,
       slug: concern.slug,
+      description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      banner: this.storageUrlEnricher.persist(concern.banner),
       sortIndex: concern.sortIndex,
     }));
   }

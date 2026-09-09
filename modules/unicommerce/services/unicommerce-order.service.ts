@@ -97,6 +97,13 @@ export class UnicommerceOrderService implements OnModuleInit {
     });
 
     const skus = payload.saleOrder.saleOrderItems.map((item) => item.itemSku);
+    const zeroPriceItems = payload.saleOrder.saleOrderItems
+      .filter((item) => Number(item.sellingPrice || 0) === 0)
+      .map((item) => ({
+        sku: item.itemSku,
+        sellingPrice: item.sellingPrice,
+        totalPrice: item.totalPrice,
+      }));
     const itemsSubtotal = payload.saleOrder.saleOrderItems.reduce(
       (sum, item) => sum + Number(item.sellingPrice || 0),
       0,
@@ -117,6 +124,8 @@ export class UnicommerceOrderService implements OnModuleInit {
         orderStatus: order.orderStatus,
         itemCount: payload.saleOrder.saleOrderItems.length,
         skus,
+        zeroPriceItemCount: zeroPriceItems.length,
+        zeroPriceItems,
         channel: payload.saleOrder.channel,
         cashOnDelivery: payload.saleOrder.cashOnDelivery,
         paymentInstrument: payload.saleOrder.paymentInstrument,
@@ -150,6 +159,8 @@ export class UnicommerceOrderService implements OnModuleInit {
           orderId: order.id,
           orderNumber: order.orderNumber,
           skus,
+          zeroPriceItemCount: zeroPriceItems.length,
+          zeroPriceItems,
           ucOrderCode: response.saleOrderDetailDTO?.code,
           ucStatus: response.saleOrderDetailDTO?.status,
         },
@@ -161,6 +172,8 @@ export class UnicommerceOrderService implements OnModuleInit {
           orderId: order.id,
           orderNumber: order.orderNumber,
           skus,
+          zeroPriceItemCount: zeroPriceItems.length,
+          zeroPriceItems,
           successful: response.successful,
           message: response.message ?? 'no message',
           errors: response.errors,
