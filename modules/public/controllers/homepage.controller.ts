@@ -5,6 +5,7 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ResponseMessage } from '@packages/common';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
@@ -14,6 +15,7 @@ import { HomeSectionsService } from '@modules/master/services/home-sections.serv
 import { HomepageService } from '../services/homepage.service';
 import { PublicProductsService } from '../services/public-products.service';
 
+@ApiTags('Public Homepage')
 @Controller('public/homepage')
 export class HomepageController {
   constructor(
@@ -97,6 +99,16 @@ export class HomepageController {
     return this.homepageService.getHomepageBanners();
   }
 
+  /**
+   * Active health concerns flagged for homepage (`inHomePage`), ordered by sortIndex.
+   * Use this for the mobile (and web) homepage health-concern strip.
+   * Tap-through: GET /public/products?healthConcernSlug={slug}
+   */
+  @ApiOperation({
+    summary: 'Homepage health concerns (mobile + web strip)',
+    description:
+      'Returns active health concerns with inHomePage=true, ordered by sortIndex. Includes icon, banner, slug, and description for homepage cards.',
+  })
   @ResponseMessage('Homepage health concerns retrieved successfully')
   @Get('health-concerns')
   getHomePageHealthConcerns() {

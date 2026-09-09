@@ -290,4 +290,33 @@ describe('mapOrderToUnicommercePayload', () => {
     expect(complimentary?.totalPrice).toBe('0.00');
     expect(so.totalPrepaidAmount).toBe(948);
   });
+
+  it('keeps complimentary UniCommerce price at 0 even if totalPrice is non-zero', () => {
+    const payload = mapOrderToUnicommercePayload(
+      buildOrder({
+        items: [
+          {
+            sku: 'SKU-FREE',
+            productName: 'Complimentary Gel',
+            variantName: null,
+            quantity: 1,
+            unitPrice: '0.00',
+            // GoKwik may have reported catalog amount — must not leak into UC.
+            totalPrice: '89.00',
+          } as OrderItemEntity,
+        ],
+        subtotal: '0.00',
+        shippingAmount: '0.00',
+        handlingAmount: '0.00',
+        platformFee: '0.00',
+        codCharge: '0.00',
+        grandTotal: '0.00',
+        discountAmount: '0.00',
+      }),
+    );
+
+    expect(payload.saleOrder.saleOrderItems).toHaveLength(1);
+    expect(payload.saleOrder.saleOrderItems[0].sellingPrice).toBe('0.00');
+    expect(payload.saleOrder.saleOrderItems[0].totalPrice).toBe('0.00');
+  });
 });

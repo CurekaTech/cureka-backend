@@ -9,7 +9,10 @@ import {
 } from './public-banner-section.interface';
 import { IPublicBrandCard } from './public-brand.interface';
 import { IPublicCategoryTree } from './public-category.interface';
-import { IPublicHealthConcernCard } from './public-health-concern.interface';
+import {
+  IPublicHealthConcernCard,
+  IPublicHomePageHealthConcern,
+} from './public-health-concern.interface';
 import { IPublicProductCard } from './public-product.interface';
 import { IPublicWellnessGoalCard } from './public-wellness-goal.interface';
 import { IPublicWatchAndShopSection } from './public-watch-and-shop.interface';
@@ -37,6 +40,7 @@ export type HomepageSectionDataMap = {
   [HomepageSectionKey.HERO_BANNER]: IPublicHeroBannerSection;
   [HomepageSectionKey.SHOP_BY_CATEGORY]: IPublicCategoryTree[];
   [HomepageSectionKey.SHOP_BY_WELLNESS_GOALS]: IPublicWellnessGoalCard[];
+  [HomepageSectionKey.HEALTH_CONCERNS]: IPublicHomePageHealthConcern[];
   [HomepageSectionKey.BRANDS_WE_TRUST]: IPublicBrandCard[];
   [HomepageSectionKey.EXPERT_CURATED_BUNDLES]: IPublicHealthConcernCard[];
   [HomepageSectionKey.FESTIVAL_BANNERS]: IStorefrontBannerItem[];

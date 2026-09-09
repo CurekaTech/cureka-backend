@@ -28,6 +28,11 @@ export class HomepageSectionsQueryDto {
   @IsOptional()
   @Transform(parseBoolean)
   @IsBoolean()
+  healthConcerns?: boolean;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
   brandsWeTrust?: boolean;
 
   @IsOptional()
@@ -88,6 +93,7 @@ export const resolveHomepageSectionsFromFlags = (
     [HomepageSectionKey.HERO_BANNER, query.heroBanner],
     [HomepageSectionKey.SHOP_BY_CATEGORY, query.shopByCategory],
     [HomepageSectionKey.SHOP_BY_WELLNESS_GOALS, query.shopByWellnessGoals],
+    [HomepageSectionKey.HEALTH_CONCERNS, query.healthConcerns],
     [HomepageSectionKey.BRANDS_WE_TRUST, query.brandsWeTrust],
     [HomepageSectionKey.EXPERT_CURATED_BUNDLES, query.expertCuratedBundles],
     [HomepageSectionKey.FESTIVAL_BANNERS, query.festivalBanners],

@@ -12,6 +12,7 @@ import {
   GokwikPlaceOrderResponse,
 } from '../interfaces/gokwik-order.interface';
 import { GokwikOrderService } from '../services/gokwik-order.service';
+import { summarizeGokwikLineItemsForLog } from '../utils/gokwik-line-item.util';
 
 /**
  * Merchant order callbacks.
@@ -30,7 +31,22 @@ export class GokwikOrderController {
   @HttpCode(HttpStatus.OK)
   @RawResponse()
   async createOrder(@Body() dto: GokwikCreateOrderDto): Promise<GokwikCreateOrderResponse> {
-    this.logger.log({ cartId: dto.cart_id }, 'GoKwik create-order callback');
+    const lineItems = summarizeGokwikLineItemsForLog(dto.line_items);
+    this.logger.log(
+      {
+        endpoint: 'POST /api/v1/gokwik/create-order',
+        cartId: dto.cart_id,
+        paymentMethod: dto.payment_details?.payment_method,
+        paymentAmount: dto.payment_details?.payment_amount,
+        discountCount: dto.meta_data?.discounts?.length ?? 0,
+        discountCodes: (dto.meta_data?.discounts ?? [])
+          .map((discount) => discount.code?.trim())
+          .filter(Boolean),
+        gokwikOrderId: dto.meta_data?.gokwik_order_id ?? null,
+        lineItems,
+      },
+      'GoKwik create-order callback',
+    );
     return this.gokwikOrderService.createOrder(dto);
   }
 
@@ -38,6 +54,7 @@ export class GokwikOrderController {
   @HttpCode(HttpStatus.OK)
   @RawResponse()
   async placeOrder(@Body() dto: GokwikPlaceOrderDto): Promise<GokwikPlaceOrderResponse> {
+    const lineItems = summarizeGokwikLineItemsForLog(dto.line_items);
     this.logger.log(
       {
         endpoint: 'POST /api/v1/gokwik/place-order',
@@ -56,6 +73,7 @@ export class GokwikOrderController {
           .filter(Boolean),
         gokwikOrderId: dto.meta_data?.gokwik_order_id ?? null,
         rtoRiskFlag: dto.meta_data?.rto_risk_flag ?? null,
+        lineItems,
       },
       '[GoKwik] place-order request received',
     );
