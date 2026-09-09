@@ -16,6 +16,8 @@ export interface ITypesenseSearchDocument {
   variantSlug?: string;
   /** Legacy storefront path (`/shop/.../`) when available. */
   productPageUrl?: string;
+  /** Nested category listing path (`/product-category/l1/l2/...`). */
+  permalink?: string;
   description?: string;
   inStock?: boolean;
   minSellingPrice?: number;

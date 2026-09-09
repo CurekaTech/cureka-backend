@@ -50,12 +50,16 @@ export function mapBrandToSearchResult(brand: BrandEntity): IPublicSearchResult 
   };
 }
 
-export function mapCategoryToSearchResult(category: CategoryEntity): IPublicSearchResult {
+export function mapCategoryToSearchResult(
+  category: CategoryEntity,
+  permalink?: string | null,
+): IPublicSearchResult {
   return {
     entityType: SEARCH_ENTITY_TYPES.CATEGORY,
     title: category.name,
     slug: category.slug,
     refId: category.refId,
+    ...(permalink ? { permalink } : {}),
   };
 }
 

@@ -80,7 +80,8 @@ export class TypesenseIndexerService {
       return;
     }
 
-    const document = mapCategoryToTypesenseDocument(category);
+    const slugPath = await this.categoriesRepository.findSlugPathById(category.id);
+    const document = mapCategoryToTypesenseDocument(category, slugPath);
     if (!document) {
       await this.removeCategory(refId);
       return;
@@ -262,9 +263,15 @@ export class TypesenseIndexerService {
 
   private async indexActiveCategories(): Promise<number> {
     const categories = await this.categoriesRepository.findActiveCategories();
-    const documents = categories
-      .map((category) => mapCategoryToTypesenseDocument(category))
-      .filter((document): document is ITypesenseSearchDocument => document !== null);
+    const documents: ITypesenseSearchDocument[] = [];
+
+    for (const category of categories) {
+      const slugPath = await this.categoriesRepository.findSlugPathById(category.id);
+      const document = mapCategoryToTypesenseDocument(category, slugPath);
+      if (document) {
+        documents.push(document);
+      }
+    }
 
     if (documents.length) {
       await this.importDocuments(documents);

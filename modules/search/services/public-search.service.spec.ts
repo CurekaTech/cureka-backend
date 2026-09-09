@@ -30,6 +30,8 @@ describe('PublicSearchService native fallback', () => {
   };
   const categoriesRepository = {
     findPublicPaginated: jest.fn(),
+    findActiveByRefIds: jest.fn(),
+    findSlugPathById: jest.fn(),
   };
   const healthConcernsRepository = {
     findPublicPaginated: jest.fn(),
@@ -47,6 +49,8 @@ describe('PublicSearchService native fallback', () => {
     productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
     brandsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
     categoriesRepository.findPublicPaginated.mockResolvedValue({ data: [] });
+    categoriesRepository.findActiveByRefIds.mockResolvedValue([]);
+    categoriesRepository.findSlugPathById.mockResolvedValue([]);
     healthConcernsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
 
     service = new PublicSearchService(
@@ -120,6 +124,14 @@ describe('PublicSearchService native fallback', () => {
     categoriesRepository.findPublicPaginated.mockResolvedValue({
       data: [{ name: 'Vitamins', slug: 'vitamins', refId: 'CAT1', status: MasterStatus.ACTIVE }],
     });
+    categoriesRepository.findActiveByRefIds.mockResolvedValue([
+      { id: 'cat-id-1', name: 'Vitamins', slug: 'vitamins', refId: 'CAT1' },
+    ]);
+    categoriesRepository.findSlugPathById.mockResolvedValue([
+      'nutrition',
+      'supplements',
+      'vitamins',
+    ]);
 
     const results = await service.search('vita');
 
@@ -128,6 +140,7 @@ describe('PublicSearchService native fallback', () => {
       title: 'Vitamins',
       slug: 'vitamins',
       refId: 'CAT1',
+      permalink: '/product-category/nutrition/supplements/vitamins',
     });
   });
 
@@ -138,6 +151,10 @@ describe('PublicSearchService native fallback', () => {
         { name: 'Inactive Category', slug: 'inactive-category', refId: 'CAT2', status: MasterStatus.INACTIVE },
       ],
     });
+    categoriesRepository.findActiveByRefIds.mockResolvedValue([
+      { id: 'cat-id-1', name: 'Active Category', slug: 'active-category', refId: 'CAT1' },
+    ]);
+    categoriesRepository.findSlugPathById.mockResolvedValue(['active-category']);
     brandsRepository.findPublicPaginated.mockResolvedValue({
       data: [
         { name: 'Active Brand', slug: 'active-brand', refId: 'BR1', status: MasterStatus.ACTIVE },
@@ -159,6 +176,7 @@ describe('PublicSearchService native fallback', () => {
         title: 'Active Category',
         slug: 'active-category',
         refId: 'CAT1',
+        permalink: '/product-category/active-category',
       },
       {
         entityType: SEARCH_ENTITY_TYPES.BRAND,
