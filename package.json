@@ -27,6 +27,7 @@
     "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create",
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
     "product:oos-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-oos-update.runner.ts",
+    "product:estimate-delivery": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-estimate-delivery.runner.ts",
     "shipway:reconcile-order": "ts-node -r tsconfig-paths/register apps/api/database/scripts/shipway-reconcile-order.runner.ts",
     "bob:test-fulfillment": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bob-test-fulfillment.runner.ts",
     "bob:test-dispatch-notify": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bob-test-dispatch-notify.runner.ts",

@@ -79,6 +79,10 @@ export class ProductVariantEntity {
   @Column({ name: 'out_of_stock', type: 'boolean', default: false })
   outOfStock!: boolean;
 
+  /** Free-text delivery window for PDP, e.g. "3-5 Days". Nullable — not an enum. */
+  @Column({ name: 'estimated_delivery_time', type: 'varchar', length: 50, nullable: true })
+  estimatedDeliveryTime!: string | null;
+
   /** Category PLP “Top Products” pin (after bestsellers). Managed via Category Product Indexing. */
   @Index()
   @Column({ name: 'is_top', type: 'boolean', default: false })
