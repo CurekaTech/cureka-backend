@@ -83,11 +83,13 @@ Options:
   --item-id --item-name --image-url --quantity --price
   --total-price --total-discount --recovery-url
   --address --city --province --zip --created-at
+  --phone also overrides customer phone when using --cart-ref (DB)
 
 Examples:
   npm run bob:test-abandoned-cart -- --cart-ref=CAR2026330956 --send
   npm run bob:test-abandoned-cart -- --cart-ref=CAR2026330956 --unique-checkout --send
-  npm run bob:test-abandoned-cart -- --offline --checkout-id=CAR2026330956 --phone=+919974440132 --send
+  npm run bob:test-abandoned-cart -- --cart-ref=CAR2026330956 --phone=+919662123150 --unique-checkout --send
+  npm run bob:test-abandoned-cart -- --offline --checkout-id=CARTEST966 --phone=+919662123150 --unique-checkout --send
 `);
 };
 
@@ -416,7 +418,21 @@ async function main(): Promise<void> {
         recoveryUrl,
         storefrontUrl: recoveryBase,
       });
-      if (opts.e164) {
+      if (opts.phone.trim()) {
+        const override = opts.e164 ? toBobE164Phone(opts.phone) : opts.phone.trim();
+        logger.warn(
+          {
+            fromMasked: maskPhone(payload.phone),
+            toMasked: maskPhone(override),
+          },
+          'Overrode phone from CLI --phone (DB cart customer ignored for notify)',
+        );
+        payload = {
+          ...payload,
+          phone: override,
+          customer: { ...payload.customer, phone: override },
+        };
+      } else if (opts.e164) {
         const before = payload.phone;
         const phone = toBobE164Phone(payload.phone);
         payload = {
