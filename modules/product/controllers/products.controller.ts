@@ -27,13 +27,21 @@ import {
   BulkUpdateVariantOosDto,
 } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
+import {
+  CombineSimpleProductsDto,
+  CombineSimpleProductsPreviewDto,
+} from '../dto/combine-simple-products.dto';
+import { CombineSimpleProductsService } from '../services/combine-simple-products.service';
 
 @ApiTags('Products')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly combineSimpleProductsService: CombineSimpleProductsService,
+  ) {}
 
   @ApiOperation({
     summary: 'Create product and submit for checker review',
@@ -63,6 +71,32 @@ export class ProductsController {
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productsService.findAll(query);
+  }
+
+  @ApiOperation({
+    summary: 'Preview combining simple products into one variable product',
+    description:
+      'Returns each simple product’s single variantId, sku, and variant externalProductId. Optional attributeRefIds return master name/values so the admin UI can assign combinations. Does not mutate catalog.',
+  })
+  @ResponseMessage('Combine preview retrieved successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('combine-preview')
+  @HttpCode(HttpStatus.OK)
+  combinePreview(@Body() dto: CombineSimpleProductsPreviewDto) {
+    return this.combineSimpleProductsService.preview(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Combine simple products into one variable product',
+    description:
+      'Reparents existing variant rows onto targetProductRefId (converted to variable). SKU, variant UUID, and variant external_product_id are not changed. Other simples are soft-deleted.',
+  })
+  @ResponseMessage('Simple products combined successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Post('combine-variants')
+  @HttpCode(HttpStatus.OK)
+  combineVariants(@Body() dto: CombineSimpleProductsDto) {
+    return this.combineSimpleProductsService.combine(dto);
   }
 
   @ApiOperation({ summary: 'Bulk mark products out of stock' })

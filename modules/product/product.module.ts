@@ -51,6 +51,7 @@ import { ProductReviewsRepository } from './repositories/product-reviews.reposit
 
 // ── Product services ─────────────────────────────────────────────────────────
 import { ProductsService } from './services/products.service';
+import { CombineSimpleProductsService } from './services/combine-simple-products.service';
 import { BestSellersIndexingService } from './services/best-sellers-indexing.service';
 import { CategoryProductIndexingService } from './services/category-product-indexing.service';
 import { ProductMultipartService } from './services/product-multipart.service';
@@ -170,6 +171,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     ProductTagsRepository,
     ProductInformationLabelsRepository,
     ProductsService,
+    CombineSimpleProductsService,
     BestSellersIndexingService,
     CategoryProductIndexingService,
     ProductMultipartService,
