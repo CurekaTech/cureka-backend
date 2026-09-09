@@ -11,10 +11,7 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
-import {
-  buildProductCategorySlugPathFromRelations,
-  buildProductPermalink,
-} from '@modules/public/utils/category-permalink.util';
+import { buildProductLocPath } from '@modules/sitemap/services/sitemap-url.builder';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
@@ -489,12 +486,15 @@ export class CartService {
           productId: item.productId,
           variantId: item.variantId,
           productSlug: product?.slug?.trim() || null,
-          productPagePath: product
-            ? buildProductPermalink(
-                buildProductCategorySlugPathFromRelations(product),
-                product.slug ?? '',
-              )
-            : null,
+          // Prefer configured storefront URLs. Category-tree permalinks can be stale
+          // (308 to a different path); /shop/{slug} is a safe fallback BOB already accepted.
+          productPagePath:
+            buildProductLocPath({
+              slug: product?.slug,
+              productPageUrl: variant?.productPageUrl,
+              singleProductUrl: product?.singleProductUrl,
+              categorySlugPath: [],
+            }) ?? null,
           productName: product?.name ?? '',
           sku: variant?.sku ?? '',
           variantLabel: this.formatVariantLabel(variant),
