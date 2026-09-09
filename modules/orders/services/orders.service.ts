@@ -355,10 +355,15 @@ export class OrdersService {
     },
   ) {
     const address = await this.userAddressesService.findOne(userId, params.addressId);
-    const summary = await this.checkoutService.validateCheckout(userId, {
-      addressId: params.addressId,
-      paymentMethod: params.ignorePaymentMethodPricing ? undefined : params.paymentMethod,
-    });
+    const isGokwikOrder = params.orderSource === OrderSource.GOKWIK;
+    const summary = await this.checkoutService.validateCheckout(
+      userId,
+      {
+        addressId: params.addressId,
+        paymentMethod: params.ignorePaymentMethodPricing ? undefined : params.paymentMethod,
+      },
+      { skipCodVariantEligibility: isGokwikOrder },
+    );
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -394,7 +399,8 @@ export class OrdersService {
         throw new BadRequestException('Applied coupon is no longer valid for this cart');
       }
 
-      if (isCodPaymentMethod(params.paymentMethod)) {
+      // Skip product COD eligibility for GoKwik — GoKwik owns COD product UX.
+      if (isCodPaymentMethod(params.paymentMethod) && !isGokwikOrder) {
         await this.checkoutService.assertCodVariantsEligible(summary.items, manager);
       }
 
@@ -574,7 +580,11 @@ export class OrdersService {
         manager,
       );
 
-      if (isCodPaymentMethod(params.paymentMethod)) {
+      // Skip product COD eligibility for GoKwik — GoKwik owns COD product UX.
+      if (
+        isCodPaymentMethod(params.paymentMethod) &&
+        existing.orderSource !== OrderSource.GOKWIK
+      ) {
         await this.checkoutService.assertCodVariantsEligible(
           items.map((item) => ({
             productId: item.productId,
