@@ -1,8 +1,9 @@
 /**
- * BOB WhatsApp smoke test: POST /abandoned-cart
+ * BOB WhatsApp smoke test: POST /abancart
  *
- * Final docs path: {{businessonbot_domain_name}}/abandoned-cart
- * Resolved as:     ${BOB_NOTIFY_URL}/abandoned-cart
+ * Tenant path: {{businessonbot_domain_name}}/abancart
+ * Resolved as: ${BOB_NOTIFY_URL}/abancart
+ * (docs may say /abandoned-cart — that returns 404 on curekanew)
  *
  * SAFE BY DEFAULT — dry-run unless --send.
  *
@@ -24,8 +25,8 @@ import { mapCurekaAbandonedCartToBob } from '../../../../modules/bob/mappers/bob
 import { toBobE164Phone } from '../../../../modules/bob/utils/bob.util';
 import type { BobAbandonedCartPayload } from '../../../../modules/bob/interfaces/bob.interface';
 
-/** Docs-final path — do not change without BOB confirmation. */
-const BOB_ABANDONED_CART_PATH = '/abandoned-cart';
+/** BOB abandoned-cart notify path (tenant-confirmed). */
+const BOB_ABANDONED_CART_PATH = '/abancart';
 
 interface CliOptions {
   cartRef: string;
@@ -51,6 +52,7 @@ interface CliOptions {
   province: string;
   zip: string;
   createdAt: string;
+  uniqueCheckout: boolean;
 }
 
 const DOC_TOP_KEYS = [
@@ -68,13 +70,14 @@ const printUsage = (): void => {
   console.log(`
 bob:test-abandoned-cart — POST BOB ${BOB_ABANDONED_CART_PATH}
 
-Docs URL: {{businessonbot_domain_name}}${BOB_ABANDONED_CART_PATH}
-Env URL:  \${BOB_NOTIFY_URL}${BOB_ABANDONED_CART_PATH}
+Docs URL: {{businessonbot_domain_name}}/abancart
+Env URL:  \${BOB_NOTIFY_URL}/abancart
 
 Options:
   --cart-ref CAR…       Load abandoned cart by refId (DB)
   --offline             Build payload from CLI flags (no DB)
   --send                Actually POST (default: dry-run)
+  --unique-checkout     Append timestamp to checkout_id (BOB often ignores repeat same id)
   --no-e164             Keep raw phone as mapped (default: normalize to +91…)
   --checkout-id --phone --email --first-name --last-name
   --item-id --item-name --image-url --quantity --price
@@ -82,8 +85,9 @@ Options:
   --address --city --province --zip --created-at
 
 Examples:
-  npm run bob:test-abandoned-cart -- --offline --checkout-id=CAR2026330956 --phone=+919974440132 --send
   npm run bob:test-abandoned-cart -- --cart-ref=CAR2026330956 --send
+  npm run bob:test-abandoned-cart -- --cart-ref=CAR2026330956 --unique-checkout --send
+  npm run bob:test-abandoned-cart -- --offline --checkout-id=CAR2026330956 --phone=+919974440132 --send
 `);
 };
 
@@ -119,6 +123,7 @@ const parseCli = (argv: string[]): CliOptions => {
     province: 'GUJARAT',
     zip: '380058',
     createdAt: new Date().toISOString(),
+    uniqueCheckout: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -133,6 +138,10 @@ const parseCli = (argv: string[]): CliOptions => {
     }
     if (arg === '--offline') {
       opts.offline = true;
+      continue;
+    }
+    if (arg === '--unique-checkout') {
+      opts.uniqueCheckout = true;
       continue;
     }
     if (arg === '--no-e164') {
@@ -347,6 +356,7 @@ async function main(): Promise<void> {
     dryRun: !opts.send,
     offline: opts.offline,
     e164: opts.e164,
+    uniqueCheckout: opts.uniqueCheckout,
     cartRef: opts.cartRef || null,
     cartId: opts.cartId || null,
     checkoutId: opts.checkoutId || null,
@@ -424,11 +434,36 @@ async function main(): Promise<void> {
       };
     }
 
+    const originalCheckoutId = payload.checkout_id;
+    if (opts.uniqueCheckout) {
+      const uniqueId = `${originalCheckoutId}-T${Date.now()}`;
+      payload = { ...payload, checkout_id: uniqueId };
+      logger.warn(
+        { originalCheckoutId, uniqueCheckoutId: uniqueId },
+        'Rewrote checkout_id so BOB treats this as a new abandoned-cart event',
+      );
+    } else {
+      logger.warn(
+        {
+          checkout_id: originalCheckoutId,
+          tip: 'BOB often suppresses repeat posts with the same checkout_id (still HTTP 200). Use --unique-checkout to force a new dashboard entry.',
+        },
+        'Same checkout_id may not appear again on BOB dashboard',
+      );
+    }
+
     const idempotencyKey = `abandoned-cart:test:${payload.checkout_id}:${Date.now()}`;
     const diff = schemaDiff(payload);
 
     logBanner('REQUEST PREVIEW');
-    logJson('meta', meta);
+    logJson('meta', {
+      ...meta,
+      originalCheckoutId,
+      checkoutIdSent: payload.checkout_id,
+      uniqueCheckout: opts.uniqueCheckout,
+      bobDedupeNote:
+        'BOB commonly dedupes by checkout_id; Idempotency-Key alone may not create a second dashboard row',
+    });
     logJson('schemaDiff_vs_docs', diff);
     logJson('http_request', {
       method: 'POST',
@@ -486,7 +521,7 @@ async function main(): Promise<void> {
       expectedSuccessBody: { status: 'success', statusCode: 200 },
       note404:
         result.httpStatus === 404
-          ? 'BOB returned path not found — confirm /abandoned-cart is enabled on this BOB_NOTIFY_URL tenant'
+          ? 'BOB returned path not found — confirm /abancart is enabled on this BOB_NOTIFY_URL tenant'
           : null,
     });
 

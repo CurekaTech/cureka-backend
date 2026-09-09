@@ -119,6 +119,54 @@ export class RazorpayPaymentLinksService {
   }
 
 
+  async createRefund(params: {
+    paymentId: string;
+    amount: number;
+    receipt: string;
+    notes?: Record<string, string>;
+  }): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new InternalServerErrorException(
+        'Razorpay client is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_SECRET in environment.',
+      );
+    }
+    const amountPaise = Math.round(params.amount * 100);
+    try {
+      return (await (
+        this.client.payments.refund as (
+          paymentId: string,
+          input: unknown,
+        ) => Promise<unknown>
+      )(params.paymentId, {
+        amount: amountPaise,
+        speed: 'normal',
+        receipt: params.receipt,
+        notes: params.notes ?? {},
+      })) as Record<string, unknown>;
+    } catch (error) {
+      const description = this.extractRazorpayError(error);
+      this.logger.error({ error: description, receipt: params.receipt }, 'Failed to create Razorpay refund');
+      throw new BadRequestException(description);
+    }
+  }
+
+  async fetchRefund(refundId: string): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new InternalServerErrorException(
+        'Razorpay client is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_SECRET in environment.',
+      );
+    }
+    try {
+      return (await (this.client.refunds.fetch as (id: string) => Promise<unknown>)(
+        refundId,
+      )) as Record<string, unknown>;
+    } catch (error) {
+      const description = this.extractRazorpayError(error);
+      this.logger.error({ error: description, refundId }, 'Failed to fetch Razorpay refund');
+      throw new BadRequestException(description);
+    }
+  }
+
   verifyWebhookSignature(rawBody: string, signature: string | undefined): void {
     if (!signature) {
       throw new BadRequestException('Missing Razorpay signature');

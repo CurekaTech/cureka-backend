@@ -78,6 +78,29 @@ export class PaymentRequestsRepository {
     return this.repo.exists({ where: { refId } });
   }
 
+  findPaidByPaymentReference(paymentReference: string): Promise<PaymentRequestEntity | null> {
+    return this.repo.findOne({
+      where: { paymentReference, status: PaymentRequestStatus.PAID },
+      order: { paidAt: 'DESC' },
+    });
+  }
+
+  findPaidByRefId(refId: string): Promise<PaymentRequestEntity | null> {
+    return this.repo.findOne({
+      where: { refId, status: PaymentRequestStatus.PAID },
+    });
+  }
+
+  findLatestPaidForCustomerAmount(
+    customerId: string,
+    totalAmount: string,
+  ): Promise<PaymentRequestEntity | null> {
+    return this.repo.findOne({
+      where: { customerId, status: PaymentRequestStatus.PAID, totalAmount },
+      order: { paidAt: 'DESC' },
+    });
+  }
+
   /**
    * Paginated list with customer + product name joins for the admin listing page.
    *

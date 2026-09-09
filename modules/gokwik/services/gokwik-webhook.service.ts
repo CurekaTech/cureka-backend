@@ -527,6 +527,17 @@ export class GokwikWebhookService {
       },
       '[GoKwik-Webhook] refund applied',
     );
+
+    await this.eventEmitter.emitAsync(
+      EVENTS.REFUND_PROVIDER_UPDATED,
+      {
+        provider: 'GOKWIK',
+        providerStatus: payload.event,
+        providerRefundId: data.refundId,
+        merchantRefundReference: null,
+        orderId: link.orderId,
+      },
+    );
   }
 
   private stableJson(value: unknown): string {

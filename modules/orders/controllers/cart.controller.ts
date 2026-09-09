@@ -22,13 +22,17 @@ import { ResponseMessage } from '@packages/common';
 import { AddCartItemDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartService } from '../services/cart.service';
+import { SavedForLaterService } from '../services/saved-for-later.service';
 
 @ApiTags('Cart')
 @ApiBearerAuth()
 @UseGuards(SessionCookieGuard)
 @Controller('cart')
 export class CartController {
-  constructor(private readonly cartService: CartService) {}
+  constructor(
+    private readonly cartService: CartService,
+    private readonly savedForLaterService: SavedForLaterService,
+  ) {}
 
   @ApiOperation({ summary: 'Add item to cart' })
   @ResponseMessage('Item added to cart')
@@ -86,6 +90,21 @@ export class CartController {
     @Body() dto: UpdateCartItemDto,
   ) {
     return this.cartService.updateQuantity(user.sub, itemId, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Move a cart item to Save for Later',
+    description:
+      'Removes the line from the active cart and stores it in Save for Later with the same quantity, variant, and subscription settings. Does not reserve inventory. Not a wishlist.',
+  })
+  @ResponseMessage('Item moved to Save for Later successfully')
+  @Post('items/:itemId/save-for-later')
+  @HttpCode(HttpStatus.OK)
+  saveForLater(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ) {
+    return this.savedForLaterService.saveFromCart(user.sub, itemId);
   }
 
   @ApiOperation({ summary: 'Remove cart item' })

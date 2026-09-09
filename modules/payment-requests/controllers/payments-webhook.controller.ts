@@ -1,6 +1,8 @@
 import { Body, Controller, Headers, HttpCode, HttpStatus, Inject, Logger, Post, Req, forwardRef } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
+import { EVENTS } from '@packages/events';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '@modules/subscription/constants/subscription-payment-purpose.constants';
 import { MembershipsService } from '@modules/subscription/services/memberships.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
@@ -23,6 +25,7 @@ export class PaymentsWebhookController {
     private readonly productSubscriptionsService: ProductSubscriptionsService,
     @Inject(forwardRef(() => MembershipsService))
     private readonly membershipsService: MembershipsService,
+    private readonly eventEmitter: EventEmitter2,
   ) { }
 
   @Post('webhook/shiprocket-checkout')
@@ -140,6 +143,15 @@ export class PaymentsWebhookController {
         { orderId, eventType, requestId: req.id },
         'Cashfree webhook handled payment failure',
       );
+    } else if (eventType === 'REFUND_STATUS_WEBHOOK' || eventType === 'REFUND_WEBHOOK') {
+      const refundData = data?.['refund'] as Record<string, any> | undefined;
+      await this.eventEmitter.emitAsync(EVENTS.REFUND_PROVIDER_UPDATED, {
+        provider: 'CASHFREE',
+        providerStatus: String(refundData?.['refund_status'] ?? refundData?.['status'] ?? eventType),
+        providerRefundId: refundData?.['cf_refund_id'] ? String(refundData['cf_refund_id']) : null,
+        merchantRefundReference: refundData?.['refund_id'] ? String(refundData['refund_id']) : null,
+        orderId: null,
+      });
     } else {
       this.logger.log(
         {
@@ -283,6 +295,25 @@ export class PaymentsWebhookController {
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
       }
+    } else if (
+      event === 'refund.processed' ||
+      event === 'refund.failed' ||
+      event === 'refund.created' ||
+      event === 'refund.updated'
+    ) {
+      const refundEntity = payloadData?.['refund'] as
+        | { entity?: { id?: string; status?: string; receipt?: string; notes?: Record<string, unknown> } }
+        | undefined;
+      const refundId = refundEntity?.entity?.id;
+      const refundStatus = String(refundEntity?.entity?.status ?? event);
+      const receipt = refundEntity?.entity?.receipt;
+      await this.eventEmitter.emitAsync(EVENTS.REFUND_PROVIDER_UPDATED, {
+        provider: 'RAZORPAY',
+        providerStatus: refundStatus,
+        providerRefundId: refundId ?? null,
+        merchantRefundReference: receipt ?? null,
+        orderId: null,
+      });
     } else {
       this.logger.log(
         { event, requestId: req.id },
