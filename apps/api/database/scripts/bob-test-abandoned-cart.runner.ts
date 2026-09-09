@@ -411,7 +411,11 @@ async function main(): Promise<void> {
         },
         'Abandoned cart loaded',
       );
-      payload = mapCurekaAbandonedCartToBob({ detail, recoveryUrl });
+      payload = mapCurekaAbandonedCartToBob({
+        detail,
+        recoveryUrl,
+        storefrontUrl: recoveryBase,
+      });
       if (opts.e164) {
         const before = payload.phone;
         const phone = toBobE164Phone(payload.phone);

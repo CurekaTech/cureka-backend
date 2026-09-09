@@ -42,6 +42,7 @@ export class BobAbandonedCartWebhookService {
           mapCurekaAbandonedCartToBob({
             detail,
             recoveryUrl: `${recoveryBase}/cart`,
+            storefrontUrl: recoveryBase,
           }),
         );
       } catch (error) {
@@ -69,6 +70,7 @@ export class BobAbandonedCartWebhookService {
       return mapCurekaAbandonedCartToBob({
         detail,
         recoveryUrl: `${this.recoveryBaseUrl()}/cart`,
+        storefrontUrl: this.recoveryBaseUrl(),
       });
     } catch (error) {
       if (error instanceof NotFoundException) throw error;

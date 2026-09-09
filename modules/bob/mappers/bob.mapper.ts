@@ -262,12 +262,14 @@ export function mapBobFulfillmentEvent(
 export function mapCurekaAbandonedCartToBob(params: {
   detail: IAbandonedCartDetail;
   recoveryUrl: string;
+  storefrontUrl?: string;
 }): BobAbandonedCartPayload {
   const { detail, recoveryUrl } = params;
   const customer = detail.customer;
   const cart = detail.cart;
   const address = detail.defaultAddress ?? detail.addresses[0] ?? null;
   const phone = String(customer.mobileNumber ?? address?.phoneNumber ?? '');
+  const storefront = (params.storefrontUrl ?? '').replace(/\/+$/, '');
 
   const mappedAddress = address
     ? {
@@ -282,15 +284,27 @@ export function mapCurekaAbandonedCartToBob(params: {
   return {
     checkout_id: detail.refId,
     cart_recovery_url: recoveryUrl,
-    line_items: (cart.items ?? []).map((item) => ({
-      id: item.variantId || item.id,
-      name: item.productName,
-      image: {
-        originalSrc: item.primaryImageUrl?.url ?? '',
-      },
-      quantity: item.quantity,
-      price: item.unitPrice,
-    })),
+    line_items: (cart.items ?? []).map((item) => {
+      const slug = item.productSlug?.trim() || '';
+      // BOB historically used line_items.id as Shopify handle under /products/{id}.
+      // Cureka PDPs are /shop/.../{slug}; never pass variant UUID here.
+      const id = slug || item.productId || item.variantId || item.id;
+      const productUrl = slug
+        ? storefront
+          ? `${storefront}/shop/${encodeURIComponent(slug)}`
+          : `/shop/${encodeURIComponent(slug)}`
+        : undefined;
+      return {
+        id,
+        name: item.productName,
+        image: {
+          originalSrc: item.primaryImageUrl?.url ?? '',
+        },
+        quantity: item.quantity,
+        price: item.unitPrice,
+        ...(productUrl ? { product_url: productUrl } : {}),
+      };
+    }),
     customer: {
       email: customer.email ?? '',
       first_name: customer.firstName ?? '',
