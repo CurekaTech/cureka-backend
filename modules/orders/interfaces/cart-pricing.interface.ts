@@ -9,6 +9,8 @@ export type CartLineItem = {
   id: string;
   productId: string;
   variantId: string;
+  /** Storefront product slug — used by BOB abandoned-cart product URL resolution. */
+  productSlug: string | null;
   productName: string;
   sku: string;
   variantLabel: string | null;

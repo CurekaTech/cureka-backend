@@ -484,6 +484,7 @@ export class CartService {
           id: item.id,
           productId: item.productId,
           variantId: item.variantId,
+          productSlug: product?.slug?.trim() || null,
           productName: product?.name ?? '',
           sku: variant?.sku ?? '',
           variantLabel: this.formatVariantLabel(variant),

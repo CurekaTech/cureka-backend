@@ -161,11 +161,14 @@ export type BobAbandonedCartPayload = {
   checkout_id: string;
   cart_recovery_url: string;
   line_items: Array<{
+    /** Prefer product slug — BOB builds storefront product URLs from this id. */
     id: string;
     name: string;
     image: { originalSrc: string };
     quantity: number;
     price: number;
+    /** Absolute Cureka PDP URL (BOB may use this instead of /products/{id}). */
+    product_url?: string;
   }>;
   customer: {
     email: string;
