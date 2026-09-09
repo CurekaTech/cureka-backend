@@ -38,7 +38,11 @@ export class CheckoutService {
     private readonly codBlocklistService: CodBlocklistService,
   ) {}
 
-  async validateCheckout(userId: string, dto: CheckoutDto): Promise<CheckoutSummary> {
+  async validateCheckout(
+    userId: string,
+    dto: CheckoutDto,
+    options?: { skipCodVariantEligibility?: boolean },
+  ): Promise<CheckoutSummary> {
     let deliveryPincode: string | undefined;
     let checkoutMobile: string | undefined;
     if (dto.addressId) {
@@ -94,7 +98,11 @@ export class CheckoutService {
     });
 
     if (isCodPaymentMethod(dto.paymentMethod)) {
-      await this.assertCodVariantsEligible(items, this.dataSource.manager);
+      // Product-level COD restriction is for native/website checkout only.
+      // GoKwik owns COD UX and must not be blocked by variant.codAvailable.
+      if (!options?.skipCodVariantEligibility) {
+        await this.assertCodVariantsEligible(items, this.dataSource.manager);
+      }
       const payable = roundMoney(pricing.subtotal - pricing.discountAmount);
       const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
       this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
