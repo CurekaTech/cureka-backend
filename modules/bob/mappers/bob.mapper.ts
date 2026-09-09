@@ -289,10 +289,13 @@ export function mapCurekaAbandonedCartToBob(params: {
       // BOB historically used line_items.id as Shopify handle under /products/{id}.
       // Cureka PDPs are /shop/.../{slug}; never pass variant UUID here.
       const id = slug || item.productId || item.variantId || item.id;
-      const productUrl = slug
+      const pagePath = item.productPagePath?.trim() || (slug ? `/shop/${slug}` : '');
+      const productUrl = pagePath
         ? storefront
-          ? `${storefront}/shop/${encodeURIComponent(slug)}`
-          : `/shop/${encodeURIComponent(slug)}`
+          ? `${storefront}${pagePath.startsWith('/') ? pagePath : `/${pagePath}`}`
+          : pagePath.startsWith('/')
+            ? pagePath
+            : `/${pagePath}`
         : undefined;
       return {
         id,

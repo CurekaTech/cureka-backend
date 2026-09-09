@@ -24,7 +24,13 @@ export class CartsRepository {
   private readonly activeCartRelations = {
     coupon: true,
     items: {
-      product: { media: true },
+      product: {
+        media: true,
+        category: true,
+        subCategory: true,
+        subSubCategory: true,
+        subSubSubCategory: true,
+      },
       variant: {
         attributeValues: {
           attribute: true,
