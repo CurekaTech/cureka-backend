@@ -67,6 +67,8 @@ export interface IParsedVariant {
   stock: number;
   /** Admin OOS flag from "Out Of Stock" column (Yes/No). */
   outOfStock?: boolean;
+  /** Optional delivery window from "Estimated Delivery Time" column. */
+  estimatedDeliveryTime?: string | null;
   weight?: number;
   weightUnit?: string;
   length?: number;
@@ -789,6 +791,9 @@ export class BulkUploadParserService {
           : outOfStockRaw === 'no' || outOfStockRaw === 'false' || outOfStockRaw === '0'
             ? false
             : undefined;
+      const estimatedDeliveryRaw = getVal('estimated delivery time').trim();
+      const estimatedDeliveryTime =
+        estimatedDeliveryRaw.length > 0 ? estimatedDeliveryRaw.slice(0, 50) : undefined;
       const weight = parseFloat(getVal('weight (kg)')) || undefined;
       const length = parseFloat(getVal('length (cm)')) || undefined;
       const width = parseFloat(getVal('width (cm)')) || undefined;
@@ -826,6 +831,7 @@ export class BulkUploadParserService {
         taxClass: getVal('tax class') || undefined,
         stock,
         outOfStock,
+        estimatedDeliveryTime,
         weight,
         weightUnit: getVal('weight unit') || undefined,
         length,

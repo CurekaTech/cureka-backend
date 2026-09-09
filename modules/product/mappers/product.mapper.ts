@@ -348,6 +348,7 @@ const mapVariant = (
   discountPercentage: toNumber(variant.discountPercentage),
   stock: variant.stock,
   outOfStock: variant.outOfStock ?? false,
+  estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
   isTop: variant.isTop ?? false,
   topSortOrder: variant.topSortOrder ?? null,
   weight: toNumber(variant.weight),

@@ -97,6 +97,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Tax Class',
   'Quantity / Stock',
   'Out Of Stock',
+  'Estimated Delivery Time',
   'Weight (kg)',
   'Weight Unit',
   'Length (cm)',
