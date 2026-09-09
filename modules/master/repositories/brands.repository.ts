@@ -27,24 +27,11 @@ export class BrandsRepository {
     return this.repo.findOne({ where: { id } });
   }
 
-  async findByRefId(refId: string): Promise<BrandEntity | null> {
-    return this.repo.findOne({ where: { refId } });
-  }
-
-  async findActiveByRefId(refId: string): Promise<BrandEntity | null> {
-    return this.repo.findOne({ where: { refId, status: MasterStatus.ACTIVE } });
-  }
-
   async findActiveByIds(ids: string[]): Promise<BrandEntity[]> {
     if (!ids.length) return [];
     return this.repo.find({
       where: { id: In(ids), status: MasterStatus.ACTIVE },
     });
-  }
-
-  async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
-    if (!refIds.length) return [];
-    return this.repo.find({ where: { refId: In(refIds) } });
   }
 
   async findBySlug(slug: string): Promise<BrandEntity | null> {
@@ -55,6 +42,7 @@ export class BrandsRepository {
       .getOne();
   }
 
+  /** Storefront/public lookup — inactive brands must not resolve. */
   async findActiveBySlug(slug: string): Promise<BrandEntity | null> {
     return this.repo
       .createQueryBuilder('brand')
@@ -74,6 +62,7 @@ export class BrandsRepository {
       .getMany();
   }
 
+  /** Storefront/public multi-slug lookup — only ACTIVE brands. */
   async findActiveBySlugs(slugs: string[]): Promise<BrandEntity[]> {
     if (!slugs.length) return [];
 
@@ -83,6 +72,25 @@ export class BrandsRepository {
       .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .getMany();
+  }
+
+  async findByRefId(refId: string): Promise<BrandEntity | null> {
+    return this.repo.findOne({ where: { refId } });
+  }
+
+  async findByRefIds(refIds: string[]): Promise<BrandEntity[]> {
+    if (!refIds.length) return [];
+    return this.repo.find({ where: { refId: In(refIds) } });
+  }
+
+  /** Storefront/public lookup — inactive brands must not resolve. */
+  async findActiveByRefId(refId: string): Promise<BrandEntity | null> {
+    return this.repo
+      .createQueryBuilder('brand')
+      .where('brand.refId = :refId', { refId })
+      .andWhere('brand.status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .getOne();
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -173,7 +181,7 @@ export class BrandsRepository {
   }
 
   async findCursorPaginated(
-    options: MasterCursorStatusOptions,
+    options: MasterCursorStatusOptions & { excludeComboBrand?: boolean },
   ): Promise<CursorPaginatedResult<BrandEntity>> {
     return executeMasterCursorQuery(this.repo, options, {
       alias: 'brand',
@@ -186,6 +194,12 @@ export class BrandsRepository {
       defaultSortBy: 'name',
       defaultSortOrder: 'ASC',
       searchExpression: '(brand.name ILIKE :search OR brand.slug ILIKE :search)',
+    }, (qb) => {
+      if (options.excludeComboBrand) {
+        qb.andWhere('LOWER(TRIM(brand.name)) != :comboBrandName', {
+          comboBrandName: 'combo',
+        });
+      }
     });
   }
 

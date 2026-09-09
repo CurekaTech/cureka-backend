@@ -9,7 +9,7 @@ import type { IStorageFileReference } from '@packages/storage';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { ProductType } from '../enums/product-type.enum';
-import { ensureBundleSkuInPayload } from '../utils/bundle-product.util';
+import { ensureBundleSkuInPayload, ensureVariantSkusInPayload } from '../utils/bundle-product.util';
 import { mergeUploadedProductMedia, ProductUploadedFiles } from '../utils/product-media.util';
 
 const PRODUCT_IMAGE_FIELDS = new Set(['images', 'image', 'images[]']);
@@ -209,6 +209,7 @@ export class ProductMultipartService {
       this.normalizeFileRefInPayload(this.stripClientOnlyFields(payload), 'sizeChart'),
       'bundleIcon',
     );
+    prepared = ensureVariantSkusInPayload(prepared);
     if (prepared.productType === ProductType.BUNDLE) {
       prepared = ensureBundleSkuInPayload(prepared);
     }

@@ -15,6 +15,7 @@ import {
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
+import { CodBlocklistService } from '@modules/cod-blocklist/services/cod-blocklist.service';
 
 @Injectable()
 export class CartPricingService {
@@ -24,6 +25,7 @@ export class CartPricingService {
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartsRepository: CartsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
+    private readonly codBlocklistService: CodBlocklistService,
   ) {}
 
   async calculateCartPricing(params: {
@@ -35,6 +37,8 @@ export class CartPricingService {
     manager?: EntityManager;
     clearInvalidCoupon?: boolean;
     strict?: boolean;
+    deliveryPincode?: string;
+    checkoutMobile?: string;
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
 
@@ -51,7 +55,14 @@ export class CartPricingService {
     };
 
     if (!params.items.length) {
-      const cod = settings.resolveCodEligibility(0, checkoutAdminSettings);
+      const cod = await this.codBlocklistService.overlayNativeCodEligibility(
+        settings.resolveCodEligibility(0, checkoutAdminSettings),
+        {
+          customerId: params.userId,
+          mobileNumber: params.checkoutMobile,
+          pincode: params.deliveryPincode,
+        },
+      );
       return this.buildPricing({
         subtotal,
         coupon: null,
@@ -208,7 +219,14 @@ export class CartPricingService {
       codCharge,
       prepaidDiscount,
       checkoutRules,
-      cod: settings.resolveCodEligibility(payableSubtotal, checkoutAdminSettings),
+      cod: await this.codBlocklistService.overlayNativeCodEligibility(
+        settings.resolveCodEligibility(payableSubtotal, checkoutAdminSettings),
+        {
+          customerId: params.userId,
+          mobileNumber: params.checkoutMobile,
+          pincode: params.deliveryPincode,
+        },
+      ),
     });
   }
 

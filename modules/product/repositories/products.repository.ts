@@ -109,6 +109,10 @@ export interface PublicProductListOptions {
 export class ProductsRepository {
   private readonly logger = new Logger(ProductsRepository.name);
 
+  private normalizeSearchToken(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+
   constructor(
     @InjectRepository(ProductEntity)
     private readonly repo: Repository<ProductEntity>,
@@ -1102,6 +1106,7 @@ export class ProductsRepository {
     this.applyAdminListSort(qb, options.sortBy, sortOrder);
 
     if (options.search) {
+      const normalizedSearch = this.normalizeSearchToken(options.search);
       qb.andWhere(
         `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
           SELECT 1 FROM product_variants pv
@@ -1111,9 +1116,17 @@ export class ProductsRepository {
               pv.slug ILIKE :search
               OR pv.sku ILIKE :search
               OR pv.display_name ILIKE :search
+              OR (
+                :normalizedSearch != ''
+                AND REGEXP_REPLACE(LOWER(COALESCE(pv.sku, '')), '[^a-z0-9]+', '', 'g') ILIKE :normalizedSkuSearch
+              )
             )
         ))`,
-        { search: `%${options.search}%` },
+        {
+          search: `%${options.search}%`,
+          normalizedSearch,
+          normalizedSkuSearch: `%${normalizedSearch}%`,
+        },
       );
     }
     if (options.productType) {
@@ -1466,12 +1479,19 @@ export class ProductsRepository {
     options: ProductListOptions,
   ): void {
     if (options.search) {
+      const normalizedSearch = this.normalizeSearchToken(options.search);
       qb.andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR variant.display_name ILIKE :search OR EXISTS (
+        `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR variant.display_name ILIKE :search OR (
+          :normalizedSearch != '' AND REGEXP_REPLACE(LOWER(COALESCE(variant.sku, '')), '[^a-z0-9]+', '', 'g') ILIKE :normalizedSkuSearch
+        ) OR EXISTS (
           SELECT 1 FROM variant_attribute_values vav
           WHERE vav.variant_id = variant.id AND vav.value ILIKE :search
         ))`,
-        { search: `%${options.search}%` },
+        {
+          search: `%${options.search}%`,
+          normalizedSearch,
+          normalizedSkuSearch: `%${normalizedSearch}%`,
+        },
       );
     }
     if (options.productType) {
@@ -1521,6 +1541,7 @@ export class ProductsRepository {
     const applySecondary = (column: string): void => {
       if (options?.prioritizeTop) {
         qb.orderBy('variant.isTop', 'DESC');
+        qb.addOrderBy('variant.topSortOrder', 'ASC', 'NULLS LAST');
         qb.addOrderBy(column, sortOrder, 'NULLS LAST');
       } else {
         qb.orderBy(column, sortOrder, 'NULLS LAST');
@@ -1670,7 +1691,17 @@ export class ProductsRepository {
           ) THEN 0 ELSE 1 END)`,
         'top_rank',
       );
+      qb.addSelect(
+        `(SELECT MIN(pv_top.top_sort_order)
+          FROM product_variants pv_top
+          WHERE pv_top.product_id = product.id
+            AND pv_top.deleted_at IS NULL
+            AND pv_top.status = :topVariantStatus
+            AND pv_top.is_top = true)`,
+        'top_sort_order',
+      );
       qb.addOrderBy('top_rank', 'ASC');
+      qb.addOrderBy('top_sort_order', 'ASC', 'NULLS LAST');
     }
 
     if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {
@@ -1965,17 +1996,26 @@ export class ProductsRepository {
     options: PublicProductListOptions,
     omit: PublicFacetOmit[],
   ): Promise<{ min: number | null; max: number | null }> {
-    const qb = this.createEligibleProductsQb(options, omit);
-    qb.innerJoin(
-      ProductVariantEntity,
-      'facetPv',
-      'facetPv.productId = product.id AND facetPv.deletedAt IS NULL AND facetPv.status = :facetPriceVariantStatus',
-      { facetPriceVariantStatus: VariantStatus.ACTIVE },
-    )
-      .select('MIN(facetPv.selling_price::numeric)', 'min')
-      .addSelect('MAX(facetPv.selling_price::numeric)', 'max');
+    const eligibleQb = this.createEligibleProductsQb(options, omit).select('product.id', 'id');
+    const [sql, params] = eligibleQb.getQueryAndParameters();
+    const statusParamIndex = params.length + 1;
 
-    const row = await qb.getRawOne<{ min: string | number | null; max: string | number | null }>();
+    const rows = await this.repo.manager.query<
+      Array<{ min: string | number | null; max: string | number | null }>
+    >(
+      `
+      WITH eligible AS (${sql})
+      SELECT MIN(pv.selling_price::numeric) AS min,
+             MAX(pv.selling_price::numeric) AS max
+      FROM product_variants pv
+      INNER JOIN eligible e ON e.id = pv.product_id
+      WHERE pv.deleted_at IS NULL
+        AND pv.status = $${statusParamIndex}
+      `,
+      [...params, VariantStatus.ACTIVE],
+    );
+
+    const row = rows[0];
     const min = row?.min == null ? null : Number(row.min);
     const max = row?.max == null ? null : Number(row.max);
     return {
@@ -2342,21 +2382,48 @@ export class ProductsRepository {
       return [];
     }
 
+    const prefixSearch = `${term}%`;
+    const containsSearch = `%${term}%`;
+
     return this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoinAndSelect('variant.product', 'product')
+      .innerJoin(BrandEntity, 'brand', 'brand.id = product.brandId')
+      .innerJoin('product.category', 'category')
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('category.deletedAt IS NULL')
       .andWhere(
         `(product.name ILIKE :search OR product.slug ILIKE :search
           OR variant.slug ILIKE :search OR variant.sku ILIKE :search
           OR variant.displayName ILIKE :search)`,
-        { search: `%${term}%` },
+        { search: containsSearch },
       )
-      .orderBy('product.name', 'ASC')
+      .addSelect(
+        `CASE
+          WHEN variant.sku ILIKE :prefixSearch THEN 0
+          WHEN variant.displayName ILIKE :prefixSearch THEN 1
+          WHEN product.name ILIKE :prefixSearch THEN 2
+          WHEN variant.slug ILIKE :prefixSearch THEN 3
+          WHEN product.slug ILIKE :prefixSearch THEN 4
+          WHEN variant.sku ILIKE :search THEN 5
+          WHEN variant.displayName ILIKE :search THEN 6
+          WHEN product.name ILIKE :search THEN 7
+          WHEN variant.slug ILIKE :search THEN 8
+          WHEN product.slug ILIKE :search THEN 9
+          ELSE 10
+        END`,
+        'search_rank',
+      )
+      .orderBy('search_rank', 'ASC')
+      .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
+      .setParameters({ prefixSearch, search: containsSearch })
       .take(limit)
       .getMany();
   }

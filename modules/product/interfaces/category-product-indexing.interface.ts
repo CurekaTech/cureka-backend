@@ -16,11 +16,18 @@ export interface ICategoryTopProductVariant {
   productRefId: string;
   productName: string;
   isTop: boolean;
+  topSortOrder: number | null;
 }
 
 export interface ICategoryTopProductsSaveResult {
   category: ICategoryProductIndexingCategory;
   selectedCount: number;
   clearedCount: number;
+  variants: ICategoryTopProductVariant[];
+}
+
+export interface ICategoryTopProductsReorderResult {
+  category: ICategoryProductIndexingCategory;
+  updatedCount: number;
   variants: ICategoryTopProductVariant[];
 }

@@ -6,6 +6,7 @@ import {
   resolveGokwikComplimentaryLineTotal,
   resolveGokwikComplimentaryMeta,
   resolveGokwikComplimentaryUnitPrice,
+  summarizeGokwikLineItemsForLog,
 } from './gokwik-line-item.util';
 
 function buildLineItem(overrides: Partial<GokwikLineItemDto> = {}): GokwikLineItemDto {
@@ -42,9 +43,10 @@ describe('gokwik-line-item.util', () => {
   });
 
   it('forces complimentary effective prices to zero regardless of GoKwik price', () => {
-    expect(resolveGokwikComplimentaryUnitPrice()).toBe(0);
-    expect(resolveGokwikComplimentaryLineTotal(1)).toBe(0);
-    expect(resolveGokwikComplimentaryLineTotal(3)).toBe(0);
+    expect(resolveGokwikComplimentaryUnitPrice(89)).toBe(0);
+    expect(resolveGokwikComplimentaryUnitPrice(null)).toBe(0);
+    expect(resolveGokwikComplimentaryLineTotal(1, 89)).toBe(0);
+    expect(resolveGokwikComplimentaryLineTotal(3, 89)).toBe(0);
   });
 
   it('extracts complimentary metadata from discounts', () => {
@@ -53,6 +55,41 @@ describe('gokwik-line-item.util', () => {
       couponCode: 'CARE+3000',
       gokwikPrice: 89,
       gokwikMrp: 89,
+    });
+  });
+
+  it('summarizes line_items for diagnostic logs', () => {
+    const summary = summarizeGokwikLineItemsForLog([
+      buildLineItem(),
+      buildLineItem({
+        source: 'cureka',
+        variant_id: '11111111-1111-1111-1111-111111111111',
+        discounts: [],
+      }),
+    ]);
+
+    expect(summary.present).toBe(true);
+    expect(summary.totalCount).toBe(2);
+    expect(summary.complimentaryCount).toBe(1);
+    expect(summary.expectedComplimentarySource).toBe(GOKWIK_COMPLIMENTARY_LINE_SOURCE);
+    expect(summary.sources).toEqual(
+      expect.arrayContaining([GOKWIK_COMPLIMENTARY_LINE_SOURCE, 'cureka']),
+    );
+    expect(summary.items[0]).toMatchObject({
+      isComplimentary: true,
+      discountCodes: ['CARE+3000'],
+      source: GOKWIK_COMPLIMENTARY_LINE_SOURCE,
+    });
+  });
+
+  it('marks missing line_items clearly in summary', () => {
+    expect(summarizeGokwikLineItemsForLog(undefined)).toEqual({
+      present: false,
+      totalCount: 0,
+      complimentaryCount: 0,
+      expectedComplimentarySource: GOKWIK_COMPLIMENTARY_LINE_SOURCE,
+      sources: [],
+      items: [],
     });
   });
 });

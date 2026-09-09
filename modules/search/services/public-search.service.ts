@@ -4,7 +4,9 @@ import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cach
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { buildCategoryPermalink } from '@modules/public/utils/category-permalink.util';
 import {
   SEARCH_ENTITY_TYPES,
   SearchEntityType,
@@ -78,7 +80,9 @@ export class PublicSearchService {
 
     if (useTypesense) {
       try {
-        const merged = await this.searchWithTypesense(trimmed, perPage);
+        const merged = await this.attachCategoryPermalinks(
+          await this.searchWithTypesense(trimmed, perPage),
+        );
         this.writeCache(cacheKey, merged);
         return merged;
       } catch (error) {
@@ -96,7 +100,9 @@ export class PublicSearchService {
       return [];
     }
 
-    const fallback = await this.searchWithNative(trimmed, perPage);
+    const fallback = await this.attachCategoryPermalinks(
+      await this.searchWithNative(trimmed, perPage),
+    );
     this.writeCache(cacheKey, fallback);
     return fallback;
   }
@@ -226,12 +232,59 @@ export class PublicSearchService {
     );
 
     return this.mergeSearchResults(
-      categories.data.map(mapCategoryToSearchResult),
-      brands.data.map(mapBrandToSearchResult),
-      healthConcerns.data.map(mapHealthConcernToSearchResult),
+      categories.data
+        .filter((category) => category.status === MasterStatus.ACTIVE)
+        .map((category) => mapCategoryToSearchResult(category)),
+      brands.data
+        .filter((brand) => brand.status === MasterStatus.ACTIVE)
+        .map(mapBrandToSearchResult),
+      healthConcerns.data
+        .filter((healthConcern) => healthConcern.status === MasterStatus.ACTIVE)
+        .map(mapHealthConcernToSearchResult),
       products,
       perPage,
     );
+  }
+
+  /**
+   * Nested categories must link to `/product-category/l1/l2/...`, not leaf-only paths.
+   * Resolve from DB so Typesense docs without `permalink` still work until reindex.
+   */
+  private async attachCategoryPermalinks(
+    results: IPublicSearchResult[],
+  ): Promise<IPublicSearchResult[]> {
+    const categoryResults = results.filter(
+      (result) => result.entityType === SEARCH_ENTITY_TYPES.CATEGORY,
+    );
+    if (!categoryResults.length) {
+      return results;
+    }
+
+    const categories = await this.categoriesRepository.findActiveByRefIds(
+      categoryResults.map((result) => result.refId),
+    );
+    if (!categories.length) {
+      return results;
+    }
+
+    const permalinkByRefId = new Map<string, string>();
+    await Promise.all(
+      categories.map(async (category) => {
+        const slugPath = await this.categoriesRepository.findSlugPathById(category.id);
+        permalinkByRefId.set(
+          category.refId,
+          buildCategoryPermalink(slugPath.length ? slugPath : [category.slug]),
+        );
+      }),
+    );
+
+    return results.map((result) => {
+      if (result.entityType !== SEARCH_ENTITY_TYPES.CATEGORY) {
+        return result;
+      }
+      const permalink = permalinkByRefId.get(result.refId);
+      return permalink ? { ...result, permalink } : result;
+    });
   }
 
   private groupMultiSearchResults(

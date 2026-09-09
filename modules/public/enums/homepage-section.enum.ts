@@ -2,6 +2,7 @@ export enum HomepageSectionKey {
   HERO_BANNER = 'heroBanner',
   SHOP_BY_CATEGORY = 'shopByCategory',
   SHOP_BY_WELLNESS_GOALS = 'shopByWellnessGoals',
+  HEALTH_CONCERNS = 'healthConcerns',
   BRANDS_WE_TRUST = 'brandsWeTrust',
   EXPERT_CURATED_BUNDLES = 'expertCuratedBundles',
   FESTIVAL_BANNERS = 'festivalBanners',

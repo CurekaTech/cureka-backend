@@ -138,6 +138,18 @@ export class BlogVideoDto {
   @IsEnum(BlogVideoType)
   type!: BlogVideoType;
 
+  @ApiPropertyOptional({ example: 'How to use this product' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'Quick demo and key benefits' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  subtitle?: string;
+
   @ApiPropertyOptional({
     description:
       'Required after upload merge when type is file. Accepts a storage path, { key, name }, or omit when sending videoFile_N.',

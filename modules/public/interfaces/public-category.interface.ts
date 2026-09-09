@@ -27,7 +27,7 @@ export interface IPublicCategoryProductListingContext {
   metaTitle: string | null;
   metaDescription: string | null;
   categoryFilters: IPublicCategoryFilterFacet[];
-  /** The category from categorySlug / categoryRefId (root or child). */
+  /** Set when the listing is filtered by a child category (non-root). */
   selectedCategory?: {
     refId: string;
     name: string;

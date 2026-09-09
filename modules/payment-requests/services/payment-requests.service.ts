@@ -2186,6 +2186,8 @@ export class PaymentRequestsService {
           productSlug: variant?.product?.slug?.trim() || null,
           productPagePath: null,
           productName: '',
+          slug: variant?.slug?.trim() || variant?.product?.slug?.trim() || '',
+          productPageUrl: variant?.productPageUrl?.trim() || null,
           sku: '',
           variantLabel: null,
           quantity: item.quantity,

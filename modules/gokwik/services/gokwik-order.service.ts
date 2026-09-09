@@ -118,6 +118,7 @@ export class GokwikOrderService {
             cart.userId,
             refreshedOrder,
             dto.line_items,
+            'create-order-stale-refresh',
           );
           const { order: snapshotOrder, snapshot: refreshedSnapshot } =
             await this.applyGokwikFinancialSnapshot(
@@ -166,6 +167,7 @@ export class GokwikOrderService {
           cart.userId,
           existing.order,
           dto.line_items,
+          'create-order-existing-link',
         );
         const { order: snapshotOrder, snapshot: existingSnapshot } =
           await this.applyGokwikFinancialSnapshot(
@@ -224,6 +226,7 @@ export class GokwikOrderService {
         cart.userId,
         order,
         dto.line_items,
+        'create-order-new-draft',
       );
 
       const { order: snapshotOrder, snapshot: createdSnapshot } =
@@ -353,6 +356,7 @@ export class GokwikOrderService {
         cart.userId,
         snapshotOrder,
         dto.line_items,
+        'place-order',
       );
       this.assertPaymentTotal(
         dto.payment_details,
@@ -990,11 +994,13 @@ export class GokwikOrderService {
     userId: string,
     order: OrderEntity,
     lineItems: GokwikLineItemDto[] | undefined,
+    stage: string,
   ): Promise<OrderEntity> {
     const result = await this.gokwikComplimentaryOrderItemsService.syncComplimentaryItems(
       userId,
       order,
       lineItems,
+      stage,
     );
     return result.order;
   }

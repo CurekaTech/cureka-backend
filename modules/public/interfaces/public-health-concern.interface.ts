@@ -15,17 +15,18 @@ export interface IPublicHealthConcernCard {
 
 /**
  * Active health concerns flagged for the homepage (`inHomePage`), ordered by `sortIndex`.
+ * Used by GET /public/homepage/health-concerns (web + mobile homepage strip).
  */
 export interface IPublicHomePageHealthConcern {
   refId: string;
   name: string;
   slug: string;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  description: string | null;
   /** Homepage display order. Lower = first; null = unordered (sorted after indexed items). */
   sortIndex: number | null;
   /** Included on view-all listing responses; omitted from the homepage strip endpoint. */
-  description?: string | null;
-  banner?: IStorageFileReference | IStorageFileReferenceResponse | null;
   metaTitle?: string | null;
   metaDescription?: string | null;
 }

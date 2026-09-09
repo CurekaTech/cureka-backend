@@ -6,8 +6,18 @@ import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 import { BlogVideoType } from '../enums/blog-video-type.enum';
 
 export type BlogPostVideo =
-  | { type: BlogVideoType.FILE; file: IStorageFileReference }
-  | { type: BlogVideoType.URL; url: string };
+  | {
+      type: BlogVideoType.FILE;
+      file: IStorageFileReference;
+      title?: string | null;
+      subtitle?: string | null;
+    }
+  | {
+      type: BlogVideoType.URL;
+      url: string;
+      title?: string | null;
+      subtitle?: string | null;
+    };
 
 @Entity('blog_posts')
 export class BlogPostEntity extends BaseEntity {

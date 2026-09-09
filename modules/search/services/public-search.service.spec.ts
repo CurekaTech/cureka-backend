@@ -1,8 +1,10 @@
 import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { CacheStrategyService } from '@packages/cache';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { PublicSearchService } from './public-search.service';
 import { TypesenseClientService } from './typesense-client.service';
@@ -28,9 +30,14 @@ describe('PublicSearchService native fallback', () => {
   };
   const categoriesRepository = {
     findPublicPaginated: jest.fn(),
+    findActiveByRefIds: jest.fn(),
+    findSlugPathById: jest.fn(),
   };
   const healthConcernsRepository = {
     findPublicPaginated: jest.fn(),
+  };
+  const cacheStrategy = {
+    cacheAside: jest.fn(),
   };
 
   let service: PublicSearchService;
@@ -42,6 +49,8 @@ describe('PublicSearchService native fallback', () => {
     productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
     brandsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
     categoriesRepository.findPublicPaginated.mockResolvedValue({ data: [] });
+    categoriesRepository.findActiveByRefIds.mockResolvedValue([]);
+    categoriesRepository.findSlugPathById.mockResolvedValue([]);
     healthConcernsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
 
     service = new PublicSearchService(
@@ -52,6 +61,7 @@ describe('PublicSearchService native fallback', () => {
       brandsRepository as unknown as BrandsRepository,
       categoriesRepository as unknown as CategoriesRepository,
       healthConcernsRepository as unknown as HealthConcernsRepository,
+      cacheStrategy as unknown as CacheStrategyService,
     );
   });
 
@@ -112,8 +122,16 @@ describe('PublicSearchService native fallback', () => {
       },
     });
     categoriesRepository.findPublicPaginated.mockResolvedValue({
-      data: [{ name: 'Vitamins', slug: 'vitamins', refId: 'CAT1' }],
+      data: [{ name: 'Vitamins', slug: 'vitamins', refId: 'CAT1', status: MasterStatus.ACTIVE }],
     });
+    categoriesRepository.findActiveByRefIds.mockResolvedValue([
+      { id: 'cat-id-1', name: 'Vitamins', slug: 'vitamins', refId: 'CAT1' },
+    ]);
+    categoriesRepository.findSlugPathById.mockResolvedValue([
+      'nutrition',
+      'supplements',
+      'vitamins',
+    ]);
 
     const results = await service.search('vita');
 
@@ -122,6 +140,56 @@ describe('PublicSearchService native fallback', () => {
       title: 'Vitamins',
       slug: 'vitamins',
       refId: 'CAT1',
+      permalink: '/product-category/nutrition/supplements/vitamins',
     });
+  });
+
+  it('filters inactive master records from native fallback results', async () => {
+    categoriesRepository.findPublicPaginated.mockResolvedValue({
+      data: [
+        { name: 'Active Category', slug: 'active-category', refId: 'CAT1', status: MasterStatus.ACTIVE },
+        { name: 'Inactive Category', slug: 'inactive-category', refId: 'CAT2', status: MasterStatus.INACTIVE },
+      ],
+    });
+    categoriesRepository.findActiveByRefIds.mockResolvedValue([
+      { id: 'cat-id-1', name: 'Active Category', slug: 'active-category', refId: 'CAT1' },
+    ]);
+    categoriesRepository.findSlugPathById.mockResolvedValue(['active-category']);
+    brandsRepository.findPublicPaginated.mockResolvedValue({
+      data: [
+        { name: 'Active Brand', slug: 'active-brand', refId: 'BR1', status: MasterStatus.ACTIVE },
+        { name: 'Inactive Brand', slug: 'inactive-brand', refId: 'BR2', status: MasterStatus.INACTIVE },
+      ],
+    });
+    healthConcernsRepository.findPublicPaginated.mockResolvedValue({
+      data: [
+        { name: 'Active Concern', slug: 'active-concern', refId: 'HC1', status: MasterStatus.ACTIVE },
+        { name: 'Inactive Concern', slug: 'inactive-concern', refId: 'HC2', status: MasterStatus.INACTIVE },
+      ],
+    });
+
+    const results = await service.search('active', 10);
+
+    expect(results).toEqual([
+      {
+        entityType: SEARCH_ENTITY_TYPES.CATEGORY,
+        title: 'Active Category',
+        slug: 'active-category',
+        refId: 'CAT1',
+        permalink: '/product-category/active-category',
+      },
+      {
+        entityType: SEARCH_ENTITY_TYPES.BRAND,
+        title: 'Active Brand',
+        slug: 'active-brand',
+        refId: 'BR1',
+      },
+      {
+        entityType: SEARCH_ENTITY_TYPES.HEALTH_CONCERN,
+        title: 'Active Concern',
+        slug: 'active-concern',
+        refId: 'HC1',
+      },
+    ]);
   });
 });

@@ -17,6 +17,10 @@ export type CartLineItem = {
    */
   productPagePath: string | null;
   productName: string;
+  /** Variant slug when present, otherwise product slug — used for storefront PDP links. */
+  slug: string;
+  /** Exact variant product page path when present (preferred over slug for PDP href). */
+  productPageUrl: string | null;
   sku: string;
   variantLabel: string | null;
   quantity: number;
@@ -59,6 +63,8 @@ export type CartCodEligibility = {
   available: boolean;
   minimumOrderAmount: number;
   message: string;
+  /** `COD_BLOCKED_FOR_PINCODE` | `COD_BLOCKED_FOR_CUSTOMER` when native checkout is blocked. */
+  reasonCode?: string | null;
 };
 
 export type CartPricing = {

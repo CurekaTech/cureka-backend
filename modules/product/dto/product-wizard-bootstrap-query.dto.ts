@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { MasterListStatusFilter } from '@modules/master/enums/master-list-status-filter.enum';
@@ -51,4 +51,13 @@ export class ProductWizardBootstrapQueryDto {
   @IsOptional()
   @IsRefId()
   parentCategoryRefId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  excludeComboBrand?: boolean;
 }

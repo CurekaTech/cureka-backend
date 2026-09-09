@@ -80,6 +80,7 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
      * `shipment.statusFlow[].happenedAt` prefers these order timestamp columns.
      */
     shipment: ShipmentResponse;
+    refund?: import('@modules/refund-requests/interfaces/refund-request.interface').ICustomerRefundView | null;
   };
 
 export type AdminOrderCustomerResponse = {

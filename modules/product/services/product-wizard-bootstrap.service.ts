@@ -72,6 +72,7 @@ export class ProductWizardBootstrapService {
         const page = await this.brandsRepository.findCursorPaginated({
           ...pagination,
           status,
+          excludeComboBrand: query.excludeComboBrand,
         });
         const data = await this.storageUrlEnricher.enrichManyFields(
           mapBrandEntitiesToResponse(page.data),
