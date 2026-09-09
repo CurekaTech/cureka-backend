@@ -289,6 +289,8 @@ export function mapCurekaAbandonedCartToBob(params: {
       // BOB historically used line_items.id as Shopify handle under /products/{id}.
       // Cureka PDPs are /shop/.../{slug}; never pass variant UUID here.
       const id = slug || item.productId || item.variantId || item.id;
+      // Prefer configured PDP path; fall back to /shop/{slug} (storefront 308s to canonical).
+      // Do not invent category-tree URLs from DB relations — those can be stale and confuse BOB.
       const pagePath = item.productPagePath?.trim() || (slug ? `/shop/${slug}` : '');
       const productUrl = pagePath
         ? storefront
