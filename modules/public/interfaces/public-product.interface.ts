@@ -185,6 +185,8 @@ export interface IPublicProductVariant {
   stock: number;
   inStock: boolean;
   outOfStock: boolean;
+  /** Estimated delivery window text (e.g. "3-5 Days"), or null when unset. */
+  estimatedDeliveryTime: string | null;
   weight: number | null;
   weightUnit: string | null;
   length: number | null;

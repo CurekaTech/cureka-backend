@@ -625,6 +625,7 @@ export class BulkUploadService {
       ['Discount Percentage', 20],
       ['Quantity / Stock', 100],
       ['Out Of Stock', 'No'],
+      ['Estimated Delivery Time', '3-5 Days'],
       ['Weight (kg)', 0.2],
       ['Weight Unit', 'g'],
       ['Length (cm)', 10],
@@ -664,6 +665,7 @@ export class BulkUploadService {
       ['Selling Price (Rs)*', 649],
       ['Quantity / Stock', 50],
       ['Out Of Stock', 'No'],
+      ['Estimated Delivery Time', '5-7 Days'],
       ['Product ID (String)', '99001'],
       [
         'Product Description',
@@ -705,6 +707,7 @@ export class BulkUploadService {
       ['Selling Price (Rs)*', options.sellingPrice],
       ['Quantity / Stock', options.stock],
       ['Out Of Stock', 'No'],
+      ['Estimated Delivery Time', '3-5 Days'],
       ['Product URL Slug', options.slug],
       ['Product Description', 'Vertical style_group_id sample — two rows bind into one variable product.'],
       ['Product Status', 'published'],

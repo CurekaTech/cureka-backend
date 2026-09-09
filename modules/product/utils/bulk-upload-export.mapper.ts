@@ -167,6 +167,9 @@ const applyVariantFields = (
   if (discount !== null) values.set('Discount Percentage', discount);
   values.set('Quantity / Stock', variant.stock ?? 0);
   values.set('Out Of Stock', yesNo(variant.outOfStock));
+  if (variant.estimatedDeliveryTime) {
+    values.set('Estimated Delivery Time', variant.estimatedDeliveryTime);
+  }
 
   if (variant.weight) values.set('Weight (kg)', toNumber(variant.weight));
   if (variant.weightUnit) values.set('Weight Unit', variant.weightUnit);

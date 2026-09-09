@@ -165,6 +165,23 @@ export class CreateVariantDto {
   @IsOptional()
   @IsBoolean()
   outOfStock?: boolean;
+
+  @ApiPropertyOptional({
+    example: '5-7 Days',
+    nullable: true,
+    description: 'Estimated delivery window text for this variant (e.g. "3-5 Days").',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    return typeof value === 'string' ? value.trim() : value;
+  })
+  @IsString()
+  @MaxLength(50)
+  estimatedDeliveryTime?: string | null;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })

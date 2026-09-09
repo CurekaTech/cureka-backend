@@ -398,6 +398,7 @@ export class ProductVariantsRepository {
         discountPercentage: discountPercentage.toFixed(2),
         stock: dto.stock,
         outOfStock: dto.outOfStock ?? false,
+        estimatedDeliveryTime: dto.estimatedDeliveryTime ?? null,
         weight: dto.weight?.toFixed(3) ?? null,
         weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
         length: dto.length?.toFixed(2) ?? null,
@@ -671,6 +672,9 @@ export class ProductVariantsRepository {
           discountPercentage: discountPercentage.toFixed(2),
           stock: dto.stock,
           ...(dto.outOfStock !== undefined ? { outOfStock: dto.outOfStock } : {}),
+          ...(dto.estimatedDeliveryTime !== undefined
+            ? { estimatedDeliveryTime: dto.estimatedDeliveryTime }
+            : {}),
           weight: dto.weight?.toFixed(3) ?? null,
           weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
           length: dto.length?.toFixed(2) ?? null,

@@ -743,6 +743,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       stock: getSalableStockQuantity(variant.stock),
       inStock: isVariantAvailable(variant),
       outOfStock: variant.outOfStock ?? false,
+      estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,
       length: toNumber(variant.length),
