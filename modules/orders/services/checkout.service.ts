@@ -50,6 +50,7 @@ export class CheckoutService {
       productId: item.productId,
       variantId: item.variantId,
       productSlug: null,
+      productPagePath: null,
       productName: item.productName,
       sku: item.sku,
       variantLabel: item.variantName,

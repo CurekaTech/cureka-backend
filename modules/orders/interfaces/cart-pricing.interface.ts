@@ -11,6 +11,8 @@ export type CartLineItem = {
   variantId: string;
   /** Storefront product slug — used by BOB abandoned-cart product URL resolution. */
   productSlug: string | null;
+  /** Absolute-path PDP permalink e.g. /shop/skin-care/.../slug */
+  productPagePath: string | null;
   productName: string;
   sku: string;
   variantLabel: string | null;

@@ -2184,6 +2184,7 @@ export class PaymentRequestsService {
           productId: item.productId,
           variantId: item.variantId,
           productSlug: variant?.product?.slug?.trim() || null,
+          productPagePath: null,
           productName: '',
           sku: '',
           variantLabel: null,

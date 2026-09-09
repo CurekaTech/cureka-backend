@@ -11,6 +11,10 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import {
+  buildProductCategorySlugPathFromRelations,
+  buildProductPermalink,
+} from '@modules/public/utils/category-permalink.util';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
@@ -485,6 +489,12 @@ export class CartService {
           productId: item.productId,
           variantId: item.variantId,
           productSlug: product?.slug?.trim() || null,
+          productPagePath: product
+            ? buildProductPermalink(
+                buildProductCategorySlugPathFromRelations(product),
+                product.slug ?? '',
+              )
+            : null,
           productName: product?.name ?? '',
           sku: variant?.sku ?? '',
           variantLabel: this.formatVariantLabel(variant),
