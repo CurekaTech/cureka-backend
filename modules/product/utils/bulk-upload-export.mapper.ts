@@ -3,6 +3,7 @@ import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { buildCategoryFilterColumnHeader } from './bulk-upload-columns.util';
+import { normalizeSkuMatchKey } from './sku-match.util';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 
@@ -421,10 +422,10 @@ const mapBundleProductRows = (
       childValues.set('Child Product Name', childProduct.name);
     }
 
-    const childVariant = skuLookup.get(childSku.toLowerCase());
+    const childVariant = skuLookup.get(normalizeSkuMatchKey(childSku));
     const childPrice =
       childVariant ??
-      exportContext?.variantSkuPriceLookup?.get(childSku.toLowerCase());
+      exportContext?.variantSkuPriceLookup?.get(normalizeSkuMatchKey(childSku));
     if (childVariant || childPrice) {
       const childMrp = toNumber(
         childVariant?.mrp ?? (childPrice && 'mrp' in childPrice ? childPrice.mrp : null),
@@ -449,7 +450,7 @@ const buildSkuLookup = (products: ProductEntity[]): Map<string, ProductVariantEn
   const lookup = new Map<string, ProductVariantEntity>();
   for (const product of products) {
     for (const variant of product.variants ?? []) {
-      lookup.set(variant.sku.toLowerCase(), variant);
+      lookup.set(normalizeSkuMatchKey(variant.sku), variant);
     }
   }
   return lookup;

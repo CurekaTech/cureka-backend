@@ -3,6 +3,7 @@ import * as ExcelJS from 'exceljs';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import { resolvePriceColumnKey } from '../utils/bulk-price-update-columns.util';
+import { normalizeSkuMatchKey } from '../utils/sku-match.util';
 
 export interface IParsedPriceRow {
   rowNumber: number;
@@ -186,7 +187,7 @@ export class BulkPriceUpdateParserService {
       return;
     }
 
-    const skuKey = sku.toLowerCase();
+    const skuKey = normalizeSkuMatchKey(sku);
     if (seenSkus.has(skuKey)) {
       errors.push({
         rowNumber,
@@ -194,7 +195,7 @@ export class BulkPriceUpdateParserService {
         column: 'SKU',
         invalidValue: sku,
         reason: `Duplicate SKU in sheet (also on row ${seenSkus.get(skuKey)})`,
-        suggestedFix: 'Keep only one row per SKU',
+        suggestedFix: 'Keep only one row per SKU (matching is case-sensitive)',
       });
       return;
     }
