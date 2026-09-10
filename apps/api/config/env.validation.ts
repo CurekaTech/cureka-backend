@@ -206,6 +206,16 @@ export const envValidationSchema = Joi.object({
   RETURN_WALLET_REFUND_ENABLED: Joi.string().valid('true', 'false').optional(),
   BANK_ACCOUNT_ENCRYPTION_KEY: Joi.string().allow('').optional(),
 
+  SUBSCRIPTION_TIMEZONE: Joi.string().default('Asia/Kolkata'),
+  SUBSCRIPTION_DELIVERY_LEAD_DAYS: Joi.number().integer().min(0).max(30).default(2),
+  SUBSCRIPTION_MAX_RETRIES: Joi.number().integer().min(0).max(10).default(3),
+  SUBSCRIPTION_CHANGE_CUTOFF_HOURS: Joi.number().integer().min(0).max(168).default(12),
+  SUBSCRIPTION_PREDEBIT_HOURS: Joi.number().integer().min(0).max(72).default(24),
+  SUBSCRIPTION_AUTOPAY_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  SUBSCRIPTION_AUTOPAY_PROVIDER: Joi.string().valid('RAZORPAY', 'CASHFREE', '').optional(),
+  SUBSCRIPTION_MANDATE_MAX_AMOUNT: Joi.number().positive().allow('').optional(),
+  SUBSCRIPTION_PAYMENT_LINK_EXPIRY_HOURS: Joi.number().integer().min(1).max(720).default(72),
+
   TYPESENSE_HOST: Joi.string().allow('').optional(),
   TYPESENSE_API_KEY: Joi.string().allow('').optional(),
   TYPESENSE_SEARCH_API_KEY: Joi.string().allow('').optional(),

@@ -1,5 +1,6 @@
 import { BaseEntity } from '@packages/database';
 import { Column, Entity, Index, Unique } from 'typeorm';
+import { SubscriptionPaymentAttemptKind } from '../enums/subscription-payment-attempt-kind.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
 
 @Entity('subscription_payments')
@@ -56,4 +57,23 @@ export class SubscriptionPaymentEntity extends BaseEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, any> | null;
+
+  @Index()
+  @Column({ name: 'billing_cycle_id', type: 'uuid', nullable: true })
+  billingCycleId!: string | null;
+
+  @Column({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId!: string | null;
+
+  @Column({
+    name: 'attempt_kind',
+    type: 'enum',
+    enum: SubscriptionPaymentAttemptKind,
+    enumName: 'subscription_payment_attempt_kind_enum',
+    default: SubscriptionPaymentAttemptKind.MANUAL_LINK,
+  })
+  attemptKind!: SubscriptionPaymentAttemptKind;
+
+  @Column({ name: 'idempotency_key', type: 'varchar', length: 128, nullable: true })
+  idempotencyKey!: string | null;
 }

@@ -1,6 +1,7 @@
 export enum SubscriptionPaymentStatus {
   PENDING = 'PENDING',
   LINK_GENERATED = 'LINK_GENERATED',
+  RECONCILING = 'RECONCILING',
   PAID = 'PAID',
   FAILED = 'FAILED',
   EXPIRED = 'EXPIRED',
