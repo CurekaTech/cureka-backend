@@ -171,6 +171,68 @@ describe('UnicommerceOrderApiService', () => {
     expect(JSON.stringify(tokenAcquiredLog?.[0])).not.toContain('tokenPrefix');
   });
 
+  it('posts reverse pickup to the official Unicommerce endpoint', async () => {
+    const service = new UnicommerceOrderApiService(buildConfig(baseValues));
+    jest.spyOn((service as any).logger, 'log').mockImplementation(() => undefined);
+
+    const tokenResponse = {
+      access_token: 'test-token-abc',
+      token_type: 'bearer',
+      refresh_token: 'ref',
+      expires_in: 3600,
+    };
+    const reverseResponse = { successful: true, reversePickupCode: 'RET1' };
+
+    const requestSpy = jest
+      .spyOn(https, 'request')
+      .mockImplementationOnce(((_options: unknown, callback?: (res: EventEmitter & { statusCode?: number }) => void) => {
+        const req = Object.assign(new EventEmitter(), {
+          setTimeout: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          destroy: jest.fn(),
+        });
+        const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+        if (callback) {
+          callback(res as EventEmitter & { statusCode?: number });
+          queueMicrotask(() => {
+            res.emit('data', Buffer.from(JSON.stringify(tokenResponse)));
+            res.emit('end');
+          });
+        }
+        return req as unknown as ReturnType<typeof https.request>;
+      }) as typeof https.request)
+      .mockImplementationOnce(((_options: unknown, callback?: (res: EventEmitter & { statusCode?: number }) => void) => {
+        const req = Object.assign(new EventEmitter(), {
+          setTimeout: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          destroy: jest.fn(),
+        });
+        const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+        if (callback) {
+          callback(res as EventEmitter & { statusCode?: number });
+          queueMicrotask(() => {
+            res.emit('data', Buffer.from(JSON.stringify(reverseResponse)));
+            res.emit('end');
+          });
+        }
+        return req as unknown as ReturnType<typeof https.request>;
+      }) as typeof https.request);
+
+    const result = await service.createReversePickup({
+      saleOrderCode: 'CUR1',
+      actionCode: 'WAC',
+      reversePickupCode: 'RET1',
+      reversePickItems: [{ saleOrderItemCode: 'CUR1-1', reason: 'Damaged' }],
+    });
+
+    expect(result).toEqual(reverseResponse);
+    const reverseOptions = requestSpy.mock.calls[1][0] as https.RequestOptions;
+    expect(reverseOptions.path).toBe('/services/rest/v1/oms/reversePickup/create');
+    expect(reverseOptions.method).toBe('POST');
+  });
+
   it('throws ServiceUnavailable when OAuth token request fails', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
     mockHttpsRequest(401, { error: 'unauthorized' });

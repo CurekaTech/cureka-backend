@@ -9,6 +9,7 @@ import {
 import { BaseEntity } from '@packages/database';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
+import { PolicyWindowUnit } from '../enums/policy-window-unit.enum';
 import { ProductVariantEntity } from './product-variant.entity';
 import { ProductMediaEntity } from './product-media.entity';
 import { ProductHealthConcernEntity } from './product-health-concern.entity';
@@ -126,6 +127,39 @@ export class ProductEntity extends BaseEntity {
 
   @Column({ name: 'return_policy', type: 'text', nullable: true })
   returnPolicy!: string | null;
+
+  @Column({ name: 'refund_allowed', type: 'boolean', default: true })
+  refundAllowed!: boolean;
+
+  @Column({
+    name: 'return_window_unit',
+    type: 'enum',
+    enum: PolicyWindowUnit,
+    enumName: 'policy_window_unit_enum',
+    default: PolicyWindowUnit.DAYS,
+  })
+  returnWindowUnit!: PolicyWindowUnit;
+
+  @Column({
+    name: 'replace_window_unit',
+    type: 'enum',
+    enum: PolicyWindowUnit,
+    enumName: 'policy_window_unit_enum',
+    default: PolicyWindowUnit.DAYS,
+  })
+  replaceWindowUnit!: PolicyWindowUnit;
+
+  @Column({ name: 'return_pickup_required', type: 'boolean', default: true })
+  returnPickupRequired!: boolean;
+
+  @Column({ name: 'return_qc_required', type: 'boolean', default: true })
+  returnQcRequired!: boolean;
+
+  @Column({ name: 'return_evidence_required', type: 'boolean', default: false })
+  returnEvidenceRequired!: boolean;
+
+  @Column({ name: 'no_pickup_refund_allowed', type: 'boolean', default: false })
+  noPickupRefundAllowed!: boolean;
 
   @Column({ name: 'product_information', type: 'jsonb', nullable: false, default: () => "'[]'" })
   productInformation!: IProductInformationItem[];

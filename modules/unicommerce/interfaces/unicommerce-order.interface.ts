@@ -68,15 +68,17 @@ export interface IUnicommerceSaleOrderPayload {
   };
 }
 
+export interface IUnicommerceApiError {
+  code?: number;
+  fieldName?: string;
+  description?: string;
+  message?: string;
+}
+
 export interface IUnicommerceCreateSaleOrderResponse {
   successful: boolean;
   message?: string;
-  errors?: Array<{
-    code?: number;
-    fieldName?: string;
-    description?: string;
-    message?: string;
-  }>;
+  errors?: IUnicommerceApiError[];
   warnings?: Array<{
     code?: number;
     message?: string;
@@ -88,5 +90,79 @@ export interface IUnicommerceCreateSaleOrderResponse {
     status?: string;
     created?: string;
     updated?: string;
+  };
+}
+
+/** Item row from GET /services/rest/v1/oms/saleorder/get */
+export interface IUnicommerceSaleOrderItemDto {
+  code?: string;
+  itemSku?: string;
+  statusCode?: string;
+}
+
+export interface IUnicommerceGetSaleOrderResponse {
+  successful: boolean;
+  message?: string;
+  errors?: IUnicommerceApiError[];
+  saleOrderDTO?: {
+    code?: string;
+    displayOrderCode?: string;
+    status?: string;
+    saleOrderItems?: IUnicommerceSaleOrderItemDto[];
+  };
+}
+
+/**
+ * Official reverse-pickup create body.
+ * Docs: POST /services/rest/v1/oms/reversePickup/create
+ * https://documentation.unicommerce.com/docs/create-reversepickup.html
+ */
+export interface IUnicommerceReversePickupAddress {
+  id: string;
+  name: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  country?: string;
+  pincode?: string;
+  phone: string;
+  email?: string;
+}
+
+export interface IUnicommerceReversePickItem {
+  saleOrderItemCode: string;
+  reason: string;
+  customerImageUrl?: string;
+  reversePickupAlternate?: {
+    itemSku: string;
+    totalPrice?: number;
+    sellingPrice?: number;
+    discount?: number;
+    shippingCharges?: number;
+    prepaidAmount?: number;
+  };
+}
+
+export interface IUnicommerceCreateReversePickupPayload {
+  saleOrderCode: string;
+  reversePickItems: IUnicommerceReversePickItem[];
+  actionCode: 'WAC';
+  reversePickupCode?: string;
+  pickupAddress?: IUnicommerceReversePickupAddress;
+  shippingAddress?: IUnicommerceReversePickupAddress;
+  pickupInstruction?: string;
+  returnFacilityCode?: string;
+}
+
+export interface IUnicommerceCreateReversePickupResponse {
+  successful: boolean;
+  message?: string;
+  errors?: IUnicommerceApiError[];
+  reversePickupCode?: string;
+  reversePickupDTO?: {
+    code?: string;
+    reversePickupCode?: string;
+    status?: string;
   };
 }

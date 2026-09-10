@@ -4,6 +4,7 @@ export { jwtConfig } from './jwt.config';
 export { storageConfig } from './storage.config';
 export { typesenseConfig } from './typesense.config';
 export { ordersConfig } from './orders.config';
+export { returnsConfig } from './returns.config';
 export { shipwayConfig } from './shipway.config';
 export { shiprocketConfig } from './shiprocket.config';
 export { gokwikConfig } from './gokwik.config';

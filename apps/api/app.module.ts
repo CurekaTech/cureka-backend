@@ -7,6 +7,7 @@ import {
   databaseConfig,
   jwtConfig,
   ordersConfig,
+  returnsConfig,
   shiprocketConfig,
   shipwayConfig,
   storageConfig,
@@ -52,6 +53,7 @@ import { ReportsModule } from '@modules/reports/reports.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { SitemapModule } from '@modules/sitemap/sitemap.module';
 import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
+import { ReturnsModule } from '@modules/returns/returns.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 
 @Module({
@@ -66,6 +68,7 @@ import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module'
         storageConfig,
         typesenseConfig,
         ordersConfig,
+        returnsConfig,
         shipwayConfig,
         shiprocketConfig,
         unicommerceOrderConfig,
@@ -125,6 +128,7 @@ import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module'
     SubscriptionModule,
     SitemapModule,
     RefundRequestsModule,
+    ReturnsModule,
     CodBlocklistModule,
   ],
   providers: [
