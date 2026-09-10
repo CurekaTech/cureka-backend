@@ -11,6 +11,12 @@ export interface ICombinePreviewProduct {
   externalProductId: string | null;
   sellingPrice: string;
   stock: number;
+  outOfStock: boolean;
+  brandId: string | null;
+  categoryId: string;
+  subCategoryId: string | null;
+  subSubCategoryId: string | null;
+  subSubSubCategoryId: string | null;
 }
 
 export interface ICombinePreviewAttribute {
