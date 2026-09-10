@@ -1,6 +1,8 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { Transform } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -10,8 +12,10 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterFaqDto, parseMasterFaqArray } from './master-faq.dto';
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -52,9 +56,25 @@ export class CreateHealthConcernDto {
   @Transform(parseBoolean)
   @IsBoolean()
   inHomePage?: boolean;
+
+  @ApiPropertyOptional({ type: [MasterFaqDto] })
+  @IsOptional()
+  @Transform(parseMasterFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterFaqDto)
+  faqs?: MasterFaqDto[];
 }
 
-export class UpdateHealthConcernDto extends PartialType(CreateHealthConcernDto) {}
+export class UpdateHealthConcernDto extends PartialType(CreateHealthConcernDto) {
+  @ApiPropertyOptional({ type: [MasterFaqDto] })
+  @IsOptional()
+  @Transform(parseMasterFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterFaqDto)
+  faqs?: MasterFaqDto[];
+}
 
 export class UpdateHealthConcernStatusDto {
   @IsNotEmpty()

@@ -34,6 +34,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   metaKeywords: entity.metaKeywords,
   aboveTheFold: entity.aboveTheFold,
   belowTheFold: entity.belowTheFold,
+  faqs: entity.faqs ?? [],
   isInHeader: entity.isInHeader,
   isInShopBy: entity.isInShopBy,
   bestsellerSortIndex: entity.bestsellerSortIndex ?? null,

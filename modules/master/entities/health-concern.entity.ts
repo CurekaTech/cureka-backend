@@ -45,4 +45,7 @@ export class HealthConcernEntity extends BaseEntity {
    */
   @Column({ name: 'sort_index', type: 'int', nullable: true, default: null })
   sortIndex!: number | null;
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string }>;
 }

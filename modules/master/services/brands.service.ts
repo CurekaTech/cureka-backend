@@ -27,6 +27,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
 const BRAND_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
@@ -136,6 +137,7 @@ export class BrandsService {
       showBrandHighlights: dto.showBrandHighlights ?? true,
       description: dto.description ?? null,
       showDescription: dto.showDescription ?? true,
+      faqs: normalizeMasterFaqs(dto.faqs),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
       metaTitle: dto.metaTitle ?? null,
@@ -192,7 +194,7 @@ export class BrandsService {
       }
     }
 
-    const { brandHighlights, ...dtoFields } = dto;
+    const { brandHighlights, faqs, ...dtoFields } = dto;
     const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
@@ -221,6 +223,9 @@ export class BrandsService {
     }
     if (brandHighlights !== undefined) {
       payload.brandHighlights = this.persistBrandHighlights(brandHighlights);
+    }
+    if (faqs !== undefined) {
+      payload.faqs = normalizeMasterFaqs(faqs);
     }
 
     const result = await this.brandsRepository.updateByRefId(refId, payload);

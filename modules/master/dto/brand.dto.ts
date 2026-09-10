@@ -14,6 +14,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { MasterStatus } from '../enums/master-status.enum';
+import { MasterFaqDto, parseMasterFaqArray } from './master-faq.dto';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 const parseJsonArray = ({ value }: { value: unknown }): string[] | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -208,6 +210,14 @@ export class CreateBrandDto {
   @Transform(parseBoolean)
   @IsBoolean()
   showDescription?: boolean;
+
+  @ApiPropertyOptional({ type: [MasterFaqDto] })
+  @IsOptional()
+  @Transform(parseMasterFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterFaqDto)
+  faqs?: MasterFaqDto[];
 }
 
 /**
@@ -223,6 +233,14 @@ export class UpdateBrandDto extends PartialType(CreateBrandDto) {
   @ValidateNested({ each: true })
   @Type(() => BrandHighlightDto)
   brandHighlights?: BrandHighlightDto[] | null;
+
+  @ApiPropertyOptional({ type: [MasterFaqDto] })
+  @IsOptional()
+  @Transform(parseMasterFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterFaqDto)
+  faqs?: MasterFaqDto[];
 }
 
 export class UpdateBrandStatusDto {
