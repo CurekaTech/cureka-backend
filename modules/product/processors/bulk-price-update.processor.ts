@@ -120,7 +120,7 @@ export class BulkPriceUpdateProcessor extends WorkerHost {
             const variant = await this.variantRepo
               .createQueryBuilder('v')
               .where('v.deleted_at IS NULL')
-              .andWhere('LOWER(TRIM(v.sku)) = LOWER(TRIM(:sku))', { sku: row.sku })
+              .andWhere('TRIM(v.sku) = TRIM(:sku)', { sku: row.sku })
               .getOne();
 
             if (!variant) {
