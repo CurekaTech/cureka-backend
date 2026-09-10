@@ -28,6 +28,8 @@ function buildOrder() {
 describe('RefundRequestsService workflow', () => {
   const refundRequestsRepository = {
     findActiveByOrderId: jest.fn(),
+    findActiveCancellationByOrderId: jest.fn(),
+    findByReturnRequestId: jest.fn(),
     findByIdOrRefId: jest.fn(),
     findById: jest.fn(),
     findLatestByOrderId: jest.fn(),
@@ -53,6 +55,13 @@ describe('RefundRequestsService workflow', () => {
   };
   const auditService = { log: jest.fn() };
   const eventEmitter = { emitAsync: jest.fn() };
+  const payoutService = {
+    createForReturnRefund: jest.fn().mockResolvedValue(null),
+    onRefundInitiated: jest.fn(),
+    getByRefundRequestId: jest.fn().mockResolvedValue(null),
+    toAdminView: jest.fn(),
+    completeRefundIfSettled: jest.fn(),
+  };
   const dataSource = {
     transaction: jest.fn(async (fn: (manager: unknown) => Promise<unknown>) => fn({})),
     getRepository: jest.fn().mockReturnValue({
@@ -68,6 +77,7 @@ describe('RefundRequestsService workflow', () => {
     processor as never,
     auditService as never,
     eventEmitter as never,
+    payoutService as never,
   );
 
   beforeEach(() => {
@@ -104,7 +114,7 @@ describe('RefundRequestsService workflow', () => {
   });
 
   it('creates a refund request on cancellation and does not call a provider', async () => {
-    refundRequestsRepository.findActiveByOrderId.mockResolvedValue(null);
+    refundRequestsRepository.findActiveCancellationByOrderId.mockResolvedValue(null);
     const created = await service.createFromOrderCancellation(
       buildOrder() as never,
       actor,
@@ -115,7 +125,7 @@ describe('RefundRequestsService workflow', () => {
   });
 
   it('does not create a duplicate refund request', async () => {
-    refundRequestsRepository.findActiveByOrderId.mockResolvedValue({ id: 'rr-1' });
+    refundRequestsRepository.findActiveCancellationByOrderId.mockResolvedValue({ id: 'rr-1' });
     const created = await service.createFromOrderCancellation(
       buildOrder() as never,
       actor,
@@ -126,7 +136,7 @@ describe('RefundRequestsService workflow', () => {
   });
 
   it('does not create a request for COD without captured online payment', async () => {
-    refundRequestsRepository.findActiveByOrderId.mockResolvedValue(null);
+    refundRequestsRepository.findActiveCancellationByOrderId.mockResolvedValue(null);
     amountService.calculateRefundableAmount.mockResolvedValue({
       capturedAmount: '0.00',
       alreadyRefundedAmount: '0.00',
@@ -142,6 +152,163 @@ describe('RefundRequestsService workflow', () => {
     );
     expect(created).toBeNull();
     expect(processor.initiate).not.toHaveBeenCalled();
+  });
+
+  it('creates a partial refund for a return without demanding the full order amount', async () => {
+    refundRequestsRepository.findByReturnRequestId.mockResolvedValue(null);
+
+    const created = await service.createFromReturn({
+      order: buildOrder() as never,
+      returnRequestId: 'ret-1',
+      returnNumber: 'RTNRET2026000001',
+      amount: '150.00',
+      reasonDetails: 'Damaged on arrival',
+      actor,
+    });
+
+    expect(created.status).toBe(RefundRequestStatus.REQUESTED);
+    expect(created.requestedAmount).toBe('150.00');
+    expect(created.returnRequestId).toBe('ret-1');
+    // Approval stays with the admin: creating the refund never touches a provider.
+    expect(processor.initiate).not.toHaveBeenCalled();
+  });
+
+  it('never refunds more than the order still has available', async () => {
+    refundRequestsRepository.findByReturnRequestId.mockResolvedValue(null);
+
+    await expect(
+      service.createFromReturn({
+        order: buildOrder() as never,
+        returnRequestId: 'ret-1',
+        returnNumber: 'RTNRET2026000001',
+        amount: '900.00',
+        reasonDetails: 'Damaged on arrival',
+        actor,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(refundRequestsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('returns the existing refund when the same return is handed off twice', async () => {
+    refundRequestsRepository.findByReturnRequestId.mockResolvedValue({
+      id: 'rr-existing',
+      returnRequestId: 'ret-1',
+    });
+
+    const created = await service.createFromReturn({
+      order: buildOrder() as never,
+      returnRequestId: 'ret-1',
+      returnNumber: 'RTNRET2026000001',
+      amount: '150.00',
+      reasonDetails: 'Damaged on arrival',
+      actor,
+    });
+
+    expect(created.id).toBe('rr-existing');
+    expect(refundRequestsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a COD return refund without calling a payment gateway', async () => {
+    refundRequestsRepository.findByReturnRequestId.mockResolvedValue(null);
+    amountService.calculateRefundableAmount.mockResolvedValue({
+      capturedAmount: '150.00',
+      alreadyRefundedAmount: '0.00',
+      pendingRefundAmount: '0.00',
+      refundableAmount: '150.00',
+      currency: 'INR',
+      requiresOnlineRefund: false,
+      requiresCodPayout: true,
+    });
+    providerResolver.resolve.mockResolvedValue({
+      paymentProvider: 'COD',
+      originalPaymentMethod: 'COD',
+      providerPaymentId: null,
+      paymentRequestId: null,
+      capturedAmount: '0.00',
+      identifiable: true,
+    });
+
+    const created = await service.createFromReturn({
+      order: { ...buildOrder(), paymentMethod: OrderPaymentMethod.COD } as never,
+      returnRequestId: 'ret-cod',
+      returnNumber: 'RTNCOD1',
+      amount: '150.00',
+      reasonDetails: 'Damaged on arrival',
+      actor,
+    });
+
+    expect(created.requestedAmount).toBe('150.00');
+    expect(processor.initiate).not.toHaveBeenCalled();
+    expect(payoutService.createForReturnRefund).toHaveBeenCalled();
+  });
+
+  it('does not complete a COD refund on finance initiate without a UTR', async () => {
+    const locked = {
+      id: 'rr-cod',
+      status: RefundRequestStatus.APPROVED,
+      approvedAmount: '150.00',
+      requestedAmount: '150.00',
+      orderId: 'order-1',
+      paymentProvider: 'COD',
+      amountAllocation: {
+        totalAmount: '150.00',
+        onlineAmount: '0.00',
+        originalWalletAmount: '0.00',
+        codAmount: '150.00',
+        onlineStatus: 'COMPLETED',
+        originalWalletStatus: 'COMPLETED',
+        codStatus: 'PENDING',
+      },
+    };
+    refundRequestsRepository.findByIdOrRefId.mockResolvedValue(locked);
+    refundRequestsRepository.lockById.mockResolvedValue(locked);
+    refundRequestsRepository.findById.mockResolvedValue({
+      ...locked,
+      status: RefundRequestStatus.PROCESSING,
+      history: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      customer: null,
+    });
+    providerResolver.resolve.mockResolvedValue({
+      paymentProvider: 'COD',
+      identifiable: true,
+      capturedAmount: '0.00',
+      providerPaymentId: null,
+      paymentRequestId: null,
+    });
+    payoutService.getByRefundRequestId.mockResolvedValue({ status: 'READY_FOR_PAYOUT' });
+    payoutService.toAdminView.mockReturnValue({ status: 'READY_FOR_PAYOUT' });
+
+    await service.initiate('rr-cod', {}, actor);
+
+    expect(processor.initiate).not.toHaveBeenCalled();
+    expect(payoutService.onRefundInitiated).toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      'refund.processed',
+      expect.anything(),
+    );
+  });
+
+  it('still requires the full amount for a cancellation refund', async () => {
+    refundRequestsRepository.findActiveCancellationByOrderId.mockResolvedValue(null);
+    amountService.calculateRefundableAmount.mockResolvedValue({
+      capturedAmount: '500.00',
+      alreadyRefundedAmount: '0.00',
+      pendingRefundAmount: '0.00',
+      refundableAmount: '400.00',
+      currency: 'INR',
+      requiresOnlineRefund: true,
+    });
+
+    const created = await service.createFromOrderCancellation(
+      buildOrder() as never,
+      actor,
+      'Customer cancelled',
+    );
+
+    expect(created?.requestedAmount).toBe('400.00');
+    expect(created?.returnRequestId).toBeNull();
   });
 
   it('rejects unapproved initiation', async () => {

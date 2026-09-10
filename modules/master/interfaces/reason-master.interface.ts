@@ -8,6 +8,7 @@ export interface IReasonMaster {
   title: string;
   code: string;
   description: string | null;
+  internalDescription: string | null;
   workflows: ReasonWorkflow[];
   categoryRefIds: string[];
   skuRefs: string[];
@@ -18,6 +19,11 @@ export interface IReasonMaster {
   videoRequired: boolean;
   qcRequired: boolean;
   autoApprovalEligible: boolean;
+  minImages: number;
+  maxImages: number;
+  minVideos: number;
+  maxVideos: number;
+  isCustomerVisible: boolean;
   sortOrder: number;
   status: MasterStatus;
   createdBy?: string;

@@ -3,6 +3,7 @@ import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
 import { OrderEntity } from './order.entity';
 
 @Entity('order_items')
@@ -51,6 +52,14 @@ export class OrderItemEntity extends BaseEntity {
   @Index()
   @Column({ name: 'subscription_id', type: 'uuid', nullable: true })
   subscriptionId!: string | null;
+
+  /**
+   * Return/replacement/refund policy frozen at order-placement time.
+   * Null only for items created before this column existed — those fall back to
+   * a conservative resolution at eligibility-check time.
+   */
+  @Column({ name: 'return_policy_snapshot', type: 'jsonb', nullable: true })
+  returnPolicySnapshot!: IOrderItemReturnPolicySnapshot | null;
 
   @ManyToOne(() => OrderEntity, (order) => order.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'order_id' })

@@ -39,6 +39,11 @@ import { ShipwayWebhookUnresolvedRepository } from './repositories/shipway-webho
     ShipmentsService,
     ShipwayShipmentReconciliationService,
   ],
-  exports: [ShippingService, ShipmentsRepository, ShipwayShipmentReconciliationService],
+  exports: [
+    ShippingService,
+    ShipmentsRepository,
+    ShipwayShipmentReconciliationService,
+    ShipwayService,
+  ],
 })
 export class ShippingModule {}

@@ -58,6 +58,10 @@ export class ShipwayService {
     );
   }
 
+  isConfigured(): boolean {
+    return Boolean(this.email && this.licenseKey);
+  }
+
   pushOrder(payload: IShipwayPushOrderPayload): Promise<IShipwayPushOrderResponse> {
     const body: IShipwayPushOrderPayload = { ...payload };
     // Shipway rejects explicit null/invalid carrier_id ("carrier_id does not exist").
