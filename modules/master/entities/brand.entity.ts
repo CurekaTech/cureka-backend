@@ -97,4 +97,7 @@ export class BrandEntity extends BaseEntity {
 
   @Column({ name: 'in_home_page', type: 'boolean', default: false })
   inHomePage!: boolean;
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string }>;
 }

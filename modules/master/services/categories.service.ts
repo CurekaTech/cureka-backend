@@ -38,6 +38,7 @@ import {
 } from '@packages/common';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 const CATEGORY_MEDIA_FIELDS = ['image', 'banner'] as const;
@@ -151,6 +152,7 @@ export class CategoriesService {
         metaKeywords: dto.metaKeywords ?? null,
         aboveTheFold: dto.aboveTheFold ?? null,
         belowTheFold: dto.belowTheFold ?? null,
+        faqs: normalizeMasterFaqs(dto.faqs),
         status: dto.status ?? MasterStatus.ACTIVE,
         refId: await generateUniqueRefId(dto.name, (refId) =>
           this.categoriesRepository.existsByRefId(refId),
@@ -338,6 +340,7 @@ export class CategoriesService {
     if (dto.aboveTheFold !== undefined) updatePayload.aboveTheFold = dto.aboveTheFold ?? null;
     if (dto.belowTheFold !== undefined) updatePayload.belowTheFold = dto.belowTheFold ?? null;
     if (dto.metaKeywords !== undefined) updatePayload.metaKeywords = dto.metaKeywords ?? null;
+    if (dto.faqs !== undefined) updatePayload.faqs = normalizeMasterFaqs(dto.faqs);
     if (dto.isInHeader !== undefined) updatePayload.isInHeader = dto.isInHeader;
     if (dto.isInShopBy !== undefined) updatePayload.isInShopBy = dto.isInShopBy;
     if (dto.status !== undefined) updatePayload.status = dto.status;

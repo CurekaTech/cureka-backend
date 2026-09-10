@@ -36,6 +36,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
     metaTitle: entity.metaTitle,
     metaDescription: entity.metaDescription,
     metaKeywords: entity.metaKeywords,
+    faqs: entity.faqs ?? [],
     createdBy: entity.createdBy,
     updatedBy: entity.updatedBy,
     createdAt: entity.createdAt,

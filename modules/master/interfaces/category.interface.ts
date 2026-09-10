@@ -30,6 +30,7 @@ export interface ICategory {
   metaKeywords: string[] | null;
   aboveTheFold: string | null;
   belowTheFold: string | null;
+  faqs: Array<{ question: string; answer: string }>;
   isInHeader: boolean;
   isInShopBy: boolean;
   bestsellerSortIndex: number | null;

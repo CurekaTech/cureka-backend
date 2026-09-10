@@ -14,8 +14,11 @@ import {
 } from '@packages/cache';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
+import { HealthConcernEntity } from '@modules/master/entities/health-concern.entity';
+import { WellnessGoalEntity } from '@modules/master/entities/wellness-goal.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { BannersService } from '@modules/master/services/banners.service';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
@@ -61,7 +64,11 @@ import {
 } from '../interfaces/public-product.interface';
 import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicCategoryProductListingContext } from '../interfaces/public-category.interface';
+import { IPublicHealthConcernProductListingContext } from '../interfaces/public-health-concern.interface';
+import { IPublicWellnessGoalProductListingContext } from '../interfaces/public-wellness-goal.interface';
 import { mapBrandEntityToListingContext } from '../mappers/public-brand.mapper';
+import { mapHealthConcernEntityToListingContext } from '../mappers/public-health-concern.mapper';
+import { mapWellnessGoalEntityToListingContext } from '../mappers/public-wellness-goal.mapper';
 import {
   mapProductEntitiesToPublicCards,
   mapProductEntityToPublicDetail,
@@ -175,15 +182,21 @@ export class PublicProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichPaginatedCards(raw);
-    const [category, brand] = await Promise.all([
+    const [category, brand, healthConcern, wellnessGoal] = await Promise.all([
       filters.category ? this.buildCategoryListingContext(filters.category) : Promise.resolve(null),
       filters.brand ? this.buildBrandListingContext(filters.brand) : Promise.resolve(null),
+      filters.healthConcern
+        ? this.buildHealthConcernListingContext(filters.healthConcern)
+        : Promise.resolve(null),
+      filters.wellnessGoal
+        ? this.buildWellnessGoalListingContext(filters.wellnessGoal)
+        : Promise.resolve(null),
     ]);
     const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
     this.logger.log(
       `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    return { ...result, category, brand };
+    return { ...result, category, brand, healthConcern, wellnessGoal };
   }
 
   /**
@@ -714,6 +727,8 @@ export class PublicProductsService {
       category,
       brand: brandFilters.brand ?? null,
       selectedBrands: brandFilters.selectedBrands,
+      healthConcern,
+      wellnessGoal,
     };
   }
 
@@ -721,6 +736,24 @@ export class PublicProductsService {
     brand: BrandEntity,
   ): Promise<IPublicBrandProductListingContext> {
     return this.storageUrlEnricher.enrichDeep(mapBrandEntityToListingContext(brand));
+  }
+
+  private async buildHealthConcernListingContext(
+    healthConcern: HealthConcernEntity,
+  ): Promise<IPublicHealthConcernProductListingContext> {
+    return this.storageUrlEnricher.enrichFields(
+      mapHealthConcernEntityToListingContext(healthConcern),
+      ['icon', 'banner'],
+    );
+  }
+
+  private async buildWellnessGoalListingContext(
+    wellnessGoal: WellnessGoalEntity,
+  ): Promise<IPublicWellnessGoalProductListingContext> {
+    return this.storageUrlEnricher.enrichFields(
+      mapWellnessGoalEntityToListingContext(wellnessGoal),
+      ['image'],
+    );
   }
 
   private async buildCategoryListingContext(
@@ -766,6 +799,10 @@ export class PublicProductsService {
     const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
       ? matchedCategory.belowTheFold
       : rootCategory.belowTheFold;
+    const rootFaqs = mapMasterFaqs(rootCategory.faqs);
+    const selectedFaqs = mapMasterFaqs(
+      matchedCategory.faqs?.length ? matchedCategory.faqs : rootCategory.faqs,
+    );
 
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
@@ -786,6 +823,7 @@ export class PublicProductsService {
         isChildFilter && matchedCategory.metaDescription?.trim()
           ? matchedCategory.metaDescription
           : rootCategory.metaDescription,
+      faqs: rootFaqs,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         return {
@@ -806,6 +844,7 @@ export class PublicProductsService {
         belowTheFold: selectedBelowTheFold,
         metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,
         metaDescription: matchedCategory.metaDescription?.trim() || rootCategory.metaDescription,
+        faqs: selectedFaqs,
       },
     };
 

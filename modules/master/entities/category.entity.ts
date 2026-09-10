@@ -97,6 +97,9 @@ export class CategoryEntity extends BaseEntity {
   @Column({ name: 'below_the_fold', type: 'text', nullable: true })
   belowTheFold!: string | null;
 
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string }>;
+
   @Index()
   @Column({
     type: 'enum',

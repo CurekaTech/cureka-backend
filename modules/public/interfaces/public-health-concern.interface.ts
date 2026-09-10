@@ -33,3 +33,17 @@ export interface IPublicHomePageHealthConcern {
 
 /** Active health concern for public view-all listing (not limited to inHomePage). */
 export type IPublicHealthConcernListItem = IPublicHomePageHealthConcern;
+
+/** Health concern metadata when product list is scoped by healthConcernSlug/RefId. */
+export interface IPublicHealthConcernProductListingContext {
+  refId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  faqs: Array<{ question: string; answer: string }>;
+}
+
