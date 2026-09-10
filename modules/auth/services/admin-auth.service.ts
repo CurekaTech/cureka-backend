@@ -432,8 +432,22 @@ export const MENU_HIERARCHY: MenuItem[] = [
         name: 'Bulk Upload',
         key: 'products-bulk-upload',
         icon: 'Download',
-        href: '/products/bulk-upload/history',
-        requiredPermissions: ['products.create'],
+        subItems: [
+          {
+            name: 'Product Upload',
+            key: 'products-bulk-upload-products',
+            icon: '',
+            href: '/products/bulk-upload/history',
+            requiredPermissions: ['products.create'],
+          },
+          {
+            name: 'Price Update',
+            key: 'products-bulk-price-update',
+            icon: '',
+            href: '/products/bulk-price-update/history',
+            requiredPermissions: ['products.update'],
+          },
+        ],
       },
       {
         name: 'Media Gallery',
