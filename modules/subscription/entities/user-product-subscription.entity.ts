@@ -108,6 +108,27 @@ export class UserProductSubscriptionEntity extends BaseEntity {
   @Column({ name: 'config_id', type: 'uuid', nullable: true })
   configId!: string | null;
 
+  @Column({ type: 'varchar', length: 64, default: 'Asia/Kolkata' })
+  timezone!: string;
+
+  @Column({ name: 'schedule_anchor_day', type: 'int', nullable: true })
+  scheduleAnchorDay!: number | null;
+
+  @Column({ name: 'autopay_ready', type: 'boolean', default: false })
+  autopayReady!: boolean;
+
+  @Column({ name: 'skip_next_cycle', type: 'boolean', default: false })
+  skipNextCycle!: boolean;
+
+  @Column({ name: 'first_order_id', type: 'uuid', nullable: true })
+  firstOrderId!: string | null;
+
+  @Column({ name: 'mandate_id', type: 'uuid', nullable: true })
+  mandateId!: string | null;
+
+  @Column({ name: 'mandate_max_amount', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  mandateMaxAmount!: string | null;
+
   @ManyToOne(() => ProductSubscriptionConfigEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'config_id' })
   config?: ProductSubscriptionConfigEntity | null;

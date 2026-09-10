@@ -39,6 +39,13 @@ export class ProductSubscriptionConfigService {
       missedPaymentAction: dto.missedPaymentAction ?? SubscriptionMissedPaymentAction.PAUSE,
       renewalMethod: dto.renewalMethod ?? SubscriptionRenewalMethod.PAYMENT_LINK,
       reminderOffsetsJson: dto.reminderOffsetsJson ?? [7, 2, 0],
+      quantityChangeAllowed: dto.quantityChangeAllowed ?? false,
+      mandateMaxAmount:
+        dto.mandateMaxAmount != null ? Number(dto.mandateMaxAmount).toFixed(2) : null,
+      timezone: dto.timezone ?? 'Asia/Kolkata',
+      deliveryLeadDays: dto.deliveryLeadDays ?? 2,
+      maxRetryAttempts: dto.maxRetryAttempts ?? 3,
+      changeCutoffHours: dto.changeCutoffHours ?? 12,
       updatedBy: actor,
     };
 
