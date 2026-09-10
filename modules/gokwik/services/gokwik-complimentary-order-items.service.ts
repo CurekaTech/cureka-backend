@@ -66,8 +66,9 @@ export class GokwikComplimentaryOrderItemsService {
             ? 'line_items_missing'
             : lineItems.length === 0
               ? 'line_items_empty'
-              : 'no_matching_complimentary_source',
+              : 'no_matching_complimentary_marker',
           expectedSource: lineItemsSummary.expectedComplimentarySource,
+          expectedMarkers: ['is_freebie=true', `source=${lineItemsSummary.expectedComplimentarySource}`, 'price=0'],
           observedSources: lineItemsSummary.sources,
           totalLineItems: lineItemsSummary.totalCount,
         },
