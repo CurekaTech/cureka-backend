@@ -18,6 +18,13 @@ export class CartEntity extends BaseEntity {
   @Column({ name: 'coupon_id', type: 'uuid', nullable: true })
   couponId!: string | null;
 
+  /**
+   * Latest customer cart mutation (add / qty / remove / move).
+   * Not updated by cart reads, cron, coupon validation, or notify attempts.
+   */
+  @Column({ name: 'last_customer_activity_at', type: 'timestamptz', nullable: true })
+  lastCustomerActivityAt!: Date | null;
+
   @ManyToOne(() => UserEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user?: UserEntity;

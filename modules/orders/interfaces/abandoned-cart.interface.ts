@@ -64,3 +64,12 @@ export interface AbandonedCartListOptions {
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
 }
+
+export interface AbandonedCartNotifyCandidate {
+  cartId: string;
+  cartRefId: string;
+  userId: string;
+  mobileNumber: string | null;
+  lastActivityAt: Date;
+  itemCount: number;
+}

@@ -328,6 +328,7 @@ export class CartService {
       this.assertStockAvailable(dto.quantity, variant.stock);
 
       await this.cartItemsRepository.updateById(itemId, { quantity: dto.quantity }, manager);
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
       return this.getCart(userId, manager);
     });
   }
@@ -340,6 +341,7 @@ export class CartService {
       if (!item) throw new NotFoundException(`Cart item ${itemId} not found`);
 
       await this.cartItemsRepository.deleteById(itemId, manager);
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
       return this.getCart(userId, manager);
     });
   }
@@ -349,6 +351,7 @@ export class CartService {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) return;
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
       if (cart.couponId) {
         await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
       }
@@ -357,6 +360,14 @@ export class CartService {
 
   async getActiveCartEntity(userId: string, manager = this.dataSource.manager): Promise<CartEntity | null> {
     return this.cartsRepository.findActiveByUserId(userId, manager);
+  }
+
+  async touchCustomerActivity(
+    cartId: string,
+    userId: string,
+    manager = this.dataSource.manager,
+  ): Promise<void> {
+    await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
   }
 
   /**
@@ -422,6 +433,8 @@ export class CartService {
             );
           }
         }
+
+        await this.cartsRepository.touchCustomerActivity(targetCart.id, toUserId, manager);
 
         if (guestCart.couponId && !targetCart.couponId) {
           await this.cartsRepository.updateById(
@@ -619,6 +632,7 @@ export class CartService {
         { quantity: nextQty, updatedBy: userId },
         manager,
       );
+      await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
       return;
     }
 
@@ -640,6 +654,7 @@ export class CartService {
       },
       manager,
     );
+    await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
   }
 
   private async assertSubscriptionAllowed(
