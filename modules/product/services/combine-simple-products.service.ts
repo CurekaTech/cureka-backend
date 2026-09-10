@@ -17,6 +17,7 @@ import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
 import { ProductType } from '../enums/product-type.enum';
+import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import {
   CombineSimpleProductsDto,
@@ -60,6 +61,7 @@ export class CombineSimpleProductsService {
   async preview(dto: CombineSimpleProductsPreviewDto): Promise<ICombineSimpleProductsPreview> {
     const productRefIds = assertUniqueRefIds(dto.productRefIds, 'productRefIds');
     const loaded = await this.loadSimpleProducts(productRefIds);
+    this.assertCombineEligibility(loaded);
 
     const products: ICombinePreviewProduct[] = loaded.map(({ product, variant }) => ({
       productRefId: product.refId,
@@ -70,6 +72,12 @@ export class CombineSimpleProductsService {
       externalProductId: variant.externalProductId,
       sellingPrice: variant.sellingPrice,
       stock: variant.stock,
+      outOfStock: variant.outOfStock,
+      brandId: product.brandId,
+      categoryId: product.categoryId,
+      subCategoryId: product.subCategoryId,
+      subSubCategoryId: product.subSubCategoryId,
+      subSubSubCategoryId: product.subSubSubCategoryId,
     }));
 
     const attributes = dto.attributeRefIds?.length
@@ -91,6 +99,7 @@ export class CombineSimpleProductsService {
     const attributeRefIds = assertUniqueRefIds(dto.attributeRefIds, 'attributeRefIds');
 
     const loaded = await this.loadSimpleProducts(assignmentRefIds);
+    this.assertCombineEligibility(loaded);
     const byRefId = new Map(loaded.map((row) => [row.product.refId, row]));
 
     const variantIds = dto.assignments.map((row) => row.variantId);
@@ -259,6 +268,55 @@ export class CombineSimpleProductsService {
       }
       return { product, variant: productVariants[0]! };
     });
+  }
+
+  /**
+   * All selected simples must share brand + full category hierarchy,
+   * be published (active), and not have the outOfStock flag set.
+   */
+  private assertCombineEligibility(loaded: LoadedSimple[]): void {
+    for (const { product, variant } of loaded) {
+      if (product.status !== ProductStatus.PUBLISHED) {
+        throw new BadRequestException(
+          `Product "${product.refId}" must be published (active) to combine. Current status: "${product.status}"`,
+        );
+      }
+      if (variant.outOfStock) {
+        throw new BadRequestException(
+          `Product "${product.refId}" must be in stock to combine`,
+        );
+      }
+    }
+
+    const first = loaded[0]!;
+    for (let i = 1; i < loaded.length; i++) {
+      const row = loaded[i]!;
+      if (row.product.brandId !== first.product.brandId) {
+        throw new BadRequestException(
+          `All selected products must have the same brand. "${first.product.refId}" and "${row.product.refId}" differ`,
+        );
+      }
+      if (row.product.categoryId !== first.product.categoryId) {
+        throw new BadRequestException(
+          `All selected products must belong to the same category. "${first.product.refId}" and "${row.product.refId}" differ`,
+        );
+      }
+      if (row.product.subCategoryId !== first.product.subCategoryId) {
+        throw new BadRequestException(
+          `All selected products must belong to the same sub-category. "${first.product.refId}" and "${row.product.refId}" differ`,
+        );
+      }
+      if (row.product.subSubCategoryId !== first.product.subSubCategoryId) {
+        throw new BadRequestException(
+          `All selected products must belong to the same sub-sub-category. "${first.product.refId}" and "${row.product.refId}" differ`,
+        );
+      }
+      if (row.product.subSubSubCategoryId !== first.product.subSubSubCategoryId) {
+        throw new BadRequestException(
+          `All selected products must belong to the same sub-sub-sub-category. "${first.product.refId}" and "${row.product.refId}" differ`,
+        );
+      }
+    }
   }
 
   private async loadPreviewAttributes(attributeRefIds: string[]): Promise<ICombinePreviewAttribute[]> {
