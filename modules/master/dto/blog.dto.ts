@@ -21,16 +21,22 @@ import { BlogCommentStatus } from '../enums/blog-comment-status.enum';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 import { BlogVideoType } from '../enums/blog-video-type.enum';
+import {
+  FAQ_ANSWER_MAX_LENGTH,
+  FAQ_QUESTION_MAX_LENGTH,
+} from '../utils/master-faq.util';
 
 export class BlogFaqDto {
-  @ApiProperty({ example: 'What is this blog about?' })
+  @ApiProperty({ example: 'What is this blog about?', maxLength: FAQ_QUESTION_MAX_LENGTH })
   @IsNotEmpty()
   @IsString()
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH)
   question!: string;
 
-  @ApiProperty({ example: 'This article explains…' })
+  @ApiProperty({ example: 'This article explains…', maxLength: FAQ_ANSWER_MAX_LENGTH })
   @IsNotEmpty()
   @IsString()
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH)
   answer!: string;
 }
 

@@ -1,16 +1,28 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import {
+  FAQ_ANSWER_MAX_LENGTH,
+  FAQ_QUESTION_MAX_LENGTH,
+} from '../utils/master-faq.util';
 
 export class MasterFaqDto {
-  @ApiProperty({ example: 'Is COD available in this area?' })
+  @ApiProperty({
+    example: 'Is COD available in this area?',
+    maxLength: FAQ_QUESTION_MAX_LENGTH,
+  })
   @IsNotEmpty()
   @IsString()
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH)
   question!: string;
 
-  @ApiProperty({ example: 'COD availability depends on pincode and product type.' })
+  @ApiProperty({
+    example: 'COD availability depends on pincode and product type.',
+    maxLength: FAQ_ANSWER_MAX_LENGTH,
+  })
   @IsNotEmpty()
   @IsString()
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH)
   answer!: string;
 }
 

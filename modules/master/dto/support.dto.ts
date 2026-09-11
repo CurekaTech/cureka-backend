@@ -17,6 +17,10 @@ import { SupportContentStatus } from '../enums/support-content-status.enum';
 import { SupportTicketCategory } from '../enums/support-ticket-category.enum';
 import { SupportTicketPriority } from '../enums/support-ticket-priority.enum';
 import { SupportTicketStatus } from '../enums/support-ticket-status.enum';
+import {
+  FAQ_ANSWER_MAX_LENGTH,
+  FAQ_QUESTION_MAX_LENGTH,
+} from '../utils/master-faq.util';
 
 export class SupportCategoryQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: SupportCategoryType })
@@ -124,15 +128,16 @@ export class SupportFaqQueryDto extends PaginationQueryDto {
 }
 
 export class CreateSupportFaqDto {
-  @ApiProperty()
+  @ApiProperty({ maxLength: FAQ_QUESTION_MAX_LENGTH })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH)
   question!: string;
 
-  @ApiProperty()
+  @ApiProperty({ maxLength: FAQ_ANSWER_MAX_LENGTH })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH)
   answer!: string;
 
   @ApiProperty()
