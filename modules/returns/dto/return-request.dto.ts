@@ -1,7 +1,7 @@
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { PaginationQueryDto } from '@packages/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { plainToInstance, Transform, Type } from 'class-transformer';
+import { ClassConstructor, plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -55,7 +55,7 @@ const parseJson = ({ value }: { value: unknown }): unknown => {
  * fail with `items.0.undefined: an unknown value was passed to the validate function`.
  */
 const parseJsonArrayOf =
-  (cls: new (...args: never[]) => object) =>
+  <T extends object>(cls: ClassConstructor<T>) =>
   ({ value }: { value: unknown }): unknown => {
     const parsed = parseJson({ value });
     if (!Array.isArray(parsed)) return parsed;
@@ -63,7 +63,7 @@ const parseJsonArrayOf =
   };
 
 const parseJsonObjectOf =
-  (cls: new (...args: never[]) => object) =>
+  <T extends object>(cls: ClassConstructor<T>) =>
   ({ value }: { value: unknown }): unknown => {
     const parsed = parseJson({ value });
     if (parsed === null || parsed === undefined || typeof parsed !== 'object' || Array.isArray(parsed)) {
