@@ -25,6 +25,7 @@ import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.e
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
 import { roundMoney } from '@modules/orders/utils/money.util';
+import { resolveStorefrontOrderSource } from '@modules/orders/utils/storefront-order-source.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
 import { GokwikCheckoutTokenService } from '@modules/auth/services/gokwik-checkout-token.service';
@@ -602,7 +603,7 @@ export class PaymentRequestsService {
   private async createCheckoutPaymentRequest(
     userId: string,
     addressId: string,
-    orderSource: OrderSource = OrderSource.WEBSITE,
+    orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
   ) {
     // Native online checkout must price as prepaid so QR/PG charge includes 2% off.
@@ -610,6 +611,12 @@ export class PaymentRequestsService {
       paymentMethod && isPrepaidPaymentMethod(paymentMethod)
         ? paymentMethod
         : OrderPaymentMethod.RAZORPAY;
+
+    const cart = await this.cartService.getActiveCartEntity(userId);
+    const resolvedOrderSource = resolveStorefrontOrderSource(orderSource, cart?.orderSource);
+    if (orderSource && cart && cart.orderSource !== resolvedOrderSource) {
+      await this.cartService.setPreferredOrderSource(userId, resolvedOrderSource);
+    }
 
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId,
@@ -735,8 +742,7 @@ export class PaymentRequestsService {
           couponDiscount: totals.discount,
           currency: 'INR',
           notes: 'Storefront checkout',
-          orderSource:
-            orderSource === OrderSource.APP ? OrderSource.APP : OrderSource.WEBSITE,
+          orderSource: resolvedOrderSource,
           paymentProvider: pricingMethod,
           createdBy: userId,
           updatedBy: userId,

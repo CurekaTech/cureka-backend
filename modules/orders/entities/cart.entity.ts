@@ -2,6 +2,7 @@ import { BaseEntity } from '@packages/database';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { UserEntity } from '@modules/users/entities/user.entity';
+import { OrderSource } from '../enums/order-source.enum';
 import { CartItemEntity } from './cart-item.entity';
 
 @Entity('carts')
@@ -19,6 +20,17 @@ export class CartEntity extends BaseEntity {
   couponId!: string | null;
 
   /**
+   * Sticky storefront source from validate/checkout (`App` | `Website`).
+   * Used when place-order / payment-requests/checkout omit `orderSource`.
+   */
+  @Column({
+    name: 'order_source',
+    type: 'enum',
+    enum: OrderSource,
+    enumName: 'orders_order_source_enum',
+    nullable: true,
+  })
+  orderSource!: OrderSource | null;
    * Latest customer cart mutation (add / qty / remove / move).
    * Not updated by cart reads, cron, coupon validation, or notify attempts.
    */

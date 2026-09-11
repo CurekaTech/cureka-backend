@@ -2,10 +2,12 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
+import { validateStrictBulkIndianMobile } from '../utils/bulk-mobile-number.util';
 import {
   parseIsActiveCell,
   resolveCodBulkColumnKey,
 } from '../utils/cod-blocklist-bulk-columns.util';
+import { isValidIndianPincode, normalizePincode } from '../utils/pincode.util';
 
 export interface IParsedCodBulkRow {
   rowNumber: number;
@@ -35,7 +37,14 @@ const normalizeText = (cell: ExcelJS.CellValue | undefined | null): string => {
     return (cell as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('').trim();
   }
   if (typeof cell === 'object' && cell && 'result' in cell) {
-    return String((cell as ExcelJS.CellFormulaValue).result ?? '').trim();
+    return normalizeText((cell as ExcelJS.CellFormulaValue).result as ExcelJS.CellValue);
+  }
+  if (typeof cell === 'number') {
+    if (!Number.isFinite(cell)) return String(cell);
+    // Reject non-integers (floats) by preserving a decimal form for validators.
+    if (!Number.isInteger(cell)) return String(cell);
+    // Avoid scientific notation for large phone numbers stored as Excel numbers.
+    return cell.toFixed(0);
   }
   return String(cell).trim();
 };
@@ -195,14 +204,47 @@ export class CodBlocklistBulkParserService {
       return;
     }
 
-    const dedupeKey = pincode
-      ? `pincode:${pincode.toLowerCase()}`
-      : `mobile:${mobileNumber.replace(/\D/g, '')}`;
+    let normalizedPincode: string | undefined;
+    let normalizedMobile: string | undefined;
+
+    if (pincode) {
+      const pin = normalizePincode(pincode);
+      if (!isValidIndianPincode(pin)) {
+        errors.push({
+          rowNumber,
+          sku: identityLabel,
+          column: 'Pincode',
+          invalidValue: pincode,
+          reason: 'Pincode must be a valid 6-digit Indian pincode',
+          suggestedFix: 'Enter exactly 6 digits, e.g. 380015',
+        });
+        return;
+      }
+      normalizedPincode = pin;
+    } else {
+      const mobileResult = validateStrictBulkIndianMobile(mobileNumber);
+      if (!mobileResult.ok) {
+        errors.push({
+          rowNumber,
+          sku: identityLabel,
+          column: 'Mobile Number',
+          invalidValue: mobileNumber,
+          reason: mobileResult.reason,
+          suggestedFix: mobileResult.suggestedFix,
+        });
+        return;
+      }
+      normalizedMobile = mobileResult.mobileNumber;
+    }
+
+    const dedupeKey = normalizedPincode
+      ? `pincode:${normalizedPincode}`
+      : `mobile:${normalizedMobile}`;
     if (seenKeys.has(dedupeKey)) {
       errors.push({
         rowNumber,
         sku: identityLabel,
-        column: pincode ? 'Pincode' : 'Mobile Number',
+        column: normalizedPincode ? 'Pincode' : 'Mobile Number',
         invalidValue: identityLabel,
         reason: `Duplicate identity in sheet (also on row ${seenKeys.get(dedupeKey)})`,
         suggestedFix: 'Keep only one row per pincode or mobile number',
@@ -213,8 +255,8 @@ export class CodBlocklistBulkParserService {
 
     rows.push({
       rowNumber,
-      pincode: pincode || undefined,
-      mobileNumber: mobileNumber || undefined,
+      pincode: normalizedPincode,
+      mobileNumber: normalizedMobile,
       isActive,
       reason: reason || undefined,
     });
