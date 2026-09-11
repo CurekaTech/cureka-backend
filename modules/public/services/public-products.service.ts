@@ -799,10 +799,8 @@ export class PublicProductsService {
     const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
       ? matchedCategory.belowTheFold
       : rootCategory.belowTheFold;
-    const rootFaqs = mapMasterFaqs(rootCategory.faqs);
-    const selectedFaqs = mapMasterFaqs(
-      matchedCategory.faqs?.length ? matchedCategory.faqs : rootCategory.faqs,
-    );
+    // Only the matched category's own FAQs — no parent/root fallback when empty.
+    const selectedFaqs = mapMasterFaqs(matchedCategory.faqs);
 
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
@@ -823,7 +821,7 @@ export class PublicProductsService {
         isChildFilter && matchedCategory.metaDescription?.trim()
           ? matchedCategory.metaDescription
           : rootCategory.metaDescription,
-      faqs: rootFaqs,
+      faqs: selectedFaqs,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         return {
