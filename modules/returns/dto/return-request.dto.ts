@@ -1,7 +1,7 @@
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { PaginationQueryDto } from '@packages/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { plainToInstance, Transform, Type } from 'class-transformer';
+import { ClassConstructor, plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -51,26 +51,26 @@ const parseJson = ({ value }: { value: unknown }): unknown => {
 };
 
 /**
- * Multipart flattens nested objects/arrays to JSON strings. Parse then instantiate
- * nested DTOs so `@ValidateNested` receives class instances (plain objects cause
- * `*.undefined: an unknown value was passed to the validate function`).
+ * Multipart sends nested DTOs as JSON strings. `@Type` alone does not always
+ * re-instantiate after `@Transform(parseJson)`, which makes `@ValidateNested`
+ * fail with `items.0.undefined: an unknown value was passed to the validate function`.
  */
 const parseJsonArrayOf =
-  <T>(cls: new () => T) =>
-  ({ value }: { value: unknown }): T[] | unknown => {
+  <T extends object>(cls: ClassConstructor<T>) =>
+  ({ value }: { value: unknown }): unknown => {
     const parsed = parseJson({ value });
-    if (parsed === undefined) return undefined;
     if (!Array.isArray(parsed)) return parsed;
-    return plainToInstance(cls, parsed);
+    return plainToInstance(cls, parsed, { enableImplicitConversion: false });
   };
 
 const parseJsonObjectOf =
-  <T>(cls: new () => T) =>
-  ({ value }: { value: unknown }): T | unknown => {
+  <T extends object>(cls: ClassConstructor<T>) =>
+  ({ value }: { value: unknown }): unknown => {
     const parsed = parseJson({ value });
-    if (parsed === undefined || parsed === null) return parsed;
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) return parsed;
-    return plainToInstance(cls, parsed);
+    if (parsed === null || parsed === undefined || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return parsed;
+    }
+    return plainToInstance(cls, parsed, { enableImplicitConversion: false });
   };
 
 export class ReturnPickupAddressDto {

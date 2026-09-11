@@ -181,6 +181,8 @@ POST /admin/returns
 ```
 `returns.create`
 
+**JSON** (`Content-Type: application/json`):
+
 ```jsonc
 {
   "orderId": "uuid",
@@ -196,6 +198,30 @@ POST /admin/returns
   "internalJustification": "Approved by ops lead",     // never shown to the customer
   "customerVisibleExplanation": "We have made an exception for you"
 }
+```
+
+**Multipart** (`Content-Type: multipart/form-data`) — use when attaching photos:
+
+| Form field | Contents |
+| --- | --- |
+| `orderId`, `reasonId`, `resolution`, … | same fields as JSON (text) |
+| `items`, `conditionDeclarations`, `pickupAddress` | JSON strings |
+| `photos` (repeatable) or `photos0`… / `evidenceFile0`… | image/video files (max 10) |
+
+Example (matches the admin panel):
+
+```js
+const form = new FormData();
+form.append('orderId', orderId);
+form.append('reasonId', reasonId);           // uuid or refId e.g. DAM20266529
+form.append('resolution', 'REPLACEMENT');
+form.append('items', JSON.stringify([{ orderItemId, quantity: 1 }]));
+form.append('conditionDeclarations', JSON.stringify({ unused: true, originalPackaging: true }));
+form.append('customerComments', comments);
+form.append('overrideEligibility', 'true');
+form.append('overrideReason', overrideReason);
+form.append('internalJustification', note);
+files.forEach((file) => form.append('photos', file));
 ```
 
 Overriding is fully audited: it sets `eligibility_overridden`, writes a

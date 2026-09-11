@@ -154,6 +154,8 @@ export class MultipartFormService {
     options?: ParseAndValidateOptions,
   ): UploadFolder | undefined {
     for (const rule of options?.indexedFileFields ?? []) {
+      // Exact prefix (e.g. repeated "photos") or indexed "photos0" / "evidenceFile1"
+      if (fieldname === rule.prefix) return rule.folder;
       if (!fieldname.startsWith(rule.prefix)) continue;
       const suffix = fieldname.slice(rule.prefix.length);
       if (/^\d+$/.test(suffix)) return rule.folder;
@@ -167,6 +169,26 @@ export class MultipartFormService {
     options?: ParseAndValidateOptions,
   ): UploadFolder | undefined {
     return fileFields[fieldname] ?? this.resolveIndexedFolder(fieldname, options);
+  }
+
+  /**
+   * When clients send the same field name multiple times (e.g. `photos`), store as
+   * `photos0`, `photos1`, … so later evidence mapping can collect all of them.
+   */
+  private resolveStorageKey(
+    fieldname: string,
+    uploadedUrls: MultipartUploadedUrls,
+    options?: ParseAndValidateOptions,
+  ): string {
+    for (const rule of options?.indexedFileFields ?? []) {
+      if (fieldname !== rule.prefix) continue;
+      let index = 0;
+      while (Object.prototype.hasOwnProperty.call(uploadedUrls, `${rule.prefix}${index}`)) {
+        index += 1;
+      }
+      return `${rule.prefix}${index}`;
+    }
+    return fieldname;
   }
 
   private async parseMultipart(
@@ -219,10 +241,12 @@ export class MultipartFormService {
       throw new BadRequestException(`Unexpected file field "${part.fieldname}"`);
     }
 
+    const storageKey = this.resolveStorageKey(part.fieldname, uploadedUrls, options);
+
     // Empty file part with no filename is treated as a clear, not an upload.
     if (!part.filename || part.filename.trim() === '') {
       part.file.resume();
-      uploadedUrls[part.fieldname] = null;
+      uploadedUrls[storageKey] = null;
       return;
     }
 
@@ -240,12 +264,23 @@ export class MultipartFormService {
       folder,
     });
 
-    uploadedUrls[part.fieldname] = result.path;
+    uploadedUrls[storageKey] = result.path;
+  }
+
+  /** Validate an already-parsed JSON body (same rules as multipart text fields). */
+  async validateBody<T extends object>(
+    dtoClass: ClassConstructor<T>,
+    body: unknown,
+  ): Promise<T> {
+    if (body === null || body === undefined || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Request body must be a JSON object');
+    }
+    return this.validateDto(dtoClass, body as Record<string, unknown>);
   }
 
   private async validateDto<T extends object>(
     dtoClass: ClassConstructor<T>,
-    fields: Record<string, string>,
+    fields: Record<string, unknown>,
   ): Promise<T> {
     const instance = plainToInstance(dtoClass, fields, {
       // Must stay false: string "false" from form-data is truthy with implicit boolean conversion.

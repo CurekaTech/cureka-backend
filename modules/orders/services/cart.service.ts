@@ -15,6 +15,7 @@ import { buildProductLocPath } from '@modules/sitemap/services/sitemap-url.build
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
+import { OrderSource } from '../enums/order-source.enum';
 import { CartLineItem, CartResponse } from '../interfaces/cart-pricing.interface';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
@@ -352,9 +353,28 @@ export class CartService {
       if (!cart) return;
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
       await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
-      if (cart.couponId) {
-        await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
-      }
+      await this.cartsRepository.updateById(
+        cart.id,
+        {
+          couponId: null,
+          orderSource: null,
+          updatedBy: userId,
+        },
+        manager,
+      );
+    });
+  }
+
+  /**
+   * Remember App/Website from validate so place-order / payment checkout can omit it.
+   */
+  async setPreferredOrderSource(userId: string, orderSource: OrderSource): Promise<void> {
+    const cart = await this.cartsRepository.findActiveByUserId(userId);
+    if (!cart) return;
+    if (cart.orderSource === orderSource) return;
+    await this.cartsRepository.updateById(cart.id, {
+      orderSource,
+      updatedBy: userId,
     });
   }
 

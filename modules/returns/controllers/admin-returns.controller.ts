@@ -1,6 +1,8 @@
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
+import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import {
   Body,
   Controller,
@@ -10,11 +12,13 @@ import {
   Param,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
+import { FastifyRequest } from 'fastify';
 import { RETURN_PERMISSIONS } from '../constants/return-permissions.constants';
 import {
   AdminCreateReturnRequestDto,
@@ -34,6 +38,7 @@ import {
 } from '../dto/return-request.dto';
 import { ReturnRequestedByType } from '../enums/return-requested-by-type.enum';
 import { ReturnActor } from '../interfaces/return-request.interface';
+import { ReturnEvidenceService } from '../services/return-evidence.service';
 import { ReturnRequestsService } from '../services/return-requests.service';
 import { ReturnWorkflowService } from '../services/return-workflow.service';
 
@@ -46,6 +51,8 @@ export class AdminReturnsController {
   constructor(
     private readonly returnRequestsService: ReturnRequestsService,
     private readonly workflowService: ReturnWorkflowService,
+    private readonly multipartFormService: MultipartFormService,
+    private readonly evidenceService: ReturnEvidenceService,
   ) {}
 
   @ApiOperation({ summary: 'List return requests' })
@@ -73,13 +80,40 @@ export class AdminReturnsController {
   @ApiOperation({
     summary: 'Create a return on behalf of a customer',
     description:
+      'Accepts application/json or multipart/form-data (flat fields + photos / evidenceFileN). ' +
       'Supports an audited eligibility override. Creating a return never triggers a refund.',
   })
+  @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Return request created successfully')
   @RequirePermissions(RETURN_PERMISSIONS.CREATE)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: AdminCreateReturnRequestDto, @CurrentAdminUser() user: IAdminJwtPayload) {
+  async create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
+    const contentType = req.headers['content-type'] ?? '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const { dto, uploadedUrls } = await this.multipartFormService.parseAndValidate(
+        req,
+        AdminCreateReturnRequestDto,
+        {},
+        {
+          indexedFileFields: [
+            { prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE },
+            { prefix: 'photos', folder: UploadFolder.RETURN_EVIDENCE },
+          ],
+        },
+      );
+      return this.returnRequestsService.createByAdmin(
+        dto,
+        this.toActor(user),
+        this.evidenceService.fromUploadedUrls(uploadedUrls),
+      );
+    }
+
+    const dto = await this.multipartFormService.validateBody(
+      AdminCreateReturnRequestDto,
+      req.body,
+    );
     return this.returnRequestsService.createByAdmin(dto, this.toActor(user));
   }
 
