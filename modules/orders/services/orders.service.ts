@@ -7,7 +7,7 @@ import {
   generateUniqueRefId,
   STOCK_VALIDATION_ENABLED,
 } from '@packages/common';
-import { EVENTS, OrderCancelledEvent } from '@packages/events';
+import { EVENTS, OrderCancelledEvent, ShipmentUpdatedEvent } from '@packages/events';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
@@ -25,7 +25,13 @@ import { CartsRepository } from '../repositories/carts.repository';
 import { OrderItemsRepository } from '../repositories/order-items.repository';
 import { OrdersRepository } from '../repositories/orders.repository';
 import { CheckoutDto } from '../dto/checkout.dto';
-import { CancelOrderDto, OrderQueryDto, PlaceOrderDto, AdminOrderQueryDto } from '../dto/order.dto';
+import {
+  CancelOrderDto,
+  CompleteOrderDto,
+  OrderQueryDto,
+  PlaceOrderDto,
+  AdminOrderQueryDto,
+} from '../dto/order.dto';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
@@ -49,6 +55,7 @@ import { CheckoutService } from './checkout.service';
 import { CartService } from './cart.service';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
+import { ShipmentStatus } from '@modules/shipping/enums/shipment-status.enum';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
@@ -1396,6 +1403,129 @@ export class OrdersService {
     );
     await this.notifyOrderCancelledSafely(order, reason, 'admin-cancel');
     return order;
+  }
+
+  /**
+   * Admin force-complete (testing / ops): set order + shipment(s) to DELIVERED.
+   * Emits SHIPMENT_UPDATED so GoKwik gets AWB status DELIVERED (when AWB exists).
+   * UniCommerce delivered sync is intentionally skipped for now (avoids UC merge conflicts).
+   */
+  async completeForAdmin(idOrRefId: string, dto: CompleteOrderDto, adminUserId: string) {
+    const existing = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (!existing) {
+      throw new NotFoundException(`Order ${idOrRefId} not found`);
+    }
+
+    if (
+      existing.orderStatus === OrderStatus.CANCELLED ||
+      existing.orderStatus === OrderStatus.RTO
+    ) {
+      throw new BadRequestException(
+        `Cannot mark ${existing.orderStatus} order as completed`,
+      );
+    }
+
+    const note = dto.reason?.trim() || 'Admin marked completed';
+    const shipmentEvents: Array<{
+      shipmentId: string;
+      previousStatus: string | null;
+    }> = [];
+
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await manager
+        .getRepository(OrderEntity)
+        .createQueryBuilder('order')
+        .setLock('pessimistic_write')
+        .where('order.id = :id', { id: existing.id })
+        .getOne();
+
+      if (!locked) {
+        throw new NotFoundException(`Order ${existing.id} not found`);
+      }
+      if (
+        locked.orderStatus === OrderStatus.CANCELLED ||
+        locked.orderStatus === OrderStatus.RTO
+      ) {
+        throw new BadRequestException(
+          `Cannot mark ${locked.orderStatus} order as completed`,
+        );
+      }
+
+      const now = new Date();
+      const shouldMarkCodPaid =
+        locked.paymentMethod === OrderPaymentMethod.COD &&
+        locked.paymentStatus !== OrderPaymentStatus.PAID;
+
+      if (locked.orderStatus !== OrderStatus.DELIVERED) {
+        await this.ordersRepository.updateById(
+          locked.id,
+          {
+            orderStatus: OrderStatus.DELIVERED,
+            ...applyOrderStatusTimestamps(locked, OrderStatus.DELIVERED, now),
+            ...(shouldMarkCodPaid ? { paymentStatus: OrderPaymentStatus.PAID } : {}),
+            notes: locked.notes
+              ? `${locked.notes}\n${note}`
+              : note,
+            updatedBy: adminUserId,
+          },
+          manager,
+        );
+      }
+
+      const shipments = await this.shipmentsRepository.findAllByOrderId(locked.id, manager);
+      for (const shipment of shipments) {
+        const previousStatus = shipment.shipmentStatus ?? null;
+        if (shipment.shipmentStatus !== ShipmentStatus.DELIVERED) {
+          shipment.shipmentStatus = ShipmentStatus.DELIVERED;
+          shipment.shipwayRawStatus = 'DEL';
+          shipment.lastSyncedAt = now;
+          shipment.updatedBy = adminUserId;
+          await this.shipmentsRepository.save(shipment, manager);
+        }
+        shipmentEvents.push({ shipmentId: shipment.id, previousStatus });
+      }
+    });
+
+    for (const event of shipmentEvents) {
+      await this.eventEmitter.emitAsync(
+        EVENTS.SHIPMENT_UPDATED,
+        new ShipmentUpdatedEvent(existing.id, event.shipmentId, event.previousStatus),
+      );
+    }
+
+    const shipmentsAfter = await this.shipmentsRepository.findAllByOrderId(existing.id);
+    const hasAwb = shipmentsAfter.some((s) => Boolean(s.awbNumber));
+
+    this.logger.log(
+      {
+        orderId: existing.id,
+        orderNumber: existing.orderNumber,
+        shipmentCount: shipmentEvents.length,
+        gokwikNotifyQueued: hasAwb,
+        unicommerce: 'skipped',
+        note,
+      },
+      '[AdminComplete] Order marked DELIVERED',
+    );
+
+    const order = await this.findOneForAdmin(existing.id);
+    return {
+      ...order,
+      integrations: {
+        gokwik: {
+          notified: shipmentEvents.length > 0,
+          note: hasAwb
+            ? 'SHIPMENT_UPDATED emitted — GoKwik AWB status push queued when order is GoKwik-linked and AWB exists'
+            : 'No AWB on shipment — Cureka marked DELIVERED; GoKwik AWB update skipped',
+        },
+        unicommerce: {
+          attempted: false,
+          successful: false,
+          method: 'skipped',
+          message: 'UniCommerce delivered sync disabled for now',
+        },
+      },
+    };
   }
 
   private requireCancelReason(dto: CancelOrderDto): string {
