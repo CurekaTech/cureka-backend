@@ -2,13 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
 import { EntityManager, ILike, In, Repository, SelectQueryBuilder } from 'typeorm';
+import { UserStatus } from '@modules/users/enums/user-status.enum';
 import { CartEntity } from '../entities/cart.entity';
 import {
   AbandonedCartListOptions,
   AbandonedCartListRow,
+  AbandonedCartNotifyCandidate,
 } from '../interfaces/abandoned-cart.interface';
+import { CART_CUSTOMER_ACTIVITY_SQL } from '../utils/cart-activity.util';
 
-const LAST_ACTIVITY_SQL = 'GREATEST(cart.updated_at, MAX(items.updated_at))';
+const LAST_ACTIVITY_SQL = CART_CUSTOMER_ACTIVITY_SQL;
 const TOTAL_AMOUNT_SQL =
   'COALESCE(SUM(items.quantity * CAST(variant.selling_price AS DECIMAL)), 0)';
 const CUSTOMER_NAME_SQL =
@@ -65,6 +68,94 @@ export class CartsRepository {
   updateById(id: string, data: Partial<CartEntity>, manager?: EntityManager): Promise<void> {
     const repository = manager ? manager.getRepository(CartEntity) : this.repo;
     return repository.update({ id }, data).then(() => undefined);
+  }
+
+  /** Customer cart mutation only — never call from reads, cron, or notify. */
+  async touchCustomerActivity(
+    cartId: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = manager ? manager.getRepository(CartEntity) : this.repo;
+    await repository
+      .createQueryBuilder()
+      .update(CartEntity)
+      .set({
+        lastCustomerActivityAt: () => 'NOW()',
+        updatedBy: userId,
+      })
+      .where('id = :id', { id: cartId })
+      .execute();
+  }
+
+  /**
+   * Keyset page of authenticated (non-guest) carts idle past `inactiveBefore`.
+   * Does not join notify outbox — the scanner filters reservation/cooldown after fetch
+   * so marking a row pending cannot skip later candidates.
+   */
+  async findAbandonedCartNotifyCandidates(options: {
+    inactiveBefore: Date;
+    afterActivityAt?: Date | null;
+    afterCartId?: string | null;
+    limit: number;
+  }): Promise<AbandonedCartNotifyCandidate[]> {
+    const qb = this.repo
+      .createQueryBuilder('cart')
+      .innerJoin('cart.user', 'user')
+      .innerJoin('cart.items', 'items')
+      .where('cart.isActive = :isActive', { isActive: true })
+      .andWhere('user.isGuest = false')
+      .andWhere('user.status = :userStatus', { userStatus: UserStatus.ACTIVE })
+      .andWhere('user.mobileNumber IS NOT NULL')
+      .andWhere("BTRIM(user.mobileNumber) <> ''")
+      .andWhere('items.quantity > 0')
+      .select('cart.id', 'cartId')
+      .addSelect('cart.refId', 'cartRefId')
+      .addSelect('cart.userId', 'userId')
+      .addSelect('user.mobileNumber', 'mobileNumber')
+      .addSelect(LAST_ACTIVITY_SQL, 'lastActivityAt')
+      .addSelect('COALESCE(SUM(items.quantity), 0)', 'itemCount')
+      .groupBy('cart.id')
+      .addGroupBy('user.id')
+      .having(`${LAST_ACTIVITY_SQL} <= :inactiveBefore`, {
+        inactiveBefore: options.inactiveBefore,
+      })
+      .orderBy(LAST_ACTIVITY_SQL, 'ASC')
+      .addOrderBy('cart.id', 'ASC')
+      .limit(options.limit);
+
+    if (options.afterActivityAt && options.afterCartId) {
+      qb.andHaving(
+        `(
+          ${LAST_ACTIVITY_SQL} > :afterActivityAt
+          OR (${LAST_ACTIVITY_SQL} = :afterActivityAt AND cart.id > :afterCartId)
+        )`,
+        {
+          afterActivityAt: options.afterActivityAt,
+          afterCartId: options.afterCartId,
+        },
+      );
+    }
+
+    const rows = await qb.getRawMany<Record<string, unknown>>();
+    return rows.map((row) => {
+      const pick = (...keys: string[]): unknown => {
+        for (const key of keys) {
+          if (row[key] !== undefined && row[key] !== null) return row[key];
+        }
+        return null;
+      };
+      const toDate = (value: unknown): Date =>
+        value instanceof Date ? value : new Date(String(value ?? ''));
+      return {
+        cartId: String(pick('cartId', 'cart_id') ?? ''),
+        cartRefId: String(pick('cartRefId', 'cart_refId', 'cart_ref_id') ?? ''),
+        userId: String(pick('userId', 'cartUserId', 'user_id') ?? ''),
+        mobileNumber: (pick('mobileNumber', 'user_mobileNumber', 'mobile_number') as string | null) ?? null,
+        lastActivityAt: toDate(pick('lastActivityAt', 'last_activity_at')),
+        itemCount: Number(pick('itemCount', 'item_count') ?? 0),
+      };
+    });
   }
 
   existsByRefId(refId: string): Promise<boolean> {

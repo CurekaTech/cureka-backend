@@ -6,6 +6,7 @@ import { RefundPaymentProvider } from '../enums/refund-payment-provider.enum';
 import { RefundReason } from '../enums/refund-reason.enum';
 import { RefundRequestStatus } from '../enums/refund-request-status.enum';
 import { RefundRequestedByType } from '../enums/refund-requested-by-type.enum';
+import { IRefundAmountAllocation } from '../interfaces/refund-amount-allocation.interface';
 import { RefundRequestHistoryEntity } from './refund-request-history.entity';
 
 @Entity('refund_requests')
@@ -42,6 +43,15 @@ export class RefundRequestEntity extends BaseEntity {
 
   @Column({ name: 'reason_details', type: 'text', nullable: true })
   reasonDetails!: string | null;
+
+  /**
+   * Set only for refunds raised by the return workflow. Unique so a return can
+   * never spawn a second refund, and used to keep cancellation-refund lookups
+   * from colliding with return refunds on the same order.
+   */
+  @Index('UQ_refund_requests_return_request_id', { unique: true })
+  @Column({ name: 'return_request_id', type: 'uuid', nullable: true })
+  returnRequestId!: string | null;
 
   @Column({ name: 'requested_amount', type: 'decimal', precision: 12, scale: 2 })
   requestedAmount!: string;
@@ -89,6 +99,10 @@ export class RefundRequestEntity extends BaseEntity {
 
   @Column({ name: 'provider_response_reference', type: 'varchar', length: 200, nullable: true })
   providerResponseReference!: string | null;
+
+  /** Split of this refund across original online / wallet / COD sources. */
+  @Column({ name: 'amount_allocation', type: 'jsonb', nullable: true })
+  amountAllocation!: IRefundAmountAllocation | null;
 
   @Column({
     name: 'requested_by_type',

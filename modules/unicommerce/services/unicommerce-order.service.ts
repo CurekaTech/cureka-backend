@@ -3,8 +3,35 @@ import { ConfigService } from '@nestjs/config';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
 import { isReadyForUnicommercePush } from '@modules/orders/utils/fulfillment-readiness.util';
 import { mapOrderToUnicommercePayload } from '../mappers/unicommerce-order.mapper';
-import { IUnicommerceCreateSaleOrderResponse } from '../interfaces/unicommerce-order.interface';
+import {
+  reconstructUnicommerceSaleOrderItemCodes,
+  selectUnicommerceReversePickItemCodes,
+} from '../mappers/unicommerce-reverse-pickup.mapper';
+import {
+  IUnicommerceCreateReversePickupResponse,
+  IUnicommerceCreateSaleOrderResponse,
+  IUnicommerceReversePickupAddress,
+} from '../interfaces/unicommerce-order.interface';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
+
+export type UnicommerceReversePickupParams = {
+  orderNumber: string;
+  reversePickupCode: string;
+  reason: string;
+  items: Array<{ sku: string; quantity: number }>;
+  originalOrderItems: Array<{ sku: string; quantity: number }>;
+  pickupAddress: {
+    recipientName: string;
+    phoneNumber: string;
+    addressLine1: string;
+    addressLine2: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+  } | null;
+  customerEmail?: string | null;
+  replacementSku?: string | null;
+};
 
 @Injectable()
 export class UnicommerceOrderService implements OnModuleInit {
@@ -55,6 +82,10 @@ export class UnicommerceOrderService implements OnModuleInit {
 
   isEnabled(): boolean {
     return Boolean(this.configService.get<boolean>('unicommerceOrder.enabled'));
+  }
+
+  isConfigured(): boolean {
+    return this.apiService.isConfigured();
   }
 
   async pushOrder(orderId: string): Promise<IUnicommerceCreateSaleOrderResponse | null> {
@@ -183,5 +214,117 @@ export class UnicommerceOrderService implements OnModuleInit {
     }
 
     return response;
+  }
+
+  /**
+   * Registers a customer return in Uniware so the warehouse expects the item.
+   * Uses the official reversePickup/create contract. Does not book a courier —
+   * Shipway is still pushed independently, matching forward fulfilment.
+   */
+  async createReversePickup(
+    params: UnicommerceReversePickupParams,
+  ): Promise<IUnicommerceCreateReversePickupResponse> {
+    if (!this.isEnabled()) {
+      throw new Error('Unicommerce order push is disabled');
+    }
+    if (!this.apiService.isConfigured()) {
+      throw new Error('Unicommerce credentials are not configured');
+    }
+
+    const saleOrderItems = await this.resolveSaleOrderItems(params);
+    const saleOrderItemCodes = selectUnicommerceReversePickItemCodes(
+      saleOrderItems,
+      params.items,
+    );
+    const pickupAddress = this.mapPickupAddress(params.pickupAddress, params.customerEmail);
+    const reason = params.reason.slice(0, 500);
+    const facilityCode = this.configService.get<string>('unicommerceOrder.facilityCode') ?? '';
+
+    const response = await this.apiService.createReversePickup({
+      saleOrderCode: params.orderNumber,
+      reversePickupCode: params.reversePickupCode,
+      actionCode: 'WAC',
+      reversePickItems: saleOrderItemCodes.map((saleOrderItemCode) => ({
+        saleOrderItemCode,
+        reason,
+        ...(params.replacementSku
+          ? {
+              reversePickupAlternate: {
+                itemSku: params.replacementSku,
+              },
+            }
+          : {}),
+      })),
+      ...(pickupAddress
+        ? { pickupAddress, shippingAddress: pickupAddress }
+        : {}),
+      pickupInstruction: `Cureka return ${params.reversePickupCode}`,
+      ...(facilityCode ? { returnFacilityCode: facilityCode } : {}),
+    });
+
+    this.logger.log(
+      {
+        orderNumber: params.orderNumber,
+        reversePickupCode: params.reversePickupCode,
+        saleOrderItemCodes,
+        successful: response.successful,
+        message: response.message ?? null,
+        ucReversePickupCode:
+          response.reversePickupCode ?? response.reversePickupDTO?.code ?? null,
+      },
+      'Unicommerce reverse pickup create response',
+    );
+
+    return response;
+  }
+
+  private async resolveSaleOrderItems(params: UnicommerceReversePickupParams) {
+    try {
+      const saleOrder = await this.apiService.getSaleOrder(params.orderNumber);
+      const remoteItems = saleOrder.saleOrderDTO?.saleOrderItems ?? [];
+      if (saleOrder.successful && remoteItems.length > 0) {
+        return remoteItems;
+      }
+      this.logger.warn(
+        {
+          orderNumber: params.orderNumber,
+          successful: saleOrder.successful,
+          message: saleOrder.message ?? null,
+        },
+        'Unicommerce getSaleOrder returned no items — reconstructing codes from the original order',
+      );
+    } catch (error) {
+      this.logger.warn(
+        {
+          orderNumber: params.orderNumber,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Unicommerce getSaleOrder failed — reconstructing codes from the original order',
+      );
+    }
+
+    return reconstructUnicommerceSaleOrderItemCodes(
+      params.orderNumber,
+      params.originalOrderItems,
+    );
+  }
+
+  private mapPickupAddress(
+    address: UnicommerceReversePickupParams['pickupAddress'],
+    email?: string | null,
+  ): IUnicommerceReversePickupAddress | null {
+    if (!address) return null;
+    return {
+      id: 'return-pickup',
+      name: address.recipientName,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2 ?? undefined,
+      city: address.city,
+      state: address.state,
+      country: 'India',
+      pincode: address.pincode,
+      phone: address.phoneNumber,
+      email: email ?? undefined,
+    };
   }
 }

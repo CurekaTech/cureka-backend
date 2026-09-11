@@ -416,6 +416,7 @@ export class ShippingService {
 
     const lookup = await this.reconciliationService.resolveWebhookShipment(payload, authMode);
     if (!lookup.shipment) {
+      await this.emitReturnPickupWebhook(payload);
       return {
         shipment: null,
         outcome: lookup.outcome === 'unresolved' ? 'unresolved' : 'not_found',
@@ -1650,6 +1651,19 @@ export class ShippingService {
       payload.message ?? '',
     ].join('|');
     return `fp:${createHash('sha256').update(fingerprint).digest('hex').slice(0, 40)}`;
+  }
+
+  private async emitReturnPickupWebhook(payload: IShipwayWebhookEvent): Promise<void> {
+    await this.eventEmitter.emitAsync(EVENTS.SHIPWAY_WEBHOOK_RECEIVED, {
+      orderId: payload.order_id,
+      status: payload.status,
+      statusCode: payload.current_status_code ?? payload.status_code ?? null,
+      awbNumber: payload.awb_number ?? null,
+      courierName: payload.courier_name ?? null,
+      trackingUrl: payload.tracking_url ?? null,
+      eventId: payload.event_id ?? null,
+      statusDate: payload.status_date ?? null,
+    });
   }
 
   private latestEventHappenedAt(shipment: ShipmentEntity): Date | null {

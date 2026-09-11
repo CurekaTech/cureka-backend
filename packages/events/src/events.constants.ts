@@ -22,6 +22,24 @@ export const EVENTS = {
   REFUND_PROCESSED: 'refund.processed',
   REFUND_FAILED: 'refund.failed',
   REFUND_PROVIDER_UPDATED: 'refund.provider.updated',
+  REFUND_WALLET_CREDITED: 'refund.wallet.credited',
+  COD_PAYOUT_UPDATED: 'cod.payout.updated',
+
+  // Return domain
+  RETURN_REQUEST_CREATED: 'return.request.created',
+  RETURN_REQUEST_APPROVED: 'return.request.approved',
+  RETURN_REQUEST_REJECTED: 'return.request.rejected',
+  RETURN_INFORMATION_REQUESTED: 'return.information.requested',
+  RETURN_PICKUP_SCHEDULED: 'return.pickup.scheduled',
+  RETURN_PICKUP_UPDATED: 'return.pickup.updated',
+  RETURN_RECEIVED_AT_WAREHOUSE: 'return.received.warehouse',
+  RETURN_QC_COMPLETED: 'return.qc.completed',
+  RETURN_REFUND_LINKED: 'return.refund.linked',
+  RETURN_REPLACEMENT_LINKED: 'return.replacement.linked',
+  RETURN_COMPLETED: 'return.completed',
+  RETURN_CANCELLED: 'return.cancelled',
+  SHIPWAY_WEBHOOK_RECEIVED: 'shipway.webhook.received',
+
   NOTIFICATION_SEND: 'notification.send',
 
   // Cache invalidation domain events

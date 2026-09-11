@@ -18,5 +18,6 @@ describe('customer refund view', () => {
     expect(view.displayStatus).toBe('Refund request initiated');
     expect(view).not.toHaveProperty('history');
     expect(view).not.toHaveProperty('approvedBy');
+    expect(JSON.stringify(view)).not.toMatch(/accountNumber(?!Masked)/);
   });
 });

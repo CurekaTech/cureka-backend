@@ -26,6 +26,8 @@ describe('UnicommerceOrderService', () => {
 
   const apiService = {
     createSaleOrder: jest.fn(),
+    getSaleOrder: jest.fn(),
+    createReversePickup: jest.fn(),
     isConfigured: jest.fn().mockReturnValue(true),
   } as unknown as UnicommerceOrderApiService;
 
@@ -138,5 +140,47 @@ describe('UnicommerceOrderService', () => {
     expect(sentPayload.saleOrder.code).toBe('ORD123456780001');
     expect(sentPayload.saleOrder.channel).toBe('CUSTOM');
     expect(result).toEqual({ successful: true });
+  });
+
+  it('creates a reverse pickup using Uniware item codes from getSaleOrder', async () => {
+    (apiService.getSaleOrder as jest.Mock).mockResolvedValue({
+      successful: true,
+      saleOrderDTO: {
+        code: 'ORD123456780001',
+        saleOrderItems: [
+          { code: 'ORD123456780001-1', itemSku: 'SKU-A', statusCode: 'DELIVERED' },
+          { code: 'ORD123456780001-2', itemSku: 'SKU-A', statusCode: 'DELIVERED' },
+        ],
+      },
+    });
+    (apiService.createReversePickup as jest.Mock).mockResolvedValue({
+      successful: true,
+      reversePickupCode: 'RET0000001',
+    });
+
+    const result = await service.createReversePickup({
+      orderNumber: 'ORD123456780001',
+      reversePickupCode: 'RET0000001',
+      reason: 'Damaged on arrival',
+      items: [{ sku: 'SKU-A', quantity: 1 }],
+      originalOrderItems: [{ sku: 'SKU-A', quantity: 2 }],
+      pickupAddress: {
+        recipientName: 'Jane Doe',
+        phoneNumber: '9876543210',
+        addressLine1: 'Addr',
+        addressLine2: null,
+        city: 'Chennai',
+        state: 'TN',
+        pincode: '600001',
+      },
+    });
+
+    expect(result.successful).toBe(true);
+    const payload = (apiService.createReversePickup as jest.Mock).mock.calls[0][0];
+    expect(payload.saleOrderCode).toBe('ORD123456780001');
+    expect(payload.actionCode).toBe('WAC');
+    expect(payload.reversePickItems).toEqual([
+      { saleOrderItemCode: 'ORD123456780001-1', reason: 'Damaged on arrival' },
+    ]);
   });
 });

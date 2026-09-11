@@ -4,8 +4,12 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
 import { EVENTS } from '@packages/events';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '@modules/subscription/constants/subscription-payment-purpose.constants';
+import { SubscriptionMandateProvider } from '@modules/subscription/enums/subscription-mandate-provider.enum';
 import { MembershipsService } from '@modules/subscription/services/memberships.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
+import { SubscriptionMandateService } from '@modules/subscription/services/subscription-mandate.service';
+import { SubscriptionWebhookEventsRepository } from '@modules/subscription/repositories/subscription-webhook-events.repository';
+import { mapCashfreeSubscriptionStatus, mapRazorpayTokenStatus } from '@modules/subscription/utils/subscription-mandate-status.util';
 import { PaymentRequestsService } from '../services/payment-requests.service';
 import { RazorpayPaymentLinksService } from '../services/razorpay-payment-links.service';
 import { CashfreePaymentService } from '../services/cashfree-payment.service';
@@ -25,6 +29,9 @@ export class PaymentsWebhookController {
     private readonly productSubscriptionsService: ProductSubscriptionsService,
     @Inject(forwardRef(() => MembershipsService))
     private readonly membershipsService: MembershipsService,
+    @Inject(forwardRef(() => SubscriptionMandateService))
+    private readonly subscriptionMandateService: SubscriptionMandateService,
+    private readonly subscriptionWebhookEvents: SubscriptionWebhookEventsRepository,
     private readonly eventEmitter: EventEmitter2,
   ) { }
 
@@ -134,6 +141,11 @@ export class PaymentsWebhookController {
         eventType === 'PAYMENT_USER_DROPPED_WEBHOOK') &&
       orderId
     ) {
+      await this.productSubscriptionsService.handlePaymentFailed({
+        gatewayOrderId: String(orderId),
+        reason: String(paymentData?.['payment_message'] ?? 'Cashfree payment failed'),
+        actor: 'cashfree-webhook',
+      });
       await this.paymentRequestsService.handlePaymentFailedByProviderReference(
         String(orderId),
         String(paymentData?.['payment_message'] ?? paymentData?.['error_details'] ?? 'Cashfree payment failed'),
@@ -143,6 +155,48 @@ export class PaymentsWebhookController {
         { orderId, eventType, requestId: req.id },
         'Cashfree webhook handled payment failure',
       );
+    } else if (
+      eventType === 'SUBSCRIPTION_AUTH_STATUS' ||
+      eventType === 'SUBSCRIPTION_STATUS_CHANGE' ||
+      eventType === 'SUBSCRIPTION_STATUS_CHANGED' ||
+      eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' ||
+      eventType === 'SUBSCRIPTION_PAYMENT_FAILED' ||
+      eventType === 'SUBSCRIPTION_PAYMENT_CANCELLED'
+    ) {
+      const subscriptionData = (data?.['subscription'] ?? payload['subscription'] ?? {}) as Record<string, unknown>;
+      const eventId = String(
+        payload['event_time'] ?? cfPaymentId ?? subscriptionData['cf_subscription_id'] ?? eventType,
+      );
+      const fresh = await this.subscriptionWebhookEvents.tryRecord({
+        provider: 'CASHFREE',
+        eventId: `${eventType}:${eventId}`,
+        eventType,
+      });
+      if (fresh) {
+        if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS') {
+          await this.productSubscriptionsService.handlePaymentSuccess({
+            gatewayOrderId: String(paymentData?.['payment_id'] ?? orderId ?? ''),
+            gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+            actor: 'cashfree-subscription-webhook',
+          });
+        } else if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+          await this.productSubscriptionsService.handlePaymentFailed({
+            gatewayOrderId: String(paymentData?.['payment_id'] ?? orderId ?? ''),
+            reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
+            actor: 'cashfree-subscription-webhook',
+          });
+        } else {
+          await this.subscriptionMandateService.handleProviderWebhook({
+            provider: SubscriptionMandateProvider.CASHFREE,
+            gatewaySubscriptionId: String(
+              subscriptionData['subscription_id'] ?? subscriptionData['cf_subscription_id'] ?? '',
+            ),
+            status: mapCashfreeSubscriptionStatus(String(subscriptionData['subscription_status'] ?? '')),
+            actor: 'cashfree-webhook',
+            raw: payload,
+          });
+        }
+      }
     } else if (eventType === 'REFUND_STATUS_WEBHOOK' || eventType === 'REFUND_WEBHOOK') {
       const refundData = data?.['refund'] as Record<string, any> | undefined;
       await this.eventEmitter.emitAsync(EVENTS.REFUND_PROVIDER_UPDATED, {
@@ -238,6 +292,16 @@ export class PaymentsWebhookController {
       'Razorpay webhook signature verified',
     );
 
+    const eventId = `${event}:${paymentEntity?.entity?.id ?? orderId ?? linkId ?? 'none'}`;
+    const fresh = await this.subscriptionWebhookEvents.tryRecord({
+      provider: 'RAZORPAY',
+      eventId,
+      eventType: event,
+    });
+    if (!fresh && event.startsWith('token.')) {
+      return { received: true, event, requestId: req.id, duplicate: true };
+    }
+
     if (event === 'payment_link.paid' && linkId) {
       const routed = await this.routeSubscriptionPaid({
         paymentPurpose,
@@ -273,6 +337,13 @@ export class PaymentsWebhookController {
         }
       }
     } else if (event === 'payment.failed') {
+      if (orderId) {
+        await this.productSubscriptionsService.handlePaymentFailed({
+          gatewayOrderId: orderId,
+          reason: paymentEntity?.entity?.error_description,
+          actor: 'razorpay-webhook',
+        });
+      }
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentFailed(
           paymentRequestId,
@@ -295,6 +366,24 @@ export class PaymentsWebhookController {
       if (paymentRequestId) {
         await this.paymentRequestsService.handlePaymentPending(paymentRequestId);
       }
+    } else if (
+      event === 'token.confirmed' ||
+      event === 'token.cancelled' ||
+      event === 'token.paused' ||
+      event === 'token.rejected'
+    ) {
+      const tokenEntity = payloadData?.['token'] as
+        | { entity?: { id?: string; status?: string; recurring_status?: string; customer_id?: string } }
+        | undefined;
+      await this.subscriptionMandateService.handleProviderWebhook({
+        provider: SubscriptionMandateProvider.RAZORPAY,
+        gatewayMandateId: tokenEntity?.entity?.id,
+        status: mapRazorpayTokenStatus(
+          tokenEntity?.entity?.recurring_status ?? tokenEntity?.entity?.status ?? event.replace('token.', ''),
+        ),
+        actor: 'razorpay-webhook',
+        raw: payload,
+      });
     } else if (
       event === 'refund.processed' ||
       event === 'refund.failed' ||

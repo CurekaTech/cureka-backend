@@ -26,6 +26,6 @@ import { UnicommerceOrderProcessor } from './processors/unicommerce-order.proces
     UnicommerceOrderQueueService,
     UnicommerceOrderProcessor,
   ],
-  exports: [UnicommerceOrderService, UnicommerceOrderQueueService],
+  exports: [UnicommerceOrderService, UnicommerceOrderQueueService, UnicommerceOrderApiService],
 })
 export class UnicommerceOrderModule {}

@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { ProductEntity } from './product.entity';
 import { VariantStatus } from '../enums/variant-status.enum';
+import { PolicyWindowUnit } from '../enums/policy-window-unit.enum';
 import { VariantAttributeValueEntity } from './variant-attribute-value.entity';
 import { ProductMediaEntity } from './product-media.entity';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
@@ -186,6 +187,39 @@ export class ProductVariantEntity {
 
   @Column({ name: 'replace_window_days', type: 'int', nullable: true })
   replaceWindowDays!: number | null;
+
+  @Column({ name: 'refund_allowed', type: 'boolean', nullable: true })
+  refundAllowed!: boolean | null;
+
+  @Column({
+    name: 'return_window_unit',
+    type: 'enum',
+    enum: PolicyWindowUnit,
+    enumName: 'policy_window_unit_enum',
+    nullable: true,
+  })
+  returnWindowUnit!: PolicyWindowUnit | null;
+
+  @Column({
+    name: 'replace_window_unit',
+    type: 'enum',
+    enum: PolicyWindowUnit,
+    enumName: 'policy_window_unit_enum',
+    nullable: true,
+  })
+  replaceWindowUnit!: PolicyWindowUnit | null;
+
+  @Column({ name: 'return_pickup_required', type: 'boolean', nullable: true })
+  returnPickupRequired!: boolean | null;
+
+  @Column({ name: 'return_qc_required', type: 'boolean', nullable: true })
+  returnQcRequired!: boolean | null;
+
+  @Column({ name: 'return_evidence_required', type: 'boolean', nullable: true })
+  returnEvidenceRequired!: boolean | null;
+
+  @Column({ name: 'no_pickup_refund_allowed', type: 'boolean', nullable: true })
+  noPickupRefundAllowed!: boolean | null;
 
   @Index()
   @Column({ name: 'manufacturer_id', type: 'uuid', nullable: true })
