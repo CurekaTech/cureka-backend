@@ -60,6 +60,9 @@ export class ReasonMastersService {
     }
 
     const code = (dto.code?.trim() || generateReasonCode(dto.title)).toUpperCase();
+    if (await this.reasonMastersRepository.existsByTitle(dto.title.trim())) {
+      throw new ConflictException(`A reason with title "${dto.title}" already exists`);
+    }
     if (await this.reasonMastersRepository.existsByCode(code)) {
       throw new ConflictException(`A reason with code "${code}" already exists`);
     }
@@ -139,6 +142,14 @@ export class ReasonMastersService {
       throw new BadRequestException('At least one workflow must be selected');
     }
 
+    const nextTitle = dto.title?.trim() ?? existing.title;
+    if (
+      nextTitle.toLowerCase() !== existing.title.toLowerCase() &&
+      (await this.reasonMastersRepository.existsByTitle(nextTitle, refId))
+    ) {
+      throw new ConflictException(`A reason with title "${nextTitle}" already exists`);
+    }
+
     let code = existing.code;
     if (dto.code?.trim()) {
       code = dto.code.trim().toUpperCase();
@@ -157,7 +168,7 @@ export class ReasonMastersService {
     assertMediaCountRange({ minImages, maxImages, minVideos, maxVideos });
 
     const updated = await this.reasonMastersRepository.updateByRefId(refId, {
-      title: dto.title?.trim() ?? existing.title,
+      title: nextTitle,
       code,
       description:
         dto.description !== undefined ? dto.description?.trim() ?? null : existing.description,

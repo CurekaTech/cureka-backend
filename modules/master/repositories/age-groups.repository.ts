@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AgeGroupEntity } from '../entities/age-group.entity';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
@@ -27,6 +28,9 @@ export class AgeGroupsRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'ageGroup', name, excludeRefId);
   }
 
   async updateByRefId(refId: string, data: Partial<AgeGroupEntity>): Promise<AgeGroupEntity | null> {

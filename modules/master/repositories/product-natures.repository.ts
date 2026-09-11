@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ProductNatureEntity } from '../entities/product-nature.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { MasterStatus } from '../enums/master-status.enum';
 
 @Injectable()
@@ -28,6 +29,9 @@ export class ProductNaturesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'productNature', name, excludeRefId);
   }
 
   async updateByRefId(

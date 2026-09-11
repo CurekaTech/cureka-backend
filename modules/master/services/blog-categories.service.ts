@@ -68,6 +68,9 @@ export class BlogCategoriesService {
     actor: string,
     media: { icon?: string | null } = {},
   ) {
+    if (await this.categoriesRepo.existsByName(dto.name)) {
+      throw new ConflictException(`A blog category with name "${dto.name}" already exists`);
+    }
     if (await this.categoriesRepo.existsBySlug(dto.slug)) {
       throw new ConflictException('Blog category slug already exists');
     }
@@ -136,6 +139,10 @@ export class BlogCategoriesService {
   ) {
     const existing = await this.categoriesRepo.findByRefId(refId);
     if (!existing) throw new NotFoundException('Blog category not found');
+
+    if (dto.name !== undefined && (await this.categoriesRepo.existsByName(dto.name, refId))) {
+      throw new ConflictException(`A blog category with name "${dto.name}" already exists`);
+    }
 
     if (dto.slug && dto.slug !== existing.slug) {
       if (await this.categoriesRepo.existsBySlug(dto.slug, refId)) {

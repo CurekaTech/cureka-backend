@@ -8,6 +8,7 @@ import {
 } from '../utils/master-cursor-query.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { UnitEntity } from '../entities/unit.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 
@@ -29,6 +30,9 @@ export class UnitsRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'unit', name, excludeRefId);
   }
 
   async updateByRefId(

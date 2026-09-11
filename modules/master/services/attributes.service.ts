@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   buildQueryCacheHash,
@@ -34,6 +34,10 @@ export class AttributesService {
   ) {}
 
   async create(dto: CreateAttributeDto, createdBy: string): Promise<IAttribute> {
+    if (await this.attributesRepository.existsByName(dto.name)) {
+      throw new ConflictException(`An attribute with name "${dto.name}" already exists`);
+    }
+
     const entity = await this.attributesRepository.create({
       name: dto.name,
       dataType: dto.dataType ?? null,
@@ -87,6 +91,13 @@ export class AttributesService {
     const existing = await this.attributesRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Attribute with refId ${refId} not found`);
+    }
+
+    if (
+      dto.name !== undefined &&
+      (await this.attributesRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`An attribute with name "${dto.name}" already exists`);
     }
 
     const updated = await this.attributesRepository.updateByRefId(refId, {
