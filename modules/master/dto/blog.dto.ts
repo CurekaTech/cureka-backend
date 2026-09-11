@@ -23,20 +23,24 @@ import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 import { BlogVideoType } from '../enums/blog-video-type.enum';
 import {
   FAQ_ANSWER_MAX_LENGTH,
+  FAQ_ANSWER_MAX_LENGTH_MESSAGE,
+  FAQ_ANSWER_REQUIRED_MESSAGE,
   FAQ_QUESTION_MAX_LENGTH,
+  FAQ_QUESTION_MAX_LENGTH_MESSAGE,
+  FAQ_QUESTION_REQUIRED_MESSAGE,
 } from '../utils/master-faq.util';
 
 export class BlogFaqDto {
   @ApiProperty({ example: 'What is this blog about?', maxLength: FAQ_QUESTION_MAX_LENGTH })
-  @IsNotEmpty()
-  @IsString()
-  @MaxLength(FAQ_QUESTION_MAX_LENGTH)
+  @IsNotEmpty({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @IsString({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH, { message: FAQ_QUESTION_MAX_LENGTH_MESSAGE })
   question!: string;
 
   @ApiProperty({ example: 'This article explains…', maxLength: FAQ_ANSWER_MAX_LENGTH })
-  @IsNotEmpty()
-  @IsString()
-  @MaxLength(FAQ_ANSWER_MAX_LENGTH)
+  @IsNotEmpty({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
   answer!: string;
 }
 

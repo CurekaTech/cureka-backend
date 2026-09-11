@@ -19,7 +19,11 @@ import { SupportTicketPriority } from '../enums/support-ticket-priority.enum';
 import { SupportTicketStatus } from '../enums/support-ticket-status.enum';
 import {
   FAQ_ANSWER_MAX_LENGTH,
+  FAQ_ANSWER_MAX_LENGTH_MESSAGE,
+  FAQ_ANSWER_REQUIRED_MESSAGE,
   FAQ_QUESTION_MAX_LENGTH,
+  FAQ_QUESTION_MAX_LENGTH_MESSAGE,
+  FAQ_QUESTION_REQUIRED_MESSAGE,
 } from '../utils/master-faq.util';
 
 export class SupportCategoryQueryDto extends PaginationQueryDto {
@@ -129,15 +133,15 @@ export class SupportFaqQueryDto extends PaginationQueryDto {
 
 export class CreateSupportFaqDto {
   @ApiProperty({ maxLength: FAQ_QUESTION_MAX_LENGTH })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(FAQ_QUESTION_MAX_LENGTH)
+  @IsString({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @IsNotEmpty({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH, { message: FAQ_QUESTION_MAX_LENGTH_MESSAGE })
   question!: string;
 
   @ApiProperty({ maxLength: FAQ_ANSWER_MAX_LENGTH })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(FAQ_ANSWER_MAX_LENGTH)
+  @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @IsNotEmpty({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
   answer!: string;
 
   @ApiProperty()
