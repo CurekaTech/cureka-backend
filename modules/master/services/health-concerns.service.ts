@@ -93,6 +93,9 @@ export class HealthConcernsService {
     createdBy: string,
   ): Promise<IHealthConcern> {
     const slug = dto.slug ?? generateSlug(dto.name);
+    if (await this.healthConcernsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
+    }
     if (await this.healthConcernsRepository.existsBySlug(slug)) {
       throw new ConflictException(`A health concern with slug "${slug}" already exists`);
     }
@@ -176,6 +179,13 @@ export class HealthConcernsService {
     const existing = await this.healthConcernsRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Health concern with refId ${refId} not found`);
+    }
+
+    if (
+      dto.name !== undefined &&
+      (await this.healthConcernsRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
     }
 
     const slug = dto.slug ?? existing.slug;

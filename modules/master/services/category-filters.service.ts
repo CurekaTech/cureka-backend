@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   generateUniqueRefId,
@@ -28,6 +28,10 @@ export class CategoryFiltersService {
   ) {}
 
   async create(dto: CreateCategoryFilterDto, createdBy: string): Promise<ICategoryFilter> {
+    if (await this.categoryFiltersRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A category filter with name "${dto.name}" already exists`);
+    }
+
     const entity = await this.categoryFiltersRepository.create({
       name: dto.name,
       values: dto.values ?? null,
@@ -86,6 +90,13 @@ export class CategoryFiltersService {
     const existing = await this.categoryFiltersRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Category filter with refId ${refId} not found`);
+    }
+
+    if (
+      dto.name !== undefined &&
+      (await this.categoryFiltersRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`A category filter with name "${dto.name}" already exists`);
     }
 
     const updated = await this.categoryFiltersRepository.updateByRefId(refId, {

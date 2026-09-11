@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { StateEntity } from '../entities/state.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
 interface StateFindOptions extends PaginationOptions {
   countryId?: string;
@@ -39,6 +40,16 @@ export class StatesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+
+  async existsByName(
+    name: string,
+    countryId: string,
+    excludeRefId?: string,
+  ): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'state', name, excludeRefId, {
+      scope: { column: 'countryId', value: countryId },
+    });
   }
 
   async updateByRefId(refId: string, data: Partial<StateEntity>): Promise<StateEntity | null> {

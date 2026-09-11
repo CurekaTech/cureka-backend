@@ -110,6 +110,9 @@ export class BrandsService {
     createdBy: string,
   ): Promise<IBrand> {
     const slug = dto.slug ?? generateSlug(dto.name);
+    if (await this.brandsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A brand with name "${dto.name}" already exists`);
+    }
     const slugExists = await this.brandsRepository.existsBySlug(slug);
     if (slugExists) {
       throw new ConflictException(`A brand with slug "${slug}" already exists`);
@@ -181,6 +184,10 @@ export class BrandsService {
     const existing = await this.brandsRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Brand with refId ${refId} not found`);
+    }
+
+    if (dto.name !== undefined && (await this.brandsRepository.existsByName(dto.name, refId))) {
+      throw new ConflictException(`A brand with name "${dto.name}" already exists`);
     }
 
     const slug = dto.slug ?? existing.slug;
