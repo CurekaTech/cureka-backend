@@ -1,7 +1,7 @@
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { PaginationQueryDto } from '@packages/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -41,6 +41,7 @@ const toBoolean = ({ value }: { value: unknown }): unknown => {
 
 /** JSON-encoded when submitted through multipart alongside evidence files. */
 const parseJson = ({ value }: { value: unknown }): unknown => {
+  if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string') return value;
   try {
     return JSON.parse(value);
@@ -48,6 +49,29 @@ const parseJson = ({ value }: { value: unknown }): unknown => {
     return value;
   }
 };
+
+/**
+ * Multipart flattens nested objects/arrays to JSON strings. Parse then instantiate
+ * nested DTOs so `@ValidateNested` receives class instances (plain objects cause
+ * `*.undefined: an unknown value was passed to the validate function`).
+ */
+const parseJsonArrayOf =
+  <T>(cls: new () => T) =>
+  ({ value }: { value: unknown }): T[] | unknown => {
+    const parsed = parseJson({ value });
+    if (parsed === undefined) return undefined;
+    if (!Array.isArray(parsed)) return parsed;
+    return plainToInstance(cls, parsed);
+  };
+
+const parseJsonObjectOf =
+  <T>(cls: new () => T) =>
+  ({ value }: { value: unknown }): T | unknown => {
+    const parsed = parseJson({ value });
+    if (parsed === undefined || parsed === null) return parsed;
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) return parsed;
+    return plainToInstance(cls, parsed);
+  };
 
 export class ReturnPickupAddressDto {
   @ApiProperty()
@@ -143,7 +167,7 @@ export class CreateReturnRequestDto {
   resolution!: ReturnResolution;
 
   @ApiProperty({ type: [CreateReturnRequestItemDto] })
-  @Transform(parseJson)
+  @Transform(parseJsonArrayOf(CreateReturnRequestItemDto))
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(50)
@@ -172,7 +196,7 @@ export class CreateReturnRequestDto {
     description: 'Pickup address; defaults to the delivery address of the order.',
   })
   @IsOptional()
-  @Transform(parseJson)
+  @Transform(parseJsonObjectOf(ReturnPickupAddressDto))
   @ValidateNested()
   @Type(() => ReturnPickupAddressDto)
   pickupAddress?: ReturnPickupAddressDto;
@@ -191,7 +215,7 @@ export class CreateReturnRequestDto {
     description: 'Required when refundMethod is BANK_ACCOUNT. Confirmation is validated and not stored.',
   })
   @IsOptional()
-  @Transform(parseJson)
+  @Transform(parseJsonObjectOf(BankAccountDetailsDto))
   @ValidateNested()
   @Type(() => BankAccountDetailsDto)
   bankDetails?: BankAccountDetailsDto;
