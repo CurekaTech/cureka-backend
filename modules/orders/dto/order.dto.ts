@@ -154,3 +154,12 @@ export class CancelOrderDto {
   @MaxLength(500)
   reason!: string;
 }
+
+/** Optional note when admin force-marks an order DELIVERED (testing / ops). */
+export class CompleteOrderDto {
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
