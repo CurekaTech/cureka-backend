@@ -12,6 +12,8 @@ export interface ICombinePreviewProduct {
   sellingPrice: string;
   stock: number;
   outOfStock: boolean;
+  /** Current variant display name (or product name). Editable via assignments[].variantTitle on combine. */
+  variantTitle: string;
   brandId: string | null;
   categoryId: string;
   subCategoryId: string | null;

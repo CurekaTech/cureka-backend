@@ -7,7 +7,9 @@ import {
   IsArray,
   IsNotEmpty,
   IsOptional,
+  IsString,
   IsUUID,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { IsRefId } from '@packages/common';
@@ -56,6 +58,16 @@ export class CombineSimpleProductAssignmentDto {
   @ValidateNested({ each: true })
   @Type(() => VariantAttributeValueDto)
   attributes!: VariantAttributeValueDto[];
+
+  @ApiPropertyOptional({
+    example: 'Whey Protein 500g',
+    description:
+      'Optional per-variant title set on combine. Persisted as the variant display name (PDP tab / listing label).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  variantTitle?: string;
 }
 
 export class CombineSimpleProductsDto {
