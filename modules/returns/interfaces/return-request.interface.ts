@@ -257,7 +257,10 @@ export interface ICustomerReturnDetail {
       | 'refundableAmount'
       | 'acceptedQuantity'
       | 'rejectedQuantity'
-    >
+    > & {
+      /** Signed product thumbnail URL when available. */
+      imageUrl: string | null;
+    }
   >;
   evidence: IReturnEvidenceView[];
   tracking: {

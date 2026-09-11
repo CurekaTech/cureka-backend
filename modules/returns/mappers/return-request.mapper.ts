@@ -373,6 +373,7 @@ export const mapCustomerReturnDetail = (
       refundableAmount: item.refundableAmount,
       acceptedQuantity: item.acceptedQuantity,
       rejectedQuantity: item.rejectedQuantity,
+      imageUrl: null,
     })),
     evidence: extras.evidence.map(mapReturnEvidence),
     tracking: extras.pickup
