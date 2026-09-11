@@ -1,7 +1,7 @@
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { PaginationQueryDto } from '@packages/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -48,6 +48,29 @@ const parseJson = ({ value }: { value: unknown }): unknown => {
     return value;
   }
 };
+
+/**
+ * Multipart sends nested DTOs as JSON strings. `@Type` alone does not always
+ * re-instantiate after `@Transform(parseJson)`, which makes `@ValidateNested`
+ * fail with `items.0.undefined: an unknown value was passed to the validate function`.
+ */
+const parseJsonArrayOf =
+  (cls: new (...args: never[]) => object) =>
+  ({ value }: { value: unknown }): unknown => {
+    const parsed = parseJson({ value });
+    if (!Array.isArray(parsed)) return parsed;
+    return plainToInstance(cls, parsed, { enableImplicitConversion: false });
+  };
+
+const parseJsonObjectOf =
+  (cls: new (...args: never[]) => object) =>
+  ({ value }: { value: unknown }): unknown => {
+    const parsed = parseJson({ value });
+    if (parsed === null || parsed === undefined || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return parsed;
+    }
+    return plainToInstance(cls, parsed, { enableImplicitConversion: false });
+  };
 
 export class ReturnPickupAddressDto {
   @ApiProperty()
@@ -143,7 +166,7 @@ export class CreateReturnRequestDto {
   resolution!: ReturnResolution;
 
   @ApiProperty({ type: [CreateReturnRequestItemDto] })
-  @Transform(parseJson)
+  @Transform(parseJsonArrayOf(CreateReturnRequestItemDto))
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(50)
@@ -172,7 +195,7 @@ export class CreateReturnRequestDto {
     description: 'Pickup address; defaults to the delivery address of the order.',
   })
   @IsOptional()
-  @Transform(parseJson)
+  @Transform(parseJsonObjectOf(ReturnPickupAddressDto))
   @ValidateNested()
   @Type(() => ReturnPickupAddressDto)
   pickupAddress?: ReturnPickupAddressDto;
@@ -191,7 +214,7 @@ export class CreateReturnRequestDto {
     description: 'Required when refundMethod is BANK_ACCOUNT. Confirmation is validated and not stored.',
   })
   @IsOptional()
-  @Transform(parseJson)
+  @Transform(parseJsonObjectOf(BankAccountDetailsDto))
   @ValidateNested()
   @Type(() => BankAccountDetailsDto)
   bankDetails?: BankAccountDetailsDto;
