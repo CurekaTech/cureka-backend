@@ -255,6 +255,15 @@ export const mapCustomerReturnListItem = (
     canCancel: isCustomerCancellable(entity.status),
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
+    items: items.map((item) => ({
+      id: item.id,
+      orderItemId: item.orderItemId,
+      productName: item.productName,
+      variantName: item.variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      imageUrl: null,
+    })),
   };
 };
 
