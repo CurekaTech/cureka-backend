@@ -352,6 +352,7 @@ export class CartService {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) return;
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
       await this.cartsRepository.updateById(
         cart.id,
         {
@@ -374,10 +375,6 @@ export class CartService {
     await this.cartsRepository.updateById(cart.id, {
       orderSource,
       updatedBy: userId,
-      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
-      if (cart.couponId) {
-        await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
-      }
     });
   }
 
