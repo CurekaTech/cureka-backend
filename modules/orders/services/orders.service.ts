@@ -37,6 +37,7 @@ import { OrderStatus } from '../enums/order-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderSource } from '../enums/order-source.enum';
 import { applyOrderStatusTimestamps, EMPTY_ORDER_STATUS_TIMESTAMPS } from '../utils/order-status-timestamps.util';
+import { resolveStorefrontOrderSource } from '../utils/storefront-order-source.util';
 import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
@@ -103,7 +104,10 @@ export class OrdersService {
     }
 
     const summary = await this.checkoutService.validateCheckout(userId, dto);
-    return { ...summary, checkoutProvider };
+    if (dto.orderSource) {
+      await this.cartService.setPreferredOrderSource(userId, dto.orderSource);
+    }
+    return { ...summary, checkoutProvider, orderSource: dto.orderSource ?? null };
   }
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
@@ -150,6 +154,8 @@ export class OrdersService {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
 
+      const resolvedOrderSource = resolveStorefrontOrderSource(dto.orderSource, cart.orderSource);
+
       const appliedCoupon = cart.couponId
         ? await this.couponCheckoutService.findById(cart.couponId)
         : null;
@@ -195,7 +201,7 @@ export class OrdersService {
             dto.paymentMethod === OrderPaymentMethod.COD
               ? OrderStatus.CONFIRMED
               : OrderStatus.PENDING,
-          orderSource: dto.orderSource ?? OrderSource.WEBSITE,
+          orderSource: resolvedOrderSource,
           recipientName: address.recipientName,
           phoneNumber: address.phoneNumber,
           pincode: address.pincode,
@@ -303,13 +309,11 @@ export class OrdersService {
       }
 
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
-      if (cart.couponId) {
-        await this.cartsRepository.updateById(
-          cart.id,
-          { couponId: null, updatedBy: userId },
-          manager,
-        );
-      }
+      await this.cartsRepository.updateById(
+        cart.id,
+        { couponId: null, orderSource: null, updatedBy: userId },
+        manager,
+      );
 
       if (dto.paymentMethod === OrderPaymentMethod.COD) {
         await this.createCodPaymentRequestForAdminList(
@@ -318,7 +322,7 @@ export class OrdersService {
             addressId: dto.addressId,
             order: createdOrder,
             summary,
-            orderSource: dto.orderSource ?? OrderSource.WEBSITE,
+            orderSource: resolvedOrderSource,
             couponCode: appliedCoupon?.code ?? null,
           },
           manager,
@@ -681,13 +685,11 @@ export class OrdersService {
       }
 
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
-      if (cart.couponId) {
-        await this.cartsRepository.updateById(
-          cart.id,
-          { couponId: null, updatedBy: userId },
-          manager,
-        );
-      }
+      await this.cartsRepository.updateById(
+        cart.id,
+        { couponId: null, orderSource: null, updatedBy: userId },
+        manager,
+      );
 
       // Prepaid / partial-COD: CONFIRMED when paid. Full COD: CONFIRMED with payment still PENDING.
       const nextOrderStatus =

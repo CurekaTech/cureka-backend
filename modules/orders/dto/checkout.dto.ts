@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import { IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderSource } from '../enums/order-source.enum';
+import { normalizeStorefrontOrderSource } from '../utils/storefront-order-source.util';
 
 const emptyToUndefined = ({ value }: { value: unknown }) => {
   if (value === null || value === undefined) {
@@ -13,6 +14,14 @@ const emptyToUndefined = ({ value }: { value: unknown }) => {
   }
   return value;
 };
+
+const toStorefrontOrderSource = ({
+  value,
+  obj,
+}: {
+  value: unknown;
+  obj: Record<string, unknown>;
+}) => normalizeStorefrontOrderSource(value ?? obj?.order_source);
 
 export class CheckoutDto {
   /**
@@ -40,9 +49,10 @@ export class CheckoutDto {
   @IsEnum(OrderPaymentMethod)
   paymentMethod?: OrderPaymentMethod;
 
-  /** Where the order is being placed from. Defaults to Website. */
+  /** Where the order is being placed from. Sticky on the cart; defaults to Website. */
   @ApiPropertyOptional({ enum: [OrderSource.WEBSITE, OrderSource.APP] })
   @IsOptional()
+  @Transform(toStorefrontOrderSource)
   @IsEnum(OrderSource)
   @IsIn([OrderSource.WEBSITE, OrderSource.APP])
   orderSource?: OrderSource;

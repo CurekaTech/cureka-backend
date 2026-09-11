@@ -18,6 +18,15 @@ import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderSource } from '../enums/order-source.enum';
 import { OrderStatus } from '../enums/order-status.enum';
+import { normalizeStorefrontOrderSource } from '../utils/storefront-order-source.util';
+
+const toStorefrontOrderSource = ({
+  value,
+  obj,
+}: {
+  value: unknown;
+  obj: Record<string, unknown>;
+}) => normalizeStorefrontOrderSource(value ?? obj?.order_source);
 
 export const ADMIN_ORDER_LIST_SORT_FIELDS = [
   'createdAt',
@@ -50,6 +59,7 @@ export class PlaceOrderDto {
   paymentMethod!: OrderPaymentMethod;
 
   @IsOptional()
+  @Transform(toStorefrontOrderSource)
   @IsEnum(OrderSource)
   @IsIn([OrderSource.WEBSITE, OrderSource.APP])
   orderSource?: OrderSource;
