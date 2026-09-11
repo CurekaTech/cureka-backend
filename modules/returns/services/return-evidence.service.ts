@@ -15,7 +15,11 @@ const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv'];
 export class ReturnEvidenceService {
   fromUploadedUrls(uploadedUrls: MultipartUploadedUrls): IEvidenceUpload[] {
     return Object.entries(uploadedUrls)
-      .filter(([field, path]) => field.startsWith('evidenceFile') && Boolean(path))
+      .filter(
+        ([field, path]) =>
+          Boolean(path) &&
+          (field.startsWith('evidenceFile') || field.startsWith('photos')),
+      )
       .map(([, path]) => ({
         path: path as string,
         mediaType: this.resolveMediaType(path as string),
