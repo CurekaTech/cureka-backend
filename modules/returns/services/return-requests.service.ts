@@ -7,6 +7,7 @@ import { ReasonMastersRepository } from '@modules/master/repositories/reason-mas
 import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { toMoneyString } from '@modules/orders/utils/money.util';
+import { resolvePrimaryProductImageRef } from '@modules/orders/utils/resolve-primary-product-image.util';
 import {
   BANK_DETAILS_LOCKED,
   BANK_DETAILS_NOT_APPLICABLE,
@@ -552,6 +553,24 @@ export class ReturnRequestsService {
           : null,
       },
     });
+
+    const order = await this.ordersRepository.findOne({
+      where: { id: request.orderId },
+      relations: { items: { product: { media: true } } },
+    });
+    const orderItemsById = new Map((order?.items ?? []).map((item) => [item.id, item]));
+    detail.items = await Promise.all(
+      detail.items.map(async (item) => {
+        const orderItem = orderItemsById.get(item.orderItemId);
+        if (!orderItem) {
+          return item;
+        }
+        const imageRef = resolvePrimaryProductImageRef(orderItem.product, orderItem.variantId);
+        const primaryImage = await this.storageUrlEnricher.toReference(imageRef);
+        return { ...item, imageUrl: primaryImage?.url ?? null };
+      }),
+    );
+
     return this.storageUrlEnricher.enrichDeep(detail);
   }
 
