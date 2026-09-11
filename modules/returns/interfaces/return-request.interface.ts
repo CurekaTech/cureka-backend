@@ -218,6 +218,15 @@ export interface ICustomerReturnListItem {
   canCancel: boolean;
   createdAt: Date;
   updatedAt: Date;
+  items: Array<{
+    id: string;
+    orderItemId: string;
+    productName: string;
+    variantName: string | null;
+    quantity: number;
+    unitPrice: string;
+    imageUrl: string | null;
+  }>;
 }
 
 /** Customer-safe projection — excludes internal notes, actors and justifications. */
