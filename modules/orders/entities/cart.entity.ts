@@ -31,6 +31,8 @@ export class CartEntity extends BaseEntity {
     nullable: true,
   })
   orderSource!: OrderSource | null;
+
+  /**
    * Latest customer cart mutation (add / qty / remove / move).
    * Not updated by cart reads, cron, coupon validation, or notify attempts.
    */
