@@ -188,5 +188,19 @@ npm run unicommerce:push-orders -- --force --apply
 //Override the array without editing the file:
 npm run unicommerce:push-orders -- --orders=ORD111,ORD222 --apply
 
+--------------------------------
 
 
+# 1) Preview (safe)
+npm run product:strip-sku-from-variant-slugs
+
+# 2) Preview one SKU / small batch
+npm run product:strip-sku-from-variant-slugs -- --sku=SKI/MES/18441
+npm run product:strip-sku-from-variant-slugs -- --limit=20
+
+# 3) Apply for real
+npm run product:strip-sku-from-variant-slugs -- --apply
+
+------------------
+npm run typesense:reindex
+npm run cache:invalidate-products
