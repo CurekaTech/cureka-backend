@@ -69,14 +69,30 @@ export class SitemapGeneratorService {
     const batchSize = this.configService.get<number>('sitemap.batchSize') ?? 10_000;
     const maxUrlsPerFile = this.configService.get<number>('sitemap.maxUrlsPerFile') ?? 50_000;
 
+    let targetGroups = [...groups];
+    if (targetGroups.length < SITEMAP_GROUPS.length) {
+      const liveOrigin = await this.readLiveSitemapOrigin();
+      if (liveOrigin && liveOrigin !== baseUrl) {
+        this.logger.warn(
+          {
+            configuredBaseUrl: baseUrl,
+            liveSitemapOrigin: liveOrigin,
+            requestedGroups: groups,
+          },
+          'Sitemap base URL changed since last publish — forcing full regenerate so index and child files stay consistent',
+        );
+        targetGroups = [...SITEMAP_GROUPS];
+      }
+    }
+
     this.logger.log(
-      { generationId, groups, batchSize, maxUrlsPerFile },
+      { generationId, groups: targetGroups, baseUrl, batchSize, maxUrlsPerFile },
       'Sitemap generation started',
     );
 
     await this.storageService.cleanupStaleStaging();
 
-    for (const group of groups) {
+    for (const group of targetGroups) {
       await this.dirtyService.consumeDirty(group);
     }
 
@@ -88,7 +104,7 @@ export class SitemapGeneratorService {
     const newLiveByGroup = new Map<SitemapGroup, string[]>();
 
     try {
-      for (const group of groups) {
+      for (const group of targetGroups) {
         const entries = await this.collectGroupEntries(group, batchSize);
         urlCount += entries.length;
         const shards = this.shardEntries(group, entries, maxUrlsPerFile);
@@ -115,7 +131,7 @@ export class SitemapGeneratorService {
       }
 
       const indexEntries = await this.buildIndexEntries(
-        groups,
+        targetGroups,
         publicChildPaths,
         indexLastmod,
       );
@@ -139,7 +155,8 @@ export class SitemapGeneratorService {
       this.logger.log(
         {
           generationId,
-          groups,
+          groups: targetGroups,
+          baseUrl,
           urlCount,
           fileCount,
           durationMs,
@@ -147,12 +164,13 @@ export class SitemapGeneratorService {
         },
         'Sitemap generation succeeded',
       );
-      return { groups, urlCount, fileCount, durationMs };
+      return { groups: targetGroups, urlCount, fileCount, durationMs };
     } catch (error) {
       this.logger.error(
         {
           generationId,
-          groups,
+          groups: targetGroups,
+          baseUrl,
           error: error instanceof Error ? error.message : String(error),
         },
         'Sitemap generation failed — live files unchanged',
@@ -283,5 +301,32 @@ export class SitemapGeneratorService {
       throw new Error('SITEMAP_BASE_URL or STOREFRONT_URL must be set to generate sitemap loc URLs');
     }
     return baseUrl.replace(/\/+$/, '');
+  }
+
+  /**
+   * Origin baked into the live index (or static urlset). Used to detect
+   * STOREFRONT_URL / SITEMAP_BASE_URL drift after deploy so a partial group
+   * job cannot rewrite sitemap.xml with a new host while leaving old children.
+   */
+  private async readLiveSitemapOrigin(): Promise<string | null> {
+    for (const relativePath of ['sitemap.xml', 'static.xml'] as const) {
+      try {
+        const xml = await this.storageService.readLiveText(relativePath);
+        if (!xml) continue;
+        const match = xml.match(/<loc>\s*(https?:\/\/[^/\s<]+)/i);
+        if (match?.[1]) {
+          return match[1].replace(/\/+$/, '');
+        }
+      } catch (error) {
+        this.logger.warn(
+          {
+            relativePath,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Could not read live sitemap origin for base-URL drift check',
+        );
+      }
+    }
+    return null;
   }
 }
