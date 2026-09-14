@@ -73,6 +73,7 @@ export class CombineSimpleProductsService {
       sellingPrice: variant.sellingPrice,
       stock: variant.stock,
       outOfStock: variant.outOfStock,
+      variantTitle: (variant.displayName?.trim() || product.name).trim(),
       brandId: product.brandId,
       categoryId: product.categoryId,
       subCategoryId: product.subCategoryId,
@@ -177,13 +178,16 @@ export class CombineSimpleProductsService {
           attributeByRefId,
         );
 
-        await variantRepo.update(
-          { id: row.variant.id },
-          {
-            productId: target.product.id,
-            combinationKey,
-          },
-        );
+        const variantUpdate: Partial<ProductVariantEntity> = {
+          productId: target.product.id,
+          combinationKey,
+        };
+        const variantTitle = assignment.variantTitle?.trim();
+        if (variantTitle) {
+          variantUpdate.displayName = variantTitle;
+        }
+
+        await variantRepo.update({ id: row.variant.id }, variantUpdate);
 
         await attributeValueRepo.delete({ variantId: row.variant.id });
         await attributeValueRepo.save(
