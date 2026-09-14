@@ -170,7 +170,7 @@ Worker logs include: start, group, URL count, file count, duration, upload/publi
 |---|---|
 | 404 on sitemap.xml | Run `npm run sitemap:generate`. Confirm storage driver/bucket. |
 | Stale URLs | Dirty flags / Redis up? Safety job every hour. `SITEMAP_FORCE_FULL_REBUILD=true` then restart API. |
-| **Index has techbv / wrong host, child files have www.cureka.com** | PM2 worker used a different base than CLI. Set **`SITEMAP_BASE_URL=https://www.cureka.com`** on the API host (do not rely on `STOREFRONT_URL` if it points at a staging domain). Then `pm2 reload … --update-env` and `npm run sitemap:generate`. Partial group jobs rewrite `sitemap.xml` with the worker’s current base; children not in that job keep old hosts. Generator now auto-forces a **full** rebuild when live index origin ≠ configured base. |
+| **Index/child hosts flip after deploy, or regenerate “does nothing”** | 1) On the machine running the script, confirm printed `baseUrl` from `npm run sitemap:generate` is `https://www.cureka.com`. 2) Confirm `STORAGE_DRIVER` + `GCS_BUCKET_NAME` match production. 3) **Never** run generate from local/beta against the prod bucket with `STOREFRONT_URL=https://cureka.techbv.in`. 4) After fixing `.env`, `pm2 reload … --update-env` so the worker cannot overwrite CLI output. 5) Hard-refresh / bypass CDN when checking XML. Generator logs `baseUrl` and auto-forces full rebuild when live index host ≠ configured base. |
 | Missing product URLs | Product must be `published` (not deleted) with an `active` variant; that variant needs `product_page_url` or product `slug` / `single_product_url` for the dynamic fallback. |
 | Duplicate loc | Generator dedupes by loc path. Product sitemap is one row per product id. |
 | Broken XML after a failed job | Live files are unchanged; staging is deleted. Inspect worker error logs. |
@@ -178,10 +178,10 @@ Worker logs include: start, group, URL count, file count, duration, upload/publi
 
 ## Deployment
 
-1. Set sitemap env vars on the **same** machine that runs PM2 (`SITEMAP_BASE_URL=https://www.cureka.com`). Prefer an explicit `SITEMAP_BASE_URL` over falling back to `STOREFRONT_URL`.
-2. Run migration `AddProductsSitemapKeysetIndex1785953000000`.
-3. Deploy API (worker is in-process) with `pm2 reload ecosystem.config.js --update-env`.
-4. `npm run sitemap:generate` once (uses the same `.env` as the API).
+1. On **production only**, set `SITEMAP_BASE_URL=https://www.cureka.com` (and keep `STOREFRONT_URL` as the live storefront). Prefer explicit `SITEMAP_BASE_URL` so staging `STOREFRONT_URL` cannot leak into locs.
+2. Do not point local/beta `.env` at the production GCS bucket when `STOREFRONT_URL` is techbv/staging.
+3. Deploy API, then `pm2 reload ecosystem.config.js --update-env`.
+4. On the **production** host: `npm run sitemap:generate` and confirm the printed `baseUrl` line.
 5. Frontend rewrite `/sitemap.xml` → API (see frontend doc).
 6. Submit `https://www.cureka.com/sitemap.xml` in Google Search Console.
 
