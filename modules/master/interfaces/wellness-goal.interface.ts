@@ -9,6 +9,7 @@ export interface IWellnessGoal {
   image: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   inHomePage: boolean;
+  faqs: Array<{ question: string; answer: string }>;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

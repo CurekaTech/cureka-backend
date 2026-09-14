@@ -161,6 +161,8 @@ export function mapRefundRequestToDetail(
     failureCode: entity.failureCode,
     failureMessage: entity.failureMessage,
     refundable,
+    amountAllocation: entity.amountAllocation ?? null,
+    codPayout: null,
     history: history.map(mapRefundHistory),
     availableActions,
   };
@@ -239,6 +241,18 @@ export function buildAvailableActions(status: RefundRequestStatus): IRefundAvail
       allowed:
         status === RefundRequestStatus.PROCESSING || status === RefundRequestStatus.FAILED,
       requiredPermission: 'refund_requests.status',
+    },
+    {
+      action: 'viewCodPayout',
+      allowed: true,
+      requiredPermission: 'refund_payouts.read',
+    },
+    {
+      action: 'markCodPayoutPaid',
+      allowed:
+        status === RefundRequestStatus.PROCESSING ||
+        status === RefundRequestStatus.FINANCE_PROCESSING,
+      requiredPermission: 'refund_payouts.status',
     },
   ];
   return actions;

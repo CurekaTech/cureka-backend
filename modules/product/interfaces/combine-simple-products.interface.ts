@@ -11,6 +11,14 @@ export interface ICombinePreviewProduct {
   externalProductId: string | null;
   sellingPrice: string;
   stock: number;
+  outOfStock: boolean;
+  /** Current variant display name (or product name). Editable via assignments[].variantTitle on combine. */
+  variantTitle: string;
+  brandId: string | null;
+  categoryId: string;
+  subCategoryId: string | null;
+  subSubCategoryId: string | null;
+  subSubSubCategoryId: string | null;
 }
 
 export interface ICombinePreviewAttribute {

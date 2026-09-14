@@ -27,6 +27,9 @@ export class SupportCategoriesService {
   constructor(private readonly categoriesRepo: SupportCategoriesRepository) {}
 
   async create(dto: CreateSupportCategoryDto, actor: string) {
+    if (await this.categoriesRepo.existsByName(dto.name)) {
+      throw new ConflictException(`A support category with name "${dto.name}" already exists`);
+    }
     if (await this.categoriesRepo.existsBySlug(dto.slug)) {
       throw new ConflictException('Category slug already exists');
     }
@@ -73,6 +76,10 @@ export class SupportCategoriesService {
   async update(refId: string, dto: UpdateSupportCategoryDto, actor: string) {
     const existing = await this.categoriesRepo.findByRefId(refId);
     if (!existing) throw new NotFoundException('Support category not found');
+
+    if (dto.name !== undefined && (await this.categoriesRepo.existsByName(dto.name, refId))) {
+      throw new ConflictException(`A support category with name "${dto.name}" already exists`);
+    }
 
     if (dto.slug && dto.slug !== existing.slug) {
       if (await this.categoriesRepo.existsBySlug(dto.slug, refId)) {

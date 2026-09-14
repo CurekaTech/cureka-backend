@@ -112,6 +112,52 @@ describe('GokwikComplimentaryOrderItemsService', () => {
     expect(createMany).not.toHaveBeenCalled();
   });
 
+  it('adds freebie items marked with is_freebie even when source is merchant', async () => {
+    const freebieLine: GokwikLineItemDto = {
+      ...complimentaryLine,
+      source: 'cureka',
+      price: 0,
+      is_freebie: true,
+      discounts: [],
+    };
+
+    const result = await service.syncComplimentaryItems(userId, baseOrder, [normalLine, freebieLine]);
+
+    expect(createMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          orderId,
+          productId,
+          variantId,
+          quantity: 1,
+          unitPrice: '0.00',
+          totalPrice: '0.00',
+          sku: 'SKU-FREE',
+        }),
+      ],
+      expect.anything(),
+    );
+    expect(result.addedItems).toHaveLength(1);
+    expect(result.addedItems[0].metadata.detectionReason).toBe('is_freebie');
+    expect(result.addedItems[0].metadata.isFreebie).toBe(true);
+  });
+
+  it('adds zero-price freebie lines from GoKwik even without is_freebie', async () => {
+    const freebieLine: GokwikLineItemDto = {
+      ...complimentaryLine,
+      source: 'cureka',
+      price: 0,
+      is_freebie: undefined,
+      discounts: [],
+    };
+
+    const result = await service.syncComplimentaryItems(userId, baseOrder, [normalLine, freebieLine]);
+
+    expect(createMany).toHaveBeenCalled();
+    expect(result.addedItems).toHaveLength(1);
+    expect(result.addedItems[0].metadata.detectionReason).toBe('zero_price');
+  });
+
   it('adds complimentary items with zero effective price even when GoKwik sends catalog price', async () => {
     const result = await service.syncComplimentaryItems(userId, baseOrder, [normalLine, complimentaryLine]);
 

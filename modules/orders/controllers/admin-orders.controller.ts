@@ -21,7 +21,7 @@ import {
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
-import { AdminOrderQueryDto, CancelOrderDto } from '../dto/order.dto';
+import { AdminOrderQueryDto, CancelOrderDto, CompleteOrderDto } from '../dto/order.dto';
 import { OrdersService } from '../services/orders.service';
 
 @ApiTags('Admin Orders')
@@ -62,6 +62,27 @@ export class AdminOrdersController {
     @CurrentAdminUser() admin: IAdminJwtPayload,
   ) {
     return this.ordersService.cancelForAdmin(id, dto, admin.sub);
+  }
+
+  @ApiOperation({
+    summary: 'Mark order completed / delivered (super admin)',
+    description:
+      'Force-sets order (and local shipment rows) to DELIVERED for testing / ops. ' +
+      'Accepts order UUID or business refId. COD unpaid orders are marked PAID. ' +
+      'Emits shipment.updated so GoKwik receives AWB status DELIVERED when AWB exists. ' +
+      'UniCommerce delivered sync is skipped for now. ' +
+      'Rejected for CANCELLED / RTO. Idempotent if already DELIVERED.',
+  })
+  @ResponseMessage('Order marked completed successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Patch(':id/complete')
+  @HttpCode(HttpStatus.OK)
+  complete(
+    @Param('id') id: string,
+    @Body() dto: CompleteOrderDto = {},
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.completeForAdmin(id, dto, admin.sub);
   }
 
   @ApiOperation({

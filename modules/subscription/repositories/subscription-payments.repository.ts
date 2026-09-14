@@ -43,6 +43,17 @@ export class SubscriptionPaymentsRepository {
     return this.repo.findOne({ where: { gatewayOrderId } });
   }
 
+  findByIdempotencyKey(idempotencyKey: string): Promise<SubscriptionPaymentEntity | null> {
+    return this.repo.findOne({ where: { idempotencyKey } });
+  }
+
+  findByBillingCycleId(billingCycleId: string): Promise<SubscriptionPaymentEntity | null> {
+    return this.repo.findOne({
+      where: { billingCycleId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   findBySubscriptionId(subscriptionId: string): Promise<SubscriptionPaymentEntity[]> {
     return this.repo.find({
       where: { subscriptionId },

@@ -1,4 +1,5 @@
 import { PartialType } from '@nestjs/mapped-types';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -15,6 +16,7 @@ import {
 } from 'class-validator';
 import { IsRefId } from '@packages/common';
 import { MasterListQueryDto } from './master-list-query.dto';
+import { MasterFaqDto, parseMasterFaqArray } from './master-faq.dto';
 import { CategoryHierarchyLevel } from '../enums/category-hierarchy-level.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 
@@ -106,9 +108,25 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @ApiPropertyOptional({ type: [MasterFaqDto] })
+  @IsOptional()
+  @Transform(parseMasterFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterFaqDto)
+  faqs?: MasterFaqDto[];
 }
 
-export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {}
+export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {
+  @ApiPropertyOptional({ type: [MasterFaqDto] })
+  @IsOptional()
+  @Transform(parseMasterFaqArray)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterFaqDto)
+  faqs?: MasterFaqDto[];
+}
 
 export class UpdateCategoryStatusDto {
   @IsNotEmpty()

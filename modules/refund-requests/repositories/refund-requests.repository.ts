@@ -113,6 +113,40 @@ export class RefundRequestsRepository {
       .getOne();
   }
 
+  /**
+   * Active refund raised by cancellation rather than by a return.
+   *
+   * `createFromOrderCancellation` must not deduplicate onto a return refund, or a
+   * cancelled order with an in-flight return would silently skip its own refund.
+   */
+  findActiveCancellationByOrderId(
+    orderId: string,
+    manager?: EntityManager,
+  ): Promise<RefundRequestEntity | null> {
+    const repository = manager?.getRepository(RefundRequestEntity) ?? this.repo;
+    return repository
+      .createQueryBuilder('refund')
+      .leftJoinAndSelect('refund.customer', 'customer')
+      .where('refund.orderId = :orderId', { orderId })
+      .andWhere('refund.returnRequestId IS NULL')
+      .andWhere('refund.status NOT IN (:...terminal)', {
+        terminal: [
+          RefundRequestStatus.REJECTED,
+          RefundRequestStatus.CANCELLED,
+          RefundRequestStatus.CLOSED,
+        ],
+      })
+      .orderBy('refund.createdAt', 'DESC')
+      .getOne();
+  }
+
+  findByReturnRequestId(returnRequestId: string): Promise<RefundRequestEntity | null> {
+    return this.repo.findOne({
+      where: { returnRequestId },
+      relations: { customer: true, history: true },
+    });
+  }
+
   findLatestByOrderId(orderId: string): Promise<RefundRequestEntity | null> {
     return this.repo.findOne({
       where: { orderId },

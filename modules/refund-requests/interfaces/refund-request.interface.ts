@@ -3,6 +3,8 @@ import { RefundPaymentProvider } from '../enums/refund-payment-provider.enum';
 import { RefundReason } from '../enums/refund-reason.enum';
 import { RefundRequestStatus } from '../enums/refund-request-status.enum';
 import { RefundRequestedByType } from '../enums/refund-requested-by-type.enum';
+import { IRefundAmountAllocation } from './refund-amount-allocation.interface';
+import { ICodPayoutAdminView } from './cod-refund-payout.interface';
 
 export type RefundSlaStatus = 'GREEN' | 'ORANGE' | 'RED';
 
@@ -22,6 +24,9 @@ export interface IRefundableAmountBreakdown {
   refundableAmount: string;
   currency: string;
   requiresOnlineRefund: boolean;
+  requiresCodPayout?: boolean;
+  onlineRefundableAmount?: string;
+  codRefundableAmount?: string;
 }
 
 export interface IRefundProviderResolution {
@@ -102,6 +107,8 @@ export interface IRefundRequestDetail extends IRefundRequestListItem {
   failureCode: string | null;
   failureMessage: string | null;
   refundable: IRefundableAmountBreakdown;
+  amountAllocation: IRefundAmountAllocation | null;
+  codPayout: ICodPayoutAdminView | null;
   history: IRefundRequestHistoryItem[];
   availableActions: IRefundAvailableAction[];
 }

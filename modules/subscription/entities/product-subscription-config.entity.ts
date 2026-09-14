@@ -82,6 +82,24 @@ export class ProductSubscriptionConfigEntity extends BaseEntity {
   })
   reminderOffsetsJson!: number[];
 
+  @Column({ name: 'quantity_change_allowed', type: 'boolean', default: false })
+  quantityChangeAllowed!: boolean;
+
+  @Column({ name: 'mandate_max_amount', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  mandateMaxAmount!: string | null;
+
+  @Column({ type: 'varchar', length: 64, default: 'Asia/Kolkata' })
+  timezone!: string;
+
+  @Column({ name: 'delivery_lead_days', type: 'int', default: 2 })
+  deliveryLeadDays!: number;
+
+  @Column({ name: 'max_retry_attempts', type: 'int', default: 3 })
+  maxRetryAttempts!: number;
+
+  @Column({ name: 'change_cutoff_hours', type: 'int', default: 12 })
+  changeCutoffHours!: number;
+
   @ManyToOne(() => ProductEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'product_id' })
   product?: ProductEntity | null;

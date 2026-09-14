@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildPaginatedResult,
   generateUniqueRefId,
@@ -17,6 +17,10 @@ export class UnitsService {
   constructor(private readonly unitsRepository: UnitsRepository) {}
 
   async create(dto: CreateUnitDto, createdBy: string): Promise<IUnit> {
+    if (await this.unitsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A unit with name "${dto.name}" already exists`);
+    }
+
     const entity = await this.unitsRepository.create({
       name: dto.name,
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -47,6 +51,10 @@ export class UnitsService {
     const existing = await this.unitsRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Unit with refId ${refId} not found`);
+    }
+
+    if (dto.name !== undefined && (await this.unitsRepository.existsByName(dto.name, refId))) {
+      throw new ConflictException(`A unit with name "${dto.name}" already exists`);
     }
 
     const updated = await this.unitsRepository.updateByRefId(refId, {

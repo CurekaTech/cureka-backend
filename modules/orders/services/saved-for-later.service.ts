@@ -87,6 +87,7 @@ export class SavedForLaterService {
       }
 
       await this.cartItemsRepository.deleteById(cartItem.id, manager);
+      await this.cartService.touchCustomerActivity(cartItem.cartId, userId, manager);
       const cart = await this.cartService.getCart(userId, manager);
       return { savedId, cart };
     });

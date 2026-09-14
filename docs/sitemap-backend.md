@@ -184,3 +184,10 @@ Worker logs include: start, group, URL count, file count, duration, upload/publi
 4. On the **production** host: `npm run sitemap:generate` and confirm the printed `baseUrl` line.
 5. Frontend rewrite `/sitemap.xml` → API (see frontend doc).
 6. Submit `https://www.cureka.com/sitemap.xml` in Google Search Console.
+
+Confirm the worker base after reload:
+
+```bash
+grep -E '^(SITEMAP_BASE_URL|STOREFRONT_URL)=' .env
+# In logs look for: Sitemap generation started … baseUrl:"https://www.cureka.com"
+```

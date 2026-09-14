@@ -20,7 +20,7 @@ describe('bulk-upload-image-url-comparison.util', () => {
   });
 
   it('prefers SKU match for WordPress URLs and falls back to external product id', () => {
-    const bySku = new Map([['sku-1', ['https://wp/sku.jpg']]]);
+    const bySku = new Map([['SKU-1', ['https://wp/sku.jpg']]]);
     const byProductId = new Map([['123', ['https://wp/id.jpg']]]);
 
     expect(resolveWpImageUrls('SKU-1', '123', bySku, byProductId)).toBe('https://wp/sku.jpg');
@@ -35,7 +35,14 @@ describe('bulk-upload-image-url-comparison.util', () => {
       'WP Image URLs',
     ]);
     expect(currentImageColumnHeader(1)).toBe('Current Image URL 1');
-    expect(normalizeLookupSku('  AbC  ')).toBe('abc');
+    expect(normalizeLookupSku('  AbC  ')).toBe('AbC');
+  });
+
+  it('matches WP image URLs by case-sensitive SKU', () => {
+    const bySku = new Map([['SKU-1', ['https://wp/sku.jpg']]]);
+    const byProductId = new Map([['123', ['https://wp/id.jpg']]]);
+
+    expect(resolveWpImageUrls('sku-1', '123', bySku, byProductId)).toBe('https://wp/id.jpg');
   });
 
   it('collects variant images before shared product images and dedupes', () => {

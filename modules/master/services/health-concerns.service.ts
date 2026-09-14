@@ -33,6 +33,7 @@ import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
 const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner'] as const;
 
@@ -92,6 +93,9 @@ export class HealthConcernsService {
     createdBy: string,
   ): Promise<IHealthConcern> {
     const slug = dto.slug ?? generateSlug(dto.name);
+    if (await this.healthConcernsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
+    }
     if (await this.healthConcernsRepository.existsBySlug(slug)) {
       throw new ConflictException(`A health concern with slug "${slug}" already exists`);
     }
@@ -106,6 +110,7 @@ export class HealthConcernsService {
       metaDescription: dto.metaDescription ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
+      faqs: normalizeMasterFaqs(dto.faqs),
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.healthConcernsRepository.existsByRefId(refId),
       ),
@@ -176,6 +181,13 @@ export class HealthConcernsService {
       throw new NotFoundException(`Health concern with refId ${refId} not found`);
     }
 
+    if (
+      dto.name !== undefined &&
+      (await this.healthConcernsRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
+    }
+
     const slug = dto.slug ?? existing.slug;
     if (dto.slug && dto.slug !== existing.slug) {
       if (await this.healthConcernsRepository.existsBySlugExcluding(dto.slug, existing.id)) {
@@ -183,10 +195,12 @@ export class HealthConcernsService {
       }
     }
 
-    const payload: Partial<HealthConcernEntity> = { ...dto, updatedBy };
+    const { faqs, ...dtoFields } = dto;
+    const payload: Partial<HealthConcernEntity> = { ...dtoFields, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.icon !== undefined) payload.icon = this.storageUrlEnricher.persist(media.icon);
     if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (faqs !== undefined) payload.faqs = normalizeMasterFaqs(faqs);
 
     const result = await this.healthConcernsRepository.updateByRefId(refId, payload);
     if (!result) {
@@ -249,6 +263,7 @@ export class HealthConcernsService {
         CacheKeys.homepage.expertCuratedBundlesPattern(),
         CacheKeys.homepage.healthConcernsPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.publicProducts.listPattern(),
       ],
     });
   }

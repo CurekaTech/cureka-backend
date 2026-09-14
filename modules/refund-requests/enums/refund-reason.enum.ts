@@ -5,5 +5,7 @@ export enum RefundReason {
   DELAYED_DELIVERY = 'DELAYED_DELIVERY',
   RTO = 'RTO',
   DAMAGED_PRODUCT = 'DAMAGED_PRODUCT',
+  /** Refund raised by an approved, received and QC-passed return. */
+  PRODUCT_RETURN = 'PRODUCT_RETURN',
   OTHER = 'OTHER',
 }

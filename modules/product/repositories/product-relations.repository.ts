@@ -23,6 +23,7 @@ import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
 import { StorageService } from '@packages/storage';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { assertFaqLengths } from '@modules/master/utils/master-faq.util';
 import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
 
 /** Canonical slug for homepage / CMS Best Sellers membership. */
@@ -219,12 +220,15 @@ export class ProductRelationsRepository {
     const productFaqIds: string[] = [];
 
     for (const faq of customFaqs) {
+      const question = faq.question.trim();
+      const answer = faq.answer.trim();
+      assertFaqLengths(question, answer);
       const saved = await repo.save(
         repo.create({
-          question: faq.question.trim(),
-          answer: faq.answer.trim(),
+          question,
+          answer,
           status: ProductFaqStatus.ACTIVE,
-          refId: await generateUniqueRefId(faq.question.slice(0, 20), async (candidate) => {
+          refId: await generateUniqueRefId(question.slice(0, 20), async (candidate) => {
             return (
               (await repo
                 .createQueryBuilder('faq')

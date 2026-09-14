@@ -74,6 +74,42 @@ export class CodBlocklistRepository {
     return qb.getOne();
   }
 
+  /** Any non-deleted PINCODE row for upsert matching (active or inactive). */
+  findPincodeEntry(pincode: string): Promise<CodBlocklistEntryEntity | null> {
+    return this.repo
+      .createQueryBuilder('entry')
+      .where('entry.type = :type', { type: CodBlocklistType.PINCODE })
+      .andWhere('entry.pincode = :pincode', { pincode })
+      .orderBy('entry.updatedAt', 'DESC')
+      .getOne();
+  }
+
+  /** Any non-deleted CUSTOMER row matched by mobile and/or customerId (active or inactive). */
+  findCustomerEntry(params: {
+    customerId?: string | null;
+    mobileNumber?: string | null;
+  }): Promise<CodBlocklistEntryEntity | null> {
+    const qb = this.repo
+      .createQueryBuilder('entry')
+      .where('entry.type = :type', { type: CodBlocklistType.CUSTOMER });
+
+    const clauses: string[] = [];
+    if (params.customerId) {
+      clauses.push('entry.customerId = :customerId');
+    }
+    if (params.mobileNumber) {
+      clauses.push('entry.mobileNumber = :mobileNumber');
+    }
+    if (!clauses.length) {
+      return Promise.resolve(null);
+    }
+    qb.andWhere(`(${clauses.join(' OR ')})`, {
+      customerId: params.customerId ?? null,
+      mobileNumber: params.mobileNumber ?? null,
+    });
+    return qb.orderBy('entry.updatedAt', 'DESC').getOne();
+  }
+
   findActiveCustomer(
     params: { customerId?: string | null; mobileNumber?: string | null },
     excludingId?: string,

@@ -26,6 +26,7 @@ export interface IPublicCategoryProductListingContext {
   belowTheFold: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
+  faqs: Array<{ question: string; answer: string }>;
   categoryFilters: IPublicCategoryFilterFacet[];
   /** Set when the listing is filtered by a child category (non-root). */
   selectedCategory?: {
@@ -40,6 +41,7 @@ export interface IPublicCategoryProductListingContext {
     belowTheFold: string | null;
     metaTitle: string | null;
     metaDescription: string | null;
+    faqs: Array<{ question: string; answer: string }>;
   } | null;
 }
 

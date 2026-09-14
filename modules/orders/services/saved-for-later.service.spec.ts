@@ -28,6 +28,7 @@ describe('SavedForLaterService', () => {
   const cartService = {
     getCart: jest.fn(),
     addItemInTransaction: jest.fn(),
+    touchCustomerActivity: jest.fn().mockResolvedValue(undefined),
   };
   const storageUrlEnricher = {
     toReference: jest.fn().mockResolvedValue(null),
@@ -55,6 +56,7 @@ describe('SavedForLaterService', () => {
     it('moves a cart item to Save for Later and removes it from the cart', async () => {
       cartItemsRepository.lockOwnedById.mockResolvedValue({
         id: 'ci-1',
+        cartId: 'cart-1',
         productId: 'p-1',
         variantId: 'v-1',
         quantity: 2,
@@ -109,6 +111,7 @@ describe('SavedForLaterService', () => {
     it('merges quantity into an existing saved row instead of duplicating', async () => {
       cartItemsRepository.lockOwnedById.mockResolvedValue({
         id: 'ci-1',
+        cartId: 'cart-1',
         productId: 'p-1',
         variantId: 'v-1',
         quantity: 2,

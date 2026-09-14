@@ -48,6 +48,23 @@ export const shipwayConfig = registerAs('shipway', () => ({
   })(),
 
   /**
+   * Optional reverse-pickup courier. When unset, SHIPWAY_CARRIER_ID (or Shipway
+   * auto-select) is used for reverse bookings too.
+   */
+  reverseCarrierId: (() => {
+    const raw = process.env['SHIPWAY_REVERSE_CARRIER_ID']?.trim();
+    if (!raw) return undefined;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  })(),
+
+  /**
+   * When true, include `return: '1'` on reverse /api/v2orders payloads. Off by
+   * default because some Shipway accounts reject unknown fields.
+   */
+  reverseFlagEnabled: process.env['SHIPWAY_REVERSE_FLAG'] === 'true',
+
+  /**
    * Optional HMAC secret for single-event webhooks (`x-webhook-signature` /
    * `x-shipway-signature`). Classic Shipway `status_feed` auth uses
    * md5(SHIPWAY_EMAIL:SHIPWAY_LICENSE_KEY) in the body `hash` instead.

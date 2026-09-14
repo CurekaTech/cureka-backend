@@ -10,6 +10,7 @@ import {
 } from '../utils/master-cursor-query.util';
 import { MasterListOptions } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
 @Injectable()
 export class HealthConcernsRepository {
@@ -45,6 +46,9 @@ export class HealthConcernsRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'healthConcern', name, excludeRefId);
   }
 
   /** Active health concerns shown on the homepage, ordered by sortIndex ASC NULLS LAST, then name. */

@@ -552,7 +552,7 @@ export class ProductsRepository {
     for (const row of rows) {
       const sku = row.sku?.trim();
       if (!sku) continue;
-      lookup.set(sku.toLowerCase(), {
+      lookup.set(sku, {
         mrp: row.mrp != null ? Number(row.mrp) : null,
         sellingPrice: row.sellingPrice != null ? Number(row.sellingPrice) : null,
       });

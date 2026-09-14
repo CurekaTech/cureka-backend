@@ -3,13 +3,13 @@ import { buildPaginatedResult, buildPaginationOptions, PaginatedResult } from '@
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { UsersService } from '@modules/users/services/users.service';
 import { AdminAbandonedCartQueryDto } from '../dto/abandoned-cart.dto';
-import { CartEntity } from '../entities/cart.entity';
 import {
   IAbandonedCartDetail,
   IAbandonedCartListItem,
 } from '../interfaces/abandoned-cart.interface';
 import { mapAbandonedCartListRow } from '../mappers/abandoned-cart.mapper';
 import { CartsRepository } from '../repositories/carts.repository';
+import { resolveCartCustomerActivityAt } from '../utils/cart-activity.util';
 import { CartService } from './cart.service';
 
 @Injectable()
@@ -66,7 +66,7 @@ export class AdminAbandonedCartsService {
     return {
       id: cart.id,
       refId: cart.refId,
-      lastActivityAt: this.resolveLastActivityAt(cart),
+      lastActivityAt: resolveCartCustomerActivityAt(cart),
       createdAt: cart.createdAt,
       updatedAt: cart.updatedAt,
       customer,
@@ -74,13 +74,5 @@ export class AdminAbandonedCartsService {
       defaultAddress: addresses.find((address) => address.isDefault) ?? null,
       cart: cartResponse,
     };
-  }
-
-  private resolveLastActivityAt(cart: CartEntity): Date {
-    const timestamps = [
-      cart.updatedAt.getTime(),
-      ...(cart.items ?? []).map((item) => item.updatedAt.getTime()),
-    ];
-    return new Date(Math.max(...timestamps));
   }
 }

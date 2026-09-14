@@ -24,8 +24,18 @@ import {
   RejectRefundRequestDto,
   RetryRefundRequestDto,
 } from '../dto/refund-request.dto';
+import {
+  FailCodPayoutDto,
+  HoldCodPayoutDto,
+  MarkCodPayoutPaidDto,
+  ReopenCodPayoutVerificationDto,
+  RetryCodPayoutDto,
+  VerifyCodPayoutDto,
+} from '../dto/cod-refund-payout.dto';
+import { COD_PAYOUT_PERMISSIONS } from '../constants/cod-payout.constants';
 import { RefundRequestedByType } from '../enums/refund-requested-by-type.enum';
 import { RefundActor } from '../interfaces/refund-request.interface';
+import { CodRefundPayoutService } from '../services/cod-refund-payout.service';
 import { RefundRequestsService } from '../services/refund-request.service';
 
 @ApiTags('Admin Refund Requests')
@@ -34,7 +44,10 @@ import { RefundRequestsService } from '../services/refund-request.service';
 @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('admin/refund-requests')
 export class AdminRefundRequestsController {
-  constructor(private readonly refundRequestsService: RefundRequestsService) {}
+  constructor(
+    private readonly refundRequestsService: RefundRequestsService,
+    private readonly payoutService: CodRefundPayoutService,
+  ) {}
 
   @ApiOperation({ summary: 'List refund requests' })
   @ResponseMessage('Refund requests retrieved successfully')
@@ -154,6 +167,117 @@ export class AdminRefundRequestsController {
   @Post(':id/reconcile')
   reconcile(@Param('id') id: string, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.refundRequestsService.reconcile(id, this.toActor(user));
+  }
+
+  @ApiOperation({
+    summary: 'Get the COD payout for a refund (masked bank details only)',
+  })
+  @ResponseMessage('COD payout retrieved successfully')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.READ)
+  @Get(':id/payout')
+  getPayout(@Param('id') id: string, @CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.payoutService.getAdminPayout(id, this.toActor(user));
+  }
+
+  @ApiOperation({
+    summary: 'Reveal the full bank account number (audited)',
+    description: 'Finance-only. The number is never written to logs or audit payloads.',
+  })
+  @ResponseMessage('Bank account number revealed')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.READ)
+  @Post(':id/payout/reveal')
+  reveal(@Param('id') id: string, @CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.payoutService.revealAccountNumber(id, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Verify submitted COD bank details' })
+  @ResponseMessage('COD bank details verified')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.UPDATE)
+  @Post(':id/payout/verify')
+  verifyPayout(
+    @Param('id') id: string,
+    @Body() dto: VerifyCodPayoutDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.verify(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Mark the COD bank transfer as processing' })
+  @ResponseMessage('COD payout marked processing')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.STATUS)
+  @Post(':id/payout/processing')
+  markProcessing(
+    @Param('id') id: string,
+    @Body() dto: VerifyCodPayoutDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.markProcessing(id, this.toActor(user), dto.comment);
+  }
+
+  @ApiOperation({
+    summary: 'Record a completed bank transfer',
+    description: 'UTR is mandatory. Approving the refund request is not enough to complete a COD refund.',
+  })
+  @ResponseMessage('COD payout marked paid')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.STATUS)
+  @Post(':id/payout/paid')
+  markPaid(
+    @Param('id') id: string,
+    @Body() dto: MarkCodPayoutPaidDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.markPaid(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Mark the COD payout as failed' })
+  @ResponseMessage('COD payout marked failed')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.STATUS)
+  @Post(':id/payout/fail')
+  failPayout(
+    @Param('id') id: string,
+    @Body() dto: FailCodPayoutDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.markFailed(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Place the COD payout on hold' })
+  @ResponseMessage('COD payout placed on hold')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.STATUS)
+  @Post(':id/payout/hold')
+  holdPayout(
+    @Param('id') id: string,
+    @Body() dto: HoldCodPayoutDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.hold(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Retry a failed COD payout without creating another refund' })
+  @ResponseMessage('COD payout retry started')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.STATUS)
+  @Post(':id/payout/retry')
+  retryPayout(
+    @Param('id') id: string,
+    @Body() dto: RetryCodPayoutDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.retry(id, this.toActor(user), dto.comment);
+  }
+
+  @ApiOperation({
+    summary: 'Reopen bank-detail verification so the customer can correct the account',
+  })
+  @ResponseMessage('COD payout verification reopened')
+  @RequirePermissions(COD_PAYOUT_PERMISSIONS.UPDATE)
+  @Post(':id/payout/reopen-verification')
+  reopen(
+    @Param('id') id: string,
+    @Body() dto: ReopenCodPayoutVerificationDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.payoutService.reopenVerification(id, dto, this.toActor(user));
   }
 
   private toActor(user: IAdminJwtPayload): RefundActor {

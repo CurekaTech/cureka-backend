@@ -27,6 +27,7 @@ import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { WellnessGoalUpdatedEvent, EVENTS } from '@packages/events';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
 const WELLNESS_GOAL_MEDIA_FIELDS = ['image'] as const;
 
@@ -84,6 +85,7 @@ export class WellnessGoalsService {
       image: this.storageUrlEnricher.persist(image),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
+      faqs: normalizeMasterFaqs(dto.faqs),
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.wellnessGoalsRepository.existsByRefId(refId),
       ),
@@ -137,6 +139,7 @@ export class WellnessGoalsService {
     if (dto.description !== undefined) payload.description = dto.description;
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.inHomePage !== undefined) payload.inHomePage = dto.inHomePage;
+    if (dto.faqs !== undefined) payload.faqs = normalizeMasterFaqs(dto.faqs);
     if (image !== undefined) payload.image = this.storageUrlEnricher.persist(image);
 
     const updated = await this.wellnessGoalsRepository.updateByRefId(refId, payload);
@@ -199,6 +202,7 @@ export class WellnessGoalsService {
       patterns: [
         CacheKeys.homepage.shopByWellnessGoalsPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.publicProducts.listPattern(),
       ],
     });
   }
