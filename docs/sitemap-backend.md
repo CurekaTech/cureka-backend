@@ -170,6 +170,7 @@ Worker logs include: start, group, URL count, file count, duration, upload/publi
 |---|---|
 | 404 on sitemap.xml | Run `npm run sitemap:generate`. Confirm storage driver/bucket. |
 | Stale URLs | Dirty flags / Redis up? Safety job every hour. `SITEMAP_FORCE_FULL_REBUILD=true` then restart API. |
+| **Index has techbv / wrong host, child files have www.cureka.com** | PM2 worker used a different base than CLI. Set **`SITEMAP_BASE_URL=https://www.cureka.com`** on the API host (do not rely on `STOREFRONT_URL` if it points at a staging domain). Then `pm2 reload … --update-env` and `npm run sitemap:generate`. Partial group jobs rewrite `sitemap.xml` with the worker’s current base; children not in that job keep old hosts. Generator now auto-forces a **full** rebuild when live index origin ≠ configured base. |
 | Missing product URLs | Product must be `published` (not deleted) with an `active` variant; that variant needs `product_page_url` or product `slug` / `single_product_url` for the dynamic fallback. |
 | Duplicate loc | Generator dedupes by loc path. Product sitemap is one row per product id. |
 | Broken XML after a failed job | Live files are unchanged; staging is deleted. Inspect worker error logs. |
@@ -177,9 +178,16 @@ Worker logs include: start, group, URL count, file count, duration, upload/publi
 
 ## Deployment
 
-1. Set sitemap env vars (`SITEMAP_BASE_URL=https://www.cureka.com`).
+1. Set sitemap env vars on the **same** machine that runs PM2 (`SITEMAP_BASE_URL=https://www.cureka.com`). Prefer an explicit `SITEMAP_BASE_URL` over falling back to `STOREFRONT_URL`.
 2. Run migration `AddProductsSitemapKeysetIndex1785953000000`.
-3. Deploy API (worker is in-process).
-4. `npm run sitemap:generate` once.
+3. Deploy API (worker is in-process) with `pm2 reload ecosystem.config.js --update-env`.
+4. `npm run sitemap:generate` once (uses the same `.env` as the API).
 5. Frontend rewrite `/sitemap.xml` → API (see frontend doc).
 6. Submit `https://www.cureka.com/sitemap.xml` in Google Search Console.
+
+Confirm the worker base after reload:
+
+```bash
+grep -E '^(SITEMAP_BASE_URL|STOREFRONT_URL)=' .env
+# In logs look for: Sitemap generation started … baseUrl:"https://www.cureka.com"
+```
