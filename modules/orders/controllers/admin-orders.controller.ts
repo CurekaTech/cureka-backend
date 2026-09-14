@@ -46,13 +46,30 @@ export class AdminOrdersController {
   }
 
   @ApiOperation({
+    summary: 'Retry an eligible failed cancellation integration step',
+    description:
+      'Re-queues Unicommerce saleOrder/cancel and/or Shipway /api/cancel. ' +
+      'Does not fabricate external success. Allowed for PROCESSING, REQUIRES_ATTENTION, and HISTORICAL_UNVERIFIED.',
+  })
+  @ResponseMessage('Cancellation retry queued')
+  @Roles(AdminUserRole.SUPER_ADMIN)
+  @Post(':id/cancellation/retry')
+  retryCancellation(
+    @Param('id') id: string,
+    @CurrentAdminUser() admin: IAdminJwtPayload,
+  ) {
+    return this.ordersService.retryCancellationForAdmin(id, admin.sub);
+  }
+
+  @ApiOperation({
     summary: 'Cancel an order (super admin)',
     description:
-      'Cancels an order before shipping (PENDING / CONFIRMED / PROCESSING). ' +
-      'Accepts order UUID (`id`) or business refId. Same stock/coupon rollback as customer cancel. ' +
-      'GoKwik-linked orders are notified via Update Order (Cancelled + refund when applicable).',
+      'Requests cancellation before shipping (PENDING / CONFIRMED / PROCESSING). ' +
+      'PENDING orders that were never exported are confirmed immediately. ' +
+      'Exported orders stay visible as PROCESSING until Unicommerce and Shipway steps settle. ' +
+      'Accepts order UUID (`id`) or business refId. Does not execute a refund.',
   })
-  @ResponseMessage('Order cancelled successfully')
+  @ResponseMessage('Cancellation request accepted')
   @Roles(AdminUserRole.SUPER_ADMIN)
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)

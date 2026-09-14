@@ -66,6 +66,7 @@ import {
 } from '../dto/return-request.dto';
 import { ReturnEvidenceMediaType, ReturnEvidenceSource } from '../enums/return-evidence.enum';
 import { ReturnHistoryAction } from '../enums/return-history-action.enum';
+import { ReturnPickupStatus } from '../enums/return-pickup-status.enum';
 import { ReturnRequestedByType } from '../enums/return-requested-by-type.enum';
 import { ReturnResolution } from '../enums/return-resolution.enum';
 import { ReturnStatus } from '../enums/return-status.enum';
@@ -87,6 +88,7 @@ import { ReturnPickupsRepository } from '../repositories/return-pickups.reposito
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
 import { ReturnAmountService } from './return-amount.service';
 import { ReturnEligibilityService } from './return-eligibility.service';
+import { ReturnPickupService } from './return-pickup.service';
 import { describeCodRefundDestination, orderHasCodRefundPortion } from '../utils/cod-refund-destination.util';
 import { InMemoryRateLimiter } from '../utils/in-memory-rate-limiter.util';
 import { requireBankDetailsForMethod } from '../utils/return-bank-details.util';
@@ -140,6 +142,7 @@ export class ReturnRequestsService {
     @InjectRepository(OrderEntity)
     private readonly ordersRepository: Repository<OrderEntity>,
     private readonly configService: ConfigService,
+    private readonly pickupService: ReturnPickupService,
   ) {}
 
   private readonly bankDetailsLimiter = new InMemoryRateLimiter(10, 60_000);
@@ -518,6 +521,18 @@ export class ReturnRequestsService {
 
   // ── Customer reads and actions ────────────────────────────────────────────
 
+  async listForOrder(orderId: string, customerId?: string): Promise<ReturnRequestEntity[]> {
+    if (customerId) {
+      return this.returnRequestsRepository.findByOrderIdForCustomer(orderId, customerId);
+    }
+    const pagination = buildPaginationOptions({ page: 1, limit: 50 });
+    const { data } = await this.returnRequestsRepository.findAllPaginated({
+      ...pagination,
+      orderId,
+    });
+    return data;
+  }
+
   async listForCustomer(
     customerId: string,
     query: { page?: number; limit?: number; search?: string },
@@ -526,6 +541,7 @@ export class ReturnRequestsService {
     const { data, total } = await this.returnRequestsRepository.findAllPaginated({
       ...pagination,
       customerId,
+      search: query.search,
     });
     return buildPaginatedResult(data.map((item) => mapReturnToListItem(item)), total, pagination);
   }
@@ -624,6 +640,23 @@ export class ReturnRequestsService {
       });
     }
 
+    const pickup = await this.pickupsRepository.findActiveByReturnRequestId(request.id);
+    if (pickup?.reverseAwbNumber) {
+      try {
+        await this.pickupService.cancel(pickup.provider, {
+          returnRequestId: request.id,
+          reverseAwbNumber: pickup.reverseAwbNumber,
+          strict: true,
+        });
+      } catch (error) {
+        throw new ConflictException({
+          code: RETURN_CANCELLATION_NOT_ALLOWED,
+          message:
+            'A reverse pickup is already booked and could not be cancelled with the courier. Contact support. Withdrawal is not complete while the pickup is live.',
+        });
+      }
+    }
+
     const now = new Date();
     await this.dataSource.transaction(async (manager) => {
       const locked = await this.returnRequestsRepository.lockById(request.id, manager);
@@ -653,10 +686,19 @@ export class ReturnRequestsService {
           isCustomerVisible: true,
           performedBy: customerId,
           performedByRole: 'CUSTOMER',
-          metadata: null,
+          metadata: pickup
+            ? { reverseAwbNumber: pickup.reverseAwbNumber, pickupCancelled: true }
+            : null,
         },
         manager,
       );
+      if (pickup) {
+        await this.pickupsRepository.updateById(
+          pickup.id,
+          { status: ReturnPickupStatus.CANCELLED, updatedBy: customerId },
+          manager,
+        );
+      }
     });
 
     await this.eventEmitter.emitAsync(EVENTS.RETURN_CANCELLED, {

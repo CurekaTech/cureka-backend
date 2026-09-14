@@ -31,6 +31,7 @@ export class GokwikWebhookService {
     private readonly queueService: GokwikQueueService,
     private readonly apiService: GokwikApiService,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => UnicommerceOrderQueueService))
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
     private readonly eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => OrdersService))

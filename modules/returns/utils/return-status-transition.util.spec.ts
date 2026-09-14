@@ -63,6 +63,15 @@ describe('return status transitions', () => {
     expect(allowedReturnTransitionsFrom(ReturnStatus.COMPLETED)).toEqual([]);
   });
 
+  it('allows a customer to withdraw a scheduled pickup that has not been collected', () => {
+    expect(
+      canTransitionReturnStatus(ReturnStatus.PICKUP_SCHEDULED, ReturnStatus.CANCELLED_BY_CUSTOMER),
+    ).toBe(true);
+    expect(
+      canTransitionReturnStatus(ReturnStatus.PICKED_UP, ReturnStatus.CANCELLED_BY_CUSTOMER),
+    ).toBe(false);
+  });
+
   it('rejects a self transition', () => {
     expect(canTransitionReturnStatus(ReturnStatus.APPROVED, ReturnStatus.APPROVED)).toBe(false);
   });

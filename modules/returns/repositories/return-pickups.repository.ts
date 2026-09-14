@@ -41,7 +41,7 @@ export class ReturnPickupsRepository {
 
   findByProviderPickupId(providerPickupId: string): Promise<ReturnPickupEntity | null> {
     return this.repo.findOne({
-      where: { providerPickupId },
+      where: [{ providerPickupId }, { shipwayOrderId: providerPickupId }],
       order: { createdAt: 'DESC' },
     });
   }

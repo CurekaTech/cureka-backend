@@ -10,6 +10,7 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
+import { isCancellationBlockingExport } from '@modules/orders/utils/fulfillment-readiness.util';
 import {
   applyOrderStatusTimestamps,
   resolveOccurredAt,
@@ -413,6 +414,17 @@ export class ShippingService {
       },
       '[Shipway] Webhook event received — applying status update',
     );
+
+    if (this.isReversePickupWebhook(payload)) {
+      const listenerResults = await this.emitReturnPickupWebhook(payload);
+      const matched =
+        Array.isArray(listenerResults) && listenerResults.some((value) => value === true);
+      return {
+        shipment: null,
+        outcome: matched ? 'processed' : 'unresolved',
+        reason: matched ? 'reverse_pickup' : 'unknown_reverse_order',
+      };
+    }
 
     const lookup = await this.reconciliationService.resolveWebhookShipment(payload, authMode);
     if (!lookup.shipment) {
@@ -1011,6 +1023,10 @@ export class ShippingService {
 
   private isReadyForShipway(order: OrderEntity): boolean {
     if ([OrderStatus.CANCELLED, OrderStatus.DELIVERED, OrderStatus.RTO, OrderStatus.FAILED_DELIVERY].includes(order.orderStatus)) {
+      return false;
+    }
+
+    if (isCancellationBlockingExport(order.cancellationStatus)) {
       return false;
     }
 
@@ -1653,8 +1669,13 @@ export class ShippingService {
     return `fp:${createHash('sha256').update(fingerprint).digest('hex').slice(0, 40)}`;
   }
 
-  private async emitReturnPickupWebhook(payload: IShipwayWebhookEvent): Promise<void> {
-    await this.eventEmitter.emitAsync(EVENTS.SHIPWAY_WEBHOOK_RECEIVED, {
+  private isReversePickupWebhook(payload: IShipwayWebhookEvent): boolean {
+    const orderId = payload.order_id?.trim() ?? '';
+    return /^RTN/i.test(orderId) || /^RET/i.test(orderId);
+  }
+
+  private async emitReturnPickupWebhook(payload: IShipwayWebhookEvent): Promise<unknown> {
+    return this.eventEmitter.emitAsync(EVENTS.SHIPWAY_WEBHOOK_RECEIVED, {
       orderId: payload.order_id,
       status: payload.status,
       statusCode: payload.current_status_code ?? payload.status_code ?? null,

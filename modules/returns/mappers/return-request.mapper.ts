@@ -143,15 +143,19 @@ export const mapReturnPickup = (entity: ReturnPickupEntity): IReturnPickupView =
   lastEventStatus: entity.lastEventStatus,
   failureReason: entity.failureReason,
   unicommerceReversePickupCode:
-    typeof entity.providerPayload?.['unicommerceReversePickupCode'] === 'string'
+    entity.unicommerceReversePickupCode ??
+    (typeof entity.providerPayload?.['unicommerceReversePickupCode'] === 'string'
       ? (entity.providerPayload['unicommerceReversePickupCode'] as string)
-      : null,
+      : null),
   shipwayOrderId:
-    typeof entity.providerPayload?.['shipwayOrderId'] === 'string'
+    entity.shipwayOrderId ??
+    (typeof entity.providerPayload?.['shipwayOrderId'] === 'string'
       ? (entity.providerPayload['shipwayOrderId'] as string)
       : entity.provider === 'SHIPWAY'
         ? entity.providerPickupId
-        : null,
+        : null),
+  unicommerceSyncStatus: entity.unicommerceSyncStatus ?? null,
+  shipwayBookingStatus: entity.shipwayBookingStatus ?? null,
 });
 
 export const mapReturnQcRecord = (entity: ReturnQcRecordEntity): IReturnQcView => ({

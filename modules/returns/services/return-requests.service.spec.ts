@@ -192,6 +192,7 @@ describe('ReturnRequestsService.createForCustomer', () => {
       eventEmitter as unknown as EventEmitter2,
       ordersRepository as unknown as Repository<OrderEntity>,
       { get: jest.fn().mockReturnValue(true) } as never,
+      { cancel: jest.fn().mockResolvedValue(undefined) } as never,
     );
   });
 

@@ -27,6 +27,11 @@ export interface IReturnPickupScheduleRequest {
     courierName?: string | null;
     trackingUrl?: string | null;
   };
+  existing?: {
+    unicommerceReversePickupCode?: string | null;
+    shipwayOrderId?: string | null;
+    reverseAwbNumber?: string | null;
+  };
 }
 
 export interface IReturnPickupScheduleResult {
@@ -40,6 +45,13 @@ export interface IReturnPickupScheduleResult {
   /** Raw provider response retained for support; never contains credentials. */
   providerPayload: Record<string, unknown> | null;
   failureReason?: string | null;
+  courierBooked?: boolean;
+  unicommerceRecorded?: boolean;
+  uncertainBooking?: boolean;
+  unicommerceReversePickupCode?: string | null;
+  shipwayOrderId?: string | null;
+  unicommerceSyncStatus?: string | null;
+  shipwayBookingStatus?: string | null;
 }
 
 /**
@@ -53,5 +65,5 @@ export interface IReturnPickupProviderAdapter {
   readonly provider: ReturnPickupProvider;
   readonly isEnabled: boolean;
   schedule(request: IReturnPickupScheduleRequest): Promise<IReturnPickupScheduleResult>;
-  cancel(params: { returnRequestId: string; reverseAwbNumber: string | null }): Promise<void>;
+  cancel(params: { returnRequestId: string; reverseAwbNumber: string | null; strict?: boolean }): Promise<void>;
 }

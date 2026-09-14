@@ -85,6 +85,7 @@ export class ReturnPickupService {
     const errors: string[] = [];
     let unicommerceResult: IReturnPickupScheduleResult | null = null;
     let shipwayResult: IReturnPickupScheduleResult | null = null;
+    let shipwayUncertain = false;
 
     if (notifyUnicommerce) {
       try {
@@ -105,8 +106,9 @@ export class ReturnPickupService {
       } catch (error) {
         const message = asErrorMessage(error);
         errors.push(`Shipway: ${message}`);
+        shipwayUncertain = /timed out|abort/i.test(message);
         this.logger.warn(
-          { returnNumber: request.returnNumber, error: message },
+          { returnNumber: request.returnNumber, error: message, uncertain: shipwayUncertain },
           'Shipway reverse pickup failed',
         );
       }
@@ -120,28 +122,51 @@ export class ReturnPickupService {
     }
 
     const primary = shipwayResult ?? unicommerceResult!;
+    const courierBooked = Boolean(
+      shipwayResult &&
+        (shipwayResult.reverseAwbNumber || shipwayResult.providerPickupId),
+    );
+    const unicommerceRecorded = Boolean(unicommerceResult);
+    const status = courierBooked
+      ? ReturnPickupStatus.SCHEDULED
+      : ReturnPickupStatus.FAILED;
     return {
       provider: shipwayResult ? ReturnPickupProvider.SHIPWAY : ReturnPickupProvider.UNICOMMERCE,
-      status: ReturnPickupStatus.SCHEDULED,
+      status,
       providerPickupId: primary.providerPickupId,
       reverseAwbNumber: shipwayResult?.reverseAwbNumber ?? null,
       courierName: shipwayResult?.courierName ?? null,
       trackingUrl: shipwayResult?.trackingUrl ?? null,
       scheduledAt: primary.scheduledAt,
-      failureReason: errors.length ? errors.join(' | ') : null,
+      failureReason: errors.length ? errors.join(' | ') : courierBooked ? null : 'Courier pickup was not booked',
+      courierBooked,
+      unicommerceRecorded,
+      uncertainBooking: shipwayUncertain && !shipwayResult,
+      unicommerceReversePickupCode: unicommerceResult?.providerPickupId ?? null,
+      shipwayOrderId: shipwayResult?.providerPickupId ?? null,
+      unicommerceSyncStatus: unicommerceRecorded ? 'CONFIRMED' : errors.some((item) => item.startsWith('Unicommerce:')) ? 'FAILED' : 'NOT_REQUIRED',
+      shipwayBookingStatus: courierBooked
+        ? 'CONFIRMED'
+        : shipwayUncertain
+          ? 'UNCERTAIN'
+          : notifyShipway
+            ? 'FAILED'
+            : 'NOT_REQUIRED',
       providerPayload: {
         unicommerce: unicommerceResult?.providerPayload ?? null,
         shipway: shipwayResult?.providerPayload ?? null,
         unicommerceReversePickupCode: unicommerceResult?.providerPickupId ?? null,
         shipwayOrderId: shipwayResult?.providerPickupId ?? null,
         errors: errors.length ? errors : null,
+        courierBooked,
+        unicommerceRecorded,
       },
     };
   }
 
   async cancel(
     provider: ReturnPickupProvider,
-    params: { returnRequestId: string; reverseAwbNumber: string | null },
+    params: { returnRequestId: string; reverseAwbNumber: string | null; strict?: boolean },
   ): Promise<void> {
     await this.resolve(provider).cancel(params);
     if (provider !== ReturnPickupProvider.SHIPWAY && this.shipway.isEnabled) {

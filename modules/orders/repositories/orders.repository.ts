@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, ILike, In, Not, Repository } from 'typeorm';
+import { EntityManager, ILike, In, Not, QueryDeepPartialEntity, Repository } from 'typeorm';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
@@ -639,6 +639,8 @@ export class OrdersRepository {
 
   updateById(id: string, data: Partial<OrderEntity>, manager?: EntityManager): Promise<void> {
     const repository = manager ? manager.getRepository(OrderEntity) : this.repo;
-    return repository.update({ id }, data).then(() => undefined);
+    return repository
+      .update({ id }, data as QueryDeepPartialEntity<OrderEntity>)
+      .then(() => undefined);
   }
 }

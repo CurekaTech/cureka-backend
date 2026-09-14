@@ -43,6 +43,25 @@ export class ShipwayReturnPickupProvider implements IReturnPickupProviderAdapter
       });
     }
 
+    if (request.existing?.shipwayOrderId || request.existing?.reverseAwbNumber) {
+      return {
+        provider: this.provider,
+        status: ReturnPickupStatus.SCHEDULED,
+        providerPickupId: request.existing.shipwayOrderId ?? request.returnNumber,
+        reverseAwbNumber: request.existing.reverseAwbNumber ?? null,
+        courierName: null,
+        trackingUrl: request.existing.reverseAwbNumber
+          ? `https://track.shipway.com/t/${request.existing.reverseAwbNumber}`
+          : null,
+        scheduledAt: request.scheduledAt ?? new Date(),
+        providerPayload: {
+          reused: true,
+          shipwayOrderId: request.existing.shipwayOrderId ?? request.returnNumber,
+          awb_number: request.existing.reverseAwbNumber ?? null,
+        },
+      };
+    }
+
     const payload = this.buildPayload(request);
     this.logger.log(
       {
@@ -85,12 +104,19 @@ export class ShipwayReturnPickupProvider implements IReturnPickupProviderAdapter
     };
   }
 
-  async cancel(params: { returnRequestId: string; reverseAwbNumber: string | null }): Promise<void> {
+  async cancel(params: {
+    returnRequestId: string;
+    reverseAwbNumber: string | null;
+    strict?: boolean;
+  }): Promise<void> {
     if (!params.reverseAwbNumber) return;
     try {
-      await this.shipwayService.cancelShipment({
+      const response = await this.shipwayService.cancelShipment({
         awb_number: params.reverseAwbNumber,
       });
+      if (!response.success && params.strict) {
+        throw new Error(response.message || 'Shipway rejected reverse pickup cancellation');
+      }
     } catch (error) {
       this.logger.warn(
         {
@@ -99,6 +125,9 @@ export class ShipwayReturnPickupProvider implements IReturnPickupProviderAdapter
         },
         'Shipway reverse pickup cancel failed',
       );
+      if (params.strict) {
+        throw error;
+      }
     }
   }
 

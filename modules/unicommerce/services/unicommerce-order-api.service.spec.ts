@@ -233,6 +233,69 @@ describe('UnicommerceOrderApiService', () => {
     expect(reverseOptions.method).toBe('POST');
   });
 
+  it('posts cancel to the official Unicommerce saleOrder/cancel endpoint', async () => {
+    const service = new UnicommerceOrderApiService(buildConfig(baseValues));
+    jest.spyOn((service as any).logger, 'log').mockImplementation(() => undefined);
+
+    const tokenResponse = {
+      access_token: 'test-token-abc',
+      token_type: 'bearer',
+      refresh_token: 'ref',
+      expires_in: 3600,
+    };
+    const cancelResponse = { successful: true, message: 'Cancelled' };
+
+    const requestSpy = jest
+      .spyOn(https, 'request')
+      .mockImplementationOnce(((_options: unknown, callback?: (res: EventEmitter & { statusCode?: number }) => void) => {
+        const req = Object.assign(new EventEmitter(), {
+          setTimeout: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          destroy: jest.fn(),
+        });
+        const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+        if (callback) {
+          callback(res as EventEmitter & { statusCode?: number });
+          queueMicrotask(() => {
+            res.emit('data', Buffer.from(JSON.stringify(tokenResponse)));
+            res.emit('end');
+          });
+        }
+        return req as unknown as ReturnType<typeof https.request>;
+      }) as typeof https.request)
+      .mockImplementationOnce(((_options: unknown, callback?: (res: EventEmitter & { statusCode?: number }) => void) => {
+        const req = Object.assign(new EventEmitter(), {
+          setTimeout: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          destroy: jest.fn(),
+        });
+        const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+        if (callback) {
+          callback(res as EventEmitter & { statusCode?: number });
+          queueMicrotask(() => {
+            res.emit('data', Buffer.from(JSON.stringify(cancelResponse)));
+            res.emit('end');
+          });
+        }
+        return req as unknown as ReturnType<typeof https.request>;
+      }) as typeof https.request);
+
+    const result = await service.cancelSaleOrder({
+      saleOrderCode: 'ORD1',
+      cancelPartially: false,
+      cancelOnChannel: false,
+      cancelledBySeller: true,
+      cancellationReason: 'Customer requested cancellation',
+    });
+
+    expect(result).toEqual(cancelResponse);
+    const cancelOptions = requestSpy.mock.calls[1][0] as https.RequestOptions;
+    expect(cancelOptions.path).toBe('/services/rest/v1/oms/saleOrder/cancel');
+    expect(cancelOptions.method).toBe('POST');
+  });
+
   it('throws ServiceUnavailable when OAuth token request fails', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
     mockHttpsRequest(401, { error: 'unauthorized' });

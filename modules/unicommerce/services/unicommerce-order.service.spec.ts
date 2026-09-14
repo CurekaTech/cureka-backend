@@ -114,6 +114,18 @@ describe('UnicommerceOrderService', () => {
     expect(apiService.createSaleOrder).not.toHaveBeenCalled();
   });
 
+  it('skips push when a cancellation is already in progress', async () => {
+    (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
+      ...order,
+      cancellationStatus: 'PROCESSING',
+    });
+
+    const result = await service.pushOrder('order-uuid-1');
+
+    expect(result).toBeNull();
+    expect(apiService.createSaleOrder).not.toHaveBeenCalled();
+  });
+
   it('pushes COD orders once confirmed/processing', async () => {
     (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
       ...order,

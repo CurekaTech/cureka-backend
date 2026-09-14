@@ -10,6 +10,8 @@ import {
   IUnicommerceGetSaleOrderResponse,
   IUnicommerceCreateReversePickupPayload,
   IUnicommerceCreateReversePickupResponse,
+  IUnicommerceCancelSaleOrderPayload,
+  IUnicommerceCancelSaleOrderResponse,
 } from '../interfaces/unicommerce-order.interface';
 
 /**
@@ -183,6 +185,32 @@ export class UnicommerceOrderApiService {
       '/services/rest/v1/oms/saleorder/get',
       { code: saleOrderCode },
       { logLabel: 'getSaleOrder', extra: { saleOrderCode } },
+    );
+  }
+
+  /**
+   * Official cancel-sale-order API. Must be called before seller dispatch.
+   * Docs: POST /services/rest/v1/oms/saleOrder/cancel
+   * https://documentation.unicommerce.com/docs/saleorder-cancel.html
+   *
+   * Inspect `successful` — HTTP 200 is not business success.
+   */
+  async cancelSaleOrder(
+    payload: IUnicommerceCancelSaleOrderPayload,
+  ): Promise<IUnicommerceCancelSaleOrderResponse> {
+    return this.authenticatedPost<IUnicommerceCancelSaleOrderResponse>(
+      '/services/rest/v1/oms/saleOrder/cancel',
+      payload,
+      {
+        logLabel: 'cancelSaleOrder',
+        extra: {
+          saleOrderCode: payload.saleOrderCode,
+          cancelPartially: payload.cancelPartially ?? false,
+          cancelOnChannel: payload.cancelOnChannel ?? false,
+          cancelledBySeller: payload.cancelledBySeller ?? true,
+          itemCount: payload.saleOrderItemCodes?.length ?? 0,
+        },
+      },
     );
   }
 

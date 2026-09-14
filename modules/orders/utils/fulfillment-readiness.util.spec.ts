@@ -1,6 +1,7 @@
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
+import { CancellationStatus } from '../enums/cancellation-status.enum';
 import { isReadyForUnicommercePush } from './fulfillment-readiness.util';
 
 describe('isReadyForUnicommercePush', () => {
@@ -68,6 +69,28 @@ describe('isReadyForUnicommercePush', () => {
         paymentMethod: OrderPaymentMethod.COD,
         paymentStatus: OrderPaymentStatus.PENDING,
         orderStatus: OrderStatus.CANCELLED,
+      }),
+    ).toBe(false);
+  });
+
+  it('blocks orders with an in-flight cancellation even if still CONFIRMED', () => {
+    expect(
+      isReadyForUnicommercePush({
+        paymentMethod: OrderPaymentMethod.COD,
+        paymentStatus: OrderPaymentStatus.PENDING,
+        orderStatus: OrderStatus.CONFIRMED,
+        cancellationStatus: CancellationStatus.PROCESSING,
+      }),
+    ).toBe(false);
+  });
+
+  it('blocks unresolved cancellation attention so a failed cancel cannot be exported again', () => {
+    expect(
+      isReadyForUnicommercePush({
+        paymentMethod: OrderPaymentMethod.COD,
+        paymentStatus: OrderPaymentStatus.PENDING,
+        orderStatus: OrderStatus.CONFIRMED,
+        cancellationStatus: CancellationStatus.REQUIRES_ATTENTION,
       }),
     ).toBe(false);
   });
