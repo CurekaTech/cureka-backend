@@ -1,6 +1,7 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
+import { BulkUploadType } from '../enums/bulk-upload-type.enum';
 
 @Entity('bulk_uploads')
 export class BulkUploadEntity extends BaseEntity {
@@ -12,6 +13,16 @@ export class BulkUploadEntity extends BaseEntity {
     default: BulkUploadStatus.PENDING,
   })
   status!: BulkUploadStatus;
+
+  @Index()
+  @Column({
+    name: 'upload_type',
+    type: 'enum',
+    enum: BulkUploadType,
+    enumName: 'bulk_uploads_upload_type_enum',
+    default: BulkUploadType.PRODUCT,
+  })
+  uploadType!: BulkUploadType;
 
   @Column({ name: 'file_url', type: 'varchar', length: 1000 })
   fileUrl!: string;

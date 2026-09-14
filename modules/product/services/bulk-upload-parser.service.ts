@@ -1335,8 +1335,8 @@ export class BulkUploadParserService {
   ): Array<{ question: string; answer: string }> {
     const faqs: Array<{ question: string; answer: string }> = [];
     for (let i = 1; i <= 10; i++) {
-      const question = getVal(`faq ${i} question`);
-      const answer = getRichVal(`faq ${i} answer`);
+      const question = getVal(`faq ${i} question`).trim();
+      const answer = getRichVal(`faq ${i} answer`).trim();
       if (question && answer) {
         faqs.push({ question, answer });
       }

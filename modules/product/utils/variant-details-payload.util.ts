@@ -6,6 +6,7 @@ import {
   ProductInformationLabelSortOrders,
   ProductInformationLabelRefIdsByName,
 } from './product-information.util';
+import { assertFaqLengths } from '@modules/master/utils/master-faq.util';
 
 export type VariantDetailMasterIds = {
   manufacturerId?: string | null;
@@ -50,7 +51,12 @@ export const mapVariantDetailDtoToEntityColumns = (
       productInformation: normalizedProductInformation,
     }),
     ...(dto.customFaqs !== undefined && {
-      faqs: (dto.customFaqs ?? []) as IVariantInlineFaq[],
+      faqs: (dto.customFaqs ?? []).map((faq, index) => {
+        const question = faq.question?.trim() ?? '';
+        const answer = faq.answer?.trim() ?? '';
+        assertFaqLengths(question, answer, index);
+        return { question, answer } as IVariantInlineFaq;
+      }),
     }),
     ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle ?? null }),
     ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription ?? null }),

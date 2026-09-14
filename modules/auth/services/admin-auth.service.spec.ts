@@ -44,6 +44,7 @@ describe('AdminAuthService - Menu Filtering', () => {
       expect(keys).toContain('masters');
       expect(keys).toContain('products');
       expect(keys).toContain('orders');
+      expect(keys).toContain('subscriptions');
       expect(keys).toContain('cms');
       expect(keys).toContain('role-management');
       expect(keys).toContain('audit-logs');
@@ -68,17 +69,16 @@ describe('AdminAuthService - Menu Filtering', () => {
 
       const menu = await service.getMenuForUser('admin-id');
 
-      // The user has only orders.read, settings.read, and roles.read.
-      // So they should see: Dashboard, Orders, Role Management, and System Settings.
-      // They should NOT see: Masters, Products, CMS, or Audit Logs.
+      // Masters still appears because "Country of Origin" has no requiredPermissions.
+      // Subscriptions must stay hidden without user_product_subscriptions.read.
       const keys = menu.map((m) => m.key);
       expect(keys).toContain('dashboard'); // Dashboard has no requiredPermissions, always visible
       expect(keys).toContain('orders'); // accessible via orders.read
       expect(keys).toContain('role-management'); // accessible via roles.read
       expect(keys).toContain('settings'); // accessible via settings.read
 
-      expect(keys).not.toContain('masters');
       expect(keys).not.toContain('products');
+      expect(keys).not.toContain('subscriptions');
       expect(keys).not.toContain('cms');
       expect(keys).not.toContain('audit-logs');
     });

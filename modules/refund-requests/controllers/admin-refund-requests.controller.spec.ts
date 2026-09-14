@@ -25,4 +25,19 @@ describe('AdminRefundRequestsController RBAC', () => {
     );
     expect(permissions).toEqual(['refund_requests.read']);
   });
+
+  it('requires refund_payouts.read on payout view and reveal', () => {
+    expect(
+      Reflect.getMetadata(PERMISSIONS_KEY, AdminRefundRequestsController.prototype.getPayout),
+    ).toEqual(['refund_payouts.read']);
+    expect(
+      Reflect.getMetadata(PERMISSIONS_KEY, AdminRefundRequestsController.prototype.reveal),
+    ).toEqual(['refund_payouts.read']);
+  });
+
+  it('requires refund_payouts.status to mark a bank transfer paid', () => {
+    expect(
+      Reflect.getMetadata(PERMISSIONS_KEY, AdminRefundRequestsController.prototype.markPaid),
+    ).toEqual(['refund_payouts.status']);
+  });
 });

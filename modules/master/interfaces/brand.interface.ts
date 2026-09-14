@@ -39,6 +39,7 @@ export interface IBrand {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
+  faqs: Array<{ question: string; answer: string }>;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

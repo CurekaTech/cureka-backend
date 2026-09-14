@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ProductNaturesRepository } from '../repositories/product-natures.repository';
 import {
   CreateProductNatureDto,
@@ -28,6 +28,10 @@ export class ProductNaturesService {
   ) {}
 
   async create(dto: CreateProductNatureDto, createdBy: string): Promise<IProductNature> {
+    if (await this.productNaturesRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A product nature with name "${dto.name}" already exists`);
+    }
+
     const entity = await this.productNaturesRepository.create({
       name: dto.name,
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -67,6 +71,13 @@ export class ProductNaturesService {
     const existing = await this.productNaturesRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Product nature with refId ${refId} not found`);
+    }
+
+    if (
+      dto.name !== undefined &&
+      (await this.productNaturesRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`A product nature with name "${dto.name}" already exists`);
     }
 
     const updated = await this.productNaturesRepository.updateByRefId(refId, {

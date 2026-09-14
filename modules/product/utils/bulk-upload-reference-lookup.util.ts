@@ -1,6 +1,7 @@
 import { access } from 'fs/promises';
 import { isAbsolute, resolve } from 'path';
 import * as ExcelJS from 'exceljs';
+import { normalizeSkuMatchKey } from './sku-match.util';
 
 const DEFAULT_MANUFACTURER_LOOKUP_FILE = 'docs/Manufacture details (1).xlsx';
 const DEFAULT_IMAGE_LOOKUP_FILE = 'docs/wc-product-export-6-7-2026-1783309274325.xlsx';
@@ -201,10 +202,9 @@ const parseImageUrlList = (imagesRaw: string): string[] =>
     .map((part) => part.trim())
     .filter(Boolean);
 
-export const normalizeLookupSku = (value: string | number | null | undefined): string => {
-  if (value === null || value === undefined) return '';
-  return String(value).trim().toLowerCase();
-};
+/** Case-sensitive SKU identity key (trim only). Search stays case-insensitive elsewhere. */
+export const normalizeLookupSku = (value: string | number | null | undefined): string =>
+  normalizeSkuMatchKey(value);
 
 /**
  * WC product export: SKU + ID → ordered image URLs.

@@ -9,6 +9,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -54,6 +55,10 @@ export class CreateReasonMasterDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  internalDescription?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -105,6 +110,39 @@ export class CreateReasonMasterDto {
   @Transform(parseBoolean)
   @IsBoolean()
   autoApprovalEligible?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  minImages?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  maxImages?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(5)
+  minVideos?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(5)
+  maxVideos?: number;
+
+  @IsOptional()
+  @Transform(parseBoolean)
+  @IsBoolean()
+  isCustomerVisible?: boolean;
 
   @IsOptional()
   @Type(() => Number)

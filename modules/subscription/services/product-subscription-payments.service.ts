@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { generateUniqueRefId } from '@packages/common';
 import { EntityManager } from 'typeorm';
 import { SubscriptionPaymentEntity } from '../entities/subscription-payment.entity';
+import { SubscriptionPaymentAttemptKind } from '../enums/subscription-payment-attempt-kind.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
 import { mapSubscriptionPaymentToResponse } from '../mappers/product-subscription.mapper';
 import { ISubscriptionPayment } from '../interfaces/product-subscription.interface';
@@ -90,6 +91,46 @@ export class ProductSubscriptionPaymentsService {
     const updated = await this.paymentsRepository.findById(paymentId);
     if (!updated) throw new Error('Subscription payment missing after link attach');
     return updated;
+  }
+
+  async attachCycleMetadata(
+    paymentId: string,
+    data: {
+      billingCycleId?: string | null;
+      attemptKind?: SubscriptionPaymentAttemptKind;
+      idempotencyKey?: string | null;
+      actor: string;
+    },
+  ): Promise<void> {
+    await this.paymentsRepository.updateById(paymentId, {
+      billingCycleId: data.billingCycleId ?? undefined,
+      attemptKind: data.attemptKind,
+      idempotencyKey: data.idempotencyKey ?? undefined,
+      updatedBy: data.actor,
+    });
+  }
+
+  async markFailed(
+    paymentId: string,
+    reason: string,
+    actor: string,
+  ): Promise<void> {
+    const existing = await this.paymentsRepository.findById(paymentId);
+    if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
+    await this.paymentsRepository.updateById(paymentId, {
+      status: SubscriptionPaymentStatus.FAILED,
+      failureReason: reason,
+      updatedBy: actor,
+    });
+  }
+
+  async markReconciling(paymentId: string, actor: string): Promise<void> {
+    const existing = await this.paymentsRepository.findById(paymentId);
+    if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
+    await this.paymentsRepository.updateById(paymentId, {
+      status: SubscriptionPaymentStatus.RECONCILING,
+      updatedBy: actor,
+    });
   }
 
   async markPaidIdempotent(

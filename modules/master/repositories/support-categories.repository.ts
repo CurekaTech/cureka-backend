@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { SupportCategoryEntity } from '../entities/support-category.entity';
 import { SupportCategoryType } from '../enums/support-category-type.enum';
 import { SupportContentStatus } from '../enums/support-content-status.enum';
@@ -34,6 +35,9 @@ export class SupportCategoriesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'supportCategory', name, excludeRefId);
   }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {

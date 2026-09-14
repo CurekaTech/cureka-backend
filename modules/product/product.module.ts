@@ -92,6 +92,7 @@ import { ProductTagsController } from './controllers/product-tags.controller';
 import { ProductInformationLabelsController } from './controllers/product-information-labels.controller';
 import { ProductWizardController } from './controllers/product-wizard.controller';
 import { BulkUploadController } from './controllers/bulk-upload.controller';
+import { BulkPriceUpdateController } from './controllers/bulk-price-update.controller';
 
 // ── Wishlist controller (route unchanged: wishlist/*) ────────────────────────
 import { WishlistController } from './controllers/wishlist.controller';
@@ -105,9 +106,15 @@ import { ProductCacheListener } from './listeners/product-cache.listener';
 
 // ── Processors ───────────────────────────────────────────────────────────────
 import { BulkUploadProcessor } from './processors/bulk-upload.processor';
+import { BulkPriceUpdateProcessor } from './processors/bulk-price-update.processor';
+import { BulkPriceUpdateService } from './services/bulk-price-update.service';
+import { BulkPriceUpdateParserService } from './services/bulk-price-update-parser.service';
 
 const BULK_UPLOAD_PROCESSOR_ENABLED =
   (process.env.BULK_UPLOAD_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
+
+const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
+  (process.env.BULK_PRICE_UPDATE_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
 
 @Module({
   imports: [
@@ -120,6 +127,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     forwardRef(() => SubscriptionModule),
     forwardRef(() => SitemapModule),
     QueueModule.registerQueue('bulk-upload'),
+    QueueModule.registerQueue('bulk-price-update'),
     QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
     TypeOrmModule.forFeature([
       // ── Product ──────────────────────────────────────────────────────────
@@ -148,6 +156,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
   ],
   controllers: [
     BulkUploadController,
+    BulkPriceUpdateController,
     ProductsController,
     BundleProductsController,
     BestSellersIndexingController,
@@ -193,6 +202,9 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     ...(BULK_UPLOAD_PROCESSOR_ENABLED ? [BulkUploadProcessor] : []),
     BulkUploadParserService,
     BulkUploadValidatorService,
+    BulkPriceUpdateService,
+    BulkPriceUpdateParserService,
+    ...(BULK_PRICE_UPDATE_PROCESSOR_ENABLED ? [BulkPriceUpdateProcessor] : []),
     // ── Wishlist ────────────────────────────────────────────────────────────
     WishlistItemsRepository,
     WishlistService,
@@ -211,6 +223,7 @@ const BULK_UPLOAD_PROCESSOR_ENABLED =
     ...(BULK_UPLOAD_PROCESSOR_ENABLED ? [BulkUploadProcessor] : []),
     BulkUploadParserService,
     BulkUploadValidatorService,
+    BulkPriceUpdateService,
     // ── Wishlist ─────────────────────────────────────────────────────────────
     WishlistService,
     // ── Reviews ──────────────────────────────────────────────────────────────

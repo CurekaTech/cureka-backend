@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
+import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { parseMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import {
   buildPaginatedResult,
@@ -68,6 +69,9 @@ import {
 import { RefundAmountService } from './refund-amount.service';
 import { RefundProcessorService } from './refund-processor.service';
 import { RefundProviderResolverService } from './refund-provider-resolver.service';
+import { CodRefundPayoutService } from './cod-refund-payout.service';
+import { allocateReturnRefundFunds } from '../utils/cod-refund-allocation.util';
+import { CodPayoutStatus } from '../enums/cod-payout-status.enum';
 
 @Injectable()
 export class RefundRequestsService {
@@ -81,6 +85,7 @@ export class RefundRequestsService {
     private readonly processor: RefundProcessorService,
     private readonly auditService: AuditService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly payoutService: CodRefundPayoutService,
   ) {}
 
   async createFromOrderCancellation(
@@ -88,7 +93,7 @@ export class RefundRequestsService {
     actor: RefundActor,
     reasonDetails: string,
   ): Promise<RefundRequestEntity | null> {
-    const existing = await this.refundRequestsRepository.findActiveByOrderId(order.id);
+    const existing = await this.refundRequestsRepository.findActiveCancellationByOrderId(order.id);
     if (existing) {
       return existing;
     }
@@ -124,7 +129,63 @@ export class RefundRequestsService {
       return created;
     } catch (error) {
       if (this.isDuplicateActive(error)) {
-        return this.refundRequestsRepository.findActiveByOrderId(order.id);
+        return this.refundRequestsRepository.findActiveCancellationByOrderId(order.id);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Creates the refund for an approved, received and QC-cleared return.
+   *
+   * This is the only entry point allowed to request a partial amount: a return
+   * covers specific lines, so the refund is the return's approved amount rather
+   * than the whole order. The unique `returnRequestId` makes the call idempotent —
+   * a repeated handoff returns the existing refund instead of creating a second one.
+   */
+  async createFromReturn(params: {
+    order: OrderEntity;
+    returnRequestId: string;
+    returnNumber: string;
+    amount: string;
+    reasonDetails: string;
+    actor: RefundActor;
+  }): Promise<RefundRequestEntity> {
+    const existing = await this.refundRequestsRepository.findByReturnRequestId(
+      params.returnRequestId,
+    );
+    if (existing) {
+      return existing;
+    }
+
+    try {
+      const created = await this.persistNewRequest({
+        order: params.order,
+        reason: RefundReason.PRODUCT_RETURN,
+        reasonDetails: params.reasonDetails,
+        requestedAmount: params.amount,
+        actor: params.actor,
+        comment: `Return ${params.returnNumber}`,
+        returnRequestId: params.returnRequestId,
+      });
+      await this.eventEmitter.emitAsync(EVENTS.REFUND_REQUEST_CREATED, {
+        refundRequestId: created.id,
+        orderId: params.order.id,
+        orderNumber: params.order.orderNumber,
+        returnRequestId: params.returnRequestId,
+      });
+      await this.payoutService.createForReturnRefund({
+        refund: created,
+        allocation: created.amountAllocation ?? this.buildAllocation(params.order, params.amount, null),
+        actor: params.actor,
+      });
+      return created;
+    } catch (error) {
+      if (this.isDuplicateActive(error)) {
+        const reloaded = await this.refundRequestsRepository.findByReturnRequestId(
+          params.returnRequestId,
+        );
+        if (reloaded) return reloaded;
       }
       throw error;
     }
@@ -243,7 +304,12 @@ export class RefundRequestsService {
         message: 'Approved amount exceeds the refundable captured amount',
       });
     }
-    if (parseMoney(approvedAmount) !== parseMoney(refundable.refundableAmount)) {
+    // Return-linked refunds cover only the returned lines; all other refunds
+    // still have to be approved for the full refundable amount.
+    if (
+      !current.returnRequestId &&
+      parseMoney(approvedAmount) !== parseMoney(refundable.refundableAmount)
+    ) {
       throw new BadRequestException({
         code: REFUND_FULL_AMOUNT_REQUIRED,
         message: 'Partial refunds are not supported in this version; approve the full refundable amount',
@@ -375,7 +441,12 @@ export class RefundRequestsService {
 
       const order = await this.requireOrder(locked.orderId, manager);
       const resolution = await this.providerResolver.resolve(order);
-      if (!resolution.identifiable || !resolution.paymentProvider || resolution.paymentProvider === RefundPaymentProvider.OTHER) {
+      if (
+        resolution.paymentProvider !== RefundPaymentProvider.COD &&
+        (!resolution.identifiable ||
+          !resolution.paymentProvider ||
+          resolution.paymentProvider === RefundPaymentProvider.OTHER)
+      ) {
         throw new BadRequestException({
           code: REFUND_PROVIDER_NOT_FOUND,
           message: resolution.unresolvedReason ?? 'Original payment source could not be identified',
@@ -400,19 +471,56 @@ export class RefundRequestsService {
       });
       await this.writeHistory(manager, { ...locked, status: previousStatus }, RefundRequestStatus.PROCESSING, RefundHistoryAction.INITIATED, actor, dto.comment);
 
-      const result = await this.processor.initiate(
-        {
-          ...locked,
-          paymentProvider: resolution.paymentProvider,
-          providerPaymentId: resolution.providerPaymentId ?? locked.providerPaymentId,
-          paymentRequestId: resolution.paymentRequestId ?? locked.paymentRequestId,
-        },
-        order,
-        amount,
-        dto.comment?.trim() || `Refund ${locked.refId}`,
-      );
+      const allocation = locked.amountAllocation ?? this.buildAllocation(order, toMoneyString(amount), resolution.paymentProvider);
+      const onlineAmount = parseMoney(allocation.onlineAmount);
+      const hasCodOrWallet =
+        parseMoney(allocation.codAmount) > 0 || parseMoney(allocation.originalWalletAmount) > 0;
 
-      await this.applyProviderResult(manager, locked, result, actor, RefundHistoryAction.INITIATED);
+      if (hasCodOrWallet) {
+        await this.payoutService.onRefundInitiated(
+          { ...locked, amountAllocation: allocation } as RefundRequestEntity,
+          actor,
+          manager,
+        );
+      }
+
+      if (onlineAmount > 0 && resolution.paymentProvider !== RefundPaymentProvider.COD) {
+        const result = await this.processor.initiate(
+          {
+            ...locked,
+            paymentProvider: resolution.paymentProvider,
+            providerPaymentId: resolution.providerPaymentId ?? locked.providerPaymentId,
+            paymentRequestId: resolution.paymentRequestId ?? locked.paymentRequestId,
+          },
+          order,
+          onlineAmount,
+          dto.comment?.trim() || `Refund ${locked.refId}`,
+        );
+        const payout = await this.payoutService.getByRefundRequestId(locked.id);
+        const payoutSettled =
+          !hasCodOrWallet || payout?.status === CodPayoutStatus.PAID;
+        await this.applyProviderResult(
+          manager,
+          locked,
+          {
+            ...result,
+            completed: result.completed && payoutSettled,
+          },
+          actor,
+          RefundHistoryAction.INITIATED,
+        );
+        if (result.completed) {
+          await this.payoutService.completeRefundIfSettled(locked.id, actor, manager, {
+            onlineStatus: 'COMPLETED',
+          });
+        }
+      } else if (!hasCodOrWallet) {
+        throw new BadRequestException({
+          code: REFUND_PROVIDER_NOT_FOUND,
+          message: 'No refundable payment component was found',
+        });
+      }
+
       await this.eventEmitter.emitAsync(EVENTS.REFUND_PROCESSING_STARTED, { refundRequestId: locked.id });
       const reloaded = await this.refundRequestsRepository.findById(locked.id, manager);
       return this.toDetail(reloaded ?? locked, actor);
@@ -554,9 +662,22 @@ export class RefundRequestsService {
     requestedAmount?: string;
     actor: RefundActor;
     comment?: string;
+    returnRequestId?: string;
   }): Promise<RefundRequestEntity> {
-    const refundable = await this.amountService.calculateRefundableAmount(params.order);
-    if (!refundable.requiresOnlineRefund || parseMoney(refundable.refundableAmount) <= 0) {
+    const refundable = await this.amountService.calculateRefundableAmount(
+      params.order,
+      undefined,
+      { includeCodCollected: Boolean(params.returnRequestId) },
+    );
+    if (parseMoney(refundable.refundableAmount) <= 0) {
+      throw new BadRequestException({
+        code: REFUND_NOT_REQUIRED,
+        message: params.returnRequestId
+          ? 'This return has no remaining refundable amount'
+          : 'This order has no captured online amount to refund',
+      });
+    }
+    if (!params.returnRequestId && !refundable.requiresOnlineRefund) {
       throw new BadRequestException({
         code: REFUND_NOT_REQUIRED,
         message: 'This order has no captured online amount to refund',
@@ -572,7 +693,17 @@ export class RefundRequestsService {
         message: 'Refund amount must be greater than zero',
       });
     }
-    if (parseMoney(requestedAmount) !== parseMoney(refundable.refundableAmount)) {
+    // A return refunds only the returned lines, so it is the one flow that may
+    // request less than the full refundable amount. Every other flow still
+    // requires the full amount, exactly as before.
+    if (params.returnRequestId) {
+      if (parseMoney(requestedAmount) > parseMoney(refundable.refundableAmount)) {
+        throw new BadRequestException({
+          code: REFUND_AMOUNT_EXCEEDS_AVAILABLE_AMOUNT,
+          message: 'Return refund exceeds the remaining refundable captured amount',
+        });
+      }
+    } else if (parseMoney(requestedAmount) !== parseMoney(refundable.refundableAmount)) {
       throw new BadRequestException({
         code: REFUND_FULL_AMOUNT_REQUIRED,
         message: 'Partial refunds are not supported in this version; use the full refundable amount',
@@ -580,6 +711,14 @@ export class RefundRequestsService {
     }
 
     const resolution = await this.providerResolver.resolve(params.order);
+    const allocation = params.returnRequestId
+      ? this.buildAllocation(
+          params.order,
+          requestedAmount,
+          resolution.paymentProvider,
+          resolution.capturedAmount,
+        )
+      : null;
     const now = new Date();
     const refId = await generateUniqueRefId('refund', (candidate) =>
       this.refundRequestsRepository.existsByRefId(candidate),
@@ -596,6 +735,7 @@ export class RefundRequestsService {
           paymentRequestId: resolution.paymentRequestId,
           reason: params.reason,
           reasonDetails: params.reasonDetails,
+          returnRequestId: params.returnRequestId ?? null,
           requestedAmount,
           approvedAmount: null,
           currency: REFUND_CURRENCY,
@@ -606,6 +746,7 @@ export class RefundRequestsService {
           merchantRefundReference,
           requestedByType: params.actor.type,
           requestedById: params.actor.id,
+          amountAllocation: allocation,
           expectedCreditFrom: addWorkingDays(now, 5),
           expectedCreditTo: addWorkingDays(now, 7),
           createdBy: params.actor.email ?? params.actor.id,
@@ -819,7 +960,10 @@ export class RefundRequestsService {
   }
 
   private async requireOrder(orderId: string, manager?: EntityManager): Promise<OrderEntity> {
-    const repo = manager?.getRepository(OrderEntity) ?? this.dataSource.getRepository(OrderEntity);
+    const repo =
+      manager && typeof manager.getRepository === 'function'
+        ? manager.getRepository(OrderEntity)
+        : this.dataSource.getRepository(OrderEntity);
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId);
     const order = await repo.findOne({
       where: isUuid ? { id: orderId } : { refId: orderId },
@@ -837,7 +981,32 @@ export class RefundRequestsService {
     const full = (await this.refundRequestsRepository.findById(entity.id)) ?? entity;
     const order = await this.requireOrder(full.orderId);
     const refundable = await this.amountService.calculateRefundableAmount(order, full.id);
-    return mapRefundRequestToDetail(full, refundable, buildAvailableActions(full.status));
+    const payout = await this.payoutService.getByRefundRequestId(full.id);
+    const detail = mapRefundRequestToDetail(full, refundable, buildAvailableActions(full.status));
+    return {
+      ...detail,
+      amountAllocation: full.amountAllocation,
+      codPayout: payout ? this.payoutService.toAdminView(payout) : null,
+    };
+  }
+
+  private buildAllocation(
+    order: OrderEntity,
+    amount: string,
+    onlineProvider: RefundPaymentProvider | null,
+    prepaidAmount?: string,
+  ) {
+    return allocateReturnRefundFunds({
+      paymentMethod: order.paymentMethod,
+      refundAmount: amount,
+      orderGrandTotal: order.grandTotal,
+      prepaidAmount,
+      payableOnDelivery:
+        order.paymentMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD && prepaidAmount
+          ? Math.max(0, parseMoney(order.grandTotal) - parseMoney(prepaidAmount))
+          : undefined,
+      onlineProvider,
+    });
   }
 
   private async audit(

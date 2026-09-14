@@ -14,6 +14,14 @@ import {
 } from 'class-validator';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
 import { IsRefId } from '@packages/common';
+import {
+  FAQ_ANSWER_MAX_LENGTH,
+  FAQ_ANSWER_MAX_LENGTH_MESSAGE,
+  FAQ_ANSWER_REQUIRED_MESSAGE,
+  FAQ_QUESTION_MAX_LENGTH,
+  FAQ_QUESTION_MAX_LENGTH_MESSAGE,
+  FAQ_QUESTION_REQUIRED_MESSAGE,
+} from '@modules/master/utils/master-faq.util';
 
 export class ProductInformationItemDto {
   @ApiPropertyOptional({ format: 'uuid', description: 'Omitted on create — backend generates automatically' })
@@ -53,26 +61,30 @@ export class ProductInformationItemDto {
 }
 
 export class CustomProductFaqDto {
-  @ApiProperty({ example: 'Can it be used daily?' })
-  @IsNotEmpty()
-  @IsString()
+  @ApiProperty({ example: 'Can it be used daily?', maxLength: FAQ_QUESTION_MAX_LENGTH })
+  @IsNotEmpty({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @IsString({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH, { message: FAQ_QUESTION_MAX_LENGTH_MESSAGE })
   question!: string;
 
-  @ApiProperty({ example: 'Yes, as directed on the label.' })
-  @IsNotEmpty()
-  @IsString()
+  @ApiProperty({ example: 'Yes, as directed on the label.', maxLength: FAQ_ANSWER_MAX_LENGTH })
+  @IsNotEmpty({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
   answer!: string;
 }
 
 export class CreateProductFaqDto {
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsString()
+  @ApiProperty({ maxLength: FAQ_QUESTION_MAX_LENGTH })
+  @IsNotEmpty({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @IsString({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_QUESTION_MAX_LENGTH, { message: FAQ_QUESTION_MAX_LENGTH_MESSAGE })
   question!: string;
 
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsString()
+  @ApiProperty({ maxLength: FAQ_ANSWER_MAX_LENGTH })
+  @IsNotEmpty({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
+  @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
   answer!: string;
 
   @ApiPropertyOptional({ enum: ProductFaqStatus })

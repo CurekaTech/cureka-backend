@@ -136,6 +136,36 @@ export class ProductSubscriptionConfigQueryDto {
   productVariantId?: string;
 }
 
+export class ProductSubscriptionQuoteDto {
+  @ApiProperty()
+  @IsUUID()
+  productId!: string;
+
+  @ApiProperty()
+  @IsUUID()
+  productVariantId!: string;
+
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @ApiProperty({ enum: ProductSubscriptionFrequency })
+  @IsEnum(ProductSubscriptionFrequency)
+  frequency!: ProductSubscriptionFrequency;
+}
+
+export class ListMyProductSubscriptionsQueryDto extends PaginationQueryDto {}
+
+export class UpdateProductSubscriptionQuantityDto {
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+}
+
 export class AdminProductSubscriptionQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: ProductSubscriptionStatus })
   @IsOptional()

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { ReasonMasterEntity } from '../entities/reason-master.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { ReasonPickupMode } from '../enums/reason-pickup-mode.enum';
@@ -44,6 +45,12 @@ export class ReasonMastersRepository {
     }
 
     return (await qb.getCount()) > 0;
+  }
+
+  async existsByTitle(title: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'reasonMaster', title, excludeRefId, {
+      column: 'title',
+    });
   }
 
   async updateByRefId(
@@ -108,15 +115,40 @@ export class ReasonMastersRepository {
     return { data, total };
   }
 
-  async findActiveByWorkflow(workflow: ReasonWorkflow): Promise<ReasonMasterEntity[]> {
-    return this.repo
+  async findActiveByWorkflow(
+    workflow: ReasonWorkflow,
+    options?: { customerVisibleOnly?: boolean },
+  ): Promise<ReasonMasterEntity[]> {
+    const qb = this.repo
       .createQueryBuilder('reasonMaster')
       .where('reasonMaster.status = :status', { status: MasterStatus.ACTIVE })
       .andWhere('reasonMaster.workflows @> :workflow::jsonb', {
         workflow: JSON.stringify([workflow]),
-      })
+      });
+
+    if (options?.customerVisibleOnly) {
+      qb.andWhere('reasonMaster.isCustomerVisible = true');
+    }
+
+    return qb
       .orderBy('reasonMaster.sortOrder', 'ASC')
       .addOrderBy('reasonMaster.title', 'ASC')
       .getMany();
+  }
+
+  findById(id: string): Promise<ReasonMasterEntity | null> {
+    return this.repo.findOne({ where: { id } });
+  }
+
+  /**
+   * Accepts either the business `refId` or the UUID so callers holding a stored
+   * `reason_id` foreign key can resolve the reason without a second lookup.
+   */
+  findByIdOrRefId(idOrRefId: string): Promise<ReasonMasterEntity | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idOrRefId);
+    return isUuid
+      ? this.findById(idOrRefId)
+      : this.repo.findOne({ where: { refId: idOrRefId.trim().toUpperCase() } });
   }
 }

@@ -8,6 +8,7 @@ import { RedisConnectionService } from '@packages/cache';
 import { BulkUploadsRepository } from '../repositories/bulk-uploads.repository';
 import { generateUniqueRefId } from '@packages/common';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
+import { BulkUploadType } from '../enums/bulk-upload-type.enum';
 import { join } from 'path';
 import { mkdir, unlink, writeFile } from 'fs/promises';
 import { pipeline } from 'stream/promises';
@@ -88,7 +89,7 @@ export class BulkUploadService {
       }
     } else {
       // Fallback check against database status if Redis is down
-      const activeCount = await this.repository.countActiveJobs();
+      const activeCount = await this.repository.countActiveJobs(BulkUploadType.PRODUCT);
       if (activeCount > 0) {
         throw new ConflictException('Another bulk upload is currently in progress. Please try again later.');
       }
@@ -164,6 +165,7 @@ export class BulkUploadService {
     const record = await this.repository.create({
       refId,
       status: BulkUploadStatus.QUEUED,
+      uploadType: BulkUploadType.PRODUCT,
       fileUrl,
       imagesZipUrl,
       totalRows: 0,
@@ -264,7 +266,7 @@ export class BulkUploadService {
         );
       }
     } else {
-      const activeCount = await this.repository.countActiveJobs();
+      const activeCount = await this.repository.countActiveJobs(BulkUploadType.PRODUCT);
       if (activeCount > 0) {
         throw new ConflictException(
           'Another bulk upload/export is currently in progress. Please try again later.',
@@ -279,6 +281,7 @@ export class BulkUploadService {
     const record = await this.repository.create({
       refId,
       status: BulkUploadStatus.QUEUED,
+      uploadType: BulkUploadType.PRODUCT,
       fileUrl: 'export:pending',
       imagesZipUrl: null,
       totalRows: await this.productsRepository.countForBulkExport(),
@@ -830,7 +833,7 @@ export class BulkUploadService {
   }
 
   async getHistory(page = 1, limit = 20) {
-    const [records, total] = await this.repository.findHistory(page, limit);
+    const [records, total] = await this.repository.findHistory(page, limit, BulkUploadType.PRODUCT);
     return {
       data: records.map((record) => ({
         refId: record.refId,

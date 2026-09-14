@@ -67,6 +67,12 @@ export interface IShipwayPushOrderPayload {
   email?: string;
   order_date?: string; // yyyy-mm-dd hh:mm:ss
   ewaybill?: string;
+
+  /**
+   * Reverse-pickup marker used by some Shipway OMS accounts. Omit unless
+   * `SHIPWAY_REVERSE_FLAG=true` — unknown fields can cause a 400.
+   */
+  return?: '1';
 }
 
 export interface IShipwayPushOrderResponse {

@@ -42,4 +42,5 @@ export const mapBrandEntityToListingContext = (
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
+  faqs: entity.faqs ?? [],
 });

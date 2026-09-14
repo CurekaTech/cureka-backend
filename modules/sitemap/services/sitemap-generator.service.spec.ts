@@ -25,6 +25,7 @@ describe('SitemapGeneratorService publish safety', () => {
     deleteStaging: jest.fn(),
     listLive: jest.fn(),
     existsLive: jest.fn(),
+    readLiveText: jest.fn(),
   };
   const dirtyService = {
     consumeDirty: jest.fn(),
@@ -59,6 +60,7 @@ describe('SitemapGeneratorService publish safety', () => {
     storageService.deleteStaging.mockResolvedValue(undefined);
     storageService.listLive.mockResolvedValue([]);
     storageService.existsLive.mockResolvedValue(false);
+    storageService.readLiveText.mockResolvedValue(null);
     dirtyService.consumeDirty.mockResolvedValue(true);
     queryService.getStaticEntries.mockReturnValue([{ locPath: '/' }]);
     queryService.iterateProductEntries.mockImplementation(async function* () {
@@ -101,5 +103,18 @@ describe('SitemapGeneratorService publish safety', () => {
         indexRelativePath: 'sitemap.xml',
       }),
     );
+  });
+
+  it('forces full regenerate when live index host differs from configured base URL', async () => {
+    storageService.readLiveText.mockResolvedValue(
+      '<?xml version="1.0"?><sitemapindex><sitemap><loc>https://cureka.techbv.in/sitemaps/static.xml</loc></sitemap></sitemapindex>',
+    );
+
+    await generator.generateGroup('static');
+
+    expect(queryService.getStaticEntries).toHaveBeenCalled();
+    expect(queryService.collectBrandEntries).toHaveBeenCalled();
+    expect(queryService.collectBlogEntries).toHaveBeenCalled();
+    expect(storageService.publishLive).toHaveBeenCalled();
   });
 });

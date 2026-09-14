@@ -17,6 +17,10 @@ export class ReasonMasterEntity extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  /** Never exposed on customer-facing endpoints. */
+  @Column({ name: 'internal_description', type: 'text', nullable: true })
+  internalDescription!: string | null;
+
   @Column({ type: 'jsonb', default: () => "'[]'" })
   workflows!: ReasonWorkflow[];
 
@@ -52,6 +56,22 @@ export class ReasonMasterEntity extends BaseEntity {
 
   @Column({ name: 'auto_approval_eligible', type: 'boolean', default: false })
   autoApprovalEligible!: boolean;
+
+  @Column({ name: 'min_images', type: 'int', default: 0 })
+  minImages!: number;
+
+  @Column({ name: 'max_images', type: 'int', default: 5 })
+  maxImages!: number;
+
+  @Column({ name: 'min_videos', type: 'int', default: 0 })
+  minVideos!: number;
+
+  @Column({ name: 'max_videos', type: 'int', default: 1 })
+  maxVideos!: number;
+
+  /** Inactive-but-visible reasons stay listed for existing requests; hidden ones are admin-only. */
+  @Column({ name: 'is_customer_visible', type: 'boolean', default: true })
+  isCustomerVisible!: boolean;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number;

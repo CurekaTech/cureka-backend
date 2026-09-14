@@ -7,6 +7,9 @@ import {
   IUnicommerceOAuthTokenResponse,
   IUnicommerceSaleOrderPayload,
   IUnicommerceCreateSaleOrderResponse,
+  IUnicommerceGetSaleOrderResponse,
+  IUnicommerceCreateReversePickupPayload,
+  IUnicommerceCreateReversePickupResponse,
 } from '../interfaces/unicommerce-order.interface';
 
 /**
@@ -165,6 +168,101 @@ export class UnicommerceOrderApiService {
         errors: data.errors,
       },
       'Unicommerce createSaleOrder response',
+    );
+
+    return data;
+  }
+
+  /**
+   * Official get-sale-order API. Used to resolve real Uniware item codes before
+   * creating a reverse pickup.
+   * Docs: POST /services/rest/v1/oms/saleorder/get
+   */
+  async getSaleOrder(saleOrderCode: string): Promise<IUnicommerceGetSaleOrderResponse> {
+    return this.authenticatedPost<IUnicommerceGetSaleOrderResponse>(
+      '/services/rest/v1/oms/saleorder/get',
+      { code: saleOrderCode },
+      { logLabel: 'getSaleOrder', extra: { saleOrderCode } },
+    );
+  }
+
+  /**
+   * Official reverse-pickup create API.
+   * Docs: POST /services/rest/v1/oms/reversePickup/create
+   * https://documentation.unicommerce.com/docs/create-reversepickup.html
+   */
+  async createReversePickup(
+    payload: IUnicommerceCreateReversePickupPayload,
+  ): Promise<IUnicommerceCreateReversePickupResponse> {
+    return this.authenticatedPost<IUnicommerceCreateReversePickupResponse>(
+      '/services/rest/v1/oms/reversePickup/create',
+      payload,
+      {
+        logLabel: 'createReversePickup',
+        extra: {
+          saleOrderCode: payload.saleOrderCode,
+          reversePickupCode: payload.reversePickupCode ?? null,
+          itemCount: payload.reversePickItems.length,
+        },
+      },
+    );
+  }
+
+  private async authenticatedPost<T extends { successful?: boolean; message?: string }>(
+    path: string,
+    payload: unknown,
+    options: { logLabel: string; extra?: Record<string, unknown> },
+  ): Promise<T> {
+    const baseUrl = this.getBaseUrl();
+    const facilityCode = this.configService.get<string>('unicommerceOrder.facilityCode') ?? '';
+    const timeoutMs = this.configService.get<number>('unicommerceOrder.timeoutMs') ?? 15_000;
+    const accessToken = await this.getAccessToken();
+    const url = `${baseUrl}${path}`;
+    const body = JSON.stringify(payload);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `bearer ${accessToken}`,
+    };
+    if (facilityCode) {
+      headers['Facility'] = facilityCode;
+    }
+
+    this.logger.log({ url, facilityCode, ...options.extra }, `Unicommerce ${options.logLabel} request`);
+
+    const { statusCode, text } = await this.httpRequest(url, body, headers, timeoutMs);
+
+    if (statusCode === 401) {
+      this.cachedToken = null;
+      throw new ServiceUnavailableException(
+        'Unicommerce authentication failed (401); token cleared for retry',
+      );
+    }
+
+    let data = { successful: false } as T;
+    if (text) {
+      try {
+        data = JSON.parse(text) as T;
+      } catch {
+        this.logger.error(
+          { url, httpStatus: statusCode, rawBody: text.slice(0, 500), ...options.extra },
+          `Unicommerce ${options.logLabel} returned non-JSON response`,
+        );
+        throw new ServiceUnavailableException(
+          `Unicommerce ${options.logLabel} returned invalid JSON (HTTP ${statusCode})`,
+        );
+      }
+    }
+
+    this.logger.log(
+      {
+        url,
+        httpStatus: statusCode,
+        successful: data.successful,
+        message: data.message,
+        ...options.extra,
+      },
+      `Unicommerce ${options.logLabel} response`,
     );
 
     return data;
