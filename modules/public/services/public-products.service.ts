@@ -743,7 +743,7 @@ export class PublicProductsService {
   ): Promise<IPublicHealthConcernProductListingContext> {
     return this.storageUrlEnricher.enrichFields(
       mapHealthConcernEntityToListingContext(healthConcern),
-      ['icon', 'banner'],
+      ['icon', 'banner', 'faqBanner'],
     );
   }
 
@@ -752,7 +752,7 @@ export class PublicProductsService {
   ): Promise<IPublicWellnessGoalProductListingContext> {
     return this.storageUrlEnricher.enrichFields(
       mapWellnessGoalEntityToListingContext(wellnessGoal),
-      ['image'],
+      ['image', 'faqBanner'],
     );
   }
 
@@ -811,6 +811,10 @@ export class PublicProductsService {
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
       banner:
         isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
+      faqBanner:
+        isChildFilter && matchedCategory.faqBanner
+          ? matchedCategory.faqBanner
+          : rootCategory.faqBanner,
       aboveTheFold: selectedAboveTheFold,
       belowTheFold: selectedBelowTheFold,
       metaTitle:
@@ -838,6 +842,7 @@ export class PublicProductsService {
         permalink: buildCategoryPermalink(selectedPath),
         image: matchedCategory.image,
         banner: matchedCategory.banner,
+        faqBanner: matchedCategory.faqBanner,
         aboveTheFold: selectedAboveTheFold,
         belowTheFold: selectedBelowTheFold,
         metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,
@@ -846,11 +851,15 @@ export class PublicProductsService {
       },
     };
 
-    const enriched = await this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+    const enriched = await this.storageUrlEnricher.enrichFields(context, [
+      'image',
+      'banner',
+      'faqBanner',
+    ]);
     if (enriched.selectedCategory) {
       enriched.selectedCategory = await this.storageUrlEnricher.enrichFields(
         enriched.selectedCategory,
-        ['image', 'banner'],
+        ['image', 'banner', 'faqBanner'],
       );
     }
     return enriched;

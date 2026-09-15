@@ -50,4 +50,5 @@ export interface IPublicHealthConcernProductListingContext {
   medicalConditionName: string | null;
   patientAudience: PatientAudience | null;
   faqs: Array<{ question: string; answer: string }>;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
 }

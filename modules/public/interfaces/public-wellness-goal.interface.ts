@@ -23,5 +23,6 @@ export interface IPublicWellnessGoalProductListingContext {
   description: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   faqs: Array<{ question: string; answer: string }>;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
 

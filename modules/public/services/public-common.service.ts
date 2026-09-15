@@ -16,7 +16,7 @@ import { IPublicCoupon } from '../interfaces/public-coupon.interface';
 import { mapCouponEntitiesToPublic } from '../mappers/public-coupon.mapper';
 
 const BRAND_MEDIA_FIELDS = ['logo'] as const;
-const CATEGORY_MEDIA_FIELDS = ['image', 'banner'] as const;
+const CATEGORY_MEDIA_FIELDS = ['image', 'banner', 'faqBanner'] as const;
 
 @Injectable()
 export class PublicCommonService {

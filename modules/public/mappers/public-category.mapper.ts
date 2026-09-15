@@ -23,6 +23,7 @@ export const mapCategoryEntityToPublicTree = (
     permalink: buildCategoryPermalink(slugPath),
     image: entity.image,
     banner: entity.banner,
+    faqBanner: entity.faqBanner,
     position: entity.position,
     hierarchyLevel: entity.hierarchyLevel,
     isInHeader: entity.isInHeader,
@@ -63,6 +64,7 @@ export const mapCategoryEntityToPublicListItem = (
     parentCategoryRefId: entity.parent?.refId ?? null,
     image: entity.image,
     banner: entity.banner,
+    faqBanner: entity.faqBanner,
   };
 };
 

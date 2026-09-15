@@ -23,6 +23,7 @@ export interface IPublicCategoryListItem {
   parentCategoryRefId: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   children?: IPublicCategoryListItem[];
 }
 

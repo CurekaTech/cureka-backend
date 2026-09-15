@@ -35,6 +35,7 @@ export const mapBrandEntityToListingContext = (
   showSecondaryVideo: entity.showSecondaryVideo ?? true,
   offerBanner: entity.showOfferBanner === false ? null : (entity.offerBanner ?? null),
   showOfferBanner: entity.showOfferBanner ?? true,
+  faqBanner: entity.faqBanner ?? null,
   brandHighlights: entity.showBrandHighlights === false ? null : (entity.brandHighlights ?? null),
   showBrandHighlights: entity.showBrandHighlights ?? true,
   description: entity.showDescription === false ? null : entity.description,
