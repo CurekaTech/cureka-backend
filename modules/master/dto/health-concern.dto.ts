@@ -12,9 +12,11 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { MasterStatus } from '../enums/master-status.enum';
+import { PatientAudience } from '../enums/patient-audience.enum';
 import { MasterFaqDto, parseMasterFaqArray } from './master-faq.dto';
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
@@ -22,6 +24,23 @@ const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
   return undefined;
+};
+
+/** Preserve undefined; map empty string / null to null for nullable columns. */
+const optionalNullableString = ({ value }: { value: unknown }): string | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return typeof value === 'string' ? value : String(value);
+};
+
+const optionalNullableAudience = ({
+  value,
+}: {
+  value: unknown;
+}): PatientAudience | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return value as PatientAudience;
 };
 
 export class CreateHealthConcernDto {
@@ -47,6 +66,28 @@ export class CreateHealthConcernDto {
   @IsOptional()
   @IsString()
   metaDescription?: string;
+
+  @ApiPropertyOptional({
+    description: 'Medical condition display name',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(optionalNullableString)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(255)
+  medicalConditionName?: string | null;
+
+  @ApiPropertyOptional({
+    enum: PatientAudience,
+    description: 'Target audience: KIDS | ADULTS | ALL',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(optionalNullableAudience)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsEnum(PatientAudience)
+  patientAudience?: PatientAudience | null;
 
   @IsOptional()
   @IsEnum(MasterStatus)
