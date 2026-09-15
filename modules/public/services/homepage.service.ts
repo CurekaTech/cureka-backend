@@ -367,6 +367,10 @@ export class HomepageService {
       icon: this.storageUrlEnricher.persist(concern.icon),
       banner: this.storageUrlEnricher.persist(concern.banner),
       sortIndex: concern.sortIndex,
+      metaTitle: concern.metaTitle,
+      metaDescription: concern.metaDescription,
+      medicalConditionName: concern.medicalConditionName,
+      patientAudience: concern.patientAudience,
     }));
   }
 
@@ -440,6 +444,8 @@ export class HomepageService {
       sortIndex: concern.sortIndex,
       metaTitle: concern.metaTitle,
       metaDescription: concern.metaDescription,
+      medicalConditionName: concern.medicalConditionName,
+      patientAudience: concern.patientAudience,
     }));
     const enriched = await this.storageUrlEnricher.enrichDeep(cards);
     return buildPaginatedResult(enriched, total, options);

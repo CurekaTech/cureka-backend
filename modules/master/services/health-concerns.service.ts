@@ -108,6 +108,8 @@ export class HealthConcernsService {
       description: dto.description ?? null,
       metaTitle: dto.metaTitle ?? null,
       metaDescription: dto.metaDescription ?? null,
+      medicalConditionName: dto.medicalConditionName ?? null,
+      patientAudience: dto.patientAudience ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
       faqs: normalizeMasterFaqs(dto.faqs),

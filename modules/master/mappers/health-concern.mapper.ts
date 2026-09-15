@@ -11,6 +11,8 @@ export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): I
   description: entity.description,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
+  medicalConditionName: entity.medicalConditionName,
+  patientAudience: entity.patientAudience,
   banner: entity.banner,
   status: entity.status,
   inHomePage: entity.inHomePage,
