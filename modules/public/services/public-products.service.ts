@@ -30,6 +30,7 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductMasterResolverService } from '@modules/product/services/product-master-resolver.service';
 import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
+import { ensureCategoryFilterAllOption } from '@modules/product/utils/category-filter-all.util';
 import { enrichPublicProductInformation } from '@modules/product/utils/product-information.util';
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
@@ -831,7 +832,7 @@ export class PublicProductsService {
         return {
           refId: filter.refId,
           name: filter.name,
-          values: productValues,
+          values: ensureCategoryFilterAllOption(productValues),
         };
       }),
       selectedCategory: {

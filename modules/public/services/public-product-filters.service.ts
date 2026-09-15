@@ -15,6 +15,12 @@ import {
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
 import {
+  CATEGORY_FILTER_ALL_VALUE,
+  ensureCategoryFilterAllOption,
+  hasCategoryFilterAllSentinel,
+  isCategoryFilterAllSentinel,
+} from '@modules/product/utils/category-filter-all.util';
+import {
   LockedFacetKey,
   PublicListingContextType,
   PublicProductFacet,
@@ -350,20 +356,51 @@ export class PublicProductFiltersService {
           filter.id,
         );
         const selectedValues = selectedByFilterId.get(filter.id) ?? new Set<string>();
-        const items = values
+        const allSelected = hasCategoryFilterAllSentinel([...selectedValues]);
+
+        const concreteItems = values
+          .filter((row) => !isCategoryFilterAllSentinel(row.value))
           .filter((row) => row.productCount > 0 || selectedValues.has(row.value))
           .map((row) => ({
             id: row.value,
             name: row.value,
             productCount: row.productCount,
-            selected: selectedValues.has(row.value),
+            selected: !allSelected && selectedValues.has(row.value),
           }));
 
         for (const selected of selectedValues) {
-          if (!items.some((item) => item.id === selected)) {
-            items.push({ id: selected, name: selected, productCount: 0, selected: true });
+          if (isCategoryFilterAllSentinel(selected)) continue;
+          if (!concreteItems.some((item) => item.id === selected)) {
+            concreteItems.push({
+              id: selected,
+              name: selected,
+              productCount: 0,
+              selected: !allSelected,
+            });
           }
         }
+
+        const displayValues = ensureCategoryFilterAllOption([
+          ...concreteItems.map((item) => item.id),
+          ...(allSelected ? [CATEGORY_FILTER_ALL_VALUE] : []),
+        ]);
+
+        const items =
+          displayValues[0] === CATEGORY_FILTER_ALL_VALUE
+            ? [
+                {
+                  id: CATEGORY_FILTER_ALL_VALUE,
+                  name: CATEGORY_FILTER_ALL_VALUE,
+                  productCount: await this.productsRepository.countPublicFacetFilterProducts(
+                    listOptions,
+                    omit,
+                    filter.id,
+                  ),
+                  selected: allSelected,
+                },
+                ...concreteItems,
+              ]
+            : concreteItems;
 
         return {
           id: filter.refId,

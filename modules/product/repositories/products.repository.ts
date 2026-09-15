@@ -22,6 +22,7 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
+import { hasCategoryFilterAllSentinel } from '../utils/category-filter-all.util';
 
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
@@ -1390,6 +1391,21 @@ export class ProductsRepository {
       if (!criterion.values.length) return;
       if (omit.includes(`categoryFilter:${criterion.categoryFilterId}`)) return;
 
+      // "All" / "All Skin Types" / "All Hair Types" → any value bound to this filter.
+      if (hasCategoryFilterAllSentinel(criterion.values)) {
+        qb.andWhere(
+          `EXISTS (
+            SELECT 1 FROM product_category_filter_mappings pcfm
+            WHERE pcfm.product_id = product.id
+              AND pcfm.category_filter_id = :categoryFilterId_${index}
+          )`,
+          {
+            [`categoryFilterId_${index}`]: criterion.categoryFilterId,
+          },
+        );
+        return;
+      }
+
       qb.andWhere(
         `EXISTS (
           SELECT 1 FROM product_category_filter_mappings pcfm
@@ -1990,6 +2006,24 @@ export class ProductsRepository {
       value: row.value,
       productCount: Number(row.productCount) || 0,
     }));
+  }
+
+  /** Distinct products that have any value for the given category filter (for synthetic "All"). */
+  async countPublicFacetFilterProducts(
+    options: PublicProductListOptions,
+    omit: PublicFacetOmit[],
+    categoryFilterId: string,
+  ): Promise<number> {
+    const qb = this.createEligibleProductsQb(options, omit);
+    qb.innerJoin(
+      ProductCategoryFilterMappingEntity,
+      'facetPcfmAll',
+      'facetPcfmAll.productId = product.id AND facetPcfmAll.categoryFilterId = :facetCategoryFilterIdAll',
+      { facetCategoryFilterIdAll: categoryFilterId },
+    ).select('COUNT(DISTINCT product.id)', 'productCount');
+
+    const row = await qb.getRawOne<{ productCount: string | number }>();
+    return Number(row?.productCount) || 0;
   }
 
   async findPublicFacetPriceRange(
