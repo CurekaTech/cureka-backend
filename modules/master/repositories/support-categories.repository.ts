@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -69,9 +70,11 @@ export class SupportCategoriesRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const qb = this.repo
       .createQueryBuilder('category')
-      .orderBy('category.name', 'ASC')
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'category', options.status, 'category.name', 'ASC');
 
     if (options.type) {
       qb.andWhere('(category.type = :type OR category.type = :both)', {

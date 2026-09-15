@@ -3,6 +3,11 @@ import { MasterListQueryDto } from '../dto/master-list-query.dto';
 import { MasterListStatusFilter } from '../enums/master-list-status-filter.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 
+export {
+  applyMasterListOrdering,
+  masterStatusPriorityOrderExpr,
+} from './master-list-ordering.util';
+
 export interface MasterListOptions extends PaginationOptions {
   status?: MasterStatus;
 }

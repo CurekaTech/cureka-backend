@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -63,10 +64,12 @@ export class BannersRepository {
 
     const qb = this.repo
       .createQueryBuilder('banner')
-      .orderBy(sortColumn, sortOrder)
+      
       .addOrderBy('banner.createdAt', 'DESC')
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'banner', options.status, sortColumn, sortOrder);
 
     if (options.placement) {
       qb.andWhere('banner.placement = :placement', { placement: options.placement });

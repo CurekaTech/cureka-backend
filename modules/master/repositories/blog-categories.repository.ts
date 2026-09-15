@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -72,12 +73,10 @@ export class BlogCategoriesRepository {
     options: BlogCategoryFindOptions,
   ): Promise<{ data: BlogCategoryEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
-    const qb = this.repo
-      .createQueryBuilder('category')
-      .orderBy('category.sortOrder', 'ASC')
-      .addOrderBy('category.name', 'ASC')
-      .skip(skip)
-      .take(take);
+    const qb = this.repo.createQueryBuilder('category').skip(skip).take(take);
+
+    applyMasterListOrdering(qb, 'category', options.status, 'category.sortOrder', 'ASC');
+    qb.addOrderBy('category.name', 'ASC');
 
     if (options.status) {
       qb.andWhere('category.status = :status', { status: options.status });

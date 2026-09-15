@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -83,10 +84,12 @@ export class ReasonMastersRepository {
 
     const qb = this.repo
       .createQueryBuilder('reasonMaster')
-      .orderBy(sortColumn, sortOrder)
+      
       .addOrderBy('reasonMaster.title', 'ASC')
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'reasonMaster', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere(

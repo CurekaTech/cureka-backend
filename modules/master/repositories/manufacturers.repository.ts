@@ -9,7 +9,7 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
@@ -102,9 +102,11 @@ export class ManufacturersRepository {
     const qb = this.repo
       .createQueryBuilder('manufacturer')
       .leftJoinAndSelect('manufacturer.categories', 'category')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'manufacturer', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.where('(manufacturer.name ILIKE :search OR manufacturer.code ILIKE :search)', {
