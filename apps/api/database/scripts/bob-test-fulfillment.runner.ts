@@ -165,7 +165,7 @@ async function main(): Promise<void> {
     }
 
     if (opts.awb?.trim() && shipment.awbNumber !== opts.awb.trim()) {
-      shipment = { ...shipment, awbNumber: opts.awb.trim() } as ShipmentEntity;
+      shipment = { ...shipment, awbNumber: opts.awb.trim() };
     }
 
     const payload = mapBobFulfillment(order, shipment);

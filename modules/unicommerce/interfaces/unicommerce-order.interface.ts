@@ -166,3 +166,32 @@ export interface IUnicommerceCreateReversePickupResponse {
     status?: string;
   };
 }
+
+/**
+ * Official cancel sale order body.
+ * Docs: POST /services/rest/v1/oms/saleOrder/cancel
+ * https://documentation.unicommerce.com/docs/saleorder-cancel.html
+ *
+ * Cancel before dispatch. Omit saleOrderItemCodes for a full-order cancel.
+ */
+export interface IUnicommerceCancelSaleOrderPayload {
+  saleOrderCode: string;
+  saleOrderItemCodes?: string[];
+  cancelPartially?: boolean;
+  /** Default true in Uniware. Prefer this OR cancelledBySeller. */
+  cancelOnChannel?: boolean;
+  cancelledBySeller?: boolean;
+  /** Max 100 chars per Uniware. */
+  cancellationReason?: string;
+}
+
+export interface IUnicommerceCancelSaleOrderResponse {
+  successful: boolean;
+  message?: string;
+  errors?: IUnicommerceApiError[];
+  warnings?: Array<{
+    code?: number;
+    message?: string;
+    description?: string;
+  }>;
+}

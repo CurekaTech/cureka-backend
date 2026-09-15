@@ -28,6 +28,7 @@ describe('UnicommerceOrderService', () => {
     createSaleOrder: jest.fn(),
     getSaleOrder: jest.fn(),
     createReversePickup: jest.fn(),
+    cancelSaleOrder: jest.fn(),
     isConfigured: jest.fn().mockReturnValue(true),
   } as unknown as UnicommerceOrderApiService;
 
@@ -182,5 +183,32 @@ describe('UnicommerceOrderService', () => {
     expect(payload.reversePickItems).toEqual([
       { saleOrderItemCode: 'ORD123456780001-1', reason: 'Damaged on arrival' },
     ]);
+  });
+
+  it('cancels a full sale order on Unicommerce', async () => {
+    (apiService.cancelSaleOrder as jest.Mock).mockResolvedValue({ successful: true });
+
+    const result = await service.cancelSaleOrder({
+      orderNumber: 'ORD123456780001',
+      reason: 'Customer changed mind',
+    });
+
+    expect(result).toEqual({ successful: true });
+    expect(apiService.cancelSaleOrder).toHaveBeenCalledWith({
+      saleOrderCode: 'ORD123456780001',
+      cancelPartially: false,
+      cancelOnChannel: true,
+      cancellationReason: 'Customer changed mind',
+    });
+  });
+
+  it('skips cancel when Unicommerce is disabled', async () => {
+    configValues['unicommerceOrder.enabled'] = false;
+    const result = await service.cancelSaleOrder({
+      orderNumber: 'ORD123456780001',
+      reason: 'Customer changed mind',
+    });
+    expect(result).toBeNull();
+    expect(apiService.cancelSaleOrder).not.toHaveBeenCalled();
   });
 });

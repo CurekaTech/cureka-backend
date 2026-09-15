@@ -356,7 +356,7 @@ async function main(): Promise<void> {
         throw new Error('No shipment and no --awb');
       }
       if (shipment && opts.awb.trim() && shipment.awbNumber !== opts.awb.trim()) {
-        shipment = { ...shipment, awbNumber: opts.awb.trim() } as ShipmentEntity;
+        shipment = { ...shipment, awbNumber: opts.awb.trim() };
       }
 
       orderPayload = mapBobOrder(order, shipment);
