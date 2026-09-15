@@ -1,18 +1,14 @@
 import { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { MasterStatus } from '../enums/master-status.enum';
 
-/** Trusted enum literal for ORDER BY / SELECT — not user input. */
-export const masterStatusPriorityOrderExpr = (alias: string): string =>
-  `CASE WHEN ${alias}.status = '${MasterStatus.ACTIVE}' THEN 0 ELSE 1 END`;
-
 /**
  * Admin master lists: when status filter is omitted/`all`, active rows come first,
  * then inactive, then the caller's secondary sort (createdAt, name, …).
  * When a status filter is applied, only the secondary sort is used.
  *
- * TypeORM treats any `orderBy` string containing "." as `alias.column`, so a raw
- * `CASE WHEN alias.status …` expression cannot be passed to `orderBy` directly.
- * We `addSelect` the CASE under a simple alias, then order by that alias.
+ * Uses `${alias}.status ASC` (not a CASE expression): TypeORM mis-parses CASE
+ * `orderBy` keys that contain `.`, and `addSelect` + skip/take breaks on joins.
+ * With only `active` / `inactive`, alphabetical ASC already yields active-first.
  */
 export const applyMasterListOrdering = <T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
@@ -22,11 +18,15 @@ export const applyMasterListOrdering = <T extends ObjectLiteral>(
   sortOrder: 'ASC' | 'DESC',
 ): SelectQueryBuilder<T> => {
   if (statusFilter == null || statusFilter === '' || statusFilter === 'all') {
-    const rankAlias = `${alias}_status_rank`;
-    return qb
-      .addSelect(masterStatusPriorityOrderExpr(alias), rankAlias)
-      .orderBy(rankAlias, 'ASC')
-      .addOrderBy(sortColumn, sortOrder);
+    // Guard: if caller already sorts by status, don't duplicate the column.
+    if (sortColumn === `${alias}.status`) {
+      return qb.orderBy(sortColumn, sortOrder);
+    }
+    return qb.orderBy(`${alias}.status`, 'ASC').addOrderBy(sortColumn, sortOrder);
   }
   return qb.orderBy(sortColumn, sortOrder);
 };
+
+/** @deprecated Kept for specs / docs; prefer applyMasterListOrdering. */
+export const masterStatusPriorityOrderExpr = (alias: string): string =>
+  `CASE WHEN ${alias}.status = '${MasterStatus.ACTIVE}' THEN 0 ELSE 1 END`;

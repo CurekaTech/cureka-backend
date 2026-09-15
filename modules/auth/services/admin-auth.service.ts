@@ -463,13 +463,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         href: '/products/reviews',
         requiredPermissions: ['product_reviews.read'],
       },
-      {
-        name: 'Return Policies',
-        key: 'products-return-policies',
-        icon: 'RotateCcw',
-        href: '/products/return-policies',
-        requiredPermissions: ['return_policies.read'],
-      },
+      // {
+      //   name: 'Return Policies',
+      //   key: 'products-return-policies',
+      //   icon: 'RotateCcw',
+      //   href: '/products/return-policies',
+      //   requiredPermissions: ['return_policies.read'],
+      // },
     ],
   },
   {
