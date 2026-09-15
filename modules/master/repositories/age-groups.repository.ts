@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { AgeGroupEntity } from '../entities/age-group.entity';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 
 @Injectable()
 export class AgeGroupsRepository {
@@ -66,9 +66,11 @@ export class AgeGroupsRepository {
 
     const qb = this.repo
       .createQueryBuilder('ageGroup')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'ageGroup', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere('ageGroup.name ILIKE :search', { search: `%${options.search}%` });

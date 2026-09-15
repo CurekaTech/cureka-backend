@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -61,10 +62,12 @@ export class WatchAndShopRepository {
 
     const qb = this.repo
       .createQueryBuilder('item')
-      .orderBy(sortColumn, sortOrder)
+      
       .addOrderBy('item.createdAt', 'DESC')
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'item', options.status, sortColumn, sortOrder);
 
     if (options.status) {
       qb.andWhere('item.status = :status', { status: options.status });

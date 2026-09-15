@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -338,9 +339,10 @@ export class CategoriesRepository {
       .leftJoinAndSelect('category.parent', 'parent')
       .leftJoinAndSelect('category.attributes', 'attribute')
       .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
-      .orderBy(sortColumn, sortOrder)
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'category', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere(

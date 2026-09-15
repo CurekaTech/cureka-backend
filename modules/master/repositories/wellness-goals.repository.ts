@@ -8,7 +8,7 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
@@ -111,9 +111,11 @@ export class WellnessGoalsRepository {
 
     const qb = this.repo
       .createQueryBuilder('wellnessGoal')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'wellnessGoal', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere('wellnessGoal.name ILIKE :search', { search: `%${options.search}%` });
