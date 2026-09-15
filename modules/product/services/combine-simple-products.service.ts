@@ -275,19 +275,14 @@ export class CombineSimpleProductsService {
   }
 
   /**
-   * All selected simples must share brand + full category hierarchy,
-   * be published (active), and not have the outOfStock flag set.
+   * All selected simples must share brand + full category hierarchy
+   * and be published (active).
    */
   private assertCombineEligibility(loaded: LoadedSimple[]): void {
-    for (const { product, variant } of loaded) {
+    for (const { product } of loaded) {
       if (product.status !== ProductStatus.PUBLISHED) {
         throw new BadRequestException(
           `Product "${product.refId}" must be published (active) to combine. Current status: "${product.status}"`,
-        );
-      }
-      if (variant.outOfStock) {
-        throw new BadRequestException(
-          `Product "${product.refId}" must be in stock to combine`,
         );
       }
     }
