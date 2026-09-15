@@ -64,7 +64,7 @@ const normalizeText = (cell: ExcelJS.Cell): string => {
   const v = cell.value;
   if (v == null) return '';
   if (typeof v === 'object' && 'richText' in v)
-    return (v as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('').trim();
+    return (v).richText.map((r) => r.text).join('').trim();
   if (typeof v === 'object' && 'text' in v)
     return String((v as { text: string }).text).trim();
   return String(v).trim();
@@ -336,7 +336,7 @@ async function run(): Promise<void> {
             metaTitle: target.metaTitle || null,
             metaDescription: target.metaDescription || null,
             metaKeywords: target.metaKeywords.length ? target.metaKeywords : null,
-          } as Partial<ProductVariantEntity>)
+          })
           .where('id = :id', { id: target.variantId })
           .execute();
 
@@ -364,7 +364,7 @@ async function run(): Promise<void> {
             metaTitle: meta.metaTitle || null,
             metaDescription: meta.metaDescription || null,
             metaKeywords: meta.metaKeywords.length ? meta.metaKeywords : null,
-          } as Partial<ProductEntity>)
+          })
           .where('id = :id', { id: productId })
           .execute();
 

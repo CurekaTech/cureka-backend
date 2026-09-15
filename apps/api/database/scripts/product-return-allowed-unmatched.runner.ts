@@ -36,7 +36,7 @@ const normalizeText = (cell: ExcelJS.Cell): string => {
   const v = cell.value;
   if (v == null) return '';
   if (typeof v === 'object' && 'richText' in v) {
-    return (v as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('').trim();
+    return (v).richText.map((r) => r.text).join('').trim();
   }
   if (typeof v === 'object' && 'text' in v) {
     return String((v as { text: string }).text).trim();

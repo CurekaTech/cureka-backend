@@ -9,10 +9,12 @@ import { UnicommerceOrderApiService } from './services/unicommerce-order-api.ser
 import { UnicommerceOrderService } from './services/unicommerce-order.service';
 import { UnicommerceOrderQueueService } from './services/unicommerce-order-queue.service';
 import { UnicommerceOrderProcessor } from './processors/unicommerce-order.processor';
+import { UnicommerceOrderCancelListener } from './listeners/unicommerce-order-cancel.listener';
 
 /**
  * Outbound UniCommerce "Post Orders" integration (Cureka -> UniCommerce).
  * Enqueues and processes push jobs in the API app.
+ * Also listens for ORDER_CANCELLED to call Uniware saleOrder/cancel.
  */
 @Module({
   imports: [
@@ -25,6 +27,7 @@ import { UnicommerceOrderProcessor } from './processors/unicommerce-order.proces
     UnicommerceOrderService,
     UnicommerceOrderQueueService,
     UnicommerceOrderProcessor,
+    UnicommerceOrderCancelListener,
   ],
   exports: [UnicommerceOrderService, UnicommerceOrderQueueService, UnicommerceOrderApiService],
 })
