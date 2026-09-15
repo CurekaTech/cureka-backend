@@ -38,6 +38,7 @@ const BRAND_UPLOAD_FIELDS = {
   secondaryBanner: UploadFolder.BANNERS,
   secondaryVideo: UploadFolder.VIDEOS,
   offerBanner: UploadFolder.BANNERS,
+  faqBanner: UploadFolder.BANNERS,
 } as const;
 
 type BrandMediaInput = {
@@ -49,6 +50,7 @@ type BrandMediaInput = {
   secondaryBanner?: string | null;
   secondaryVideo?: string | null;
   offerBanner?: string | null;
+  faqBanner?: string | null;
 };
 
 @Injectable()
@@ -80,6 +82,7 @@ export class BrandsService {
         secondaryBanner: uploadedUrls['secondaryBanner'] ?? null,
         secondaryVideo: uploadedUrls['secondaryVideo'] ?? null,
         offerBanner: uploadedUrls['offerBanner'] ?? null,
+        faqBanner: uploadedUrls['faqBanner'] ?? null,
       },
       createdBy,
     );
@@ -101,6 +104,7 @@ export class BrandsService {
       secondaryBanner: uploadedUrls['secondaryBanner'],
       secondaryVideo: uploadedUrls['secondaryVideo'],
       offerBanner: uploadedUrls['offerBanner'],
+      faqBanner: uploadedUrls['faqBanner'],
     });
   }
 
@@ -129,6 +133,7 @@ export class BrandsService {
       secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
       secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
       offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
+      faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
       brandHighlights: this.persistBrandHighlights(dto.brandHighlights),
       showBanner: dto.showBanner ?? true,
       showVideo: dto.showVideo ?? true,
@@ -227,6 +232,9 @@ export class BrandsService {
     }
     if (media.offerBanner !== undefined) {
       payload.offerBanner = this.storageUrlEnricher.persist(media.offerBanner);
+    }
+    if (media.faqBanner !== undefined) {
+      payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
     if (brandHighlights !== undefined) {
       payload.brandHighlights = this.persistBrandHighlights(brandHighlights);

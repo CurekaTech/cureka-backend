@@ -47,6 +47,9 @@ export class CategoryEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
+  faqBanner!: IStorageFileReference | null;
+
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
 

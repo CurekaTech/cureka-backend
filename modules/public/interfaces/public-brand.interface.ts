@@ -34,6 +34,7 @@ export interface IPublicBrandProductListingContext {
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   showOfferBanner: boolean;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   brandHighlights: IPublicBrandHighlight[] | null;
   showBrandHighlights: boolean;
   description: string | null;

@@ -15,6 +15,9 @@ export class WellnessGoalEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   image!: IStorageFileReference | null;
 
+  @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
+  faqBanner!: IStorageFileReference | null;
+
   @Index()
   @Column({
     type: 'enum',

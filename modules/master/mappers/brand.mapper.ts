@@ -27,6 +27,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
     showSecondaryVideo: entity.showSecondaryVideo ?? true,
     offerBanner: entity.offerBanner ?? null,
     showOfferBanner: entity.showOfferBanner ?? true,
+    faqBanner: entity.faqBanner ?? null,
     brandHighlights: entity.brandHighlights ?? null,
     showBrandHighlights: entity.showBrandHighlights ?? true,
     description: entity.description,

@@ -30,6 +30,7 @@ export interface IBrand {
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReferenceResponse | null;
   showOfferBanner: boolean;
+  faqBanner: IStorageFileReferenceResponse | null;
   brandHighlights: IBrandHighlight[] | null;
   showBrandHighlights: boolean;
   description: string | null;

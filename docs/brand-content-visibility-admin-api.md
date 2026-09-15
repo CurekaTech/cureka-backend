@@ -80,6 +80,7 @@ Send the usual brand fields plus the new boolean form fields.
 | `secondaryBanner` | `banners` |
 | `secondaryVideo` | `videos` |
 | `offerBanner` | `banners` |
+| `faqBanner` | `banners` |
 
 ---
 

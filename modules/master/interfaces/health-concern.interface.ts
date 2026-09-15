@@ -14,6 +14,7 @@ export interface IHealthConcern {
   medicalConditionName: string | null;
   patientAudience: PatientAudience | null;
   banner: IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   inHomePage: boolean;
   sortIndex: number | null;
