@@ -158,7 +158,7 @@ export const mapProductEntitiesToResponse = (entities: ProductEntity[]): IProduc
 
 const buildVariantListName = (entity: ProductEntity, variant: IProductVariant): string => {
   const displayName = variant.displayName?.trim();
-  if (displayName && displayName.toLowerCase() !== entity.name.trim().toLowerCase()) {
+  if (displayName) {
     return displayName;
   }
 

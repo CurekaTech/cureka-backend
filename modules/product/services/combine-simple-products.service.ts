@@ -182,10 +182,14 @@ export class CombineSimpleProductsService {
           productId: target.product.id,
           combinationKey,
         };
+        // Persist UI title onto variant.display_name (admin list / PDP label).
         const variantTitle = assignment.variantTitle?.trim();
-        if (variantTitle) {
-          variantUpdate.displayName = variantTitle;
-        }
+        const attributeLabel = canonicalValues
+          .map((item) => item.value?.trim())
+          .filter(Boolean)
+          .join(' / ');
+        variantUpdate.displayName =
+          variantTitle || attributeLabel || row.variant.displayName?.trim() || null;
 
         await variantRepo.update({ id: row.variant.id }, variantUpdate);
 
