@@ -279,8 +279,9 @@ export class ProductVariantsRepository {
   }
 
   /**
-   * Next SKU in format CAT/BRA/NNN (first 3 letters of category + brand + sequence).
-   * Same format as bulk-upload auto SKUs.
+   * Next SKU in format CAT/BRA/NNNNN (first 3 letters of category + brand + 5-digit sequence).
+   * Uses the highest existing numeric suffix for the prefix (including legacy 3-digit SKUs).
+   * Same format as bulk-upload / product-create auto SKUs.
    */
   async generateNextSku(categoryName: string, brandName: string): Promise<string> {
     const prefix = buildSkuPrefix(categoryName, brandName);
