@@ -1,4 +1,4 @@
-import { Entity, Index, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 import type { ProductEntity } from './product.entity';
 import { ProductFaqEntity } from './product-faq.entity';
 
@@ -9,6 +9,9 @@ export class ProductFaqMappingEntity {
 
   @PrimaryColumn({ name: 'product_faq_id', type: 'uuid' })
   productFaqId!: string;
+
+  @Column({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder!: number;
 
   @Index()
   @ManyToOne('ProductEntity', 'faqMappings', { onDelete: 'CASCADE' })

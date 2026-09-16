@@ -21,28 +21,9 @@ import { BlogCommentStatus } from '../enums/blog-comment-status.enum';
 import { BlogPostStatus } from '../enums/blog-post-status.enum';
 import { BlogPostVisibility } from '../enums/blog-post-visibility.enum';
 import { BlogVideoType } from '../enums/blog-video-type.enum';
-import {
-  FAQ_ANSWER_MAX_LENGTH,
-  FAQ_ANSWER_MAX_LENGTH_MESSAGE,
-  FAQ_ANSWER_REQUIRED_MESSAGE,
-  FAQ_QUESTION_MAX_LENGTH,
-  FAQ_QUESTION_MAX_LENGTH_MESSAGE,
-  FAQ_QUESTION_REQUIRED_MESSAGE,
-} from '../utils/master-faq.util';
+import { MasterFaqDto, parseMasterFaqArray } from './master-faq.dto';
 
-export class BlogFaqDto {
-  @ApiProperty({ example: 'What is this blog about?', maxLength: FAQ_QUESTION_MAX_LENGTH })
-  @IsNotEmpty({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
-  @IsString({ message: FAQ_QUESTION_REQUIRED_MESSAGE })
-  @MaxLength(FAQ_QUESTION_MAX_LENGTH, { message: FAQ_QUESTION_MAX_LENGTH_MESSAGE })
-  question!: string;
-
-  @ApiProperty({ example: 'This article explains…', maxLength: FAQ_ANSWER_MAX_LENGTH })
-  @IsNotEmpty({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
-  @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
-  @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
-  answer!: string;
-}
+export class BlogFaqDto extends MasterFaqDto {}
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -72,32 +53,8 @@ const parseStringArray = ({ value }: { value: unknown }): string[] | undefined =
  * Parse them back and return BlogFaqDto class instances so ValidateNested works
  * (@Transform conflicts with @Type for nested objects).
  */
-const parseFaqArray = ({ value }: { value: unknown }): BlogFaqDto[] | undefined => {
-  if (value === undefined || value === null || value === '') return undefined;
-
-  let parsed: unknown = value;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    try {
-      parsed = JSON.parse(trimmed) as unknown;
-    } catch {
-      return undefined;
-    }
-  }
-
-  if (!Array.isArray(parsed)) return undefined;
-
-  const items = parsed
-    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-    .map((item) => ({
-      question: String(item.question ?? '').trim(),
-      answer: String(item.answer ?? '').trim(),
-    }))
-    .filter((item) => item.question && item.answer);
-
-  return plainToInstance(BlogFaqDto, items);
-};
+const parseFaqArray = ({ value }: { value: unknown }): BlogFaqDto[] | undefined =>
+  parseMasterFaqArray({ value }) as BlogFaqDto[] | undefined;
 
 export class BlogVideoFileDto {
   @IsString()

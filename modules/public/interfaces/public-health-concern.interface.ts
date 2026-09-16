@@ -49,6 +49,6 @@ export interface IPublicHealthConcernProductListingContext {
   metaDescription: string | null;
   medicalConditionName: string | null;
   patientAudience: PatientAudience | null;
-  faqs: Array<{ question: string; answer: string }>;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
 }

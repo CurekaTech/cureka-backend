@@ -1,6 +1,7 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { plainToInstance } from 'class-transformer';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { plainToInstance, Type } from 'class-transformer';
+import { IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { resolveFaqSequence } from '../utils/master-faq.util';
 import {
   FAQ_ANSWER_MAX_LENGTH,
   FAQ_ANSWER_MAX_LENGTH_MESSAGE,
@@ -28,6 +29,16 @@ export class MasterFaqDto {
   @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
   @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
   answer!: string;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Display order (ascending). Defaults to array index when omitted.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sequence?: number;
 }
 
 /**
@@ -57,9 +68,17 @@ export const parseMasterFaqArray = ({
 
   const items = parsed
     .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-    .map((item) => ({
+    .map((item, index) => ({
       question: String(item.question ?? '').trim(),
       answer: String(item.answer ?? '').trim(),
+      sequence: resolveFaqSequence(
+        typeof item.sequence === 'number' && Number.isInteger(item.sequence)
+          ? item.sequence
+          : typeof item.sequence === 'string' && item.sequence.trim() !== ''
+            ? Number.parseInt(item.sequence, 10)
+            : undefined,
+        index,
+      ),
     }));
 
   return plainToInstance(MasterFaqDto, items);

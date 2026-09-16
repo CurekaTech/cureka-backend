@@ -1,3 +1,4 @@
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { IVariantDetailFields, IVariantInlineFaq } from '../interfaces/variant-details.interface';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
@@ -8,7 +9,7 @@ export const mapVariantEntityToDetailFields = (
   displayName: variant.displayName,
   description: variant.description,
   productInformation: (variant.productInformation ?? []) as IProductInformationItem[],
-  faqs: (variant.faqs ?? []) as IVariantInlineFaq[],
+  faqs: mapMasterFaqs(variant.faqs ?? []) as IVariantInlineFaq[],
   metaTitle: variant.metaTitle,
   metaDescription: variant.metaDescription,
   metaKeywords: variant.metaKeywords,

@@ -42,5 +42,5 @@ export interface IPublicBrandProductListingContext {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
-  faqs: Array<{ question: string; answer: string }>;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
 }

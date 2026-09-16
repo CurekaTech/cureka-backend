@@ -72,6 +72,16 @@ export class CustomProductFaqDto {
   @IsString({ message: FAQ_ANSWER_REQUIRED_MESSAGE })
   @MaxLength(FAQ_ANSWER_MAX_LENGTH, { message: FAQ_ANSWER_MAX_LENGTH_MESSAGE })
   answer!: string;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Display order (ascending). Defaults to array index when omitted.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sequence?: number;
 }
 
 export class CreateProductFaqDto {

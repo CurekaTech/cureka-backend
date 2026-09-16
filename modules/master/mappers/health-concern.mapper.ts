@@ -1,5 +1,6 @@
 import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { IHealthConcern } from '../interfaces/health-concern.interface';
+import { mapMasterFaqs } from '../utils/master-faq.util';
 
 export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): IHealthConcern =>
   ({
@@ -18,7 +19,7 @@ export const mapHealthConcernEntityToResponse = (entity: HealthConcernEntity): I
   status: entity.status,
   inHomePage: entity.inHomePage,
   sortIndex: entity.sortIndex,
-  faqs: entity.faqs ?? [],
+  faqs: mapMasterFaqs(entity.faqs),
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,

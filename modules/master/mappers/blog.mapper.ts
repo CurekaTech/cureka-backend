@@ -1,6 +1,7 @@
 import { BlogCategoryEntity } from '../entities/blog-category.entity';
 import { BlogCommentEntity } from '../entities/blog-comment.entity';
 import { BlogPostEntity } from '../entities/blog-post.entity';
+import { mapMasterFaqs } from '../utils/master-faq.util';
 
 export const mapBlogCategory = (entity: BlogCategoryEntity) => ({
   refId: entity.refId,
@@ -14,14 +15,6 @@ export const mapBlogCategory = (entity: BlogCategoryEntity) => ({
   updatedAt: entity.updatedAt,
 });
 
-const mapBlogFaqs = (entity: BlogPostEntity) =>
-  (entity.faqs ?? [])
-    .filter((faq) => faq?.question?.trim() && faq?.answer?.trim())
-    .map((faq) => ({
-      question: faq.question.trim(),
-      answer: faq.answer.trim(),
-    }));
-
 export const mapBlogPost = (entity: BlogPostEntity, extras?: { productRefIds?: string[] }) => ({
   refId: entity.refId,
   title: entity.title,
@@ -34,7 +27,7 @@ export const mapBlogPost = (entity: BlogPostEntity, extras?: { productRefIds?: s
   videos: entity.videos ?? [],
   tags: entity.tags ?? [],
   productRefIds: extras?.productRefIds ?? [],
-  faqs: mapBlogFaqs(entity),
+  faqs: mapMasterFaqs(entity.faqs),
   status: entity.status,
   visibility: entity.visibility,
   isFeatured: entity.isFeatured,
@@ -80,7 +73,7 @@ export const mapStorefrontBlogPost = (
   videos: entity.videos ?? [],
   tags: entity.tags ?? [],
   productRefIds: extras?.productRefIds ?? [],
-  faqs: mapBlogFaqs(entity),
+  faqs: mapMasterFaqs(entity.faqs),
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,

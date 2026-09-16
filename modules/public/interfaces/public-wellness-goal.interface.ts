@@ -22,7 +22,7 @@ export interface IPublicWellnessGoalProductListingContext {
   name: string;
   description: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
-  faqs: Array<{ question: string; answer: string }>;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
 

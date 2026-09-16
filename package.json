@@ -30,6 +30,7 @@
     "product:oos-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-oos-update.runner.ts",
     "product:estimate-delivery": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-estimate-delivery.runner.ts",
     "shipway:reconcile-order": "ts-node -r tsconfig-paths/register apps/api/database/scripts/shipway-reconcile-order.runner.ts",
+    "order:update-status": "ts-node -r tsconfig-paths/register apps/api/database/scripts/order-update-status.runner.ts",
     "bob:test-fulfillment": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bob-test-fulfillment.runner.ts",
     "bob:test-dispatch-notify": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bob-test-dispatch-notify.runner.ts",
     "bob:test-abandoned-cart": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bob-test-abandoned-cart.runner.ts",

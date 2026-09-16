@@ -1,5 +1,6 @@
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { resolveBrandBannerForResponse } from '@modules/master/mappers/brand.mapper';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicBrandListItem } from '../interfaces/public-master.interface';
 
@@ -43,5 +44,5 @@ export const mapBrandEntityToListingContext = (
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
-  faqs: entity.faqs ?? [],
+  faqs: mapMasterFaqs(entity.faqs),
 });

@@ -1301,6 +1301,7 @@ export class ProductsRepository {
       mgr.getRepository(ProductFaqMappingEntity).find({
         where: { productId: In(productIds) },
         relations: { productFaq: true },
+        order: { sortOrder: 'ASC' },
       }),
       mgr.getRepository(ProductBundleEntity).find({
         where: { parentProductId: In(productIds) },

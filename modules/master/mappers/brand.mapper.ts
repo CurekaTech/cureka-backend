@@ -1,5 +1,6 @@
 import { BrandEntity } from '../entities/brand.entity';
 import { IBrand } from '../interfaces/brand.interface';
+import { mapMasterFaqs } from '../utils/master-faq.util';
 
 /** Hide soft-deleted banner from API consumers; DB/GCS values stay intact. */
 export const resolveBrandBannerForResponse = (
@@ -37,7 +38,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
     metaTitle: entity.metaTitle,
     metaDescription: entity.metaDescription,
     metaKeywords: entity.metaKeywords,
-    faqs: entity.faqs ?? [],
+    faqs: mapMasterFaqs(entity.faqs),
     createdBy: entity.createdBy,
     updatedBy: entity.updatedBy,
     createdAt: entity.createdAt,

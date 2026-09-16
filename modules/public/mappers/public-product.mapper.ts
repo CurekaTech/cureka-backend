@@ -9,7 +9,9 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { formatExpiryDateOutput } from '@modules/product/utils/expiry-date.util';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { mapVariantEntityToDetailFields } from '@modules/product/mappers/variant-details.mapper';
+import { sortProductFaqMappings } from '@modules/product/utils/product-faq-order.util';
 import {
   IPublicCategorySummary,
   IPublicImporterSummary,
@@ -779,10 +781,11 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     name: mapping.tag?.name ?? '',
     slug: mapping.tag?.slug ?? '',
   })),
-  faqs: (entity.faqMappings ?? []).map((mapping) => ({
+  faqs: sortProductFaqMappings(entity.faqMappings ?? []).map((mapping) => ({
     refId: mapping.productFaq?.refId ?? '',
     question: mapping.productFaq?.question ?? '',
     answer: mapping.productFaq?.answer ?? '',
+    sequence: mapping.sortOrder ?? 0,
   })),
   bundleItems: (entity.bundleItems ?? []).map((item) => ({
     childProductRefId: item.childProduct?.refId ?? '',
@@ -842,10 +845,11 @@ export const applySelectedVariantDetailToPublicProduct = (
     countryOfOriginName: selectedVariant.countryOfOriginName ?? detail.countryOfOriginName,
     faqs:
       selectedVariant.faqs?.length
-        ? selectedVariant.faqs.map((faq, index) => ({
+        ? mapMasterFaqs(selectedVariant.faqs).map((faq, index) => ({
             refId: `variant-${selectedVariant.id}-faq-${index + 1}`,
             question: faq.question,
             answer: faq.answer,
+            sequence: faq.sequence,
           }))
         : detail.faqs,
     categoryFilters: selectedVariant.categoryFilters?.length
