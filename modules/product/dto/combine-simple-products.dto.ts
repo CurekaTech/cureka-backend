@@ -19,7 +19,8 @@ export class CombineSimpleProductsPreviewDto {
   @ApiProperty({
     type: [String],
     example: ['PRO20261234', 'PRO20265678'],
-    description: 'Simple product refIds to combine. Minimum 2.',
+    description:
+      'Simple and/or variable product refIds to combine. Minimum 2. Preview returns one row per active variant.',
   })
   @IsArray()
   @ArrayMinSize(2)
@@ -48,7 +49,9 @@ export class CombineSimpleProductAssignmentDto {
   @IsRefId()
   productRefId!: string;
 
-  @ApiProperty({ description: 'The simple product’s single variant UUID from combine-preview' })
+  @ApiProperty({
+    description: 'Active variant UUID from combine-preview. Multiple assignments may share productRefId.',
+  })
   @IsUUID()
   variantId!: string;
 
@@ -72,14 +75,18 @@ export class CombineSimpleProductAssignmentDto {
 
 export class CombineSimpleProductsDto {
   @ApiProperty({
-    description: 'Canonical simple product that stays as the variable parent listing',
+    description: 'Canonical product that stays as the variable parent listing',
     example: 'PRO20261234',
   })
   @IsNotEmpty()
   @IsRefId()
   targetProductRefId!: string;
 
-  @ApiProperty({ type: [String], description: 'Attribute masters for the variable product' })
+  @ApiProperty({
+    type: [String],
+    description:
+      'Shared attribute masters for the merged variable product. Every assignment must include all of these.',
+  })
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(20)
@@ -90,7 +97,7 @@ export class CombineSimpleProductsDto {
   @ApiProperty({ type: [CombineSimpleProductAssignmentDto] })
   @IsArray()
   @ArrayMinSize(2)
-  @ArrayMaxSize(50)
+  @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => CombineSimpleProductAssignmentDto)
   assignments!: CombineSimpleProductAssignmentDto[];

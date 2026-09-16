@@ -74,9 +74,9 @@ export class ProductsController {
   }
 
   @ApiOperation({
-    summary: 'Preview combining simple products into one variable product',
+    summary: 'Preview combining simple/variable products into one variable product',
     description:
-      'Returns each simple product’s single variantId, sku, and variant externalProductId. Optional attributeRefIds return master name/values so the admin UI can assign combinations. Does not mutate catalog.',
+      'Returns one row per active variant (SKU, variantId, current attributes). Simple products yield one row each; two variables with 2 and 3 variants yield 5 rows. Optional attributeRefIds return master name/values so the admin UI can assign combinations. Does not mutate catalog.',
   })
   @ResponseMessage('Combine preview retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
@@ -87,11 +87,11 @@ export class ProductsController {
   }
 
   @ApiOperation({
-    summary: 'Combine simple products into one variable product',
+    summary: 'Combine simple and/or variable products into one variable product',
     description:
-      'Reparents existing variant rows onto targetProductRefId (converted to variable). SKU, variant UUID, and variant external_product_id are not changed. Other simples are soft-deleted.',
+      'Reparents every assigned variant onto targetProductRefId (productType=variable). SKU, variant UUID, and variant external_product_id are not changed. Other selected parents are soft-deleted. Admin must assign a unique combination to every active variant using one shared attribute set.',
   })
-  @ResponseMessage('Simple products combined successfully')
+  @ResponseMessage('Products combined successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @Post('combine-variants')
   @HttpCode(HttpStatus.OK)
