@@ -1,12 +1,19 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'stream';
 import {
   IStorageProvider,
+  IUploadAtPathInput,
   IUploadFileInput,
   IUploadFileResult,
 } from './storage.provider.interface';
-import { ALLOWED_UPLOAD_MIME_TYPES, STORAGE_PROVIDER } from './storage.constants';
+import {
+  ALLOWED_UPLOAD_MIME_TYPES,
+  IStorageUploadHook,
+  STORAGE_PROVIDER,
+  STORAGE_UPLOAD_HOOK,
+} from './storage.constants';
 import { limitUploadStreamSize, resolveMaxFileSizeForMime, UploadSizeLimitExceededError } from './upload-size.util';
 import { normalizeStorageKey } from './storage-path.util';
 import { IStorageFileReference, IStorageFileReferenceResponse } from './storage-file-reference.interface';
@@ -23,6 +30,7 @@ export class StorageService {
   constructor(
     @Inject(STORAGE_PROVIDER) private readonly provider: IStorageProvider,
     private readonly configService: ConfigService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   async uploadImage(input: IUploadFileInput): Promise<IUploadFileResult> {
@@ -36,7 +44,9 @@ export class StorageService {
     const stream = limitUploadStreamSize(input.stream, maxBytes, input.mimetype);
 
     try {
-      return await this.provider.upload({ ...input, stream });
+      const result = await this.provider.upload({ ...input, stream });
+      await this.notifyUploadHook(result.path, result.mimetype, result.size);
+      return result;
     } catch (error) {
       if (error instanceof UploadSizeLimitExceededError) {
         throw new BadRequestException(error.message);
@@ -208,13 +218,48 @@ export class StorageService {
     relativePath: string;
     stream: Readable;
     mimetype: string;
+    cacheControl?: string;
   }): Promise<IUploadFileResult> {
     const relativePath = this.assertSafeKey(input.relativePath);
-    return this.provider.uploadAtPath({
+    const payload: IUploadAtPathInput = {
       relativePath,
       stream: input.stream,
       mimetype: input.mimetype,
-    });
+      cacheControl: input.cacheControl,
+    };
+    const result = await this.provider.uploadAtPath(payload);
+    await this.notifyUploadHook(result.path, result.mimetype, result.size);
+    return result;
+  }
+
+  /**
+   * Read an object into memory with a hard byte cap. Used by image processing,
+   * never by public GET handlers.
+   */
+  async readObjectBuffer(relativePath: string, maxBytes: number): Promise<Buffer> {
+    const key = this.assertSafeKey(relativePath);
+    const stream = await this.provider.createReadStream(key);
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+
+    try {
+      for await (const chunk of stream) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bytes += buffer.length;
+        if (bytes > maxBytes) {
+          stream.destroy();
+          throw new BadRequestException(
+            `Object exceeds maximum readable size of ${maxBytes} bytes`,
+          );
+        }
+        chunks.push(buffer);
+      }
+    } catch (error) {
+      stream.destroy();
+      throw error;
+    }
+
+    return Buffer.concat(chunks, bytes);
   }
 
   async exists(relativePath: string): Promise<boolean> {
@@ -252,6 +297,21 @@ export class StorageService {
     throw new BadRequestException(
       `Unsupported file type "${mimetype}". Allowed: ${allowed.join(', ')}`,
     );
+  }
+
+  private async notifyUploadHook(key: string, mimetype: string, size: number): Promise<void> {
+    let hook: IStorageUploadHook | undefined;
+    try {
+      hook = this.moduleRef.get<IStorageUploadHook>(STORAGE_UPLOAD_HOOK, { strict: false });
+    } catch {
+      return;
+    }
+    if (!hook) return;
+    try {
+      await hook.onStoredObject({ key, mimetype, size });
+    } catch {
+      // Upload already succeeded; pending-row reconciliation covers hook failures.
+    }
   }
 
   private getAccessibleUrlCacheTtlMs(): number {
