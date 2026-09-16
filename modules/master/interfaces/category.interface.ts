@@ -31,7 +31,7 @@ export interface ICategory {
   metaKeywords: string[] | null;
   aboveTheFold: string | null;
   belowTheFold: string | null;
-  faqs: Array<{ question: string; answer: string }>;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   isInHeader: boolean;
   isInShopBy: boolean;
   bestsellerSortIndex: number | null;

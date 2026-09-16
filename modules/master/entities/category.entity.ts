@@ -101,7 +101,7 @@ export class CategoryEntity extends BaseEntity {
   belowTheFold!: string | null;
 
   @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
-  faqs!: Array<{ question: string; answer: string }>;
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 
   @Index()
   @Column({

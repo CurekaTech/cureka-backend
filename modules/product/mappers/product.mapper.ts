@@ -15,7 +15,9 @@ import {
 import { IProductDetail } from '../interfaces/product-detail.interface';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { ProductType } from '../enums/product-type.enum';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { mapCategoryEntityToDetailResponse } from '@modules/master/mappers/category.mapper';
+import { sortProductFaqMappings } from '../utils/product-faq-order.util';
 import { mapBrandEntityToResponse } from '@modules/master/mappers/brand.mapper';
 import { mapProductNatureEntityToResponse } from '@modules/master/mappers/product-nature.mapper';
 import { mapManufacturerEntityToResponse } from '@modules/master/mappers/manufacturer.mapper';
@@ -144,7 +146,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   wellnessGoals: (entity.wellnessGoalMappings ?? []).map(mapWellnessGoal),
   categoryFilters: mapCategoryFilters(entity),
   tags: (entity.tagMappings ?? []).map(mapTag),
-  faqs: (entity.faqMappings ?? []).map(mapFaq),
+  faqs: sortProductFaqMappings(entity.faqMappings ?? []).map(mapFaq),
   bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
   outOfStock: isProductOutOfStock(entity),
   createdBy: entity.createdBy,
@@ -402,6 +404,7 @@ const mapFaq = (mapping: ProductEntity['faqMappings'][number]): IProductFaq => (
   refId: mapping.productFaq?.refId ?? '',
   question: mapping.productFaq?.question ?? '',
   answer: mapping.productFaq?.answer ?? '',
+  sequence: mapping.sortOrder ?? 0,
 });
 
 const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBundleItem => ({

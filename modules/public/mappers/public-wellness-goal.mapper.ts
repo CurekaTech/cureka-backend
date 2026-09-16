@@ -1,4 +1,5 @@
 import { WellnessGoalEntity } from '@modules/master/entities/wellness-goal.entity';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { IPublicWellnessGoalProductListingContext } from '../interfaces/public-wellness-goal.interface';
 
 export const mapWellnessGoalEntityToListingContext = (
@@ -8,6 +9,6 @@ export const mapWellnessGoalEntityToListingContext = (
   name: entity.name,
   description: entity.description,
   image: entity.image,
-  faqs: entity.faqs ?? [],
+  faqs: mapMasterFaqs(entity.faqs),
   faqBanner: entity.faqBanner,
 });

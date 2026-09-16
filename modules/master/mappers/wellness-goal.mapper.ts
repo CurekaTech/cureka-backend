@@ -1,5 +1,6 @@
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { IWellnessGoal } from '../interfaces/wellness-goal.interface';
+import { mapMasterFaqs } from '../utils/master-faq.util';
 
 export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWellnessGoal =>
   ({
@@ -11,7 +12,7 @@ export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWe
   faqBanner: entity.faqBanner,
   status: entity.status,
   inHomePage: entity.inHomePage,
-  faqs: entity.faqs ?? [],
+  faqs: mapMasterFaqs(entity.faqs),
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
   createdAt: entity.createdAt,

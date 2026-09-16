@@ -18,7 +18,7 @@ export interface IHealthConcern {
   status: MasterStatus;
   inHomePage: boolean;
   sortIndex: number | null;
-  faqs: Array<{ question: string; answer: string }>;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

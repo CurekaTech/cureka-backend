@@ -54,6 +54,7 @@ export const mapStorefrontFaq = (entity: SupportFaqEntity) => ({
   question: entity.question,
   answer: entity.answer,
   categoryRefId: entity.categoryRefId,
+  sortOrder: entity.sortOrder,
 });
 
 export const mapSupportTicket = (entity: SupportTicketEntity) => ({
