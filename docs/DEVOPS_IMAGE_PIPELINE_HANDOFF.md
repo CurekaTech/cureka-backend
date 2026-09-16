@@ -14,18 +14,25 @@ Repository code is implemented. **External infrastructure has not been configure
 ```bash
 npm run build
 npm run migration:run
-# API (unchanged)
+# API (unchanged) — keep IMAGE_WORKER_ENABLED=false on this process
 pm2 start ecosystem.config.js
 # Worker — autostart is false; enable explicitly after IAM + flags
 IMAGE_WORKER_ENABLED=true IMAGE_PROCESSING_ENABLED=true pm2 start ecosystem.config.js --only cureka-image-worker
-# or
-IMAGE_WORKER_ENABLED=true IMAGE_PROCESSING_ENABLED=true node dist/apps/api/image-worker.js
+# or after a rebuild
+IMAGE_WORKER_ENABLED=true IMAGE_PROCESSING_ENABLED=true npm run start:image-worker
+# if dist/apps/api/image-worker.js is missing (stale dist)
+IMAGE_WORKER_ENABLED=true IMAGE_PROCESSING_ENABLED=true npm run start:image-worker:dev
 ```
 
 Scripts:
 
-- `npm run start:image-worker` → `node dist/apps/api/image-worker.js`
-- `npm run image:backfill` / `npm run image:retry`
+- `npm run start:image-worker` → `node dist/apps/api/image-worker.js` (requires `npm run build`)
+- `npm run start:image-worker:dev` → ts-node `apps/api/image-worker.ts`
+- `npm run image:backfill` / `npm run image:retry` — dry-run by default. Apply needs a **one-shot prefix**, not an API env change:
+
+```bash
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --entity-types=banners --sample-limit=5 --batch-size=5
+```
 
 Worker does **not** bind HTTP. It still needs `DATABASE_URL`, Redis, `JWT_SECRET` (Joi schema), and storage env.
 

@@ -2,6 +2,7 @@
  * Dedicated image-derivative worker. Does not bind an HTTP port.
  *
  *   IMAGE_WORKER_ENABLED=true IMAGE_PROCESSING_ENABLED=true npm run start:image-worker
+ *   IMAGE_WORKER_ENABLED=true IMAGE_PROCESSING_ENABLED=true npm run start:image-worker:dev
  *
  * Keep this process off the API cluster. Encoding concurrency is per process.
  */
