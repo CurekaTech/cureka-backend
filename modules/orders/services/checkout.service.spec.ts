@@ -20,6 +20,7 @@ describe('CheckoutService COD eligibility', () => {
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
 
   beforeEach(() => {

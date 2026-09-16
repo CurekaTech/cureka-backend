@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { SubscriptionFrequencyEntity } from '../entities/subscription-frequency.entity';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 
 @Injectable()
 export class SubscriptionFrequenciesRepository {
@@ -61,9 +61,11 @@ export class SubscriptionFrequenciesRepository {
 
     const qb = this.repo
       .createQueryBuilder('subscriptionFrequency')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'subscriptionFrequency', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere('subscriptionFrequency.name ILIKE :search', { search: `%${options.search}%` });

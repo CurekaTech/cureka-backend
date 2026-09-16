@@ -35,7 +35,7 @@ export class BlogPostEntity extends BaseEntity {
   content!: string;
 
   @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
-  faqs!: Array<{ question: string; answer: string }>;
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 
   @Index()
   @Column({ name: 'category_ref_id', type: 'varchar', length: 16 })

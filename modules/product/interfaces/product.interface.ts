@@ -123,6 +123,7 @@ export interface IProductFaq {
   refId: string;
   question: string;
   answer: string;
+  sequence: number;
 }
 
 export interface IProductAttribute {

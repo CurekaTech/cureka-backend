@@ -1,8 +1,10 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { BlogCategoryEntity } from '../entities/blog-category.entity';
 import { BlogCategoryStatus } from '../enums/blog-category-status.enum';
 
@@ -32,6 +34,9 @@ export class BlogCategoriesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'blogCategory', name, excludeRefId);
   }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
@@ -68,12 +73,10 @@ export class BlogCategoriesRepository {
     options: BlogCategoryFindOptions,
   ): Promise<{ data: BlogCategoryEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
-    const qb = this.repo
-      .createQueryBuilder('category')
-      .orderBy('category.sortOrder', 'ASC')
-      .addOrderBy('category.name', 'ASC')
-      .skip(skip)
-      .take(take);
+    const qb = this.repo.createQueryBuilder('category').skip(skip).take(take);
+
+    applyMasterListOrdering(qb, 'category', options.status, 'category.sortOrder', 'ASC');
+    qb.addOrderBy('category.name', 'ASC');
 
     if (options.status) {
       qb.andWhere('category.status = :status', { status: options.status });

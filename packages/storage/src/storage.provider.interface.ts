@@ -21,6 +21,8 @@ export interface IUploadAtPathInput {
   relativePath: string;
   stream: Readable;
   mimetype: string;
+  /** Optional Cache-Control for versioned objects such as image derivatives. */
+  cacheControl?: string;
 }
 
 export interface IStorageProvider {

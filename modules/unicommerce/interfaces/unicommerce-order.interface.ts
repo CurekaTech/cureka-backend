@@ -172,16 +172,18 @@ export interface IUnicommerceCreateReversePickupResponse {
  * Docs: POST /services/rest/v1/oms/saleOrder/cancel
  * https://documentation.unicommerce.com/docs/saleorder-cancel.html
  *
- * Intended for use before seller dispatch. `cancellationReason` max 100 chars.
- * Docs: pick cancelOnChannel XOR cancelledBySeller. Cureka is the channel of
- * record, so cancelOnChannel stays false to avoid a channel callback loop.
+ * Intended for use before seller dispatch. Omit saleOrderItemCodes for a full-order cancel.
+ * `cancellationReason` max 100 chars. Docs: pick cancelOnChannel XOR cancelledBySeller.
+ * Cureka is the channel of record, so cancelOnChannel stays false to avoid a channel callback loop.
  */
 export interface IUnicommerceCancelSaleOrderPayload {
   saleOrderCode: string;
   saleOrderItemCodes?: string[];
   cancelPartially?: boolean;
+  /** Uniware default is true. Prefer this OR cancelledBySeller, not both. */
   cancelOnChannel?: boolean;
   cancelledBySeller?: boolean;
+  /** Max 100 chars per Uniware. */
   cancellationReason?: string;
 }
 
@@ -189,4 +191,9 @@ export interface IUnicommerceCancelSaleOrderResponse {
   successful: boolean;
   message?: string;
   errors?: IUnicommerceApiError[];
+  warnings?: Array<{
+    code?: number;
+    message?: string;
+    description?: string;
+  }>;
 }

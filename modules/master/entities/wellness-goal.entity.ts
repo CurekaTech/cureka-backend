@@ -15,6 +15,9 @@ export class WellnessGoalEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   image!: IStorageFileReference | null;
 
+  @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
+  faqBanner!: IStorageFileReference | null;
+
   @Index()
   @Column({
     type: 'enum',
@@ -26,4 +29,7 @@ export class WellnessGoalEntity extends BaseEntity {
 
   @Column({ name: 'in_home_page', type: 'boolean', default: false })
   inHomePage!: boolean;
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 }

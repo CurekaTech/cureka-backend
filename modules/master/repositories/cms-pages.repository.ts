@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -83,10 +84,12 @@ export class CmsPagesRepository {
 
     const qb = this.repo
       .createQueryBuilder('page')
-      .orderBy(sortColumn, sortOrder)
+      
       .addOrderBy('page.createdAt', 'ASC')
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'page', options.status, sortColumn, sortOrder);
 
     if (options.status) {
       qb.andWhere('page.status = :status', { status: options.status });

@@ -209,15 +209,35 @@ const extractPrefix = (name: string, fallback: string): string => {
   return letters.slice(0, 3).padEnd(3, 'X');
 };
 
+/** Auto-generated SKU numeric width: CAT/BRA/NNNNN (e.g. HER/ZIN/08945). */
+export const SKU_SEQUENCE_DIGITS = 5;
+export const MAX_SKU_SEQUENCE = 10 ** SKU_SEQUENCE_DIGITS - 1; // 99999
+
 export const buildSkuPrefix = (categoryName: string, brandName: string): string => {
   const categoryPrefix = extractPrefix(categoryName, 'CAT');
   const brandPrefix = extractPrefix(brandName, 'GEN');
   return `${categoryPrefix}/${brandPrefix}/`;
 };
 
-export const formatGeneratedSku = (prefix: string, sequence: number): string =>
-  `${prefix}${String(sequence).padStart(3, '0')}`;
+/**
+ * Formats an auto-generated SKU as `{prefix}{NNNNN}` with leading zeros.
+ * Sequence must be 1..99999. Legacy 3-digit values are only used as inputs to
+ * {@link findMaxSkuSequenceForPrefix}; newly generated SKUs are always 5 digits.
+ */
+export const formatGeneratedSku = (prefix: string, sequence: number): string => {
+  if (!Number.isInteger(sequence) || sequence < 1 || sequence > MAX_SKU_SEQUENCE) {
+    throw new Error(
+      `SKU sequence must be an integer between 1 and ${MAX_SKU_SEQUENCE} (got ${sequence})`,
+    );
+  }
+  return `${prefix}${String(sequence).padStart(SKU_SEQUENCE_DIGITS, '0')}`;
+};
 
+/**
+ * Highest numeric sequence for a prefix among existing SKUs.
+ * Accepts legacy 3-digit (`…/001` → 1) and 5-digit (`…/00001` → 1) suffixes.
+ * Non-numeric / non-matching suffixes are ignored.
+ */
 export const findMaxSkuSequenceForPrefix = (
   prefix: string,
   existingSkus: Iterable<string>,
@@ -229,7 +249,9 @@ export const findMaxSkuSequenceForPrefix = (
     const normalized = sku.toLowerCase().trim();
     if (!normalized.startsWith(normalizedPrefix)) continue;
     const suffix = normalized.slice(normalizedPrefix.length);
-    const parsed = parseInt(suffix, 10);
+    // Only pure numeric tails count (handles 001, 00099, 08944, etc.).
+    if (!/^\d+$/.test(suffix)) continue;
+    const parsed = Number.parseInt(suffix, 10);
     if (!Number.isNaN(parsed)) {
       max = Math.max(max, parsed);
     }

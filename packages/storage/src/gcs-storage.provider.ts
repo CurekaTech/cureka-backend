@@ -75,7 +75,7 @@ export class GcsStorageProvider implements IStorageProviderWithAccessibleUrl {
       file.createWriteStream({
         metadata: {
           contentType: input.mimetype,
-          cacheControl: 'private, max-age=0, no-transform',
+          cacheControl: input.cacheControl ?? 'private, max-age=0, no-transform',
         },
         resumable: false,
       }),

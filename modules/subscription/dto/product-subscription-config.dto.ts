@@ -7,6 +7,7 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  IsString,
   IsUUID,
   Min,
 } from 'class-validator';
@@ -93,4 +94,40 @@ export class ProductSubscriptionConfigDto {
   @IsArray()
   @IsInt({ each: true })
   reminderOffsetsJson?: number[];
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  quantityChangeAllowed?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Absolute INR ceiling for AutoPay mandates. Required before AutoPay can be offered.',
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  mandateMaxAmount?: number | null;
+
+  @ApiPropertyOptional({ default: 'Asia/Kolkata' })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  @ApiPropertyOptional({ default: 2 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  deliveryLeadDays?: number;
+
+  @ApiPropertyOptional({ default: 3 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxRetryAttempts?: number;
+
+  @ApiPropertyOptional({ default: 12 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  changeCutoffHours?: number;
 }

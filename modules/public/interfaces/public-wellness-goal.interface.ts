@@ -15,3 +15,14 @@ export interface IPublicWellnessGoalListItem {
   description: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
+
+/** Wellness goal metadata when product list is scoped by wellnessGoalRefId. */
+export interface IPublicWellnessGoalProductListingContext {
+  refId: string;
+  name: string;
+  description: string | null;
+  image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+}
+

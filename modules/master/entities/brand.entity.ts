@@ -61,6 +61,9 @@ export class BrandEntity extends BaseEntity {
   @Column({ name: 'show_offer_banner', type: 'boolean', default: true })
   showOfferBanner!: boolean;
 
+  @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
+  faqBanner!: IStorageFileReference | null;
+
   @Column({ name: 'brand_highlights', type: 'jsonb', nullable: true })
   brandHighlights!: Array<{
     icon: IStorageFileReference | null;
@@ -97,4 +100,7 @@ export class BrandEntity extends BaseEntity {
 
   @Column({ name: 'in_home_page', type: 'boolean', default: false })
   inHomePage!: boolean;
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 }

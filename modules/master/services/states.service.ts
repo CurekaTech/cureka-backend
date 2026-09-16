@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -33,6 +34,12 @@ export class StatesService {
     const country = await this.countriesRepository.findByRefId(dto.countryRefId);
     if (!country) {
       throw new NotFoundException(`Country with refId "${dto.countryRefId}" not found`);
+    }
+
+    if (await this.statesRepository.existsByName(dto.name, country.id)) {
+      throw new ConflictException(
+        `A state with name "${dto.name}" already exists in this country`,
+      );
     }
 
     const entity = await this.statesRepository.create({
@@ -89,6 +96,13 @@ export class StatesService {
         throw new NotFoundException(`Country with refId "${dto.countryRefId}" not found`);
       }
       countryId = country.id;
+    }
+
+    const nextName = dto.name ?? existing.name;
+    if (await this.statesRepository.existsByName(nextName, countryId, refId)) {
+      throw new ConflictException(
+        `A state with name "${nextName}" already exists in this country`,
+      );
     }
 
     const updated = await this.statesRepository.updateByRefId(refId, {

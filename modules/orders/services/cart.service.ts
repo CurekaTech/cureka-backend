@@ -15,6 +15,7 @@ import { buildProductLocPath } from '@modules/sitemap/services/sitemap-url.build
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { CartEntity } from '../entities/cart.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
+import { OrderSource } from '../enums/order-source.enum';
 import { CartLineItem, CartResponse } from '../interfaces/cart-pricing.interface';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
@@ -328,6 +329,7 @@ export class CartService {
       this.assertStockAvailable(dto.quantity, variant.stock);
 
       await this.cartItemsRepository.updateById(itemId, { quantity: dto.quantity }, manager);
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
       return this.getCart(userId, manager);
     });
   }
@@ -340,6 +342,7 @@ export class CartService {
       if (!item) throw new NotFoundException(`Cart item ${itemId} not found`);
 
       await this.cartItemsRepository.deleteById(itemId, manager);
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
       return this.getCart(userId, manager);
     });
   }
@@ -349,14 +352,42 @@ export class CartService {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) return;
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
-      if (cart.couponId) {
-        await this.cartsRepository.updateById(cart.id, { couponId: null, updatedBy: userId }, manager);
-      }
+      await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
+      await this.cartsRepository.updateById(
+        cart.id,
+        {
+          couponId: null,
+          orderSource: null,
+          updatedBy: userId,
+        },
+        manager,
+      );
+    });
+  }
+
+  /**
+   * Remember App/Website from validate so place-order / payment checkout can omit it.
+   */
+  async setPreferredOrderSource(userId: string, orderSource: OrderSource): Promise<void> {
+    const cart = await this.cartsRepository.findActiveByUserId(userId);
+    if (!cart) return;
+    if (cart.orderSource === orderSource) return;
+    await this.cartsRepository.updateById(cart.id, {
+      orderSource,
+      updatedBy: userId,
     });
   }
 
   async getActiveCartEntity(userId: string, manager = this.dataSource.manager): Promise<CartEntity | null> {
     return this.cartsRepository.findActiveByUserId(userId, manager);
+  }
+
+  async touchCustomerActivity(
+    cartId: string,
+    userId: string,
+    manager = this.dataSource.manager,
+  ): Promise<void> {
+    await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
   }
 
   /**
@@ -422,6 +453,8 @@ export class CartService {
             );
           }
         }
+
+        await this.cartsRepository.touchCustomerActivity(targetCart.id, toUserId, manager);
 
         if (guestCart.couponId && !targetCart.couponId) {
           await this.cartsRepository.updateById(
@@ -619,6 +652,7 @@ export class CartService {
         { quantity: nextQty, updatedBy: userId },
         manager,
       );
+      await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
       return;
     }
 
@@ -640,6 +674,7 @@ export class CartService {
       },
       manager,
     );
+    await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
   }
 
   private async assertSubscriptionAllowed(

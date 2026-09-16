@@ -22,9 +22,12 @@ import {
   ChangeProductSubscriptionFrequencyDto,
   ActivateProductSubscriptionFromPaidOrderDto,
   CreateProductSubscriptionDto,
+  ListMyProductSubscriptionsQueryDto,
   PauseProductSubscriptionDto,
   ProductSubscriptionConfigQueryDto,
+  ProductSubscriptionQuoteDto,
   UpdateProductSubscriptionAddressDto,
+  UpdateProductSubscriptionQuantityDto,
   VerifyProductSubscriptionPaymentDto,
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionsService } from '../services/product-subscriptions.service';
@@ -41,6 +44,26 @@ export class ProductSubscriptionsController {
   @HttpCode(HttpStatus.OK)
   getConfig(@Query() query: ProductSubscriptionConfigQueryDto) {
     return this.productSubscriptionsService.getConfig(query);
+  }
+
+  @ApiOperation({ summary: 'Server-side Subscribe & Save quote (does not charge)' })
+  @ResponseMessage('Subscription quote calculated successfully')
+  @Get('quote')
+  @HttpCode(HttpStatus.OK)
+  quote(@Query() query: ProductSubscriptionQuoteDto) {
+    return this.productSubscriptionsService.quote(undefined, query);
+  }
+
+  @ApiOperation({ summary: 'Server-side Subscribe & Save quote with membership benefits' })
+  @ResponseMessage('Subscription quote calculated successfully')
+  @Get('quote/me')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  quoteMine(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Query() query: ProductSubscriptionQuoteDto,
+  ) {
+    return this.productSubscriptionsService.quote(user.sub, query);
   }
 
   @ApiOperation({ summary: 'Create product subscription (returns checkout modal payload)' })
@@ -74,8 +97,11 @@ export class ProductSubscriptionsController {
   @Get()
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionCookieGuard, VerifiedUserGuard)
-  listMine(@CurrentSessionUser() user: IUserSessionContext) {
-    return this.productSubscriptionsService.listMine(user.sub);
+  listMine(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Query() query: ListMyProductSubscriptionsQueryDto,
+  ) {
+    return this.productSubscriptionsService.listMine(user.sub, query);
   }
 
   @ApiOperation({ summary: 'Get my product subscription' })
@@ -100,6 +126,92 @@ export class ProductSubscriptionsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.productSubscriptionsService.listPayments(user.sub, id);
+  }
+
+  @ApiOperation({ summary: 'List billing cycles for my subscription' })
+  @ResponseMessage('Subscription cycles fetched successfully')
+  @Get(':id/cycles')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  listCycles(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.listCycles(user.sub, id);
+  }
+
+  @ApiOperation({ summary: 'List status history for my subscription' })
+  @ResponseMessage('Subscription history fetched successfully')
+  @Get(':id/history')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  listHistory(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.listHistory(user.sub, id);
+  }
+
+  @ApiOperation({ summary: 'Get mandate / AutoPay status (do not treat redirects as proof)' })
+  @ResponseMessage('Mandate status fetched successfully')
+  @Get(':id/mandate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  getMandate(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.getMandate(user.sub, id);
+  }
+
+  @ApiOperation({ summary: 'Start mandate authorisation (separate from first product payment)' })
+  @ResponseMessage('Mandate authorisation session created')
+  @Post(':id/mandate/authorize')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  authorizeMandate(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.authorizeMandate(user.sub, id);
+  }
+
+  @ApiOperation({ summary: 'Refresh mandate status from the provider (server-side)' })
+  @ResponseMessage('Mandate status refreshed')
+  @Post(':id/mandate/refresh')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  refreshMandate(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.refreshMandate(user.sub, id);
+  }
+
+  @ApiOperation({ summary: 'Verify Razorpay checkout signature for a subscription cycle' })
+  @ResponseMessage('Payment verified successfully')
+  @Post(':id/verify-payment')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  verifyPayment(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: VerifyProductSubscriptionPaymentDto,
+  ) {
+    return this.productSubscriptionsService.verifyRazorpayPayment(user.sub, id, dto);
+  }
+
+  @ApiOperation({ summary: 'Pay an unpaid billing cycle with a manual checkout session' })
+  @ResponseMessage('Checkout session created successfully')
+  @Post(':id/cycles/:cycleId/pay')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  payCycle(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('cycleId', ParseUUIDPipe) cycleId: string,
+  ) {
+    return this.productSubscriptionsService.payCycle(user.sub, id, cycleId);
   }
 
   @ApiOperation({ summary: 'Pause subscription' })
@@ -188,5 +300,18 @@ export class ProductSubscriptionsController {
     @Body() dto: UpdateProductSubscriptionAddressDto,
   ) {
     return this.productSubscriptionsService.updateAddress(user.sub, id, dto.addressId);
+  }
+
+  @ApiOperation({ summary: 'Update quantity when the product allows it' })
+  @ResponseMessage('Quantity updated successfully')
+  @Patch(':id/quantity')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  updateQuantity(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProductSubscriptionQuantityDto,
+  ) {
+    return this.productSubscriptionsService.updateQuantity(user.sub, id, dto);
   }
 }

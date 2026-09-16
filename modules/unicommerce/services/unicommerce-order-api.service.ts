@@ -19,6 +19,7 @@ import {
  *
  * Authentication: OAuth 2.0 password grant (GET /oauth/token).
  * Order creation: POST /services/rest/v1/oms/saleOrder/create
+ * Order cancel:   POST /services/rest/v1/oms/saleOrder/cancel
  *   - Header Authorization: bearer {access_token}
  *   - Header Facility: {facilityCode}
  *

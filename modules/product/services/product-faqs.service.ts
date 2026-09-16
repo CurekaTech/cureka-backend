@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { generateUniqueRefId } from '@packages/common';
+import { assertFaqLengths } from '@modules/master/utils/master-faq.util';
 import { ProductFaqEntity } from '../entities/product-faq.entity';
 import { CreateProductFaqDto } from '../dto/product-support.dto';
 import { ProductFaqStatus } from '../enums/product-faq-status.enum';
@@ -22,11 +23,14 @@ export class ProductFaqsService {
   ) {}
 
   async createProductFaq(dto: CreateProductFaqDto, createdBy: string) {
+    const question = dto.question.trim();
+    const answer = dto.answer.trim();
+    assertFaqLengths(question, answer);
     const entity = this.productFaqRepo.create({
-      question: dto.question,
-      answer: dto.answer,
+      question,
+      answer,
       status: dto.status ?? ProductFaqStatus.ACTIVE,
-      refId: await generateUniqueRefId(dto.question.slice(0, 20), async (refId) => {
+      refId: await generateUniqueRefId(question.slice(0, 20), async (refId) => {
         return (await this.productFaqRepo.count({ where: { refId } })) > 0;
       }),
       createdBy,

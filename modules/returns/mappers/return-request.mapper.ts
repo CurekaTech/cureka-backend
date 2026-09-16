@@ -259,6 +259,15 @@ export const mapCustomerReturnListItem = (
     canCancel: isCustomerCancellable(entity.status),
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
+    items: items.map((item) => ({
+      id: item.id,
+      orderItemId: item.orderItemId,
+      productName: item.productName,
+      variantName: item.variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      imageUrl: null,
+    })),
   };
 };
 
@@ -377,6 +386,7 @@ export const mapCustomerReturnDetail = (
       refundableAmount: item.refundableAmount,
       acceptedQuantity: item.acceptedQuantity,
       rejectedQuantity: item.rejectedQuantity,
+      imageUrl: null,
     })),
     evidence: extras.evidence.map(mapReturnEvidence),
     tracking: extras.pickup

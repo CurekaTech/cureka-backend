@@ -64,6 +64,9 @@ export class PackersService {
     logo: string | null,
     createdBy: string,
   ): Promise<IPacker> {
+    if (await this.packersRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A packer with name "${dto.name}" already exists`);
+    }
     if (await this.packersRepository.existsByCode(dto.code)) {
       throw new ConflictException(`A packer with code "${dto.code}" already exists`);
     }
@@ -143,6 +146,13 @@ export class PackersService {
   ): Promise<IPacker> {
     const existing = await this.packersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Packer with refId ${refId} not found`);
+
+    if (
+      dto.name !== undefined &&
+      (await this.packersRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`A packer with name "${dto.name}" already exists`);
+    }
 
     if (dto.code && dto.code !== existing.code) {
       if (await this.packersRepository.existsByCodeExcluding(dto.code, existing.id)) {

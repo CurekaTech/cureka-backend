@@ -103,6 +103,7 @@ import { OrdersService } from './services/orders.service';
     CouponCheckoutService,
     CartCheckoutAdminSettingsService,
     AdminAbandonedCartsService,
+    CartsRepository,
   ],
 })
 export class OrdersModule {}

@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { BulkUploadEntity } from '../entities/bulk-upload.entity';
+import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
+import { BulkUploadType } from '../enums/bulk-upload-type.enum';
 
 @Injectable()
 export class BulkUploadsRepository {
@@ -35,19 +37,35 @@ export class BulkUploadsRepository {
     return count > 0;
   }
 
-  async countActiveJobs(manager?: EntityManager): Promise<number> {
+  async countActiveJobs(
+    uploadType?: BulkUploadType,
+    manager?: EntityManager,
+  ): Promise<number> {
     const repository = manager ? manager.getRepository(BulkUploadEntity) : this.repo;
-    return repository.count({
-      where: [
-        { status: 'validating' as any },
-        { status: 'queued' as any },
-        { status: 'processing' as any },
-      ],
-    });
+    const activeStatuses = [
+      BulkUploadStatus.VALIDATING,
+      BulkUploadStatus.QUEUED,
+      BulkUploadStatus.PROCESSING,
+    ];
+
+    const qb = repository
+      .createQueryBuilder('job')
+      .where('job.status IN (:...statuses)', { statuses: activeStatuses });
+
+    if (uploadType) {
+      qb.andWhere('job.uploadType = :uploadType', { uploadType });
+    }
+
+    return qb.getCount();
   }
 
-  async findHistory(page = 1, limit = 20): Promise<[BulkUploadEntity[], number]> {
+  async findHistory(
+    page = 1,
+    limit = 20,
+    uploadType: BulkUploadType = BulkUploadType.PRODUCT,
+  ): Promise<[BulkUploadEntity[], number]> {
     return this.repo.findAndCount({
+      where: { uploadType },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

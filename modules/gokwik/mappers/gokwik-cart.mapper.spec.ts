@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { CartResponse } from '@modules/orders/interfaces/cart-pricing.interface';
 import { mapCartToGokwikCart } from './gokwik-cart.mapper';
 
@@ -32,6 +33,8 @@ describe('mapCartToGokwikCart', () => {
           variantId: 'variant-1',
           productName: 'Test Product',
           slug: 'test-product',
+          productSlug: 'test-product',
+          productPagePath: null,
           productPageUrl: null,
           sku: 'SKU-1',
           variantLabel: null,
@@ -156,6 +159,8 @@ describe('mapCartToGokwikCart', () => {
           variantId: 'variant-1',
           productName: 'Test',
           slug: 'test',
+          productSlug: 'test',
+          productPagePath: null,
           productPageUrl: null,
           sku: 'SKU-1',
           variantLabel: null,
@@ -216,6 +221,8 @@ describe('mapCartToGokwikCart', () => {
           variantId: 'variant-1',
           productName: 'Test',
           slug: 'test',
+          productSlug: 'test',
+          productPagePath: null,
           productPageUrl: null,
           sku: 'SKU-1',
           variantLabel: null,
@@ -279,6 +286,8 @@ describe('mapCartToGokwikCart', () => {
           variantId: 'variant-2',
           productName: 'Fallback Product',
           slug: 'fallback-product',
+          productSlug: 'fallback-product',
+          productPagePath: null,
           productPageUrl: null,
           sku: 'SKU-2',
           variantLabel: 'Size: 30 Tabs · Pack Size: 2',

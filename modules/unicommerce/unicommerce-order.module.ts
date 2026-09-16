@@ -20,7 +20,8 @@ import { UnicommerceOrderProcessor } from './processors/unicommerce-order.proces
 
 /**
  * Outbound UniCommerce "Post Orders" integration (Cureka -> UniCommerce).
- * Enqueues and processes push jobs in the API app.
+ * Enqueues and processes push and cancel-order-fulfillment jobs in the API app.
+ * Uniware cancel is owned by OrderFulfillmentCancelService, not ORDER_CANCELLED.
  */
 @Module({
   imports: [

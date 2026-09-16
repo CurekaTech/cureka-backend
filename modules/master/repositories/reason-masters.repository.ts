@@ -1,8 +1,10 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { ReasonMasterEntity } from '../entities/reason-master.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { ReasonPickupMode } from '../enums/reason-pickup-mode.enum';
@@ -46,6 +48,12 @@ export class ReasonMastersRepository {
     return (await qb.getCount()) > 0;
   }
 
+  async existsByTitle(title: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'reasonMaster', title, excludeRefId, {
+      column: 'title',
+    });
+  }
+
   async updateByRefId(
     refId: string,
     data: Partial<ReasonMasterEntity>,
@@ -76,10 +84,12 @@ export class ReasonMastersRepository {
 
     const qb = this.repo
       .createQueryBuilder('reasonMaster')
-      .orderBy(sortColumn, sortOrder)
+      
       .addOrderBy('reasonMaster.title', 'ASC')
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'reasonMaster', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere(

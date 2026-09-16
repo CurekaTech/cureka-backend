@@ -11,6 +11,8 @@ import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/
 import { PaginatedResult } from '@packages/common';
 import { IPublicBrandProductListingContext } from './public-brand.interface';
 import { IPublicCategoryProductListingContext } from './public-category.interface';
+import { IPublicHealthConcernProductListingContext } from './public-health-concern.interface';
+import { IPublicWellnessGoalProductListingContext } from './public-wellness-goal.interface';
 
 /** Cached/stored shape — logo is enriched to include a signed url on API responses. */
 export interface IPublicPartySummary {
@@ -308,7 +310,7 @@ export interface IPublicProductDetail {
   }>;
   categoryFilters: IProductCategoryFilterBinding[];
   tags: Array<{ refId: string; name: string; slug: string }>;
-  faqs: Array<{ refId: string; question: string; answer: string }>;
+  faqs: Array<{ refId: string; question: string; answer: string; sequence: number }>;
   bundleItems: Array<{
     childProductRefId: string;
     childProductName: string;
@@ -324,4 +326,8 @@ export interface IPublicProductListResponse extends PaginatedResult<IPublicProdu
   category?: IPublicCategoryProductListingContext | null;
   /** Present when the listing is filtered by a single brandSlug or brandRefId. */
   brand?: IPublicBrandProductListingContext | null;
+  /** Present when the listing is filtered by healthConcernSlug or healthConcernRefId. */
+  healthConcern?: IPublicHealthConcernProductListingContext | null;
+  /** Present when the listing is filtered by wellnessGoalRefId. */
+  wellnessGoal?: IPublicWellnessGoalProductListingContext | null;
 }

@@ -1,5 +1,6 @@
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { resolveBrandBannerForResponse } from '@modules/master/mappers/brand.mapper';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicBrandListItem } from '../interfaces/public-master.interface';
 
@@ -35,6 +36,7 @@ export const mapBrandEntityToListingContext = (
   showSecondaryVideo: entity.showSecondaryVideo ?? true,
   offerBanner: entity.showOfferBanner === false ? null : (entity.offerBanner ?? null),
   showOfferBanner: entity.showOfferBanner ?? true,
+  faqBanner: entity.faqBanner ?? null,
   brandHighlights: entity.showBrandHighlights === false ? null : (entity.brandHighlights ?? null),
   showBrandHighlights: entity.showBrandHighlights ?? true,
   description: entity.showDescription === false ? null : entity.description,
@@ -42,4 +44,5 @@ export const mapBrandEntityToListingContext = (
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
+  faqs: mapMasterFaqs(entity.faqs),
 });

@@ -27,6 +27,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
 const BRAND_UPLOAD_FIELDS = {
   logo: UploadFolder.LOGOS,
@@ -37,6 +38,7 @@ const BRAND_UPLOAD_FIELDS = {
   secondaryBanner: UploadFolder.BANNERS,
   secondaryVideo: UploadFolder.VIDEOS,
   offerBanner: UploadFolder.BANNERS,
+  faqBanner: UploadFolder.BANNERS,
 } as const;
 
 type BrandMediaInput = {
@@ -48,6 +50,7 @@ type BrandMediaInput = {
   secondaryBanner?: string | null;
   secondaryVideo?: string | null;
   offerBanner?: string | null;
+  faqBanner?: string | null;
 };
 
 @Injectable()
@@ -79,6 +82,7 @@ export class BrandsService {
         secondaryBanner: uploadedUrls['secondaryBanner'] ?? null,
         secondaryVideo: uploadedUrls['secondaryVideo'] ?? null,
         offerBanner: uploadedUrls['offerBanner'] ?? null,
+        faqBanner: uploadedUrls['faqBanner'] ?? null,
       },
       createdBy,
     );
@@ -100,6 +104,7 @@ export class BrandsService {
       secondaryBanner: uploadedUrls['secondaryBanner'],
       secondaryVideo: uploadedUrls['secondaryVideo'],
       offerBanner: uploadedUrls['offerBanner'],
+      faqBanner: uploadedUrls['faqBanner'],
     });
   }
 
@@ -109,6 +114,9 @@ export class BrandsService {
     createdBy: string,
   ): Promise<IBrand> {
     const slug = dto.slug ?? generateSlug(dto.name);
+    if (await this.brandsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A brand with name "${dto.name}" already exists`);
+    }
     const slugExists = await this.brandsRepository.existsBySlug(slug);
     if (slugExists) {
       throw new ConflictException(`A brand with slug "${slug}" already exists`);
@@ -125,6 +133,7 @@ export class BrandsService {
       secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
       secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
       offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
+      faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
       brandHighlights: this.persistBrandHighlights(dto.brandHighlights),
       showBanner: dto.showBanner ?? true,
       showVideo: dto.showVideo ?? true,
@@ -136,6 +145,7 @@ export class BrandsService {
       showBrandHighlights: dto.showBrandHighlights ?? true,
       description: dto.description ?? null,
       showDescription: dto.showDescription ?? true,
+      faqs: normalizeMasterFaqs(dto.faqs),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
       metaTitle: dto.metaTitle ?? null,
@@ -181,6 +191,10 @@ export class BrandsService {
       throw new NotFoundException(`Brand with refId ${refId} not found`);
     }
 
+    if (dto.name !== undefined && (await this.brandsRepository.existsByName(dto.name, refId))) {
+      throw new ConflictException(`A brand with name "${dto.name}" already exists`);
+    }
+
     const slug = dto.slug ?? existing.slug;
     if (dto.slug && dto.slug !== existing.slug) {
       const slugConflict = await this.brandsRepository.existsBySlugExcluding(
@@ -192,7 +206,7 @@ export class BrandsService {
       }
     }
 
-    const { brandHighlights, ...dtoFields } = dto;
+    const { brandHighlights, faqs, ...dtoFields } = dto;
     const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
@@ -219,8 +233,14 @@ export class BrandsService {
     if (media.offerBanner !== undefined) {
       payload.offerBanner = this.storageUrlEnricher.persist(media.offerBanner);
     }
+    if (media.faqBanner !== undefined) {
+      payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
+    }
     if (brandHighlights !== undefined) {
       payload.brandHighlights = this.persistBrandHighlights(brandHighlights);
+    }
+    if (faqs !== undefined) {
+      payload.faqs = normalizeMasterFaqs(faqs);
     }
 
     const result = await this.brandsRepository.updateByRefId(refId, payload);

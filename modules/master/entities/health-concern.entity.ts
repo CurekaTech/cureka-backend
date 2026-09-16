@@ -2,6 +2,7 @@ import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '@packages/database';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
 import { MasterStatus } from '../enums/master-status.enum';
+import { PatientAudience } from '../enums/patient-audience.enum';
 
 @Entity('health_concerns')
 export class HealthConcernEntity extends BaseEntity {
@@ -24,8 +25,23 @@ export class HealthConcernEntity extends BaseEntity {
   @Column({ name: 'meta_description', type: 'text', nullable: true })
   metaDescription!: string | null;
 
+  @Column({ name: 'medical_condition_name', type: 'varchar', length: 255, nullable: true })
+  medicalConditionName!: string | null;
+
+  @Column({
+    name: 'patient_audience',
+    type: 'enum',
+    enum: PatientAudience,
+    enumName: 'health_concerns_patient_audience_enum',
+    nullable: true,
+  })
+  patientAudience!: PatientAudience | null;
+
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
+
+  @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
+  faqBanner!: IStorageFileReference | null;
 
   @Index()
   @Column({
@@ -45,4 +61,7 @@ export class HealthConcernEntity extends BaseEntity {
    */
   @Column({ name: 'sort_index', type: 'int', nullable: true, default: null })
   sortIndex!: number | null;
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 }

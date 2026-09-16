@@ -64,6 +64,9 @@ export class ImportersService {
     logo: string | null,
     createdBy: string,
   ): Promise<IImporter> {
+    if (await this.importersRepository.existsByName(dto.name)) {
+      throw new ConflictException(`An importer with name "${dto.name}" already exists`);
+    }
     if (await this.importersRepository.existsByCode(dto.code)) {
       throw new ConflictException(`An importer with code "${dto.code}" already exists`);
     }
@@ -142,6 +145,13 @@ export class ImportersService {
   ): Promise<IImporter> {
     const existing = await this.importersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Importer with refId ${refId} not found`);
+
+    if (
+      dto.name !== undefined &&
+      (await this.importersRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`An importer with name "${dto.name}" already exists`);
+    }
 
     if (dto.code && dto.code !== existing.code) {
       if (await this.importersRepository.existsByCodeExcluding(dto.code, existing.id)) {

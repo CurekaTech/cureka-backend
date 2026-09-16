@@ -82,6 +82,18 @@ export class SitemapStorageService {
     return this.storageService.createReadStream(this.liveKey(resolved));
   }
 
+  /** Read live XML as utf8 text, or null if the object is missing. */
+  async readLiveText(relativePath: string): Promise<string | null> {
+    const resolved = await this.resolveLiveRelativePath(relativePath);
+    if (!resolved) return null;
+    const stream = await this.storageService.createReadStream(this.liveKey(resolved));
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  }
+
   /** Accepts `brands.xml` or legacy `brands/brands.xml`. */
   async resolveLiveRelativePath(relativePath: string): Promise<string | null> {
     for (const candidate of this.livePathAliases(relativePath)) {

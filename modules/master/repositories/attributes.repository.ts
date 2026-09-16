@@ -8,8 +8,9 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
 @Injectable()
 export class AttributesRepository {
@@ -38,6 +39,9 @@ export class AttributesRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'attribute', name, excludeRefId);
   }
 
   async updateByRefId(refId: string, data: Partial<AttributeEntity>): Promise<AttributeEntity | null> {
@@ -74,9 +78,11 @@ export class AttributesRepository {
 
     const qb = this.repo
       .createQueryBuilder('attribute')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'attribute', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere('attribute.name ILIKE :search', { search: `%${options.search}%` });

@@ -1,5 +1,6 @@
 import { CreateVariantDto } from '../dto/variant.dto';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
+import { normalizeVariantInlineFaqs } from '@modules/master/utils/master-faq.util';
 import { IVariantInlineFaq } from '../interfaces/variant-details.interface';
 import {
   normalizeProductInformation,
@@ -50,7 +51,7 @@ export const mapVariantDetailDtoToEntityColumns = (
       productInformation: normalizedProductInformation,
     }),
     ...(dto.customFaqs !== undefined && {
-      faqs: (dto.customFaqs ?? []) as IVariantInlineFaq[],
+      faqs: normalizeVariantInlineFaqs(dto.customFaqs ?? []) as IVariantInlineFaq[],
     }),
     ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle ?? null }),
     ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription ?? null }),

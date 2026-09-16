@@ -7,8 +7,10 @@ export interface IWellnessGoal {
   name: string;
   description: string | null;
   image: IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   inHomePage: boolean;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

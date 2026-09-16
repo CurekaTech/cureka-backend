@@ -25,6 +25,7 @@ import { HealthConcernEntity } from '@modules/master/entities/health-concern.ent
 import { WellnessGoalEntity } from '@modules/master/entities/wellness-goal.entity';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { normalizeCategoryHierarchyInputs } from '../utils/product-category-hierarchies.util';
+import { isCategoryFilterAllSentinel } from '../utils/category-filter-all.util';
 
 @Injectable()
 export class ProductMasterResolverService {
@@ -262,6 +263,10 @@ export class ProductMasterResolverService {
       }
 
       for (const value of uniqueValues) {
+        // Synthetic / legacy "All…" is allowed even when not listed on the master.
+        if (isCategoryFilterAllSentinel(value)) {
+          continue;
+        }
         if (!allowedValues.has(value)) {
           throw new BadRequestException(
             `Value "${value}" is not allowed for category filter "${filter.name}"`,

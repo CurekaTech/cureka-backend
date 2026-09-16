@@ -47,6 +47,9 @@ export class CategoryEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
+  faqBanner!: IStorageFileReference | null;
+
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
 
@@ -96,6 +99,9 @@ export class CategoryEntity extends BaseEntity {
 
   @Column({ name: 'below_the_fold', type: 'text', nullable: true })
   belowTheFold!: string | null;
+
+  @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 
   @Index()
   @Column({

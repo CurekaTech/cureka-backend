@@ -23,6 +23,7 @@ export interface ICategory {
   hierarchyLevel: CategoryHierarchyLevel;
   image: IStorageFileReferenceResponse | null;
   banner: IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReferenceResponse | null;
   slug: string;
   description: string | null;
   metaTitle: string | null;
@@ -30,6 +31,7 @@ export interface ICategory {
   metaKeywords: string[] | null;
   aboveTheFold: string | null;
   belowTheFold: string | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   isInHeader: boolean;
   isInShopBy: boolean;
   bestsellerSortIndex: number | null;

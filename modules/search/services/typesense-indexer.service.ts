@@ -222,7 +222,13 @@ export class TypesenseIndexerService {
     let indexed = 0;
     let skipped = 0;
 
+    this.logger.log(
+      { pageSize: REINDEX_PAGE_SIZE },
+      'Typesense full reindex started — indexing published products (this can take several minutes)',
+    );
+
     while (true) {
+      const pageStartedAt = Date.now();
       const products = await this.productsRepository.findPublishedProductsForSearch({
         page,
         pageSize: REINDEX_PAGE_SIZE,
@@ -232,16 +238,33 @@ export class TypesenseIndexerService {
         break;
       }
 
+      let pageIndexed = 0;
+      let pageSkipped = 0;
       for (const product of products) {
         const productDocuments = mapProductToTypesenseDocuments(product);
         if (!productDocuments.length) {
           skipped += 1;
+          pageSkipped += 1;
           continue;
         }
 
         await this.syncProductDocuments(product, productDocuments);
         indexed += productDocuments.length;
+        pageIndexed += productDocuments.length;
       }
+
+      this.logger.log(
+        {
+          page,
+          productsInPage: products.length,
+          pageVariantDocs: pageIndexed,
+          pageSkipped,
+          totalVariantDocs: indexed,
+          totalSkippedProducts: skipped,
+          pageDurationMs: Date.now() - pageStartedAt,
+        },
+        'Typesense reindex product page complete',
+      );
 
       if (products.length < REINDEX_PAGE_SIZE) {
         break;
@@ -250,6 +273,7 @@ export class TypesenseIndexerService {
       page += 1;
     }
 
+    this.logger.log('Typesense reindex — indexing categories, brands, health concerns');
     const categories = await this.indexActiveCategories();
     const brands = await this.indexActiveBrands();
     const healthConcerns = await this.indexActiveHealthConcerns();

@@ -30,6 +30,7 @@ export interface IBrand {
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReferenceResponse | null;
   showOfferBanner: boolean;
+  faqBanner: IStorageFileReferenceResponse | null;
   brandHighlights: IBrandHighlight[] | null;
   showBrandHighlights: boolean;
   description: string | null;
@@ -39,6 +40,7 @@ export interface IBrand {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   createdBy?: string;
   updatedBy?: string;
   createdAt: Date;

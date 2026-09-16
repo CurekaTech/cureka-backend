@@ -8,8 +8,9 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 
 @Injectable()
 export class PackersRepository {
@@ -29,6 +30,9 @@ export class PackersRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'packer', name, excludeRefId);
   }
 
   async existsByCode(code: string): Promise<boolean> {
@@ -76,9 +80,11 @@ export class PackersRepository {
 
     const qb = this.repo
       .createQueryBuilder('packer')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'packer', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.where(

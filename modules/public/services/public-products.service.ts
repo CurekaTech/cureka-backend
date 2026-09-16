@@ -14,8 +14,11 @@ import {
 } from '@packages/cache';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
+import { HealthConcernEntity } from '@modules/master/entities/health-concern.entity';
+import { WellnessGoalEntity } from '@modules/master/entities/wellness-goal.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { BannersService } from '@modules/master/services/banners.service';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
@@ -27,6 +30,7 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { ProductMasterResolverService } from '@modules/product/services/product-master-resolver.service';
 import { parseCategoryFilterQueryBindings } from '@modules/product/utils/category-filter-query.util';
+import { ensureCategoryFilterAllOption } from '@modules/product/utils/category-filter-all.util';
 import { enrichPublicProductInformation } from '@modules/product/utils/product-information.util';
 import { ProductInformationLabelsRepository } from '@modules/product/repositories/product-information-labels.repository';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
@@ -61,7 +65,11 @@ import {
 } from '../interfaces/public-product.interface';
 import { IPublicBrandProductListingContext } from '../interfaces/public-brand.interface';
 import { IPublicCategoryProductListingContext } from '../interfaces/public-category.interface';
+import { IPublicHealthConcernProductListingContext } from '../interfaces/public-health-concern.interface';
+import { IPublicWellnessGoalProductListingContext } from '../interfaces/public-wellness-goal.interface';
 import { mapBrandEntityToListingContext } from '../mappers/public-brand.mapper';
+import { mapHealthConcernEntityToListingContext } from '../mappers/public-health-concern.mapper';
+import { mapWellnessGoalEntityToListingContext } from '../mappers/public-wellness-goal.mapper';
 import {
   mapProductEntitiesToPublicCards,
   mapProductEntityToPublicDetail,
@@ -111,6 +119,10 @@ export class PublicProductsService {
       productNatureId: filters.productNatureId,
       healthConcernId: filters.healthConcernId,
       wellnessGoalId: filters.wellnessGoalId,
+      // Prefer raw query params (string) so CF selections never collapse to "[object Object]".
+      categoryFilters: query.categoryFilters,
+      categoryFilterRefId: query.categoryFilterRefId,
+      categoryFilterValues: query.categoryFilterValues,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       categoryRefId: query.categoryRefId,
       categorySlug: query.categorySlug,
@@ -133,6 +145,7 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType: query.productType,
       prioritizeInStock: true,
+      inStockOnly: true,
     });
 
     const tDb = Date.now();
@@ -171,15 +184,21 @@ export class PublicProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichPaginatedCards(raw);
-    const [category, brand] = await Promise.all([
+    const [category, brand, healthConcern, wellnessGoal] = await Promise.all([
       filters.category ? this.buildCategoryListingContext(filters.category) : Promise.resolve(null),
       filters.brand ? this.buildBrandListingContext(filters.brand) : Promise.resolve(null),
+      filters.healthConcern
+        ? this.buildHealthConcernListingContext(filters.healthConcern)
+        : Promise.resolve(null),
+      filters.wellnessGoal
+        ? this.buildWellnessGoalListingContext(filters.wellnessGoal)
+        : Promise.resolve(null),
     ]);
     const imageCount = result.data.filter((c) => c.primaryImageUrl).length;
     this.logger.log(
       `[PERF] findAll | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    return { ...result, category, brand };
+    return { ...result, category, brand, healthConcern, wellnessGoal };
   }
 
   /**
@@ -280,6 +299,9 @@ export class PublicProductsService {
       productNatureId: filters.productNatureId,
       healthConcernId: filters.healthConcernId,
       wellnessGoalId: filters.wellnessGoalId,
+      categoryFilters: query.categoryFilters,
+      categoryFilterRefId: query.categoryFilterRefId,
+      categoryFilterValues: query.categoryFilterValues,
       categoryFilterCriteria: filters.categoryFilterCriteria,
       categoryRefId: query.categoryRefId,
       categorySlug: query.categorySlug,
@@ -300,6 +322,7 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType: query.productType,
       prioritizeInStock: true,
+      inStockOnly: true,
     });
 
     const tDb = Date.now();
@@ -707,6 +730,8 @@ export class PublicProductsService {
       category,
       brand: brandFilters.brand ?? null,
       selectedBrands: brandFilters.selectedBrands,
+      healthConcern,
+      wellnessGoal,
     };
   }
 
@@ -714,6 +739,24 @@ export class PublicProductsService {
     brand: BrandEntity,
   ): Promise<IPublicBrandProductListingContext> {
     return this.storageUrlEnricher.enrichDeep(mapBrandEntityToListingContext(brand));
+  }
+
+  private async buildHealthConcernListingContext(
+    healthConcern: HealthConcernEntity,
+  ): Promise<IPublicHealthConcernProductListingContext> {
+    return this.storageUrlEnricher.enrichFields(
+      mapHealthConcernEntityToListingContext(healthConcern),
+      ['icon', 'banner', 'faqBanner'],
+    );
+  }
+
+  private async buildWellnessGoalListingContext(
+    wellnessGoal: WellnessGoalEntity,
+  ): Promise<IPublicWellnessGoalProductListingContext> {
+    return this.storageUrlEnricher.enrichFields(
+      mapWellnessGoalEntityToListingContext(wellnessGoal),
+      ['image', 'faqBanner'],
+    );
   }
 
   private async buildCategoryListingContext(
@@ -759,6 +802,8 @@ export class PublicProductsService {
     const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
       ? matchedCategory.belowTheFold
       : rootCategory.belowTheFold;
+    // Only the matched category's own FAQs — no parent/root fallback when empty.
+    const selectedFaqs = mapMasterFaqs(matchedCategory.faqs);
 
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
@@ -769,6 +814,10 @@ export class PublicProductsService {
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
       banner:
         isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
+      faqBanner:
+        isChildFilter && matchedCategory.faqBanner
+          ? matchedCategory.faqBanner
+          : rootCategory.faqBanner,
       aboveTheFold: selectedAboveTheFold,
       belowTheFold: selectedBelowTheFold,
       metaTitle:
@@ -779,12 +828,13 @@ export class PublicProductsService {
         isChildFilter && matchedCategory.metaDescription?.trim()
           ? matchedCategory.metaDescription
           : rootCategory.metaDescription,
+      faqs: selectedFaqs,
       categoryFilters: activeFilters.map((filter) => {
         const productValues = valuesByFilterId.get(filter.id) ?? [];
         return {
           refId: filter.refId,
           name: filter.name,
-          values: productValues,
+          values: ensureCategoryFilterAllOption(productValues),
         };
       }),
       selectedCategory: {
@@ -795,18 +845,24 @@ export class PublicProductsService {
         permalink: buildCategoryPermalink(selectedPath),
         image: matchedCategory.image,
         banner: matchedCategory.banner,
+        faqBanner: matchedCategory.faqBanner,
         aboveTheFold: selectedAboveTheFold,
         belowTheFold: selectedBelowTheFold,
         metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,
         metaDescription: matchedCategory.metaDescription?.trim() || rootCategory.metaDescription,
+        faqs: selectedFaqs,
       },
     };
 
-    const enriched = await this.storageUrlEnricher.enrichFields(context, ['image', 'banner']);
+    const enriched = await this.storageUrlEnricher.enrichFields(context, [
+      'image',
+      'banner',
+      'faqBanner',
+    ]);
     if (enriched.selectedCategory) {
       enriched.selectedCategory = await this.storageUrlEnricher.enrichFields(
         enriched.selectedCategory,
-        ['image', 'banner'],
+        ['image', 'banner', 'faqBanner'],
       );
     }
     return enriched;

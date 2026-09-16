@@ -45,6 +45,6 @@ export const returnsConfig = registerAs('returns', () => ({
   },
   wallet: {
     /** Customer may send a COD refund to the Cureka refund wallet. */
-    refundEnabled: asBool(process.env['RETURN_WALLET_REFUND_ENABLED'], true),
+    refundEnabled: asBool(process.env['RETURN_WALLET_REFUND_ENABLED'], false),
   },
 }));

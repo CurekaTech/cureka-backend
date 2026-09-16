@@ -22,6 +22,7 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { IStorageFileReference } from '@packages/storage';
 import { mapProductEntitiesToPublicCards } from '@modules/public/mappers/public-product.mapper';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 import {
   BlogPostQueryDto,
   BlogVideoDto,
@@ -607,13 +608,7 @@ export class BlogPostsService {
   private normalizeFaqs(
     faqs?: Array<{ question: string; answer: string }>,
   ): Array<{ question: string; answer: string }> {
-    if (!faqs?.length) return [];
-    return faqs
-      .map((faq) => ({
-        question: faq.question?.trim() ?? '',
-        answer: faq.answer?.trim() ?? '',
-      }))
-      .filter((faq) => faq.question && faq.answer);
+    return normalizeMasterFaqs(faqs);
   }
 
   /**

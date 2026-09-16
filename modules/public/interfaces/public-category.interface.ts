@@ -22,10 +22,12 @@ export interface IPublicCategoryProductListingContext {
   permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   aboveTheFold: string | null;
   belowTheFold: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   categoryFilters: IPublicCategoryFilterFacet[];
   /** Set when the listing is filtered by a child category (non-root). */
   selectedCategory?: {
@@ -36,10 +38,12 @@ export interface IPublicCategoryProductListingContext {
     permalink: string;
     image: IStorageFileReference | IStorageFileReferenceResponse | null;
     banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
     aboveTheFold: string | null;
     belowTheFold: string | null;
     metaTitle: string | null;
     metaDescription: string | null;
+    faqs: Array<{ question: string; answer: string; sequence: number }>;
   } | null;
 }
 
@@ -53,6 +57,7 @@ export interface IPublicCategoryTree {
   permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   isInHeader: boolean;
@@ -75,6 +80,7 @@ export interface IPublicHeaderCategory {
    */
   image?: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner?: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBanner?: IStorageFileReference | IStorageFileReferenceResponse | null;
   position?: number;
   hierarchyLevel?: CategoryHierarchyLevel;
   isInHeader?: boolean;

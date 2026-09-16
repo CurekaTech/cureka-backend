@@ -1,4 +1,5 @@
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
+import { PatientAudience } from '@modules/master/enums/patient-audience.enum';
 
 /**
  * One "Expert-Curated Wellness Bundles" card shown on the homepage, sourced from a
@@ -29,7 +30,25 @@ export interface IPublicHomePageHealthConcern {
   /** Included on view-all listing responses; omitted from the homepage strip endpoint. */
   metaTitle?: string | null;
   metaDescription?: string | null;
+  medicalConditionName?: string | null;
+  patientAudience?: PatientAudience | null;
 }
 
 /** Active health concern for public view-all listing (not limited to inHomePage). */
 export type IPublicHealthConcernListItem = IPublicHomePageHealthConcern;
+
+/** Health concern metadata when product list is scoped by healthConcernSlug/RefId. */
+export interface IPublicHealthConcernProductListingContext {
+  refId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  medicalConditionName: string | null;
+  patientAudience: PatientAudience | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+}

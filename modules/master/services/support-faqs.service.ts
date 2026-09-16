@@ -15,6 +15,7 @@ import { SupportFaqEntity } from '../entities/support-faq.entity';
 import { SupportCategoryType } from '../enums/support-category-type.enum';
 import { SupportContentStatus } from '../enums/support-content-status.enum';
 import { mapStorefrontFaq, mapSupportFaq } from '../mappers/support.mapper';
+import { assertFaqLengths } from '../utils/master-faq.util';
 import { SupportFaqsRepository } from '../repositories/support-faqs.repository';
 import { SupportCategoriesService } from './support-categories.service';
 
@@ -27,15 +28,18 @@ export class SupportFaqsService {
 
   async create(dto: CreateSupportFaqDto, actor: string) {
     await this.categoriesService.assertCategoryExists(dto.categoryRefId, SupportCategoryType.FAQ);
+    const question = dto.question.trim();
+    const answer = dto.answer.trim();
+    assertFaqLengths(question, answer);
 
-    const refId = await generateUniqueRefId(dto.question, (id) =>
+    const refId = await generateUniqueRefId(question, (id) =>
       this.faqsRepo.existsByRefId(id),
     );
 
     const entity = await this.faqsRepo.create({
       refId,
-      question: dto.question,
-      answer: dto.answer,
+      question,
+      answer,
       categoryRefId: dto.categoryRefId,
       sortOrder: dto.sortOrder ?? 0,
       status: dto.status ?? SupportContentStatus.ACTIVE,
@@ -82,8 +86,14 @@ export class SupportFaqsService {
       await this.categoriesService.assertCategoryExists(dto.categoryRefId, SupportCategoryType.FAQ);
     }
 
+    const question = dto.question !== undefined ? dto.question.trim() : existing.question;
+    const answer = dto.answer !== undefined ? dto.answer.trim() : existing.answer;
+    assertFaqLengths(question, answer);
+
     const updated = await this.faqsRepo.updateByRefId(refId, {
       ...dto,
+      ...(dto.question !== undefined ? { question } : {}),
+      ...(dto.answer !== undefined ? { answer } : {}),
       updatedBy: actor,
     });
 

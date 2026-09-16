@@ -41,6 +41,7 @@ const toBoolean = ({ value }: { value: unknown }): unknown => {
 
 /** JSON-encoded when submitted through multipart alongside evidence files. */
 const parseJson = ({ value }: { value: unknown }): unknown => {
+  if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string') return value;
   try {
     return JSON.parse(value);

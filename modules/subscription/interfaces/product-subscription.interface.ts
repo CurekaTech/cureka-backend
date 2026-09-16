@@ -53,6 +53,12 @@ export interface IProductSubscriptionConfig {
   missedPaymentAction: SubscriptionMissedPaymentAction;
   renewalMethod: SubscriptionRenewalMethod;
   reminderOffsetsJson: number[];
+  quantityChangeAllowed: boolean;
+  mandateMaxAmount: string | null;
+  timezone: string;
+  deliveryLeadDays: number;
+  maxRetryAttempts: number;
+  changeCutoffHours: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +88,27 @@ export interface IUserProductSubscription {
   pauseUntil: string | null;
   billingCycleSequence: number;
   configId: string | null;
+  timezone: string;
+  scheduleAnchorDay: number | null;
+  autopayReady: boolean;
+  skipNextCycle: boolean;
+  firstOrderId: string | null;
+  mandateId: string | null;
+  mandateMaxAmount: string | null;
+  mandateStatus?: string | null;
+  intervalMonths?: number;
+  intervalLabel?: string;
+  allowedActions?: {
+    pause: boolean;
+    resume: boolean;
+    skip: boolean;
+    cancel: boolean;
+    changeFrequency: boolean;
+    changeAddress: boolean;
+    changeQuantity: boolean;
+    setupMandate: boolean;
+    retryPayment: boolean;
+  };
   paymentLink?: string | null;
   razorpayOrderId?: string | null;
   keyId?: string | null;
@@ -121,6 +148,9 @@ export interface ISubscriptionPayment {
   paidAt: string | null;
   failureReason: string | null;
   retryCount: number;
+  billingCycleId?: string | null;
+  orderId?: string | null;
+  attemptKind?: string | null;
   user?: ISubscriptionUserSummary | null;
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;

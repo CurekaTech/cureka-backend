@@ -88,11 +88,11 @@ export const CacheKeys = {
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
-    // v6: list Pack of 1 deep-links + slug token variant resolution (500ml ≠ 50ml).
-    list: (queryHash: string) => `public:products:v6:list:${queryHash}`,
-    listPattern: () => 'public:products:v6:list:*',
-    variantSearch: (queryHash: string) => `public:products:v6:variant-search:${queryHash}`,
-    variantSearchPattern: () => 'public:products:v6:variant-search:*',
+    // v7: stable cache hash for categoryFilterCriteria objects (was "[object Object]").
+    list: (queryHash: string) => `public:products:v7:list:${queryHash}`,
+    listPattern: () => 'public:products:v7:list:*',
+    variantSearch: (queryHash: string) => `public:products:v7:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:v7:variant-search:*',
     detail: (slug: string) => `public:products:v6:detail:${slug}`,
     detailPattern: (slug?: string) =>
       slug ? `public:products:v6:detail:${slug}` : 'public:products:v6:detail:*',

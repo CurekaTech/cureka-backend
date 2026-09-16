@@ -33,6 +33,7 @@ import {
   flattenAttributeDetailNames,
   formatGeneratedSku,
 } from '../utils/bulk-upload-variable.util';
+import { normalizeSkuMatchKey } from '../utils/sku-match.util';
 import {
   collectBulkUploadLengthOverflows,
   formatLengthOverflowReason,
@@ -87,7 +88,7 @@ export class BulkUploadValidatorService {
   private packerMap = new Map<string, string>(); // name (lowercase) -> refId
   private importerMap = new Map<string, string>(); // name (lowercase) -> refId
   private countryMap = new Map<string, string>(); // name (lowercase) -> refId
-  private skuToProductRefIdMap = new Map<string, string>(); // SKU (lowercase) -> parent product refId
+  private skuToProductRefIdMap = new Map<string, string>(); // SKU (case-sensitive trim) -> parent product refId
   private vendorSkuToProductRefIdMap = new Map<string, string>(); // vendor SKU (lowercase) -> parent product refId
   private productRefIdToVariantSkusMap = new Map<string, string[]>(); // product refId -> variant SKUs (stable order)
   private externalVariantIdToSkuMap = new Map<string, string>(); // variant externalProductId -> sku
@@ -304,7 +305,7 @@ export class BulkUploadValidatorService {
     }
     for (const v of skusWithProducts) {
       if (v.sku) {
-        const normSku = v.sku.toLowerCase().trim();
+        const normSku = normalizeSkuMatchKey(v.sku);
         this.dbSkus.add(normSku);
         if (v.product) {
           this.skuToProductRefIdMap.set(normSku, v.product.refId);
@@ -388,7 +389,7 @@ export class BulkUploadValidatorService {
    * Resolves child product refId by SKU code.
    */
   resolveProductRefIdBySku(sku: string): string | undefined {
-    return this.skuToProductRefIdMap.get(sku.toLowerCase().trim());
+    return this.skuToProductRefIdMap.get(normalizeSkuMatchKey(sku));
   }
 
   resolveExistingProductRefIdForGroup(group: IParsedProductGroup): string | undefined {
@@ -951,7 +952,7 @@ export class BulkUploadValidatorService {
             continue;
           }
 
-          const normChildSku = item.childSku.toLowerCase().trim();
+          const normChildSku = normalizeSkuMatchKey(item.childSku);
           // Check that child SKU exists in DB
           if (!this.dbSkus.has(normChildSku) && !sheetSkus.has(normChildSku)) {
             groupErrors.push({
@@ -1303,7 +1304,7 @@ export class BulkUploadValidatorService {
     const reservedInGroup = new Set<string>();
 
     for (const variant of group.variants) {
-      const existing = variant.sku?.toLowerCase().trim();
+      const existing = normalizeSkuMatchKey(variant.sku);
       if (existing) {
         reservedInGroup.add(existing);
       }
@@ -1319,8 +1320,8 @@ export class BulkUploadValidatorService {
     const relatedSkuQueue = relatedProductRefIds
       .flatMap((refId) => [...(this.productRefIdToVariantSkusMap.get(refId) ?? [])])
       .filter((sku) => {
-        const normalized = sku?.toLowerCase().trim();
-        return Boolean(normalized) && !reservedInGroup.has(normalized!);
+        const normalized = normalizeSkuMatchKey(sku);
+        return Boolean(normalized) && !reservedInGroup.has(normalized);
       });
     let relatedSkuIndex = 0;
 
@@ -1343,8 +1344,8 @@ export class BulkUploadValidatorService {
         const mappedSku = this.externalVariantIdToSkuMap.get(variantProductId)?.trim();
         if (
           mappedSku &&
-          !reservedInGroup.has(mappedSku.toLowerCase()) &&
-          !sheetSkus.has(mappedSku.toLowerCase())
+          !reservedInGroup.has(normalizeSkuMatchKey(mappedSku)) &&
+          !sheetSkus.has(normalizeSkuMatchKey(mappedSku))
         ) {
           const ownerRefId = this.resolveProductRefIdBySku(mappedSku);
           const mergeAllow = new Set(relatedProductRefIds);
@@ -1355,7 +1356,7 @@ export class BulkUploadValidatorService {
             mergeAllow.has(ownerRefId)
           ) {
             variant.sku = mappedSku;
-            reservedInGroup.add(mappedSku.toLowerCase());
+            reservedInGroup.add(normalizeSkuMatchKey(mappedSku));
             continue;
           }
         }
@@ -1366,7 +1367,7 @@ export class BulkUploadValidatorService {
       while (relatedSkuIndex < relatedSkuQueue.length) {
         const relatedSku = relatedSkuQueue[relatedSkuIndex++]?.trim();
         if (!relatedSku) continue;
-        const normalized = relatedSku.toLowerCase();
+        const normalized = normalizeSkuMatchKey(relatedSku);
         if (reservedInGroup.has(normalized) || sheetSkus.has(normalized)) {
           continue;
         }
@@ -1386,12 +1387,12 @@ export class BulkUploadValidatorService {
           sequence += 1;
           sku = formatGeneratedSku(prefix, sequence);
         } while (
-          this.dbSkus.has(sku.toLowerCase()) ||
-          sheetSkus.has(sku.toLowerCase()) ||
-          reservedInGroup.has(sku.toLowerCase())
+          this.dbSkus.has(normalizeSkuMatchKey(sku)) ||
+          sheetSkus.has(normalizeSkuMatchKey(sku)) ||
+          reservedInGroup.has(normalizeSkuMatchKey(sku))
         );
         variant.sku = sku;
-        reservedInGroup.add(sku.toLowerCase());
+        reservedInGroup.add(normalizeSkuMatchKey(sku));
         continue;
       }
 
@@ -1432,7 +1433,7 @@ export class BulkUploadValidatorService {
       return;
     }
 
-    const normSku = variant.sku.toLowerCase().trim();
+    const normSku = normalizeSkuMatchKey(variant.sku);
     if (sheetSkus.has(normSku)) {
       groupErrors.push({
         rowNumber: variant.rowNumber,

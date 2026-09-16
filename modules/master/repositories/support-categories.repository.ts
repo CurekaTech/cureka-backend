@@ -1,8 +1,10 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { SupportCategoryEntity } from '../entities/support-category.entity';
 import { SupportCategoryType } from '../enums/support-category-type.enum';
 import { SupportContentStatus } from '../enums/support-content-status.enum';
@@ -35,6 +37,9 @@ export class SupportCategoriesRepository {
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'supportCategory', name, excludeRefId);
+  }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
     const qb = this.repo
@@ -65,9 +70,11 @@ export class SupportCategoriesRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const qb = this.repo
       .createQueryBuilder('category')
-      .orderBy('category.name', 'ASC')
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'category', options.status, 'category.name', 'ASC');
 
     if (options.type) {
       qb.andWhere('(category.type = :type OR category.type = :both)', {

@@ -33,12 +33,14 @@ import { HealthConcernEntity } from '../entities/health-concern.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
-const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner'] as const;
+const HEALTH_CONCERN_MEDIA_FIELDS = ['icon', 'banner', 'faqBanner'] as const;
 
 const HEALTH_CONCERN_UPLOAD_FIELDS = {
   icon: UploadFolder.ICONS,
   banner: UploadFolder.BANNERS,
+  faqBanner: UploadFolder.BANNERS,
 } as const;
 
 @Injectable()
@@ -64,6 +66,7 @@ export class HealthConcernsService {
       {
         icon: uploadedUrls['icon'] ?? null,
         banner: uploadedUrls['banner'] ?? null,
+        faqBanner: uploadedUrls['faqBanner'] ?? null,
       },
       createdBy,
     );
@@ -83,15 +86,19 @@ export class HealthConcernsService {
     return this.update(refId, dto, updatedBy, {
       icon: uploadedUrls['icon'],
       banner: uploadedUrls['banner'],
+      faqBanner: uploadedUrls['faqBanner'],
     });
   }
 
   async create(
     dto: CreateHealthConcernDto,
-    media: { icon?: string | null; banner?: string | null } = {},
+    media: { icon?: string | null; banner?: string | null; faqBanner?: string | null } = {},
     createdBy: string,
   ): Promise<IHealthConcern> {
     const slug = dto.slug ?? generateSlug(dto.name);
+    if (await this.healthConcernsRepository.existsByName(dto.name)) {
+      throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
+    }
     if (await this.healthConcernsRepository.existsBySlug(slug)) {
       throw new ConflictException(`A health concern with slug "${slug}" already exists`);
     }
@@ -101,11 +108,15 @@ export class HealthConcernsService {
       slug,
       icon: this.storageUrlEnricher.persist(media.icon),
       banner: this.storageUrlEnricher.persist(media.banner),
+      faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
       description: dto.description ?? null,
       metaTitle: dto.metaTitle ?? null,
       metaDescription: dto.metaDescription ?? null,
+      medicalConditionName: dto.medicalConditionName ?? null,
+      patientAudience: dto.patientAudience ?? null,
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
+      faqs: normalizeMasterFaqs(dto.faqs),
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.healthConcernsRepository.existsByRefId(refId),
       ),
@@ -169,11 +180,18 @@ export class HealthConcernsService {
     refId: string,
     dto: UpdateHealthConcernDto,
     updatedBy: string,
-    media: { icon?: string | null; banner?: string | null } = {},
+    media: { icon?: string | null; banner?: string | null; faqBanner?: string | null } = {},
   ): Promise<IHealthConcern> {
     const existing = await this.healthConcernsRepository.findByRefId(refId);
     if (!existing) {
       throw new NotFoundException(`Health concern with refId ${refId} not found`);
+    }
+
+    if (
+      dto.name !== undefined &&
+      (await this.healthConcernsRepository.existsByName(dto.name, refId))
+    ) {
+      throw new ConflictException(`A health concern with name "${dto.name}" already exists`);
     }
 
     const slug = dto.slug ?? existing.slug;
@@ -183,10 +201,15 @@ export class HealthConcernsService {
       }
     }
 
-    const payload: Partial<HealthConcernEntity> = { ...dto, updatedBy };
+    const { faqs, ...dtoFields } = dto;
+    const payload: Partial<HealthConcernEntity> = { ...dtoFields, updatedBy };
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.icon !== undefined) payload.icon = this.storageUrlEnricher.persist(media.icon);
     if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (media.faqBanner !== undefined) {
+      payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
+    }
+    if (faqs !== undefined) payload.faqs = normalizeMasterFaqs(faqs);
 
     const result = await this.healthConcernsRepository.updateByRefId(refId, payload);
     if (!result) {
@@ -249,6 +272,7 @@ export class HealthConcernsService {
         CacheKeys.homepage.expertCuratedBundlesPattern(),
         CacheKeys.homepage.healthConcernsPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.publicProducts.listPattern(),
       ],
     });
   }

@@ -38,13 +38,15 @@ import {
 } from '@packages/common';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
-const CATEGORY_MEDIA_FIELDS = ['image', 'banner'] as const;
+const CATEGORY_MEDIA_FIELDS = ['image', 'banner', 'faqBanner'] as const;
 
 const CATEGORY_UPLOAD_FIELDS = {
   image: UploadFolder.IMAGES,
   banner: UploadFolder.BANNERS,
+  faqBanner: UploadFolder.BANNERS,
 } as const;
 
 @Injectable()
@@ -72,6 +74,7 @@ export class CategoriesService {
       {
         image: uploadedUrls['image'] ?? null,
         banner: uploadedUrls['banner'] ?? null,
+        faqBanner: uploadedUrls['faqBanner'] ?? null,
       },
       createdBy,
     );
@@ -87,12 +90,13 @@ export class CategoriesService {
     return this.update(refId, dto, updatedBy, {
       image: uploadedUrls['image'],
       banner: uploadedUrls['banner'],
+      faqBanner: uploadedUrls['faqBanner'],
     });
   }
 
   async create(
     dto: CreateCategoryDto,
-    media: { image?: string | null; banner?: string | null } = {},
+    media: { image?: string | null; banner?: string | null; faqBanner?: string | null } = {},
     createdBy: string,
   ): Promise<ICategory> {
     let hierarchyLevel = CategoryHierarchyLevel.ROOT;
@@ -144,6 +148,7 @@ export class CategoriesService {
         hierarchyLevel,
         image: this.storageUrlEnricher.persist(media.image),
         banner: this.storageUrlEnricher.persist(media.banner),
+        faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
         slug,
         description: dto.description ?? null,
         metaTitle: dto.metaTitle ?? null,
@@ -151,6 +156,7 @@ export class CategoriesService {
         metaKeywords: dto.metaKeywords ?? null,
         aboveTheFold: dto.aboveTheFold ?? null,
         belowTheFold: dto.belowTheFold ?? null,
+        faqs: normalizeMasterFaqs(dto.faqs),
         status: dto.status ?? MasterStatus.ACTIVE,
         refId: await generateUniqueRefId(dto.name, (refId) =>
           this.categoriesRepository.existsByRefId(refId),
@@ -244,7 +250,7 @@ export class CategoriesService {
     refId: string,
     dto: UpdateCategoryDto,
     updatedBy: string,
-    media: { image?: string | null; banner?: string | null } = {},
+    media: { image?: string | null; banner?: string | null; faqBanner?: string | null } = {},
   ): Promise<ICategory> {
     const existing = await this.categoriesRepository.findByRefId(refId);
     if (!existing) {
@@ -332,12 +338,16 @@ export class CategoriesService {
     if (dto.position !== undefined) updatePayload.position = dto.position;
     if (media.image !== undefined) updatePayload.image = this.storageUrlEnricher.persist(media.image);
     if (media.banner !== undefined) updatePayload.banner = this.storageUrlEnricher.persist(media.banner);
+    if (media.faqBanner !== undefined) {
+      updatePayload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
+    }
     if (dto.metaTitle !== undefined) updatePayload.metaTitle = dto.metaTitle ?? null;
     if (dto.metaDescription !== undefined)
       updatePayload.metaDescription = dto.metaDescription ?? null;
     if (dto.aboveTheFold !== undefined) updatePayload.aboveTheFold = dto.aboveTheFold ?? null;
     if (dto.belowTheFold !== undefined) updatePayload.belowTheFold = dto.belowTheFold ?? null;
     if (dto.metaKeywords !== undefined) updatePayload.metaKeywords = dto.metaKeywords ?? null;
+    if (dto.faqs !== undefined) updatePayload.faqs = normalizeMasterFaqs(dto.faqs);
     if (dto.isInHeader !== undefined) updatePayload.isInHeader = dto.isInHeader;
     if (dto.isInShopBy !== undefined) updatePayload.isInShopBy = dto.isInShopBy;
     if (dto.status !== undefined) updatePayload.status = dto.status;

@@ -1,5 +1,16 @@
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');
 
+/** Optional post-upload hook implemented by the image pipeline. */
+export const STORAGE_UPLOAD_HOOK = Symbol('STORAGE_UPLOAD_HOOK');
+
+export interface IStorageUploadHook {
+  onStoredObject(input: {
+    key: string;
+    mimetype: string;
+    size: number;
+  }): void | Promise<void>;
+}
+
 export const ALLOWED_IMAGE_MIME_TYPES = [
   'image/jpeg',
   'image/png',

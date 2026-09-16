@@ -34,6 +34,7 @@ export interface IPublicBrandProductListingContext {
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   showOfferBanner: boolean;
+  faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   brandHighlights: IPublicBrandHighlight[] | null;
   showBrandHighlights: boolean;
   description: string | null;
@@ -41,4 +42,5 @@ export interface IPublicBrandProductListingContext {
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
 }

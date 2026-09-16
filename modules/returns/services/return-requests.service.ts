@@ -7,6 +7,7 @@ import { ReasonMastersRepository } from '@modules/master/repositories/reason-mas
 import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { toMoneyString } from '@modules/orders/utils/money.util';
+import { resolvePrimaryProductImageRef } from '@modules/orders/utils/resolve-primary-product-image.util';
 import {
   BANK_DETAILS_LOCKED,
   BANK_DETAILS_NOT_APPLICABLE,
@@ -34,7 +35,7 @@ import {
 } from '@packages/common';
 import { EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   ACTIVE_RETURN_ALREADY_EXISTS,
   EXPIRED_PRODUCT_REASON_CODE,
@@ -75,13 +76,13 @@ import { IOrderReturnEligibility } from '../interfaces/return-eligibility.interf
 import { IReturnPickupAddress } from '../interfaces/return-pickup-address.interface';
 import {
   ICustomerReturnDetail,
-  IReturnRequestListItem,
+  ICustomerReturnListItem,
   ReturnActor,
 } from '../interfaces/return-request.interface';
 import {
   isCustomerCancellable,
   mapCustomerReturnDetail,
-  mapReturnToListItem,
+  mapCustomerReturnListItem,
 } from '../mappers/return-request.mapper';
 import { ReturnEvidencesRepository } from '../repositories/return-evidences.repository';
 import { ReturnPickupsRepository } from '../repositories/return-pickups.repository';
@@ -536,14 +537,46 @@ export class ReturnRequestsService {
   async listForCustomer(
     customerId: string,
     query: { page?: number; limit?: number; search?: string },
-  ): Promise<PaginatedResult<IReturnRequestListItem>> {
+  ): Promise<PaginatedResult<ICustomerReturnListItem>> {
     const pagination = buildPaginationOptions(query);
     const { data, total } = await this.returnRequestsRepository.findAllPaginated({
       ...pagination,
       customerId,
       search: query.search,
     });
-    return buildPaginatedResult(data.map((item) => mapReturnToListItem(item)), total, pagination);
+
+    const list = data.map((item) => mapCustomerReturnListItem(item));
+    const orderIds = [...new Set(data.map((item) => item.orderId))];
+    if (orderIds.length > 0) {
+      const orders = await this.ordersRepository.find({
+        where: { id: In(orderIds) },
+        relations: { items: { product: { media: true } } },
+      });
+      const orderItemsById = new Map(
+        orders.flatMap((order) => (order.items ?? []).map((item) => [item.id, item] as const)),
+      );
+
+      await Promise.all(
+        list.flatMap((row) =>
+          row.items.map(async (item) => {
+            const orderItem = orderItemsById.get(item.orderItemId);
+            if (!orderItem) return;
+            const imageRef = resolvePrimaryProductImageRef(
+              orderItem.product,
+              orderItem.variantId,
+            );
+            const primaryImage = await this.storageUrlEnricher.toReference(imageRef);
+            item.imageUrl = primaryImage?.url ?? null;
+          }),
+        ),
+      );
+    }
+
+    return buildPaginatedResult(
+      await this.storageUrlEnricher.enrichDeep(list),
+      total,
+      pagination,
+    );
   }
 
   async getForCustomer(identifier: string, customerId: string): Promise<ICustomerReturnDetail> {
@@ -568,6 +601,24 @@ export class ReturnRequestsService {
           : null,
       },
     });
+
+    const order = await this.ordersRepository.findOne({
+      where: { id: request.orderId },
+      relations: { items: { product: { media: true } } },
+    });
+    const orderItemsById = new Map((order?.items ?? []).map((item) => [item.id, item]));
+    detail.items = await Promise.all(
+      detail.items.map(async (item) => {
+        const orderItem = orderItemsById.get(item.orderItemId);
+        if (!orderItem) {
+          return item;
+        }
+        const imageRef = resolvePrimaryProductImageRef(orderItem.product, orderItem.variantId);
+        const primaryImage = await this.storageUrlEnricher.toReference(imageRef);
+        return { ...item, imageUrl: primaryImage?.url ?? null };
+      }),
+    );
+
     return this.storageUrlEnricher.enrichDeep(detail);
   }
 

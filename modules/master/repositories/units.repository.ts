@@ -6,8 +6,9 @@ import {
   executeMasterCursorQuery,
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
-import { MasterListOptions } from '../utils/master-list-query.util';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
+import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
 import { UnitEntity } from '../entities/unit.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 
@@ -29,6 +30,9 @@ export class UnitsRepository {
 
   async existsByRefId(refId: string): Promise<boolean> {
     return (await this.repo.count({ where: { refId } })) > 0;
+  }
+  async existsByName(name: string, excludeRefId?: string): Promise<boolean> {
+    return existsActiveMasterByName(this.repo, 'unit', name, excludeRefId);
   }
 
   async updateByRefId(
@@ -58,9 +62,11 @@ export class UnitsRepository {
 
     const qb = this.repo
       .createQueryBuilder('unit')
-      .orderBy(sortColumn, sortOrder)
+      
       .skip(skip)
       .take(take);
+
+    applyMasterListOrdering(qb, 'unit', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere('unit.name ILIKE :search', { search: `%${options.search}%` });

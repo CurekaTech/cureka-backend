@@ -55,7 +55,7 @@ const normalizeText = (cell: ExcelJS.Cell): string => {
   const v = cell.value;
   if (v == null) return '';
   if (typeof v === 'object' && 'richText' in v) {
-    return (v as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('').trim();
+    return (v).richText.map((r) => r.text).join('').trim();
   }
   if (typeof v === 'object' && 'text' in v) {
     return String((v as { text: string }).text).trim();
@@ -345,7 +345,7 @@ async function run(): Promise<void> {
         await repo
           .createQueryBuilder()
           .update(ProductVariantEntity)
-          .set({ returnAllowed: false } as Partial<ProductVariantEntity>)
+          .set({ returnAllowed: false })
           .whereInIds(ids)
           .execute();
         matchingUpdated += ids.length;
@@ -363,7 +363,7 @@ async function run(): Promise<void> {
           .set({
             returnAllowed: true,
             returnWindowDays: RETURNABLE_WINDOW_DAYS,
-          } as Partial<ProductVariantEntity>)
+          })
           .whereInIds(ids)
           .execute();
         returnableUpdated += ids.length;

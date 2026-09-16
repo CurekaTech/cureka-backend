@@ -232,6 +232,94 @@ export class CodBlocklistService {
     this.logger.log({ refId: existing.refId }, 'COD blocklist entry deleted');
   }
 
+  /**
+   * Bulk upsert helper: create or update by pincode / mobile natural key.
+   * Returns whether the row was created or updated.
+   */
+  async upsertFromBulk(input: {
+    pincode?: string;
+    mobileNumber?: string;
+    isActive: boolean;
+    reason?: string | null;
+    actorEmail: string;
+  }): Promise<{ action: 'created' | 'updated'; refId: string }> {
+    if (input.pincode && input.mobileNumber) {
+      throw new BadRequestException({
+        code: COD_BLOCKLIST_INVALID_CUSTOMER,
+        message: 'Provide either Pincode or Mobile Number, not both',
+      });
+    }
+    if (!input.pincode && !input.mobileNumber) {
+      throw new BadRequestException({
+        code: COD_BLOCKLIST_INVALID_CUSTOMER,
+        message: 'Provide either Pincode or Mobile Number',
+      });
+    }
+
+    if (input.pincode) {
+      const dto: CreateCodBlocklistEntryDto = {
+        type: CodBlocklistType.PINCODE,
+        pincode: input.pincode,
+        reason: input.reason ?? undefined,
+        isActive: input.isActive,
+      };
+      const payload = await this.normalizeWritePayload(dto);
+      const existing = payload.pincode
+        ? await this.repository.findPincodeEntry(payload.pincode)
+        : null;
+      if (existing) {
+        await this.assertNoActiveDuplicate(payload, existing.id);
+        await this.repository.updateById(existing.id, {
+          ...payload,
+          updatedBy: input.actorEmail,
+        });
+        return { action: 'updated', refId: existing.refId };
+      }
+      await this.assertNoActiveDuplicate(payload);
+      const refId = await generateUniqueRefId('cod-blocklist', (candidate) =>
+        this.repository.existsByRefId(candidate),
+      );
+      const created = await this.repository.create({
+        ...payload,
+        refId,
+        createdBy: input.actorEmail,
+        updatedBy: input.actorEmail,
+      });
+      return { action: 'created', refId: created.refId };
+    }
+
+    const dto: CreateCodBlocklistEntryDto = {
+      type: CodBlocklistType.CUSTOMER,
+      mobileNumber: input.mobileNumber,
+      reason: input.reason ?? undefined,
+      isActive: input.isActive,
+    };
+    const payload = await this.normalizeWritePayload(dto);
+    const existing = await this.repository.findCustomerEntry({
+      customerId: payload.customerId,
+      mobileNumber: payload.mobileNumber,
+    });
+    if (existing) {
+      await this.assertNoActiveDuplicate(payload, existing.id);
+      await this.repository.updateById(existing.id, {
+        ...payload,
+        updatedBy: input.actorEmail,
+      });
+      return { action: 'updated', refId: existing.refId };
+    }
+    await this.assertNoActiveDuplicate(payload);
+    const refId = await generateUniqueRefId('cod-blocklist', (candidate) =>
+      this.repository.existsByRefId(candidate),
+    );
+    const created = await this.repository.create({
+      ...payload,
+      refId,
+      createdBy: input.actorEmail,
+      updatedBy: input.actorEmail,
+    });
+    return { action: 'created', refId: created.refId };
+  }
+
   async searchCustomers(
     query: SearchCodBlocklistCustomersDto,
   ): Promise<PaginatedResult<ICodBlocklistCustomerSearchItem>> {

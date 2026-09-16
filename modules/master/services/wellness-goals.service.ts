@@ -27,11 +27,13 @@ import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { WellnessGoalUpdatedEvent, EVENTS } from '@packages/events';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
+import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
-const WELLNESS_GOAL_MEDIA_FIELDS = ['image'] as const;
+const WELLNESS_GOAL_MEDIA_FIELDS = ['image', 'faqBanner'] as const;
 
 const WELLNESS_GOAL_UPLOAD_FIELDS = {
   image: UploadFolder.IMAGES,
+  faqBanner: UploadFolder.BANNERS,
 } as const;
 
 @Injectable()
@@ -52,7 +54,14 @@ export class WellnessGoalsService {
       WELLNESS_GOAL_UPLOAD_FIELDS,
     );
 
-    return this.create(dto, uploadedUrls['image'] ?? null, createdBy);
+    return this.create(
+      dto,
+      {
+        image: uploadedUrls['image'] ?? null,
+        faqBanner: uploadedUrls['faqBanner'] ?? null,
+      },
+      createdBy,
+    );
   }
 
   async updateFromRequest(
@@ -66,12 +75,15 @@ export class WellnessGoalsService {
       WELLNESS_GOAL_UPLOAD_FIELDS,
     );
 
-    return this.update(refId, dto, updatedBy, uploadedUrls['image']);
+    return this.update(refId, dto, updatedBy, {
+      image: uploadedUrls['image'],
+      faqBanner: uploadedUrls['faqBanner'],
+    });
   }
 
   async create(
     dto: CreateWellnessGoalDto,
-    image: string | null,
+    media: { image?: string | null; faqBanner?: string | null } = {},
     createdBy: string,
   ): Promise<IWellnessGoal> {
     if (await this.wellnessGoalsRepository.existsByName(dto.name)) {
@@ -81,9 +93,11 @@ export class WellnessGoalsService {
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
       description: dto.description ?? null,
-      image: this.storageUrlEnricher.persist(image),
+      image: this.storageUrlEnricher.persist(media.image),
+      faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
+      faqs: normalizeMasterFaqs(dto.faqs),
       refId: await generateUniqueRefId(dto.name, (refId) =>
         this.wellnessGoalsRepository.existsByRefId(refId),
       ),
@@ -119,7 +133,7 @@ export class WellnessGoalsService {
     refId: string,
     dto: UpdateWellnessGoalDto,
     updatedBy: string,
-    image?: string | null,
+    media: { image?: string | null; faqBanner?: string | null } = {},
   ): Promise<IWellnessGoal> {
     const existing = await this.wellnessGoalsRepository.findByRefId(refId);
     if (!existing) {
@@ -137,7 +151,11 @@ export class WellnessGoalsService {
     if (dto.description !== undefined) payload.description = dto.description;
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.inHomePage !== undefined) payload.inHomePage = dto.inHomePage;
-    if (image !== undefined) payload.image = this.storageUrlEnricher.persist(image);
+    if (dto.faqs !== undefined) payload.faqs = normalizeMasterFaqs(dto.faqs);
+    if (media.image !== undefined) payload.image = this.storageUrlEnricher.persist(media.image);
+    if (media.faqBanner !== undefined) {
+      payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
+    }
 
     const updated = await this.wellnessGoalsRepository.updateByRefId(refId, payload);
     if (!updated) {
@@ -199,6 +217,7 @@ export class WellnessGoalsService {
       patterns: [
         CacheKeys.homepage.shopByWellnessGoalsPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.publicProducts.listPattern(),
       ],
     });
   }

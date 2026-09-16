@@ -1,0 +1,10 @@
+export enum SubscriptionMandateStatus {
+  PENDING = 'PENDING',
+  AUTHORIZED = 'AUTHORIZED',
+  CONFIRMED = 'CONFIRMED',
+  PAUSED = 'PAUSED',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+  REVOKED = 'REVOKED',
+  CANCELLED = 'CANCELLED',
+}
