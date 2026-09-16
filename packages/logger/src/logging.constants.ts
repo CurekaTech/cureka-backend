@@ -46,6 +46,14 @@ export const LOG_REDACT_KEYS = [
   'signature',
   'licenseKey',
   'sessionToken',
+  'X-Goog-Signature',
+  'X-Goog-Credential',
+  'X-Goog-Date',
+  'X-Goog-Expires',
+  'X-Goog-SignedHeaders',
+  'GoogleAccessId',
+  'Signature',
+  'signedUrl',
 ] as const;
 
 function expandRedactKey(key: string): string[] {

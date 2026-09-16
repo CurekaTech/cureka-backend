@@ -13,7 +13,8 @@
     "dev:clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && nest build && nest start --watch",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/apps/api/main.js",
+    "start:image-worker": "node dist/apps/api/image-worker.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -59,6 +60,8 @@
     "unicommerce:push-orders": "ts-node -r tsconfig-paths/register apps/api/database/scripts/unicommerce-push-orders.runner.ts",
     "brand:banner-soft-delete": "ts-node -r tsconfig-paths/register apps/api/database/scripts/brand-banner-soft-delete.runner.ts",
     "brand:banner-soft-delete-rollback": "ts-node -r tsconfig-paths/register apps/api/database/scripts/brand-banner-soft-delete.runner.ts --rollback",
+    "image:backfill": "ts-node -r tsconfig-paths/register apps/api/database/scripts/image-backfill.runner.ts",
+    "image:retry": "ts-node -r tsconfig-paths/register apps/api/database/scripts/image-backfill.runner.ts --retry-only",
     "redis:dev": "docker compose -f docker-compose.dev.yml up redis -d",
     "db:dev": "docker compose -f docker-compose.dev.yml up -d"
   },
@@ -102,6 +105,7 @@
     "razorpay": "^2.9.6",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.34.2",
     "typeorm": "^0.3.20",
     "typesense": "^3.0.6",
     "uuid": "^10.0.0"

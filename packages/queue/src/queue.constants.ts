@@ -12,6 +12,7 @@ export const QUEUE_NAMES = {
   MEMBERSHIP_REMINDER: 'membership-reminder',
   SITEMAP: 'sitemap',
   BOB_ABANDONED_CART: 'bob-abandoned-cart',
+  IMAGE_PIPELINE: 'image-pipeline',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
