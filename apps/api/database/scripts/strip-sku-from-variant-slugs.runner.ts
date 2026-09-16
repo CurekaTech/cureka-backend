@@ -70,7 +70,7 @@ const parseCli = (argv: string[]): CliOptions => {
   const options: CliOptions = { apply: false, help: false };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
+    const arg = argv[index];
     const next = argv[index + 1];
     if (arg === '--help' || arg === '-h') {
       options.help = true;
@@ -136,7 +136,7 @@ const proposePageUrl = (
   const parts = path.replace(/\/+$/, '').split('/').filter(Boolean);
   if (!parts.length) return null;
 
-  const leaf = parts[parts.length - 1]!;
+  const leaf = parts[parts.length - 1];
   const leafLower = leaf.toLowerCase();
   const currentLower = currentSlug.toLowerCase();
   const proposedLower = proposedSlug.toLowerCase();
@@ -246,16 +246,7 @@ const main = async (): Promise<void> => {
       qb.andWhere('variant.sku = :sku', { sku: options.sku });
     }
 
-    const rows = (await qb.getRawMany()) as Array<{
-      variantId: string;
-      sku: string;
-      currentSlug: string;
-      currentPageUrl: string | null;
-      productId: string;
-      productRefId: string;
-      productName: string;
-      productSlug: string;
-    }>;
+    const rows = (await qb.getRawMany());
 
     const reserved = new Set<string>();
     const candidates: CandidateRow[] = [];

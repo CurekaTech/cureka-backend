@@ -1,4 +1,5 @@
 import { MasterStatus } from '../enums/master-status.enum';
+import { PatientAudience } from '../enums/patient-audience.enum';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 
 export interface IHealthConcern {
@@ -10,7 +11,10 @@ export interface IHealthConcern {
   description: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
+  medicalConditionName: string | null;
+  patientAudience: PatientAudience | null;
   banner: IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReferenceResponse | null;
   status: MasterStatus;
   inHomePage: boolean;
   sortIndex: number | null;

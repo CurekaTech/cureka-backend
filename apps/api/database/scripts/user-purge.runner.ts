@@ -49,7 +49,7 @@ const parseCli = (argv: string[]): CliOptions => {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
+    const arg = argv[index];
     const next = argv[index + 1];
     if (arg === '--help' || arg === '-h') {
       options.help = true;
@@ -484,7 +484,7 @@ async function main(): Promise<void> {
               mobile,
               userId: user.id,
               status: 'skipped_vendor',
-              note: `Linked vendor ${vendorRows[0]!.id} — remove vendor first`,
+              note: `Linked vendor ${vendorRows[0].id} — remove vendor first`,
               counts: {},
             });
             continue;

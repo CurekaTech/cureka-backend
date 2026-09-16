@@ -9,4 +9,5 @@ export const mapWellnessGoalEntityToListingContext = (
   description: entity.description,
   image: entity.image,
   faqs: entity.faqs ?? [],
+  faqBanner: entity.faqBanner,
 });

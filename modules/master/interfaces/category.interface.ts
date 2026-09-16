@@ -23,6 +23,7 @@ export interface ICategory {
   hierarchyLevel: CategoryHierarchyLevel;
   image: IStorageFileReferenceResponse | null;
   banner: IStorageFileReferenceResponse | null;
+  faqBanner: IStorageFileReferenceResponse | null;
   slug: string;
   description: string | null;
   metaTitle: string | null;

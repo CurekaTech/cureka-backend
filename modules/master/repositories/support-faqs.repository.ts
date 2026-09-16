@@ -1,3 +1,4 @@
+import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -47,12 +48,10 @@ export class SupportFaqsRepository {
     options: SupportFaqFindOptions,
   ): Promise<{ data: SupportFaqEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
-    const qb = this.repo
-      .createQueryBuilder('faq')
-      .orderBy('faq.sortOrder', 'ASC')
-      .addOrderBy('faq.createdAt', 'DESC')
-      .skip(skip)
-      .take(take);
+    const qb = this.repo.createQueryBuilder('faq').skip(skip).take(take);
+
+    applyMasterListOrdering(qb, 'faq', options.status, 'faq.sortOrder', 'ASC');
+    qb.addOrderBy('faq.createdAt', 'DESC');
 
     if (options.categoryRefId) {
       qb.andWhere('faq.category_ref_id = :categoryRefId', {

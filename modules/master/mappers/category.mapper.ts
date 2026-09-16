@@ -27,6 +27,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   hierarchyLevel: entity.hierarchyLevel,
   image: entity.image,
   banner: entity.banner,
+  faqBanner: entity.faqBanner,
   slug: entity.slug,
   description: entity.description,
   metaTitle: entity.metaTitle,

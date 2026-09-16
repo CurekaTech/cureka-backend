@@ -10,6 +10,8 @@ import {
   IUnicommerceGetSaleOrderResponse,
   IUnicommerceCreateReversePickupPayload,
   IUnicommerceCreateReversePickupResponse,
+  IUnicommerceCancelSaleOrderPayload,
+  IUnicommerceCancelSaleOrderResponse,
 } from '../interfaces/unicommerce-order.interface';
 
 /**
@@ -17,6 +19,7 @@ import {
  *
  * Authentication: OAuth 2.0 password grant (GET /oauth/token).
  * Order creation: POST /services/rest/v1/oms/saleOrder/create
+ * Order cancel:   POST /services/rest/v1/oms/saleOrder/cancel
  *   - Header Authorization: bearer {access_token}
  *   - Header Facility: {facilityCode}
  *
@@ -203,6 +206,28 @@ export class UnicommerceOrderApiService {
           saleOrderCode: payload.saleOrderCode,
           reversePickupCode: payload.reversePickupCode ?? null,
           itemCount: payload.reversePickItems.length,
+        },
+      },
+    );
+  }
+
+  /**
+   * Official cancel sale order API (pre-dispatch only).
+   * Docs: POST /services/rest/v1/oms/saleOrder/cancel
+   * https://documentation.unicommerce.com/docs/saleorder-cancel.html
+   */
+  async cancelSaleOrder(
+    payload: IUnicommerceCancelSaleOrderPayload,
+  ): Promise<IUnicommerceCancelSaleOrderResponse> {
+    return this.authenticatedPost<IUnicommerceCancelSaleOrderResponse>(
+      '/services/rest/v1/oms/saleOrder/cancel',
+      payload,
+      {
+        logLabel: 'cancelSaleOrder',
+        extra: {
+          saleOrderCode: payload.saleOrderCode,
+          cancelPartially: payload.cancelPartially ?? false,
+          itemCount: payload.saleOrderItemCodes?.length ?? 0,
         },
       },
     );

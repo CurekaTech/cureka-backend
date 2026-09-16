@@ -10,6 +10,7 @@ import {
 import {
   IUnicommerceCreateReversePickupResponse,
   IUnicommerceCreateSaleOrderResponse,
+  IUnicommerceCancelSaleOrderResponse,
   IUnicommerceReversePickupAddress,
 } from '../interfaces/unicommerce-order.interface';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
@@ -31,6 +32,14 @@ export type UnicommerceReversePickupParams = {
   } | null;
   customerEmail?: string | null;
   replacementSku?: string | null;
+};
+
+export type UnicommerceCancelSaleOrderParams = {
+  orderNumber: string;
+  reason: string;
+  /** When set, cancels only those Uniware item codes (partial). */
+  saleOrderItemCodes?: string[];
+  cancelledBySeller?: boolean;
 };
 
 @Injectable()
@@ -273,6 +282,59 @@ export class UnicommerceOrderService implements OnModuleInit {
           response.reversePickupCode ?? response.reversePickupDTO?.code ?? null,
       },
       'Unicommerce reverse pickup create response',
+    );
+
+    return response;
+  }
+
+  /**
+   * Cancels a sale order (or items) in Uniware before dispatch.
+   * Additive side-effect for Cureka cancel — does not change local order status.
+   * Returns null when Unicommerce push is disabled / not configured.
+   */
+  async cancelSaleOrder(
+    params: UnicommerceCancelSaleOrderParams,
+  ): Promise<IUnicommerceCancelSaleOrderResponse | null> {
+    if (!this.isEnabled()) {
+      this.logger.warn(
+        { orderNumber: params.orderNumber },
+        'Unicommerce order push disabled; skipping cancelSaleOrder',
+      );
+      return null;
+    }
+    if (!this.apiService.isConfigured()) {
+      this.logger.error(
+        { orderNumber: params.orderNumber },
+        'Unicommerce credentials missing; cannot cancelSaleOrder',
+      );
+      return null;
+    }
+
+    const saleOrderItemCodes = params.saleOrderItemCodes?.filter(Boolean) ?? [];
+    const cancelPartially = saleOrderItemCodes.length > 0;
+    const cancelledBySeller = params.cancelledBySeller === true;
+    const cancellationReason = params.reason.trim().slice(0, 100);
+
+    // Uniware: either cancelOnChannel OR cancelledBySeller (not both).
+    const response = await this.apiService.cancelSaleOrder({
+      saleOrderCode: params.orderNumber,
+      ...(cancelPartially
+        ? { saleOrderItemCodes, cancelPartially: true }
+        : { cancelPartially: false }),
+      ...(cancelledBySeller ? { cancelledBySeller: true } : { cancelOnChannel: true }),
+      ...(cancellationReason ? { cancellationReason } : {}),
+    });
+
+    this.logger.log(
+      {
+        orderNumber: params.orderNumber,
+        cancelPartially,
+        itemCount: saleOrderItemCodes.length,
+        successful: response.successful,
+        message: response.message ?? null,
+        errors: response.errors,
+      },
+      'Unicommerce cancelSaleOrder response',
     );
 
     return response;

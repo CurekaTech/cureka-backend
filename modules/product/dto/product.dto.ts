@@ -623,7 +623,7 @@ export class BulkMarkOutOfStockDto {
 export class BulkUpdateVariantOosDto {
   @ApiProperty({
     type: [String],
-    example: ['MUS/MUS/001', 'MUS/MUS/002'],
+    example: ['MUS/MUS/00001', 'MUS/MUS/00002'],
     description:
       'SKUs of the specific variants to update. Duplicates are ignored. Max 500.',
   })

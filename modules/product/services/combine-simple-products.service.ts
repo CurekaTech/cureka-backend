@@ -182,10 +182,14 @@ export class CombineSimpleProductsService {
           productId: target.product.id,
           combinationKey,
         };
+        // Persist UI title onto variant.display_name (admin list / PDP label).
         const variantTitle = assignment.variantTitle?.trim();
-        if (variantTitle) {
-          variantUpdate.displayName = variantTitle;
-        }
+        const attributeLabel = canonicalValues
+          .map((item) => item.value?.trim())
+          .filter(Boolean)
+          .join(' / ');
+        variantUpdate.displayName =
+          variantTitle || attributeLabel || row.variant.displayName?.trim() || null;
 
         await variantRepo.update({ id: row.variant.id }, variantUpdate);
 
@@ -275,19 +279,14 @@ export class CombineSimpleProductsService {
   }
 
   /**
-   * All selected simples must share brand + full category hierarchy,
-   * be published (active), and not have the outOfStock flag set.
+   * All selected simples must share brand + full category hierarchy
+   * and be published (active).
    */
   private assertCombineEligibility(loaded: LoadedSimple[]): void {
-    for (const { product, variant } of loaded) {
+    for (const { product } of loaded) {
       if (product.status !== ProductStatus.PUBLISHED) {
         throw new BadRequestException(
           `Product "${product.refId}" must be published (active) to combine. Current status: "${product.status}"`,
-        );
-      }
-      if (variant.outOfStock) {
-        throw new BadRequestException(
-          `Product "${product.refId}" must be in stock to combine`,
         );
       }
     }

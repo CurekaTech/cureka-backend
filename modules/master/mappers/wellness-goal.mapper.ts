@@ -8,6 +8,7 @@ export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWe
   name: entity.name,
   description: entity.description,
   image: entity.image,
+  faqBanner: entity.faqBanner,
   status: entity.status,
   inHomePage: entity.inHomePage,
   faqs: entity.faqs ?? [],

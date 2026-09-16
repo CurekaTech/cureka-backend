@@ -57,14 +57,14 @@ MANUAL USAGE:
 const parseCli = (argv: string[]): CliOptions => {
   const options: CliOptions = { refId: null, skus: [], productIds: [] };
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
+    const arg = argv[i];
     if (arg === '--help' || arg === '-h') { printUsage(); process.exit(0); }
     if (arg.startsWith('--ref-id=')) { options.refId = arg.slice('--ref-id='.length).trim(); }
-    else if (arg === '--ref-id' && argv[i + 1] && !argv[i + 1]!.startsWith('--')) { options.refId = argv[++i]!.trim(); }
+    else if (arg === '--ref-id' && argv[i + 1] && !argv[i + 1].startsWith('--')) { options.refId = argv[++i].trim(); }
     if (arg.startsWith('--skus=')) { options.skus.push(...arg.slice('--skus='.length).split(',').map(s => s.trim()).filter(Boolean)); }
-    else if (arg === '--skus' && argv[i + 1] && !argv[i + 1]!.startsWith('--')) { options.skus.push(...argv[++i]!.split(',').map(s => s.trim()).filter(Boolean)); }
+    else if (arg === '--skus' && argv[i + 1] && !argv[i + 1].startsWith('--')) { options.skus.push(...argv[++i].split(',').map(s => s.trim()).filter(Boolean)); }
     if (arg.startsWith('--product-ids=')) { options.productIds.push(...arg.slice('--product-ids='.length).split(',').map(s => s.trim()).filter(Boolean)); }
-    else if (arg === '--product-ids' && argv[i + 1] && !argv[i + 1]!.startsWith('--')) { options.productIds.push(...argv[++i]!.split(',').map(s => s.trim()).filter(Boolean)); }
+    else if (arg === '--product-ids' && argv[i + 1] && !argv[i + 1].startsWith('--')) { options.productIds.push(...argv[++i].split(',').map(s => s.trim()).filter(Boolean)); }
   }
   return options;
 };
@@ -352,7 +352,7 @@ async function parseSheetRows(filePath: string): Promise<SheetRow[]> {
     const TARGET = 'bulk import template';
     worksheet = workbook.worksheets.find(ws => ws.name.toLowerCase().trim() === TARGET)
       ?? workbook.worksheets.find(ws => !ws.name.toLowerCase().includes('reference') && !ws.name.toLowerCase().includes('dropdown'))
-      ?? workbook.worksheets[0]!;
+      ?? workbook.worksheets[0];
   }
   if (!worksheet) throw new Error('No worksheet found.');
 

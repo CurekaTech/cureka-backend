@@ -249,7 +249,7 @@ async function run(): Promise<void> {
       await variantRepo
         .createQueryBuilder()
         .update(ProductVariantEntity)
-        .set({ isTop: true } as Partial<ProductVariantEntity>)
+        .set({ isTop: true })
         .whereInIds(ids)
         .execute();
       updated += batch.length;

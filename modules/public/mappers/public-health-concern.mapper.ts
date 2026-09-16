@@ -12,5 +12,8 @@ export const mapHealthConcernEntityToListingContext = (
   banner: entity.banner,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
+  medicalConditionName: entity.medicalConditionName,
+  patientAudience: entity.patientAudience,
   faqs: entity.faqs ?? [],
+  faqBanner: entity.faqBanner,
 });
