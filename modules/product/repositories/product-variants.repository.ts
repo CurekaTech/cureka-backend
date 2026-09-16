@@ -337,13 +337,16 @@ export class ProductVariantsRepository {
     productSlug: string,
     variants: CreateVariantDto[],
     attributeIdByRefId: Map<string, string>,
+    options?: { skipSkuUniqueness?: boolean },
   ): Promise<ProductVariantEntity[]> {
     const variantRepo = manager.getRepository(ProductVariantEntity);
     const attributeRepo = manager.getRepository(VariantAttributeValueEntity);
     const saved: ProductVariantEntity[] = [];
 
     for (const dto of variants) {
-      await this.assertUniqueSkus(dto);
+      if (!options?.skipSkuUniqueness) {
+        await this.assertUniqueSkus(dto);
+      }
 
       validateVariantPricing({
         mrp: dto.mrp,

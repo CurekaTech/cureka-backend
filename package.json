@@ -42,6 +42,7 @@
     "category:above-the-fold": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/category-above-the-fold.runner.ts",
     "category:above-the-fold:fix-urls": "ts-node --transpile-only -r tsconfig-paths/register apps/api/database/scripts/fix-category-above-the-fold-urls.runner.ts",
     "product:sku-fix": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-fix.runner.ts",
+    "product:sku-unique": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-unique-index.runner.ts",
     "product:strip-sku-from-variant-slugs": "ts-node -r tsconfig-paths/register apps/api/database/scripts/strip-sku-from-variant-slugs.runner.ts",
     "product:return-allowed": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed.runner.ts",
     "product:return-allowed:unmatched": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed-unmatched.runner.ts",

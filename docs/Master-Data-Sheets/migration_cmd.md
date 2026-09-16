@@ -204,3 +204,64 @@ npm run product:strip-sku-from-variant-slugs -- --apply
 ------------------
 npm run typesense:reindex
 npm run cache:invalidate-products
+
+
+--------------------------------------
+// Update Order Status
+
+# dry-run (shows what will change)
+npm run order:update-status -- --order-id=ORD20260911001
+
+# apply delivered update (order + shipments)
+npm run order:update-status -- --order-id=ORD20260911001 --apply
+
+# custom statuses
+npm run order:update-status -- --order-id=ORD20260911001 --order-status=SHIPPED --shipment-status=IN_TRANSIT --apply
+
+-------------------------------
+sql for mark order as completed:
+
+-- Set this once:
+-- replace with UUID/ref_id/order_number
+WITH target_order AS (
+  SELECT id, order_number, payment_method, payment_status, notes
+  FROM orders
+  WHERE id::text = 'ORD_OR_UUID_HERE'
+     OR ref_id = 'ORD_OR_UUID_HERE'
+     OR order_number = 'ORD_OR_UUID_HERE'
+  LIMIT 1
+),
+updated_order AS (
+  UPDATE orders o
+  SET
+    order_status = 'DELIVERED',
+    delivered_at = COALESCE(o.delivered_at, NOW()),
+    payment_status = CASE
+      WHEN o.payment_method = 'COD' AND o.payment_status <> 'PAID' THEN 'PAID'
+      ELSE o.payment_status
+    END,
+    notes = CASE
+      WHEN COALESCE(o.notes, '') = '' THEN 'Manually marked DELIVERED from SQL'
+      ELSE o.notes || E'\n' || 'Manually marked DELIVERED from SQL'
+    END,
+    updated_at = NOW(),
+    updated_by = 'sql:manual-status-update'
+  FROM target_order t
+  WHERE o.id = t.id
+  RETURNING o.id, o.order_number, o.order_status, o.payment_status, o.delivered_at
+)
+UPDATE shipments s
+SET
+  shipment_status = 'DELIVERED',
+  shipway_raw_status = 'DEL',
+  last_synced_at = NOW(),
+  updated_at = NOW(),
+  updated_by = 'sql:manual-status-update'
+FROM updated_order u
+WHERE s.order_id = u.id
+RETURNING s.id, s.order_id, s.shipment_status, s.awb_number;
+
+------------------------------------------------
+
+npm run product:sku-unique -- --drop      # during migration
+npm run product:sku-unique -- --restore   # after old simples cleaned up
