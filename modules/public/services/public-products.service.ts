@@ -815,8 +815,9 @@ export class PublicProductsService {
     const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
       ? matchedCategory.belowTheFold
       : rootCategory.belowTheFold;
-    // Only the matched category's own FAQs — no parent/root fallback when empty.
+    // Only the matched category's own FAQs / FAQ banner — no parent/root fallback when empty.
     const selectedFaqs = mapMasterFaqs(matchedCategory.faqs);
+    const selectedFaqBanner = matchedCategory.faqBanner ?? null;
 
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
@@ -827,10 +828,7 @@ export class PublicProductsService {
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
       banner:
         isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
-      faqBanner:
-        isChildFilter && matchedCategory.faqBanner
-          ? matchedCategory.faqBanner
-          : rootCategory.faqBanner,
+      faqBanner: selectedFaqBanner,
       aboveTheFold: selectedAboveTheFold,
       belowTheFold: selectedBelowTheFold,
       metaTitle:
@@ -858,7 +856,7 @@ export class PublicProductsService {
         permalink: buildCategoryPermalink(selectedPath),
         image: matchedCategory.image,
         banner: matchedCategory.banner,
-        faqBanner: matchedCategory.faqBanner,
+        faqBanner: selectedFaqBanner,
         aboveTheFold: selectedAboveTheFold,
         belowTheFold: selectedBelowTheFold,
         metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,

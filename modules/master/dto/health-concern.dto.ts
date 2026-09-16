@@ -4,6 +4,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -77,6 +78,60 @@ export class CreateHealthConcernDto {
   @IsString()
   @MaxLength(255)
   medicalConditionName?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Alternate medical condition name',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(optionalNullableString)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(255)
+  alternateName?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Medical definition for JSON-LD MedicalCondition.description',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(optionalNullableString)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  medicalConditionDescription?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Real medical reviewer name; omit JSON-LD reviewedBy when null',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(optionalNullableString)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(255)
+  reviewedByName?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Reviewer job title; include only with reviewedByName',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(optionalNullableString)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(255)
+  reviewedByJobTitle?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Last medical review date (YYYY-MM-DD)',
+    nullable: true,
+    example: '2026-03-15',
+  })
+  @IsOptional()
+  @Transform(optionalNullableString)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsDateString()
+  lastReviewed?: string | null;
 
   @ApiPropertyOptional({
     enum: PatientAudience,

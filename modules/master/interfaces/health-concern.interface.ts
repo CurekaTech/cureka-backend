@@ -12,6 +12,11 @@ export interface IHealthConcern {
   metaTitle: string | null;
   metaDescription: string | null;
   medicalConditionName: string | null;
+  alternateName: string | null;
+  medicalConditionDescription: string | null;
+  reviewedByName: string | null;
+  reviewedByJobTitle: string | null;
+  lastReviewed: string | null;
   patientAudience: PatientAudience | null;
   banner: IStorageFileReferenceResponse | null;
   faqBanner: IStorageFileReferenceResponse | null;
