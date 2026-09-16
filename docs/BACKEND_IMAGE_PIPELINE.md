@@ -153,10 +153,10 @@ Dry-run is the default. **Do not run a production backfill as part of this imple
 ```bash
 # Local / staging after migration + worker
 npm run image:backfill
-npm run image:backfill -- --apply --priority=homepage --batch-size=25 --rate-limit-ms=200
-npm run image:backfill -- --apply --resume
-npm run image:backfill -- --apply --entity-types=banners,home-sections --sample-limit=20
-npm run image:retry -- --apply --limit=50
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --entity-types=banners --sample-limit=5 --batch-size=5
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --priority=homepage --batch-size=25 --rate-limit-ms=200
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --resume
+IMAGE_PROCESSING_ENABLED=true npm run image:retry -- --apply --limit=50
 ```
 
 Pause: stop the image worker (`pm2 stop cureka-image-worker`) and/or set `IMAGE_PROCESSING_ENABLED=false`. Pending rows remain. Resume with `--resume`. Completion: `alreadyComplete` grows and `eligible` on a dry-run approaches 0 for current `IMAGE_PIPELINE_VERSION`.

@@ -17,7 +17,7 @@
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../../app.module';
+import { ImageWorkerModule } from '../../image-worker.module';
 import { ImageBackfillService } from '@modules/image-pipeline/services/image-backfill.service';
 import { ImagePipelineService } from '@modules/image-pipeline/services/image-pipeline.service';
 import {
@@ -115,17 +115,25 @@ async function run(): Promise<void> {
     return;
   }
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  const processingEnabled =
+    (process.env['IMAGE_PROCESSING_ENABLED'] ?? 'false').toLowerCase() === 'true';
+  if (options.apply && !processingEnabled) {
+    throw new Error(
+      'IMAGE_PROCESSING_ENABLED must be true to enqueue work. Dry-run is still allowed.\n' +
+        'Prefix the command (do not put this on the API PM2 process):\n' +
+        '  IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --sample-limit=5 --entity-types=banners',
+    );
+  }
+
+  // Slim module: no homepage/Typesense/BOB processors. Never enable encoding in this CLI.
+  process.env['IMAGE_WORKER_ENABLED'] = 'false';
+
+  const app = await NestFactory.createApplicationContext(ImageWorkerModule, {
     logger: ['error', 'warn', 'log'],
   });
 
   try {
     const pipeline = app.get(ImagePipelineService);
-    if (options.apply && !pipeline.isProcessingEnabled()) {
-      throw new Error(
-        'IMAGE_PROCESSING_ENABLED must be true to enqueue work. Dry-run is still allowed.',
-      );
-    }
 
     if (retryOnly) {
       if (!options.apply) {
