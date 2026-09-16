@@ -10,7 +10,7 @@ import { ShippingModule } from '@modules/shipping/shipping.module';
 import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { UserEntity } from '@modules/users/entities/user.entity';
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminReturnPoliciesController } from './controllers/admin-return-policies.controller';
 import { AdminReturnsController } from './controllers/admin-returns.controller';
@@ -54,10 +54,10 @@ import { ReturnWorkflowService } from './services/return-workflow.service';
       AdminUserEntity,
     ]),
     MasterModule,
-    RefundRequestsModule,
+    forwardRef(() => RefundRequestsModule),
     RolesModule,
     UploadsModule,
-    UnicommerceOrderModule,
+    forwardRef(() => UnicommerceOrderModule),
     ShippingModule,
   ],
   controllers: [ReturnsController, AdminReturnsController, AdminReturnPoliciesController],

@@ -165,6 +165,37 @@ export class CancelOrderDto {
   reason!: string;
 }
 
+export class AdminOrderHistoryQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsIn(['CANCELLATION', 'RETURN'])
+  requestType?: 'CANCELLATION' | 'RETURN';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  workflowStatus?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fromDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  toDate?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  pendingExternalSync?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  requiresAttention?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  unverifiedOnly?: boolean;
+}
+
 /** Optional note when admin force-marks an order DELIVERED (testing / ops). */
 export class CompleteOrderDto {
   @IsOptional()

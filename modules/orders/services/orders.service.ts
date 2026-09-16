@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
@@ -58,13 +58,30 @@ import { CheckoutResolverService } from '@modules/checkout/services/checkout-res
 import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.repository';
 import { ShipmentStatus } from '@modules/shipping/enums/shipment-status.enum';
 import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unicommerce-order-queue.service';
+import { OrderFulfillmentCancelService } from '@modules/unicommerce/services/order-fulfillment-cancel.service';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
+import { ReturnEligibilityService } from '@modules/returns/services/return-eligibility.service';
+import { ReturnRequestsService } from '@modules/returns/services/return-requests.service';
+import { CUSTOMER_CANCELLABLE_STATUSES } from '@modules/returns/constants/return.constants';
 import { roundMoney, toMoneyString } from '../utils/money.util';
 import { isOrderCancellable } from '../constants/cancellable-order-statuses.constant';
+import { isShipmentDispatched } from '../constants/dispatched-shipment-statuses.constant';
 import { CheckoutSummary } from '../interfaces/cart-pricing.interface';
 import { isCodPaymentMethod, isPrepaidPaymentMethod } from '../utils/payment-method.util';
+import { CancellationStatus } from '../enums/cancellation-status.enum';
+import { CancellationSyncStatus } from '../enums/cancellation-sync-status.enum';
+import {
+  OrderFulfillmentEventType,
+  OrderFulfillmentRequestType,
+} from '../enums/order-fulfillment-event-type.enum';
+import { OrderFulfillmentEventsRepository } from '../repositories/order-fulfillment-events.repository';
+import {
+  mapCancellationView,
+  mapFulfillmentEvent,
+  resolveOrderActions,
+} from '../mappers/order-cancellation.mapper';
 
 @Injectable()
 export class OrdersService {
@@ -85,6 +102,8 @@ export class OrdersService {
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    private readonly orderFulfillmentCancelService: OrderFulfillmentCancelService,
+    private readonly fulfillmentEventsRepository: OrderFulfillmentEventsRepository,
     private readonly orderNotificationsService: OrderNotificationsService,
     private readonly eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => ProductSubscriptionsService))
@@ -93,6 +112,9 @@ export class OrdersService {
     private readonly paymentRequestsService: PaymentRequestsService,
     @Inject(forwardRef(() => RefundRequestsService))
     private readonly refundRequestsService: RefundRequestsService,
+    @Inject(forwardRef(() => ReturnRequestsService))
+    private readonly returnRequestsService: ReturnRequestsService,
+    private readonly returnEligibilityService: ReturnEligibilityService,
   ) {}
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -1090,7 +1112,15 @@ export class OrdersService {
             shipwayStatus: Boolean(shipment?.shipwayRawStatus || shipment?.awbNumber),
           },
           this.storageUrlEnricher,
-        );
+        ).then((mapped) => ({
+          ...mapped,
+          cancellation: mapCancellationView(order),
+          actions: resolveOrderActions({
+            order,
+            hasEligibleReturnItems: order.orderStatus === OrderStatus.DELIVERED ? null : false,
+            hasWithdrawableReturn: false,
+          }),
+        }));
       }),
     );
     return buildPaginatedResult(mapped, total, { page, limit, sortOrder });
@@ -1147,7 +1177,17 @@ export class OrdersService {
         }
 
         const order = orderById.get(key.id);
-        return order ? mapOrderToAdminResponse(order, this.storageUrlEnricher) : null;
+        if (!order) return null;
+        const mapped = await mapOrderToAdminResponse(order, this.storageUrlEnricher);
+        return {
+          ...mapped,
+          cancellation: mapCancellationView(order),
+          actions: resolveOrderActions({
+            order,
+            hasEligibleReturnItems: order.orderStatus === OrderStatus.DELIVERED ? null : false,
+            hasWithdrawableReturn: false,
+          }),
+        };
       }),
     );
 
@@ -1240,10 +1280,50 @@ export class OrdersService {
         })
       : mapDefaultShipmentResponse(order);
 
-    return mapOrderToAdminResponse(
+    const base = await mapOrderToAdminResponse(
       { ...order, shipment, shipmentResponse, shipwayStatus },
       this.storageUrlEnricher,
     );
+    return {
+      ...base,
+      ...(await this.attachOrderWorkflow(order, { includeInternalEvents: true })),
+    };
+  }
+
+  private async attachOrderWorkflow(
+    order: OrderEntity,
+    options: { customerId?: string; includeInternalEvents: boolean },
+  ) {
+    const [events, returns, eligibility] = await Promise.all([
+      this.fulfillmentEventsRepository.findByOrderId(order.id),
+      this.returnRequestsService.listForOrder(order.id, options.customerId),
+      order.orderStatus === OrderStatus.DELIVERED
+        ? this.returnEligibilityService.evaluateOrder(order)
+        : Promise.resolve(null),
+    ]);
+
+    const hasWithdrawableReturn = returns.some((item) =>
+      (CUSTOMER_CANCELLABLE_STATUSES as readonly string[]).includes(item.status),
+    );
+
+    return {
+      cancellation: mapCancellationView(order),
+      actions: resolveOrderActions({
+        order,
+        hasEligibleReturnItems: eligibility ? eligibility.hasEligibleItems : null,
+        hasWithdrawableReturn,
+      }),
+      returns: returns.map((item) => ({
+        id: item.id,
+        returnNumber: item.returnNumber,
+        status: item.status,
+        resolution: item.resolution,
+        createdAt: item.createdAt,
+      })),
+      fulfillmentEvents: events
+        .map((event) => mapFulfillmentEvent(event, options.includeInternalEvents))
+        .filter((event): event is NonNullable<typeof event> => event != null),
+    };
   }
 
   private async findPaymentRequestForAdminOrder(
@@ -1334,6 +1414,7 @@ export class OrdersService {
       this.storageUrlEnricher,
     )),
       refund: await this.refundRequestsService.getCustomerRefund(id, userId),
+      ...(await this.attachOrderWorkflow(order, { customerId: userId, includeInternalEvents: false })),
     };
   }
 
@@ -1362,24 +1443,35 @@ export class OrdersService {
 
   async cancel(userId: string, id: string, dto: CancelOrderDto) {
     const reason = this.requireCancelReason(dto);
-    await this.executeCancel({ orderId: id, reason, updatedBy: userId, ownerUserId: userId });
+    const result = await this.executeCancel({
+      orderId: id,
+      reason,
+      updatedBy: userId,
+      ownerUserId: userId,
+      actorType: 'CUSTOMER',
+    });
 
-    await this.createRefundRequestAfterCancel(id, {
-      id: userId,
-      type: RefundRequestedByType.CUSTOMER,
-    }, reason);
-    const order = await this.findOne(userId, id);
-    await this.eventEmitter.emitAsync(
-      EVENTS.ORDER_CANCELLED,
-      new OrderCancelledEvent(id, order.orderNumber, reason),
-    );
-    await this.notifyOrderCancelledSafely(order, reason, 'website-cancel');
-    return order;
+    if (result.confirmedImmediately) {
+      await this.createRefundRequestAfterCancel(id, {
+        id: userId,
+        type: RefundRequestedByType.CUSTOMER,
+      }, reason);
+      const order = await this.findOne(userId, id);
+      await this.eventEmitter.emitAsync(
+        EVENTS.ORDER_CANCELLED,
+        new OrderCancelledEvent(id, order.orderNumber, reason),
+      );
+      await this.notifyOrderCancelledSafely(order, reason, 'website-cancel');
+      return order;
+    }
+
+    return this.findOne(userId, id);
   }
 
   /**
    * Admin cancel — same pre-shipping rules as customer cancel.
-   * Accepts order UUID or business `refId`. Emits ORDER_CANCELLED for GoKwik notify.
+   * Accepts order UUID or business `refId`. Emits ORDER_CANCELLED for GoKwik notify
+   * only after cancellation is confirmed (local-only or after provider steps).
    */
   async cancelForAdmin(idOrRefId: string, dto: CancelOrderDto, adminUserId: string) {
     const reason = this.requireCancelReason(dto);
@@ -1388,23 +1480,40 @@ export class OrdersService {
       throw new NotFoundException(`Order ${idOrRefId} not found`);
     }
 
-    await this.executeCancel({
+    const result = await this.executeCancel({
       orderId: existing.id,
       reason,
       updatedBy: adminUserId,
+      actorType: 'ADMIN',
     });
 
-    await this.createRefundRequestAfterCancel(existing.id, {
+    if (result.confirmedImmediately) {
+      await this.createRefundRequestAfterCancel(existing.id, {
+        id: adminUserId,
+        type: RefundRequestedByType.ADMIN,
+      }, reason);
+      const order = await this.findOneForAdmin(existing.id);
+      await this.eventEmitter.emitAsync(
+        EVENTS.ORDER_CANCELLED,
+        new OrderCancelledEvent(existing.id, order.orderNumber, reason),
+      );
+      await this.notifyOrderCancelledSafely(order, reason, 'admin-cancel');
+      return order;
+    }
+
+    return this.findOneForAdmin(existing.id);
+  }
+
+  async retryCancellationForAdmin(idOrRefId: string, adminUserId: string) {
+    const existing = await this.ordersRepository.findByIdOrRefId(idOrRefId);
+    if (!existing) {
+      throw new NotFoundException(`Order ${idOrRefId} not found`);
+    }
+    await this.orderFulfillmentCancelService.retryCancellation(existing.id, {
       id: adminUserId,
-      type: RefundRequestedByType.ADMIN,
-    }, reason);
-    const order = await this.findOneForAdmin(existing.id);
-    await this.eventEmitter.emitAsync(
-      EVENTS.ORDER_CANCELLED,
-      new OrderCancelledEvent(existing.id, order.orderNumber, reason),
-    );
-    await this.notifyOrderCancelledSafely(order, reason, 'admin-cancel');
-    return order;
+      type: 'ADMIN',
+    });
+    return this.findOneForAdmin(existing.id);
   }
 
   /**
@@ -1565,10 +1674,13 @@ export class OrdersService {
     orderId: string;
     reason: string;
     updatedBy: string;
+    actorType: 'CUSTOMER' | 'ADMIN';
     /** When set, order must belong to this customer (website cancel). */
     ownerUserId?: string;
-  }): Promise<void> {
-    const { orderId, reason, updatedBy, ownerUserId } = params;
+  }): Promise<{ confirmedImmediately: boolean }> {
+    const { orderId, reason, updatedBy, ownerUserId, actorType } = params;
+    let enqueueJob = false;
+    let confirmedImmediately = false;
 
     await this.dataSource.transaction(async (manager) => {
       const qb = manager
@@ -1582,40 +1694,118 @@ export class OrdersService {
 
       const locked = await qb.getOne();
       if (!locked) throw new NotFoundException(`Order ${orderId} not found`);
+
+      if (
+        locked.orderStatus === OrderStatus.CANCELLED ||
+        locked.cancellationStatus === CancellationStatus.CONFIRMED
+      ) {
+        throw new ConflictException('This order is already cancelled');
+      }
+      if (locked.cancellationStatus === CancellationStatus.PROCESSING) {
+        throw new ConflictException('A cancellation request is already being processed');
+      }
+      if (locked.cancellationStatus === CancellationStatus.REQUIRES_ATTENTION) {
+        throw new ConflictException(
+          'This cancellation needs operations review and cannot be re-submitted',
+        );
+      }
       if (!isOrderCancellable(locked.orderStatus)) {
         throw new BadRequestException('Orders can only be cancelled before shipping');
       }
 
-      if (
-        locked.orderStatus === OrderStatus.CONFIRMED ||
-        locked.orderStatus === OrderStatus.PROCESSING
-      ) {
-        const items = await manager.getRepository(OrderItemEntity).find({
-          where: { orderId },
-        });
-        for (const item of items) {
-          await manager
-            .getRepository(ProductVariantEntity)
-            .createQueryBuilder()
-            .update(ProductVariantEntity)
-            .set({ stock: () => `"stock" + ${item.quantity}` })
-            .where('id = :variantId', { variantId: item.variantId })
-            .execute();
-        }
-        await manager.getRepository(CouponUsageEntity).delete({ orderId });
+      const shipment = await this.shipmentsRepository.findByOrderId(orderId, manager);
+      if (isShipmentDispatched(shipment?.shipmentStatus)) {
+        throw new BadRequestException(
+          'This order has already been dispatched and cannot be cancelled. Contact support for interception or RTO.',
+        );
       }
 
-      await this.ordersRepository.updateById(
-        orderId,
-        {
-      orderStatus: OrderStatus.CANCELLED,
-          cancelReason: reason,
-          ...applyOrderStatusTimestamps(locked, OrderStatus.CANCELLED, new Date()),
-          updatedBy,
-        },
-        manager,
-      );
+      const neverExported = locked.orderStatus === OrderStatus.PENDING;
+      const now = new Date();
+
+      if (neverExported) {
+        await this.ordersRepository.updateById(
+          orderId,
+          {
+            orderStatus: OrderStatus.CANCELLED,
+            cancelReason: reason,
+            cancellationStatus: CancellationStatus.CONFIRMED,
+            cancellationUnicommerceStatus: CancellationSyncStatus.NOT_REQUIRED,
+            cancellationShipwayStatus: CancellationSyncStatus.NOT_REQUIRED,
+            cancellationRequestedAt: now,
+            cancellationRequestedBy: updatedBy,
+            cancellationRequestedByType: actorType,
+            cancellationSyncError: null,
+            ...applyOrderStatusTimestamps(locked, OrderStatus.CANCELLED, now),
+            updatedBy,
+          },
+          manager,
+        );
+        confirmedImmediately = true;
+      } else {
+        await this.ordersRepository.updateById(
+          orderId,
+          {
+            cancelReason: reason,
+            cancellationStatus: CancellationStatus.PROCESSING,
+            cancellationUnicommerceStatus: CancellationSyncStatus.PENDING,
+            cancellationShipwayStatus: CancellationSyncStatus.PENDING,
+            cancellationRequestedAt: now,
+            cancellationRequestedBy: updatedBy,
+            cancellationRequestedByType: actorType,
+            cancellationSyncError: null,
+            updatedBy,
+          },
+          manager,
+        );
+        enqueueJob = true;
+      }
     });
+
+    await this.fulfillmentEventsRepository.create({
+      orderId,
+      requestType: OrderFulfillmentRequestType.CANCELLATION,
+      eventType: OrderFulfillmentEventType.CANCELLATION_REQUESTED,
+      actorId: updatedBy,
+      actorType,
+      toStatus: confirmedImmediately
+        ? CancellationStatus.CONFIRMED
+        : CancellationStatus.PROCESSING,
+      message: reason,
+      isCustomerVisible: true,
+    });
+
+    if (confirmedImmediately) {
+      await this.fulfillmentEventsRepository.create({
+        orderId,
+        requestType: OrderFulfillmentRequestType.CANCELLATION,
+        eventType: OrderFulfillmentEventType.CANCELLATION_CONFIRMED,
+        actorId: updatedBy,
+        actorType,
+        fromStatus: CancellationStatus.PROCESSING,
+        toStatus: CancellationStatus.CONFIRMED,
+        message: 'Order was never exported; future Unicommerce/Shipway push is blocked',
+        isCustomerVisible: true,
+      });
+      await this.unicommerceOrderQueueService.cancelPendingPush(orderId);
+      return { confirmedImmediately: true };
+    }
+
+    const pushState = await this.unicommerceOrderQueueService.cancelPendingPush(orderId);
+    await this.fulfillmentEventsRepository.create({
+      orderId,
+      requestType: OrderFulfillmentRequestType.CANCELLATION,
+      eventType: OrderFulfillmentEventType.EXPORT_BLOCKED,
+      actorId: updatedBy,
+      actorType,
+      message: `Pending Unicommerce push job state=${pushState.state} removed=${pushState.removed}`,
+    });
+
+    if (enqueueJob) {
+      await this.unicommerceOrderQueueService.enqueueCancelOrder(orderId);
+    }
+
+    return { confirmedImmediately: false };
   }
 
   async createOrderFromSubscription(params: {

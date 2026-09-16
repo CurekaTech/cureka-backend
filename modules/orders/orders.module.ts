@@ -11,6 +11,7 @@ import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.m
 import { UsersModule } from '@modules/users/users.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
+import { ReturnsModule } from '@modules/returns/returns.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { CartEntity } from './entities/cart.entity';
@@ -18,11 +19,13 @@ import { CartItemEntity } from './entities/cart-item.entity';
 import { SavedForLaterItemEntity } from './entities/saved-for-later-item.entity';
 import { CouponUsageEntity } from './entities/coupon-usage.entity';
 import { OrderEntity } from './entities/order.entity';
+import { OrderFulfillmentEventEntity } from './entities/order-fulfillment-event.entity';
 import { OrderItemEntity } from './entities/order-item.entity';
 import { CartController } from './controllers/cart.controller';
 import { SavedForLaterController } from './controllers/saved-for-later.controller';
 import { OrdersController } from './controllers/orders.controller';
 import { AdminOrdersController } from './controllers/admin-orders.controller';
+import { AdminOrderHistoryController } from './controllers/admin-order-history.controller';
 import { AdminAbandonedCartsController } from './controllers/admin-abandoned-carts.controller';
 import { CartsRepository } from './repositories/carts.repository';
 import { CartItemsRepository } from './repositories/cart-items.repository';
@@ -37,6 +40,7 @@ import { CartCheckoutAdminSettingsService } from './services/cart-checkout-admin
 import { CartPricingService } from './services/cart-pricing.service';
 import { CheckoutService } from './services/checkout.service';
 import { CouponCheckoutService } from './services/coupon-checkout.service';
+import { OrderHistoryService } from './services/order-history.service';
 import { OrdersService } from './services/orders.service';
 
 @Module({
@@ -48,6 +52,7 @@ import { OrdersService } from './services/orders.service';
       CouponUsageEntity,
       OrderEntity,
       OrderItemEntity,
+      OrderFulfillmentEventEntity,
       AdminUserEntity,
     ]),
     AdminSettingsModule,
@@ -61,6 +66,7 @@ import { OrdersService } from './services/orders.service';
     forwardRef(() => SubscriptionModule),
     forwardRef(() => PaymentRequestsModule),
     forwardRef(() => RefundRequestsModule),
+    forwardRef(() => ReturnsModule),
     CodBlocklistModule,
   ],
   controllers: [
@@ -68,6 +74,7 @@ import { OrdersService } from './services/orders.service';
     SavedForLaterController,
     OrdersController,
     AdminOrdersController,
+    AdminOrderHistoryController,
     AdminAbandonedCartsController,
   ],
   providers: [
@@ -85,6 +92,7 @@ import { OrdersService } from './services/orders.service';
     CouponCheckoutService,
     CheckoutService,
     OrdersService,
+    OrderHistoryService,
   ],
   exports: [
     OrdersService,

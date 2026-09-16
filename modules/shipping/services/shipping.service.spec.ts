@@ -193,6 +193,35 @@ describe('ShippingService webhook handling', () => {
     expect(result.reason).toBe('unknown_or_legacy_order');
   });
 
+  it('does not apply reverse pickup events to the forward shipment', async () => {
+    eventEmitter.emitAsync.mockResolvedValue([true]);
+
+    const result = await service.handleShipwayWebhook({
+      order_id: 'RTN2026001',
+      status: 'PKP',
+      awb_number: 'REV-AWB',
+    });
+
+    expect(result.outcome).toBe('processed');
+    expect(result.reason).toBe('reverse_pickup');
+    expect(result.shipment).toBeNull();
+    expect(reconciliationService.resolveWebhookShipment).not.toHaveBeenCalled();
+    expect(shipmentsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unmatched reverse order unresolved instead of pretending it applied', async () => {
+    eventEmitter.emitAsync.mockResolvedValue([false]);
+
+    const result = await service.handleShipwayWebhook({
+      order_id: 'RTN-MISSING',
+      status: 'PKP',
+    });
+
+    expect(result.outcome).toBe('unresolved');
+    expect(result.reason).toBe('unknown_reverse_order');
+    expect(reconciliationService.resolveWebhookShipment).not.toHaveBeenCalled();
+  });
+
   it('processes a newer status update', async () => {
     const result = await service.handleShipwayWebhook({
       order_id: 'CUR1',

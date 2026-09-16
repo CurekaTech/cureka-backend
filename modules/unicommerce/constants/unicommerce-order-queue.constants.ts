@@ -1,5 +1,6 @@
 export const UNICOMMERCE_JOB_NAMES = {
   PUSH_ORDER: 'push-order-to-unicommerce',
+  CANCEL_ORDER: 'cancel-order-fulfillment',
 } as const;
 
 export type UnicommerceJobName =
@@ -9,4 +10,8 @@ export interface PushOrderToUnicommerceJobData {
   orderId: string;
 }
 
-export type UnicommerceJobData = PushOrderToUnicommerceJobData;
+export interface CancelOrderFulfillmentJobData {
+  orderId: string;
+}
+
+export type UnicommerceJobData = PushOrderToUnicommerceJobData | CancelOrderFulfillmentJobData;

@@ -233,7 +233,7 @@ describe('UnicommerceOrderApiService', () => {
     expect(reverseOptions.method).toBe('POST');
   });
 
-  it('posts cancel sale order to the official Unicommerce endpoint', async () => {
+  it('posts cancel to the official Unicommerce saleOrder/cancel endpoint', async () => {
     const service = new UnicommerceOrderApiService(buildConfig(baseValues));
     jest.spyOn((service as any).logger, 'log').mockImplementation(() => undefined);
 
@@ -283,11 +283,11 @@ describe('UnicommerceOrderApiService', () => {
       }) as typeof https.request);
 
     const result = await service.cancelSaleOrder({
-      saleOrderCode: 'CUR1',
+      saleOrderCode: 'ORD1',
       cancelPartially: false,
-      cancelOnChannel: true,
-      cancelledBySeller: false,
-      cancellationReason: 'Customer request',
+      cancelOnChannel: false,
+      cancelledBySeller: true,
+      cancellationReason: 'Customer requested cancellation',
     });
 
     expect(result).toEqual(cancelResponse);

@@ -86,7 +86,7 @@ export class OrdersController {
   }
 
   @ApiOperation({ summary: 'Cancel my order' })
-  @ResponseMessage('Order cancelled successfully')
+  @ResponseMessage('Cancellation request accepted')
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)
   cancel(

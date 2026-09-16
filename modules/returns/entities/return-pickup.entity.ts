@@ -79,4 +79,16 @@ export class ReturnPickupEntity extends BaseEntity {
 
   @Column({ name: 'provider_payload', type: 'jsonb', nullable: true })
   providerPayload!: Record<string, unknown> | null;
+
+  @Column({ name: 'unicommerce_reverse_pickup_code', type: 'varchar', length: 100, nullable: true })
+  unicommerceReversePickupCode!: string | null;
+
+  @Column({ name: 'shipway_order_id', type: 'varchar', length: 100, nullable: true })
+  shipwayOrderId!: string | null;
+
+  @Column({ name: 'unicommerce_sync_status', type: 'varchar', length: 40, nullable: true })
+  unicommerceSyncStatus!: string | null;
+
+  @Column({ name: 'shipway_booking_status', type: 'varchar', length: 40, nullable: true })
+  shipwayBookingStatus!: string | null;
 }
