@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EntityManager } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductType } from '../enums/product-type.enum';
@@ -111,6 +112,7 @@ export class BundleProductStrategy implements IProductCreationStrategy {
     private readonly variantsRepository: ProductVariantsRepository,
     private readonly relationsRepository: ProductRelationsRepository,
     private readonly productsRepository: ProductsRepository,
+    private readonly configService: ConfigService,
   ) {}
 
   supports(productType: ProductType): boolean {
@@ -142,12 +144,18 @@ export class BundleProductStrategy implements IProductCreationStrategy {
       description: variant.description ?? dto.description,
     }));
 
+    const allowDuplicateSku = this.configService.get<boolean>(
+      'products.allowDuplicateSkuForBundles',
+      false,
+    );
+
     await this.variantsRepository.createVariants(
       manager,
       product.id,
       product.slug,
       variantsWithDetails,
       attributeIdByRefId,
+      { skipSkuUniqueness: allowDuplicateSku },
     );
   }
 }

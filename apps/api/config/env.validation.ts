@@ -234,6 +234,9 @@ export const envValidationSchema = Joi.object({
   RETURN_WALLET_REFUND_ENABLED: Joi.string().valid('true', 'false').optional(),
   BANK_ACCOUNT_ENCRYPTION_KEY: Joi.string().allow('').optional(),
 
+  /** Temporary: allow creating bundles that reuse SKUs from existing simples. */
+  ALLOW_DUPLICATE_SKU_FOR_BUNDLES: Joi.string().valid('true', 'false').default('false'),
+
   SUBSCRIPTION_TIMEZONE: Joi.string().default('Asia/Kolkata'),
   SUBSCRIPTION_DELIVERY_LEAD_DAYS: Joi.number().integer().min(0).max(30).default(2),
   SUBSCRIPTION_MAX_RETRIES: Joi.number().integer().min(0).max(10).default(3),

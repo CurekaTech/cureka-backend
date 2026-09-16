@@ -5,6 +5,7 @@ export { storageConfig } from './storage.config';
 export { typesenseConfig } from './typesense.config';
 export { ordersConfig } from './orders.config';
 export { returnsConfig } from './returns.config';
+export { productsConfig } from './products.config';
 export { subscriptionsConfig } from './subscriptions.config';
 export { shipwayConfig } from './shipway.config';
 export { shiprocketConfig } from './shiprocket.config';
