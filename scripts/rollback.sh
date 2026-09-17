@@ -140,17 +140,23 @@ reload_or_restart() {
 
   if ! pm2 describe "${PM2_APP_NAME}" >/dev/null 2>&1; then
     log_warn "PM2 process ${PM2_APP_NAME} not found — starting"
-    pm2 start "${ECOSYSTEM_FILE}" --update-env
+
+    pm2 start "${ECOSYSTEM_FILE}" \
+      --only "${PM2_APP_NAME}" \
+      --update-env
+
     return $?
   fi
 
-  log_step "pm2 reload ${ECOSYSTEM_FILE} --update-env"
-  if pm2 reload "${ECOSYSTEM_FILE}" --update-env; then
+  log_step "pm2 reload ${PM2_APP_NAME} --update-env"
+
+  if pm2 reload "${PM2_APP_NAME}" --update-env; then
     return 0
   fi
 
-  log_warn "pm2 reload failed during rollback — falling back to pm2 restart"
-  pm2 restart "${ECOSYSTEM_FILE}" --update-env
+  log_warn "pm2 reload failed during rollback — falling back to targeted restart"
+
+  pm2 restart "${PM2_APP_NAME}" --update-env
 }
 
 if ! reload_or_restart; then

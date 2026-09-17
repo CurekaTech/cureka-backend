@@ -225,19 +225,24 @@ DID_MIGRATIONS=1
 # ---------------------------------------------------------------------------
 # PM2 reload — never restart on success path
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# PM2 reload — backend API process ONLY
+# ---------------------------------------------------------------------------
 if [[ ! -f "${ECOSYSTEM_FILE}" ]]; then
   fail_deploy "Missing ${ECOSYSTEM_FILE}"
 fi
 
-log_step "pm2 reload ecosystem.config.js --update-env"
+log_step "pm2 reload ${PM2_APP_NAME} --update-env"
+
 if ! pm2 describe "${PM2_APP_NAME}" >/dev/null 2>&1; then
   log_warn "PM2 app ${PM2_APP_NAME} not running — initial start"
-  if ! pm2 start "${ECOSYSTEM_FILE}" --update-env; then
-    fail_deploy "pm2 start failed"
+
+  if ! pm2 start "${ECOSYSTEM_FILE}" --only "${PM2_APP_NAME}" --update-env; then
+    fail_deploy "pm2 start ${PM2_APP_NAME} failed"
   fi
 else
-  if ! pm2 reload "${ECOSYSTEM_FILE}" --update-env; then
-    fail_deploy "pm2 reload failed"
+  if ! pm2 reload "${PM2_APP_NAME}" --update-env; then
+    fail_deploy "pm2 reload ${PM2_APP_NAME} failed"
   fi
 fi
 
