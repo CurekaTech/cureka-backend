@@ -74,6 +74,7 @@ export class CheckoutService {
       stock: getSalableStockQuantity(0, item.quantity),
       inStock: true,
       isAvailable: true,
+      codAvailable: true,
       primaryImageUrl: null,
       productDetails: [],
       categoryId: item.categoryId,

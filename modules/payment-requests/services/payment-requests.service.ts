@@ -2203,6 +2203,7 @@ export class PaymentRequestsService {
           stock: getSalableStockQuantity(variant?.stock ?? 0, item.quantity),
           inStock: isVariantInStock(variant?.stock ?? 0),
           isAvailable: true,
+          codAvailable: !!variant?.codAvailable,
           primaryImageUrl: null,
           productDetails: [],
           categoryId: variant?.product?.categoryId ?? '',
