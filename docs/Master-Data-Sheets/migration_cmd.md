@@ -210,10 +210,10 @@ npm run cache:invalidate-products
 // Update Order Status
 
 # dry-run (shows what will change)
-npm run order:update-status -- --order-id=ORD20260911001
+npm run order:update-status -- --order-id=ORD438873955361
 
 # apply delivered update (order + shipments)
-npm run order:update-status -- --order-id=ORD20260911001 --apply
+npm run order:update-status -- --order-id=ORD438873955361 --apply
 
 # custom statuses
 npm run order:update-status -- --order-id=ORD20260911001 --order-status=SHIPPED --shipment-status=IN_TRANSIT --apply
@@ -265,3 +265,21 @@ RETURNING s.id, s.order_id, s.shipment_status, s.awb_number;
 
 npm run product:sku-unique -- --drop      # during migration
 npm run product:sku-unique -- --restore   # after old simples cleaned up
+
+----------------------------
+
+// Backfill (existing DB products only — attaches WP images to product_media)
+npm run product:backfill-media -- --all-matched
+npm run product:backfill-media -- --all-matched --apply
+
+# Harvest ALL Excel images into GCS (product does not need to exist in DB).
+# Writes docs/wp-product-image-gcs-map.xlsx used by bulk upload Product ID lookup.
+# Keep legacy.cureka.com up until this finishes.
+
+# preview
+npm run product:harvest-images
+npm run product:harvest-images -- --limit=20
+
+# apply (resume-safe; re-run until pending=0)
+npm run product:harvest-images -- --limit=20 --apply
+npm run product:harvest-images -- --apply
