@@ -40,6 +40,22 @@ import {
   formatGeneratedSku,
 } from '../utils/bulk-upload-variable.util';
 import { shouldRegenerateVariantSlugFromProductChange } from '../utils/variant-slug-sync.util';
+import {
+  resolveAvailabilityFromDelta,
+  resolveAvailabilityFromStock,
+  resolveManualInStock,
+  resolveManualOutOfStock,
+} from '../utils/variant-stock-availability.util';
+
+export type VariantOosTransition = {
+  variantId: string;
+  productId: string;
+  sku: string;
+  stock: number;
+  productName?: string | null;
+  variantDisplayName?: string | null;
+  occurredAt: Date;
+};
 
 const pickVariantUnit = (
   dto: CreateVariantDto,
@@ -386,6 +402,13 @@ export class ProductVariantsRepository {
         reservedSlugs,
       );
 
+      const availability =
+        dto.outOfStock === true
+          ? resolveManualOutOfStock({ stock: dto.stock, outOfStock: false })
+          : dto.outOfStock === false
+            ? resolveManualInStock({ stock: dto.stock, outOfStock: true }, dto.stock)
+            : resolveAvailabilityFromStock(dto.stock, false);
+
       const variant = variantRepo.create({
         productId,
         sku: dto.sku,
@@ -400,8 +423,8 @@ export class ProductVariantsRepository {
         mrp: dto.mrp.toFixed(2),
         sellingPrice: dto.sellingPrice.toFixed(2),
         discountPercentage: discountPercentage.toFixed(2),
-        stock: dto.stock,
-        outOfStock: dto.outOfStock ?? false,
+        stock: availability.stock,
+        outOfStock: availability.outOfStock,
         estimatedDeliveryTime: dto.estimatedDeliveryTime ?? null,
         weight: dto.weight?.toFixed(3) ?? null,
         weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
@@ -450,7 +473,7 @@ export class ProductVariantsRepository {
     productType: ProductType,
     variants: CreateVariantDto[],
     attributeIdByRefId: Map<string, string>,
-  ): Promise<void> {
+  ): Promise<VariantOosTransition[]> {
     if (productType === ProductType.SIMPLE && variants.length !== 1) {
       throw new BadRequestException('Simple products must have exactly one variant');
     }
@@ -494,6 +517,7 @@ export class ProductVariantsRepository {
     const existing = await variantRepo.find({ where: { productId } });
     const existingBySku = new Map(existing.map((variant) => [variant.sku, variant]));
     const payloadSkus = new Set(variants.map((variant) => variant.sku));
+    const oosTransitions: VariantOosTransition[] = [];
 
     // Remove variants dropped from the payload first so their combination keys
     // do not block new/updated variants (partial unique index ignores soft-deleted rows).
@@ -535,7 +559,7 @@ export class ProductVariantsRepository {
     for (const dto of variants) {
       const matched = existingBySku.get(dto.sku);
       if (matched) {
-        await this.updateVariant(
+        const transition = await this.updateVariant(
           manager,
           matched,
           dto,
@@ -543,10 +567,13 @@ export class ProductVariantsRepository {
           productSlug,
           attributeIdByRefId,
         );
+        if (transition) oosTransitions.push(transition);
       } else {
         await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId);
       }
     }
+
+    return oosTransitions;
   }
 
   async existsBySlug(slug: string, excludeId?: string): Promise<boolean> {
@@ -603,7 +630,7 @@ export class ProductVariantsRepository {
     previousProductSlug: string,
     productSlug: string,
     attributeIdByRefId: Map<string, string>,
-  ): Promise<void> {
+  ): Promise<VariantOosTransition | null> {
     const variantRepo = manager.getRepository(ProductVariantEntity);
     const attributeRepo = manager.getRepository(VariantAttributeValueEntity);
 
@@ -660,6 +687,14 @@ export class ProductVariantsRepository {
           )
         : existing.slug;
 
+    const previous = { stock: existing.stock, outOfStock: existing.outOfStock };
+    const availability =
+      dto.outOfStock === true
+        ? resolveManualOutOfStock(previous)
+        : dto.outOfStock === false
+          ? resolveManualInStock(previous, dto.stock)
+          : resolveAvailabilityFromStock(dto.stock, previous.outOfStock);
+
     try {
       await variantRepo.update(
         { id: existing.id },
@@ -674,8 +709,8 @@ export class ProductVariantsRepository {
           mrp: dto.mrp.toFixed(2),
           sellingPrice: dto.sellingPrice.toFixed(2),
           discountPercentage: discountPercentage.toFixed(2),
-          stock: dto.stock,
-          ...(dto.outOfStock !== undefined ? { outOfStock: dto.outOfStock } : {}),
+          stock: availability.stock,
+          outOfStock: availability.outOfStock,
           ...(dto.estimatedDeliveryTime !== undefined
             ? { estimatedDeliveryTime: dto.estimatedDeliveryTime }
             : {}),
@@ -712,6 +747,16 @@ export class ProductVariantsRepository {
         ),
       );
     }
+
+    if (!availability.becameOos) return null;
+    return {
+      variantId: existing.id,
+      productId: existing.productId,
+      sku: existing.sku,
+      stock: availability.stock,
+      variantDisplayName: existing.displayName,
+      occurredAt: new Date(),
+    };
   }
 
   async findByProductId(productId: string): Promise<ProductVariantEntity[]> {
@@ -785,8 +830,241 @@ export class ProductVariantsRepository {
       .getOne();
   }
 
-  async updateStockById(variantId: string, stock: number): Promise<void> {
-    await this.repo.update({ id: variantId }, { stock });
+  async updateStockById(variantId: string, stock: number): Promise<VariantOosTransition | null> {
+    const variant = await this.repo.findOne({
+      where: { id: variantId },
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+    });
+    if (!variant) return null;
+
+    const next = resolveAvailabilityFromStock(stock, variant.outOfStock);
+    await this.repo.update(
+      { id: variantId },
+      { stock: next.stock, outOfStock: next.outOfStock },
+    );
+
+    if (!next.becameOos) return null;
+    return {
+      variantId: variant.id,
+      productId: variant.productId,
+      sku: variant.sku,
+      stock: next.stock,
+      variantDisplayName: variant.displayName,
+      occurredAt: new Date(),
+    };
+  }
+
+  /**
+   * Apply signed stock delta (orders / restock). Syncs outOfStock and returns OOS transition if any.
+   */
+  async adjustStockByVariantId(
+    variantId: string,
+    delta: number,
+    manager?: EntityManager,
+  ): Promise<VariantOosTransition | null> {
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
+    const variant = await repo.findOne({
+      where: { id: variantId },
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+      ...(manager ? { lock: { mode: 'pessimistic_write' } } : {}),
+    });
+    if (!variant) {
+      throw new BadRequestException(`Variant ${variantId} not found while adjusting stock`);
+    }
+
+    const next = resolveAvailabilityFromDelta(
+      { stock: variant.stock, outOfStock: variant.outOfStock },
+      delta,
+    );
+    await repo.update(
+      { id: variantId },
+      { stock: next.stock, outOfStock: next.outOfStock },
+    );
+
+    if (!next.becameOos) return null;
+    return {
+      variantId: variant.id,
+      productId: variant.productId,
+      sku: variant.sku,
+      stock: next.stock,
+      variantDisplayName: variant.displayName,
+      occurredAt: new Date(),
+    };
+  }
+
+  /**
+   * Sets stock on all non-deleted variants for the given products and syncs outOfStock
+   * (stock > 0 → INS, stock 0 → OOS).
+   */
+  async setStockByProductIds(
+    updates: Array<{ productId: string; stock: number }>,
+  ): Promise<{ counts: Map<string, number>; oosTransitions: VariantOosTransition[] }> {
+    const counts = new Map<string, number>();
+    const oosTransitions: VariantOosTransition[] = [];
+    if (!updates.length) return { counts, oosTransitions };
+
+    const productIds = [...new Set(updates.map((item) => item.productId))];
+    const variants = await this.repo.find({
+      where: { productId: In(productIds) },
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+    });
+    const stockByProductId = new Map(updates.map((item) => [item.productId, item.stock]));
+    const now = new Date();
+
+    for (const variant of variants) {
+      const stock = stockByProductId.get(variant.productId);
+      if (stock === undefined) continue;
+      const next = resolveAvailabilityFromStock(stock, variant.outOfStock);
+      await this.repo.update(
+        { id: variant.id },
+        { stock: next.stock, outOfStock: next.outOfStock },
+      );
+      counts.set(variant.productId, (counts.get(variant.productId) ?? 0) + 1);
+      if (next.becameOos) {
+        oosTransitions.push({
+          variantId: variant.id,
+          productId: variant.productId,
+          sku: variant.sku,
+          stock: next.stock,
+          variantDisplayName: variant.displayName,
+          occurredAt: now,
+        });
+      }
+    }
+
+    return { counts, oosTransitions };
+  }
+
+  /**
+   * Sets outOfStock = true and stock = 0 for all non-deleted variants of the given products.
+   */
+  async markOutOfStockByProductIds(
+    productIds: string[],
+  ): Promise<{
+    statsByProductId: Map<string, { updated: number; alreadyMarked: number }>;
+    oosTransitions: VariantOosTransition[];
+  }> {
+    const statsByProductId = new Map<string, { updated: number; alreadyMarked: number }>();
+    const oosTransitions: VariantOosTransition[] = [];
+    if (!productIds.length) return { statsByProductId, oosTransitions };
+
+    const variants = await this.repo.find({
+      where: { productId: In([...new Set(productIds)]) },
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+    });
+
+    for (const productId of productIds) {
+      statsByProductId.set(productId, { updated: 0, alreadyMarked: 0 });
+    }
+
+    const now = new Date();
+    for (const variant of variants) {
+      const stats = statsByProductId.get(variant.productId) ?? { updated: 0, alreadyMarked: 0 };
+      const next = resolveManualOutOfStock({
+        stock: variant.stock,
+        outOfStock: variant.outOfStock,
+      });
+      if (variant.outOfStock && variant.stock === 0) {
+        stats.alreadyMarked += 1;
+      } else {
+        stats.updated += 1;
+        await this.repo.update(
+          { id: variant.id },
+          { stock: next.stock, outOfStock: next.outOfStock },
+        );
+        if (next.becameOos) {
+          oosTransitions.push({
+            variantId: variant.id,
+            productId: variant.productId,
+            sku: variant.sku,
+            stock: next.stock,
+            variantDisplayName: variant.displayName,
+            occurredAt: now,
+          });
+        }
+      }
+      statsByProductId.set(variant.productId, stats);
+    }
+
+    return { statsByProductId, oosTransitions };
+  }
+
+  /**
+   * Sets `outOfStock` for variants matched by SKU and syncs stock (OOS → stock 0; INS requires stock > 0).
+   */
+  async updateOutOfStockBySkus(
+    skus: string[],
+    outOfStock: boolean,
+  ): Promise<{
+    bySkuResult: Map<string, 'updated' | 'already' | 'not_found' | 'blocked'>;
+    updatedProductIds: Set<string>;
+    oosTransitions: VariantOosTransition[];
+  }> {
+    const uniqueSkus = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
+    const bySkuResult = new Map<string, 'updated' | 'already' | 'not_found' | 'blocked'>(
+      uniqueSkus.map((sku) => [sku, 'not_found']),
+    );
+    const updatedProductIds = new Set<string>();
+    const oosTransitions: VariantOosTransition[] = [];
+
+    if (!uniqueSkus.length) return { bySkuResult, updatedProductIds, oosTransitions };
+
+    const variants = await this.repo.find({
+      where: { sku: In(uniqueSkus) },
+      select: ['id', 'sku', 'productId', 'stock', 'outOfStock', 'displayName'],
+    });
+
+    const now = new Date();
+    for (const variant of variants) {
+      if (outOfStock) {
+        const next = resolveManualOutOfStock({
+          stock: variant.stock,
+          outOfStock: variant.outOfStock,
+        });
+        if (variant.outOfStock && variant.stock === 0) {
+          bySkuResult.set(variant.sku, 'already');
+          continue;
+        }
+        await this.repo.update(
+          { id: variant.id },
+          { stock: next.stock, outOfStock: next.outOfStock },
+        );
+        bySkuResult.set(variant.sku, 'updated');
+        updatedProductIds.add(variant.productId);
+        if (next.becameOos) {
+          oosTransitions.push({
+            variantId: variant.id,
+            productId: variant.productId,
+            sku: variant.sku,
+            stock: next.stock,
+            variantDisplayName: variant.displayName,
+            occurredAt: now,
+          });
+        }
+        continue;
+      }
+
+      const next = resolveManualInStock({
+        stock: variant.stock,
+        outOfStock: variant.outOfStock,
+      });
+      if (next.outOfStock) {
+        bySkuResult.set(variant.sku, 'blocked');
+        continue;
+      }
+      if (!variant.outOfStock) {
+        bySkuResult.set(variant.sku, 'already');
+        continue;
+      }
+      await this.repo.update(
+        { id: variant.id },
+        { stock: next.stock, outOfStock: next.outOfStock },
+      );
+      bySkuResult.set(variant.sku, 'updated');
+      updatedProductIds.add(variant.productId);
+    }
+
+    return { bySkuResult, updatedProductIds, oosTransitions };
   }
 
   /**
@@ -853,122 +1131,6 @@ export class ProductVariantsRepository {
 
     await variantRepo.update(variant.id, { displayName: nextDisplayName });
     return true;
-  }
-
-  /**
-   * Sets stock on all non-deleted variants for the given products and clears
-   * outOfStock (restores in-stock / reverses bulk mark-out-of-stock).
-   */
-  async setStockByProductIds(
-    updates: Array<{ productId: string; stock: number }>,
-  ): Promise<Map<string, number>> {
-    const result = new Map<string, number>();
-    if (!updates.length) return result;
-
-    const productIds = [...new Set(updates.map((item) => item.productId))];
-    const variants = await this.repo.find({
-      where: { productId: In(productIds) },
-      select: ['id', 'productId'],
-    });
-    const stockByProductId = new Map(updates.map((item) => [item.productId, item.stock]));
-
-    for (const variant of variants) {
-      const stock = stockByProductId.get(variant.productId);
-      if (stock === undefined) continue;
-      await this.repo.update({ id: variant.id }, { stock, outOfStock: false });
-      result.set(variant.productId, (result.get(variant.productId) ?? 0) + 1);
-    }
-
-    return result;
-  }
-  /**
-   * Sets outOfStock = true for all non-deleted variants belonging to the given product IDs.
-   * Does not read or change stock. Returns per-product counts of variants flagged vs already flagged.
-   */
-  async markOutOfStockByProductIds(
-    productIds: string[],
-  ): Promise<Map<string, { updated: number; alreadyMarked: number }>> {
-    const result = new Map<string, { updated: number; alreadyMarked: number }>();
-    if (!productIds.length) return result;
-
-    const variants = await this.repo.find({
-      where: { productId: In([...new Set(productIds)]) },
-      select: ['id', 'productId', 'outOfStock'],
-    });
-
-    for (const productId of productIds) {
-      result.set(productId, { updated: 0, alreadyMarked: 0 });
-    }
-
-    const toMarkIds: string[] = [];
-    for (const variant of variants) {
-      const stats = result.get(variant.productId) ?? { updated: 0, alreadyMarked: 0 };
-      if (variant.outOfStock) {
-        stats.alreadyMarked += 1;
-      } else {
-        stats.updated += 1;
-        toMarkIds.push(variant.id);
-      }
-      result.set(variant.productId, stats);
-    }
-
-    if (toMarkIds.length) {
-      await this.repo
-        .createQueryBuilder()
-        .update(ProductVariantEntity)
-        .set({ outOfStock: true })
-        .where('id IN (:...ids)', { ids: toMarkIds })
-        .execute();
-    }
-
-    return result;
-  }
-
-  /**
-   * Sets `outOfStock` to the given value for all non-deleted variants matched by SKU.
-   * Returns per-SKU results: updated, alreadyAtTarget, notFound.
-   */
-  async updateOutOfStockBySkus(
-    skus: string[],
-    outOfStock: boolean,
-  ): Promise<{
-    bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
-    updatedProductIds: Set<string>;
-  }> {
-    const uniqueSkus = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
-    const bySkuResult = new Map<string, 'updated' | 'already' | 'not_found'>(
-      uniqueSkus.map((sku) => [sku, 'not_found']),
-    );
-    const updatedProductIds = new Set<string>();
-
-    if (!uniqueSkus.length) return { bySkuResult, updatedProductIds };
-
-    const variants = await this.repo.find({
-      where: { sku: In(uniqueSkus) },
-      select: ['id', 'sku', 'productId', 'outOfStock'],
-    });
-
-    const toUpdateIds: string[] = [];
-    for (const variant of variants) {
-      if (variant.outOfStock === outOfStock) {
-        bySkuResult.set(variant.sku, 'already');
-      } else {
-        bySkuResult.set(variant.sku, 'updated');
-        toUpdateIds.push(variant.id);
-        updatedProductIds.add(variant.productId);
-      }
-    }
-
-    if (toUpdateIds.length) {
-      await this.repo
-        .createQueryBuilder()
-        .update(ProductVariantEntity)
-        .set({ outOfStock })
-        .where('id IN (:...ids)', { ids: toUpdateIds })
-        .execute();
-    }
-
-    return { bySkuResult, updatedProductIds };
   }
 
   /**

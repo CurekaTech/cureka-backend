@@ -21,6 +21,7 @@ import {
   msg91Config,
   sitemapConfig,
   imagePipelineConfig,
+  smtpConfig,
   envValidationSchema,
 } from './config';
 
@@ -59,6 +60,7 @@ import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.m
 import { ReturnsModule } from '@modules/returns/returns.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.module';
+import { OosEmailModule } from '@modules/oos-email/oos-email.module';
 
 @Module({
   imports: [
@@ -84,6 +86,7 @@ import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.modu
         msg91Config,
         sitemapConfig,
         imagePipelineConfig,
+        smtpConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
@@ -116,6 +119,7 @@ import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.modu
     MasterModule,
     UploadsModule,
     ImagePipelineModule,
+    OosEmailModule,
     HealthModule,
     PublicModule,
     ProductModule,

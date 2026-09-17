@@ -67,6 +67,8 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
 import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
+import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
+import { VariantOosTransition } from '../repositories/product-variants.repository';
 
 export interface ProductMutationOptions {
   /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
@@ -96,6 +98,7 @@ export class ProductsService {
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     @Inject(forwardRef(() => ProductSubscriptionConfigService))
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
+    private readonly oosEmailQueueService: OosEmailQueueService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -806,6 +809,7 @@ export class ProductsService {
         ? await this.masterResolver.resolveCategoryFilterBindings(dto.categoryFilters)
         : null;
 
+    const oosTransitions: VariantOosTransition[] = [];
     await this.dataSource.transaction(async (manager) => {
       await this.productsRepository.updateByRefId(refId, payload, manager);
       await this.relationsRepository.cleanupLegacyManualMediaKeys(manager, existing.id);
@@ -964,7 +968,7 @@ export class ProductsService {
           effectiveProductType,  // use the new type, not the old one
           variantsForSync,
           attributeIdByRefId,
-        );
+        ).then((transitions) => oosTransitions.push(...transitions));
       } else if (
         needsVariantSync &&
         effectiveProductType === ProductType.BUNDLE &&
@@ -999,7 +1003,7 @@ export class ProductsService {
           ProductType.BUNDLE,
           pricingVariants,
           attributeIdByRefId,
-        );
+        ).then((transitions) => oosTransitions.push(...transitions));
       }
 
       if (
@@ -1071,6 +1075,8 @@ export class ProductsService {
         );
       }
     });
+
+    this.enqueueOosEmails(oosTransitions);
 
     const updated = await this.productsRepository.findByRefIdForMutation(refId);
     if (!updated) {
@@ -1182,8 +1188,8 @@ export class ProductsService {
   }
 
   /**
-   * Sets outOfStock = true on every non-deleted variant for the selected products.
-   * Does not change stock. Used by admin product list multi-select "Mark out of stock".
+   * Sets outOfStock = true and stock = 0 on every non-deleted variant for the selected products.
+   * Used by admin product list multi-select "Mark out of stock".
    */
   async bulkMarkOutOfStock(dto: BulkMarkOutOfStockDto): Promise<IBulkMarkOutOfStockResult> {
     const uniqueRefIds = [...new Set(dto.productRefIds.map((refId) => refId.trim()).filter(Boolean))];
@@ -1206,7 +1212,8 @@ export class ProductsService {
     }
 
     const productIds = foundEntries.map(([, productId]) => productId);
-    const statsByProductId = await this.variantsRepository.markOutOfStockByProductIds(productIds);
+    const { statsByProductId, oosTransitions } =
+      await this.variantsRepository.markOutOfStockByProductIds(productIds);
 
     const updated: string[] = [];
     const alreadyOutOfStock: string[] = [];
@@ -1218,12 +1225,12 @@ export class ProductsService {
       if (stats.updated > 0) {
         updated.push(refId);
       } else if (stats.alreadyMarked > 0) {
-        // All variants already have outOfStock = true
         alreadyOutOfStock.push(refId);
       }
     }
 
     await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    this.enqueueOosEmails(oosTransitions);
 
     return {
       requested: uniqueRefIds.length,
@@ -1243,6 +1250,7 @@ export class ProductsService {
     updated: string[];
     alreadyAtTarget: string[];
     notFound: string[];
+    blocked: string[];
     productsAffected: number;
   }> {
     const uniqueSkus = [...new Set(dto.skus.map((s) => s.trim()).filter(Boolean))];
@@ -1250,20 +1258,21 @@ export class ProductsService {
       throw new BadRequestException('skus must contain at least one SKU');
     }
 
-    const { bySkuResult, updatedProductIds } =
+    const { bySkuResult, updatedProductIds, oosTransitions } =
       await this.variantsRepository.updateOutOfStockBySkus(uniqueSkus, dto.outOfStock);
 
     const updated: string[] = [];
     const alreadyAtTarget: string[] = [];
     const notFound: string[] = [];
+    const blocked: string[] = [];
 
     for (const [sku, status] of bySkuResult.entries()) {
       if (status === 'updated') updated.push(sku);
       else if (status === 'already') alreadyAtTarget.push(sku);
+      else if (status === 'blocked') blocked.push(sku);
       else notFound.push(sku);
     }
 
-    // Emit product-updated events so caches are invalidated for affected products
     if (updatedProductIds.size > 0) {
       const affectedRefIds = await this.productsRepository.findRefIdsByIds([
         ...updatedProductIds,
@@ -1271,18 +1280,21 @@ export class ProductsService {
       await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
     }
 
+    this.enqueueOosEmails(oosTransitions);
+
     return {
       requested: uniqueSkus.length,
       updated,
       alreadyAtTarget,
       notFound,
+      blocked,
       productsAffected: updatedProductIds.size,
     };
   }
 
   /**
    * Restores stock on every non-deleted variant for the selected products and
-   * clears outOfStock so storefront treats them as in stock again.
+   * syncs outOfStock (stock > 0 → INS, stock 0 → OOS).
    */
   async bulkRestoreStock(dto: BulkRestoreStockDto): Promise<{
     requested: number;
@@ -1311,7 +1323,7 @@ export class ProductsService {
       return { requested: uniqueRefIds.length, updated: [], notFound, variantsUpdated: 0 };
     }
 
-    const counts = await this.variantsRepository.setStockByProductIds(
+    const { counts, oosTransitions } = await this.variantsRepository.setStockByProductIds(
       updates.map(({ productId, stock }) => ({ productId, stock })),
     );
 
@@ -1321,6 +1333,7 @@ export class ProductsService {
     const variantsUpdated = [...counts.values()].reduce((sum, n) => sum + n, 0);
 
     await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    this.enqueueOosEmails(oosTransitions);
 
     return {
       requested: uniqueRefIds.length,
@@ -1328,6 +1341,10 @@ export class ProductsService {
       notFound,
       variantsUpdated,
     };
+  }
+
+  private enqueueOosEmails(transitions: VariantOosTransition[]): void {
+    this.oosEmailQueueService.enqueueTransitionsSafe(transitions);
   }
 
   async unpublish(refId: string, updatedBy: string): Promise<IProduct> {

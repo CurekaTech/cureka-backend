@@ -255,4 +255,11 @@ export const envValidationSchema = Joi.object({
   // MSG91 SMS — env: enabled + auth key only; templates/flow/DLT → apps/api/config/msg91.constants.ts
   MSG91_ENABLED: Joi.string().valid('true', 'false').default('false'),
   MSG91_AUTH_KEY: Joi.string().allow('').optional(),
+
+  SMTP_HOST: Joi.string().allow('').optional(),
+  SMTP_PORT: Joi.number().integer().min(1).max(65535).default(587),
+  SMTP_SECURE: Joi.string().valid('true', 'false').optional(),
+  SMTP_USER: Joi.string().allow('').optional(),
+  SMTP_PASS: Joi.string().allow('').optional(),
+  SMTP_FROM: Joi.string().allow('').optional(),
 });

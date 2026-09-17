@@ -9,6 +9,7 @@ import { SitemapModule } from '@modules/sitemap/sitemap.module';
 import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { GalleryModule } from '../gallery/gallery.module';
+import { OosEmailModule } from '@modules/oos-email/oos-email.module';
 
 // ── Product entities ─────────────────────────────────────────────────────────
 import { ProductEntity } from './entities/product.entity';
@@ -126,6 +127,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     UsersModule,
     forwardRef(() => SubscriptionModule),
     forwardRef(() => SitemapModule),
+    OosEmailModule,
     QueueModule.registerQueue('bulk-upload'),
     QueueModule.registerQueue('bulk-price-update'),
     QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
