@@ -1,6 +1,7 @@
 export const QUEUE_NAMES = {
   NOTIFICATIONS: 'notifications',
   EMAILS: 'emails',
+  OOS_EMAIL: 'oos-email',
   ORDER_PROCESSING: 'order-processing',
   ANALYTICS: 'analytics',
   UNICOMMERCE: 'unicommerce',

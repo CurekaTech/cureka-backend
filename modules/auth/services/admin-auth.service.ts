@@ -1021,6 +1021,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         href: '/settings/logistic-partners',
         requiredPermissions: ['settings.read'],
       },
+      {
+        name: 'Email Recipient',
+        key: 'email-recipient-view',
+        icon: 'MailPlus',
+        href: '/settings/email-recipient',
+        requiredPermissions: ['settings.read'],
+      },
     ],
   },
 ];

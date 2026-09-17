@@ -141,7 +141,7 @@ async function run(): Promise<void> {
     const order = await orderRepo
       .createQueryBuilder('o')
       .withDeleted()
-      .where('o.id = :id OR o.ref_id = :id OR o.order_number = :id', {
+      .where('CAST(o.id AS text) = :id OR o.ref_id = :id OR o.order_number = :id', {
         id: opts.orderId.trim(),
       })
       .getOne();

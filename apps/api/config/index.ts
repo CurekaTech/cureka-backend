@@ -17,4 +17,5 @@ export { msg91Config } from './msg91.config';
 export { MSG91_STATIC } from './msg91.constants';
 export { sitemapConfig } from './sitemap.config';
 export { imagePipelineConfig } from './image-pipeline.config';
+export { smtpConfig } from './smtp.config';
 export { envValidationSchema } from './env.validation';
