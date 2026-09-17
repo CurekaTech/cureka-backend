@@ -6,6 +6,23 @@ export const BULK_UPLOAD_COMMON_MEDIA_SAMPLE_COUNT = 6;
 export const isRemoteImageUrl = (value: string): boolean =>
   /^https?:\/\//i.test(value.trim());
 
+const LIVE_CUREKA_ORIGIN_RE = /^https?:\/\/(?:www\.)?cureka\.com/i;
+export const LEGACY_CUREKA_ORIGIN = 'https://legacy.cureka.com';
+
+/**
+ * WooCommerce / bulk sheets still list www.cureka.com image URLs.
+ * Those files now live on the temporary WordPress host. Rewrite the host only.
+ * Non-Cureka URLs and GCS keys are left unchanged.
+ */
+export const toLegacyCurekaImageUrl = (url: string): string => {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\/legacy\.cureka\.com/i.test(trimmed)) {
+    return trimmed.replace(/^http:\/\//i, 'https://');
+  }
+  return trimmed.replace(LIVE_CUREKA_ORIGIN_RE, LEGACY_CUREKA_ORIGIN);
+};
+
 export const isStorageImageKey = (value: string): boolean =>
   /^(images|videos)\//i.test(value.trim());
 

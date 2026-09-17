@@ -12,7 +12,7 @@ import { isShipmentDispatched } from '@modules/orders/constants/dispatched-shipm
 import { applyOrderStatusTimestamps } from '@modules/orders/utils/order-status-timestamps.util';
 import { OrderFulfillmentEventsRepository } from '@modules/orders/repositories/order-fulfillment-events.repository';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
-import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
@@ -666,13 +666,7 @@ export class OrderFulfillmentCancelService {
   private async restoreStockAndCoupon(manager: EntityManager, orderId: string): Promise<void> {
     const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId } });
     for (const item of items) {
-      await manager
-        .getRepository(ProductVariantEntity)
-        .createQueryBuilder()
-        .update(ProductVariantEntity)
-        .set({ stock: () => `"stock" + ${item.quantity}` })
-        .where('id = :variantId', { variantId: item.variantId })
-        .execute();
+      await applyStockDeltaInManager(manager, item.variantId, item.quantity);
     }
     await manager.getRepository(CouponUsageEntity).delete({ orderId });
   }

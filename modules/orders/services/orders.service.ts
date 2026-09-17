@@ -82,6 +82,9 @@ import {
   mapFulfillmentEvent,
   resolveOrderActions,
 } from '../mappers/order-cancellation.mapper';
+import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
+import { VariantOosTransition } from '@modules/product/repositories/product-variants.repository';
+import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
 
 @Injectable()
 export class OrdersService {
@@ -115,7 +118,25 @@ export class OrdersService {
     @Inject(forwardRef(() => ReturnRequestsService))
     private readonly returnRequestsService: ReturnRequestsService,
     private readonly returnEligibilityService: ReturnEligibilityService,
+    private readonly oosEmailQueueService: OosEmailQueueService,
   ) {}
+
+  private async decrementVariantStock(
+    manager: EntityManager,
+    variant: ProductVariantEntity,
+    quantity: number,
+    oosTransitions: VariantOosTransition[],
+    productName?: string | null,
+  ): Promise<void> {
+    if (STOCK_VALIDATION_ENABLED && variant.stock < quantity) {
+      throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+    }
+    const transition = await applyStockDeltaInManager(manager, variant.id, -quantity, {
+      productName: productName ?? null,
+      lock: true,
+    });
+    if (transition) oosTransitions.push(transition);
+  }
 
   async checkout(userId: string, dto: CheckoutDto) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
@@ -172,6 +193,7 @@ export class OrdersService {
       );
     }
 
+    const oosTransitions: VariantOosTransition[] = [];
     const order = await this.dataSource.transaction(async (manager) => {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
@@ -253,12 +275,13 @@ export class OrdersService {
           where: { id: item.variantId },
         });
         if (!variant) throw new BadRequestException('Variant not found while placing order');
-        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
-        }
-        await manager
-          .getRepository(ProductVariantEntity)
-          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
+        await this.decrementVariantStock(
+          manager,
+          variant,
+          item.quantity,
+          oosTransitions,
+          item.productName,
+        );
 
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
@@ -305,6 +328,7 @@ export class OrdersService {
             stock: 0,
             inStock: true,
             isAvailable: true,
+            codAvailable: true,
             primaryImageUrl: null,
             productDetails: [],
             categoryId: item.categoryId,
@@ -365,6 +389,7 @@ export class OrdersService {
       return order;
     });
 
+    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
     await this.notifyOrderPlacedSafely(order, 'place-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     await this.activateSubscriptionsForConfirmedOrder(order, dto.addressId, 'place-order');
@@ -546,6 +571,7 @@ export class OrdersService {
     },
   ) {
     let shouldPushFulfillment = true;
+    const oosTransitions: VariantOosTransition[] = [];
 
     const order = await this.dataSource.transaction(async (manager) => {
       const existing = await this.ordersRepository.findByOrderNumberAndUserIdForUpdate(
@@ -637,21 +663,13 @@ export class OrdersService {
         if (!variant) {
           throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
         }
-        const decrementQb = manager
-          .getRepository(ProductVariantEntity)
-          .createQueryBuilder()
-          .update(ProductVariantEntity)
-          .set({ stock: () => `"stock" - ${item.quantity}` })
-          .where('id = :id', { id: item.variantId });
-
-        if (STOCK_VALIDATION_ENABLED) {
-          decrementQb.andWhere('stock >= :quantity', { quantity: item.quantity });
-        }
-
-        const decrement = await decrementQb.execute();
-        if (STOCK_VALIDATION_ENABLED && decrement.affected !== 1) {
-          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
-        }
+        await this.decrementVariantStock(
+          manager,
+          variant,
+          item.quantity,
+          oosTransitions,
+          item.productName,
+        );
       }
 
       if (existing.couponId) {
@@ -681,6 +699,7 @@ export class OrdersService {
             stock: 0,
             inStock: true,
             isAvailable: true,
+            codAvailable: true,
             primaryImageUrl: null,
             productDetails: [],
             categoryId: item.product?.categoryId ?? '',
@@ -765,6 +784,8 @@ export class OrdersService {
       );
       return confirmed;
     });
+
+    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
 
     if (shouldPushFulfillment) {
       await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
@@ -903,6 +924,7 @@ export class OrdersService {
   }): Promise<OrderEntity> {
     let shouldPushFulfillment = true;
     let shouldNotify = true;
+    const oosTransitions: VariantOosTransition[] = [];
     const isPrepaid = params.isPrepaid === true || Boolean(params.paymentId?.trim());
 
     const order = await this.dataSource.transaction(async (manager) => {
@@ -996,19 +1018,13 @@ export class OrdersService {
         if (!variant) {
           throw new BadRequestException(`Variant not found for SKU ${item.sku}`);
         }
-        const decrementQb = manager
-          .getRepository(ProductVariantEntity)
-          .createQueryBuilder()
-          .update(ProductVariantEntity)
-          .set({ stock: () => `"stock" - ${item.quantity}` })
-          .where('id = :id', { id: item.variantId });
-        if (STOCK_VALIDATION_ENABLED) {
-          decrementQb.andWhere('stock >= :quantity', { quantity: item.quantity });
-        }
-        const decrement = await decrementQb.execute();
-        if (STOCK_VALIDATION_ENABLED && decrement.affected !== 1) {
-          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
-        }
+        await this.decrementVariantStock(
+          manager,
+          variant,
+          item.quantity,
+          oosTransitions,
+          item.productName,
+        );
       }
 
       const paymentMethod = isPrepaid ? OrderPaymentMethod.RAZORPAY : OrderPaymentMethod.COD;
@@ -1062,6 +1078,8 @@ export class OrdersService {
       shouldNotify = true;
       return placed;
     });
+
+    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
 
     if (shouldNotify) {
       await this.notifyOrderPlacedSafely(order, 'bob-place-order');
@@ -1834,6 +1852,7 @@ export class OrdersService {
       frequency?: ProductSubscriptionFrequency | null;
     }>;
   }) {
+    const oosTransitions: VariantOosTransition[] = [];
     const order = await this.dataSource.transaction(async (manager) => {
       const addressRepository = manager.getRepository(UserAddressEntity);
       const address = await addressRepository.findOne({
@@ -1896,12 +1915,13 @@ export class OrdersService {
           relations: { product: true, attributeValues: true },
         });
         if (!variant) throw new BadRequestException('Variant not found while creating order');
-        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
-        }
-        await manager
-          .getRepository(ProductVariantEntity)
-          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
+        await this.decrementVariantStock(
+          manager,
+          variant,
+          item.quantity,
+          oosTransitions,
+          variant.product?.name,
+        );
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
         );
@@ -1948,6 +1968,7 @@ export class OrdersService {
       return order;
     });
 
+    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
     await this.notifyOrderPlacedSafely(order, 'subscription-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'subscription-order');
 
@@ -1986,6 +2007,7 @@ export class OrdersService {
       frequency?: ProductSubscriptionFrequency | null;
     }>;
   }) {
+    const oosTransitions: VariantOosTransition[] = [];
     const order = await this.dataSource.transaction(async (manager) => {
       await this.checkoutService.assertProductPricesCurrent(
         params.customerId,
@@ -2084,12 +2106,13 @@ export class OrdersService {
           relations: { product: true, attributeValues: true },
         });
         if (!variant) throw new BadRequestException('Variant not found while creating order');
-        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
-        }
-        await manager
-          .getRepository(ProductVariantEntity)
-          .update({ id: item.variantId }, { stock: variant.stock - item.quantity });
+        await this.decrementVariantStock(
+          manager,
+          variant,
+          item.quantity,
+          oosTransitions,
+          variant.product?.name,
+        );
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
         );
@@ -2142,6 +2165,7 @@ export class OrdersService {
       return order;
     });
 
+    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
     await this.activateSubscriptionsForConfirmedOrder(

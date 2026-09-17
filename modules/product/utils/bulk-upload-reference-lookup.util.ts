@@ -4,7 +4,11 @@ import * as ExcelJS from 'exceljs';
 import { normalizeSkuMatchKey } from './sku-match.util';
 
 const DEFAULT_MANUFACTURER_LOOKUP_FILE = 'docs/Manufacture details (1).xlsx';
-const DEFAULT_IMAGE_LOOKUP_FILE = 'docs/wc-product-export-6-7-2026-1783309274325.xlsx';
+/** Original WooCommerce export (http URLs). Harvest source + WP image comparison. */
+export const DEFAULT_WP_IMAGE_EXPORT_FILE = 'docs/wc-product-export-6-7-2026-1783309274325.xlsx';
+/** Harvest output: ID → GCS keys (`images/<uuid>.jpg`). Bulk-upload Product ID lookup. */
+export const DEFAULT_HARVESTED_IMAGE_LOOKUP_FILE = 'docs/wp-product-image-gcs-map.xlsx';
+export const DEFAULT_IMAGE_HARVEST_CACHE_FILE = 'docs/wp-image-harvest-cache.json';
 const DEFAULT_SLUG_LOOKUP_FILE = 'docs/slug sheet.xlsx';
 const DEFAULT_PRODUCT_PAGE_URL_LOOKUP_FILE = 'docs/Master-Data-Sheets/ProductUrls.xlsx';
 
@@ -145,13 +149,13 @@ export const loadManufacturerAddressByProductId = async (
 };
 
 /**
- * WC product export sheet: ID → ordered image URLs (comma-separated).
- * First URL is primary; remaining URLs are gallery.
+ * Product ID → ordered image locators (comma-separated).
+ * Harvest map uses GCS keys (`images/<uuid>.jpg`). First key is primary.
  */
 export const loadImageUrlsByProductId = async (
   filePath = resolveLookupPath(
     process.env['BULK_UPLOAD_IMAGE_LOOKUP_FILE'],
-    DEFAULT_IMAGE_LOOKUP_FILE,
+    DEFAULT_HARVESTED_IMAGE_LOOKUP_FILE,
   ),
 ): Promise<{ path: string; loaded: boolean; byProductId: Map<string, string[]> }> => {
   const byProductId = new Map<string, string[]>();
@@ -208,13 +212,13 @@ export const normalizeLookupSku = (value: string | number | null | undefined): s
 
 /**
  * WC product export: SKU + ID → ordered image URLs.
- * Read once. SKU is preferred for the image-URL comparison export;
- * ID remains for bulk-upload image lookup.
+ * Read once. SKU is preferred for the image-URL comparison export.
+ * Bulk-upload Product ID images use the harvested GCS map instead.
  */
 export const loadWpImageLookup = async (
   filePath = resolveLookupPath(
-    process.env['BULK_UPLOAD_IMAGE_LOOKUP_FILE'],
-    DEFAULT_IMAGE_LOOKUP_FILE,
+    process.env['BULK_UPLOAD_WP_IMAGE_LOOKUP_FILE'],
+    DEFAULT_WP_IMAGE_EXPORT_FILE,
   ),
 ): Promise<{
   path: string;

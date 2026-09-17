@@ -599,6 +599,7 @@ export class CartService {
           stock,
           inStock: isAvailable && isVariantInStock(rawStock),
           isAvailable,
+          codAvailable: !!variant?.codAvailable,
           primaryImageUrl,
           productDetails: this.buildProductDetails(variant),
           categoryId: product?.categoryId ?? '',

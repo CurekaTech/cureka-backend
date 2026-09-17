@@ -3,6 +3,7 @@ import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { parseMoney, roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
 import { RefundRequestsRepository } from '@modules/refund-requests/repositories/refund-requests.repository';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
@@ -1129,9 +1130,7 @@ export class ReturnWorkflowService {
     for (const item of items) {
       const accepted = acceptedByItemId.get(item.id) ?? 0;
       if (accepted <= 0) continue;
-      await manager
-        .getRepository(ProductVariantEntity)
-        .increment({ id: item.variantId }, 'stock', accepted);
+      await applyStockDeltaInManager(manager, item.variantId, accepted);
     }
     await this.returnRequestsRepository.updateById(
       returnRequestId,

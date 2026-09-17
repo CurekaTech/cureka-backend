@@ -47,3 +47,7 @@ yarn-error.log*
 
 # GoKwik test session tokens (minted by gokwik:test-credentials)
 docs/gokwik-test-credentials.json
+
+# WP image harvest resume cache (mapping xlsx is kept)
+docs/wp-image-harvest-cache.json
+docs/wp-image-harvest-cache.json.tmp
