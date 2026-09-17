@@ -190,6 +190,32 @@ export class UnicommerceOrderApiService {
   }
 
   /**
+   * Official cancel-sale-order API. Must be called before seller dispatch.
+   * Docs: POST /services/rest/v1/oms/saleOrder/cancel
+   * https://documentation.unicommerce.com/docs/saleorder-cancel.html
+   *
+   * Inspect `successful` — HTTP 200 is not business success.
+   */
+  async cancelSaleOrder(
+    payload: IUnicommerceCancelSaleOrderPayload,
+  ): Promise<IUnicommerceCancelSaleOrderResponse> {
+    return this.authenticatedPost<IUnicommerceCancelSaleOrderResponse>(
+      '/services/rest/v1/oms/saleOrder/cancel',
+      payload,
+      {
+        logLabel: 'cancelSaleOrder',
+        extra: {
+          saleOrderCode: payload.saleOrderCode,
+          cancelPartially: payload.cancelPartially ?? false,
+          cancelOnChannel: payload.cancelOnChannel ?? false,
+          cancelledBySeller: payload.cancelledBySeller ?? true,
+          itemCount: payload.saleOrderItemCodes?.length ?? 0,
+        },
+      },
+    );
+  }
+
+  /**
    * Official reverse-pickup create API.
    * Docs: POST /services/rest/v1/oms/reversePickup/create
    * https://documentation.unicommerce.com/docs/create-reversepickup.html
@@ -206,28 +232,6 @@ export class UnicommerceOrderApiService {
           saleOrderCode: payload.saleOrderCode,
           reversePickupCode: payload.reversePickupCode ?? null,
           itemCount: payload.reversePickItems.length,
-        },
-      },
-    );
-  }
-
-  /**
-   * Official cancel sale order API (pre-dispatch only).
-   * Docs: POST /services/rest/v1/oms/saleOrder/cancel
-   * https://documentation.unicommerce.com/docs/saleorder-cancel.html
-   */
-  async cancelSaleOrder(
-    payload: IUnicommerceCancelSaleOrderPayload,
-  ): Promise<IUnicommerceCancelSaleOrderResponse> {
-    return this.authenticatedPost<IUnicommerceCancelSaleOrderResponse>(
-      '/services/rest/v1/oms/saleOrder/cancel',
-      payload,
-      {
-        logLabel: 'cancelSaleOrder',
-        extra: {
-          saleOrderCode: payload.saleOrderCode,
-          cancelPartially: payload.cancelPartially ?? false,
-          itemCount: payload.saleOrderItemCodes?.length ?? 0,
         },
       },
     );

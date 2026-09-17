@@ -34,6 +34,22 @@ export class UnicommerceReturnPickupProvider implements IReturnPickupProviderAda
       throw new Error(RETURN_PICKUP_PROVIDER_UNAVAILABLE);
     }
 
+    if (request.existing?.unicommerceReversePickupCode) {
+      return {
+        provider: this.provider,
+        status: ReturnPickupStatus.SCHEDULED,
+        providerPickupId: request.existing.unicommerceReversePickupCode,
+        reverseAwbNumber: null,
+        courierName: null,
+        trackingUrl: null,
+        scheduledAt: request.scheduledAt ?? new Date(),
+        providerPayload: {
+          reused: true,
+          reversePickupCode: request.existing.unicommerceReversePickupCode,
+        },
+      };
+    }
+
     const replacementSku =
       request.resolution === ReturnResolution.REPLACEMENT
         ? request.items.find((item) => item.replacementSku)?.replacementSku ??
@@ -88,6 +104,15 @@ export class UnicommerceReturnPickupProvider implements IReturnPickupProviderAda
   }
 
   cancel(): Promise<void> {
+    this.logger.warn(
+      {
+        blocker:
+          'Unicommerce reversePickup cancel API is not implemented in this connector. ' +
+          'Official create is POST /services/rest/v1/oms/reversePickup/create. ' +
+          'A documented reverse-pickup cancel contract was not present in the Cureka integration, so Uniware RMA remains until ops cancel it in Uniware.',
+      },
+      'Unicommerce reverse pickup cancel is unsupported — no-op',
+    );
     return Promise.resolve();
   }
 }

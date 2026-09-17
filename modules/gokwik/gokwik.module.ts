@@ -42,7 +42,7 @@ import { GokwikComplimentaryOrderItemsService } from './services/gokwik-complime
   imports: [
     AdminSettingsModule,
     forwardRef(() => OrdersModule),
-    UnicommerceOrderModule,
+    forwardRef(() => UnicommerceOrderModule),
     UsersModule,
     MasterModule,
     UploadsModule,

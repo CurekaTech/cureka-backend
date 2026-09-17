@@ -83,6 +83,8 @@ export interface IReturnPickupView {
   failureReason: string | null;
   unicommerceReversePickupCode: string | null;
   shipwayOrderId: string | null;
+  unicommerceSyncStatus: string | null;
+  shipwayBookingStatus: string | null;
 }
 
 export interface IReturnQcView {

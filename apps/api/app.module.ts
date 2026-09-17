@@ -8,6 +8,7 @@ import {
   jwtConfig,
   ordersConfig,
   returnsConfig,
+  productsConfig,
   subscriptionsConfig,
   shiprocketConfig,
   shipwayConfig,
@@ -19,6 +20,7 @@ import {
   bobConfig,
   msg91Config,
   sitemapConfig,
+  imagePipelineConfig,
   envValidationSchema,
 } from './config';
 
@@ -56,6 +58,7 @@ import { SitemapModule } from '@modules/sitemap/sitemap.module';
 import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
 import { ReturnsModule } from '@modules/returns/returns.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
+import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.module';
 
 @Module({
   imports: [
@@ -70,6 +73,7 @@ import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module'
         typesenseConfig,
         ordersConfig,
         returnsConfig,
+        productsConfig,
         subscriptionsConfig,
         shipwayConfig,
         shiprocketConfig,
@@ -79,6 +83,7 @@ import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module'
         bobConfig,
         msg91Config,
         sitemapConfig,
+        imagePipelineConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
@@ -110,6 +115,7 @@ import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module'
     UsersModule,
     MasterModule,
     UploadsModule,
+    ImagePipelineModule,
     HealthModule,
     PublicModule,
     ProductModule,

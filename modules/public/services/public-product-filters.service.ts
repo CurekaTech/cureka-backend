@@ -27,6 +27,7 @@ import {
 } from '../enums/public-listing-context-type.enum';
 import { PublicProductFiltersQueryDto } from '../dto/public-product-filters-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
+import { resolvePublicProductTypeForListing } from '../utils/combo-brand-listing.util';
 import {
   inferListingContextType,
   resolveFacetOmit,
@@ -192,7 +193,11 @@ export class PublicProductFiltersService {
       page: 1,
       limit: 1,
       search: query.search,
-      productType: query.productType,
+      productType: resolvePublicProductTypeForListing({
+        productType: query.productType,
+        brandSlug: query.brandSlug,
+        brandSlugs: selectedBrands.map((brand) => brand.slug),
+      }),
       categoryId: resolved.categoryId,
       brandId: resolved.brandId,
       brandIds: resolved.brandIds,
@@ -440,7 +445,10 @@ export class PublicProductFiltersService {
       healthConcernSlug: query.healthConcernSlug,
       wellnessGoalRefId: query.wellnessGoalRefId,
       productNatureRefId: query.productNatureRefId,
-      productType: query.productType,
+      productType: resolvePublicProductTypeForListing({
+        productType: query.productType,
+        brandSlug: query.brandSlug,
+      }),
       variantSlug: query.variantSlug,
       tagSlug: query.tagSlug,
       categoryFilters: query.categoryFilters,

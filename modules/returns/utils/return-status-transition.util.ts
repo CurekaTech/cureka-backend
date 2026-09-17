@@ -34,11 +34,13 @@ const ALLOWED: Record<ReturnStatus, ReturnStatus[]> = {
     ReturnStatus.PICKUP_ATTEMPTED,
     ReturnStatus.PICKED_UP,
     ReturnStatus.REJECTED,
+    ReturnStatus.CANCELLED_BY_CUSTOMER,
   ],
   [ReturnStatus.PICKUP_ATTEMPTED]: [
     ReturnStatus.PICKUP_SCHEDULED,
     ReturnStatus.PICKED_UP,
     ReturnStatus.REJECTED,
+    ReturnStatus.CANCELLED_BY_CUSTOMER,
   ],
   [ReturnStatus.PICKED_UP]: [
     ReturnStatus.IN_TRANSIT_TO_WAREHOUSE,

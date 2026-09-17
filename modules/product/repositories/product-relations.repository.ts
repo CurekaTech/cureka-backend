@@ -255,7 +255,9 @@ export class ProductRelationsRepository {
     await repo.delete({ productId });
     if (productFaqIds.length) {
       await repo.save(
-        productFaqIds.map((productFaqId) => repo.create({ productId, productFaqId })),
+        productFaqIds.map((productFaqId, index) =>
+          repo.create({ productId, productFaqId, sortOrder: index }),
+        ),
       );
     }
     // Keep every variant's inline FAQs in sync with the product-level set.
@@ -274,19 +276,20 @@ export class ProductRelationsRepository {
     const mappings = await manager.getRepository(ProductFaqMappingEntity).find({
       where: { productId },
       relations: { productFaq: true },
+      order: { sortOrder: 'ASC' },
     });
 
     const faqs: IVariantInlineFaq[] = mappings
-      .map((mapping) => mapping.productFaq)
       .filter(
-        (faq): faq is ProductFaqEntity =>
-          Boolean(faq) &&
-          faq.status === ProductFaqStatus.ACTIVE &&
-          !faq.deletedAt,
+        (mapping) =>
+          Boolean(mapping.productFaq) &&
+          mapping.productFaq.status === ProductFaqStatus.ACTIVE &&
+          !mapping.productFaq.deletedAt,
       )
-      .map((faq) => ({
-        question: faq.question,
-        answer: faq.answer,
+      .map((mapping) => ({
+        question: mapping.productFaq!.question,
+        answer: mapping.productFaq!.answer,
+        sequence: mapping.sortOrder ?? 0,
       }));
 
     await manager

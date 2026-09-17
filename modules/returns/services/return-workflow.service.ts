@@ -332,6 +332,14 @@ export class ReturnWorkflowService {
       relations: { items: true, user: true },
     });
 
+    const existingPickup = await this.pickupsRepository.findActiveByReturnRequestId(request.id);
+    if (existingPickup?.status === ReturnPickupStatus.SCHEDULED && existingPickup.reverseAwbNumber) {
+      throw new BadRequestException({
+        code: 'RETURN_PICKUP_ALREADY_BOOKED',
+        message: 'A reverse courier pickup is already booked for this return',
+      });
+    }
+
     const provider = dto.provider ?? this.pickupService.defaultProvider();
     const result = await this.pickupService.schedule(provider, {
       returnRequestId: request.id,
@@ -358,30 +366,85 @@ export class ReturnWorkflowService {
         courierName: dto.courierName ?? null,
         trackingUrl: dto.trackingUrl ?? null,
       },
+      existing: existingPickup
+        ? {
+            unicommerceReversePickupCode: existingPickup.unicommerceReversePickupCode,
+            shipwayOrderId: existingPickup.shipwayOrderId,
+            reverseAwbNumber: existingPickup.reverseAwbNumber,
+          }
+        : undefined,
     });
+
+    const courierBooked = result.courierBooked === true || Boolean(result.reverseAwbNumber);
+    const pickupFields = {
+      provider: result.provider,
+      status: result.status,
+      providerPickupId: result.providerPickupId,
+      reverseAwbNumber: result.reverseAwbNumber,
+      courierName: result.courierName,
+      trackingUrl: result.trackingUrl,
+      scheduledAt: result.scheduledAt,
+      failureReason: result.failureReason ?? null,
+      providerPayload: result.providerPayload,
+      unicommerceReversePickupCode: result.unicommerceReversePickupCode ?? null,
+      shipwayOrderId: result.shipwayOrderId ?? null,
+      unicommerceSyncStatus: result.unicommerceSyncStatus ?? null,
+      shipwayBookingStatus: result.shipwayBookingStatus ?? null,
+      updatedBy: actor.email ?? actor.id,
+    };
+
+    if (!courierBooked) {
+      await this.dataSource.transaction(async (manager) => {
+        if (existingPickup) {
+          await this.pickupsRepository.updateById(existingPickup.id, pickupFields, manager);
+        } else {
+          await this.pickupsRepository.create(
+            {
+              refId: await generateUniqueRefId('returnpickup', (candidate) =>
+                this.pickupsRepository.existsByRefId(candidate),
+              ),
+              returnRequestId: request.id,
+              ...pickupFields,
+              createdBy: actor.email ?? actor.id,
+            },
+            manager,
+          );
+        }
+        const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+        if (locked) {
+          await this.writeHistory(manager, locked, locked.status, {
+            action: ReturnHistoryAction.PICKUP_UPDATED,
+            comment: result.failureReason ?? 'Courier pickup was not booked',
+            customerVisible: false,
+            actor,
+            metadata: {
+              courierBooked: false,
+              unicommerceRecorded: result.unicommerceRecorded === true,
+              uncertainBooking: result.uncertainBooking === true,
+            },
+          });
+        }
+      });
+      return this.getDetail(request.id);
+    }
 
     await this.dataSource.transaction(async (manager) => {
       const locked = await this.lockAndAssert(manager, request.id, ReturnStatus.PICKUP_SCHEDULED);
-      await this.pickupsRepository.create(
-        {
-          refId: await generateUniqueRefId('returnpickup', (candidate) =>
-            this.pickupsRepository.existsByRefId(candidate),
-          ),
-          returnRequestId: request.id,
-          provider: result.provider,
-          status: result.status,
-          providerPickupId: result.providerPickupId,
-          reverseAwbNumber: result.reverseAwbNumber,
-          courierName: result.courierName,
-          trackingUrl: result.trackingUrl,
-          scheduledAt: result.scheduledAt,
-          failureReason: result.failureReason ?? null,
-          providerPayload: result.providerPayload,
-          createdBy: actor.email ?? actor.id,
-          updatedBy: actor.email ?? actor.id,
-        },
-        manager,
-      );
+      if (existingPickup) {
+        await this.pickupsRepository.updateById(existingPickup.id, pickupFields, manager);
+      } else {
+        await this.pickupsRepository.create(
+          {
+            refId: await generateUniqueRefId('returnpickup', (candidate) =>
+              this.pickupsRepository.existsByRefId(candidate),
+            ),
+            returnRequestId: request.id,
+            ...pickupFields,
+            createdBy: actor.email ?? actor.id,
+          },
+          manager,
+        );
+      }
       await this.applyStatus(manager, locked, ReturnStatus.PICKUP_SCHEDULED, {
         updatedBy: actor.email ?? actor.id,
       });

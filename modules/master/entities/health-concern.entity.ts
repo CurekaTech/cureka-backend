@@ -28,6 +28,21 @@ export class HealthConcernEntity extends BaseEntity {
   @Column({ name: 'medical_condition_name', type: 'varchar', length: 255, nullable: true })
   medicalConditionName!: string | null;
 
+  @Column({ name: 'alternate_name', type: 'varchar', length: 255, nullable: true })
+  alternateName!: string | null;
+
+  @Column({ name: 'medical_condition_description', type: 'text', nullable: true })
+  medicalConditionDescription!: string | null;
+
+  @Column({ name: 'reviewed_by_name', type: 'varchar', length: 255, nullable: true })
+  reviewedByName!: string | null;
+
+  @Column({ name: 'reviewed_by_job_title', type: 'varchar', length: 255, nullable: true })
+  reviewedByJobTitle!: string | null;
+
+  @Column({ name: 'last_reviewed', type: 'date', nullable: true })
+  lastReviewed!: string | null;
+
   @Column({
     name: 'patient_audience',
     type: 'enum',
@@ -63,5 +78,5 @@ export class HealthConcernEntity extends BaseEntity {
   sortIndex!: number | null;
 
   @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
-  faqs!: Array<{ question: string; answer: string }>;
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 }

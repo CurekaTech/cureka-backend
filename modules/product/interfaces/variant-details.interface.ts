@@ -5,6 +5,7 @@ import { IStorageFileReference } from '@packages/storage';
 export interface IVariantInlineFaq {
   question: string;
   answer: string;
+  sequence: number;
 }
 
 export interface IVariantCategoryFilterBinding {

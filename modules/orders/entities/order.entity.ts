@@ -1,6 +1,8 @@
 import { BaseEntity } from '@packages/database';
 import { UserEntity } from '@modules/users/entities/user.entity';
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import { CancellationStatus } from '../enums/cancellation-status.enum';
+import { CancellationSyncStatus } from '../enums/cancellation-sync-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderSource } from '../enums/order-source.enum';
@@ -121,6 +123,53 @@ export class OrderEntity extends BaseEntity {
 
   @Column({ name: 'cancel_reason', type: 'text', nullable: true })
   cancelReason!: string | null;
+
+  /**
+   * Cancellation *request* workflow. Independent of `orderStatus` so a local
+   * CANCELLED row is never treated as proof that Unicommerce/Shipway stopped.
+   */
+  @Index()
+  @Column({
+    name: 'cancellation_status',
+    type: 'varchar',
+    length: 40,
+    default: CancellationStatus.NONE,
+  })
+  cancellationStatus!: CancellationStatus;
+
+  @Column({
+    name: 'cancellation_unicommerce_status',
+    type: 'varchar',
+    length: 40,
+    default: CancellationSyncStatus.NOT_STARTED,
+  })
+  cancellationUnicommerceStatus!: CancellationSyncStatus;
+
+  @Column({
+    name: 'cancellation_shipway_status',
+    type: 'varchar',
+    length: 40,
+    default: CancellationSyncStatus.NOT_STARTED,
+  })
+  cancellationShipwayStatus!: CancellationSyncStatus;
+
+  @Column({ name: 'cancellation_sync_error', type: 'text', nullable: true })
+  cancellationSyncError!: string | null;
+
+  @Column({ name: 'cancellation_attempt_count', type: 'int', default: 0 })
+  cancellationAttemptCount!: number;
+
+  @Column({ name: 'cancellation_last_attempt_at', type: 'timestamptz', nullable: true })
+  cancellationLastAttemptAt!: Date | null;
+
+  @Column({ name: 'cancellation_requested_at', type: 'timestamptz', nullable: true })
+  cancellationRequestedAt!: Date | null;
+
+  @Column({ name: 'cancellation_requested_by', type: 'varchar', length: 255, nullable: true })
+  cancellationRequestedBy!: string | null;
+
+  @Column({ name: 'cancellation_requested_by_type', type: 'varchar', length: 20, nullable: true })
+  cancellationRequestedByType!: string | null;
 
   @Index()
   @Column({ name: 'placed_at', type: 'timestamptz', nullable: true })

@@ -135,23 +135,6 @@ export class BulkPriceUpdateProcessor extends WorkerHost {
               continue;
             }
 
-            if (row.productId) {
-              const expected = (variant.externalProductId ?? '').trim();
-              if (!expected || expected.toLowerCase() !== row.productId.trim().toLowerCase()) {
-                allErrors.push({
-                  rowNumber: row.rowNumber,
-                  sku: row.sku,
-                  column: 'Product Id',
-                  invalidValue: row.productId,
-                  reason: expected
-                    ? `Product Id does not match SKU (variant has "${expected}")`
-                    : 'Variant has no Product Id; omit Product Id or set it on the variant first',
-                  suggestedFix: 'Provide the Product Id that belongs to this SKU, or leave it blank',
-                });
-                continue;
-              }
-            }
-
             const discountPercentage = calcDiscountPercent(row.mrp, row.sellingPrice);
             await this.variantRepo.update(
               { id: variant.id },

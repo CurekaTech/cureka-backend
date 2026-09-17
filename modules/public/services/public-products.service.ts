@@ -50,6 +50,7 @@ import {
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
 import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category-filters-query.dto';
 import { resolvePublicPriceRange } from '../utils/price-range-query.util';
+import { resolvePublicProductTypeForListing } from '../utils/combo-brand-listing.util';
 import {
   IPublicBrandCategoryFilterItem,
   mapHierarchyLevelToFilterType,
@@ -112,6 +113,12 @@ export class PublicProductsService {
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
     const priceRange = resolvePublicPriceRange(query);
+    const productType = resolvePublicProductTypeForListing({
+      productType: query.productType,
+      brandSlug: query.brandSlug,
+      brandSlugs: filters.selectedBrands?.map((brand) => brand.slug) ??
+        (filters.brand ? [filters.brand.slug] : undefined),
+    });
     const queryHash = buildQueryCacheHash({
       categoryId: filters.categoryId,
       brandId: filters.brandId,
@@ -143,7 +150,7 @@ export class PublicProductsService {
       search: paginationOptions.search,
       sortBy: paginationOptions.sortBy,
       sortOrder: paginationOptions.sortOrder,
-      productType: query.productType,
+      productType,
       prioritizeInStock: true,
       inStockOnly: true,
     });
@@ -159,7 +166,7 @@ export class PublicProductsService {
           search: paginationOptions.search,
           sortBy: paginationOptions.sortBy,
           sortOrder: paginationOptions.sortOrder,
-          productType: query.productType,
+          productType,
           categoryId: filters.categoryId,
           brandId: filters.brandId,
           brandIds: filters.brandIds,
@@ -292,6 +299,12 @@ export class PublicProductsService {
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
     const priceRange = resolvePublicPriceRange(query);
+    const productType = resolvePublicProductTypeForListing({
+      productType: query.productType,
+      brandSlug: query.brandSlug,
+      brandSlugs: filters.selectedBrands?.map((brand) => brand.slug) ??
+        (filters.brand ? [filters.brand.slug] : undefined),
+    });
     const queryHash = buildQueryCacheHash({
       categoryId: filters.categoryId,
       brandId: filters.brandId,
@@ -320,7 +333,7 @@ export class PublicProductsService {
       search: paginationOptions.search,
       sortBy: paginationOptions.sortBy,
       sortOrder: paginationOptions.sortOrder,
-      productType: query.productType,
+      productType,
       prioritizeInStock: true,
       inStockOnly: true,
     });
@@ -336,7 +349,7 @@ export class PublicProductsService {
           search: paginationOptions.search,
           sortBy: paginationOptions.sortBy,
           sortOrder: paginationOptions.sortOrder,
-          productType: query.productType,
+          productType,
           categoryId: filters.categoryId,
           brandId: filters.brandId,
           brandIds: filters.brandIds,
@@ -802,8 +815,9 @@ export class PublicProductsService {
     const selectedBelowTheFold = matchedCategory.belowTheFold?.trim()
       ? matchedCategory.belowTheFold
       : rootCategory.belowTheFold;
-    // Only the matched category's own FAQs — no parent/root fallback when empty.
+    // Only the matched category's own FAQs / FAQ banner — no parent/root fallback when empty.
     const selectedFaqs = mapMasterFaqs(matchedCategory.faqs);
+    const selectedFaqBanner = matchedCategory.faqBanner ?? null;
 
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
@@ -814,10 +828,7 @@ export class PublicProductsService {
       image: isChildFilter && matchedCategory.image ? matchedCategory.image : rootCategory.image,
       banner:
         isChildFilter && matchedCategory.banner ? matchedCategory.banner : rootCategory.banner,
-      faqBanner:
-        isChildFilter && matchedCategory.faqBanner
-          ? matchedCategory.faqBanner
-          : rootCategory.faqBanner,
+      faqBanner: selectedFaqBanner,
       aboveTheFold: selectedAboveTheFold,
       belowTheFold: selectedBelowTheFold,
       metaTitle:
@@ -845,7 +856,7 @@ export class PublicProductsService {
         permalink: buildCategoryPermalink(selectedPath),
         image: matchedCategory.image,
         banner: matchedCategory.banner,
-        faqBanner: matchedCategory.faqBanner,
+        faqBanner: selectedFaqBanner,
         aboveTheFold: selectedAboveTheFold,
         belowTheFold: selectedBelowTheFold,
         metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,

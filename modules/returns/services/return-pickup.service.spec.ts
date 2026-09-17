@@ -83,7 +83,8 @@ describe('ReturnPickupService', () => {
     expect(unicommerce.schedule).toHaveBeenCalledTimes(1);
     expect(shipway.schedule).toHaveBeenCalledTimes(1);
     expect(result.provider).toBe(ReturnPickupProvider.SHIPWAY);
-    expect(result.reverseAwbNumber).toBe('AWB1');
+    expect(result.status).toBe(ReturnPickupStatus.SCHEDULED);
+    expect(result.courierBooked).toBe(true);
     expect(result.providerPayload).toMatchObject({
       unicommerceReversePickupCode: 'UNICOMMERCE-id',
       shipwayOrderId: 'SHIPWAY-id',
@@ -100,7 +101,41 @@ describe('ReturnPickupService', () => {
     const result = await service.schedule(ReturnPickupProvider.SHIPWAY, request);
 
     expect(result.provider).toBe(ReturnPickupProvider.SHIPWAY);
+    expect(result.courierBooked).toBe(true);
     expect(result.failureReason).toContain('Unicommerce');
+  });
+
+  it('does not treat a Unicommerce OMS record as a booked courier pickup', async () => {
+    const shipway = mockAdapter(ReturnPickupProvider.SHIPWAY, false);
+    const unicommerce = mockAdapter(ReturnPickupProvider.UNICOMMERCE, true);
+    const service = createService(shipway, unicommerce, {
+      'returns.pickup.notifyUnicommerce': true,
+      'returns.pickup.notifyShipway': true,
+    });
+
+    const result = await service.schedule(ReturnPickupProvider.UNICOMMERCE, request);
+
+    expect(result.unicommerceRecorded).toBe(true);
+    expect(result.courierBooked).toBe(false);
+    expect(result.status).toBe(ReturnPickupStatus.FAILED);
+  });
+
+  it('marks a Shipway timeout as an uncertain booking instead of creating another pickup', async () => {
+    const shipway = mockAdapter(ReturnPickupProvider.SHIPWAY, true, async () => {
+      throw new Error('Shipway request timed out after 15000ms');
+    });
+    const unicommerce = mockAdapter(ReturnPickupProvider.UNICOMMERCE, true);
+    const service = createService(shipway, unicommerce, {
+      'returns.pickup.notifyUnicommerce': true,
+      'returns.pickup.notifyShipway': true,
+    });
+
+    const result = await service.schedule(ReturnPickupProvider.SHIPWAY, request);
+
+    expect(result.courierBooked).toBe(false);
+    expect(result.uncertainBooking).toBe(true);
+    expect(result.shipwayBookingStatus).toBe('UNCERTAIN');
+    expect(result.unicommerceRecorded).toBe(true);
   });
 
   it('does not call logistics providers for an explicit MANUAL schedule', async () => {

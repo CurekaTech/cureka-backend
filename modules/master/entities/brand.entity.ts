@@ -102,5 +102,5 @@ export class BrandEntity extends BaseEntity {
   inHomePage!: boolean;
 
   @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
-  faqs!: Array<{ question: string; answer: string }>;
+  faqs!: Array<{ question: string; answer: string; sequence?: number }>;
 }

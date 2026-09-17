@@ -1,4 +1,6 @@
 import { HealthConcernEntity } from '@modules/master/entities/health-concern.entity';
+import { formatDateOnly } from '@modules/master/utils/date-only.util';
+import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { IPublicHealthConcernProductListingContext } from '../interfaces/public-health-concern.interface';
 
 export const mapHealthConcernEntityToListingContext = (
@@ -14,6 +16,11 @@ export const mapHealthConcernEntityToListingContext = (
   metaDescription: entity.metaDescription,
   medicalConditionName: entity.medicalConditionName,
   patientAudience: entity.patientAudience,
-  faqs: entity.faqs ?? [],
+  alternateName: entity.alternateName,
+  medicalConditionDescription: entity.medicalConditionDescription,
+  reviewedByName: entity.reviewedByName,
+  reviewedByJobTitle: entity.reviewedByJobTitle,
+  lastReviewed: formatDateOnly(entity.lastReviewed),
+  faqs: mapMasterFaqs(entity.faqs),
   faqBanner: entity.faqBanner,
 });

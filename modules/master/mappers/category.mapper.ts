@@ -1,5 +1,6 @@
 import { CategoryEntity } from '../entities/category.entity';
 import { ICategory, ICategoryForProduct, ICategoryTree, IParentCategory } from '../interfaces/category.interface';
+import { mapMasterFaqs } from '../utils/master-faq.util';
 import { mapAttributeEntityToResponse } from './attribute.mapper';
 import { mapCategoryFilterEntityToResponse } from './category-filter.mapper';
 
@@ -35,7 +36,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   metaKeywords: entity.metaKeywords,
   aboveTheFold: entity.aboveTheFold,
   belowTheFold: entity.belowTheFold,
-  faqs: entity.faqs ?? [],
+  faqs: mapMasterFaqs(entity.faqs),
   isInHeader: entity.isInHeader,
   isInShopBy: entity.isInShopBy,
   bestsellerSortIndex: entity.bestsellerSortIndex ?? null,

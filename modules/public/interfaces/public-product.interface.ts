@@ -310,7 +310,7 @@ export interface IPublicProductDetail {
   }>;
   categoryFilters: IProductCategoryFilterBinding[];
   tags: Array<{ refId: string; name: string; slug: string }>;
-  faqs: Array<{ refId: string; question: string; answer: string }>;
+  faqs: Array<{ refId: string; question: string; answer: string; sequence: number }>;
   bundleItems: Array<{
     childProductRefId: string;
     childProductName: string;

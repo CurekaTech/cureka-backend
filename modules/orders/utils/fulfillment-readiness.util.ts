@@ -1,4 +1,5 @@
 import { OrderEntity } from '../entities/order.entity';
+import { CancellationStatus } from '../enums/cancellation-status.enum';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
@@ -26,9 +27,30 @@ function isCodLike(paymentMethod: OrderPaymentMethod): boolean {
  * UniCommerce prepaid gate (mirrors Shipway intent, but also allows PARTIALLY_PAID).
  * COD / partial-COD may push without full prepaid capture.
  */
-export function isReadyForUnicommercePush(
-  order: Pick<OrderEntity, 'orderStatus' | 'paymentStatus' | 'paymentMethod'>,
+const CANCELLATION_BLOCKS_EXPORT = new Set<CancellationStatus>([
+  CancellationStatus.REQUESTED,
+  CancellationStatus.PROCESSING,
+  CancellationStatus.CONFIRMED,
+  CancellationStatus.REQUIRES_ATTENTION,
+  CancellationStatus.REJECTED,
+  CancellationStatus.HISTORICAL_UNVERIFIED,
+]);
+
+export function isCancellationBlockingExport(
+  status: CancellationStatus | string | null | undefined,
 ): boolean {
+  if (!status) return false;
+  return CANCELLATION_BLOCKS_EXPORT.has(status as CancellationStatus);
+}
+
+export function isReadyForUnicommercePush(
+  order: Pick<OrderEntity, 'orderStatus' | 'paymentStatus' | 'paymentMethod'> & {
+    cancellationStatus?: CancellationStatus | string | null;
+  },
+): boolean {
+  if (isCancellationBlockingExport(order.cancellationStatus)) {
+    return false;
+  }
   if (TERMINAL_ORDER_STATUSES.has(order.orderStatus)) {
     return false;
   }

@@ -25,6 +25,7 @@ import {
 } from '../dto/combine-simple-products.dto';
 import {
   ICombinePreviewAttribute,
+  ICombinePreviewCurrentAttribute,
   ICombinePreviewProduct,
   ICombineSimpleProductsPreview,
   ICombineSimpleProductsResult,
@@ -41,7 +42,12 @@ import {
   validateVariantAttributes,
 } from '../validators/variant.validator';
 
-type LoadedSimple = {
+type LoadedProduct = {
+  product: ProductEntity;
+  variants: ProductVariantEntity[];
+};
+
+type LoadedVariant = {
   product: ProductEntity;
   variant: ProductVariantEntity;
 };
@@ -60,26 +66,30 @@ export class CombineSimpleProductsService {
 
   async preview(dto: CombineSimpleProductsPreviewDto): Promise<ICombineSimpleProductsPreview> {
     const productRefIds = assertUniqueRefIds(dto.productRefIds, 'productRefIds');
-    const loaded = await this.loadSimpleProducts(productRefIds);
+    const loaded = await this.loadCombinableProducts(productRefIds);
     this.assertCombineEligibility(loaded);
 
-    const products: ICombinePreviewProduct[] = loaded.map(({ product, variant }) => ({
-      productRefId: product.refId,
-      name: product.name,
-      status: product.status,
-      variantId: variant.id,
-      sku: variant.sku,
-      externalProductId: variant.externalProductId,
-      sellingPrice: variant.sellingPrice,
-      stock: variant.stock,
-      outOfStock: variant.outOfStock,
-      variantTitle: (variant.displayName?.trim() || product.name).trim(),
-      brandId: product.brandId,
-      categoryId: product.categoryId,
-      subCategoryId: product.subCategoryId,
-      subSubCategoryId: product.subSubCategoryId,
-      subSubSubCategoryId: product.subSubSubCategoryId,
-    }));
+    const products: ICombinePreviewProduct[] = loaded.flatMap(({ product, variants }) =>
+      variants.map((variant) => ({
+        productRefId: product.refId,
+        name: product.name,
+        status: product.status,
+        productType: product.productType,
+        variantId: variant.id,
+        sku: variant.sku,
+        externalProductId: variant.externalProductId,
+        sellingPrice: variant.sellingPrice,
+        stock: variant.stock,
+        outOfStock: variant.outOfStock,
+        variantTitle: (variant.displayName?.trim() || product.name).trim(),
+        currentAttributes: mapCurrentAttributes(variant),
+        brandId: product.brandId,
+        categoryId: product.categoryId,
+        subCategoryId: product.subCategoryId,
+        subSubCategoryId: product.subSubCategoryId,
+        subSubSubCategoryId: product.subSubSubCategoryId,
+      })),
+    );
 
     const attributes = dto.attributeRefIds?.length
       ? await this.loadPreviewAttributes(assertUniqueRefIds(dto.attributeRefIds, 'attributeRefIds'))
@@ -89,33 +99,43 @@ export class CombineSimpleProductsService {
   }
 
   async combine(dto: CombineSimpleProductsDto): Promise<ICombineSimpleProductsResult> {
-    const assignmentRefIds = assertUniqueRefIds(
-      dto.assignments.map((row) => row.productRefId),
-      'assignments[].productRefId',
-    );
-    if (!assignmentRefIds.includes(dto.targetProductRefId)) {
+    const productRefIds = uniqueRefIds(dto.assignments.map((row) => row.productRefId));
+    if (productRefIds.length < 2) {
+      throw new BadRequestException('assignments must include at least two products');
+    }
+    if (!productRefIds.includes(dto.targetProductRefId)) {
       throw new BadRequestException('targetProductRefId must be one of the assignment products');
     }
 
+    const assignedVariantIds = assertUniqueRefIds(
+      dto.assignments.map((row) => row.variantId),
+      'assignments[].variantId',
+    );
+
     const attributeRefIds = assertUniqueRefIds(dto.attributeRefIds, 'attributeRefIds');
 
-    const loaded = await this.loadSimpleProducts(assignmentRefIds);
+    const loaded = await this.loadCombinableProducts(productRefIds);
     this.assertCombineEligibility(loaded);
-    const byRefId = new Map(loaded.map((row) => [row.product.refId, row]));
 
-    const variantIds = dto.assignments.map((row) => row.variantId);
-    if (new Set(variantIds).size !== variantIds.length) {
-      throw new BadRequestException('Each assignment must use a distinct variantId');
+    const byVariantId = new Map<string, LoadedVariant>();
+    for (const row of loaded) {
+      for (const variant of row.variants) {
+        byVariantId.set(variant.id, { product: row.product, variant });
+      }
     }
 
+    this.assertAllActiveVariantsAssigned(byVariantId, dto.assignments);
+
     for (const assignment of dto.assignments) {
-      const row = byRefId.get(assignment.productRefId);
+      const row = byVariantId.get(assignment.variantId);
       if (!row) {
-        throw new NotFoundException(`Product with refId "${assignment.productRefId}" not found`);
-      }
-      if (row.variant.id !== assignment.variantId) {
         throw new BadRequestException(
-          `variantId does not match the simple product "${assignment.productRefId}"`,
+          `variantId "${assignment.variantId}" is not an active variant of the selected products`,
+        );
+      }
+      if (row.product.refId !== assignment.productRefId) {
+        throw new BadRequestException(
+          `variantId "${assignment.variantId}" does not belong to product "${assignment.productRefId}"`,
         );
       }
       this.assertAssignmentAttributes(assignment.attributes, attributeRefIds);
@@ -150,9 +170,9 @@ export class CombineSimpleProductsService {
     }
     validateUniqueVariantCombinations(combinationInputs);
 
-    const target = byRefId.get(dto.targetProductRefId)!;
-    const movedRefIds = assignmentRefIds.filter((refId) => refId !== dto.targetProductRefId);
-    const allVariantIds = loaded.map((row) => row.variant.id);
+    const target = loaded.find((row) => row.product.refId === dto.targetProductRefId)!;
+    const movedRefIds = productRefIds.filter((refId) => refId !== dto.targetProductRefId);
+    const allVariantIds = assignedVariantIds;
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(ProductEntity).update(
@@ -170,7 +190,7 @@ export class CombineSimpleProductsService {
 
       for (let index = 0; index < dto.assignments.length; index++) {
         const assignment = dto.assignments[index]!;
-        const row = byRefId.get(assignment.productRefId)!;
+        const row = byVariantId.get(assignment.variantId)!;
         const attributeInputs = combinationInputs[index]!;
         const combinationKey = buildVariantCombinationKey(attributeInputs);
         const canonicalValues = this.canonicalAttributeValues(
@@ -182,7 +202,6 @@ export class CombineSimpleProductsService {
           productId: target.product.id,
           combinationKey,
         };
-        // Persist UI title onto variant.display_name (admin list / PDP label).
         const variantTitle = assignment.variantTitle?.trim();
         const attributeLabel = canonicalValues
           .map((item) => item.value?.trim())
@@ -205,17 +224,24 @@ export class CombineSimpleProductsService {
         );
       }
 
-      await this.reparentMedia(manager, target.product.id, movedRefIds.map((refId) => byRefId.get(refId)!.product.id), allVariantIds);
+      await this.reparentMedia(
+        manager,
+        target.product.id,
+        movedRefIds.map((refId) => loaded.find((row) => row.product.refId === refId)!.product.id),
+        allVariantIds,
+      );
       await this.rewriteOpenCartProductIds(manager, target.product.id, allVariantIds);
 
-      const sourceIds = movedRefIds.map((refId) => byRefId.get(refId)!.product.id);
+      const sourceIds = movedRefIds.map(
+        (refId) => loaded.find((row) => row.product.refId === refId)!.product.id,
+      );
       if (sourceIds.length) {
         await manager.getRepository(ProductEntity).softDelete({ id: In(sourceIds) });
       }
     });
 
     this.logger.log(
-      `Combined ${assignmentRefIds.length} simples onto ${dto.targetProductRefId}; moved=${movedRefIds.join(',')}`,
+      `Combined ${allVariantIds.length} variants from ${productRefIds.length} products onto ${dto.targetProductRefId}; moved=${movedRefIds.join(',')}`,
     );
 
     for (const refId of movedRefIds) {
@@ -237,7 +263,7 @@ export class CombineSimpleProductsService {
     };
   }
 
-  private async loadSimpleProducts(productRefIds: string[]): Promise<LoadedSimple[]> {
+  private async loadCombinableProducts(productRefIds: string[]): Promise<LoadedProduct[]> {
     const products = await this.dataSource.getRepository(ProductEntity).find({
       where: { refId: In(productRefIds) },
     });
@@ -249,7 +275,9 @@ export class CombineSimpleProductsService {
 
     const productIds = products.map((product) => product.id);
     const variants = await this.dataSource.getRepository(ProductVariantEntity).find({
-      where: { productId: In(productIds) },
+      where: { productId: In(productIds), status: VariantStatus.ACTIVE },
+      relations: ['attributeValues', 'attributeValues.attribute'],
+      order: { sku: 'ASC' },
     });
     const variantsByProductId = new Map<string, ProductVariantEntity[]>();
     for (const variant of variants) {
@@ -263,26 +291,26 @@ export class CombineSimpleProductsService {
       if (product.productType === ProductType.BUNDLE) {
         throw new BadRequestException(`Product "${refId}" is a bundle and cannot be combined`);
       }
-      if (product.productType !== ProductType.SIMPLE) {
+      if (product.productType !== ProductType.SIMPLE && product.productType !== ProductType.VARIABLE) {
         throw new BadRequestException(
-          `Product "${refId}" is "${product.productType}" — only simple products can be combined`,
+          `Product "${refId}" is "${product.productType}" — only simple and variable products can be combined`,
         );
       }
       const productVariants = variantsByProductId.get(product.id) ?? [];
-      if (productVariants.length !== 1 || productVariants[0]!.status !== VariantStatus.ACTIVE) {
+      if (!productVariants.length) {
         throw new BadRequestException(
-          `Product "${refId}" must have exactly one active variant to combine`,
+          `Product "${refId}" must have at least one active variant to combine`,
         );
       }
-      return { product, variant: productVariants[0]! };
+      return { product, variants: productVariants };
     });
   }
 
   /**
-   * All selected simples must share brand + full category hierarchy
+   * All selected products must share brand + full category hierarchy
    * and be published (active).
    */
-  private assertCombineEligibility(loaded: LoadedSimple[]): void {
+  private assertCombineEligibility(loaded: LoadedProduct[]): void {
     for (const { product } of loaded) {
       if (product.status !== ProductStatus.PUBLISHED) {
         throw new BadRequestException(
@@ -319,6 +347,19 @@ export class CombineSimpleProductsService {
           `All selected products must belong to the same sub-sub-sub-category. "${first.product.refId}" and "${row.product.refId}" differ`,
         );
       }
+    }
+  }
+
+  private assertAllActiveVariantsAssigned(
+    byVariantId: Map<string, LoadedVariant>,
+    assignments: Array<{ variantId: string }>,
+  ): void {
+    const assigned = new Set(assignments.map((row) => row.variantId));
+    const missing = [...byVariantId.keys()].filter((id) => !assigned.has(id));
+    if (missing.length || assigned.size !== byVariantId.size) {
+      throw new BadRequestException(
+        'Every active variant of the selected products must be assigned exactly once',
+      );
     }
   }
 
@@ -446,3 +487,12 @@ const mapAttributePreview = (entity: AttributeEntity): ICombinePreviewAttribute 
   values: entity.values ?? null,
   status: entity.status,
 });
+
+const mapCurrentAttributes = (variant: ProductVariantEntity): ICombinePreviewCurrentAttribute[] =>
+  (variant.attributeValues ?? [])
+    .filter((item) => item.attribute?.refId)
+    .map((item) => ({
+      attributeRefId: item.attribute.refId,
+      attributeName: item.attribute.name,
+      value: item.value,
+    }));

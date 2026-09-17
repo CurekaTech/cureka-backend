@@ -49,6 +49,11 @@ export interface IPublicHealthConcernProductListingContext {
   metaDescription: string | null;
   medicalConditionName: string | null;
   patientAudience: PatientAudience | null;
-  faqs: Array<{ question: string; answer: string }>;
+  alternateName: string | null;
+  medicalConditionDescription: string | null;
+  reviewedByName: string | null;
+  reviewedByJobTitle: string | null;
+  lastReviewed: string | null;
+  faqs: Array<{ question: string; answer: string; sequence: number }>;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
 }
