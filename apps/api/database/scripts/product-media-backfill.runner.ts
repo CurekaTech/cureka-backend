@@ -4,6 +4,11 @@
  * Matches sheet `ID` → product/variant `external_product_id`, downloads
  * missing Images URLs into storage, and binds them as common product media.
  *
+ * Sheet URLs still use https://www.cureka.com/wp-content/... Those files now
+ * live on the temporary WordPress host. At download time the script rewrites
+ * https://www.cureka.com → https://legacy.cureka.com so the Excel does not
+ * need to be edited. Stored media is GCS, not WordPress.
+ *
  * SAFE BY DEFAULT:
  *   - Does NOT delete or replace existing product images
  *   - Only APPENDS missing files (e.g. .bmp that failed earlier)
@@ -33,10 +38,15 @@ import { ProductMediaType } from '@modules/product/enums/product-media-type.enum
 import {
   loadImageUrlsByProductId,
   normalizeLookupProductId,
+  DEFAULT_WP_IMAGE_EXPORT_FILE,
 } from '@modules/product/utils/bulk-upload-reference-lookup.util';
+import {
+  LEGACY_CUREKA_ORIGIN,
+  toLegacyCurekaImageUrl,
+} from '@modules/product/utils/bulk-upload-image.util';
 import { invalidateProductCache } from './product-cleanup.redis';
 
-const DEFAULT_FILE = 'docs/wc-product-export-6-7-2026-1783309274325.xlsx';
+const DEFAULT_FILE = DEFAULT_WP_IMAGE_EXPORT_FILE;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -105,6 +115,9 @@ const printUsage = (): void => {
 Product media backfill (WC sheet Images → external_product_id)
 
 SAFE DEFAULT: appends missing images only — never deletes current media.
+
+Downloads rewrite https://www.cureka.com → https://legacy.cureka.com
+so the Excel Images column does not need to be edited.
 
 Examples:
   npm run product:backfill-media
@@ -220,7 +233,8 @@ const downloadOne = async (
   url: string,
   index: number,
 ): Promise<{ path: string; sortOrder: number; basename: string }> => {
-  const response = await fetch(url, {
+  const downloadUrl = toLegacyCurekaImageUrl(url);
+  const response = await fetch(downloadUrl, {
     redirect: 'follow',
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; CurekaMediaBackfill/1.0; +https://www.cureka.com)',
@@ -228,10 +242,10 @@ const downloadOne = async (
     },
   });
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} for ${url}`);
+    throw new Error(`HTTP ${response.status} for ${downloadUrl}`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
-  const originalFilename = basenameFromUrl(url) || `image-${index + 1}.jpg`;
+  const originalFilename = basenameFromUrl(downloadUrl) || `image-${index + 1}.jpg`;
   const mimetype = resolveMime(originalFilename, response.headers.get('content-type'));
   const upload = await storage.uploadImage({
     stream: Readable.from(buffer),
@@ -270,6 +284,9 @@ async function run(): Promise<void> {
     throw new Error(`Could not load Images from sheet: ${filePath}`);
   }
   console.log(`[product:backfill-media] sheet product IDs with images=${imageLookup.byProductId.size}`);
+  console.log(
+    `[product:backfill-media] download host rewrite: https://www.cureka.com → ${LEGACY_CUREKA_ORIGIN}`,
+  );
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn', 'log'],
@@ -361,7 +378,8 @@ async function run(): Promise<void> {
     let skippedFilter = 0;
     let skippedAlreadyPresent = 0;
 
-    for (const [externalId, urls] of imageLookup.byProductId) {
+    for (const [externalId, sheetUrls] of imageLookup.byProductId) {
+      const urls = sheetUrls.map(toLegacyCurekaImageUrl);
       const product = productsByExternalId.get(externalId);
       if (!product) {
         unmatchedSheet += 1;

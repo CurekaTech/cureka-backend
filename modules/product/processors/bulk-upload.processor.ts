@@ -25,6 +25,7 @@ import {
   isBulkUploadSizeChartResolvableWithoutGallery,
   isRemoteImageUrl,
   compactBulkUploadImageSequence,
+  toLegacyCurekaImageUrl,
 } from '../utils/bulk-upload-image.util';
 import {
   formatRelatedGroupFailureReason,
@@ -222,8 +223,9 @@ export class BulkUploadProcessor extends WorkerHost {
 
     // 1) Public image URL → download (primary path for bulk media)
     if (isRemoteImageUrl(mediaUrl)) {
+      const downloadUrl = toLegacyCurekaImageUrl(mediaUrl);
       try {
-        const response = await fetch(mediaUrl, {
+        const response = await fetch(downloadUrl, {
           redirect: 'follow',
           headers: {
             // Some CDNs (Cloudflare/WordPress) reject bare Node fetch without a browser UA.
@@ -239,7 +241,7 @@ export class BulkUploadProcessor extends WorkerHost {
         const arrayBuffer = await response.arrayBuffer();
         const originalFilename =
           filename ||
-          mediaUrl.split('/').pop()?.split('?')[0] ||
+          downloadUrl.split('/').pop()?.split('?')[0] ||
           'image.jpg';
         const rawContentType = response.headers.get('content-type') || '';
         const mimetype =
@@ -262,7 +264,7 @@ export class BulkUploadProcessor extends WorkerHost {
       } catch (imgError) {
         const detail = this.getErrorMessage(imgError);
         this.logger.warn(
-          `Could not download/store public image URL '${mediaUrl}': ${detail}. Falling back to optional filename if present.`,
+          `Could not download/store public image URL '${downloadUrl}': ${detail}. Falling back to optional filename if present.`,
         );
         // Attach last failure so callers can surface a precise reason.
         img.resolveError = detail;
@@ -672,7 +674,11 @@ export class BulkUploadProcessor extends WorkerHost {
       }
       if (!imageLookup.loaded) {
         this.logger.warn(
-          `Image lookup file not loaded (${imageLookup.path}). Image auto-attach by Product ID is disabled for this job.`,
+          `Harvested GCS image map not loaded (${imageLookup.path}). Run product:harvest-images --apply first. Image auto-attach by Product ID is disabled for this job.`,
+        );
+      } else {
+        this.logger.log(
+          `Harvested GCS image map loaded (${imageLookup.path}) productIds=${imageLookup.byProductId.size}`,
         );
       }
       if (!slugLookup.loaded) {
