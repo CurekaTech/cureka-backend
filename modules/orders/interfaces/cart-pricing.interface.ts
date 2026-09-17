@@ -32,6 +32,8 @@ export type CartLineItem = {
   /** Salable for checkout — false when product/variant inactive or (when enabled) zero stock. */
   inStock: boolean;
   isAvailable: boolean;
+  /** Variant-level COD eligibility (`product_variants.cod_available`). */
+  codAvailable: boolean;
   primaryImageUrl: IStorageFileReferenceResponse | null;
   productDetails: CartLineItemProductDetail[];
   categoryId: string;
