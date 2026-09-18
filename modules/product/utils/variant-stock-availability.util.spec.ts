@@ -121,7 +121,7 @@ describe('variant-stock-availability.util (flag-only)', () => {
     });
   });
 
-  it('admin dto honors outOfStock true at stock 0', () => {
+  it('admin dto stock 0 + outOfStock true (FE-coupled) keeps previous INS', () => {
     expect(
       resolveAvailabilityFromAdminDto(
         { stock: 5, outOfStock: false },
@@ -130,13 +130,28 @@ describe('variant-stock-availability.util (flag-only)', () => {
       ),
     ).toEqual({
       stock: 0,
-      outOfStock: true,
-      becameOos: true,
+      outOfStock: false,
+      becameOos: false,
       becameIns: false,
     });
   });
 
-  it('admin dto honors outOfStock true with positive stock', () => {
+  it('admin dto stock > 0 + outOfStock false (FE-coupled) keeps previous OOS', () => {
+    expect(
+      resolveAvailabilityFromAdminDto(
+        { stock: 0, outOfStock: true },
+        { stock: 25, outOfStock: false },
+        flagOnly,
+      ),
+    ).toEqual({
+      stock: 25,
+      outOfStock: true,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
+  it('admin dto honors divergent outOfStock true with positive stock', () => {
     expect(
       resolveAvailabilityFromAdminDto(
         { stock: 12, outOfStock: false },
@@ -151,7 +166,7 @@ describe('variant-stock-availability.util (flag-only)', () => {
     });
   });
 
-  it('admin dto outOfStock false clears flag at zero stock', () => {
+  it('admin dto honors divergent outOfStock false at zero stock', () => {
     expect(
       resolveAvailabilityFromAdminDto(
         { stock: 0, outOfStock: true },
