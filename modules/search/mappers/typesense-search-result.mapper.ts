@@ -3,7 +3,6 @@ import {
   SearchEntityType,
 } from '../constants/search-entity-type.constant';
 import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
-import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
 
 const SEARCH_ENTITY_TYPE_VALUES = new Set<string>(Object.values(SEARCH_ENTITY_TYPES));
 
@@ -23,24 +22,26 @@ export function mapTypesenseDocumentToSearchResult(
   const name = String(document.name ?? '').trim();
   const variantSlug = String(document.variantSlug ?? '').trim();
   const slug = variantSlug || String(document.slug ?? '').trim();
-  const variantId = String(document.variantId ?? '').trim() || undefined;
   const productPageUrlRaw = String(document.productPageUrl ?? '').trim();
   const productPageUrl = productPageUrlRaw || null;
   const permalinkRaw = String(document.permalink ?? '').trim();
   const permalink = permalinkRaw || null;
+  const entityType = parseEntityType(document.entityType);
 
   if (!refId || !name || !slug) {
     return null;
   }
 
   return {
-    entityType: parseEntityType(document.entityType),
+    entityType,
     title: name,
     slug,
     refId,
-    variantId,
     productPageUrl,
     ...(permalink ? { permalink } : {}),
+    ...(entityType === SEARCH_ENTITY_TYPES.PRODUCT && permalink
+      ? { product: { permalink } }
+      : {}),
   };
 }
 

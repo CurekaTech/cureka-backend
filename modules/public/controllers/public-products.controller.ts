@@ -93,6 +93,8 @@ export class PublicProductsController {
    * Cascade: FBT category rules → same deepest-category bestsellers → global bestsellers.
    * Seed/cart products are always excluded when variant IDs are provided.
    *
+   * Each item is a slim storefront card (same shape as you-may-also-like).
+   *
    * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
    * GET /public/products/frequently-bought-together?page=1&limit=10
    */

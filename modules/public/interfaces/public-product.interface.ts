@@ -141,8 +141,7 @@ export interface IPublicProductCard {
 }
 
 /**
- * Storefront product card — fields the Cureka website reads on PLP/homepage/recs/search cards.
- * Recommendation endpoints emit this first; listing/PDP keep the fuller card until their own trim PRs.
+ * Storefront product card — fields the Cureka website reads on PLP, homepage, recs, and search-result cards.
  */
 export interface IPublicStorefrontProductCard {
   id: string;
@@ -163,6 +162,92 @@ export interface IPublicStorefrontProductCard {
   categoryName: string;
   subCategoryName: string | null;
   tags: Array<{ name: string }>;
+}
+
+/** PDP variant — fields the Cureka website reads on chips, price, and delivery. */
+export interface IPublicStorefrontProductVariant {
+  id: string;
+  sku: string;
+  slug: string;
+  productPageUrl?: string | null;
+  displayName?: string | null;
+  mrp: number;
+  sellingPrice: number;
+  discountPercentage: number | null;
+  stock: number;
+  inStock: boolean;
+  outOfStock: boolean;
+  estimatedDeliveryTime: string | null;
+  subscriptionEnabled?: boolean;
+  subscriptionConfig?: IProductSubscriptionConfig | null;
+  emiAvailable?: boolean;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
+  returnWindowDays: number | null;
+  replaceAllowed: boolean;
+  replaceWindowDays: number | null;
+  weight: number | null;
+  weightUnit: string | null;
+  length: number | null;
+  lengthUnit: string | null;
+  width: number | null;
+  widthUnit: string | null;
+  height: number | null;
+  heightUnit: string | null;
+  expiryDate: string | null;
+  attributes: Array<{
+    attributeRefId: string;
+    attributeName?: string;
+    value: string;
+  }>;
+}
+
+/** PDP product — storefront fields only. Overlay still uses the fuller internal detail. */
+export interface IPublicStorefrontProductDetail {
+  id: string;
+  refId: string;
+  name: string;
+  slug: string;
+  selectedVariantId?: string | null;
+  categoryName: string;
+  subCategoryName: string | null;
+  subSubCategoryName: string | null;
+  subSubSubCategoryName: string | null;
+  categorySlugPath: string[];
+  permalink: string;
+  brandName: string | null;
+  brandSlug: string | null;
+  description: string | null;
+  components: string | null;
+  countryOfOriginName: string | null;
+  manufacturerName: string | null;
+  manufacturerAddress: string | null;
+  packerName: string | null;
+  packerAddress: string | null;
+  importerName: string | null;
+  importerAddress: string | null;
+  productInformation: PublicProductInformationItem[];
+  subscriptionEnabled: boolean;
+  subscriptionConfig?: IProductSubscriptionConfig | null;
+  codAvailable: boolean;
+  emiAvailable: boolean;
+  replaceAllowed: boolean;
+  replaceWindowDays: number | null;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
+  returnWindowDays: number | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  sizeChart: IStorageFileReferenceResponse | null;
+  pricing: IPublicProductPriceSummary;
+  isFreeDelivery: boolean;
+  codMinOrderAmount: number;
+  attributes: Array<{ refId: string; name: string }>;
+  variants: IPublicStorefrontProductVariant[];
+  media: IPublicProductMedia[];
+  healthConcerns: Array<{ refId: string; name: string; slug: string }>;
+  faqs: Array<{ refId: string; question: string; answer: string; sequence: number }>;
+  banners: IStorefrontBannerItem[];
 }
 
 export interface IPublicProductVariant {
@@ -346,7 +431,7 @@ export interface IPublicProductDetail {
   banners: IStorefrontBannerItem[];
 }
 
-export interface IPublicProductListResponse extends PaginatedResult<IPublicProductCard> {
+export interface IPublicProductListResponse extends PaginatedResult<IPublicStorefrontProductCard> {
   /** Present when the listing is filtered by categorySlug or categoryRefId. */
   category?: IPublicCategoryProductListingContext | null;
   /** Present when the listing is filtered by a single brandSlug or brandRefId. */

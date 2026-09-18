@@ -2,6 +2,7 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import {
   IPublicCategoryTree,
   IPublicHeaderCategory,
+  IPublicShopByCategoryTile,
 } from '../interfaces/public-category.interface';
 import { IPublicCategoryListItem } from '../interfaces/public-master.interface';
 import {
@@ -30,6 +31,22 @@ export const mapCategoryEntityToPublicTree = (
     isInShopBy: entity.isInShopBy,
     children,
   } as IPublicCategoryTree;
+};
+
+export const mapCategoryEntityToShopByTile = (
+  entity: CategoryEntity,
+  parentSlugPath: string[] = [],
+): IPublicShopByCategoryTile => {
+  const slugPath = buildCategorySlugPath(...parentSlugPath, entity.slug);
+  return {
+    refId: entity.refId,
+    name: entity.name,
+    slug: entity.slug,
+    slugPath,
+    permalink: buildCategoryPermalink(slugPath),
+    image: entity.image,
+    position: entity.position,
+  };
 };
 
 export const mapHeaderCategoryEntity = (

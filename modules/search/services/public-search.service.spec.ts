@@ -90,7 +90,6 @@ describe('PublicSearchService native fallback', () => {
         title: 'Vitamin C 500mg',
         slug: 'vitamin-c-500',
         refId: 'PRD1',
-        variantId: 'var-1',
         productPageUrl: '/shop/vitamin-c/',
       },
     ]);
