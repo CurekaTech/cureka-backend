@@ -7,6 +7,11 @@ import { ManifestIndex } from './types';
 
 const UPLOADS_PREFIX = 'wp-content/uploads/';
 
+/**
+ * Accept either:
+ * - `wp-content/uploads/2024/10/file.jpg` (absolute under WP)
+ * - `2024/10/file.jpg` (relative to uploads dir — common find output)
+ */
 export const normalizeManifestRelativePath = (raw: string): string | null => {
   let path = raw.trim().replace(/\\/g, '/');
   if (!path) return null;
@@ -15,12 +20,20 @@ export const normalizeManifestRelativePath = (raw: string): string | null => {
   while (path.startsWith('../')) {
     path = path.slice(3);
   }
+  if (path.includes('\0') || path.split('/').some((p) => p === '..')) return null;
+
   const lower = path.toLowerCase();
   const idx = lower.indexOf(UPLOADS_PREFIX);
-  if (idx === -1) return null;
-  path = path.slice(idx);
-  if (path.includes('\0') || path.split('/').some((p) => p === '..')) return null;
-  return path;
+  if (idx !== -1) {
+    return path.slice(idx);
+  }
+
+  // Year/month relative paths from a find run inside wp-content/uploads
+  if (/^\d{4}\/\d{2}\//.test(path)) {
+    return `${UPLOADS_PREFIX}${path}`;
+  }
+
+  return null;
 };
 
 export const loadManifestIndex = async (filePath: string): Promise<ManifestIndex> => {
