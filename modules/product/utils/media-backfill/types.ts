@@ -7,6 +7,8 @@ export type MediaResolveStatus =
   | 'FAILED_UPLOAD'
   | 'SKIPPED_EXISTING'
   | 'SKIPPED_CACHED'
+  | 'SKIPPED_ALREADY_IN_DB'
+  | 'UNMATCHED_FOR_HARVEST'
   | 'HTTP_ERROR'
   | 'OVERRIDE';
 
@@ -14,7 +16,7 @@ export type MediaReportRow = {
   external_product_id?: string;
   product_ref_id?: string;
   sku?: string;
-  original_url: string;
+  original_url?: string;
   rewritten_url?: string;
   resolved_url?: string;
   status: MediaResolveStatus;
