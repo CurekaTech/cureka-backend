@@ -100,6 +100,15 @@ export const CacheKeys = {
     filtersPattern: () => 'public:products:v1:filters:*',
     filterBrands: (queryHash: string) => `public:products:v1:filter-brands:${queryHash}`,
     filterBrandsPattern: () => 'public:products:v1:filter-brands:*',
+    // v1: unsigned cards; GCS URLs are signed after Redis. Key = sorted variantIds + page + limit.
+    youMayAlsoLike: (queryHash: string) => `public:products:v1:ymal:${queryHash}`,
+    youMayAlsoLikePattern: () => 'public:products:v1:ymal:*',
+    frequentlyBoughtTogether: (queryHash: string) => `public:products:v1:fbt:${queryHash}`,
+    frequentlyBoughtTogetherPattern: () => 'public:products:v1:fbt:*',
+    recommendationPatterns: () => [
+      'public:products:v1:ymal:*',
+      'public:products:v1:fbt:*',
+    ],
   },
   publicBundles: {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.

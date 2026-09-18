@@ -162,5 +162,8 @@ export class CategoryProductIndexingService {
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.products.listPattern());
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.listPattern());
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.detailPattern());
+    for (const pattern of CacheKeys.publicProducts.recommendationPatterns()) {
+      await this.cacheInvalidation.invalidateByPattern(pattern);
+    }
   }
 }

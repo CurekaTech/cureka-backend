@@ -1094,69 +1094,18 @@ export class PublicProductsService {
   ): Promise<PaginatedResult<IPublicProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(40, Math.max(1, limit));
-    const emptyResult = buildPaginatedResult<IPublicProductCard>([], 0, {
-      page: resolvedPage,
-      limit: resolvedLimit,
-      sortOrder: 'ASC',
-    });
-
-    if (!variantIds.length) return emptyResult;
-
-    const variantInfos = await this.productsRepository.findVariantInfoByIds(variantIds);
-    if (!variantInfos.length) return emptyResult;
-
-    const excludeProductIds = [...new Set(variantInfos.map((v) => v.productId))];
-
-    // Deepest non-null category per variant (subCategory preferred over root category)
-    const categoryIds = [
-      ...new Set(
-        variantInfos
-          .map((v) => v.subCategoryId ?? v.categoryId)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
-
-    if (!categoryIds.length) return emptyResult;
-
-    // Overall price band: avg of all cart variant prices ±35%
-    const prices = variantInfos.map((v) => v.sellingPrice).filter((p) => p > 0);
-    const avgPrice = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
-    const priceFilter = avgPrice
-      ? {
-          minPrice: Math.round(avgPrice * 0.65 * 100) / 100,
-          maxPrice: Math.round(avgPrice * 1.35 * 100) / 100,
-        }
-      : {};
-
-    const baseOptions = {
-      page: resolvedPage,
-      limit: resolvedLimit,
-      categoryIds,
-      excludeProductIds,
-      sortBy: 'bestsellerIndex' as const,
-      sortOrder: 'ASC' as const,
-      prioritizeBestsellers: true,
-    };
-
-    // Pass 1 — with price band
-    let { data, total } = await this.productsRepository.findPublishedPaginated({
-      ...baseOptions,
-      ...priceFilter,
-    });
-
-    // Fallback on page 1: if fewer than half the requested results, drop price band
-    if (resolvedPage === 1 && total < Math.ceil(resolvedLimit / 2)) {
-      ({ data, total } = await this.productsRepository.findPublishedPaginated(baseOptions));
+    if (!variantIds.length) {
+      return this.emptyRecommendationResult(resolvedPage, resolvedLimit);
     }
 
-    const cards = mapProductEntitiesToPublicCards(data);
-    const enriched = await Promise.all(cards.map((card) => this.enrichCard(card)));
-
-    return buildPaginatedResult(enriched, total, {
-      page: resolvedPage,
-      limit: resolvedLimit,
-      sortOrder: 'ASC',
+    const raw = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.publicProducts.youMayAlsoLike(
+        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit),
+      ),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadYouMayAlsoLikeCards(variantIds, resolvedPage, resolvedLimit),
     });
+    return this.enrichRecommendationResult(raw);
   }
 
   /**
@@ -1181,29 +1130,115 @@ export class PublicProductsService {
   ): Promise<PaginatedResult<IPublicProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(20, Math.max(1, limit));
-    const sparseThreshold = Math.ceil(resolvedLimit / 2);
+    const raw = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.publicProducts.frequentlyBoughtTogether(
+        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit),
+      ),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadFrequentlyBoughtTogetherCards(variantIds, resolvedPage, resolvedLimit),
+    });
+    return this.enrichRecommendationResult(raw);
+  }
 
-    const isSparse = (total: number) =>
-      resolvedPage === 1 && total < sparseThreshold;
+  private recommendationQueryHash(variantIds: string[], page: number, limit: number): string {
+    return buildQueryCacheHash({ variantIds, page, limit });
+  }
 
-    const toResult = async (data: Awaited<
-      ReturnType<typeof this.productsRepository.findPublishedPaginated>
-    >['data'], total: number) => {
-      const cards = mapProductEntitiesToPublicCards(data);
-      const enriched = await Promise.all(cards.map((card) => this.enrichCard(card)));
-      return buildPaginatedResult(enriched, total, {
-        page: resolvedPage,
-        limit: resolvedLimit,
-        sortOrder: 'ASC',
-      });
+  private emptyRecommendationResult(
+    page: number,
+    limit: number,
+  ): PaginatedResult<IPublicProductCard> {
+    return buildPaginatedResult<IPublicProductCard>([], 0, {
+      page,
+      limit,
+      sortOrder: 'ASC',
+    });
+  }
+
+  private toRecommendationCards(
+    data: Awaited<ReturnType<typeof this.productsRepository.findPublishedPaginated>>['data'],
+    total: number,
+    page: number,
+    limit: number,
+  ): PaginatedResult<IPublicProductCard> {
+    return buildPaginatedResult(mapProductEntitiesToPublicCards(data), total, {
+      page,
+      limit,
+      sortOrder: 'ASC',
+    });
+  }
+
+  private async enrichRecommendationResult(
+    result: PaginatedResult<IPublicProductCard>,
+  ): Promise<PaginatedResult<IPublicProductCard>> {
+    const data = await Promise.all(result.data.map((card) => this.enrichCard(card)));
+    return { ...result, data };
+  }
+
+  private async loadYouMayAlsoLikeCards(
+    variantIds: string[],
+    resolvedPage: number,
+    resolvedLimit: number,
+  ): Promise<PaginatedResult<IPublicProductCard>> {
+    const emptyResult = this.emptyRecommendationResult(resolvedPage, resolvedLimit);
+    const variantInfos = await this.productsRepository.findVariantInfoByIds(variantIds);
+    if (!variantInfos.length) return emptyResult;
+
+    const excludeProductIds = [...new Set(variantInfos.map((v) => v.productId))];
+
+    const categoryIds = [
+      ...new Set(
+        variantInfos
+          .map((v) => v.subCategoryId ?? v.categoryId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    if (!categoryIds.length) return emptyResult;
+
+    const prices = variantInfos.map((v) => v.sellingPrice).filter((p) => p > 0);
+    const avgPrice = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
+    const priceFilter = avgPrice
+      ? {
+          minPrice: Math.round(avgPrice * 0.65 * 100) / 100,
+          maxPrice: Math.round(avgPrice * 1.35 * 100) / 100,
+        }
+      : {};
+
+    const baseOptions = {
+      page: resolvedPage,
+      limit: resolvedLimit,
+      categoryIds,
+      excludeProductIds,
+      sortBy: 'bestsellerIndex' as const,
+      sortOrder: 'ASC' as const,
+      prioritizeBestsellers: true,
     };
+
+    let { data, total } = await this.productsRepository.findPublishedPaginated({
+      ...baseOptions,
+      ...priceFilter,
+    });
+
+    if (resolvedPage === 1 && total < Math.ceil(resolvedLimit / 2)) {
+      ({ data, total } = await this.productsRepository.findPublishedPaginated(baseOptions));
+    }
+
+    return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
+  }
+
+  private async loadFrequentlyBoughtTogetherCards(
+    variantIds: string[],
+    resolvedPage: number,
+    resolvedLimit: number,
+  ): Promise<PaginatedResult<IPublicProductCard>> {
+    const sparseThreshold = Math.ceil(resolvedLimit / 2);
+    const isSparse = (total: number) => resolvedPage === 1 && total < sparseThreshold;
 
     const variantInfos = variantIds.length
       ? await this.productsRepository.findVariantWithCategoryByIds(variantIds)
       : [];
-    const excludeProductIds = [
-      ...new Set(variantInfos.map((v) => v.productId)),
-    ];
+    const excludeProductIds = [...new Set(variantInfos.map((v) => v.productId))];
 
     const listBase = {
       page: resolvedPage,
@@ -1214,7 +1249,6 @@ export class PublicProductsService {
       prioritizeBestsellers: true,
     };
 
-    // ── 1) Complementary FBT rules (needs seed variants + matching categories) ──
     if (variantInfos.length) {
       const sourceCategoryNames = [
         ...new Set(
@@ -1281,14 +1315,12 @@ export class PublicProductsService {
               await this.productsRepository.findPublishedPaginated(complementaryOptions));
           }
 
-          // Commit to complementary when we have hits, or when paging beyond page 1
           if (total > 0 || resolvedPage > 1) {
-            return toResult(data, total);
+            return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
           }
         }
       }
 
-      // ── 2) Same deepest-category bestsellers (PDP / unmatched rules) ──
       const fallbackCategoryIds = resolveFbtFallbackCategoryIds(variantInfos);
 
       if (fallbackCategoryIds.length) {
@@ -1298,13 +1330,12 @@ export class PublicProductsService {
         });
 
         if (total > 0 || resolvedPage > 1) {
-          return toResult(data, total);
+          return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
         }
       }
     }
 
-    // ── 3) Global bestsellers (empty cart / no seed / last resort) ──
     const { data, total } = await this.productsRepository.findPublishedPaginated(listBase);
-    return toResult(data, total);
+    return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
   }
 }
