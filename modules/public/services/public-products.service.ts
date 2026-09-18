@@ -60,6 +60,7 @@ import {
   IPublicManufacturerSummary,
   IPublicPackerSummary,
   IPublicProductCard,
+  IPublicStorefrontProductCard,
   IPublicProductDetail,
   IPublicProductListResponse,
   IPublicProductVariantSearchItem,
@@ -73,6 +74,7 @@ import { mapHealthConcernEntityToListingContext } from '../mappers/public-health
 import { mapWellnessGoalEntityToListingContext } from '../mappers/public-wellness-goal.mapper';
 import {
   mapProductEntitiesToPublicCards,
+  mapProductEntitiesToPublicStorefrontCards,
   mapProductEntityToPublicDetail,
   mapVariantEntitiesToPublicSearchItems,
   pickPreferredPublicVariant,
@@ -932,7 +934,13 @@ export class PublicProductsService {
     return { ...result, data };
   }
 
-  private async enrichCard(card: IPublicProductCard): Promise<IPublicProductCard> {
+  private async enrichCard<
+    T extends {
+      primaryImageUrl: IPublicProductCard['primaryImageUrl'];
+      pricing: IPublicProductCard['pricing'];
+      outOfStock: boolean;
+    },
+  >(card: T): Promise<T> {
     return {
       ...card,
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
@@ -1091,7 +1099,7 @@ export class PublicProductsService {
     variantIds: string[],
     page: number,
     limit: number,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+  ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(40, Math.max(1, limit));
     if (!variantIds.length) {
@@ -1147,8 +1155,8 @@ export class PublicProductsService {
   private emptyRecommendationResult(
     page: number,
     limit: number,
-  ): PaginatedResult<IPublicProductCard> {
-    return buildPaginatedResult<IPublicProductCard>([], 0, {
+  ): PaginatedResult<IPublicStorefrontProductCard> {
+    return buildPaginatedResult<IPublicStorefrontProductCard>([], 0, {
       page,
       limit,
       sortOrder: 'ASC',
@@ -1168,9 +1176,26 @@ export class PublicProductsService {
     });
   }
 
-  private async enrichRecommendationResult(
-    result: PaginatedResult<IPublicProductCard>,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+  private toStorefrontRecommendationCards(
+    data: Awaited<ReturnType<typeof this.productsRepository.findPublishedPaginated>>['data'],
+    total: number,
+    page: number,
+    limit: number,
+  ): PaginatedResult<IPublicStorefrontProductCard> {
+    return buildPaginatedResult(mapProductEntitiesToPublicStorefrontCards(data), total, {
+      page,
+      limit,
+      sortOrder: 'ASC',
+    });
+  }
+
+  private async enrichRecommendationResult<
+    T extends {
+      primaryImageUrl: IPublicProductCard['primaryImageUrl'];
+      pricing: IPublicProductCard['pricing'];
+      outOfStock: boolean;
+    },
+  >(result: PaginatedResult<T>): Promise<PaginatedResult<T>> {
     const data = await Promise.all(result.data.map((card) => this.enrichCard(card)));
     return { ...result, data };
   }
@@ -1179,7 +1204,7 @@ export class PublicProductsService {
     variantIds: string[],
     resolvedPage: number,
     resolvedLimit: number,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+  ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const emptyResult = this.emptyRecommendationResult(resolvedPage, resolvedLimit);
     const variantInfos = await this.productsRepository.findVariantInfoByIds(variantIds);
     if (!variantInfos.length) return emptyResult;
@@ -1224,7 +1249,7 @@ export class PublicProductsService {
       ({ data, total } = await this.productsRepository.findPublishedPaginated(baseOptions));
     }
 
-    return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
+    return this.toStorefrontRecommendationCards(data, total, resolvedPage, resolvedLimit);
   }
 
   private async loadFrequentlyBoughtTogetherCards(
