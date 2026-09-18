@@ -112,6 +112,26 @@ export const CacheKeys = {
       'public:products:v2:fbt:*',
     ],
   },
+  /**
+   * PLP listing-context objects (unsigned storage refs). Signed GCS URLs are
+   * attached after Redis. Facet values for category context are baked in.
+   */
+  publicListingContext: {
+    category: (refId: string) => `public:listing-context:v1:category:${refId}`,
+    categoryPattern: () => 'public:listing-context:v1:category:*',
+    brand: (refId: string) => `public:listing-context:v1:brand:${refId}`,
+    brandPattern: () => 'public:listing-context:v1:brand:*',
+    healthConcern: (refId: string) => `public:listing-context:v1:healthConcern:${refId}`,
+    healthConcernPattern: () => 'public:listing-context:v1:healthConcern:*',
+    wellnessGoal: (refId: string) => `public:listing-context:v1:wellnessGoal:${refId}`,
+    wellnessGoalPattern: () => 'public:listing-context:v1:wellnessGoal:*',
+    allPatterns: () => [
+      'public:listing-context:v1:category:*',
+      'public:listing-context:v1:brand:*',
+      'public:listing-context:v1:healthConcern:*',
+      'public:listing-context:v1:wellnessGoal:*',
+    ],
+  },
   publicBundles: {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.
     list: (queryHash: string) => `public:bundles:v2:list:${queryHash}`,
