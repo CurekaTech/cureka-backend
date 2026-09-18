@@ -9,21 +9,24 @@
  * 2) product_level_with_variant_gallery — product-level row (variant_id IS NULL)
  *    while the product already has at least one variant-scoped image:
  *    remove those product-level rows (typical backfill/import double-attach)
+ * 3) same_content — different GCS keys but identical object bytes (GCS md5Hash):
+ *    keep one row. Requires --by-content (uses GCS metadata; no full download).
  *
- * Rule 2 requires --drop-product-level (or is included when that flag is set with --apply).
- * Dry-run always reports both rule candidates.
+ * Rule 2 requires --drop-product-level.
+ * Rule 3 requires --by-content.
  *
  * Usage:
  *   npm run product:dedupe-media
  *   npm run product:dedupe-media -- --ref-id=MEN2026665813
- *   npm run product:dedupe-media -- --drop-product-level
- *   npm run product:dedupe-media -- --drop-product-level --apply
- *   npm run product:dedupe-media -- --drop-product-level --apply --limit=50
+ *   npm run product:dedupe-media -- --drop-product-level --by-content
+ *   npm run product:dedupe-media -- --drop-product-level --by-content --apply --ref-id=MEN2026665813
  */
 import 'reflect-metadata';
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync } from 'fs';
 import { isAbsolute, join, resolve } from 'path';
+import { createHash } from 'crypto';
 import { In } from 'typeorm';
+import { Storage } from '@google-cloud/storage';
 import { AppDataSource } from '../data-source';
 import { ProductEntity } from '../../../../modules/product/entities/product.entity';
 import { ProductMediaEntity } from '../../../../modules/product/entities/product-media.entity';
@@ -40,12 +43,13 @@ const GALLERY_TYPES = new Set<ProductMediaType>([
 interface CliOptions {
   apply: boolean;
   dropProductLevel: boolean;
+  byContent: boolean;
   limit?: number;
   refId?: string;
   reportDir: string;
 }
 
-type DedupeReason = 'same_key' | 'product_level_with_variant_gallery';
+type DedupeReason = 'same_key' | 'product_level_with_variant_gallery' | 'same_content';
 
 type PlannedDelete = {
   mediaId: string;
@@ -58,6 +62,7 @@ type PlannedDelete = {
   isPrimary: boolean;
   type: ProductMediaType;
   reason: DedupeReason;
+  contentHash?: string;
 };
 
 const absolutePath = (p: string): string =>
@@ -78,12 +83,13 @@ Dry-run by default. Deletes DB rows only (does not delete GCS objects).
 Examples:
   npm run product:dedupe-media
   npm run product:dedupe-media -- --ref-id=MEN2026665813
-  npm run product:dedupe-media -- --drop-product-level
-  npm run product:dedupe-media -- --drop-product-level --apply
+  npm run product:dedupe-media -- --drop-product-level --by-content
+  npm run product:dedupe-media -- --drop-product-level --by-content --apply --ref-id=MEN2026665813
 
 Options:
   --apply                 Persist deletes (default: dry-run)
   --drop-product-level    Also remove product-level IMAGE/COMMON when variant gallery exists
+  --by-content            Also remove different keys with identical GCS md5 (visual dupes)
   --ref-id <refId>        Only one product
   --limit <n>             Max products to process
   --report-dir <path>     Default ${DEFAULT_REPORT_DIR}
@@ -94,6 +100,7 @@ const parseCli = (argv: string[]): CliOptions => {
   const options: CliOptions = {
     apply: false,
     dropProductLevel: false,
+    byContent: false,
     reportDir: DEFAULT_REPORT_DIR,
   };
 
@@ -109,6 +116,10 @@ const parseCli = (argv: string[]): CliOptions => {
     }
     if (arg === '--drop-product-level') {
       options.dropProductLevel = true;
+      continue;
+    }
+    if (arg === '--by-content') {
+      options.byContent = true;
       continue;
     }
     if (arg === '--ref-id' || arg.startsWith('--ref-id=')) {
@@ -155,6 +166,7 @@ const writeCsv = (filePath: string, rows: PlannedDelete[]): void => {
     'sort_order',
     'is_primary',
     'reason',
+    'content_hash',
   ];
   const lines = [header.join(',')];
   for (const row of rows) {
@@ -169,6 +181,7 @@ const writeCsv = (filePath: string, rows: PlannedDelete[]): void => {
         row.sortOrder,
         row.isPrimary,
         row.reason,
+        row.contentHash ?? '',
       ]
         .map(csvEscape)
         .join(','),
@@ -195,7 +208,11 @@ const planDeletesForProduct = (
   const planned: PlannedDelete[] = [];
   const deleteIds = new Set<string>();
 
-  const push = (row: ProductMediaEntity, reason: DedupeReason): void => {
+  const push = (
+    row: ProductMediaEntity,
+    reason: DedupeReason,
+    contentHash?: string,
+  ): void => {
     if (deleteIds.has(row.id)) return;
     deleteIds.add(row.id);
     planned.push({
@@ -209,6 +226,7 @@ const planDeletesForProduct = (
       isPrimary: row.isPrimary,
       type: row.type,
       reason,
+      contentHash,
     });
   };
 
@@ -224,11 +242,9 @@ const planDeletesForProduct = (
   for (const [, rows] of byKey) {
     if (rows.length < 2) continue;
     const sorted = [...rows].sort(rankKeep);
-    const keep = sorted[0];
     for (const row of sorted.slice(1)) {
       push(row, 'same_key');
     }
-    void keep;
   }
 
   // Rule 2: product-level while variant gallery exists
@@ -244,12 +260,103 @@ const planDeletesForProduct = (
   return planned;
 };
 
+const createGcsClient = (): { bucket: string; storage: Storage } => {
+  const credRaw = process.env['GCS_CREDENTIALS_PATH'] ?? 'secrets/gcs-service-account.json';
+  const credPath = isAbsolute(credRaw) ? credRaw : join(process.cwd(), credRaw);
+  const bucket = process.env['GCS_BUCKET_NAME'];
+  if (!bucket) throw new Error('GCS_BUCKET_NAME env variable is not set.');
+  if (!existsSync(credPath)) throw new Error(`GCS credentials not found at "${credPath}".`);
+  return { bucket, storage: new Storage({ keyFilename: credPath }) };
+};
+
+/** Prefer GCS md5Hash (base64); fall back to hashing object bytes. */
+const resolveContentHash = async (
+  storage: Storage,
+  bucket: string,
+  key: string,
+  cache: Map<string, string | null>,
+): Promise<string | null> => {
+  if (cache.has(key)) return cache.get(key) ?? null;
+  try {
+    const file = storage.bucket(bucket).file(key);
+    const [metadata] = await file.getMetadata();
+    const md5 =
+      typeof metadata.md5Hash === 'string' && metadata.md5Hash.trim()
+        ? metadata.md5Hash.trim()
+        : null;
+    if (md5) {
+      const hash = `md5:${md5}`;
+      cache.set(key, hash);
+      return hash;
+    }
+    const [buf] = await file.download();
+    const hash = `sha256:${createHash('sha256').update(buf).digest('hex')}`;
+    cache.set(key, hash);
+    return hash;
+  } catch (error) {
+    console.warn(
+      `[product:dedupe-media] content-hash skip key=${key}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    cache.set(key, null);
+    return null;
+  }
+};
+
+const planSameContentDeletes = async (
+  product: ProductEntity,
+  media: ProductMediaEntity[],
+  alreadyQueuedIds: Set<string>,
+  storage: Storage,
+  bucket: string,
+  hashCache: Map<string, string | null>,
+): Promise<PlannedDelete[]> => {
+  const gallery = media.filter(
+    (m) => GALLERY_TYPES.has(m.type) && !alreadyQueuedIds.has(m.id),
+  );
+  if (gallery.length < 2) return [];
+
+  const byHash = new Map<string, ProductMediaEntity[]>();
+  for (const row of gallery) {
+    const key = storageKey(row.url);
+    if (!key) continue;
+    const hash = await resolveContentHash(storage, bucket, key, hashCache);
+    if (!hash) continue;
+    const list = byHash.get(hash) ?? [];
+    list.push(row);
+    byHash.set(hash, list);
+  }
+
+  const planned: PlannedDelete[] = [];
+  for (const [hash, rows] of byHash) {
+    if (rows.length < 2) continue;
+    const sorted = [...rows].sort(rankKeep);
+    for (const row of sorted.slice(1)) {
+      planned.push({
+        mediaId: row.id,
+        productId: product.id,
+        productRefId: product.refId,
+        productSlug: product.slug ?? null,
+        variantId: row.variantId,
+        storageKey: storageKey(row.url),
+        sortOrder: row.sortOrder,
+        isPrimary: row.isPrimary,
+        type: row.type,
+        reason: 'same_content',
+        contentHash: hash,
+      });
+    }
+  }
+  return planned;
+};
+
 async function run(): Promise<void> {
   const options = parseCli(process.argv.slice(2));
   const reportDir = createReportDir(options.reportDir);
 
   console.log(
-    `[product:dedupe-media] apply=${options.apply} dropProductLevel=${options.dropProductLevel} limit=${options.limit ?? 'none'} refId=${options.refId ?? 'all'}`,
+    `[product:dedupe-media] apply=${options.apply} dropProductLevel=${options.dropProductLevel} byContent=${options.byContent} limit=${options.limit ?? 'none'} refId=${options.refId ?? 'all'}`,
   );
   console.log(`[product:dedupe-media] reportDir=${reportDir}`);
 
@@ -278,7 +385,11 @@ async function run(): Promise<void> {
 
     const allSameKey: PlannedDelete[] = [];
     const allProductLevel: PlannedDelete[] = [];
+    const allSameContent: PlannedDelete[] = [];
     const touchedProducts = new Map<string, { refId: string; slug?: string | null }>();
+
+    const gcs = options.byContent ? createGcsClient() : null;
+    const hashCache = new Map<string, string | null>();
 
     const batchSize = 200;
     for (let i = 0; i < products.length; i += batchSize) {
@@ -295,22 +406,49 @@ async function run(): Promise<void> {
       }
 
       for (const product of batch) {
-        const planned = planDeletesForProduct(product, mediaByProduct.get(product.id) ?? []);
+        const media = mediaByProduct.get(product.id) ?? [];
+        const planned = planDeletesForProduct(product, media);
+        const queued = new Set(planned.map((r) => r.mediaId));
+
+        if (options.byContent && gcs) {
+          const contentPlanned = await planSameContentDeletes(
+            product,
+            media,
+            queued,
+            gcs.storage,
+            gcs.bucket,
+            hashCache,
+          );
+          for (const row of contentPlanned) {
+            planned.push(row);
+            queued.add(row.mediaId);
+          }
+        }
+
         if (!planned.length) continue;
         touchedProducts.set(product.id, { refId: product.refId, slug: product.slug });
         for (const row of planned) {
           if (row.reason === 'same_key') allSameKey.push(row);
-          else allProductLevel.push(row);
+          else if (row.reason === 'product_level_with_variant_gallery') allProductLevel.push(row);
+          else allSameContent.push(row);
         }
+      }
+
+      if (options.byContent && products.length > batchSize) {
+        console.log(
+          `[product:dedupe-media] progress products=${Math.min(i + batchSize, products.length)}/${products.length} sameContent=${allSameContent.length}`,
+        );
       }
     }
 
     writeCsv(join(reportDir, 'same-key-duplicates.csv'), allSameKey);
     writeCsv(join(reportDir, 'product-level-with-variant-gallery.csv'), allProductLevel);
+    writeCsv(join(reportDir, 'same-content-duplicates.csv'), allSameContent);
 
     const toDelete = [
       ...allSameKey,
       ...(options.dropProductLevel ? allProductLevel : []),
+      ...(options.byContent ? allSameContent : []),
     ];
     const uniqueDeleteIds = [...new Set(toDelete.map((r) => r.mediaId))];
 
@@ -319,8 +457,10 @@ async function run(): Promise<void> {
       productsWithIssues: touchedProducts.size,
       sameKeyRows: allSameKey.length,
       productLevelWithVariantGalleryRows: allProductLevel.length,
+      sameContentRows: allSameContent.length,
       rowsQueuedForDelete: uniqueDeleteIds.length,
       dropProductLevel: options.dropProductLevel,
+      byContent: options.byContent,
       apply: options.apply,
       reportDir,
     };
@@ -330,6 +470,15 @@ async function run(): Promise<void> {
     if (!options.dropProductLevel && allProductLevel.length) {
       console.log(
         `[product:dedupe-media] NOTE: ${allProductLevel.length} product-level rows reported but NOT queued — re-run with --drop-product-level to include them`,
+      );
+    }
+    if (!options.byContent) {
+      console.log(
+        '[product:dedupe-media] TIP: visual dupes with different GCS keys need --by-content (uses object md5)',
+      );
+    } else if (allSameContent.length) {
+      console.log(
+        `[product:dedupe-media] same-content candidates=${allSameContent.length} (different keys, identical bytes)`,
       );
     }
 
@@ -348,7 +497,6 @@ async function run(): Promise<void> {
     await mediaRepo.delete({ id: In(uniqueDeleteIds) });
     writeCsv(join(reportDir, 'deleted.csv'), toDelete);
 
-    // Ensure each affected product still has a primary image when possible
     for (const productId of touchedProducts.keys()) {
       const remaining = await mediaRepo.find({
         where: { productId },
