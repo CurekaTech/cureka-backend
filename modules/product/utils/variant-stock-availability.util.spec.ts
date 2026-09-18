@@ -4,6 +4,7 @@ import {
   resolveAvailabilityFromStock,
   resolveManualInStock,
   resolveManualOutOfStock,
+  resolveRestoreStock,
 } from './variant-stock-availability.util';
 
 const managed = { managementEnabled: true } as const;
@@ -120,7 +121,7 @@ describe('variant-stock-availability.util (flag-only)', () => {
     });
   });
 
-  it('admin dto stock 0 + outOfStock true keeps previous INS (FE-derived)', () => {
+  it('admin dto honors outOfStock true at stock 0', () => {
     expect(
       resolveAvailabilityFromAdminDto(
         { stock: 5, outOfStock: false },
@@ -129,13 +130,13 @@ describe('variant-stock-availability.util (flag-only)', () => {
       ),
     ).toEqual({
       stock: 0,
-      outOfStock: false,
-      becameOos: false,
+      outOfStock: true,
+      becameOos: true,
       becameIns: false,
     });
   });
 
-  it('admin dto stock > 0 + outOfStock true still marks OOS', () => {
+  it('admin dto honors outOfStock true with positive stock', () => {
     expect(
       resolveAvailabilityFromAdminDto(
         { stock: 12, outOfStock: false },
@@ -164,6 +165,39 @@ describe('variant-stock-availability.util (flag-only)', () => {
       becameIns: true,
     });
   });
+
+  it('admin dto stock-only write does not clear OOS', () => {
+    expect(
+      resolveAvailabilityFromAdminDto(
+        { stock: 0, outOfStock: true },
+        { stock: 10 },
+        flagOnly,
+      ),
+    ).toEqual({
+      stock: 10,
+      outOfStock: true,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
+  it('restore stock > 0 clears OOS flag', () => {
+    expect(resolveRestoreStock({ stock: 0, outOfStock: true }, 25, flagOnly)).toEqual({
+      stock: 25,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: true,
+    });
+  });
+
+  it('restore stock 0 leaves previous OOS flag', () => {
+    expect(resolveRestoreStock({ stock: 0, outOfStock: true }, 0, flagOnly)).toEqual({
+      stock: 0,
+      outOfStock: true,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
 });
 
 describe('variant-stock-availability.util (admin dto managed)', () => {
@@ -179,6 +213,15 @@ describe('variant-stock-availability.util (admin dto managed)', () => {
       outOfStock: true,
       becameOos: true,
       becameIns: false,
+    });
+  });
+
+  it('restore stock > 0 clears OOS', () => {
+    expect(resolveRestoreStock({ stock: 0, outOfStock: true }, 25, managed)).toEqual({
+      stock: 25,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: true,
     });
   });
 });

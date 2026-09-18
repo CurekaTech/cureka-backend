@@ -1293,8 +1293,8 @@ export class ProductsService {
   }
 
   /**
-   * Restores stock on every non-deleted variant for the selected products and
-   * syncs outOfStock (stock > 0 → INS, stock 0 → OOS).
+   * Restores stock on every non-deleted variant for the selected products.
+   * stock > 0 also clears outOfStock (including flag-only mode).
    */
   async bulkRestoreStock(dto: BulkRestoreStockDto): Promise<{
     requested: number;
