@@ -53,7 +53,7 @@ export function evaluateSavedItemAvailability(
   }
 
   const isActive = true;
-  if (STOCK_VALIDATION_ENABLED) {
+  if (STOCK_VALIDATION_ENABLED()) {
     if (rawStock <= 0) {
       return {
         canMoveToCart: false,

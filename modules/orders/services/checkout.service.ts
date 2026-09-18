@@ -260,7 +260,7 @@ export class CheckoutService {
         if (!variant) {
           throw new BadRequestException('Cart contains inactive product/variant');
         }
-        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED() && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
 

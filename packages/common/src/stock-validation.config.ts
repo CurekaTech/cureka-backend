@@ -1,5 +1,5 @@
 /**
- * Inventory / OOS mode from env.
+ * Inventory / OOS mode from env (read at call time so Nest ConfigModule / dotenv is applied).
  *
  * STOCK_INVENTORY_MANAGEMENT_ENABLED=true  → managed (stock ↔ OOS synced; qty enforced)
  * STOCK_INVENTORY_MANAGEMENT_ENABLED=false → flag-only (legacy; stock independent; qty bypass)
@@ -14,20 +14,28 @@ const parseEnvBool = (value: string | undefined, defaultValue: boolean): boolean
   return defaultValue;
 };
 
-export const STOCK_INVENTORY_MANAGEMENT_ENABLED = parseEnvBool(
-  process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'],
-  true,
-);
+/** Prefer this — env is often loaded after first module import. */
+export const isStockInventoryManagementEnabled = (): boolean =>
+  parseEnvBool(process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'], true);
+
+/** Qty enforcement follows the same env. */
+export const isStockValidationEnabled = (): boolean => isStockInventoryManagementEnabled();
 
 /**
- * Qty enforcement for cart/checkout/search helpers.
- * Tied to inventory management so flag-only mode also bypasses stock checks.
+ * @deprecated Use isStockInventoryManagementEnabled() — this snapshots env at first property access only if reassigned; prefer the function.
  */
-export const STOCK_VALIDATION_ENABLED = STOCK_INVENTORY_MANAGEMENT_ENABLED;
+export const STOCK_INVENTORY_MANAGEMENT_ENABLED = isStockInventoryManagementEnabled;
+
+/**
+ * @deprecated Use isStockValidationEnabled().
+ * Alias so existing `STOCK_VALIDATION_ENABLED` call sites can become `STOCK_VALIDATION_ENABLED()` after migration,
+ * or keep using isStockValidationEnabled().
+ */
+export const STOCK_VALIDATION_ENABLED = isStockValidationEnabled;
 
 /** Whether a variant should be treated as in stock for API/search/checkout surfaces. */
 export const isVariantInStock = (stock: number | null | undefined): boolean =>
-  !STOCK_VALIDATION_ENABLED || (stock ?? 0) > 0;
+  !isStockValidationEnabled() || (stock ?? 0) > 0;
 
 /**
  * Stock quantity returned to storefront/cart when validation is bypassed.
@@ -38,7 +46,7 @@ export const getSalableStockQuantity = (
   minimumRequired = 1,
 ): number => {
   const stock = actualStock ?? 0;
-  if (!STOCK_VALIDATION_ENABLED) {
+  if (!isStockValidationEnabled()) {
     return Math.max(stock, minimumRequired, 1);
   }
   return stock;
