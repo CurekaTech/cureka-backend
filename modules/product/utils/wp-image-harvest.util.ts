@@ -2,6 +2,19 @@ import { mkdir, readFile, rename, writeFile } from 'fs/promises';
 import { dirname } from 'path';
 import * as ExcelJS from 'exceljs';
 
+/** Keep only Product IDs in `keepIds` (sheet ID → image URLs). */
+export const filterImageUrlsByProductIds = (
+  byProductId: Map<string, string[]>,
+  keepIds: ReadonlySet<string>,
+): Map<string, string[]> => {
+  const filtered = new Map<string, string[]>();
+  for (const [productId, urls] of byProductId) {
+    if (!keepIds.has(productId)) continue;
+    filtered.set(productId, urls);
+  }
+  return filtered;
+};
+
 export const collectUniqueImageUrls = (byProductId: Map<string, string[]>): string[] => {
   const seen = new Set<string>();
   const ordered: string[] = [];
@@ -85,4 +98,20 @@ export const writeHarvestedMappingWorkbook = async (
 
   await mkdir(dirname(filePath), { recursive: true });
   await workbook.xlsx.writeFile(filePath);
+};
+
+/** Product ID → GCS keys JSON for bulk-upload / ops (same content as the xlsx map). */
+export const writeHarvestedMappingJson = async (
+  filePath: string,
+  byProductId: Map<string, string[]>,
+): Promise<void> => {
+  await mkdir(dirname(filePath), { recursive: true });
+  const payload: Record<string, string[]> = {};
+  const ids = [...byProductId.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  for (const id of ids) {
+    payload[id] = byProductId.get(id) ?? [];
+  }
+  const tmpPath = `${filePath}.tmp`;
+  await writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  await rename(tmpPath, filePath);
 };
