@@ -140,6 +140,31 @@ export interface IPublicProductCard {
   variantId: string | null;
 }
 
+/**
+ * Storefront product card — fields the Cureka website reads on PLP/homepage/recs/search cards.
+ * Recommendation endpoints emit this first; listing/PDP keep the fuller card until their own trim PRs.
+ */
+export interface IPublicStorefrontProductCard {
+  id: string;
+  name: string;
+  slug: string;
+  /** Active list variant — cart/wishlist. Same value as `variantId`. */
+  defaultVariantId: string | null;
+  variantId: string | null;
+  /** Signed `{ url, imageDelivery? }` after enrich; unsigned `{ key, name }` while cached. */
+  primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
+  pricing: IPublicProductListPricing;
+  outOfStock: boolean;
+  isBestSeller: boolean;
+  productPageUrl: string | null;
+  permalink: string;
+  categorySlugPath: string[];
+  brandName: string | null;
+  categoryName: string;
+  subCategoryName: string | null;
+  tags: Array<{ name: string }>;
+}
+
 export interface IPublicProductVariant {
   id: string;
   sku: string;

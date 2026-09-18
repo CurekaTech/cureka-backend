@@ -18,6 +18,7 @@ import {
   IPublicManufacturerSummary,
   IPublicPackerSummary,
   IPublicProductCard,
+  IPublicStorefrontProductCard,
   IPublicProductDetail,
   IPublicProductMedia,
   IPublicProductListPricing,
@@ -643,6 +644,33 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
 
 export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPublicProductCard[] =>
   entities.map(mapProductEntityToPublicCard);
+
+/** Fields the Cureka storefront reads on recommendation / list cards. */
+export const toPublicStorefrontProductCard = (
+  card: IPublicProductCard,
+): IPublicStorefrontProductCard => ({
+  id: card.id,
+  name: card.name,
+  slug: card.slug,
+  defaultVariantId: card.defaultVariantId,
+  variantId: card.variantId,
+  primaryImageUrl: card.primaryImageUrl,
+  pricing: card.pricing,
+  outOfStock: card.outOfStock,
+  isBestSeller: card.isBestSeller,
+  productPageUrl: card.productPageUrl,
+  permalink: card.permalink,
+  categorySlugPath: card.categorySlugPath,
+  brandName: card.brandName,
+  categoryName: card.categoryName,
+  subCategoryName: card.subCategoryName,
+  tags: card.tags.map((tag) => ({ name: tag.name })),
+});
+
+export const mapProductEntitiesToPublicStorefrontCards = (
+  entities: ProductEntity[],
+): IPublicStorefrontProductCard[] =>
+  mapProductEntitiesToPublicCards(entities).map(toPublicStorefrontProductCard);
 
 export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
