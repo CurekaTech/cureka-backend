@@ -69,7 +69,11 @@ describe('media-backfill manifest.util', () => {
     expect(normalizeManifestRelativePath('wp-content/uploads/2024/10/p74-2.jpg')).toBe(
       'wp-content/uploads/2024/10/p74-2.jpg',
     );
+    expect(normalizeManifestRelativePath('2024/10/p74-2.jpg')).toBe(
+      'wp-content/uploads/2024/10/p74-2.jpg',
+    );
     expect(normalizeManifestRelativePath('C:\\evil\\secret.txt')).toBeNull();
+    expect(normalizeManifestRelativePath('wc-product-export-1.csv')).toBeNull();
     expect(
       normalizeManifestRelativePath('/var/www/wp-content/uploads/2024/11/p74-2.jpg'),
     ).toBe('wp-content/uploads/2024/11/p74-2.jpg');

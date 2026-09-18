@@ -270,6 +270,11 @@ async function run(): Promise<void> {
     console.log(
       `[product:backfill-media] manifest entries=${manifest.entryCount} basenames=${manifest.byBasename.size}`,
     );
+    if (manifest.entryCount === 0) {
+      console.warn(
+        '[product:backfill-media] WARNING: manifest loaded 0 usable paths — expected lines like `2024/10/file.jpg` or `wp-content/uploads/2024/10/file.jpg`. 404 recovery will not work.',
+      );
+    }
   }
 
   if (options.mapping) {
