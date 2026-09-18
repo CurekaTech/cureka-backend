@@ -128,8 +128,13 @@ export const resolveManualInStock = (
 
 /**
  * Admin create/update payload resolution.
- * Explicit `outOfStock` is always honored (flag is authoritative in flag-only mode).
- * When `outOfStock` is omitted: managed syncs from stock; flag-only keeps previous flag.
+ *
+ * Managed: honor outOfStock / sync from stock as usual.
+ * Flag-only: stock must not drive the OOS flag. Admin UIs often re-send
+ * `outOfStock: (stock <= 0)` with every save — that stock-coupled value is ignored.
+ * Intentional flag control on this payload only when it diverges from stock
+ * (e.g. OOS with stock > 0, or INS with stock 0). Prefer bulk OOS / restore APIs
+ * for normal flag toggles.
  */
 export const resolveAvailabilityFromAdminDto = (
   previous: StockAvailabilityState,
@@ -137,16 +142,36 @@ export const resolveAvailabilityFromAdminDto = (
   options?: StockAvailabilityOptions,
 ): StockAvailabilityResult => {
   const nextStock = normalizeStock(dto.stock);
-  if (dto.outOfStock === true) {
+
+  if (isManaged(options)) {
+    if (dto.outOfStock === true) {
+      return resolveManualOutOfStock(
+        { stock: nextStock, outOfStock: previous.outOfStock },
+        options,
+      );
+    }
+    if (dto.outOfStock === false) {
+      return resolveManualInStock(previous, nextStock, options);
+    }
+    return resolveAvailabilityFromStock(nextStock, previous.outOfStock, options);
+  }
+
+  // Flag-only: stock-only unless outOfStock clearly diverges from stock coupling.
+  if (dto.outOfStock === undefined) {
+    return resolveAvailabilityFromStock(nextStock, previous.outOfStock, options);
+  }
+  const stockDerivedOos = nextStock <= 0;
+  const looksStockDerived = dto.outOfStock === stockDerivedOos;
+  if (looksStockDerived) {
+    return resolveAvailabilityFromStock(nextStock, previous.outOfStock, options);
+  }
+  if (dto.outOfStock) {
     return resolveManualOutOfStock(
       { stock: nextStock, outOfStock: previous.outOfStock },
       options,
     );
   }
-  if (dto.outOfStock === false) {
-    return resolveManualInStock(previous, nextStock, options);
-  }
-  return resolveAvailabilityFromStock(nextStock, previous.outOfStock, options);
+  return resolveManualInStock(previous, nextStock, options);
 };
 
 /**
