@@ -408,7 +408,7 @@ export class ProductsRepository {
     if (!products.length) return;
     const productIds = products.map((p) => p.id);
 
-    const [attributeMappings, variants] = await Promise.all([
+    const [attributeMappings, variants, bundleItems] = await Promise.all([
       mgr.getRepository(ProductAttributeMappingEntity).find({
         where: { productId: In(productIds) },
         relations: { attribute: true },
@@ -421,6 +421,10 @@ export class ProductsRepository {
           importer: true,
           countryOfOrigin: true,
         },
+      }),
+      mgr.getRepository(ProductBundleEntity).find({
+        where: { parentProductId: In(productIds) },
+        relations: { childProduct: true },
       }),
     ]);
 
@@ -474,6 +478,13 @@ export class ProductsRepository {
       hierarchiesByProduct.set(mapping.productId, list);
     }
 
+    const bundleByProduct = new Map<string, ProductBundleEntity[]>();
+    for (const item of bundleItems) {
+      const list = bundleByProduct.get(item.parentProductId) ?? [];
+      list.push(item);
+      bundleByProduct.set(item.parentProductId, list);
+    }
+
     for (const product of products) {
       product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
       product.variants = variantsByProduct.get(product.id) ?? [];
@@ -483,7 +494,7 @@ export class ProductsRepository {
       product.wellnessGoalMappings = [];
       product.tagMappings = [];
       product.faqMappings = [];
-      product.bundleItems = [];
+      product.bundleItems = bundleByProduct.get(product.id) ?? [];
       product.categoryFilterMappings = [];
     }
   }

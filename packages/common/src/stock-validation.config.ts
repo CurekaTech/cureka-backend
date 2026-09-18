@@ -1,8 +1,29 @@
 /**
- * Temporary kill-switch for stock checks and in-stock flags across the app.
- * Set back to `true` when inventory enforcement should resume.
+ * Inventory / OOS mode from env.
+ *
+ * STOCK_INVENTORY_MANAGEMENT_ENABLED=true  → managed (stock ↔ OOS synced; qty enforced)
+ * STOCK_INVENTORY_MANAGEMENT_ENABLED=false → flag-only (legacy; stock independent; qty bypass)
+ *
+ * Default when unset: true (current managed behavior).
  */
-export const STOCK_VALIDATION_ENABLED = false;
+const parseEnvBool = (value: string | undefined, defaultValue: boolean): boolean => {
+  if (value === undefined || value.trim() === '') return defaultValue;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  return defaultValue;
+};
+
+export const STOCK_INVENTORY_MANAGEMENT_ENABLED = parseEnvBool(
+  process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'],
+  true,
+);
+
+/**
+ * Qty enforcement for cart/checkout/search helpers.
+ * Tied to inventory management so flag-only mode also bypasses stock checks.
+ */
+export const STOCK_VALIDATION_ENABLED = STOCK_INVENTORY_MANAGEMENT_ENABLED;
 
 /** Whether a variant should be treated as in stock for API/search/checkout surfaces. */
 export const isVariantInStock = (stock: number | null | undefined): boolean =>

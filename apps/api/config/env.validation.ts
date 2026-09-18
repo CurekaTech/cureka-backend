@@ -234,6 +234,13 @@ export const envValidationSchema = Joi.object({
   RETURN_WALLET_REFUND_ENABLED: Joi.string().valid('true', 'false').optional(),
   BANK_ACCOUNT_ENCRYPTION_KEY: Joi.string().allow('').optional(),
 
+  /**
+   * true  = managed stock ↔ OOS sync + qty enforcement + OOS email on stock or flag
+   * false = legacy flag-only (stock independent; email only when outOfStock flips)
+   * Default: true
+   */
+  STOCK_INVENTORY_MANAGEMENT_ENABLED: Joi.string().valid('true', 'false').default('true'),
+
   /** Temporary: allow creating bundles that reuse SKUs from existing simples. */
   ALLOW_DUPLICATE_SKU_FOR_BUNDLES: Joi.string().valid('true', 'false').default('false'),
 
