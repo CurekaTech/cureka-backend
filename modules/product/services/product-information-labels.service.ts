@@ -297,6 +297,7 @@ export class ProductInformationLabelsService {
         CacheKeys.publicProducts.listPattern(),
         CacheKeys.publicProducts.variantSearchPattern(),
         CacheKeys.publicProducts.detailPattern(),
+        ...CacheKeys.publicProducts.recommendationPatterns(),
         CacheKeys.publicBundles.listPattern(),
         CacheKeys.publicBundles.detailPattern(),
         CacheKeys.homepage.bestSellersPattern(),

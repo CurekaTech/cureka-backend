@@ -180,6 +180,7 @@ export class BulkPriceUpdateProcessor extends WorkerHost {
             CacheKeys.publicProducts.listPattern(),
             CacheKeys.publicProducts.variantSearchPattern(),
             CacheKeys.publicProducts.detailPattern(),
+            ...CacheKeys.publicProducts.recommendationPatterns(),
           ],
         });
       }

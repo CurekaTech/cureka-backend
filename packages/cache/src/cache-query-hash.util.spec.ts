@@ -85,4 +85,18 @@ describe('buildQueryCacheHash', () => {
     });
     expect(a).not.toEqual(b);
   });
+
+  it('treats recommendation variantIds as order-independent', () => {
+    const a = buildQueryCacheHash({
+      variantIds: ['b-uuid', 'a-uuid'],
+      page: 1,
+      limit: 10,
+    });
+    const b = buildQueryCacheHash({
+      variantIds: ['a-uuid', 'b-uuid'],
+      page: 1,
+      limit: 10,
+    });
+    expect(a).toEqual(b);
+  });
 });
