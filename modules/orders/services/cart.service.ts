@@ -231,7 +231,7 @@ export class CartService {
         throw new BadRequestException('Invalid cart id');
       }
 
-      if (!STOCK_VALIDATION_ENABLED) {
+      if (!STOCK_VALIDATION_ENABLED()) {
         return this.toCartResponse(cart, cart.userId, manager, { clearInvalidCoupon: true });
       }
 
@@ -720,7 +720,7 @@ export class CartService {
   }
 
   private assertStockAvailable(requiredQty: number, stock: number): void {
-    if (!STOCK_VALIDATION_ENABLED) {
+    if (!STOCK_VALIDATION_ENABLED()) {
       return;
     }
     if (requiredQty > stock) {

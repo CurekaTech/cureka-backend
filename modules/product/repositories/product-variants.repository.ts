@@ -41,6 +41,7 @@ import {
 } from '../utils/bulk-upload-variable.util';
 import { shouldRegenerateVariantSlugFromProductChange } from '../utils/variant-slug-sync.util';
 import {
+  resolveAvailabilityFromAdminDto,
   resolveAvailabilityFromDelta,
   resolveAvailabilityFromStock,
   resolveManualInStock,
@@ -402,12 +403,10 @@ export class ProductVariantsRepository {
         reservedSlugs,
       );
 
-      const availability =
-        dto.outOfStock === true
-          ? resolveManualOutOfStock({ stock: dto.stock, outOfStock: false })
-          : dto.outOfStock === false
-            ? resolveManualInStock({ stock: dto.stock, outOfStock: true }, dto.stock)
-            : resolveAvailabilityFromStock(dto.stock, false);
+      const availability = resolveAvailabilityFromAdminDto(
+        { stock: dto.stock, outOfStock: false },
+        { stock: dto.stock, outOfStock: dto.outOfStock },
+      );
 
       const variant = variantRepo.create({
         productId,
@@ -688,12 +687,10 @@ export class ProductVariantsRepository {
         : existing.slug;
 
     const previous = { stock: existing.stock, outOfStock: existing.outOfStock };
-    const availability =
-      dto.outOfStock === true
-        ? resolveManualOutOfStock(previous)
-        : dto.outOfStock === false
-          ? resolveManualInStock(previous, dto.stock)
-          : resolveAvailabilityFromStock(dto.stock, previous.outOfStock);
+    const availability = resolveAvailabilityFromAdminDto(previous, {
+      stock: dto.stock,
+      outOfStock: dto.outOfStock,
+    });
 
     try {
       await variantRepo.update(

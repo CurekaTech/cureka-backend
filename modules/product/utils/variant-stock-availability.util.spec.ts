@@ -1,4 +1,5 @@
 import {
+  resolveAvailabilityFromAdminDto,
   resolveAvailabilityFromDelta,
   resolveAvailabilityFromStock,
   resolveManualInStock,
@@ -116,6 +117,68 @@ describe('variant-stock-availability.util (flag-only)', () => {
       outOfStock: false,
       becameOos: false,
       becameIns: true,
+    });
+  });
+
+  it('admin dto stock 0 + outOfStock true keeps previous INS (FE-derived)', () => {
+    expect(
+      resolveAvailabilityFromAdminDto(
+        { stock: 5, outOfStock: false },
+        { stock: 0, outOfStock: true },
+        flagOnly,
+      ),
+    ).toEqual({
+      stock: 0,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
+  it('admin dto stock > 0 + outOfStock true still marks OOS', () => {
+    expect(
+      resolveAvailabilityFromAdminDto(
+        { stock: 12, outOfStock: false },
+        { stock: 12, outOfStock: true },
+        flagOnly,
+      ),
+    ).toEqual({
+      stock: 12,
+      outOfStock: true,
+      becameOos: true,
+      becameIns: false,
+    });
+  });
+
+  it('admin dto outOfStock false clears flag at zero stock', () => {
+    expect(
+      resolveAvailabilityFromAdminDto(
+        { stock: 0, outOfStock: true },
+        { stock: 0, outOfStock: false },
+        flagOnly,
+      ),
+    ).toEqual({
+      stock: 0,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: true,
+    });
+  });
+});
+
+describe('variant-stock-availability.util (admin dto managed)', () => {
+  it('admin dto stock 0 + outOfStock true marks OOS', () => {
+    expect(
+      resolveAvailabilityFromAdminDto(
+        { stock: 5, outOfStock: false },
+        { stock: 0, outOfStock: true },
+        managed,
+      ),
+    ).toEqual({
+      stock: 0,
+      outOfStock: true,
+      becameOos: true,
+      becameIns: false,
     });
   });
 });

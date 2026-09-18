@@ -167,7 +167,7 @@ export class GokwikComplimentaryOrderItemsService {
           }
 
           const variant = await this.resolveActiveVariant(lineItem, manager);
-          if (STOCK_VALIDATION_ENABLED && variant.stock < lineItem.quantity) {
+          if (STOCK_VALIDATION_ENABLED() && variant.stock < lineItem.quantity) {
             throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
           }
 

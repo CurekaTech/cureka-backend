@@ -82,7 +82,7 @@ export function mapBobProductDetail(
       title: variantTitle(product, variant),
       price: String(variant.sellingPrice),
       inventoryQuantity: variant.stock,
-      inventoryPolicy: STOCK_VALIDATION_ENABLED ? 'deny' : 'continue',
+      inventoryPolicy: STOCK_VALIDATION_ENABLED() ? 'deny' : 'continue',
       inventoryManaged: true,
       image: resolveProductImageUrl(product, variant.id, imageByKey) || image,
       description: product.description ?? '',
@@ -105,7 +105,7 @@ export function mapBobVariantDetail(
     title: variantTitle(product, variant),
     price: String(variant.sellingPrice),
     inventoryQuantity: variant.stock,
-    inventoryPolicy: STOCK_VALIDATION_ENABLED ? 'deny' : 'continue',
+    inventoryPolicy: STOCK_VALIDATION_ENABLED() ? 'deny' : 'continue',
     inventoryManaged: true,
     image: resolveProductImageUrl(product, variant.id, imageByKey) || productImage,
     product: {

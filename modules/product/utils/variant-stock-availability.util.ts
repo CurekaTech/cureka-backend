@@ -1,4 +1,4 @@
-import { STOCK_INVENTORY_MANAGEMENT_ENABLED } from '@packages/common/stock-validation.config';
+import { isStockInventoryManagementEnabled } from '@packages/common/stock-validation.config';
 
 export type StockAvailabilityState = {
   stock: number;
@@ -13,7 +13,7 @@ export type StockAvailabilityResult = StockAvailabilityState & {
 };
 
 export type StockAvailabilityOptions = {
-  /** Override env; defaults to STOCK_INVENTORY_MANAGEMENT_ENABLED. */
+  /** Override env; defaults to isStockInventoryManagementEnabled(). */
   managementEnabled?: boolean;
 };
 
@@ -23,7 +23,7 @@ const normalizeStock = (stock: number): number => {
 };
 
 const isManaged = (options?: StockAvailabilityOptions): boolean =>
-  options?.managementEnabled ?? STOCK_INVENTORY_MANAGEMENT_ENABLED;
+  options?.managementEnabled ?? isStockInventoryManagementEnabled();
 
 /**
  * Manual OOS.
@@ -124,4 +124,35 @@ export const resolveManualInStock = (
     becameOos: false,
     becameIns: current.outOfStock,
   };
+};
+
+/**
+ * Admin create/update payload resolution.
+ *
+ * Managed: honor outOfStock / derive from stock as usual.
+ * Flag-only: FE often sends outOfStock:true whenever stock is 0 — treat that as a
+ * stock-only write (preserve previous flag). Explicit OOS still works when stock > 0
+ * or when outOfStock:false clears the flag.
+ */
+export const resolveAvailabilityFromAdminDto = (
+  previous: StockAvailabilityState,
+  dto: { stock: number; outOfStock?: boolean },
+  options?: StockAvailabilityOptions,
+): StockAvailabilityResult => {
+  if (isManaged(options)) {
+    if (dto.outOfStock === true) return resolveManualOutOfStock(previous, options);
+    if (dto.outOfStock === false) return resolveManualInStock(previous, dto.stock, options);
+    return resolveAvailabilityFromStock(dto.stock, previous.outOfStock, options);
+  }
+
+  const nextStock = normalizeStock(dto.stock);
+  if (dto.outOfStock === false) {
+    return resolveManualInStock(previous, nextStock, options);
+  }
+  // Explicit flag-only OOS with positive stock (admin intentionally marked OOS).
+  if (dto.outOfStock === true && nextStock > 0) {
+    return resolveManualOutOfStock({ ...previous, stock: nextStock }, options);
+  }
+  // stock<=0 + outOfStock true/undefined → stock-only; keep previous OOS flag.
+  return resolveAvailabilityFromStock(nextStock, previous.outOfStock, options);
 };
