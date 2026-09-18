@@ -1,4 +1,4 @@
-import { IPublicProductCard } from './public-product.interface';
+import { IPublicStorefrontProductCard } from './public-product.interface';
 
 export interface IPublicWatchAndShopItem {
   refId: string;
@@ -6,7 +6,7 @@ export interface IPublicWatchAndShopItem {
   videoUrl: string | null;
   mediaUrl: string | { key: string; name: string; url: string } | null;
   sortOrder: number;
-  product: IPublicProductCard;
+  product: IPublicStorefrontProductCard;
 }
 
 export interface IPublicWatchAndShopSection {

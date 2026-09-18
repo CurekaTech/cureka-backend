@@ -12,9 +12,12 @@ export function mapProductCardToSearchResult(card: IPublicProductCard): IPublicS
     title: card.name,
     slug: card.slug,
     refId: card.refId,
-    variantId: card.variantId ?? card.defaultVariantId ?? undefined,
     productPageUrl: card.productPageUrl ?? null,
-    product: card,
+    permalink: card.permalink,
+    product: {
+      permalink: card.permalink,
+      categorySlugPath: card.categorySlugPath,
+    },
   };
 }
 
@@ -36,7 +39,6 @@ export function mapVariantToSearchResult(variant: ProductVariantEntity): IPublic
     title,
     slug,
     refId,
-    variantId: variant.id,
     productPageUrl: variant.productPageUrl ?? null,
   };
 }

@@ -13,7 +13,7 @@ import { IHomeSection } from '@modules/master/interfaces/home-section.interface'
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
-import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { mapCategoryEntitiesToPublicListItems } from '../mappers/public-category.mapper';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 import {
@@ -156,8 +156,8 @@ export class HomepageSectionsService implements OnModuleInit {
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
     const cached = await this.cacheStrategy.cacheAside({
-      // v10: sign URLs only after outer cache read (no nested enrichDeep in section loaders).
-      key: CacheKeys.homepage.sections(`v10-${this.buildVariantKey(requested)}`),
+      // v11: slim storefront cards + shop-by-category tiles; sign URLs after cache read.
+      key: CacheKeys.homepage.sections(`v11-${this.buildVariantKey(requested)}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
@@ -329,7 +329,7 @@ export class HomepageSectionsService implements OnModuleInit {
         .filter((product): product is NonNullable<typeof product> => Boolean(product));
       return {
         banner: section.banners?.[0] ?? null,
-        products: mapProductEntitiesToPublicCards(ordered),
+        products: mapProductEntitiesToPublicStorefrontCards(ordered),
       };
     }
 

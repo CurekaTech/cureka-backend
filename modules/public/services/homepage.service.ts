@@ -33,10 +33,13 @@ import {
 } from '../interfaces/public-banner-section.interface';
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
 import { IPublicHealthConcernCard, IPublicHomePageHealthConcern } from '../interfaces/public-health-concern.interface';
-import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
+import {
+  IPublicHeaderCategory,
+  IPublicShopByCategoryTile,
+} from '../interfaces/public-category.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
-import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
-import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+import { mapCategoryEntityToShopByTile, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
+import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import {
   HOMEPAGE_SECTION_PREVIEW_LIMIT,
   HOMEPAGE_TESTIMONIALS_PREVIEW_LIMIT,
@@ -142,7 +145,7 @@ export class HomepageService {
     return this.buildHeaderCategoryTree(categories);
   }
 
-  async getShopByCategoryTree(): Promise<IPublicCategoryTree[]> {
+  async getShopByCategoryTree(): Promise<IPublicShopByCategoryTile[]> {
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.shopByCategory(),
       module: CacheModuleName.HOMEPAGE,
@@ -151,7 +154,7 @@ export class HomepageService {
   }
 
   /** Used by cache refresh after category mutations. */
-  async loadShopByCategoryTreeUncached(): Promise<IPublicCategoryTree[]> {
+  async loadShopByCategoryTreeUncached(): Promise<IPublicShopByCategoryTile[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
     return this.buildShopByCategoryTree(categories);
   }
@@ -194,7 +197,7 @@ export class HomepageService {
           refId: category.refId,
           name: category.name,
           slug: category.slug,
-          products: mapProductEntitiesToPublicCards(products),
+          products: mapProductEntitiesToPublicStorefrontCards(products),
         };
       })
       .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
@@ -234,7 +237,7 @@ export class HomepageService {
           videoUrl: item.videoUrl,
           mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
           sortOrder: item.sortOrder,
-          product: mapProductEntitiesToPublicCards([product])[0]!,
+          product: mapProductEntitiesToPublicStorefrontCards([product])[0]!,
         };
       })
       .filter((item): item is IPublicWatchAndShopItem => item !== null);
@@ -523,16 +526,8 @@ export class HomepageService {
     ).map((entity) => buildNode(entity));
   }
 
-  private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicCategoryTree[] {
+  private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicShopByCategoryTile[] {
     const byId = new Map(categories.map((category) => [category.id, category]));
-    const childrenByParentId = new Map<string, CategoryEntity[]>();
-
-    for (const category of categories) {
-      if (!category.parentCategoryId) continue;
-      const siblings = childrenByParentId.get(category.parentCategoryId) ?? [];
-      siblings.push(category);
-      childrenByParentId.set(category.parentCategoryId, siblings);
-    }
 
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
@@ -549,18 +544,11 @@ export class HomepageService {
       return slugs;
     };
 
-    const buildNode = (entity: CategoryEntity, parentSlugPath: string[] = []): IPublicCategoryTree => {
-      const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
-        buildNode(child, [...parentSlugPath, entity.slug]),
-      );
-      return mapCategoryEntityToPublicTree(entity, children, parentSlugPath);
-    };
-
     return sortCategories(
       categories.filter(
         (category) =>
           category.isInShopBy && isHomepageShopByHierarchyLevel(category.hierarchyLevel),
       ),
-    ).map((entity) => buildNode(entity, buildAncestorSlugPath(entity)));
+    ).map((entity) => mapCategoryEntityToShopByTile(entity, buildAncestorSlugPath(entity)));
   }
 }
