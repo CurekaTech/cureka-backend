@@ -1,4 +1,4 @@
-import { IPublicProductCard } from './public-product.interface';
+import { IPublicStorefrontProductCard } from './public-product.interface';
 
 /** One "Best Sellers" tab: a shop-by root category plus its top products. */
 export interface IPublicBestSellersCategory {
@@ -7,7 +7,7 @@ export interface IPublicBestSellersCategory {
   refId: string;
   name: string;
   slug: string;
-  products: IPublicProductCard[];
+  products: IPublicStorefrontProductCard[];
 }
 
 export interface IPublicBestSellersSection {

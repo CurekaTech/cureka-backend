@@ -1,34 +1,15 @@
 /**
  * Backfill / repair product media from the WooCommerce export sheet.
  *
- * Matches sheet `ID` → product/variant `external_product_id`, downloads
- * missing Images URLs into storage, and binds them as common product media.
- *
- * Sheet URLs still use https://www.cureka.com/wp-content/... Those files now
- * live on the temporary WordPress host. At download time the script rewrites
- * https://www.cureka.com → https://legacy.cureka.com so the Excel does not
- * need to be edited. Stored media is GCS, not WordPress.
- *
- * SAFE BY DEFAULT:
- *   - Does NOT delete or replace existing product images
- *   - Only APPENDS missing files (e.g. .bmp that failed earlier)
- *   - Dry-run unless --apply
- *
- * Destructive replace is opt-in only: --replace --confirm --apply
- *
- * Usage:
- *   npm run product:backfill-media
- *   npm run product:backfill-media -- --only-bmp --apply
- *   npm run product:backfill-media -- --only-missing --apply
- *   npm run product:backfill-media -- --only-bmp --replace --confirm --apply
+ * SAFE BY DEFAULT: dry-run; --apply required for writes; --only-missing never replaces.
+ * See docs/PRODUCT_MEDIA_BACKFILL.md
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { In, DataSource } from 'typeorm';
 import { Readable } from 'stream';
-import { isAbsolute, resolve } from 'path';
-import { AppModule } from '../../app.module';
+import { join } from 'path';
 import { StorageService } from '@packages/storage';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { ProductEntity } from '@modules/product/entities/product.entity';
@@ -40,15 +21,37 @@ import {
   normalizeLookupProductId,
   DEFAULT_WP_IMAGE_EXPORT_FILE,
 } from '@modules/product/utils/bulk-upload-reference-lookup.util';
+import { LEGACY_CUREKA_ORIGIN } from '@modules/product/utils/bulk-upload-image.util';
 import {
-  LEGACY_CUREKA_ORIGIN,
-  toLegacyCurekaImageUrl,
-} from '@modules/product/utils/bulk-upload-image.util';
+  absolutePath,
+  assertCheckpointFingerprints,
+  basenameFromStorageKey,
+  basenameFromUrl,
+  BackfillSummary,
+  chunk,
+  createReportDir,
+  DEFAULT_MAX_IMAGE_BYTES,
+  fileSha256,
+  loadCheckpoint,
+  loadManifestIndex,
+  loadOverrideMapping,
+  mapPool,
+  MediaReportRow,
+  ManifestIndex,
+  OverrideMapping,
+  resolveImageSource,
+  rewriteToLegacyOrigin,
+  rowNow,
+  saveCheckpointAtomic,
+  writeCsvReport,
+  writeJsonReport,
+} from '@modules/product/utils/media-backfill';
+import { ProductMediaBackfillCommandModule } from './product-media-backfill.command.module';
 import { invalidateProductCache } from './product-cleanup.redis';
 
 const DEFAULT_FILE = DEFAULT_WP_IMAGE_EXPORT_FILE;
 const DEFAULT_CONCURRENCY = 3;
-const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const DEFAULT_REPORT_DIR = 'reports/product-media-backfill';
 
 type Mode = 'only-bmp' | 'only-missing' | 'all-matched';
 
@@ -56,85 +59,57 @@ interface CliOptions {
   file: string;
   mode: Mode;
   apply: boolean;
+  auditOnly: boolean;
   confirm: boolean;
-  /** When true, delete existing common media and rewrite from sheet. Requires --confirm. */
   replace: boolean;
   limit?: number;
   concurrency: number;
+  manifest?: string;
+  mapping?: string;
+  reportDir: string;
+  checkpoint?: string;
+  resume: boolean;
 }
 
 interface Target {
   productId: string;
   refId: string;
   externalId: string;
-  /** Full sheet gallery (used only with --replace). */
   urls: string[];
-  /** URLs that will actually be downloaded in append mode. */
   urlsToAdd: string[];
   existingCommonCount: number;
 }
 
-const resolveMime = (filename: string, contentType: string | null): string => {
-  const fromHeader = contentType?.split(';')[0]?.trim().toLowerCase();
-  if (fromHeader && fromHeader !== 'application/octet-stream' && fromHeader !== 'binary/octet-stream') {
-    return fromHeader;
-  }
-  const lower = filename.toLowerCase();
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.bmp')) return 'image/bmp';
-  if (lower.endsWith('.jpeg') || lower.endsWith('.jpg')) return 'image/jpeg';
-  return 'image/jpeg';
-};
-
 const urlHasBmp = (urls: string[]): boolean =>
   urls.some((url) => /\.bmp(\?|#|$)/i.test(url.trim()));
-
-const basenameFromUrl = (url: string): string => {
-  try {
-    const clean = url.split('?')[0].split('#')[0];
-    const name = clean.split('/').pop() ?? '';
-    return decodeURIComponent(name).trim().toLowerCase();
-  } catch {
-    return '';
-  }
-};
-
-const basenameFromStorageKey = (key: string | null | undefined): string => {
-  if (!key) return '';
-  const name = key.split('/').pop() ?? '';
-  return name.trim().toLowerCase();
-};
-
-const absolutePath = (path: string): string =>
-  isAbsolute(path) ? path : resolve(process.cwd(), path);
 
 const printUsage = (): void => {
   console.log(`
 Product media backfill (WC sheet Images → external_product_id)
 
-SAFE DEFAULT: appends missing images only — never deletes current media.
-
-Downloads rewrite https://www.cureka.com → https://legacy.cureka.com
-so the Excel Images column does not need to be edited.
+SAFE DEFAULT: dry-run; appends missing images only.
 
 Examples:
-  npm run product:backfill-media
-  npm run product:backfill-media -- --only-bmp --apply
-  npm run product:backfill-media -- --only-missing --apply
-  npm run product:backfill-media -- --only-bmp --replace --confirm --apply
+  npm run product:backfill-media -- --audit-only --only-missing --manifest=docs/legacy-uploads-manifest.tsv.gz
+  npm run product:backfill-media -- --only-missing --apply --manifest=docs/legacy-uploads-manifest.tsv.gz
+  npm run product:backfill-media -- --resume --checkpoint=reports/.../checkpoint.json --apply --only-missing --manifest=...
 
 Options:
-  --file <path>        WC export xlsx
-  --only-bmp           Sheet has .bmp; append only missing .bmp files (default)
-  --only-missing       Product has no common media; fill full gallery from sheet
-  --all-matched        All matched products (append missing sheet files)
-  --replace            DELETE existing common media then rewrite from sheet (destructive)
-  --apply              Persist downloads + DB rows
-  --confirm            Required with --replace --apply
-  --limit <n>          Max products
-  --concurrency <n>    Parallel downloads (default ${DEFAULT_CONCURRENCY})
+  --file <path>          WC export xlsx
+  --only-bmp             Append missing .bmp only (default mode)
+  --only-missing         Products with no common media; fill gallery
+  --all-matched          All matched products; append missing basenames
+  --replace              DELETE existing common media (needs --confirm --apply)
+  --apply                Persist downloads + DB rows
+  --audit-only           Resolve/validate only — no GCS, no DB writes
+  --manifest <path>      legacy-uploads-manifest.tsv[.gz]
+  --mapping <path>       legacy-media-overrides.csv
+  --report-dir <path>    Default ${DEFAULT_REPORT_DIR}
+  --checkpoint <path>    Checkpoint JSON for resume
+  --resume               Skip completed products in checkpoint
+  --confirm              Required with --replace --apply
+  --limit <n>            Max products
+  --concurrency <n>      Parallel downloads (default ${DEFAULT_CONCURRENCY})
 `);
 };
 
@@ -143,9 +118,12 @@ const parseCli = (argv: string[]): CliOptions => {
     file: DEFAULT_FILE,
     mode: 'only-bmp',
     apply: false,
+    auditOnly: false,
     confirm: false,
     replace: false,
     concurrency: DEFAULT_CONCURRENCY,
+    reportDir: DEFAULT_REPORT_DIR,
+    resume: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -158,12 +136,20 @@ const parseCli = (argv: string[]): CliOptions => {
       options.apply = true;
       continue;
     }
+    if (arg === '--audit-only') {
+      options.auditOnly = true;
+      continue;
+    }
     if (arg === '--confirm') {
       options.confirm = true;
       continue;
     }
     if (arg === '--replace') {
       options.replace = true;
+      continue;
+    }
+    if (arg === '--resume') {
+      options.resume = true;
       continue;
     }
     if (arg === '--only-bmp') {
@@ -182,6 +168,30 @@ const parseCli = (argv: string[]): CliOptions => {
       options.file = arg.includes('=') ? arg.split('=').slice(1).join('=') : argv[++i] ?? options.file;
       continue;
     }
+    if (arg === '--manifest' || arg.startsWith('--manifest=')) {
+      options.manifest = arg.includes('=')
+        ? arg.split('=').slice(1).join('=')
+        : argv[++i];
+      continue;
+    }
+    if (arg === '--mapping' || arg.startsWith('--mapping=')) {
+      options.mapping = arg.includes('=')
+        ? arg.split('=').slice(1).join('=')
+        : argv[++i];
+      continue;
+    }
+    if (arg === '--report-dir' || arg.startsWith('--report-dir=')) {
+      options.reportDir = arg.includes('=')
+        ? arg.split('=').slice(1).join('=')
+        : argv[++i] ?? options.reportDir;
+      continue;
+    }
+    if (arg === '--checkpoint' || arg.startsWith('--checkpoint=')) {
+      options.checkpoint = arg.includes('=')
+        ? arg.split('=').slice(1).join('=')
+        : argv[++i];
+      continue;
+    }
     if (arg === '--limit' || arg.startsWith('--limit=')) {
       const raw = arg.includes('=') ? arg.split('=')[1] : argv[++i];
       const n = Number(raw);
@@ -192,105 +202,150 @@ const parseCli = (argv: string[]): CliOptions => {
       const raw = arg.includes('=') ? arg.split('=')[1] : argv[++i];
       const n = Number(raw);
       if (Number.isFinite(n) && n > 0) options.concurrency = Math.trunc(n);
-      continue;
     }
   }
 
   return options;
 };
 
-const mapPool = async <T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> => {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-
-  const run = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next;
-      next += 1;
-      results[index] = await worker(items[index], index);
-    }
-  };
-
-  const runners = Array.from({ length: Math.min(concurrency, items.length) }, () => run());
-  await Promise.all(runners);
-  return results;
-};
-
-const chunk = <T>(items: T[], size: number): T[][] => {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    out.push(items.slice(i, i + size));
-  }
-  return out;
-};
-
-const downloadOne = async (
-  storage: StorageService,
-  url: string,
-  index: number,
-): Promise<{ path: string; sortOrder: number; basename: string }> => {
-  const downloadUrl = toLegacyCurekaImageUrl(url);
-  const response = await fetch(downloadUrl, {
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; CurekaMediaBackfill/1.0; +https://www.cureka.com)',
-      Accept: 'image/*,*/*;q=0.8',
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} for ${downloadUrl}`);
-  }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const originalFilename = basenameFromUrl(downloadUrl) || `image-${index + 1}.jpg`;
-  const mimetype = resolveMime(originalFilename, response.headers.get('content-type'));
-  const upload = await storage.uploadImage({
-    stream: Readable.from(buffer),
-    mimetype,
-    originalFilename,
-    folder: UploadFolder.IMAGES,
-    maxSizeOverride: DEFAULT_MAX_IMAGE_BYTES,
-  });
-  return {
-    path: upload.path,
-    sortOrder: index,
-    basename: originalFilename.toLowerCase(),
-  };
+const pushRow = (
+  buckets: Record<string, MediaReportRow[]>,
+  status: string,
+  row: MediaReportRow,
+): void => {
+  const key =
+    status === 'SUCCESS' || status === 'OVERRIDE'
+      ? 'success'
+      : status === 'MISSING_SOURCE'
+        ? 'missing-source'
+        : status === 'AMBIGUOUS_SOURCE'
+          ? 'ambiguous-source'
+          : status === 'MALFORMED_URL'
+            ? 'malformed-url'
+            : status === 'UNSUPPORTED_MEDIA'
+              ? 'unsupported-media'
+              : status === 'FAILED_UPLOAD' || status === 'HTTP_ERROR'
+                ? 'failed-upload'
+                : status === 'SKIPPED_EXISTING'
+                  ? 'skipped-existing'
+                  : 'failed-upload';
+  (buckets[key] ??= []).push(row);
 };
 
 async function run(): Promise<void> {
+  const startedAt = new Date();
   const options = parseCli(process.argv.slice(2));
 
   if (options.replace && options.apply && !options.confirm) {
-    throw new Error('--replace --apply requires --confirm (this deletes existing common media)');
+    throw new Error('--replace --apply requires --confirm');
+  }
+  if (options.auditOnly && options.apply) {
+    throw new Error('--audit-only cannot be combined with --apply');
+  }
+  if (options.resume && !options.checkpoint) {
+    throw new Error('--resume requires --checkpoint');
   }
 
   const filePath = absolutePath(options.file);
+  const reportRoot = absolutePath(options.reportDir);
+  const reportDir = createReportDir(reportRoot);
+
   console.log(`[product:backfill-media] file=${filePath}`);
   console.log(
-    `[product:backfill-media] mode=${options.mode} replace=${options.replace} apply=${options.apply} concurrency=${options.concurrency}${options.limit ? ` limit=${options.limit}` : ''}`,
+    `[product:backfill-media] mode=${options.mode} replace=${options.replace} apply=${options.apply} auditOnly=${options.auditOnly} concurrency=${options.concurrency}`,
   );
+  console.log(`[product:backfill-media] reportDir=${reportDir}`);
   console.log(
-    options.replace
-      ? '[product:backfill-media] WARNING: --replace will DELETE existing common/product-level images for targeted products'
-      : '[product:backfill-media] safe mode: existing images are kept; only missing files are appended',
+    `[product:backfill-media] download host rewrite: https://www.cureka.com → ${LEGACY_CUREKA_ORIGIN}`,
   );
+
+  const spreadsheetFingerprint = fileSha256(filePath);
+  let manifest: ManifestIndex | null = null;
+  let mapping: OverrideMapping | null = null;
+
+  if (options.manifest) {
+    const manifestPath = absolutePath(options.manifest);
+    console.log(`[product:backfill-media] loading manifest=${manifestPath}`);
+    manifest = await loadManifestIndex(manifestPath);
+    console.log(
+      `[product:backfill-media] manifest entries=${manifest.entryCount} basenames=${manifest.byBasename.size}`,
+    );
+  }
+
+  if (options.mapping) {
+    const mappingPath = absolutePath(options.mapping);
+    mapping = await loadOverrideMapping(mappingPath);
+    console.log(
+      `[product:backfill-media] overrides=${mapping.byOriginalUrl.size} invalid=${mapping.invalid.length}`,
+    );
+    if (mapping.invalid.length) {
+      writeCsvReport(
+        join(reportDir, 'invalid-mappings.csv'),
+        mapping.invalid.map((row) =>
+          rowNow({
+            original_url: row.original_url,
+            resolved_url: row.resolved_url,
+            status: 'MALFORMED_URL',
+            error_message: row.error,
+          }),
+        ),
+      );
+    }
+  }
 
   const imageLookup = await loadImageUrlsByProductId(filePath);
   if (!imageLookup.loaded || imageLookup.byProductId.size === 0) {
     throw new Error(`Could not load Images from sheet: ${filePath}`);
   }
   console.log(`[product:backfill-media] sheet product IDs with images=${imageLookup.byProductId.size}`);
-  console.log(
-    `[product:backfill-media] download host rewrite: https://www.cureka.com → ${LEGACY_CUREKA_ORIGIN}`,
-  );
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  let completedProductIds = new Set<string>();
+  if (options.resume && options.checkpoint) {
+    const cp = loadCheckpoint(absolutePath(options.checkpoint));
+    if (!cp) throw new Error(`Could not load checkpoint: ${options.checkpoint}`);
+    assertCheckpointFingerprints(cp, spreadsheetFingerprint, manifest?.fingerprint ?? null);
+    completedProductIds = new Set(cp.completedProductIds);
+    console.log(`[product:backfill-media] resume skip completed=${completedProductIds.size}`);
+  }
+
+  const app = await NestFactory.createApplicationContext(ProductMediaBackfillCommandModule, {
     logger: ['error', 'warn', 'log'],
   });
+
+  const buckets: Record<string, MediaReportRow[]> = {
+    success: [],
+    'missing-source': [],
+    'ambiguous-source': [],
+    'malformed-url': [],
+    'unsupported-media': [],
+    'failed-upload': [],
+    'skipped-existing': [],
+    'unmatched-products': [],
+  };
+
+  const summary: BackfillSummary = {
+    startedAt: startedAt.toISOString(),
+    finishedAt: '',
+    durationMs: 0,
+    uniqueExternalIds: imageLookup.byProductId.size,
+    databaseMatches: 0,
+    unmatchedProducts: 0,
+    eligibleTargets: 0,
+    exactUrlSuccesses: 0,
+    manifestFallbackSuccesses: 0,
+    manualOverrideSuccesses: 0,
+    ambiguousSources: 0,
+    missingSources: 0,
+    malformedUrls: 0,
+    unsupportedMimeTypes: 0,
+    uploadFailures: 0,
+    databaseUpdates: 0,
+    skippedExisting: 0,
+    httpErrors: 0,
+    mode: options.mode,
+    apply: options.apply,
+    auditOnly: options.auditOnly,
+  };
 
   try {
     const dataSource = app.get<DataSource>(getDataSourceToken());
@@ -300,7 +355,6 @@ async function run(): Promise<void> {
     const mediaRepo = dataSource.getRepository(ProductMediaEntity);
 
     const productsByExternalId = new Map<string, ProductEntity>();
-
     const productsWithExternal = await productRepo
       .createQueryBuilder('p')
       .select(['p.id', 'p.refId', 'p.externalProductId', 'p.name'])
@@ -316,7 +370,7 @@ async function run(): Promise<void> {
 
     const variantsWithExternal = await variantRepo
       .createQueryBuilder('v')
-      .select(['v.id', 'v.productId', 'v.externalProductId'])
+      .select(['v.id', 'v.productId', 'v.externalProductId', 'v.sku'])
       .where('v.externalProductId IS NOT NULL')
       .andWhere("TRIM(v.externalProductId) <> ''")
       .getMany();
@@ -348,14 +402,10 @@ async function run(): Promise<void> {
       if (parent) productsByExternalId.set(key, parent);
     }
 
-    console.log(
-      `[product:backfill-media] DB matches by external_product_id=${productsByExternalId.size}`,
-    );
+    summary.databaseMatches = productsByExternalId.size;
+    console.log(`[product:backfill-media] DB matches by external_product_id=${productsByExternalId.size}`);
 
-    const matchedProductIds = [
-      ...new Set([...productsByExternalId.values()].map((p) => p.id)),
-    ];
-
+    const matchedProductIds = [...new Set([...productsByExternalId.values()].map((p) => p.id))];
     const existingMediaByProduct = new Map<string, ProductMediaEntity[]>();
     for (const idChunk of chunk(matchedProductIds, 500)) {
       const commonRows = await mediaRepo
@@ -374,24 +424,33 @@ async function run(): Promise<void> {
     }
 
     const targets: Target[] = [];
-    let unmatchedSheet = 0;
     let skippedFilter = 0;
-    let skippedAlreadyPresent = 0;
 
     for (const [externalId, sheetUrls] of imageLookup.byProductId) {
-      const urls = sheetUrls.map(toLegacyCurekaImageUrl);
+      const urls = sheetUrls.map(rewriteToLegacyOrigin);
       const product = productsByExternalId.get(externalId);
       if (!product) {
-        unmatchedSheet += 1;
+        summary.unmatchedProducts += 1;
+        buckets['unmatched-products'].push(
+          rowNow({
+            external_product_id: externalId,
+            original_url: sheetUrls[0] ?? '',
+            status: 'MISSING_SOURCE',
+            error_message: 'No DB product/variant with this external_product_id',
+          }),
+        );
+        continue;
+      }
+
+      if (completedProductIds.has(product.id)) {
+        summary.skippedExisting += 1;
         continue;
       }
 
       const existing = existingMediaByProduct.get(product.id) ?? [];
       const existingCommonCount = existing.length;
       const existingBasenames = new Set(
-        existing
-          .map((m) => basenameFromStorageKey(m.url?.key))
-          .filter(Boolean),
+        existing.map((m) => basenameFromStorageKey(m.url?.key)).filter(Boolean),
       );
 
       if (options.mode === 'only-bmp' && !urlHasBmp(urls)) {
@@ -400,6 +459,7 @@ async function run(): Promise<void> {
       }
       if (options.mode === 'only-missing' && existingCommonCount > 0) {
         skippedFilter += 1;
+        summary.skippedExisting += 1;
         continue;
       }
 
@@ -407,42 +467,42 @@ async function run(): Promise<void> {
       if (options.replace) {
         urlsToAdd = urls;
       } else if (options.mode === 'only-bmp') {
-        // Append only BMP files that are not already stored (by filename).
         urlsToAdd = urls.filter((url) => {
           if (!/\.bmp(\?|#|$)/i.test(url)) return false;
-          const base = basenameFromUrl(url);
+          const base = basenameFromUrl(url).toLowerCase();
           return Boolean(base) && !existingBasenames.has(base);
         });
       } else if (options.mode === 'only-missing') {
         urlsToAdd = urls;
       } else {
-        // all-matched append: any sheet file whose basename is not already present
         urlsToAdd = urls.filter((url) => {
-          const base = basenameFromUrl(url);
+          const base = basenameFromUrl(url).toLowerCase();
           return Boolean(base) && !existingBasenames.has(base);
         });
       }
 
       if (!urlsToAdd.length) {
-        skippedAlreadyPresent += 1;
+        summary.skippedExisting += 1;
+        buckets['skipped-existing'].push(
+          rowNow({
+            external_product_id: externalId,
+            product_ref_id: product.refId,
+            original_url: urls[0] ?? '',
+            status: 'SKIPPED_EXISTING',
+            error_message: 'All sheet basenames already present',
+          }),
+        );
         continue;
       }
 
       const existingTarget = targets.find((t) => t.productId === product.id);
       if (existingTarget) {
-        if (urlHasBmp(urls) && !urlHasBmp(existingTarget.urls)) {
-          existingTarget.externalId = externalId;
-          existingTarget.urls = urls;
-          existingTarget.urlsToAdd = urlsToAdd;
-        } else {
-          // Merge any additional missing URLs
-          const seen = new Set(existingTarget.urlsToAdd.map(basenameFromUrl));
-          for (const url of urlsToAdd) {
-            const base = basenameFromUrl(url);
-            if (base && !seen.has(base)) {
-              existingTarget.urlsToAdd.push(url);
-              seen.add(base);
-            }
+        const seen = new Set(existingTarget.urlsToAdd.map((u) => basenameFromUrl(u).toLowerCase()));
+        for (const url of urlsToAdd) {
+          const base = basenameFromUrl(url).toLowerCase();
+          if (base && !seen.has(base)) {
+            existingTarget.urlsToAdd.push(url);
+            seen.add(base);
           }
         }
         continue;
@@ -459,121 +519,237 @@ async function run(): Promise<void> {
     }
 
     const limited = options.limit ? targets.slice(0, options.limit) : targets;
+    summary.eligibleTargets = limited.length;
     console.log(
-      `[product:backfill-media] targets=${limited.length} (unmatchedSheet=${unmatchedSheet}, skippedFilter=${skippedFilter}, skippedAlreadyPresent=${skippedAlreadyPresent})`,
+      `[product:backfill-media] targets=${limited.length} (unmatched=${summary.unmatchedProducts}, skippedFilter=${skippedFilter}, skippedExisting=${summary.skippedExisting})`,
     );
 
     if (!limited.length) {
-      console.log('[product:backfill-media] nothing to do — existing images left untouched');
-      return;
-    }
-
-    if (!options.apply) {
-      const sample = limited.slice(0, 15).map((t) => ({
-        refId: t.refId,
-        externalId: t.externalId,
-        existingCommonCount: t.existingCommonCount,
-        willAdd: t.urlsToAdd.length,
-        willDeleteExisting: options.replace,
-        addSample: t.urlsToAdd.slice(0, 3),
-      }));
-      console.log('[product:backfill-media] dry-run sample:', JSON.stringify(sample, null, 2));
+      console.log('[product:backfill-media] nothing to do');
+    } else if (!options.apply && !options.auditOnly) {
       console.log(
-        '[product:backfill-media] dry-run complete — existing images are NOT modified; re-run with --apply to append missing files',
+        '[product:backfill-media] dry-run sample:',
+        JSON.stringify(
+          limited.slice(0, 15).map((t) => ({
+            refId: t.refId,
+            externalId: t.externalId,
+            willAdd: t.urlsToAdd.length,
+          })),
+          null,
+          2,
+        ),
       );
-      return;
-    }
+      console.log('[product:backfill-media] dry-run — re-run with --apply or --audit-only');
+    } else {
+      const touchedRefIds: string[] = [];
+      const completedIds = [...completedProductIds];
 
-    let ok = 0;
-    let failed = 0;
-    let addedTotal = 0;
-    const failures: Array<{ refId: string; externalId: string; error: string }> = [];
-    const touchedRefIds: string[] = [];
-
-    for (const target of limited) {
-      try {
+      for (const target of limited) {
         const existing = existingMediaByProduct.get(target.productId) ?? [];
         const maxSort = existing.reduce((max, m) => Math.max(max, m.sortOrder ?? 0), -1);
+        const uploaded: Array<{ path: string; sortOrder: number }> = [];
 
-        const downloaded = await mapPool(
-          target.urlsToAdd,
-          options.concurrency,
-          async (url, index) => downloadOne(storage, url, index),
-        );
+        try {
+          const resolvedList = await mapPool(
+            target.urlsToAdd,
+            options.concurrency,
+            async (url) => {
+              const resolved = await resolveImageSource(url, {
+                manifest,
+                mapping,
+                maxBytes: DEFAULT_MAX_IMAGE_BYTES,
+                validateContent: true,
+              });
+              return { url, resolved };
+            },
+          );
 
-        await dataSource.transaction(async (manager) => {
-          const repo = manager.getRepository(ProductMediaEntity);
+          for (const { url, resolved } of resolvedList) {
+            const baseRow = rowNow({
+              external_product_id: target.externalId,
+              product_ref_id: target.refId,
+              original_url: url,
+              rewritten_url: resolved.rewrittenUrl,
+              resolved_url: resolved.resolvedUrl,
+              status: resolved.status,
+              http_status: resolved.httpStatus ?? '',
+              detected_mime: resolved.detectedMime,
+              candidate_paths: resolved.candidatePaths.join(' | '),
+              error_message: resolved.errorMessage,
+            });
 
-          if (options.replace) {
-            await repo
-              .createQueryBuilder()
-              .delete()
-              .from(ProductMediaEntity)
-              .where('product_id = :productId', { productId: target.productId })
-              .andWhere('variant_id IS NULL')
-              .andWhere('type IN (:...types)', {
-                types: [ProductMediaType.COMMON, ProductMediaType.IMAGE],
-              })
-              .execute();
+            if (resolved.status === 'SUCCESS' || resolved.status === 'OVERRIDE') {
+              if (resolved.status === 'OVERRIDE') summary.manualOverrideSuccesses += 1;
+              else if (resolved.candidatePaths.length === 1) summary.manifestFallbackSuccesses += 1;
+              else summary.exactUrlSuccesses += 1;
 
-            await repo.save(
-              downloaded.map((item, index) =>
-                repo.create({
-                  productId: target.productId,
-                  variantId: null,
-                  type: ProductMediaType.COMMON,
-                  url: storage.persistFileReference(item.path)!,
-                  sortOrder: index,
-                  isPrimary: index === 0,
-                }),
-              ),
-            );
-          } else {
-            // APPEND only — keep every existing row and primary flag as-is.
-            await repo.save(
-              downloaded.map((item, index) =>
-                repo.create({
-                  productId: target.productId,
-                  variantId: null,
-                  type: ProductMediaType.COMMON,
-                  url: storage.persistFileReference(item.path)!,
-                  sortOrder: maxSort + 1 + index,
-                  isPrimary: false,
-                }),
-              ),
-            );
+              if (options.auditOnly) {
+                pushRow(buckets, resolved.status, baseRow);
+                continue;
+              }
+
+              try {
+                const upload = await storage.uploadImage({
+                  stream: Readable.from(resolved.buffer!),
+                  mimetype: resolved.detectedMime || 'image/jpeg',
+                  originalFilename: resolved.filename || basenameFromUrl(url) || 'image.jpg',
+                  folder: UploadFolder.IMAGES,
+                  maxSizeOverride: DEFAULT_MAX_IMAGE_BYTES,
+                });
+                uploaded.push({ path: upload.path, sortOrder: uploaded.length });
+                pushRow(buckets, 'SUCCESS', {
+                  ...baseRow,
+                  status: resolved.status,
+                  gcs_key: upload.path,
+                });
+              } catch (error) {
+                summary.uploadFailures += 1;
+                pushRow(
+                  buckets,
+                  'FAILED_UPLOAD',
+                  rowNow({
+                    ...baseRow,
+                    status: 'FAILED_UPLOAD',
+                    error_message: error instanceof Error ? error.message : String(error),
+                  }),
+                );
+              }
+            } else {
+              if (resolved.status === 'MISSING_SOURCE') summary.missingSources += 1;
+              if (resolved.status === 'AMBIGUOUS_SOURCE') summary.ambiguousSources += 1;
+              if (resolved.status === 'MALFORMED_URL') summary.malformedUrls += 1;
+              if (resolved.status === 'UNSUPPORTED_MEDIA') summary.unsupportedMimeTypes += 1;
+              if (resolved.status === 'HTTP_ERROR') summary.httpErrors += 1;
+              pushRow(buckets, resolved.status, baseRow);
+              console.error(
+                `[product:backfill-media] FAIL ${target.refId} ${resolved.status}: ${resolved.errorMessage ?? url}`,
+              );
+            }
           }
-        });
 
-        ok += 1;
-        addedTotal += downloaded.length;
-        touchedRefIds.push(target.refId);
-        console.log(
-          `[product:backfill-media] OK ${target.refId} externalId=${target.externalId} ${options.replace ? 'replaced' : 'appended'}=${downloaded.length} keptExisting=${options.replace ? 0 : target.existingCommonCount}`,
+          if (!options.auditOnly && uploaded.length) {
+            try {
+              await dataSource.transaction(async (manager) => {
+                const repo = manager.getRepository(ProductMediaEntity);
+                if (options.replace) {
+                  await repo
+                    .createQueryBuilder()
+                    .delete()
+                    .from(ProductMediaEntity)
+                    .where('product_id = :productId', { productId: target.productId })
+                    .andWhere('variant_id IS NULL')
+                    .andWhere('type IN (:...types)', {
+                      types: [ProductMediaType.COMMON, ProductMediaType.IMAGE],
+                    })
+                    .execute();
+                  await repo.save(
+                    uploaded.map((item, index) =>
+                      repo.create({
+                        productId: target.productId,
+                        variantId: null,
+                        type: ProductMediaType.COMMON,
+                        url: storage.persistFileReference(item.path)!,
+                        sortOrder: index,
+                        isPrimary: index === 0,
+                      }),
+                    ),
+                  );
+                } else {
+                  await repo.save(
+                    uploaded.map((item, index) =>
+                      repo.create({
+                        productId: target.productId,
+                        variantId: null,
+                        type: ProductMediaType.COMMON,
+                        url: storage.persistFileReference(item.path)!,
+                        sortOrder: maxSort + 1 + index,
+                        isPrimary: false,
+                      }),
+                    ),
+                  );
+                }
+              });
+              summary.databaseUpdates += 1;
+              touchedRefIds.push(target.refId);
+              console.log(
+                `[product:backfill-media] OK ${target.refId} externalId=${target.externalId} appended=${uploaded.length}`,
+              );
+            } catch (error) {
+              summary.uploadFailures += 1;
+              for (const item of uploaded) {
+                try {
+                  await storage.delete(item.path);
+                } catch {
+                  /* orphan recorded below */
+                }
+                pushRow(
+                  buckets,
+                  'FAILED_UPLOAD',
+                  rowNow({
+                    external_product_id: target.externalId,
+                    product_ref_id: target.refId,
+                    original_url: '',
+                    status: 'FAILED_UPLOAD',
+                    gcs_key: item.path,
+                    error_message: `DB write failed after upload; attempted GCS cleanup: ${
+                      error instanceof Error ? error.message : String(error)
+                    }`,
+                  }),
+                );
+              }
+            }
+          }
+
+          completedIds.push(target.productId);
+          if (options.checkpoint) {
+            saveCheckpointAtomic(absolutePath(options.checkpoint), {
+              version: 1,
+              spreadsheetFingerprint,
+              manifestFingerprint: manifest?.fingerprint ?? null,
+              completedProductIds: completedIds,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } catch (error) {
+          summary.uploadFailures += 1;
+          console.error(
+            `[product:backfill-media] FAIL ${target.refId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
+      if (touchedRefIds.length) {
+        const cache = await invalidateProductCache(
+          touchedRefIds.map((refId) => ({ refId })),
+          false,
         );
-      } catch (error) {
-        failed += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        failures.push({ refId: target.refId, externalId: target.externalId, error: message });
-        console.error(
-          `[product:backfill-media] FAIL ${target.refId} externalId=${target.externalId}: ${message}`,
+        console.log(
+          `[product:backfill-media] cacheKeysDeleted=${cache.keysDeleted} redis=${cache.connected}`,
         );
       }
-    }
-
-    const cache = await invalidateProductCache(
-      touchedRefIds.map((refId) => ({ refId })),
-      false,
-    );
-    console.log(
-      `[product:backfill-media] done ok=${ok} failed=${failed} imagesAdded=${addedTotal} cacheKeysDeleted=${cache.keysDeleted} redis=${cache.connected}`,
-    );
-    if (failures.length) {
-      console.log('[product:backfill-media] failures:', JSON.stringify(failures.slice(0, 30), null, 2));
     }
   } finally {
     await app.close();
   }
+
+  const finishedAt = new Date();
+  summary.finishedAt = finishedAt.toISOString();
+  summary.durationMs = finishedAt.getTime() - startedAt.getTime();
+
+  writeCsvReport(join(reportDir, 'success.csv'), buckets.success);
+  writeCsvReport(join(reportDir, 'missing-source.csv'), buckets['missing-source']);
+  writeCsvReport(join(reportDir, 'ambiguous-source.csv'), buckets['ambiguous-source']);
+  writeCsvReport(join(reportDir, 'malformed-url.csv'), buckets['malformed-url']);
+  writeCsvReport(join(reportDir, 'unsupported-media.csv'), buckets['unsupported-media']);
+  writeCsvReport(join(reportDir, 'unmatched-products.csv'), buckets['unmatched-products']);
+  writeCsvReport(join(reportDir, 'failed-upload.csv'), buckets['failed-upload']);
+  writeCsvReport(join(reportDir, 'skipped-existing.csv'), buckets['skipped-existing']);
+  writeJsonReport(join(reportDir, 'summary.json'), summary);
+
+  console.log('[product:backfill-media] summary:', JSON.stringify(summary, null, 2));
+  console.log(`[product:backfill-media] reports written to ${reportDir}`);
 }
 
 run()

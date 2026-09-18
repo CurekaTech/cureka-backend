@@ -13,7 +13,7 @@ import {
 import { PublicWatchAndShopQueryDto } from '@modules/master/dto/watch-and-shop.dto';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
-import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { IPublicWatchAndShopItem } from '../interfaces/public-watch-and-shop.interface';
 
 @Injectable()
@@ -68,7 +68,7 @@ export class PublicWatchAndShopService {
             videoUrl: item.videoUrl,
             mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
             sortOrder: item.sortOrder,
-            product: mapProductEntitiesToPublicCards([product])[0]!,
+            product: mapProductEntitiesToPublicStorefrontCards([product])[0]!,
           };
         }),
       )

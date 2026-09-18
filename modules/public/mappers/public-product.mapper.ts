@@ -18,10 +18,14 @@ import {
   IPublicManufacturerSummary,
   IPublicPackerSummary,
   IPublicProductCard,
+  IPublicStorefrontProductCard,
+  IPublicStorefrontProductDetail,
+  IPublicStorefrontProductVariant,
   IPublicProductDetail,
   IPublicProductMedia,
   IPublicProductListPricing,
   IPublicProductPriceSummary,
+  IPublicProductVariant,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
 import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
@@ -643,6 +647,126 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
 
 export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPublicProductCard[] =>
   entities.map(mapProductEntityToPublicCard);
+
+/** Fields the Cureka storefront reads on recommendation / list cards. */
+export const toPublicStorefrontProductCard = (
+  card: IPublicProductCard,
+): IPublicStorefrontProductCard => ({
+  id: card.id,
+  name: card.name,
+  slug: card.slug,
+  defaultVariantId: card.defaultVariantId,
+  variantId: card.variantId,
+  primaryImageUrl: card.primaryImageUrl,
+  pricing: card.pricing,
+  outOfStock: card.outOfStock,
+  isBestSeller: card.isBestSeller,
+  productPageUrl: card.productPageUrl,
+  permalink: card.permalink,
+  categorySlugPath: card.categorySlugPath,
+  brandName: card.brandName,
+  categoryName: card.categoryName,
+  subCategoryName: card.subCategoryName,
+  tags: card.tags.map((tag) => ({ name: tag.name })),
+});
+
+export const mapProductEntitiesToPublicStorefrontCards = (
+  entities: ProductEntity[],
+): IPublicStorefrontProductCard[] =>
+  mapProductEntitiesToPublicCards(entities).map(toPublicStorefrontProductCard);
+
+export const toPublicStorefrontProductVariant = (
+  variant: IPublicProductVariant,
+): IPublicStorefrontProductVariant => ({
+  id: variant.id,
+  sku: variant.sku,
+  slug: variant.slug,
+  productPageUrl: variant.productPageUrl,
+  displayName: variant.displayName,
+  mrp: variant.mrp,
+  sellingPrice: variant.sellingPrice,
+  discountPercentage: variant.discountPercentage,
+  stock: variant.stock,
+  inStock: variant.inStock,
+  outOfStock: variant.outOfStock,
+  estimatedDeliveryTime: variant.estimatedDeliveryTime,
+  subscriptionEnabled: variant.subscriptionEnabled,
+  subscriptionConfig: variant.subscriptionConfig,
+  emiAvailable: variant.emiAvailable,
+  returnAllowed: variant.returnAllowed,
+  returnPolicy: variant.returnPolicy,
+  returnWindowDays: variant.returnWindowDays,
+  replaceAllowed: variant.replaceAllowed,
+  replaceWindowDays: variant.replaceWindowDays,
+  weight: variant.weight,
+  weightUnit: variant.weightUnit,
+  length: variant.length,
+  lengthUnit: variant.lengthUnit,
+  width: variant.width,
+  widthUnit: variant.widthUnit,
+  height: variant.height,
+  heightUnit: variant.heightUnit,
+  expiryDate: variant.expiryDate,
+  attributes: (variant.attributes ?? []).map((item) => ({
+    attributeRefId: item.attributeRefId,
+    attributeName: item.attributeName,
+    value: item.value,
+  })),
+});
+
+export const toPublicStorefrontProductDetail = (
+  detail: IPublicProductDetail,
+): IPublicStorefrontProductDetail => ({
+  id: detail.id,
+  refId: detail.refId,
+  name: detail.name,
+  slug: detail.slug,
+  selectedVariantId: detail.selectedVariantId ?? null,
+  categoryName: detail.categoryName,
+  subCategoryName: detail.subCategoryName,
+  subSubCategoryName: detail.subSubCategoryName,
+  subSubSubCategoryName: detail.subSubSubCategoryName,
+  categorySlugPath: detail.categorySlugPath,
+  permalink: detail.permalink,
+  brandName: detail.brandName,
+  brandSlug: detail.brandSlug,
+  description: detail.description,
+  components: detail.components,
+  countryOfOriginName: detail.countryOfOriginName,
+  manufacturerName: detail.manufacturerName,
+  manufacturerAddress: detail.manufacturerAddress,
+  packerName: detail.packerName,
+  packerAddress: detail.packerAddress,
+  importerName: detail.importerName,
+  importerAddress: detail.importerAddress,
+  productInformation: detail.productInformation,
+  subscriptionEnabled: detail.subscriptionEnabled,
+  subscriptionConfig: detail.subscriptionConfig,
+  codAvailable: detail.codAvailable,
+  emiAvailable: detail.emiAvailable,
+  replaceAllowed: detail.replaceAllowed,
+  replaceWindowDays: detail.replaceWindowDays,
+  returnAllowed: detail.returnAllowed,
+  returnPolicy: detail.returnPolicy,
+  returnWindowDays: detail.returnWindowDays,
+  metaTitle: detail.metaTitle,
+  metaDescription: detail.metaDescription,
+  sizeChart: detail.sizeChart,
+  pricing: detail.pricing,
+  isFreeDelivery: detail.isFreeDelivery,
+  codMinOrderAmount: detail.codMinOrderAmount,
+  attributes: detail.attributes,
+  variants: detail.variants.map(toPublicStorefrontProductVariant),
+  media: detail.media,
+  healthConcerns: detail.healthConcerns,
+  faqs: detail.faqs,
+  banners: detail.banners.map((banner) => ({
+    refId: banner.refId,
+    title: banner.title,
+    imageUrl: banner.imageUrl,
+    ctaHref: banner.ctaHref,
+  })),
+});
 
 export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);

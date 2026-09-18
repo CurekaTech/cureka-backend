@@ -64,6 +64,8 @@ export const invalidateProductCache = async (
     CacheKeys.publicProducts.listPattern(),
     CacheKeys.publicProducts.variantSearchPattern(),
     CacheKeys.publicProducts.detailPattern(),
+    ...CacheKeys.publicProducts.recommendationPatterns(),
+    CacheKeys.publicListingContext.categoryPattern(),
     // Homepage sections embed product cards (pricing.inStock, etc.).
     CacheKeys.homepage.bestSellersPattern(),
     CacheKeys.homepage.sectionsPattern(),

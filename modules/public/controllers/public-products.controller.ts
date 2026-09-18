@@ -68,6 +68,9 @@ export class PublicProductsController {
    * a paginated list of similar published products ranked by sub-category match, then
    * category, within ±35% price. Cart products are always excluded from results.
    *
+   * Each item is a slim storefront card (id, name, slug, variant ids, image, pricing,
+   * links, blurb names, tags[].name). Unused list-card fields are omitted.
+   *
    * GET /public/products/you-may-also-like?variantIds=<uuid1>,<uuid2>&page=1&limit=20
    */
   @ResponseMessage('You may also like products retrieved successfully')
@@ -89,6 +92,8 @@ export class PublicProductsController {
    *
    * Cascade: FBT category rules → same deepest-category bestsellers → global bestsellers.
    * Seed/cart products are always excluded when variant IDs are provided.
+   *
+   * Each item is a slim storefront card (same shape as you-may-also-like).
    *
    * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
    * GET /public/products/frequently-bought-together?page=1&limit=10

@@ -134,6 +134,7 @@ const invalidateBrandRelatedCache = async (): Promise<number> => {
     const patterns = [
       CacheKeys.brands.listPattern(),
       CacheKeys.publicProducts.listPattern(),
+      CacheKeys.publicListingContext.brandPattern(),
       CacheKeys.homepage.brandsWeTrustPattern(),
       CacheKeys.homepage.sectionsPattern(),
       CacheKeys.homepage.homeSectionsPattern(),

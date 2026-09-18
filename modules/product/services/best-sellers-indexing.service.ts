@@ -162,5 +162,8 @@ export class BestSellersIndexingService {
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.bestSellersPattern());
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.homepage.sectionsPattern());
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.listPattern());
+    for (const pattern of CacheKeys.publicProducts.recommendationPatterns()) {
+      await this.cacheInvalidation.invalidateByPattern(pattern);
+    }
   }
 }

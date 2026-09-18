@@ -554,6 +554,7 @@ const invalidateListingCaches = async (): Promise<{ connected: boolean; keysDele
     CacheKeys.brands.listPattern(),
     CacheKeys.categories.listPattern(),
     CacheKeys.categories.treePattern(),
+    ...CacheKeys.publicListingContext.allPatterns(),
     CacheKeys.homepage.brandsWeTrustPattern(),
     CacheKeys.homepage.healthConcernsPattern(),
     CacheKeys.homepage.expertCuratedBundlesPattern(),
