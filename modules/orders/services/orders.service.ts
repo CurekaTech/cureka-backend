@@ -128,7 +128,7 @@ export class OrdersService {
     oosTransitions: VariantOosTransition[],
     productName?: string | null,
   ): Promise<void> {
-    if (STOCK_VALIDATION_ENABLED && variant.stock < quantity) {
+    if (STOCK_VALIDATION_ENABLED() && variant.stock < quantity) {
       throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
     }
     const transition = await applyStockDeltaInManager(manager, variant.id, -quantity, {
@@ -510,7 +510,7 @@ export class OrdersService {
           where: { id: item.variantId },
         });
         if (!variant) throw new BadRequestException('Variant not found while creating draft order');
-        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
+        if (STOCK_VALIDATION_ENABLED() && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
 

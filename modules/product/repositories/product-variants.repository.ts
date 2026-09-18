@@ -41,10 +41,12 @@ import {
 } from '../utils/bulk-upload-variable.util';
 import { shouldRegenerateVariantSlugFromProductChange } from '../utils/variant-slug-sync.util';
 import {
+  resolveAvailabilityFromAdminDto,
   resolveAvailabilityFromDelta,
   resolveAvailabilityFromStock,
   resolveManualInStock,
   resolveManualOutOfStock,
+  resolveRestoreStock,
 } from '../utils/variant-stock-availability.util';
 
 export type VariantOosTransition = {
@@ -402,12 +404,10 @@ export class ProductVariantsRepository {
         reservedSlugs,
       );
 
-      const availability =
-        dto.outOfStock === true
-          ? resolveManualOutOfStock({ stock: dto.stock, outOfStock: false })
-          : dto.outOfStock === false
-            ? resolveManualInStock({ stock: dto.stock, outOfStock: true }, dto.stock)
-            : resolveAvailabilityFromStock(dto.stock, false);
+      const availability = resolveAvailabilityFromAdminDto(
+        { stock: dto.stock, outOfStock: false },
+        { stock: dto.stock, outOfStock: dto.outOfStock },
+      );
 
       const variant = variantRepo.create({
         productId,
@@ -688,12 +688,10 @@ export class ProductVariantsRepository {
         : existing.slug;
 
     const previous = { stock: existing.stock, outOfStock: existing.outOfStock };
-    const availability =
-      dto.outOfStock === true
-        ? resolveManualOutOfStock(previous)
-        : dto.outOfStock === false
-          ? resolveManualInStock(previous, dto.stock)
-          : resolveAvailabilityFromStock(dto.stock, previous.outOfStock);
+    const availability = resolveAvailabilityFromAdminDto(previous, {
+      stock: dto.stock,
+      outOfStock: dto.outOfStock,
+    });
 
     try {
       await variantRepo.update(
@@ -893,8 +891,8 @@ export class ProductVariantsRepository {
   }
 
   /**
-   * Sets stock on all non-deleted variants for the given products and syncs outOfStock
-   * (stock > 0 → INS, stock 0 → OOS).
+   * Sets stock on all non-deleted variants for the given products.
+   * stock > 0 clears outOfStock (restore intent); stock 0 follows availability rules.
    */
   async setStockByProductIds(
     updates: Array<{ productId: string; stock: number }>,
@@ -914,7 +912,10 @@ export class ProductVariantsRepository {
     for (const variant of variants) {
       const stock = stockByProductId.get(variant.productId);
       if (stock === undefined) continue;
-      const next = resolveAvailabilityFromStock(stock, variant.outOfStock);
+      const next = resolveRestoreStock(
+        { stock: variant.stock, outOfStock: variant.outOfStock },
+        stock,
+      );
       await this.repo.update(
         { id: variant.id },
         { stock: next.stock, outOfStock: next.outOfStock },

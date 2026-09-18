@@ -160,7 +160,10 @@ export class CreateVariantDto {
 
   @ApiPropertyOptional({
     type: Boolean,
-    description: 'Manually flag this variant as out of stock. Defaults to false.',
+    description:
+      'Manually flag this variant as out of stock. ' +
+      'When STOCK_INVENTORY_MANAGEMENT_ENABLED=false, stock-coupled values ' +
+      '(outOfStock === stock<=0) are ignored so stock edits do not flip the flag.',
   })
   @IsOptional()
   @IsBoolean()
