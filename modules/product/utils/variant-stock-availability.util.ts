@@ -128,31 +128,39 @@ export const resolveManualInStock = (
 
 /**
  * Admin create/update payload resolution.
- *
- * Managed: honor outOfStock / derive from stock as usual.
- * Flag-only: FE often sends outOfStock:true whenever stock is 0 — treat that as a
- * stock-only write (preserve previous flag). Explicit OOS still works when stock > 0
- * or when outOfStock:false clears the flag.
+ * Explicit `outOfStock` is always honored (flag is authoritative in flag-only mode).
+ * When `outOfStock` is omitted: managed syncs from stock; flag-only keeps previous flag.
  */
 export const resolveAvailabilityFromAdminDto = (
   previous: StockAvailabilityState,
   dto: { stock: number; outOfStock?: boolean },
   options?: StockAvailabilityOptions,
 ): StockAvailabilityResult => {
-  if (isManaged(options)) {
-    if (dto.outOfStock === true) return resolveManualOutOfStock(previous, options);
-    if (dto.outOfStock === false) return resolveManualInStock(previous, dto.stock, options);
-    return resolveAvailabilityFromStock(dto.stock, previous.outOfStock, options);
-  }
-
   const nextStock = normalizeStock(dto.stock);
+  if (dto.outOfStock === true) {
+    return resolveManualOutOfStock(
+      { stock: nextStock, outOfStock: previous.outOfStock },
+      options,
+    );
+  }
   if (dto.outOfStock === false) {
     return resolveManualInStock(previous, nextStock, options);
   }
-  // Explicit flag-only OOS with positive stock (admin intentionally marked OOS).
-  if (dto.outOfStock === true && nextStock > 0) {
-    return resolveManualOutOfStock({ ...previous, stock: nextStock }, options);
-  }
-  // stock<=0 + outOfStock true/undefined → stock-only; keep previous OOS flag.
   return resolveAvailabilityFromStock(nextStock, previous.outOfStock, options);
+};
+
+/**
+ * Bulk restore stock: set quantity and clear OOS when stock > 0.
+ * stock === 0: managed → OOS; flag-only → leave previous flag (typically stays OOS).
+ */
+export const resolveRestoreStock = (
+  current: StockAvailabilityState,
+  stock: number,
+  options?: StockAvailabilityOptions,
+): StockAvailabilityResult => {
+  const nextStock = normalizeStock(stock);
+  if (nextStock > 0) {
+    return resolveManualInStock(current, nextStock, options);
+  }
+  return resolveAvailabilityFromStock(nextStock, current.outOfStock, options);
 };
