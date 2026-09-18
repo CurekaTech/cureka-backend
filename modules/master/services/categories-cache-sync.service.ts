@@ -60,6 +60,9 @@ export class CategoriesCacheSyncService {
       CacheKeys.publicProducts.variantSearchPattern(),
     );
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.detailPattern());
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.publicListingContext.categoryPattern(),
+    );
     for (const pattern of CacheKeys.publicProducts.recommendationPatterns()) {
       await this.cacheInvalidation.invalidateByPattern(pattern);
     }

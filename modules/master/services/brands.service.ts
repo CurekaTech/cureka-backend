@@ -310,6 +310,7 @@ export class BrandsService {
         CacheKeys.homepage.brandsWeTrustPattern(),
         CacheKeys.homepage.sectionsPattern(),
         CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicListingContext.brandPattern(),
         CacheKeys.brands.listPattern(),
       ],
     });

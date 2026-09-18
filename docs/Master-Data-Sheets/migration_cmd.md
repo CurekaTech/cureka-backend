@@ -61,6 +61,10 @@ npm run product:backfill-media -- --only-bmp --apply
 
 npm run product:backfill-media -- --only-bmp --replace --confirm --apply
 
+# Hardened backfill / harvest (manifest, audit, reports) — see docs/PRODUCT_MEDIA_BACKFILL.md
+npm run product:backfill-media -- --audit-only --only-missing --manifest=docs/legacy-uploads-manifest.tsv.gz
+npm run product:harvest-images -- --apply --manifest=docs/legacy-uploads-manifest.tsv.gz
+
 ----------------------------------
 
 # Dry-run first — shows what will be updated
