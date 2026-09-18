@@ -113,6 +113,9 @@ export type HarvestSummary = {
   startedAt: string;
   finishedAt: string;
   durationMs: number;
+  sheetProductIds: number;
+  matchedInDb: number;
+  unmatchedProductIds: number;
   uniqueUrls: number;
   cached: number;
   pending: number;
@@ -126,5 +129,6 @@ export type HarvestSummary = {
   unsupportedMimeTypes: number;
   uploadFailures: number;
   skippedCached: number;
+  includeMatched: boolean;
   apply: boolean;
 };

@@ -27,6 +27,14 @@ relative_path<TAB>basename<TAB>size
 wp-content/uploads/2024/10/p74-2.jpg<TAB>p74-2.jpg<TAB>12345
 ```
 
+Paths relative to the uploads directory are also accepted:
+
+```text
+2024/10/p74-2.jpg<TAB>p74-2.jpg<TAB>12345
+```
+
+After load you should see a large `manifest entries=` count (hundreds of thousands). If it prints `0`, the file format was not recognized.
+
 Place at:
 
 ```text
