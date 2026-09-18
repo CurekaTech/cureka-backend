@@ -288,3 +288,30 @@ npm run product:harvest-images -- --limit=20
 # apply (resume-safe; re-run until pending=0)
 npm run product:harvest-images -- --limit=20 --apply
 npm run product:harvest-images -- --apply
+
+# dry-run — should show matchedInDb ≈ 10597, unmatched ≈ 5040
+npm run product:harvest-images -- \
+  --manifest=docs/legacy-uploads-manifest.tsv.gz \
+  --report-dir=reports/product-image-harvest
+
+# then apply
+npm run product:harvest-images -- \
+  --apply \
+  --manifest=docs/legacy-uploads-manifest.tsv.gz \
+  --report-dir=reports/product-image-harvest
+
+# Dedupe redundant product_media (dry-run first)
+# same-key dupes always; product-level-while-variant-gallery needs --drop-product-level
+npm run product:dedupe-media
+npm run product:dedupe-media -- --ref-id=MEN2026665813
+npm run product:dedupe-media -- --drop-product-level
+npm run product:dedupe-media -- --drop-product-level --apply
+
+# 1) Dry-run all products
+npm run product:dedupe-media -- --drop-product-level
+
+# 2) Check the client example first
+npm run product:dedupe-media -- --ref-id=MEN2026665813 --drop-product-level
+
+# 3) Apply when reports look right
+npm run product:dedupe-media -- --drop-product-level --apply
