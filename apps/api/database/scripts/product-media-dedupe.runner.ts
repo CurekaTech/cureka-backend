@@ -18,8 +18,12 @@
  * Usage:
  *   npm run product:dedupe-media
  *   npm run product:dedupe-media -- --ref-id=MEN2026665813
- *   npm run product:dedupe-media -- --drop-product-level --by-content
- *   npm run product:dedupe-media -- --drop-product-level --by-content --apply --ref-id=MEN2026665813
+ *   npm run product:dedupe-media -- --drop-product-level --by-content --sample=15
+ *
+ * Safe rollout (manual batches — --limit alone always starts at offset 0):
+ *   npm run product:dedupe-media -- --drop-product-level --by-content --limit=100 --offset=0
+ *   npm run product:dedupe-media -- --drop-product-level --by-content --apply --limit=100 --offset=0
+ *   npm run product:dedupe-media -- --drop-product-level --by-content --apply --limit=100 --offset=100
  */
 import 'reflect-metadata';
 import { mkdirSync, writeFileSync, existsSync } from 'fs';
@@ -30,10 +34,12 @@ import { Storage } from '@google-cloud/storage';
 import { AppDataSource } from '../data-source';
 import { ProductEntity } from '../../../../modules/product/entities/product.entity';
 import { ProductMediaEntity } from '../../../../modules/product/entities/product-media.entity';
+import { ProductVariantEntity } from '../../../../modules/product/entities/product-variant.entity';
 import { ProductMediaType } from '../../../../modules/product/enums/product-media-type.enum';
 import { invalidateProductCache } from './product-cleanup.redis';
 
 const DEFAULT_REPORT_DIR = 'reports/product-media-dedupe';
+const DEFAULT_SAMPLE = 15;
 
 const GALLERY_TYPES = new Set<ProductMediaType>([
   ProductMediaType.IMAGE,
@@ -45,6 +51,8 @@ interface CliOptions {
   dropProductLevel: boolean;
   byContent: boolean;
   limit?: number;
+  offset: number;
+  sample: number;
   refId?: string;
   reportDir: string;
 }
@@ -65,6 +73,18 @@ type PlannedDelete = {
   contentHash?: string;
 };
 
+type ProductIssueSample = {
+  productId: string;
+  refId: string;
+  name: string;
+  slug: string | null;
+  sameKey: number;
+  productLevel: number;
+  sameContent: number;
+  queued: number;
+  sampleKeys: string[];
+};
+
 const absolutePath = (p: string): string =>
   isAbsolute(p) ? p : resolve(process.cwd(), p);
 
@@ -81,18 +101,24 @@ product:dedupe-media — Remove duplicate / redundant gallery media rows
 Dry-run by default. Deletes DB rows only (does not delete GCS objects).
 
 Examples:
-  npm run product:dedupe-media
-  npm run product:dedupe-media -- --ref-id=MEN2026665813
-  npm run product:dedupe-media -- --drop-product-level --by-content
-  npm run product:dedupe-media -- --drop-product-level --by-content --apply --ref-id=MEN2026665813
+  npm run product:dedupe-media -- --drop-product-level --by-content --sample=15
+  npm run product:dedupe-media -- --ref-id=MEN2026665813 --drop-product-level --by-content
+  npm run product:dedupe-media -- --drop-product-level --by-content --limit=100 --offset=0
+  npm run product:dedupe-media -- --drop-product-level --by-content --apply --limit=100 --offset=0
+  npm run product:dedupe-media -- --drop-product-level --by-content --apply --limit=100 --offset=100
 
 Options:
   --apply                 Persist deletes (default: dry-run)
   --drop-product-level    Also remove product-level IMAGE/COMMON when variant gallery exists
   --by-content            Also remove different keys with identical GCS md5 (visual dupes)
   --ref-id <refId>        Only one product
-  --limit <n>             Max products to process
+  --limit <n>             Max products in this run (with --offset for paging)
+  --offset <n>            Skip first n products (default 0). NOT automatic — bump manually
+  --sample <n>            Log first n products with issues for manual check (default ${DEFAULT_SAMPLE})
   --report-dir <path>     Default ${DEFAULT_REPORT_DIR}
+
+NOTE: --limit=100 alone always re-processes the first 100 products (ordered by refId).
+      Use --offset=100, --offset=200, ... for the next batches after verifying each apply.
 `);
 };
 
@@ -101,6 +127,8 @@ const parseCli = (argv: string[]): CliOptions => {
     apply: false,
     dropProductLevel: false,
     byContent: false,
+    offset: 0,
+    sample: DEFAULT_SAMPLE,
     reportDir: DEFAULT_REPORT_DIR,
   };
 
@@ -130,6 +158,18 @@ const parseCli = (argv: string[]): CliOptions => {
       const raw = arg.includes('=') ? arg.split('=')[1] : argv[++i];
       const n = Number(raw);
       if (Number.isFinite(n) && n > 0) options.limit = Math.trunc(n);
+      continue;
+    }
+    if (arg === '--offset' || arg.startsWith('--offset=')) {
+      const raw = arg.includes('=') ? arg.split('=')[1] : argv[++i];
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0) options.offset = Math.trunc(n);
+      continue;
+    }
+    if (arg === '--sample' || arg.startsWith('--sample=')) {
+      const raw = arg.includes('=') ? arg.split('=')[1] : argv[++i];
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0) options.sample = Math.trunc(n);
       continue;
     }
     if (arg === '--report-dir' || arg.startsWith('--report-dir=')) {
@@ -230,7 +270,6 @@ const planDeletesForProduct = (
     });
   };
 
-  // Rule 1: same storage key → keep one
   const byKey = new Map<string, ProductMediaEntity[]>();
   for (const row of gallery) {
     const key = storageKey(row.url);
@@ -247,7 +286,6 @@ const planDeletesForProduct = (
     }
   }
 
-  // Rule 2: product-level while variant gallery exists
   const remaining = gallery.filter((m) => !deleteIds.has(m.id));
   const hasVariantGallery = remaining.some((m) => Boolean(m.variantId));
   if (hasVariantGallery) {
@@ -269,7 +307,6 @@ const createGcsClient = (): { bucket: string; storage: Storage } => {
   return { bucket, storage: new Storage({ keyFilename: credPath }) };
 };
 
-/** Prefer GCS md5Hash (base64); fall back to hashing object bytes. */
 const resolveContentHash = async (
   storage: Storage,
   bucket: string,
@@ -351,24 +388,89 @@ const planSameContentDeletes = async (
   return planned;
 };
 
+const countQueuedForOptions = (
+  planned: PlannedDelete[],
+  options: CliOptions,
+): number =>
+  planned.filter((row) => {
+    if (row.reason === 'same_key') return true;
+    if (row.reason === 'product_level_with_variant_gallery') return options.dropProductLevel;
+    if (row.reason === 'same_content') return options.byContent;
+    return false;
+  }).length;
+
+const logIssueSamples = async (
+  samples: ProductIssueSample[],
+  variantRepo: ReturnType<typeof AppDataSource.getRepository<ProductVariantEntity>>,
+): Promise<void> => {
+  if (!samples.length) {
+    console.log('[product:dedupe-media] sample: no products with issues in this run');
+    return;
+  }
+
+  const variants = await variantRepo.find({
+    where: { productId: In(samples.map((s) => s.productId)) },
+    select: ['id', 'productId', 'sku', 'displayName', 'slug'],
+    order: { createdAt: 'ASC' },
+  });
+  const variantsByProduct = new Map<string, ProductVariantEntity[]>();
+  for (const v of variants) {
+    const list = variantsByProduct.get(v.productId) ?? [];
+    list.push(v);
+    variantsByProduct.set(v.productId, list);
+  }
+
+  console.log(
+    `[product:dedupe-media] sample products with issues (showing ${samples.length}):`,
+  );
+  for (const [index, sample] of samples.entries()) {
+    const productVariants = variantsByProduct.get(sample.productId) ?? [];
+    const variantLabel = productVariants
+      .slice(0, 3)
+      .map((v) => `${v.displayName?.trim() || v.sku} [${v.sku}]`)
+      .join(' | ');
+    const more =
+      productVariants.length > 3 ? ` (+${productVariants.length - 3} more variants)` : '';
+    console.log(
+      `  ${index + 1}. ${sample.refId} | ${sample.name}` +
+        (sample.slug ? ` | slug=${sample.slug}` : ''),
+    );
+    console.log(
+      `     variants: ${variantLabel || '(none)'}${more}`,
+    );
+    console.log(
+      `     queued=${sample.queued} (sameKey=${sample.sameKey}, productLevel=${sample.productLevel}, sameContent=${sample.sameContent})`,
+    );
+    if (sample.sampleKeys.length) {
+      console.log(`     sampleKeys: ${sample.sampleKeys.join(', ')}`);
+    }
+  }
+};
+
 async function run(): Promise<void> {
   const options = parseCli(process.argv.slice(2));
   const reportDir = createReportDir(options.reportDir);
 
   console.log(
-    `[product:dedupe-media] apply=${options.apply} dropProductLevel=${options.dropProductLevel} byContent=${options.byContent} limit=${options.limit ?? 'none'} refId=${options.refId ?? 'all'}`,
+    `[product:dedupe-media] apply=${options.apply} dropProductLevel=${options.dropProductLevel} byContent=${options.byContent} limit=${options.limit ?? 'none'} offset=${options.offset} sample=${options.sample} refId=${options.refId ?? 'all'}`,
   );
   console.log(`[product:dedupe-media] reportDir=${reportDir}`);
+  if (options.limit != null) {
+    console.log(
+      `[product:dedupe-media] batch window: products ordered by refId, slice([${options.offset}, ${options.offset + options.limit}) — bump --offset for the next batch`,
+    );
+  }
 
   await AppDataSource.initialize();
 
   try {
     const productRepo = AppDataSource.getRepository(ProductEntity);
     const mediaRepo = AppDataSource.getRepository(ProductMediaEntity);
+    const variantRepo = AppDataSource.getRepository(ProductVariantEntity);
 
     const productQb = productRepo
       .createQueryBuilder('p')
-      .select(['p.id', 'p.refId', 'p.slug'])
+      .select(['p.id', 'p.refId', 'p.slug', 'p.name'])
       .where('p.deletedAt IS NULL')
       .orderBy('p.refId', 'ASC');
 
@@ -377,23 +479,30 @@ async function run(): Promise<void> {
     }
 
     let products = await productQb.getMany();
+    const totalMatching = products.length;
+    if (options.offset > 0) {
+      products = products.slice(options.offset);
+    }
     if (options.limit) {
       products = products.slice(0, options.limit);
     }
 
-    console.log(`[product:dedupe-media] productsScanned=${products.length}`);
+    console.log(
+      `[product:dedupe-media] productsScanned=${products.length} (matched=${totalMatching}, offset=${options.offset}, limit=${options.limit ?? 'none'})`,
+    );
 
     const allSameKey: PlannedDelete[] = [];
     const allProductLevel: PlannedDelete[] = [];
     const allSameContent: PlannedDelete[] = [];
     const touchedProducts = new Map<string, { refId: string; slug?: string | null }>();
+    const issueSamples: ProductIssueSample[] = [];
 
     const gcs = options.byContent ? createGcsClient() : null;
     const hashCache = new Map<string, string | null>();
 
-    const batchSize = 200;
-    for (let i = 0; i < products.length; i += batchSize) {
-      const batch = products.slice(i, i + batchSize);
+    const scanBatchSize = 200;
+    for (let i = 0; i < products.length; i += scanBatchSize) {
+      const batch = products.slice(i, i + scanBatchSize);
       const mediaRows = await mediaRepo.find({
         where: { productId: In(batch.map((p) => p.id)) },
         order: { sortOrder: 'ASC', createdAt: 'ASC' },
@@ -427,23 +536,54 @@ async function run(): Promise<void> {
 
         if (!planned.length) continue;
         touchedProducts.set(product.id, { refId: product.refId, slug: product.slug });
+
+        let sameKey = 0;
+        let productLevel = 0;
+        let sameContent = 0;
         for (const row of planned) {
-          if (row.reason === 'same_key') allSameKey.push(row);
-          else if (row.reason === 'product_level_with_variant_gallery') allProductLevel.push(row);
-          else allSameContent.push(row);
+          if (row.reason === 'same_key') {
+            allSameKey.push(row);
+            sameKey += 1;
+          } else if (row.reason === 'product_level_with_variant_gallery') {
+            allProductLevel.push(row);
+            productLevel += 1;
+          } else {
+            allSameContent.push(row);
+            sameContent += 1;
+          }
+        }
+
+        if (issueSamples.length < options.sample) {
+          issueSamples.push({
+            productId: product.id,
+            refId: product.refId,
+            name: product.name,
+            slug: product.slug ?? null,
+            sameKey,
+            productLevel,
+            sameContent,
+            queued: countQueuedForOptions(planned, options),
+            sampleKeys: [...new Set(planned.map((r) => r.storageKey).filter(Boolean))].slice(0, 3),
+          });
         }
       }
 
-      if (options.byContent && products.length > batchSize) {
+      if (options.byContent && products.length > scanBatchSize) {
         console.log(
-          `[product:dedupe-media] progress products=${Math.min(i + batchSize, products.length)}/${products.length} sameContent=${allSameContent.length}`,
+          `[product:dedupe-media] progress products=${Math.min(i + scanBatchSize, products.length)}/${products.length} sameContent=${allSameContent.length}`,
         );
       }
     }
 
+    await logIssueSamples(issueSamples, variantRepo);
+
     writeCsv(join(reportDir, 'same-key-duplicates.csv'), allSameKey);
     writeCsv(join(reportDir, 'product-level-with-variant-gallery.csv'), allProductLevel);
     writeCsv(join(reportDir, 'same-content-duplicates.csv'), allSameContent);
+    writeFileSync(
+      join(reportDir, 'sample-products.json'),
+      `${JSON.stringify(issueSamples, null, 2)}\n`,
+    );
 
     const toDelete = [
       ...allSameKey,
@@ -453,7 +593,10 @@ async function run(): Promise<void> {
     const uniqueDeleteIds = [...new Set(toDelete.map((r) => r.mediaId))];
 
     const summary = {
+      productsMatched: totalMatching,
       productsScanned: products.length,
+      offset: options.offset,
+      limit: options.limit ?? null,
       productsWithIssues: touchedProducts.size,
       sameKeyRows: allSameKey.length,
       productLevelWithVariantGalleryRows: allProductLevel.length,
@@ -463,9 +606,16 @@ async function run(): Promise<void> {
       byContent: options.byContent,
       apply: options.apply,
       reportDir,
+      nextOffsetHint:
+        options.limit != null ? options.offset + options.limit : null,
     };
 
     console.log('[product:dedupe-media] summary:', JSON.stringify(summary, null, 2));
+    if (summary.nextOffsetHint != null && summary.nextOffsetHint < totalMatching) {
+      console.log(
+        `[product:dedupe-media] next batch: --limit=${options.limit} --offset=${summary.nextOffsetHint}`,
+      );
+    }
 
     if (!options.dropProductLevel && allProductLevel.length) {
       console.log(
