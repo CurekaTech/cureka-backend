@@ -1,4 +1,7 @@
-import { isStockInventoryManagementEnabled } from '@packages/common/stock-validation.config';
+import {
+  isCurekaInventoryManaged,
+  isStockInventoryManagementEnabled,
+} from '@packages/common/stock-validation.config';
 
 export type StockAvailabilityState = {
   stock: number;
@@ -13,17 +16,29 @@ export type StockAvailabilityResult = StockAvailabilityState & {
 };
 
 export type StockAvailabilityOptions = {
-  /** Override env; defaults to isStockInventoryManagementEnabled(). */
+  /**
+   * Override effective management mode.
+   * Defaults to isStockInventoryManagementEnabled() when unset — prefer passing
+   * managementEnabled: isCurekaInventoryManaged(variant) at call sites.
+   */
   managementEnabled?: boolean;
 };
 
-const normalizeStock = (stock: number): number => {
-  if (!Number.isFinite(stock)) return 0;
-  return Math.max(0, Math.trunc(stock));
+const normalizeStock = (stock: number | string | null | undefined): number => {
+  const n = typeof stock === 'number' ? stock : Number(stock);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.trunc(n));
 };
 
 const isManaged = (options?: StockAvailabilityOptions): boolean =>
   options?.managementEnabled ?? isStockInventoryManagementEnabled();
+
+/** Build options from a variant's Cureka inventory flag. */
+export const managementOptionsForVariant = (variant: {
+  inCurekaInventory?: boolean | null;
+}): StockAvailabilityOptions => ({
+  managementEnabled: isCurekaInventoryManaged(variant),
+});
 
 /**
  * Manual OOS.
@@ -81,13 +96,22 @@ export const resolveAvailabilityFromStock = (
 
 /**
  * Apply a signed stock delta (orders decrement, cancel/return increment).
+ * Cureka-managed only — flag-only variants leave stock unchanged (OOS flag is separate).
  */
 export const resolveAvailabilityFromDelta = (
   current: StockAvailabilityState,
   delta: number,
   options?: StockAvailabilityOptions,
 ): StockAvailabilityResult => {
-  const nextRaw = (Number.isFinite(current.stock) ? current.stock : 0) + delta;
+  if (!isManaged(options)) {
+    return {
+      stock: normalizeStock(current.stock),
+      outOfStock: current.outOfStock,
+      becameOos: false,
+      becameIns: false,
+    };
+  }
+  const nextRaw = normalizeStock(current.stock) + (Number.isFinite(delta) ? Math.trunc(delta) : 0);
   return resolveAvailabilityFromStock(nextRaw, current.outOfStock, options);
 };
 

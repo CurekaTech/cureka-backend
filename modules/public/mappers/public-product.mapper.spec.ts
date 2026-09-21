@@ -32,6 +32,7 @@ describe('toPublicStorefrontProductCard', () => {
     publishedAt: new Date('2026-01-01T00:00:00.000Z'),
     tags: [{ refId: 'TAG001', name: 'Bestsellers', slug: 'bestsellers' }],
     variantId: 'var-uuid',
+    sku: 'OMEGA-001',
   };
 
   it('keeps storefront card fields and drops unused list-card fields', () => {
@@ -43,6 +44,7 @@ describe('toPublicStorefrontProductCard', () => {
       slug: 'omega-3-capsules',
       defaultVariantId: 'var-uuid',
       variantId: 'var-uuid',
+      sku: 'OMEGA-001',
       primaryImageUrl: { key: 'products/omega.jpg', name: 'cureka-media' },
       pricing: { mrp: 999, sellingPrice: 799, inStock: true, discount: 20 },
       outOfStock: false,
@@ -153,6 +155,7 @@ describe('toPublicStorefrontProductDetail', () => {
           stock: 10,
           inStock: true,
           outOfStock: false,
+          gtinNumber: '8901234567890',
           estimatedDeliveryTime: '3-5 Days',
           subscriptionEnabled: true,
           returnAllowed: true,
@@ -187,6 +190,7 @@ describe('toPublicStorefrontProductDetail', () => {
     expect(slim.refId).toBe('PRD1');
     expect(slim.selectedVariantId).toBe('var-uuid');
     expect(slim.variants[0]?.sku).toBe('SKU1');
+    expect(slim.variants[0]?.gtinNumber).toBe('8901234567890');
     expect(slim.variants[0]?.attributes[0]).toEqual({
       attributeRefId: 'ATTR1',
       attributeName: 'Pack',

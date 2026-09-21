@@ -344,10 +344,10 @@ export const buildListVariantPricing = (
   };
 };
 
-/** Available to buy: not admin-marked OOS, and passes stock rules when enabled. */
+/** Available to buy: not admin-marked OOS, and passes stock rules when Cureka-managed. */
 const isVariantAvailable = (
-  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock'>,
-): boolean => !(variant.outOfStock ?? false) && isVariantInStock(variant.stock);
+  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory'>,
+): boolean => !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant);
 
 const storageMediaKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
   if (!ref) return null;
@@ -558,7 +558,7 @@ export const mapVariantEntityToPublicSearchItem = (
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
-    stock: getSalableStockQuantity(variant.stock),
+    stock: getSalableStockQuantity(variant.stock, 1, variant),
     inStock: isVariantAvailable(variant),
     outOfStock: variant.outOfStock ?? false,
     weight: toNumber(variant.weight),
@@ -634,6 +634,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     (variant) => variant.status === VariantStatus.ACTIVE && (variant.isTop ?? false),
   ),
   variantId: listVariant?.id ?? null,
+  sku: listVariant?.sku ?? null,
   subscriptionEnabled: commerceFlags.subscriptionEnabled,
   codAvailable: commerceFlags.codAvailable,
   publishedAt: entity.publishedAt,
@@ -657,6 +658,7 @@ export const toPublicStorefrontProductCard = (
   slug: card.slug,
   defaultVariantId: card.defaultVariantId,
   variantId: card.variantId,
+  sku: card.sku,
   primaryImageUrl: card.primaryImageUrl,
   pricing: card.pricing,
   outOfStock: card.outOfStock,
@@ -689,6 +691,7 @@ export const toPublicStorefrontProductVariant = (
   stock: variant.stock,
   inStock: variant.inStock,
   outOfStock: variant.outOfStock,
+  gtinNumber: variant.gtinNumber ?? null,
   estimatedDeliveryTime: variant.estimatedDeliveryTime,
   subscriptionEnabled: variant.subscriptionEnabled,
   subscriptionConfig: variant.subscriptionConfig,
@@ -866,9 +869,10 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
-      stock: getSalableStockQuantity(variant.stock),
+      stock: getSalableStockQuantity(variant.stock, 1, variant),
       inStock: isVariantAvailable(variant),
       outOfStock: variant.outOfStock ?? false,
+      gtinNumber: variant.gtinNumber ?? null,
       estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,

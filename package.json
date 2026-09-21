@@ -60,6 +60,8 @@
     "typesense:reindex": "npm run build && node dist/apps/api/database/scripts/typesense-reindex.runner.js",
     "sitemap:generate": "ts-node -r tsconfig-paths/register apps/api/database/scripts/sitemap-generate.runner.ts",
     "sitemap:audit": "ts-node -r tsconfig-paths/register apps/api/database/scripts/sitemap-audit.runner.ts",
+    "google-merchant:build-lookup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/google-merchant-build-lookup.runner.ts",
+    "google-merchant:export-sheet": "ts-node -r tsconfig-paths/register apps/api/database/scripts/google-merchant-export-sheet.runner.ts",
     "cache:invalidate-products": "ts-node -r tsconfig-paths/register apps/api/database/scripts/cache-invalidate-products.runner.ts",
     "bulk-upload:cancel": "ts-node -r tsconfig-paths/register apps/api/database/scripts/cancel-bulk-upload.runner.ts",
     "gokwik:test-credentials": "ts-node -r tsconfig-paths/register apps/api/database/scripts/gokwik-test-credentials.runner.ts",
@@ -72,6 +74,7 @@
     "db:dev": "docker compose -f docker-compose.dev.yml up -d"
   },
   "dependencies": {
+    "@fastify/compress": "^7.0.3",
     "@fastify/cookie": "^9.4.0",
     "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^7.0.4",

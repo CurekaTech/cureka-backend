@@ -37,6 +37,13 @@ export type PublicCmsPageKey =
 /** One payload with every policy page keyed for storefront footer / links. */
 export type IPublicCmsPagesByKey = Record<PublicCmsPageKey, IPublicCmsPage | null>;
 
+/** Footer / nav link only — no HTML body. */
+export interface IPublicCmsPolicyLink {
+  key: PublicCmsPageKey;
+  title: string;
+  slug: string;
+}
+
 export const PUBLIC_CMS_PAGE_KEYS: readonly PublicCmsPageKey[] = [
   'aboutCureka',
   'privacyPolicy',

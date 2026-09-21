@@ -22,7 +22,10 @@ export function evaluateSavedItemAvailability(
   availableQuantity: number;
 } {
   const rawStock = variant?.stock ?? 0;
-  const stockStatus: 'IN_STOCK' | 'OUT_OF_STOCK' = rawStock > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK';
+  const stockStatus: 'IN_STOCK' | 'OUT_OF_STOCK' =
+    variant?.outOfStock === true || !isVariantInStock(rawStock, variant ?? undefined)
+      ? 'OUT_OF_STOCK'
+      : 'IN_STOCK';
 
   if (!product) {
     return {
@@ -53,7 +56,16 @@ export function evaluateSavedItemAvailability(
   }
 
   const isActive = true;
-  if (STOCK_VALIDATION_ENABLED()) {
+  if (variant?.outOfStock === true) {
+    return {
+      canMoveToCart: false,
+      unavailableReason: 'OUT_OF_STOCK',
+      isActive,
+      stockStatus: 'OUT_OF_STOCK',
+      availableQuantity: rawStock,
+    };
+  }
+  if (STOCK_VALIDATION_ENABLED(variant)) {
     if (rawStock <= 0) {
       return {
         canMoveToCart: false,
@@ -78,7 +90,7 @@ export function evaluateSavedItemAvailability(
     canMoveToCart: true,
     unavailableReason: null,
     isActive,
-    stockStatus: isVariantInStock(rawStock) ? 'IN_STOCK' : 'OUT_OF_STOCK',
+    stockStatus: isVariantInStock(rawStock, variant) ? 'IN_STOCK' : 'OUT_OF_STOCK',
     availableQuantity: rawStock,
   };
 }

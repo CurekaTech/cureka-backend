@@ -25,6 +25,7 @@ import {
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
   BulkUpdateVariantOosDto,
+  BulkUpdateCurekaInventoryDto,
 } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import {
@@ -122,6 +123,33 @@ export class ProductsController {
   @HttpCode(HttpStatus.OK)
   bulkUpdateVariantOos(@Body() dto: BulkUpdateVariantOosDto) {
     return this.productsService.bulkUpdateVariantOos(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Cureka inventory feature status',
+    description:
+      'Returns whether the Cureka Inventory Admin feature is globally enabled ' +
+      '(STOCK_INVENTORY_MANAGEMENT_ENABLED). Admin UI must hide the entire feature when enabled=false.',
+  })
+  @ResponseMessage('Cureka inventory status retrieved successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Get('cureka-inventory/status')
+  getCurekaInventoryStatus() {
+    return this.productsService.getCurekaInventoryStatus();
+  }
+
+  @ApiOperation({
+    summary: 'Bulk update Cureka inventory flag on variants by SKU',
+    description:
+      'Sets inCurekaInventory=true|false for the given SKUs only. ' +
+      'Does not change stock or outOfStock. Feature visibility is still gated by STOCK_INVENTORY_MANAGEMENT_ENABLED.',
+  })
+  @ResponseMessage('Cureka inventory flag updated successfully')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @Patch('bulk-update-cureka-inventory')
+  @HttpCode(HttpStatus.OK)
+  bulkUpdateCurekaInventory(@Body() dto: BulkUpdateCurekaInventoryDto) {
+    return this.productsService.bulkUpdateCurekaInventory(dto);
   }
 
   @ApiOperation({

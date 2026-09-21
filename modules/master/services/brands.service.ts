@@ -309,6 +309,7 @@ export class BrandsService {
       patterns: [
         CacheKeys.homepage.brandsWeTrustPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.homepage.footerNavPattern(),
         CacheKeys.publicProducts.listPattern(),
         CacheKeys.publicListingContext.brandPattern(),
         CacheKeys.brands.listPattern(),

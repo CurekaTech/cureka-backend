@@ -138,6 +138,8 @@ export interface IPublicProductCard {
   tags: Array<{ refId: string; name: string; slug: string }>;
   /** Primary list variant — lowest-price active variant, or the only active variant for simple products. */
   variantId: string | null;
+  /** SKU of the primary list variant when resolved. */
+  sku: string | null;
 }
 
 /**
@@ -150,6 +152,8 @@ export interface IPublicStorefrontProductCard {
   /** Active list variant — cart/wishlist. Same value as `variantId`. */
   defaultVariantId: string | null;
   variantId: string | null;
+  /** Active list variant SKU when a list variant is resolved. */
+  sku: string | null;
   /** Signed `{ url, imageDelivery? }` after enrich; unsigned `{ key, name }` while cached. */
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
   pricing: IPublicProductListPricing;
@@ -177,6 +181,8 @@ export interface IPublicStorefrontProductVariant {
   stock: number;
   inStock: boolean;
   outOfStock: boolean;
+  /** GTIN / barcode for structured data and Merchant alignment. */
+  gtinNumber: string | null;
   estimatedDeliveryTime: string | null;
   subscriptionEnabled?: boolean;
   subscriptionConfig?: IProductSubscriptionConfig | null;
@@ -297,6 +303,7 @@ export interface IPublicProductVariant {
   stock: number;
   inStock: boolean;
   outOfStock: boolean;
+  gtinNumber: string | null;
   /** Estimated delivery window text (e.g. "3-5 Days"), or null when unset. */
   estimatedDeliveryTime: string | null;
   weight: number | null;

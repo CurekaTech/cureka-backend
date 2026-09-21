@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
   PaginationOptions,
 } from '@packages/common';
-import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
+import {
+  CacheKeys,
+  CacheModuleName,
+  CacheStrategyService,
+} from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ExpertTalkService } from '@modules/master/services/expert-talk.service';
@@ -37,6 +41,7 @@ import {
   IPublicHeaderCategory,
   IPublicShopByCategoryTile,
 } from '../interfaces/public-category.interface';
+import { IPublicFooterNav } from '../interfaces/public-footer.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
 import { mapCategoryEntityToShopByTile, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
@@ -67,8 +72,20 @@ const BRANDS_WE_TRUST_LIMIT = 10;
 /** Max health concerns shown in the homepage "Expert-Curated Wellness Bundles" section. */
 const EXPERT_CURATED_BUNDLES_LIMIT = 10;
 
+/** Footer chrome link caps. */
+const FOOTER_CATEGORY_LIMIT = 8;
+const FOOTER_BRAND_LIMIT = 8;
+
+/** Process-local hot cache TTL for header tree / footer nav. */
+const CHROME_L1_TTL_MS = 60 * 1000;
+
 @Injectable()
 export class HomepageService {
+  private readonly logger = new Logger(HomepageService.name);
+
+  private headerTreeL1: { expiresAt: number; value: IPublicHeaderCategory[] } | null = null;
+  private footerNavL1: { expiresAt: number; value: IPublicFooterNav } | null = null;
+
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
     private readonly productsRepository: ProductsRepository,
@@ -98,10 +115,62 @@ export class HomepageService {
   }
 
   /** Used by cache invalidation after CMS page mutations. */
-  invalidatePublicCmsPagesCache(): Promise<void> {
-    return this.cacheStrategy.invalidateOnly({
-      patterns: [CacheKeys.homepage.cmsPagesPattern()],
+  async invalidatePublicCmsPagesCache(): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.homepage.cmsPagesPattern(),
+        CacheKeys.homepage.footerNavPattern(),
+      ],
     });
+    this.invalidateFooterNavLocalCache();
+  }
+
+  /**
+   * Lightweight footer chrome for every page — categories, brands, policy links.
+   * No images / signed URLs / CMS HTML bodies.
+   */
+  async getFooterNav(): Promise<IPublicFooterNav> {
+    const startedAt = Date.now();
+    if (this.footerNavL1 && this.footerNavL1.expiresAt > Date.now()) {
+      this.logger.debug(`footer_nav L1 hit ${Date.now() - startedAt}ms`);
+      return this.footerNavL1.value;
+    }
+
+    const value = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.footerNav(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadFooterNavUncached(),
+    });
+    this.footerNavL1 = { expiresAt: Date.now() + CHROME_L1_TTL_MS, value };
+    this.logger.debug(`footer_nav redis ${Date.now() - startedAt}ms`);
+    return value;
+  }
+
+  async loadFooterNavUncached(): Promise<IPublicFooterNav> {
+    const [shopByTiles, brands, policies] = await Promise.all([
+      this.loadShopByCategoryTreeUncached(),
+      this.brandsRepository.findHomePageBrands(FOOTER_BRAND_LIMIT),
+      this.cmsPagesService.findActivePolicyLinks(),
+    ]);
+
+    return {
+      categories: shopByTiles.slice(0, FOOTER_CATEGORY_LIMIT).map((tile) => ({
+        refId: tile.refId,
+        name: tile.name,
+        slug: tile.slug,
+        permalink: tile.permalink,
+      })),
+      brands: brands.map((brand) => ({
+        refId: brand.refId,
+        name: brand.name,
+        slug: brand.slug,
+      })),
+      policies,
+    };
+  }
+
+  invalidateFooterNavLocalCache(): void {
+    this.footerNavL1 = null;
   }
 
   /** Cached banner bundle (unsigned refs) — fetch once per `/sections` build. */
@@ -131,12 +200,28 @@ export class HomepageService {
   }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
+    const startedAt = Date.now();
     // Nav tree has no storage refs — skip enrichDeep (was signing unused image/banner URLs).
-    return this.cacheStrategy.cacheAside({
+    if (this.headerTreeL1 && this.headerTreeL1.expiresAt > Date.now()) {
+      this.logger.debug(
+        `header_category_tree L1 hit ${Date.now() - startedAt}ms`,
+      );
+      return this.headerTreeL1.value;
+    }
+
+    const value = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.categoryHeader(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHeaderCategoryTreeUncached(),
     });
+    this.headerTreeL1 = { expiresAt: Date.now() + CHROME_L1_TTL_MS, value };
+    this.logger.debug(`header_category_tree redis ${Date.now() - startedAt}ms`);
+    return value;
+  }
+
+  /** Drop process-local header tree cache (call with Redis header invalidation). */
+  invalidateHeaderTreeLocalCache(): void {
+    this.headerTreeL1 = null;
   }
 
   /** Used by cache refresh after category mutations. */

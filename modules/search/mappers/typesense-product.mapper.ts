@@ -103,7 +103,7 @@ function mapVariantToTypesenseDocument(
     wellnessGoals: shared.wellnessGoals,
     tags: shared.tags,
     description: description || undefined,
-    inStock: isVariantInStock(variant.stock),
+    inStock: !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant),
     searchTags,
     minSellingPrice: sellingPrice ?? undefined,
   };

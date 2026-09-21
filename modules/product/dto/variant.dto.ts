@@ -170,6 +170,16 @@ export class CreateVariantDto {
   outOfStock?: boolean;
 
   @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'When true and STOCK_INVENTORY_MANAGEMENT_ENABLED=true, this variant uses Cureka stock inventory. ' +
+      'Defaults to false. Updating this flag does not change stock or outOfStock.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  inCurekaInventory?: boolean;
+
+  @ApiPropertyOptional({
     example: '5-7 Days',
     nullable: true,
     description: 'Estimated delivery window text for this variant (e.g. "3-5 Days").',
