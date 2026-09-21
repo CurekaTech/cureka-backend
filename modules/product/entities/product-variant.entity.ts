@@ -80,6 +80,14 @@ export class ProductVariantEntity {
   @Column({ name: 'out_of_stock', type: 'boolean', default: false })
   outOfStock!: boolean;
 
+  /**
+   * When true AND STOCK_INVENTORY_MANAGEMENT_ENABLED=true, this variant uses
+   * Cureka stock-managed inventory. Otherwise availability follows outOfStock.
+   */
+  @Index()
+  @Column({ name: 'in_cureka_inventory', type: 'boolean', default: false })
+  inCurekaInventory!: boolean;
+
   /** Free-text delivery window for PDP, e.g. "3-5 Days". Nullable — not an enum. */
   @Column({ name: 'estimated_delivery_time', type: 'varchar', length: 50, nullable: true })
   estimatedDeliveryTime!: string | null;

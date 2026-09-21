@@ -6,6 +6,7 @@ import {
   resolveAvailabilityFromStock,
   resolveManualInStock,
   resolveManualOutOfStock,
+  managementOptionsForVariant,
 } from './variant-stock-availability.util';
 
 const toTransition = (
@@ -23,7 +24,7 @@ const toTransition = (
 });
 
 /**
- * Apply signed stock delta inside a transaction and sync outOfStock.
+ * Apply signed stock delta inside a transaction and sync outOfStock when Cureka-managed.
  * Returns an OOS transition only on INS → OOS.
  */
 export async function applyStockDeltaInManager(
@@ -35,7 +36,7 @@ export async function applyStockDeltaInManager(
   const repo = manager.getRepository(ProductVariantEntity);
   const variant = await repo.findOne({
     where: { id: variantId },
-    select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+    select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
     ...(options?.lock ? { lock: { mode: 'pessimistic_write' as const } } : {}),
   });
   if (!variant) return null;
@@ -43,6 +44,7 @@ export async function applyStockDeltaInManager(
   const next = resolveAvailabilityFromDelta(
     { stock: variant.stock, outOfStock: variant.outOfStock },
     delta,
+    managementOptionsForVariant(variant),
   );
   await repo.update(
     { id: variantId },
@@ -54,7 +56,7 @@ export async function applyStockDeltaInManager(
 }
 
 /**
- * Set absolute stock and sync outOfStock inside a transaction.
+ * Set absolute stock and sync outOfStock when Cureka-managed.
  */
 export async function applyAbsoluteStockInManager(
   manager: EntityManager,
@@ -64,11 +66,15 @@ export async function applyAbsoluteStockInManager(
   const repo = manager.getRepository(ProductVariantEntity);
   const variant = await repo.findOne({
     where: { id: variantId },
-    select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+    select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
   });
   if (!variant) return null;
 
-  const next = resolveAvailabilityFromStock(stock, variant.outOfStock);
+  const next = resolveAvailabilityFromStock(
+    stock,
+    variant.outOfStock,
+    managementOptionsForVariant(variant),
+  );
   await repo.update(
     { id: variantId },
     { stock: next.stock, outOfStock: next.outOfStock },
@@ -85,14 +91,17 @@ export async function applyManualOutOfStockInManager(
   const repo = manager.getRepository(ProductVariantEntity);
   const variant = await repo.findOne({
     where: { id: variantId },
-    select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+    select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
   });
   if (!variant) return null;
 
-  const next = resolveManualOutOfStock({
-    stock: variant.stock,
-    outOfStock: variant.outOfStock,
-  });
+  const next = resolveManualOutOfStock(
+    {
+      stock: variant.stock,
+      outOfStock: variant.outOfStock,
+    },
+    managementOptionsForVariant(variant),
+  );
   await repo.update(
     { id: variantId },
     { stock: next.stock, outOfStock: next.outOfStock },
@@ -107,4 +116,5 @@ export {
   resolveAvailabilityFromStock,
   resolveManualInStock,
   resolveManualOutOfStock,
+  managementOptionsForVariant,
 };

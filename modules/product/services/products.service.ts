@@ -14,6 +14,7 @@ import {
   buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
+  isStockInventoryManagementEnabled,
 } from '@packages/common';
 import {
   buildQueryCacheHash,
@@ -24,7 +25,7 @@ import {
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
-import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkUpdateVariantOosDto } from '../dto/product.dto';
+import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkUpdateVariantOosDto, BulkUpdateCurekaInventoryDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
@@ -1288,6 +1289,57 @@ export class ProductsService {
       alreadyAtTarget,
       notFound,
       blocked,
+      productsAffected: updatedProductIds.size,
+    };
+  }
+
+  getCurekaInventoryStatus(): { enabled: boolean } {
+    return { enabled: isStockInventoryManagementEnabled() };
+  }
+
+  /**
+   * Sets inCurekaInventory for variants by SKU only — does not change stock or outOfStock.
+   */
+  async bulkUpdateCurekaInventory(dto: BulkUpdateCurekaInventoryDto): Promise<{
+    requested: number;
+    updated: string[];
+    alreadyAtTarget: string[];
+    notFound: string[];
+    productsAffected: number;
+  }> {
+    const uniqueSkus = [...new Set(dto.skus.map((s) => s.trim()).filter(Boolean))];
+    if (!uniqueSkus.length) {
+      throw new BadRequestException('skus must contain at least one SKU');
+    }
+
+    const { bySkuResult, updatedProductIds } =
+      await this.variantsRepository.updateInCurekaInventoryBySkus(
+        uniqueSkus,
+        dto.inCurekaInventory,
+      );
+
+    const updated: string[] = [];
+    const alreadyAtTarget: string[] = [];
+    const notFound: string[] = [];
+
+    for (const [sku, status] of bySkuResult.entries()) {
+      if (status === 'updated') updated.push(sku);
+      else if (status === 'already') alreadyAtTarget.push(sku);
+      else notFound.push(sku);
+    }
+
+    if (updatedProductIds.size > 0) {
+      const affectedRefIds = await this.productsRepository.findRefIdsByIds([
+        ...updatedProductIds,
+      ]);
+      await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    }
+
+    return {
+      requested: uniqueSkus.length,
+      updated,
+      alreadyAtTarget,
+      notFound,
       productsAffected: updatedProductIds.size,
     };
   }

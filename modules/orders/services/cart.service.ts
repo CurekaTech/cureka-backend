@@ -232,7 +232,20 @@ export class CartService {
       }
 
       if (!STOCK_VALIDATION_ENABLED()) {
-        return this.toCartResponse(cart, cart.userId, manager, { clearInvalidCoupon: true });
+        // Still drop OOS-flagged / inactive lines even when qty validation is off.
+        const lineItems = await this.buildLineItems(cart);
+        for (const item of lineItems) {
+          if (!item.isAvailable || !item.inStock) {
+            await this.cartItemsRepository.deleteById(item.id, manager);
+          }
+        }
+        const refreshed = await this.cartsRepository.findActiveById(cartId, manager);
+        if (!refreshed) {
+          throw new BadRequestException('Invalid cart id');
+        }
+        return this.toCartResponse(refreshed, refreshed.userId, manager, {
+          clearInvalidCoupon: true,
+        });
       }
 
       const lineItems = await this.buildLineItems(cart);
@@ -326,7 +339,7 @@ export class CartService {
       if (!item) throw new NotFoundException(`Cart item ${itemId} not found`);
 
       const variant = await this.getValidVariant(item.productId, item.variantId, manager);
-      this.assertStockAvailable(dto.quantity, variant.stock);
+      this.assertStockAvailable(dto.quantity, variant);
 
       await this.cartItemsRepository.updateById(itemId, { quantity: dto.quantity }, manager);
       await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
@@ -427,7 +440,7 @@ export class CartService {
 
           if (existing) {
             const nextQty = existing.quantity + item.quantity;
-            this.assertStockAvailable(nextQty, variant.stock);
+            this.assertStockAvailable(nextQty, variant);
             await this.cartItemsRepository.updateById(
               existing.id,
               { quantity: nextQty, updatedBy: toUserId },
@@ -565,9 +578,10 @@ export class CartService {
 
         const isAvailable =
           variant?.status === VariantStatus.ACTIVE &&
-          product?.status === ProductStatus.PUBLISHED;
+          product?.status === ProductStatus.PUBLISHED &&
+          !(variant?.outOfStock === true);
         const rawStock = variant?.stock ?? 0;
-        const stock = getSalableStockQuantity(rawStock, item.quantity);
+        const stock = getSalableStockQuantity(rawStock, item.quantity, variant);
 
         const variantSlug = variant?.slug?.trim() ?? '';
         const productSlug = product?.slug?.trim() ?? '';
@@ -597,7 +611,7 @@ export class CartService {
           mrp,
           totalPrice: unitPrice * item.quantity,
           stock,
-          inStock: isAvailable && isVariantInStock(rawStock),
+          inStock: isAvailable && isVariantInStock(rawStock, variant),
           isAvailable,
           codAvailable: !!variant?.codAvailable,
           primaryImageUrl,
@@ -647,7 +661,7 @@ export class CartService {
 
     if (existing) {
       const nextQty = existing.quantity + dto.quantity;
-      this.assertStockAvailable(nextQty, variant.stock);
+      this.assertStockAvailable(nextQty, variant);
       await this.cartItemsRepository.updateById(
         existing.id,
         { quantity: nextQty, updatedBy: userId },
@@ -657,7 +671,7 @@ export class CartService {
       return;
     }
 
-    this.assertStockAvailable(dto.quantity, variant.stock);
+    this.assertStockAvailable(dto.quantity, variant);
     const refId = await generateUniqueRefId('cart-item', (candidate) =>
       this.cartItemsRepository.existsByRefId(candidate),
     );
@@ -719,11 +733,17 @@ export class CartService {
     return variant;
   }
 
-  private assertStockAvailable(requiredQty: number, stock: number): void {
-    if (!STOCK_VALIDATION_ENABLED()) {
+  private assertStockAvailable(
+    requiredQty: number,
+    variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory' | 'sku'>,
+  ): void {
+    if (variant.outOfStock) {
+      throw new BadRequestException(`SKU ${variant.sku} is out of stock`);
+    }
+    if (!STOCK_VALIDATION_ENABLED(variant)) {
       return;
     }
-    if (requiredQty > stock) {
+    if (requiredQty > variant.stock) {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
   }

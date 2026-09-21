@@ -239,6 +239,7 @@ export const envValidationSchema = Joi.object({
    * false = legacy flag-only (stock independent; email only when outOfStock flips)
    * Default: true
    */
+  // Cureka Inventory: feature available when true; stock managed only if variant.inCurekaInventory also true
   STOCK_INVENTORY_MANAGEMENT_ENABLED: Joi.string().valid('true', 'false').default('true'),
 
   /** Temporary: allow creating bundles that reuse SKUs from existing simples. */
