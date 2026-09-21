@@ -37,8 +37,16 @@ import {
 } from '../interfaces/bob.interface';
 import { toBobE164Phone, toBobOrderAlias } from '../utils/bob.util';
 
-export function mapBobCategory(category: CategoryEntity): BobCategory {
-  return { id: category.id, title: category.name };
+export function mapBobCategory(
+  category: CategoryEntity,
+  parentTitle: string | null = null,
+): BobCategory {
+  return {
+    id: category.id,
+    title: category.name,
+    parentId: category.parentCategoryId,
+    parentTitle: parentTitle ?? category.parent?.name ?? null,
+  };
 }
 
 export function mapBobProductStatus(status: ProductStatus): 'ACTIVE' | 'inactive' {

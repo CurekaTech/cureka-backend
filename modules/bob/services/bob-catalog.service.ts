@@ -39,8 +39,14 @@ export class BobCatalogService {
 
   async listCategories(): Promise<BobCategory[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
+    const titleById = new Map(categories.map((category) => [category.id, category.name]));
     this.logger.log({ count: categories.length }, '[BOB inbound] GET /categories');
-    return categories.map(mapBobCategory);
+    return categories.map((category) =>
+      mapBobCategory(
+        category,
+        category.parentCategoryId ? (titleById.get(category.parentCategoryId) ?? null) : null,
+      ),
+    );
   }
 
   async listProductsByCategory(categoryId: string): Promise<BobProductSummary[]> {

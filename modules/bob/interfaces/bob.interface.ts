@@ -1,6 +1,8 @@
 export type BobCategory = {
   id: string;
   title: string;
+  parentId: string | null;
+  parentTitle: string | null;
 };
 
 export type BobProductSummary = {
