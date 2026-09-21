@@ -23,7 +23,7 @@ export function evaluateSavedItemAvailability(
 } {
   const rawStock = variant?.stock ?? 0;
   const stockStatus: 'IN_STOCK' | 'OUT_OF_STOCK' =
-    variant?.outOfStock === true || !isVariantInStock(rawStock, variant)
+    variant?.outOfStock === true || !isVariantInStock(rawStock, variant ?? undefined)
       ? 'OUT_OF_STOCK'
       : 'IN_STOCK';
 
