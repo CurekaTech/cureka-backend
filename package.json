@@ -72,6 +72,7 @@
     "db:dev": "docker compose -f docker-compose.dev.yml up -d"
   },
   "dependencies": {
+    "@fastify/compress": "^7.0.3",
     "@fastify/cookie": "^9.4.0",
     "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^7.0.4",

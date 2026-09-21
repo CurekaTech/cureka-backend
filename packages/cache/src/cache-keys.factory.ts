@@ -82,6 +82,8 @@ export const CacheKeys = {
     sectionsPattern: () => 'homepage:sections*',
     cmsPages: () => 'homepage:cms-pages:v1',
     cmsPagesPattern: () => 'homepage:cms-pages*',
+    footerNav: () => 'homepage:footer-nav:v1',
+    footerNavPattern: () => 'homepage:footer-nav*',
   },
   publicSearch: {
     popular: (perPage: number) => `public:search:popular:v2:${perPage}`,

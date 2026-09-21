@@ -24,9 +24,10 @@ export type StockAvailabilityOptions = {
   managementEnabled?: boolean;
 };
 
-const normalizeStock = (stock: number): number => {
-  if (!Number.isFinite(stock)) return 0;
-  return Math.max(0, Math.trunc(stock));
+const normalizeStock = (stock: number | string | null | undefined): number => {
+  const n = typeof stock === 'number' ? stock : Number(stock);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.trunc(n));
 };
 
 const isManaged = (options?: StockAvailabilityOptions): boolean =>
@@ -95,13 +96,22 @@ export const resolveAvailabilityFromStock = (
 
 /**
  * Apply a signed stock delta (orders decrement, cancel/return increment).
+ * Cureka-managed only — flag-only variants leave stock unchanged (OOS flag is separate).
  */
 export const resolveAvailabilityFromDelta = (
   current: StockAvailabilityState,
   delta: number,
   options?: StockAvailabilityOptions,
 ): StockAvailabilityResult => {
-  const nextRaw = (Number.isFinite(current.stock) ? current.stock : 0) + delta;
+  if (!isManaged(options)) {
+    return {
+      stock: normalizeStock(current.stock),
+      outOfStock: current.outOfStock,
+      becameOos: false,
+      becameIns: false,
+    };
+  }
+  const nextRaw = normalizeStock(current.stock) + (Number.isFinite(delta) ? Math.trunc(delta) : 0);
   return resolveAvailabilityFromStock(nextRaw, current.outOfStock, options);
 };
 

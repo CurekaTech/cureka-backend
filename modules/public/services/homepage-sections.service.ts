@@ -1,9 +1,13 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import {
   CacheKeys,
   CacheModuleName,
+  CacheService,
   CacheStrategyService,
+  RedisConnectionService,
 } from '@packages/cache';
+import { EVENTS } from '@packages/events';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
 import {
   HomeSectionType,
@@ -23,8 +27,28 @@ import {
 } from '../interfaces/homepage-section.interface';
 import { HomepageService } from './homepage.service';
 
-/** Full homepage sections response is cached for 60 minutes. */
+/** Unsigned section payload (no signed URLs) — long TTL; rebuilt on CMS/product invalidation. */
 const HOMEPAGE_SECTIONS_TTL_SECONDS = 60 * 60;
+
+/**
+ * Enriched (signed-URL) payload cache.
+ * Safe while GCS_SIGNED_URL_TTL_SECONDS ≫ this window (typically 24h).
+ * Short enough that admin edits appear within a few minutes after Redis invalidation
+ * (L1 clears immediately via invalidateLocalCache).
+ */
+const HOMEPAGE_SECTIONS_ENRICHED_TTL_SECONDS = 5 * 60;
+
+/** Process-local hot cache — skips Upstash Redis + GCS signing on repeat hits. */
+const HOMEPAGE_SECTIONS_L1_TTL_MS = 60 * 1000;
+
+type SectionsCacheLayer = 'l1' | 'enriched_redis' | 'unsigned_rebuild';
+
+type SectionsHitCounters = {
+  total: number;
+  l1: number;
+  enrichedRedis: number;
+  unsignedRebuild: number;
+};
 
 /**
  * Fixed storefront sections — always included in `/sections` data even when
@@ -102,6 +126,20 @@ type SectionMeta = {
 export class HomepageSectionsService implements OnModuleInit {
   private readonly logger = new Logger(HomepageSectionsService.name);
 
+  /** Hot in-process cache of fully enriched responses (per worker). */
+  private readonly enrichedL1 = new Map<
+    string,
+    { expiresAt: number; value: IHomepageSectionsResponse }
+  >();
+
+  /** Process-lifetime counters for cache-layer hit rates (logged on each request). */
+  private readonly hitCounters: SectionsHitCounters = {
+    total: 0,
+    l1: 0,
+    enrichedRedis: 0,
+    unsignedRebuild: 0,
+  };
+
   /** Data loaders keyed by section type. Types without a loader return null data. */
   private readonly loaders: Partial<
     Record<HomeSectionType, () => Promise<HomepageSectionData>>
@@ -129,13 +167,15 @@ export class HomepageSectionsService implements OnModuleInit {
     private readonly homepageService: HomepageService,
     private readonly homeSectionsService: HomeSectionsService,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly cacheService: CacheService,
+    private readonly redisConnection: RedisConnectionService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productsRepository: ProductsRepository,
     private readonly categoriesRepository: CategoriesRepository,
   ) {}
 
   onModuleInit(): void {
-    // Warm unsigned sections payload so the first storefront request avoids a cold miss.
+    // Warm unsigned + enriched caches so the first storefront request is hot.
     setImmediate(() => {
       void this.getSections().catch((error) => {
         this.logger.warn(
@@ -147,25 +187,97 @@ export class HomepageSectionsService implements OnModuleInit {
     });
   }
 
+  /** Drop process-local enriched cache (call alongside Redis sections invalidation). */
+  invalidateLocalCache(): void {
+    this.enrichedL1.clear();
+  }
+
+  @OnEvent(EVENTS.HOME_SECTION_UPDATED)
+  onHomeSectionUpdated(): void {
+    this.invalidateLocalCache();
+  }
+
   /**
    * Returns every active home section (in configured index order). Sections whose
    * type has a registered loader carry rendered data; the rest carry `data: null`
    * so the storefront can lay them out and we can wire them up incrementally.
    *
    * When `requested` is a non-empty list, only those section types are included.
+   *
+   * Hot path: L1 (memory) → enriched Redis → unsigned Redis + sign URLs.
    */
   async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
-    const cached = await this.cacheStrategy.cacheAside({
-      // v11: slim storefront cards + shop-by-category tiles; sign URLs after cache read.
-      key: CacheKeys.homepage.sections(`v11-${this.buildVariantKey(requested)}`),
+    const startedAt = Date.now();
+    const variant = this.buildVariantKey(requested);
+
+    const l1 = this.enrichedL1.get(variant);
+    if (l1 && l1.expiresAt > Date.now()) {
+      this.logSectionsTiming('l1', variant, startedAt, 0);
+      return l1.value;
+    }
+
+    const enrichedKey = CacheKeys.homepage.sections(`v12-enriched-${variant}`);
+    const fromEnriched = await this.cacheService.get<IHomepageSectionsResponse>(enrichedKey);
+    if (fromEnriched) {
+      this.setL1(variant, fromEnriched);
+      this.logSectionsTiming('enriched_redis', variant, startedAt, 0);
+      return fromEnriched;
+    }
+
+    const unsigned = await this.cacheStrategy.cacheAside({
+      // v11: slim storefront cards + shop-by-category tiles; URLs signed after this read.
+      key: CacheKeys.homepage.sections(`v11-${variant}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
     });
 
-    // Sign storage references AFTER the cache read so signed URLs (short-lived)
-    // are never persisted in the long-lived sections cache.
-    return this.storageUrlEnricher.enrichDeep(cached);
+    const signStartedAt = Date.now();
+    const enriched = await this.storageUrlEnricher.enrichDeep(unsigned);
+    const enrichMs = Date.now() - signStartedAt;
+    await this.cacheService.set(
+      enrichedKey,
+      enriched,
+      HOMEPAGE_SECTIONS_ENRICHED_TTL_SECONDS,
+    );
+    this.setL1(variant, enriched);
+    this.logSectionsTiming('unsigned_rebuild', variant, startedAt, enrichMs);
+    return enriched;
+  }
+
+  private logSectionsTiming(
+    cacheLayer: SectionsCacheLayer,
+    variant: string,
+    startedAt: number,
+    enrichMs: number,
+  ): void {
+    this.hitCounters.total += 1;
+    if (cacheLayer === 'l1') this.hitCounters.l1 += 1;
+    else if (cacheLayer === 'enriched_redis') this.hitCounters.enrichedRedis += 1;
+    else this.hitCounters.unsignedRebuild += 1;
+
+    const total = this.hitCounters.total;
+    const l1HitRate = total > 0 ? this.hitCounters.l1 / total : 0;
+    const enrichedHitRate = total > 0 ? this.hitCounters.enrichedRedis / total : 0;
+
+    this.logger.log({
+      msg: 'homepage_sections_timing',
+      variant,
+      cacheLayer,
+      totalMs: Date.now() - startedAt,
+      enrichMs,
+      redisAvailable: this.redisConnection.isAvailable(),
+      l1HitRate: Number(l1HitRate.toFixed(3)),
+      enrichedHitRate: Number(enrichedHitRate.toFixed(3)),
+      requestsSinceBoot: total,
+    });
+  }
+
+  private setL1(variant: string, value: IHomepageSectionsResponse): void {
+    this.enrichedL1.set(variant, {
+      expiresAt: Date.now() + HOMEPAGE_SECTIONS_L1_TTL_MS,
+      value,
+    });
   }
 
   /**
