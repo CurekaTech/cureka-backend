@@ -1,0 +1,6 @@
+# Google Merchant exports
+
+Generated client-shareable Merchant feed sheets live here.
+
+- Produced by: `npm run google-merchant:export-sheet`
+- Do **not** put exports in place of `../google-merchant-data.xlsx` (legacy id lookup source only)

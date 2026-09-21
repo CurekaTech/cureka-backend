@@ -39,6 +39,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
 import { PublicModule } from '@modules/public/public.module';
+import { GoogleMerchantModule } from '@modules/google-merchant/google-merchant.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
@@ -122,6 +123,7 @@ import { OosEmailModule } from '@modules/oos-email/oos-email.module';
     OosEmailModule,
     HealthModule,
     PublicModule,
+    GoogleMerchantModule,
     ProductModule,
     UnicommerceModule,
     OrdersModule,
