@@ -12,6 +12,7 @@ import { FastifyRequest } from 'fastify';
 
 const GUEST_HEADER = 'x-guest-id';
 const LEGACY_HEADER = 'x-bob-api-key';
+const GUEST_QUERY_KEYS = ['x-guest-id', 'guestId'] as const;
 
 @Injectable()
 export class BobApiKeyGuard implements CanActivate {
@@ -34,8 +35,7 @@ export class BobApiKeyGuard implements CanActivate {
       return true;
     }
 
-    const provided =
-      this.readHeader(request, GUEST_HEADER) || this.readHeader(request, LEGACY_HEADER);
+    const provided = this.readProvidedKey(request);
     if (!provided || !this.matchesSecret(provided, expected)) {
       this.logger.warn({ path }, '[BOB auth] rejected');
       throw new UnauthorizedException('not authorized');
@@ -51,10 +51,26 @@ export class BobApiKeyGuard implements CanActivate {
     );
   }
 
+  private readProvidedKey(request: FastifyRequest): string {
+    return (
+      this.readHeader(request, GUEST_HEADER) ||
+      this.readHeader(request, LEGACY_HEADER) ||
+      this.readQuery(request, GUEST_QUERY_KEYS[0]) ||
+      this.readQuery(request, GUEST_QUERY_KEYS[1])
+    );
+  }
+
   private readHeader(request: FastifyRequest, name: string): string {
     const provided = request.headers[name];
     const value = Array.isArray(provided) ? provided[0] : provided;
-    return typeof value === 'string' ? value : '';
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  private readQuery(request: FastifyRequest, name: string): string {
+    const query = request.query as Record<string, unknown> | undefined;
+    const provided = query?.[name];
+    const value = Array.isArray(provided) ? provided[0] : provided;
+    return typeof value === 'string' ? value.trim() : '';
   }
 
   private matchesSecret(provided: string, expected: string): boolean {
