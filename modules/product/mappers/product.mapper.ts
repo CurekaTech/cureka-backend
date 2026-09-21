@@ -350,6 +350,7 @@ const mapVariant = (
   discountPercentage: toNumber(variant.discountPercentage),
   stock: variant.stock,
   outOfStock: variant.outOfStock ?? false,
+  inCurekaInventory: variant.inCurekaInventory ?? false,
   estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
   isTop: variant.isTop ?? false,
   topSortOrder: variant.topSortOrder ?? null,

@@ -641,6 +641,28 @@ export class BulkUpdateVariantOosDto {
   outOfStock!: boolean;
 }
 
+export class BulkUpdateCurekaInventoryDto {
+  @ApiProperty({
+    type: [String],
+    example: ['MUS/MUS/00001', 'MUS/MUS/00002'],
+    description:
+      'SKUs of the specific variants to update. Duplicates are ignored. Max 500.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  skus!: string[];
+
+  @ApiProperty({
+    example: true,
+    description:
+      'true = add variants to Cureka inventory; false = remove them. Does not change stock or outOfStock.',
+  })
+  @IsBoolean()
+  inCurekaInventory!: boolean;
+}
+
 export class BulkRestoreStockItemDto {
   @ApiProperty({ example: 'PRO20261234' })
   @IsNotEmpty()

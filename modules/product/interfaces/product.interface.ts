@@ -38,6 +38,8 @@ export interface IProductVariant {
   discountPercentage: number | null;
   stock: number;
   outOfStock: boolean;
+  /** When true and global env is on, variant uses Cureka stock inventory. */
+  inCurekaInventory: boolean;
   /** Estimated delivery window text (e.g. "3-5 Days"), or null when unset. */
   estimatedDeliveryTime: string | null;
   /** True when this variant is marked as a Top Product for category PLP ordering. */

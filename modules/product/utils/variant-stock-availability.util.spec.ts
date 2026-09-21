@@ -121,6 +121,16 @@ describe('variant-stock-availability.util (flag-only)', () => {
     });
   });
 
+  it('env-off semantics: manual OOS never zeros stock (inCurekaInventory irrelevant)', () => {
+    // Call sites pass managementEnabled from isCurekaInventoryManaged() which is false when env off.
+    expect(resolveManualOutOfStock({ stock: 12, outOfStock: false }, flagOnly)).toEqual({
+      stock: 12,
+      outOfStock: true,
+      becameOos: true,
+      becameIns: false,
+    });
+  });
+
   it('admin dto stock 0 + outOfStock true (FE-coupled) keeps previous INS', () => {
     expect(
       resolveAvailabilityFromAdminDto(
