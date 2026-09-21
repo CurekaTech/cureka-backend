@@ -5,9 +5,11 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   generateUniqueRefId,
+  isCurekaInventoryManaged,
   STOCK_VALIDATION_ENABLED,
 } from '@packages/common';
-import { EVENTS, OrderCancelledEvent, ShipmentUpdatedEvent } from '@packages/events';
+import { EVENTS, OrderCancelledEvent, ProductUpdatedEvent, ShipmentUpdatedEvent } from '@packages/events';
+import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
@@ -127,18 +129,44 @@ export class OrdersService {
     quantity: number,
     oosTransitions: VariantOosTransition[],
     productName?: string | null,
+    stockAffectedProductIds?: Set<string>,
   ): Promise<void> {
-    if (STOCK_VALIDATION_ENABLED(variant) && variant.stock < quantity) {
-      throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
-    }
     if (variant.outOfStock) {
       throw new BadRequestException(`SKU ${variant.sku} is out of stock`);
     }
+    if (STOCK_VALIDATION_ENABLED(variant) && variant.stock < quantity) {
+      throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
+    }
+
+    // Stock ledger only for Cureka-managed variants (env + inCurekaInventory).
+    if (!isCurekaInventoryManaged(variant)) {
+      return;
+    }
+
     const transition = await applyStockDeltaInManager(manager, variant.id, -quantity, {
       productName: productName ?? null,
       lock: true,
+      requireVariant: true,
     });
+    stockAffectedProductIds?.add(variant.productId);
     if (transition) oosTransitions.push(transition);
+  }
+
+  private async emitProductsUpdatedAfterStockChange(productIds: Iterable<string>): Promise<void> {
+    const ids = [...new Set([...productIds].filter(Boolean))];
+    if (!ids.length) return;
+    const products = await this.dataSource.getRepository(ProductEntity).find({
+      where: { id: In(ids) },
+      select: ['id', 'refId'],
+    });
+    await Promise.all(
+      products.map((product) =>
+        this.eventEmitter.emitAsync(
+          EVENTS.PRODUCT_UPDATED,
+          new ProductUpdatedEvent(product.refId, 'updated'),
+        ),
+      ),
+    );
   }
 
   async checkout(userId: string, dto: CheckoutDto) {
@@ -197,6 +225,7 @@ export class OrdersService {
     }
 
     const oosTransitions: VariantOosTransition[] = [];
+    const stockAffectedProductIds = new Set<string>();
     const order = await this.dataSource.transaction(async (manager) => {
       const cart = await this.cartService.getActiveCartEntity(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
@@ -284,6 +313,7 @@ export class OrdersService {
           item.quantity,
           oosTransitions,
           item.productName,
+          stockAffectedProductIds,
         );
 
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
@@ -393,6 +423,7 @@ export class OrdersService {
     });
 
     this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
     await this.notifyOrderPlacedSafely(order, 'place-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     await this.activateSubscriptionsForConfirmedOrder(order, dto.addressId, 'place-order');
@@ -578,6 +609,7 @@ export class OrdersService {
   ) {
     let shouldPushFulfillment = true;
     const oosTransitions: VariantOosTransition[] = [];
+    const stockAffectedProductIds = new Set<string>();
 
     const order = await this.dataSource.transaction(async (manager) => {
       const existing = await this.ordersRepository.findByOrderNumberAndUserIdForUpdate(
@@ -675,6 +707,7 @@ export class OrdersService {
           item.quantity,
           oosTransitions,
           item.productName,
+          stockAffectedProductIds,
         );
       }
 
@@ -792,6 +825,7 @@ export class OrdersService {
     });
 
     this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
 
     if (shouldPushFulfillment) {
       await this.notifyOrderPlacedSafely(order, 'gokwik-place-order');
@@ -931,6 +965,7 @@ export class OrdersService {
     let shouldPushFulfillment = true;
     let shouldNotify = true;
     const oosTransitions: VariantOosTransition[] = [];
+    const stockAffectedProductIds = new Set<string>();
     const isPrepaid = params.isPrepaid === true || Boolean(params.paymentId?.trim());
 
     const order = await this.dataSource.transaction(async (manager) => {
@@ -1030,6 +1065,7 @@ export class OrdersService {
           item.quantity,
           oosTransitions,
           item.productName,
+          stockAffectedProductIds,
         );
       }
 
@@ -1086,6 +1122,7 @@ export class OrdersService {
     });
 
     this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
 
     if (shouldNotify) {
       await this.notifyOrderPlacedSafely(order, 'bob-place-order');
@@ -1859,6 +1896,7 @@ export class OrdersService {
     }>;
   }) {
     const oosTransitions: VariantOosTransition[] = [];
+    const stockAffectedProductIds = new Set<string>();
     const order = await this.dataSource.transaction(async (manager) => {
       const addressRepository = manager.getRepository(UserAddressEntity);
       const address = await addressRepository.findOne({
@@ -1927,6 +1965,7 @@ export class OrdersService {
           item.quantity,
           oosTransitions,
           variant.product?.name,
+          stockAffectedProductIds,
         );
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
@@ -1975,6 +2014,7 @@ export class OrdersService {
     });
 
     this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
     await this.notifyOrderPlacedSafely(order, 'subscription-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'subscription-order');
 
@@ -2014,6 +2054,7 @@ export class OrdersService {
     }>;
   }) {
     const oosTransitions: VariantOosTransition[] = [];
+    const stockAffectedProductIds = new Set<string>();
     const order = await this.dataSource.transaction(async (manager) => {
       await this.checkoutService.assertProductPricesCurrent(
         params.customerId,
@@ -2118,6 +2159,7 @@ export class OrdersService {
           item.quantity,
           oosTransitions,
           variant.product?.name,
+          stockAffectedProductIds,
         );
         const orderItemRefId = await generateUniqueRefId('order-item', (candidate) =>
           this.orderItemsRepository.existsByRefId(candidate),
@@ -2172,6 +2214,7 @@ export class OrdersService {
     });
 
     this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
     await this.notifyOrderPlacedSafely(order, 'payment-request-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
     await this.activateSubscriptionsForConfirmedOrder(

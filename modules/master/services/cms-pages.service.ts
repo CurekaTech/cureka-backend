@@ -22,6 +22,7 @@ import {
   ICmsPage,
   IPublicCmsPage,
   IPublicCmsPagesByKey,
+  IPublicCmsPolicyLink,
   PUBLIC_CMS_PAGE_KEYS,
   PublicCmsPageKey,
 } from '../interfaces/cms-page.interface';
@@ -98,6 +99,34 @@ export class CmsPagesService {
       result[key] = entity ? mapCmsPageToPublicResponse(entity) : null;
     }
     return result;
+  }
+
+  /**
+   * Active predefined CMS pages as slim footer links (title + slug only).
+   * Inactive / missing keys are omitted.
+   */
+  async findActivePolicyLinks(): Promise<IPublicCmsPolicyLink[]> {
+    const predefinedKeys = PREDEFINED_CMS_PAGES.map((page) => page.predefinedKey);
+    const entities = await this.cmsPagesRepository.findActiveByPredefinedKeys([...predefinedKeys]);
+    const byPredefinedKey = new Map(
+      entities
+        .filter((entity): entity is CmsPageEntity & { predefinedKey: string } =>
+          Boolean(entity.predefinedKey),
+        )
+        .map((entity) => [entity.predefinedKey, entity]),
+    );
+
+    const links: IPublicCmsPolicyLink[] = [];
+    for (const key of PUBLIC_CMS_PAGE_KEYS) {
+      const entity = byPredefinedKey.get(key);
+      if (!entity) continue;
+      links.push({
+        key,
+        title: entity.title,
+        slug: entity.slug,
+      });
+    }
+    return links;
   }
 
   async create(dto: CreateCmsPageDto, createdBy: string): Promise<ICmsPage> {

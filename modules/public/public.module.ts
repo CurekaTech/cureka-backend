@@ -5,6 +5,7 @@ import { ProductModule } from '@modules/product/product.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { HomepageController } from './controllers/homepage.controller';
+import { FooterController } from './controllers/footer.controller';
 import { PublicCommonController } from './controllers/public-common.controller';
 import { PublicExpertTalkController } from './controllers/public-expert-talk.controller';
 import { PublicWatchAndShopController } from './controllers/public-watch-and-shop.controller';
@@ -23,6 +24,7 @@ import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.l
   imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule],
   controllers: [
     HomepageController,
+    FooterController,
     PublicCommonController,
     PublicExpertTalkController,
     PublicWatchAndShopController,
@@ -39,5 +41,6 @@ import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.l
     PublicBundlesService,
     PublicHomepageCacheListener,
   ],
+  exports: [HomepageService],
 })
 export class PublicModule {}

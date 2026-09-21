@@ -94,18 +94,18 @@ describe('variant-stock-availability.util (flag-only)', () => {
     });
   });
 
-  it('order decrement to zero does not flip flag', () => {
+  it('order decrement to zero does not flip flag and does not change stock', () => {
     expect(resolveAvailabilityFromDelta({ stock: 2, outOfStock: false }, -2, flagOnly)).toEqual({
-      stock: 0,
+      stock: 2,
       outOfStock: false,
       becameOos: false,
       becameIns: false,
     });
   });
 
-  it('restock does not clear OOS flag', () => {
+  it('restock does not change stock or clear OOS flag', () => {
     expect(resolveAvailabilityFromDelta({ stock: 0, outOfStock: true }, 4, flagOnly)).toEqual({
-      stock: 4,
+      stock: 0,
       outOfStock: true,
       becameOos: false,
       becameIns: false,

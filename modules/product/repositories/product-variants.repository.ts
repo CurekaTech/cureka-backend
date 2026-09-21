@@ -16,7 +16,7 @@ import {
 } from '../utils/variant-combination-key.util';
 import { buildVariantSlugCandidates } from '../utils/variant-slug.util';
 import { assertProductUrlSlugLength } from '../utils/product-slug.util';
-import { APP_CONSTANTS } from '@packages/common';
+import { APP_CONSTANTS, isCurekaInventoryManaged } from '@packages/common';
 import {
   computeDiscountPercentage,
   validateVariantAttributes,
@@ -887,6 +887,10 @@ export class ProductVariantsRepository {
     });
     if (!variant) {
       throw new BadRequestException(`Variant ${variantId} not found while adjusting stock`);
+    }
+
+    if (!isCurekaInventoryManaged(variant)) {
+      return null;
     }
 
     const next = resolveAvailabilityFromDelta(

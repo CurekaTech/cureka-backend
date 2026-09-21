@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import { IncomingMessage } from 'http';
 import { Http2ServerRequest } from 'http2';
+import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
@@ -56,6 +57,14 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().getInstance().addHook('onRequest', (request, reply, done) => {
     void reply.header(REQUEST_ID_HEADER, String(request.id));
     done();
+  });
+
+  // Gzip/deflate JSON responses (homepage sections ~62KB → much smaller on the wire).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (app as any).register(fastifyCompress, {
+    global: true,
+    encodings: ['gzip', 'deflate'],
+    threshold: 1024,
   });
 
   // @fastify/cors uses fastify-plugin internally, which breaks Fastify's
