@@ -18,6 +18,18 @@ export function tryParseEmbeddedStorageReference(
   }
 }
 
+const extractKeyAfterMarker = (value: string, marker: string): string | null => {
+  const idx = value.indexOf(marker);
+  if (idx < 0) return null;
+  const raw = value.slice(idx + marker.length).split('?')[0]!.replace(/^\/+/, '');
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+};
+
 /** Normalize any stored value to a bucket-relative object key, e.g. `images/uuid.webp`. */
 export const normalizeStorageKey = (stored: string | null | undefined): string | null => {
   if (!stored?.trim()) return null;
@@ -33,6 +45,11 @@ export const normalizeStorageKey = (stored: string | null | undefined): string |
     const gcsMatch = value.match(GCS_OBJECT_PATH_PATTERN);
     if (gcsMatch?.[1]) return gcsMatch[1].split('?')[0]!;
 
+    // Admin/GET often round-trips stable public media URLs:
+    // https://host/api/v1/public/media/images/<uuid>.jpg → images/<uuid>.jpg
+    const publicMediaKey = extractKeyAfterMarker(value, '/public/media/');
+    if (publicMediaKey) return publicMediaKey;
+
     const filesIndex = value.indexOf('/files/');
     if (filesIndex >= 0) return value.slice(filesIndex + '/files/'.length).split('?')[0]!;
 
@@ -41,6 +58,9 @@ export const normalizeStorageKey = (stored: string | null | undefined): string |
 
     return null;
   }
+
+  const publicMediaRelative = extractKeyAfterMarker(value, '/public/media/');
+  if (publicMediaRelative) return publicMediaRelative;
 
   if (value.startsWith('/files/')) return value.slice('/files/'.length);
   if (value.startsWith('/uploads/')) return value.slice('/uploads/'.length);

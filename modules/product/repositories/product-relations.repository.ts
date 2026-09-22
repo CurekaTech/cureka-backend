@@ -404,18 +404,21 @@ export class ProductRelationsRepository {
     if (raw == null || raw === '') return null;
 
     if (typeof raw === 'object') {
-      const key =
+      const candidate =
         typeof raw.key === 'string' && raw.key.trim()
           ? raw.key.trim()
           : typeof (raw as { url?: unknown }).url === 'string'
             ? String((raw as { url: string }).url).trim()
             : '';
-      if (!key) return null;
-      // Pass key-only string when name is absent — StorageService fills bucket name.
-      if (typeof raw.name === 'string' && raw.name.trim()) {
-        return this.storageService.persistFileReference({ key, name: raw.name.trim() });
+      if (!candidate) return null;
+      // Prefer explicit key; otherwise reduce public/signed URLs via StorageService.
+      if (typeof raw.key === 'string' && raw.key.trim() && typeof raw.name === 'string' && raw.name.trim()) {
+        return this.storageService.persistFileReference({
+          key: raw.key.trim(),
+          name: raw.name.trim(),
+        });
       }
-      return this.storageService.persistFileReference(key);
+      return this.storageService.persistFileReference(candidate);
     }
 
     if (typeof raw === 'string') {
