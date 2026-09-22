@@ -11,18 +11,34 @@ export interface ProductUploadedFiles {
 }
 
 type ImageMeta = {
-  url?: string | IStorageFileReference;
+  url?: string | IStorageFileReference | { key?: string | null; name?: string; url?: string };
   isPrimary?: boolean;
   sortOrder?: number;
 };
 
 const normalizeImageUrl = (
-  url: string | IStorageFileReference | undefined,
+  url: string | IStorageFileReference | { key?: string | null; name?: string; url?: string } | null | undefined,
 ): string | undefined => {
-  if (!url) return undefined;
-  if (typeof url === 'string' && url.trim()) return url;
-  if (isStorageFileReference(url)) return url.key;
-  return undefined;
+  if (url == null || url === '') return undefined;
+  if (typeof url === 'string') {
+    const trimmed = url.trim();
+    return trimmed || undefined;
+  }
+  if (typeof url !== 'object') return undefined;
+
+  if (isStorageFileReference(url)) {
+    const key = url.key?.trim();
+    return key || undefined;
+  }
+
+  // Enriched / partial admin shapes: { key }, { key, name, url }, { url: "images/…" }
+  const key =
+    typeof url.key === 'string' && url.key.trim()
+      ? url.key.trim()
+      : typeof url.url === 'string' && url.url.trim()
+        ? url.url.trim()
+        : '';
+  return key || undefined;
 };
 
 const hasStoredImageUrl = (url: string | IStorageFileReference | undefined): boolean =>
@@ -207,12 +223,16 @@ export const mergeUploadedProductMedia = (
 /** Merge product-level media and variant images into rows for product_media. */
 export const collectProductMedia = (dto: CreateProductDto): CreateProductMediaDto[] => {
   const fromMedia = (dto.media ?? [])
-    .filter((item) => item.url && !isLegacyManualProductKey(item.url))
-    .map((item) =>
-      item.type === ProductMediaType.COMMON
-        ? { ...item, variantSku: undefined }
-        : item,
-    );
+    .map((item) => {
+      const url = normalizeImageUrl(item.url as string | IStorageFileReference | undefined);
+      if (!url || isLegacyManualProductKey(url)) return null;
+      return {
+        ...item,
+        url,
+        ...(item.type === ProductMediaType.COMMON ? { variantSku: undefined } : {}),
+      } as CreateProductMediaDto;
+    })
+    .filter((item): item is CreateProductMediaDto => item != null);
   const fromVariants = (dto.variants ?? []).flatMap(variantImagesToMedia);
 
   return normalizePrimaryFlags([...fromMedia, ...fromVariants]);

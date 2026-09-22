@@ -1058,6 +1058,20 @@ export class ProductsService {
           categoryRefId: existing.category?.refId ?? '',
           brandRefId: existing.brand?.refId ?? '',
         } as CreateProductDto);
+        const payloadMediaCount =
+          (dto.media?.length ?? 0) +
+          (dto.variants?.reduce(
+            (count, variant) =>
+              count + (variant.images?.length ?? 0) + (variant.imageUrls?.length ?? 0),
+            0,
+          ) ?? 0);
+        // Avoid wiping product_media when the client sent image slots that we could not resolve.
+        if (payloadMediaCount > 0 && media.length === 0) {
+          throw new BadRequestException(
+            'No valid product media URLs found. Each media/image entry needs a storage key ' +
+              '(e.g. images/….webp) or { key, name }. Signed-only URLs without a key are rejected.',
+          );
+        }
         const variants = await manager.getRepository(ProductVariantEntity).find({
           where: { productId: existing.id },
           select: ['id', 'sku'],
