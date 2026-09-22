@@ -850,6 +850,11 @@ export class ProductVariantsRepository {
     });
     if (!variant) return null;
 
+    // Absolute stock sync (incl. auto-OOS) only for Cureka-managed variants.
+    if (!isCurekaInventoryManaged(variant)) {
+      return null;
+    }
+
     const next = resolveAvailabilityFromStock(
       stock,
       variant.outOfStock,

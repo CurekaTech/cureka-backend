@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  getSalableStockQuantity,
   isVariantInStock,
   PaginatedResult,
 } from '@packages/common';
@@ -885,10 +884,9 @@ export class PublicProductsService {
   private async enrichVariantSearchItem(
     item: IPublicProductVariantSearchItem,
   ): Promise<IPublicProductVariantSearchItem> {
+    // stock / inStock already resolved in the mapper with per-variant Cureka rules.
     return {
       ...item,
-      stock: getSalableStockQuantity(item.stock),
-      inStock: !item.outOfStock && isVariantInStock(item.stock),
       primaryImageUrl: await this.storageUrlEnricher.toReference(item.primaryImageUrl),
     };
   }
@@ -905,8 +903,10 @@ export class PublicProductsService {
       result.data.map(async (card) => {
         const pricing = {
           ...card.pricing,
-          // Keep stock-bypass behavior, but never force in-stock when the list variant is OOS.
-          inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0)),
+          // Bypass only for non-Cureka (flag-only) variants; never force INS when admin OOS.
+          inStock:
+            !card.outOfStock &&
+            (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
         };
 
         if (!card.primaryImageUrl) {
@@ -942,7 +942,7 @@ export class PublicProductsService {
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
       pricing: {
         ...card.pricing,
-        inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0)),
+        inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
       },
     };
   }

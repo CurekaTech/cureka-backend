@@ -103,6 +103,30 @@ describe('variant-stock-availability.util (flag-only)', () => {
     });
   });
 
+  it('non-Cureka stock=1 order qty=1 leaves stock and OOS untouched', () => {
+    expect(resolveAvailabilityFromDelta({ stock: 1, outOfStock: false }, -1, flagOnly)).toEqual({
+      stock: 1,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
+  it('options omitted defaults to flag-only (no stock delta, no auto-OOS)', () => {
+    expect(resolveAvailabilityFromDelta({ stock: 1, outOfStock: false }, -1)).toEqual({
+      stock: 1,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+    expect(resolveAvailabilityFromStock(0, false)).toEqual({
+      stock: 0,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
   it('restock does not change stock or clear OOS flag', () => {
     expect(resolveAvailabilityFromDelta({ stock: 0, outOfStock: true }, 4, flagOnly)).toEqual({
       stock: 0,
