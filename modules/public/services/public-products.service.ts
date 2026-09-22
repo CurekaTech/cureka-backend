@@ -470,6 +470,10 @@ export class PublicProductsService {
           const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
+            // Fully OOS products are hidden from the storefront.
+            if (!detail.variants.length) {
+              continue;
+            }
             const requestSlug = sanitizedSlug || slugKey;
             const matchedVariant =
               detail.variants.find((variant) =>
@@ -500,6 +504,9 @@ export class PublicProductsService {
             await this.productsRepository.findPublishedByVariantSlug(slugKey);
           if (byVariantSlug) {
             const detail = mapProductEntityToPublicDetail(byVariantSlug);
+            if (!detail.variants.length) {
+              continue;
+            }
             const matchedVariant = detail.variants.find(
               (variant) =>
                 slugKeys.includes(variant.slug) ||
@@ -531,6 +538,9 @@ export class PublicProductsService {
           }
 
           const detail = mapProductEntityToPublicDetail(byPageUrl.product);
+          if (!detail.variants.length) {
+            continue;
+          }
           const requestSlug = sanitizedSlug || key;
           const matchedVariant =
             pickVariantForRequestSlug(

@@ -53,7 +53,10 @@ const sanitizePublicProductPageUrl = (
 };
 
 const getActiveVariants = (entity: ProductEntity) =>
-  (entity.variants ?? []).filter((variant) => variant.status === VariantStatus.ACTIVE);
+  (entity.variants ?? []).filter(
+    (variant) =>
+      variant.status === VariantStatus.ACTIVE && !(variant.outOfStock ?? false),
+  );
 
 type CommerceFlagSource = {
   subscriptionEnabled?: boolean | null;
