@@ -78,10 +78,11 @@ Upload original (existing UUID key)
       hash + inspect (magic bytes, EXIF rotate, no upscale, no SVG raster, no animated flatten)
       write derivatives/v1/{sha256}/w{actualWidth}.webp
       CAS publish WHERE process_token = job token
-  → public GET enricher batches image_assets + signs original and ready variant keys
+  → public GET enricher batches image_assets + returns stable `/api/v1/public/media/{key}` URLs
+    (signed GCS URLs only for private folders: avatars, return-evidence, vendor-documents, support-attachments)
 ```
 
-Public GET handlers **never** encode images and **never** fetch arbitrary URLs.
+`GET /api/v1/public/media/{key}` streams bytes from the private bucket using the service account. The bucket is never world-readable. Public GET handlers **never** encode images and **never** fetch arbitrary URLs.
 
 ### Data model
 
@@ -126,11 +127,13 @@ A 120 CSS-pixel card at DPR 2 needs ~240 px. A 388 CSS-pixel hero at DPR 2 needs
 | `IMAGE_WORKER_ENABLED` | `false` | Register BullMQ processor (API cluster must stay false) |
 | `IMAGE_WORKER_CONCURRENCY` | `1` | Per **process**. PM2 fork=1 → global 1. Never enable on API `instances: 2`. |
 | `IMAGE_PIPELINE_VERSION` | `v1` | Derivative key namespace |
-| `IMAGE_WEBP_QUALITY` | `80` | Conservative WebP quality |
+| `IMAGE_WEBP_QUALITY` | `80` | Conservative WebP quality. Do not drop below 80. |
 | `IMAGE_MAX_INPUT_BYTES` | 15 MiB | Worker download cap |
 | `IMAGE_MAX_DECODED_PIXELS` | 40e6 | sharp `limitInputPixels` |
 | `IMAGE_PROCESS_TIMEOUT_MS` | 30000 | Encode timeout |
-| `GCS_SIGNED_URL_TTL_SECONDS` | Joi 3600 / storage config fallback 86400 | See signed-URL budget |
+| `PUBLIC_MEDIA_STABLE_URLS` | `true` | Merchandising `{url}` is `/api/v1/public/media/{key}` instead of a rotating GCS signature |
+| `PUBLIC_MEDIA_BASE_URL` | `STOREFRONT_URL` | Origin used to build those URLs |
+| `GCS_SIGNED_URL_TTL_SECONDS` | Joi 3600 / storage config fallback 86400 | Private-folder signed-URL budget |
 
 AVIF is **not** enabled (encode cost + compatibility not validated).
 
@@ -144,7 +147,7 @@ Observed:
 - In-process signing cache refreshes 5 minutes before expiry
 - Long-lived tabs and failed revalidation need remaining URL life
 
-**Budget:** keep `GCS_SIGNED_URL_TTL_SECONDS` ≥ 86400 (24h) in production so a page held for hours plus clock skew still loads. Cache metadata, not signatures. Frontend must re-fetch API JSON when a signed URL 403/404s (see frontend doc). Do not cache private responses on a public CDN; derivatives use `private, max-age=31536000, immutable` object metadata **and** remain signed. Private source images do not become anonymous.
+**Budget:** keep `GCS_SIGNED_URL_TTL_SECONDS` ≥ 86400 (24h) for **private** folders. Merchandising images use stable `/api/v1/public/media/{key}` URLs (`PUBLIC_MEDIA_STABLE_URLS=true`) so homepage ISR and `/_next/image` are not fragmented by `X-Goog-Signature` rotation. Do **not** cache signed payloads in Redis. Do **not** make the GCS bucket public. Proxy responses set `Cache-Control: public` (1 day for masters, 1 year immutable for derivatives). GCS master uploads stay `private, max-age=0`.
 
 ## 3. Backfill / retry commands
 
@@ -155,6 +158,7 @@ Dry-run is the default. **Do not run a production backfill as part of this imple
 npm run image:backfill
 IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --entity-types=banners --sample-limit=5 --batch-size=5
 IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --priority=homepage --batch-size=25 --rate-limit-ms=200
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --keys=banners/068fa179-05ff-4848-a3a8-6988d3fbd4fe.png
 IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --resume
 IMAGE_PROCESSING_ENABLED=true npm run image:retry -- --apply --limit=50
 ```
@@ -170,7 +174,7 @@ Originals are never deleted. Product business columns are not updated.
 Commands:
 
 ```bash
-npx jest modules/image-pipeline packages/storage/src/upload-size.util.spec.ts modules/uploads/services/storage-url.enricher.spec.ts --runInBand
+npx jest modules/image-pipeline packages/storage/src/upload-size.util.spec.ts packages/storage/src/public-media.util.spec.ts packages/storage/src/storage.service.spec.ts modules/uploads/services/storage-url.enricher.spec.ts modules/uploads/services/public-media.service.spec.ts --runInBand
 npx tsc -p apps/api/tsconfig.app.json --noEmit
 ```
 

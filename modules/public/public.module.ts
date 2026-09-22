@@ -11,6 +11,7 @@ import { PublicExpertTalkController } from './controllers/public-expert-talk.con
 import { PublicWatchAndShopController } from './controllers/public-watch-and-shop.controller';
 import { PublicProductsController } from './controllers/public-products.controller';
 import { PublicBundlesController } from './controllers/public-bundles.controller';
+import { PublicMediaController } from './controllers/public-media.controller';
 import { HomepageService } from './services/homepage.service';
 import { HomepageSectionsService } from './services/homepage-sections.service';
 import { PublicCommonService } from './services/public-common.service';
@@ -30,6 +31,7 @@ import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.l
     PublicWatchAndShopController,
     PublicProductsController,
     PublicBundlesController,
+    PublicMediaController,
   ],
   providers: [
     HomepageService,

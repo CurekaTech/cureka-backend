@@ -54,5 +54,15 @@ export const storageConfig = registerAs('storage', () => {
       credentialsPath: resolveGcsCredentialsPath(process.env['GCS_CREDENTIALS_PATH']),
       signedUrlTtlSeconds: parseInt(process.env['GCS_SIGNED_URL_TTL_SECONDS'] ?? '86400', 10),
     },
+    publicMedia: {
+      // Merchandising objects get stable /api/v1/public/media/{key} URLs so
+      // Next.js / CDN caches are not fragmented by rotating GCS signatures.
+      stableUrls: (process.env['PUBLIC_MEDIA_STABLE_URLS'] ?? 'true').toLowerCase() === 'true',
+      baseUrl: (
+        process.env['PUBLIC_MEDIA_BASE_URL'] ||
+        process.env['STOREFRONT_URL'] ||
+        ''
+      ).replace(/\/+$/, ''),
+    },
   };
 });

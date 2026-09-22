@@ -52,12 +52,19 @@ Worker does **not** bind HTTP. It still needs `DATABASE_URL`, Redis, `JWT_SECRET
 Unverified until DevOps applies them:
 
 1. Worker service account: `storage.objects.get` / `create` / `delete`? **get + create** on the existing private bucket. Do **not** make the bucket public.
-2. Derivatives must remain private; clients use v4 signed URLs like originals.
-3. Object metadata for derivatives: `contentType=image/webp`, `cacheControl=private, max-age=31536000, immutable`.
-4. No lifecycle delete of `derivatives/` in this change.
-5. Billing: extra object count + egress; monitor GCS class A/B ops.
+2. Derivatives remain in the private bucket; clients use stable `/api/v1/public/media/{key}` for merchandising (signed URLs only for private folders). **Do not make the bucket public.**
+3. Object metadata for new derivatives: `contentType=image/webp`, `cacheControl=public, max-age=31536000, immutable`. The media proxy also sets this on the HTTP response.
+4. Masters keep GCS `Cache-Control: private, max-age=0`. The proxy/CDN sets `public, max-age=86400` when streaming them.
+5. No lifecycle delete of `derivatives/` in this change.
+6. Billing: extra object count + egress; monitor GCS class A/B ops.
 
-CDN in front of GCS is **optional and not implemented**. If added later, cache keys must include the full signed query (or a proven auth-aware design). Do not strip signatures to raise hit rate.
+CDN in front of GCS is **not** required. Cache the **proxy** paths instead:
+
+- `GET /api/v1/public/media/*` (API origin and/or storefront proxy)
+- After storefront ships `/media/*`, cache that as public static too
+- `/_next/image*` should cache on `url + w + q + Accept` (today `cf-cache-status: DYNAMIC` despite Next `max-age=2592000`)
+
+Do **not** solve cache misses by making `cureka-files-prod` world-readable.
 
 ## Redis
 
@@ -69,17 +76,30 @@ Same Redis as other BullMQ queues. Consider:
 
 ## Env rollout
 
-Production-safe defaults (current behavior):
+Homepage LCP on production **requires** (API + worker, not only docs):
 
 ```
-IMAGE_DELIVERY_ENABLED=false
-IMAGE_PROCESSING_ENABLED=false
-IMAGE_WORKER_ENABLED=false
+IMAGE_DELIVERY_ENABLED=true
+IMAGE_PROCESSING_ENABLED=true
+IMAGE_WORKER_ENABLED=true   # worker process only; API cluster stays false
+PUBLIC_MEDIA_STABLE_URLS=true
+STOREFRONT_URL=https://www.cureka.com
 ```
 
-Staging enable order: migration → worker process → `IMAGE_PROCESSING_ENABLED=true` → sample backfill → `IMAGE_DELIVERY_ENABLED=true` → frontend.
+If delivery is on but processing/worker are off, every homepage `imageDelivery` stays `pending` with empty `variants`.
 
-Signed URL TTL: prefer `GCS_SIGNED_URL_TTL_SECONDS=86400` (Joi default is 3600; storage.config fallback is 86400 — **align these**). Must exceed API cache + ISR stale + tab lifetime + skew.
+Staging enable order: migration → worker process → `IMAGE_PROCESSING_ENABLED=true` → sample backfill (`--keys=` for the live hero, then `--priority=homepage`) → `IMAGE_DELIVERY_ENABLED=true` → frontend.
+
+Catch-up (does not overwrite masters):
+
+```bash
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --keys=banners/068fa179-05ff-4848-a3a8-6988d3fbd4fe.png
+IMAGE_PROCESSING_ENABLED=true npm run image:backfill -- --apply --priority=homepage --batch-size=25 --rate-limit-ms=200
+```
+
+Verify `GET /api/v1/public/homepage/sections`: hero `imageDelivery.status` is `ready` or `partial`, `variants` includes width **800** WebP, `url` is `/api/v1/public/media/...` (identical across two anonymous requests 10s apart).
+
+Signed URL TTL: prefer `GCS_SIGNED_URL_TTL_SECONDS=86400` for remaining private-folder signatures (Joi default is 3600; storage.config fallback is 86400 — **align these**).
 
 ## Monitoring
 
@@ -103,9 +123,11 @@ Add (externally): queue depth `image-pipeline`, worker RSS/CPU, GCS 403 rate, fa
 ## Rollback
 
 1. `IMAGE_DELIVERY_ENABLED=false` (or stop serving new fields)
-2. `pm2 stop cureka-image-worker`
-3. `IMAGE_PROCESSING_ENABLED=false`
-4. Keep originals; do not revert the additive migration to roll back code
+2. `PUBLIC_MEDIA_STABLE_URLS=false` if the media proxy must be disabled (returns rotating signed URLs again)
+3. `pm2 stop cureka-image-worker`
+4. `IMAGE_PROCESSING_ENABLED=false`
+5. Keep originals; do not revert the additive migration to roll back code
+6. Do **not** make the GCS bucket public as a rollback
 
 ## Blockers / unverified
 

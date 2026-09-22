@@ -8,7 +8,6 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { GoogleMerchantFeedController } from './controllers/google-merchant-feed.controller';
 import { GoogleMerchantFeedService } from './services/google-merchant-feed.service';
 import { GoogleMerchantIdLookupService } from './services/google-merchant-id-lookup.service';
-import { PublicMediaService } from './services/public-media.service';
 
 @Module({
   imports: [
@@ -17,7 +16,7 @@ import { PublicMediaService } from './services/public-media.service';
     TypeOrmModule.forFeature([ProductVariantEntity, CategoryEntity, ProductMediaEntity]),
   ],
   controllers: [GoogleMerchantFeedController],
-  providers: [GoogleMerchantFeedService, GoogleMerchantIdLookupService, PublicMediaService],
+  providers: [GoogleMerchantFeedService, GoogleMerchantIdLookupService],
   exports: [GoogleMerchantFeedService, GoogleMerchantIdLookupService],
 })
 export class GoogleMerchantModule {}
