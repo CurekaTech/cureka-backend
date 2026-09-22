@@ -80,6 +80,8 @@ export const envValidationSchema = Joi.object({
     otherwise: Joi.allow('').optional(),
   }),
   GCS_SIGNED_URL_TTL_SECONDS: Joi.number().integer().min(60).max(604800).default(3600),
+  PUBLIC_MEDIA_STABLE_URLS: Joi.string().valid('true', 'false').default('true'),
+  PUBLIC_MEDIA_BASE_URL: Joi.string().uri().allow('').optional(),
   IMAGE_DELIVERY_ENABLED: Joi.string().valid('true', 'false').default('false'),
   IMAGE_PROCESSING_ENABLED: Joi.string().valid('true', 'false').default('false'),
   IMAGE_WORKER_ENABLED: Joi.string().valid('true', 'false').default('false'),
