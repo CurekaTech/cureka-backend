@@ -85,7 +85,7 @@ export const envValidationSchema = Joi.object({
   IMAGE_DELIVERY_ENABLED: Joi.string().valid('true', 'false').default('false'),
   IMAGE_PROCESSING_ENABLED: Joi.string().valid('true', 'false').default('false'),
   IMAGE_WORKER_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  IMAGE_WORKER_CONCURRENCY: Joi.number().integer().min(1).max(4).default(1),
+  IMAGE_WORKER_CONCURRENCY: Joi.number().integer().min(1).max(8).default(1),
   IMAGE_PIPELINE_VERSION: Joi.string().max(32).default('v1'),
   IMAGE_DERIVATIVE_PREFIX: Joi.string().max(64).default('derivatives'),
   IMAGE_ALLOWED_WIDTHS: Joi.string().allow('').optional(),

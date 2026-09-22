@@ -13,7 +13,7 @@ import { sanitizeErrorMessage } from '../utils/redact-storage-url.util';
 
 const workerConcurrency = Math.min(
   Math.max(parseInt(process.env['IMAGE_WORKER_CONCURRENCY'] ?? '1', 10) || 1, 1),
-  4,
+  8,
 );
 
 @Injectable()

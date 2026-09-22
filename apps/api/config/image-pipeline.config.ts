@@ -28,7 +28,7 @@ export const imagePipelineConfig = registerAs('imagePipeline', () => {
     deliveryEnabled: parseBoolean(process.env['IMAGE_DELIVERY_ENABLED'], false),
     processingEnabled: parseBoolean(process.env['IMAGE_PROCESSING_ENABLED'], false),
     workerEnabled: parseBoolean(process.env['IMAGE_WORKER_ENABLED'], false),
-    workerConcurrency: Math.min(parsePositiveInt(process.env['IMAGE_WORKER_CONCURRENCY'], 1), 4),
+    workerConcurrency: Math.min(parsePositiveInt(process.env['IMAGE_WORKER_CONCURRENCY'], 1), 8),
     pipelineVersion: (process.env['IMAGE_PIPELINE_VERSION'] ?? 'v1').trim() || 'v1',
     derivativePrefix: (process.env['IMAGE_DERIVATIVE_PREFIX'] ?? 'derivatives').replace(/^\/+|\/+$/g, ''),
     allowedWidths: parseWidths(process.env['IMAGE_ALLOWED_WIDTHS']),
