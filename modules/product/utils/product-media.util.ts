@@ -1,7 +1,11 @@
 import { CreateProductDto } from '../dto/product.dto';
 import { CreateProductMediaDto, CreateVariantDto, VariantImageDto } from '../dto/variant.dto';
 import { ProductMediaType } from '../enums/product-media-type.enum';
-import { IStorageFileReference, isStorageFileReference } from '@packages/storage';
+import {
+  IStorageFileReference,
+  isStorageFileReference,
+  normalizeStorageKey,
+} from '@packages/storage';
 
 export interface ProductUploadedFiles {
   productImages: string[];
@@ -16,29 +20,28 @@ type ImageMeta = {
   sortOrder?: number;
 };
 
+/** Reduce upload keys, `{ key, name }`, or public/signed URLs to a storage key. */
 const normalizeImageUrl = (
   url: string | IStorageFileReference | { key?: string | null; name?: string; url?: string } | null | undefined,
 ): string | undefined => {
   if (url == null || url === '') return undefined;
   if (typeof url === 'string') {
-    const trimmed = url.trim();
-    return trimmed || undefined;
+    return normalizeStorageKey(url) ?? undefined;
   }
   if (typeof url !== 'object') return undefined;
 
   if (isStorageFileReference(url)) {
-    const key = url.key?.trim();
-    return key || undefined;
+    return normalizeStorageKey(url.key) ?? undefined;
   }
 
-  // Enriched / partial admin shapes: { key }, { key, name, url }, { url: "images/…" }
-  const key =
+  // Enriched / partial admin shapes: { key }, { key, name, url }, { url: public media URL }
+  const raw =
     typeof url.key === 'string' && url.key.trim()
       ? url.key.trim()
       : typeof url.url === 'string' && url.url.trim()
         ? url.url.trim()
         : '';
-  return key || undefined;
+  return raw ? normalizeStorageKey(raw) ?? undefined : undefined;
 };
 
 const hasStoredImageUrl = (url: string | IStorageFileReference | undefined): boolean =>
