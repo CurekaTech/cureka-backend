@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { isCurekaInventoryManaged } from '@packages/common/stock-validation.config';
+import {
+  coerceDbBoolean,
+  isCurekaInventoryManaged,
+} from '@packages/common/stock-validation.config';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantOosTransition } from '../repositories/product-variants.repository';
 import {
@@ -41,28 +44,32 @@ async function loadVariantForStockWrite(
   lock?: boolean,
 ): Promise<ProductVariantEntity | null> {
   const repo = manager.getRepository(ProductVariantEntity);
-  if (!lock) {
-    return repo.findOne({
-      where: { id: variantId },
-      select: [...VARIANT_STOCK_SELECT],
-    });
-  }
+  const variant = !lock
+    ? await repo.findOne({
+        where: { id: variantId },
+        select: [...VARIANT_STOCK_SELECT],
+      })
+    : await repo
+        .createQueryBuilder('v')
+        .setLock('pessimistic_write')
+        .where('v.id = :id', { id: variantId })
+        .select([
+          'v.id',
+          'v.productId',
+          'v.sku',
+          'v.stock',
+          'v.outOfStock',
+          'v.inCurekaInventory',
+          'v.displayName',
+        ])
+        .getOne();
 
-  // QueryBuilder lock is more reliable than findOne+lock with partial select.
-  return repo
-    .createQueryBuilder('v')
-    .setLock('pessimistic_write')
-    .where('v.id = :id', { id: variantId })
-    .select([
-      'v.id',
-      'v.productId',
-      'v.sku',
-      'v.stock',
-      'v.outOfStock',
-      'v.inCurekaInventory',
-      'v.displayName',
-    ])
-    .getOne();
+  if (!variant) return null;
+
+  // QueryBuilder/drivers can return string/int booleans — normalize before gates.
+  variant.inCurekaInventory = coerceDbBoolean(variant.inCurekaInventory);
+  variant.outOfStock = coerceDbBoolean(variant.outOfStock);
+  return variant;
 }
 
 /**

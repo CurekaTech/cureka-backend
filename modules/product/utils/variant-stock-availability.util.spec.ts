@@ -65,11 +65,20 @@ describe('variant-stock-availability.util (managed)', () => {
     });
   });
 
-  it('manual INS with zero stock stays OOS', () => {
+  it('manual INS with zero stock clears OOS (admin flag always wins)', () => {
     expect(resolveManualInStock({ stock: 0, outOfStock: true }, undefined, managed)).toEqual({
       stock: 0,
-      outOfStock: true,
+      outOfStock: false,
       becameOos: false,
+      becameIns: true,
+    });
+  });
+
+  it('order decrement stock=1 qty=1 becomes OOS', () => {
+    expect(resolveAvailabilityFromDelta({ stock: 1, outOfStock: false }, -1, managed)).toEqual({
+      stock: 0,
+      outOfStock: true,
+      becameOos: true,
       becameIns: false,
     });
   });
