@@ -138,18 +138,19 @@ export class OrdersService {
       throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
     }
 
-    // Stock ledger + auto-OOS only for Cureka-managed variants (env + inCurekaInventory).
-    // Flag-only: leave stock and outOfStock untouched — OOS is admin-only.
+    // Stock ledger + auto-OOS only when env ON and inCurekaInventory true.
+    // Flag-only / env-off: leave stock and outOfStock untouched — OOS is admin-only.
     if (!isCurekaInventoryManaged(variant)) {
-      this.logger.debug(
+      this.logger.log(
         {
           variantId: variant.id,
           sku: variant.sku,
           inCurekaInventory: variant.inCurekaInventory,
+          envEnabled: process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] ?? '(unset→default true)',
           stock: variant.stock,
           quantity,
         },
-        'Skipping stock decrement — variant is not Cureka-inventory managed',
+        'Skipping stock decrement — not Cureka-inventory managed (env off or inCurekaInventory false)',
       );
       return;
     }
@@ -160,6 +161,15 @@ export class OrdersService {
       requireVariant: true,
     });
     stockAffectedProductIds?.add(variant.productId);
+    this.logger.log(
+      {
+        variantId: variant.id,
+        sku: variant.sku,
+        quantity,
+        becameOos: Boolean(transition),
+      },
+      'Applied Cureka stock decrement on order confirm',
+    );
     if (transition) oosTransitions.push(transition);
   }
 

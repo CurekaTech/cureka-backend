@@ -34,4 +34,16 @@ describe('stock-validation.config (Cureka inventory)', () => {
     expect(isVariantInStock(0, { inCurekaInventory: true })).toBe(false);
     expect(isVariantInStock(3, { inCurekaInventory: true })).toBe(true);
   });
+
+  it('coerces QueryBuilder/driver string booleans for inCurekaInventory', () => {
+    process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = 'true';
+    expect(isCurekaInventoryManaged({ inCurekaInventory: 'true' as unknown as boolean })).toBe(
+      true,
+    );
+    expect(isCurekaInventoryManaged({ inCurekaInventory: 't' as unknown as boolean })).toBe(true);
+    expect(isCurekaInventoryManaged({ inCurekaInventory: 1 as unknown as boolean })).toBe(true);
+    expect(isCurekaInventoryManaged({ inCurekaInventory: 'false' as unknown as boolean })).toBe(
+      false,
+    );
+  });
 });

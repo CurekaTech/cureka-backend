@@ -315,3 +315,10 @@ npm run product:dedupe-media -- --ref-id=MEN2026665813 --drop-product-level
 
 # 3) Apply when reports look right
 npm run product:dedupe-media -- --drop-product-level --apply
+
+
+------------------
+
+// Google Sheet
+npm run google-merchant:export-sheet
+npm run google-merchant:export-sheet -- --env-label=techbv
