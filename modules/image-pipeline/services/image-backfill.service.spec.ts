@@ -130,4 +130,33 @@ describe('ImageBackfillService', () => {
     expect(stats.missingSource).toBe(1);
     expect(pipeline.scheduleSource).not.toHaveBeenCalled();
   });
+
+  it('should put homepage merchandising types first', () => {
+    expect(service.defaultEntityTypes(true).slice(0, 6)).toEqual([
+      ImageBackfillEntityType.BANNERS,
+      ImageBackfillEntityType.HOME_SECTIONS,
+      ImageBackfillEntityType.PRODUCTS,
+      ImageBackfillEntityType.BRANDS,
+      ImageBackfillEntityType.CATEGORIES,
+      ImageBackfillEntityType.HEALTH_CONCERNS,
+    ]);
+  });
+
+  it('should queue explicit object keys without a table scan', async () => {
+    storage.exists.mockResolvedValue(true);
+    assets.findBySource.mockResolvedValue(null);
+    pipeline.scheduleSource.mockResolvedValue('queued');
+
+    const stats = await service.enqueueKeys(
+      ['banners/068fa179-05ff-4848-a3a8-6988d3fbd4fe.png'],
+      true,
+    );
+
+    expect(dataSource.query).not.toHaveBeenCalled();
+    expect(pipeline.scheduleSource).toHaveBeenCalledWith({
+      key: 'banners/068fa179-05ff-4848-a3a8-6988d3fbd4fe.png',
+      bucket: 'bucket',
+    });
+    expect(stats.queued).toBe(1);
+  });
 });
