@@ -931,13 +931,27 @@ export class ProductsRepository {
         WHERE p.deleted_at IS NULL
           AND p.status = $2
           AND p.category_id = ANY($3::uuid[])
+          AND EXISTS (
+            SELECT 1
+            FROM product_variants pv_ins
+            WHERE pv_ins.product_id = p.id
+              AND pv_ins.deleted_at IS NULL
+              AND pv_ins.status = $5
+              AND pv_ins.out_of_stock = false
+          )
       )
       SELECT id, "categoryId"
       FROM ranked
       WHERE row_num <= $4
       ORDER BY "categoryId", row_num
       `,
-      [tagSlug, ProductStatus.PUBLISHED, uniqueCategoryIds, limitPerCategory],
+      [
+        tagSlug,
+        ProductStatus.PUBLISHED,
+        uniqueCategoryIds,
+        limitPerCategory,
+        VariantStatus.ACTIVE,
+      ],
     );
 
     if (!rows.length) {
@@ -2282,7 +2296,12 @@ export class ProductsRepository {
     }
 
     for (const product of products) {
-      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.variants = (variantsByProduct.get(product.id) ?? []).filter(
+        (variant) =>
+          !variant.deletedAt &&
+          variant.status === VariantStatus.ACTIVE &&
+          !(variant.outOfStock ?? false),
+      );
       product.media = mediaByProduct.get(product.id) ?? [];
       product.tagMappings = tagsByProduct.get(product.id) ?? [];
     }
@@ -2453,6 +2472,7 @@ export class ProductsRepository {
       .innerJoin('product.category', 'category')
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('variant.outOfStock = false')
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
@@ -2514,7 +2534,10 @@ export class ProductsRepository {
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
-        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+        (variant) =>
+          !variant.deletedAt &&
+          variant.status === VariantStatus.ACTIVE &&
+          !(variant.outOfStock ?? false),
       );
     }
 

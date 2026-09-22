@@ -124,9 +124,7 @@ export class PublicSearchService {
   private async loadPopularFromTypesense(perPage: number): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
-    const filterBy = config.hasEntityType
-      ? config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT]
-      : undefined;
+    const filterBy = config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT];
 
     try {
       const result = await this.typesenseClient
