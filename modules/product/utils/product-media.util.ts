@@ -20,8 +20,18 @@ const normalizeImageUrl = (
   url: string | IStorageFileReference | undefined,
 ): string | undefined => {
   if (!url) return undefined;
-  if (typeof url === 'string' && url.trim()) return url;
+  if (typeof url === 'string' && url.trim()) return url.trim();
   if (isStorageFileReference(url)) return url.key;
+  // Enriched API shape: { key, name, url } — prefer key for persistence
+  if (
+    typeof url === 'object' &&
+    url !== null &&
+    'key' in url &&
+    typeof (url as { key?: unknown }).key === 'string'
+  ) {
+    const key = (url as { key: string }).key.trim();
+    return key || undefined;
+  }
   return undefined;
 };
 
@@ -207,12 +217,16 @@ export const mergeUploadedProductMedia = (
 /** Merge product-level media and variant images into rows for product_media. */
 export const collectProductMedia = (dto: CreateProductDto): CreateProductMediaDto[] => {
   const fromMedia = (dto.media ?? [])
-    .filter((item) => item.url && !isLegacyManualProductKey(item.url))
-    .map((item) =>
-      item.type === ProductMediaType.COMMON
-        ? { ...item, variantSku: undefined }
-        : item,
-    );
+    .map((item) => {
+      const url = normalizeImageUrl(item.url as string | IStorageFileReference | undefined);
+      if (!url || isLegacyManualProductKey(url)) return null;
+      return {
+        ...item,
+        url,
+        ...(item.type === ProductMediaType.COMMON ? { variantSku: undefined } : {}),
+      } as CreateProductMediaDto;
+    })
+    .filter((item): item is CreateProductMediaDto => item != null);
   const fromVariants = (dto.variants ?? []).flatMap(variantImagesToMedia);
 
   return normalizePrimaryFlags([...fromMedia, ...fromVariants]);

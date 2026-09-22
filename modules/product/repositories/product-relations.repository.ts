@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
@@ -21,7 +21,7 @@ import { IVariantInlineFaq } from '../interfaces/variant-details.interface';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
-import { StorageService } from '@packages/storage';
+import { IStorageFileReference, StorageService } from '@packages/storage';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { assertFaqLengths } from '@modules/master/utils/master-faq.util';
 import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
@@ -355,23 +355,51 @@ export class ProductRelationsRepository {
   ): Promise<void> {
     if (!media.length) return;
     const repo = manager.getRepository(ProductMediaEntity);
-    await repo.save(
-      media.map((item) =>
-        repo.create({
-          productId,
-          variantId:
-            item.type === ProductMediaType.COMMON
-              ? null
-              : item.variantSku
-                ? (skuToVariantId.get(item.variantSku) ?? null)
-                : null,
-          type: item.type,
-          url: this.storageService.persistFileReference(item.url!)!,
-          sortOrder: item.sortOrder ?? 0,
-          isPrimary: item.isPrimary ?? false,
-        }),
-      ),
-    );
+
+    const rows: Array<{
+      productId: string;
+      variantId: string | null;
+      type: ProductMediaType;
+      url: IStorageFileReference;
+      sortOrder: number;
+      isPrimary: boolean;
+    }> = [];
+    const invalidIndexes: number[] = [];
+
+    media.forEach((item, index) => {
+      // Admin often re-sends enriched `{ key, name, url }` objects; accept string or reference.
+      const persisted = this.storageService.persistFileReference(
+        item.url as string | IStorageFileReference | null | undefined,
+      );
+      if (!persisted) {
+        invalidIndexes.push(index);
+        return;
+      }
+      rows.push({
+        productId,
+        variantId:
+          item.type === ProductMediaType.COMMON
+            ? null
+            : item.variantSku
+              ? (skuToVariantId.get(item.variantSku) ?? null)
+              : null,
+        type: item.type,
+        url: persisted,
+        sortOrder: item.sortOrder ?? 0,
+        isPrimary: item.isPrimary ?? false,
+      });
+    });
+
+    if (invalidIndexes.length) {
+      throw new BadRequestException(
+        `product_media.url is required and must be a storage key or known file URL. ` +
+          `Invalid media entry index(es): ${invalidIndexes.join(', ')}. ` +
+          `Send storage path (e.g. images/….webp) or { key, name } — not an empty/signed-only URL.`,
+      );
+    }
+
+    if (!rows.length) return;
+    await repo.save(rows.map((row) => repo.create(row)));
   }
 
   async syncMedia(

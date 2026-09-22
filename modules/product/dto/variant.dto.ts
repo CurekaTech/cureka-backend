@@ -525,12 +525,12 @@ export class CreateProductMediaDto {
   @ApiPropertyOptional({
     example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
     description:
-      'Storage path from upload API or omit when sending image files via multipart "images" field',
+      'Storage path from upload API, or omit when sending image files via multipart "images" field. ' +
+      'Prefer `key` (or `{ key, name }`). Signed CDN URLs alone are not accepted for persistence.',
   })
   @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  url?: string;
+  // string path or enriched { key, name, url? } from GET product — validated in createMedia
+  url?: string | { key: string; name?: string; url?: string };
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
