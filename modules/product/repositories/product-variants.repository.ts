@@ -850,6 +850,11 @@ export class ProductVariantsRepository {
     });
     if (!variant) return null;
 
+    // Absolute stock sync (incl. auto-OOS) only for Cureka-managed variants.
+    if (!isCurekaInventoryManaged(variant)) {
+      return null;
+    }
+
     const next = resolveAvailabilityFromStock(
       stock,
       variant.outOfStock,
@@ -1079,6 +1084,7 @@ export class ProductVariantsRepository {
         continue;
       }
 
+      // Admin INS always clears the flag (even at stock 0). Stock qty is unchanged here.
       const next = resolveManualInStock(
         {
           stock: variant.stock,
@@ -1087,10 +1093,6 @@ export class ProductVariantsRepository {
         undefined,
         opts,
       );
-      if (next.outOfStock) {
-        bySkuResult.set(variant.sku, 'blocked');
-        continue;
-      }
       if (!variant.outOfStock) {
         bySkuResult.set(variant.sku, 'already');
         continue;

@@ -65,11 +65,20 @@ describe('variant-stock-availability.util (managed)', () => {
     });
   });
 
-  it('manual INS with zero stock stays OOS', () => {
+  it('manual INS with zero stock clears OOS (admin flag always wins)', () => {
     expect(resolveManualInStock({ stock: 0, outOfStock: true }, undefined, managed)).toEqual({
       stock: 0,
-      outOfStock: true,
+      outOfStock: false,
       becameOos: false,
+      becameIns: true,
+    });
+  });
+
+  it('order decrement stock=1 qty=1 becomes OOS', () => {
+    expect(resolveAvailabilityFromDelta({ stock: 1, outOfStock: false }, -1, managed)).toEqual({
+      stock: 0,
+      outOfStock: true,
+      becameOos: true,
       becameIns: false,
     });
   });
@@ -97,6 +106,30 @@ describe('variant-stock-availability.util (flag-only)', () => {
   it('order decrement to zero does not flip flag and does not change stock', () => {
     expect(resolveAvailabilityFromDelta({ stock: 2, outOfStock: false }, -2, flagOnly)).toEqual({
       stock: 2,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
+  it('non-Cureka stock=1 order qty=1 leaves stock and OOS untouched', () => {
+    expect(resolveAvailabilityFromDelta({ stock: 1, outOfStock: false }, -1, flagOnly)).toEqual({
+      stock: 1,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+  });
+
+  it('options omitted defaults to flag-only (no stock delta, no auto-OOS)', () => {
+    expect(resolveAvailabilityFromDelta({ stock: 1, outOfStock: false }, -1)).toEqual({
+      stock: 1,
+      outOfStock: false,
+      becameOos: false,
+      becameIns: false,
+    });
+    expect(resolveAvailabilityFromStock(0, false)).toEqual({
+      stock: 0,
       outOfStock: false,
       becameOos: false,
       becameIns: false,

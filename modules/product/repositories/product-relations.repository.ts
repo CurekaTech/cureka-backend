@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '../entities/product.entity';
@@ -21,7 +21,7 @@ import { IVariantInlineFaq } from '../interfaces/variant-details.interface';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { generateTagSlug } from '../utils/product-slug.util';
 import { generateUniqueRefId } from '@packages/common';
-import { StorageService } from '@packages/storage';
+import { IStorageFileReference, StorageService } from '@packages/storage';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { assertFaqLengths } from '@modules/master/utils/master-faq.util';
 import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
@@ -347,31 +347,97 @@ export class ProductRelationsRepository {
     await repo.save(rows);
   }
 
+  /**
+   * Build persistable product_media rows. Empty / null / invalid `url` slots are skipped
+   * (admin UI often sends placeholder image slots). Never returns a row with null url.
+   */
+  private buildMediaRows(
+    productId: string,
+    media: CreateProductMediaDto[],
+    skuToVariantId: Map<string, string>,
+  ): Array<{
+    productId: string;
+    variantId: string | null;
+    type: ProductMediaType;
+    url: IStorageFileReference;
+    sortOrder: number;
+    isPrimary: boolean;
+  }> {
+    const rows: Array<{
+      productId: string;
+      variantId: string | null;
+      type: ProductMediaType;
+      url: IStorageFileReference;
+      sortOrder: number;
+      isPrimary: boolean;
+    }> = [];
+
+    for (const item of media) {
+      const persisted = this.resolvePersistableMediaUrl(item.url);
+      if (!persisted) continue;
+
+      rows.push({
+        productId,
+        variantId:
+          item.type === ProductMediaType.COMMON
+            ? null
+            : item.variantSku
+              ? (skuToVariantId.get(item.variantSku) ?? null)
+              : null,
+        type: item.type,
+        url: persisted,
+        sortOrder: item.sortOrder ?? 0,
+        isPrimary: item.isPrimary ?? false,
+      });
+    }
+
+    return rows;
+  }
+
+  /**
+   * Accept storage key string, `{ key, name }`, or enriched `{ key, name, url }`.
+   * Reject null / empty / signed-only URLs that cannot be reduced to a key.
+   */
+  private resolvePersistableMediaUrl(
+    raw: CreateProductMediaDto['url'],
+  ): IStorageFileReference | null {
+    if (raw == null || raw === '') return null;
+
+    if (typeof raw === 'object') {
+      const candidate =
+        typeof raw.key === 'string' && raw.key.trim()
+          ? raw.key.trim()
+          : typeof (raw as { url?: unknown }).url === 'string'
+            ? String((raw as { url: string }).url).trim()
+            : '';
+      if (!candidate) return null;
+      // Prefer explicit key; otherwise reduce public/signed URLs via StorageService.
+      if (typeof raw.key === 'string' && raw.key.trim() && typeof raw.name === 'string' && raw.name.trim()) {
+        return this.storageService.persistFileReference({
+          key: raw.key.trim(),
+          name: raw.name.trim(),
+        });
+      }
+      return this.storageService.persistFileReference(candidate);
+    }
+
+    if (typeof raw === 'string') {
+      return this.storageService.persistFileReference(raw.trim());
+    }
+
+    return null;
+  }
+
   async createMedia(
     manager: EntityManager,
     productId: string,
     media: CreateProductMediaDto[],
     skuToVariantId: Map<string, string>,
   ): Promise<void> {
-    if (!media.length) return;
+    const rows = this.buildMediaRows(productId, media, skuToVariantId);
+    if (!rows.length) return;
     const repo = manager.getRepository(ProductMediaEntity);
-    await repo.save(
-      media.map((item) =>
-        repo.create({
-          productId,
-          variantId:
-            item.type === ProductMediaType.COMMON
-              ? null
-              : item.variantSku
-                ? (skuToVariantId.get(item.variantSku) ?? null)
-                : null,
-          type: item.type,
-          url: this.storageService.persistFileReference(item.url!)!,
-          sortOrder: item.sortOrder ?? 0,
-          isPrimary: item.isPrimary ?? false,
-        }),
-      ),
-    );
+    await repo.save(rows.map((row) => repo.create(row)));
   }
 
   async syncMedia(
@@ -380,15 +446,29 @@ export class ProductRelationsRepository {
     media: CreateProductMediaDto[],
     skuToVariantId: Map<string, string>,
   ): Promise<void> {
+    const rows = this.buildMediaRows(productId, media, skuToVariantId);
+
+    // Admin often sends empty placeholder slots (url: null). Skip those.
+    // If every slot was empty/invalid, do not wipe existing images.
+    if (media.length > 0 && rows.length === 0) {
+      throw new BadRequestException(
+        'No valid product media URLs found. Each image needs a storage key ' +
+          '(e.g. images/….webp or { key, name }). Empty/null image slots are ignored; ' +
+          'send media: [] only when you intentionally want to clear all images.',
+      );
+    }
+
     const repo = manager.getRepository(ProductMediaEntity);
-    // Hard-replace: remove every product_media row for this product, then insert payload.
+    // Hard-replace only after we know what we will insert (or intentional clear via []).
     await repo
       .createQueryBuilder()
       .delete()
       .from(ProductMediaEntity)
       .where('product_id = :productId', { productId })
       .execute();
-    await this.createMedia(manager, productId, media, skuToVariantId);
+
+    if (!rows.length) return;
+    await repo.save(rows.map((row) => repo.create(row)));
   }
 
   async cleanupLegacyManualMediaKeys(

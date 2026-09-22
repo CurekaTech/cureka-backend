@@ -1,7 +1,4 @@
-import {
-  isCurekaInventoryManaged,
-  isStockInventoryManagementEnabled,
-} from '@packages/common/stock-validation.config';
+import { isCurekaInventoryManaged } from '@packages/common/stock-validation.config';
 
 export type StockAvailabilityState = {
   stock: number;
@@ -17,9 +14,10 @@ export type StockAvailabilityResult = StockAvailabilityState & {
 
 export type StockAvailabilityOptions = {
   /**
-   * Override effective management mode.
-   * Defaults to isStockInventoryManagementEnabled() when unset — prefer passing
-   * managementEnabled: isCurekaInventoryManaged(variant) at call sites.
+   * Effective management mode for this write.
+   * Prefer `managementOptionsForVariant(variant)` at every call site.
+   * When unset, defaults to **false** (flag-only) so accidental callers never
+   * stock-sync OOS. Do not fall back to the global env alone.
    */
   managementEnabled?: boolean;
 };
@@ -30,12 +28,13 @@ const normalizeStock = (stock: number | string | null | undefined): number => {
   return Math.max(0, Math.trunc(n));
 };
 
+/** Unmanaged unless explicitly opted in — never infer from env alone. */
 const isManaged = (options?: StockAvailabilityOptions): boolean =>
-  options?.managementEnabled ?? isStockInventoryManagementEnabled();
+  options?.managementEnabled === true;
 
-/** Build options from a variant's Cureka inventory flag. */
+/** Build options from a variant's Cureka inventory flag (coerces driver boolean quirks). */
 export const managementOptionsForVariant = (variant: {
-  inCurekaInventory?: boolean | null;
+  inCurekaInventory?: boolean | null | string | number;
 }): StockAvailabilityOptions => ({
   managementEnabled: isCurekaInventoryManaged(variant),
 });
@@ -116,32 +115,16 @@ export const resolveAvailabilityFromDelta = (
 };
 
 /**
- * Explicit mark INS.
- * Managed: only valid when resulting stock > 0 (else stays OOS).
- * Flag-only: set outOfStock false; keep/set stock without forcing OOS at zero.
+ * Explicit admin mark INS — always clears `outOfStock`, including stock === 0.
+ * Order/stock-driven auto-OOS still applies separately via resolveAvailabilityFromStock/Delta
+ * when the variant is Cureka-managed.
  */
 export const resolveManualInStock = (
   current: StockAvailabilityState,
   stock?: number,
-  options?: StockAvailabilityOptions,
+  _options?: StockAvailabilityOptions,
 ): StockAvailabilityResult => {
   const nextStock = stock === undefined ? normalizeStock(current.stock) : normalizeStock(stock);
-  if (!isManaged(options)) {
-    return {
-      stock: nextStock,
-      outOfStock: false,
-      becameOos: false,
-      becameIns: current.outOfStock,
-    };
-  }
-  if (nextStock <= 0) {
-    return {
-      stock: 0,
-      outOfStock: true,
-      becameOos: !current.outOfStock,
-      becameIns: false,
-    };
-  }
   return {
     stock: nextStock,
     outOfStock: false,
