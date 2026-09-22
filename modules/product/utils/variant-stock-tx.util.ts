@@ -104,6 +104,7 @@ export async function applyStockDeltaInManager(
 
 /**
  * Set absolute stock and sync outOfStock when Cureka-managed.
+ * No-op for flag-only variants — stock ledger / auto-OOS are not owned by Cureka.
  */
 export async function applyAbsoluteStockInManager(
   manager: EntityManager,
@@ -112,6 +113,10 @@ export async function applyAbsoluteStockInManager(
 ): Promise<VariantOosTransition | null> {
   const variant = await loadVariantForStockWrite(manager, variantId);
   if (!variant) return null;
+
+  if (!isCurekaInventoryManaged(variant)) {
+    return null;
+  }
 
   const next = resolveAvailabilityFromStock(
     stock,

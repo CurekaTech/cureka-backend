@@ -71,7 +71,7 @@ export class CheckoutService {
       unitPrice: item.unitPrice,
       mrp: null,
       totalPrice: item.totalPrice,
-      stock: getSalableStockQuantity(0, item.quantity),
+      stock: getSalableStockQuantity(0, item.quantity, { inCurekaInventory: false }),
       inStock: true,
       isAvailable: true,
       codAvailable: true,

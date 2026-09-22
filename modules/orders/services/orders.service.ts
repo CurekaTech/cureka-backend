@@ -138,8 +138,19 @@ export class OrdersService {
       throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
     }
 
-    // Stock ledger only for Cureka-managed variants (env + inCurekaInventory).
+    // Stock ledger + auto-OOS only for Cureka-managed variants (env + inCurekaInventory).
+    // Flag-only: leave stock and outOfStock untouched — OOS is admin-only.
     if (!isCurekaInventoryManaged(variant)) {
+      this.logger.debug(
+        {
+          variantId: variant.id,
+          sku: variant.sku,
+          inCurekaInventory: variant.inCurekaInventory,
+          stock: variant.stock,
+          quantity,
+        },
+        'Skipping stock decrement — variant is not Cureka-inventory managed',
+      );
       return;
     }
 

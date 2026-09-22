@@ -1,7 +1,4 @@
-import {
-  isCurekaInventoryManaged,
-  isStockInventoryManagementEnabled,
-} from '@packages/common/stock-validation.config';
+import { isCurekaInventoryManaged } from '@packages/common/stock-validation.config';
 
 export type StockAvailabilityState = {
   stock: number;
@@ -17,9 +14,10 @@ export type StockAvailabilityResult = StockAvailabilityState & {
 
 export type StockAvailabilityOptions = {
   /**
-   * Override effective management mode.
-   * Defaults to isStockInventoryManagementEnabled() when unset — prefer passing
-   * managementEnabled: isCurekaInventoryManaged(variant) at call sites.
+   * Effective management mode for this write.
+   * Prefer `managementOptionsForVariant(variant)` at every call site.
+   * When unset, defaults to **false** (flag-only) so accidental callers never
+   * stock-sync OOS. Do not fall back to the global env alone.
    */
   managementEnabled?: boolean;
 };
@@ -30,8 +28,9 @@ const normalizeStock = (stock: number | string | null | undefined): number => {
   return Math.max(0, Math.trunc(n));
 };
 
+/** Unmanaged unless explicitly opted in — never infer from env alone. */
 const isManaged = (options?: StockAvailabilityOptions): boolean =>
-  options?.managementEnabled ?? isStockInventoryManagementEnabled();
+  options?.managementEnabled === true;
 
 /** Build options from a variant's Cureka inventory flag. */
 export const managementOptionsForVariant = (variant: {
