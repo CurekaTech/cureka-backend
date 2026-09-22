@@ -43,12 +43,12 @@ export class VariantImageDto {
   @ApiPropertyOptional({
     example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
     description:
-      'Storage path from POST /uploads/images, or omit when sending the file via multipart variantImages_<sku>',
+      'Storage path from POST /uploads/images, `{ key, name }` from GET product, or omit when using multipart variantImages_<sku>. ' +
+      'Prefer key (or { key, name }); signed/public URLs alone are accepted only as a fallback after key extraction.',
   })
   @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  url?: string;
+  // string path or enriched { key, name, url? } — same shape as CreateProductMediaDto.url
+  url?: string | { key: string; name?: string; url?: string };
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
