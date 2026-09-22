@@ -11,28 +11,34 @@ export interface ProductUploadedFiles {
 }
 
 type ImageMeta = {
-  url?: string | IStorageFileReference;
+  url?: string | IStorageFileReference | { key?: string | null; name?: string; url?: string };
   isPrimary?: boolean;
   sortOrder?: number;
 };
 
 const normalizeImageUrl = (
-  url: string | IStorageFileReference | undefined,
+  url: string | IStorageFileReference | { key?: string | null; name?: string; url?: string } | null | undefined,
 ): string | undefined => {
-  if (!url) return undefined;
-  if (typeof url === 'string' && url.trim()) return url.trim();
-  if (isStorageFileReference(url)) return url.key;
-  // Enriched API shape: { key, name, url } — prefer key for persistence
-  if (
-    typeof url === 'object' &&
-    url !== null &&
-    'key' in url &&
-    typeof (url as { key?: unknown }).key === 'string'
-  ) {
-    const key = (url as { key: string }).key.trim();
+  if (url == null || url === '') return undefined;
+  if (typeof url === 'string') {
+    const trimmed = url.trim();
+    return trimmed || undefined;
+  }
+  if (typeof url !== 'object') return undefined;
+
+  if (isStorageFileReference(url)) {
+    const key = url.key?.trim();
     return key || undefined;
   }
-  return undefined;
+
+  // Enriched / partial admin shapes: { key }, { key, name, url }, { url: "images/…" }
+  const key =
+    typeof url.key === 'string' && url.key.trim()
+      ? url.key.trim()
+      : typeof url.url === 'string' && url.url.trim()
+        ? url.url.trim()
+        : '';
+  return key || undefined;
 };
 
 const hasStoredImageUrl = (url: string | IStorageFileReference | undefined): boolean =>

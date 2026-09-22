@@ -347,15 +347,22 @@ export class ProductRelationsRepository {
     await repo.save(rows);
   }
 
-  async createMedia(
-    manager: EntityManager,
+  /**
+   * Build persistable product_media rows. Empty / null / invalid `url` slots are skipped
+   * (admin UI often sends placeholder image slots). Never returns a row with null url.
+   */
+  private buildMediaRows(
     productId: string,
     media: CreateProductMediaDto[],
     skuToVariantId: Map<string, string>,
-  ): Promise<void> {
-    if (!media.length) return;
-    const repo = manager.getRepository(ProductMediaEntity);
-
+  ): Array<{
+    productId: string;
+    variantId: string | null;
+    type: ProductMediaType;
+    url: IStorageFileReference;
+    sortOrder: number;
+    isPrimary: boolean;
+  }> {
     const rows: Array<{
       productId: string;
       variantId: string | null;
@@ -364,17 +371,11 @@ export class ProductRelationsRepository {
       sortOrder: number;
       isPrimary: boolean;
     }> = [];
-    const invalidIndexes: number[] = [];
 
-    media.forEach((item, index) => {
-      // Admin often re-sends enriched `{ key, name, url }` objects; accept string or reference.
-      const persisted = this.storageService.persistFileReference(
-        item.url as string | IStorageFileReference | null | undefined,
-      );
-      if (!persisted) {
-        invalidIndexes.push(index);
-        return;
-      }
+    for (const item of media) {
+      const persisted = this.resolvePersistableMediaUrl(item.url);
+      if (!persisted) continue;
+
       rows.push({
         productId,
         variantId:
@@ -388,17 +389,51 @@ export class ProductRelationsRepository {
         sortOrder: item.sortOrder ?? 0,
         isPrimary: item.isPrimary ?? false,
       });
-    });
-
-    if (invalidIndexes.length) {
-      throw new BadRequestException(
-        `product_media.url is required and must be a storage key or known file URL. ` +
-          `Invalid media entry index(es): ${invalidIndexes.join(', ')}. ` +
-          `Send storage path (e.g. images/….webp) or { key, name } — not an empty/signed-only URL.`,
-      );
     }
 
+    return rows;
+  }
+
+  /**
+   * Accept storage key string, `{ key, name }`, or enriched `{ key, name, url }`.
+   * Reject null / empty / signed-only URLs that cannot be reduced to a key.
+   */
+  private resolvePersistableMediaUrl(
+    raw: CreateProductMediaDto['url'],
+  ): IStorageFileReference | null {
+    if (raw == null || raw === '') return null;
+
+    if (typeof raw === 'object') {
+      const key =
+        typeof raw.key === 'string' && raw.key.trim()
+          ? raw.key.trim()
+          : typeof (raw as { url?: unknown }).url === 'string'
+            ? String((raw as { url: string }).url).trim()
+            : '';
+      if (!key) return null;
+      // Pass key-only string when name is absent — StorageService fills bucket name.
+      if (typeof raw.name === 'string' && raw.name.trim()) {
+        return this.storageService.persistFileReference({ key, name: raw.name.trim() });
+      }
+      return this.storageService.persistFileReference(key);
+    }
+
+    if (typeof raw === 'string') {
+      return this.storageService.persistFileReference(raw.trim());
+    }
+
+    return null;
+  }
+
+  async createMedia(
+    manager: EntityManager,
+    productId: string,
+    media: CreateProductMediaDto[],
+    skuToVariantId: Map<string, string>,
+  ): Promise<void> {
+    const rows = this.buildMediaRows(productId, media, skuToVariantId);
     if (!rows.length) return;
+    const repo = manager.getRepository(ProductMediaEntity);
     await repo.save(rows.map((row) => repo.create(row)));
   }
 
@@ -408,15 +443,29 @@ export class ProductRelationsRepository {
     media: CreateProductMediaDto[],
     skuToVariantId: Map<string, string>,
   ): Promise<void> {
+    const rows = this.buildMediaRows(productId, media, skuToVariantId);
+
+    // Admin often sends empty placeholder slots (url: null). Skip those.
+    // If every slot was empty/invalid, do not wipe existing images.
+    if (media.length > 0 && rows.length === 0) {
+      throw new BadRequestException(
+        'No valid product media URLs found. Each image needs a storage key ' +
+          '(e.g. images/….webp or { key, name }). Empty/null image slots are ignored; ' +
+          'send media: [] only when you intentionally want to clear all images.',
+      );
+    }
+
     const repo = manager.getRepository(ProductMediaEntity);
-    // Hard-replace: remove every product_media row for this product, then insert payload.
+    // Hard-replace only after we know what we will insert (or intentional clear via []).
     await repo
       .createQueryBuilder()
       .delete()
       .from(ProductMediaEntity)
       .where('product_id = :productId', { productId })
       .execute();
-    await this.createMedia(manager, productId, media, skuToVariantId);
+
+    if (!rows.length) return;
+    await repo.save(rows.map((row) => repo.create(row)));
   }
 
   async cleanupLegacyManualMediaKeys(
