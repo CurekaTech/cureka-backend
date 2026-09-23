@@ -41,6 +41,22 @@ const buildCrudPermissions = (module: string, label: string): IPermissionSeed[] 
   },
 ];
 
+/** View + download for a single report screen (export uses action `read` — enum has no export). */
+const buildReportPermissions = (module: string, label: string): IPermissionSeed[] => [
+  {
+    name: `View ${label} Report`,
+    code: `${module}.read`,
+    module,
+    action: PermissionAction.READ,
+  },
+  {
+    name: `Download ${label} Report`,
+    code: `${module}.export`,
+    module,
+    action: PermissionAction.READ,
+  },
+];
+
 export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   {
     name: 'View Dashboard',
@@ -48,18 +64,16 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     module: 'dashboard',
     action: PermissionAction.READ,
   },
-  {
-    name: 'View Reports',
-    code: 'reports.read',
-    module: 'reports',
-    action: PermissionAction.READ,
-  },
-  {
-    name: 'Download Reports',
-    code: 'reports.export',
-    module: 'reports',
-    action: PermissionAction.READ,
-  },
+  ...buildReportPermissions('reports_sales_revenue', 'Sales & Revenue'),
+  ...buildReportPermissions('reports_orders', 'Orders'),
+  ...buildReportPermissions('reports_product_performance', 'Product Performance'),
+  ...buildReportPermissions('reports_inventory_stock', 'Inventory & Stock'),
+  ...buildReportPermissions('reports_customers', 'Customers'),
+  ...buildReportPermissions('reports_payments', 'Payments'),
+  ...buildReportPermissions('reports_returns_refunds', 'Returns & Refunds'),
+  ...buildReportPermissions('reports_coupons', 'Coupons & Promotions'),
+  ...buildReportPermissions('reports_vendor_performance', 'Vendor Performance'),
+  ...buildReportPermissions('reports_consultations', 'Consultations'),
   ...buildCrudPermissions('users', 'Users'),
   ...buildCrudPermissions('vendors', 'Vendors'),
   ...buildCrudPermissions('orders', 'Orders'),
