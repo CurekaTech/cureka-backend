@@ -17,6 +17,8 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagg
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ProductsService } from '../services/products.service';
 import {
   BulkMarkOutOfStockDto,
@@ -33,7 +35,8 @@ import { ProductStatus } from '../enums/product-status.enum';
  */
 @ApiTags('Bundle Products')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
 @Controller('bundle-products')
 export class BundleProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -45,7 +48,7 @@ export class BundleProductsController {
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Bundle product created and submitted for review')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -62,7 +65,7 @@ export class BundleProductsController {
       'Same filters as products, scoped to productType=bundle. Pass status to filter (draft, pending_review, published, rejected). Omit status to return all.',
   })
   @ResponseMessage('Bundle products retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.read')
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productsService.findBundles(query);
@@ -70,7 +73,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Rejected bundle products list' })
   @ResponseMessage('Rejected bundle products retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.read')
   @Get('rejected')
   findRejected(@Query() query: ProductQueryDto) {
     return this.productsService.findBundles(query, ProductStatus.REJECTED);
@@ -78,7 +81,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Pending review bundle products list' })
   @ResponseMessage('Pending bundle products retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.read')
   @Get('pending')
   findPending(@Query() query: ProductQueryDto) {
     return this.productsService.findBundles(query, ProductStatus.PENDING_REVIEW);
@@ -86,7 +89,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Draft bundle products list' })
   @ResponseMessage('Draft bundle products retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.read')
   @Get('drafts')
   findDrafts(@Query() query: ProductQueryDto) {
     return this.productsService.findBundles(query, ProductStatus.DRAFT);
@@ -98,7 +101,7 @@ export class BundleProductsController {
       'Sets outOfStock = true on the pricing variant of each selected bundle. Does not change stock quantity.',
   })
   @ResponseMessage('Bundle products marked out of stock successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.update')
   @Post('bulk-mark-out-of-stock')
   @HttpCode(HttpStatus.OK)
   bulkMarkOutOfStock(@Body() dto: BulkMarkOutOfStockDto) {
@@ -111,7 +114,7 @@ export class BundleProductsController {
       'Sets stock on the pricing variant for each selected bundle and clears outOfStock (reverts mark-out-of-stock).',
   })
   @ResponseMessage('Bundle product stock restored successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.update')
   @Post('bulk-restore-stock')
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
@@ -120,7 +123,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Submit bundle for checker review' })
   @ResponseMessage('Bundle product submitted for review')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.update')
   @Post(':refId/submit-for-review')
   submitForReview(
     @Param('refId', RefIdPipe) refId: string,
@@ -131,7 +134,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Approve bundle product (publish)' })
   @ResponseMessage('Bundle product approved and published')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('bundle_products.approve')
   @Post(':refId/approve')
   approve(@Param('refId', RefIdPipe) refId: string, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.productsService.approve(refId, user.email);
@@ -143,7 +146,7 @@ export class BundleProductsController {
       'Body: `{ "reason": "..." }` (alias `rejectionReason` also accepted). Reason is stored and returned as `rejectionReason` on detail/list.',
   })
   @ResponseMessage('Bundle product rejected')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('bundle_products.reject')
   @Post(':refId/reject')
   reject(
     @Param('refId', RefIdPipe) refId: string,
@@ -155,7 +158,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Publish bundle product' })
   @ResponseMessage('Bundle product published successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.status')
   @Patch(':refId/publish')
   publish(@Param('refId', RefIdPipe) refId: string, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.productsService.publish(refId, user.email);
@@ -163,7 +166,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Unpublish bundle product (set inactive)' })
   @ResponseMessage('Bundle product unpublished successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.status')
   @Patch(':refId/unpublish')
   unpublish(@Param('refId', RefIdPipe) refId: string, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.productsService.unpublish(refId, user.email);
@@ -171,7 +174,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Update bundle product status' })
   @ResponseMessage('Bundle product status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -183,7 +186,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Restore soft-deleted bundle product' })
   @ResponseMessage('Bundle product restored successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.update')
   @Post(':refId/restore')
   restore(@Param('refId', RefIdPipe) refId: string) {
     return this.productsService.restore(refId);
@@ -191,7 +194,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Get bundle product detail by refId' })
   @ResponseMessage('Bundle product retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.productsService.findBundleOne(refId);
@@ -204,7 +207,7 @@ export class BundleProductsController {
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Bundle product updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('bundle_products.update')
   @Patch(':refId')
   update(
     @Req() req: FastifyRequest,
@@ -220,7 +223,7 @@ export class BundleProductsController {
 
   @ApiOperation({ summary: 'Soft delete bundle product' })
   @ResponseMessage('Bundle product deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('bundle_products.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {
