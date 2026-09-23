@@ -66,57 +66,12 @@ export class PermissionsService {
       });
     };
 
+    // Tree must mirror MENU_HIERARCHY in admin-auth.service.ts (order, keys, labels).
     return [
       {
         name: 'Dashboard',
         key: 'dashboard',
         permissions: getPerms('dashboard'),
-      },
-      {
-        name: 'Reports',
-        key: 'reports',
-        subItems: [
-          {
-            name: 'Sales & Revenue',
-            key: 'reports-sales-revenue',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Orders',
-            key: 'reports-orders',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Product Performance',
-            key: 'reports-product-performance',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Inventory & Stock',
-            key: 'reports-inventory-stock',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Customers',
-            key: 'reports-customers',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Payments',
-            key: 'reports-payments',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Returns & Refunds',
-            key: 'reports-returns-refunds',
-            permissions: getPerms('reports'),
-          },
-          {
-            name: 'Coupons & Promotions',
-            key: 'reports-coupons',
-            permissions: getPerms('reports'),
-          },
-        ],
       },
       {
         name: 'Masters',
@@ -169,6 +124,11 @@ export class PermissionsService {
             permissions: getPerms('brands'),
           },
           {
+            name: 'Country of Origin',
+            key: 'country-of-origin',
+            permissions: getPerms('countries'),
+          },
+          {
             name: 'Health Concern',
             key: 'masters-health-concern',
             permissions: getPerms('health_concerns'),
@@ -206,14 +166,41 @@ export class PermissionsService {
         ],
       },
       {
+        name: 'Users',
+        key: 'users',
+        subItems: [
+          {
+            name: 'Active',
+            key: 'active-users',
+            permissions: getPerms('users', ['read']),
+          },
+          {
+            name: 'Inactive',
+            key: 'inactive-users',
+            permissions: getPerms('users', ['read']),
+          },
+        ],
+      },
+      {
+        name: 'Vendors',
+        key: 'vendors',
+        subItems: [
+          {
+            name: 'Add Vendor',
+            key: 'add-vendor',
+            permissions: getPerms('vendors', ['create']),
+          },
+          {
+            name: 'Vendor List',
+            key: 'vendor-list',
+            permissions: getPerms('vendors', ['read', 'update', 'status', 'delete']),
+          },
+        ],
+      },
+      {
         name: 'Products',
         key: 'products',
         subItems: [
-          {
-            name: 'Add Product',
-            key: 'products-add',
-            permissions: getPerms('products', ['create']),
-          },
           {
             name: 'Product List',
             key: 'products-list-parent',
@@ -224,18 +211,44 @@ export class PermissionsService {
                 permissions: getPerms('products', ['read']),
               },
               {
+                name: 'Active',
+                key: 'products-list-approved',
+                permissions: getPerms('products', ['read', 'approve']),
+              },
+              {
                 name: 'Pending Review',
                 key: 'products-list-pending',
                 permissions: getPerms('products', ['read']),
               },
               {
-                name: 'Approved',
-                key: 'products-list-approved',
+                name: 'Rejected',
+                key: 'products-list-rejected',
+                permissions: getPerms('products', ['read', 'reject']),
+              },
+            ],
+          },
+          {
+            name: 'Bundle Products',
+            key: 'bundle-product-list',
+            subItems: [
+              {
+                name: 'All',
+                key: 'bundle-products-list-all',
+                permissions: getPerms('products', ['read']),
+              },
+              {
+                name: 'Active',
+                key: 'bundle-products-list-approved',
                 permissions: getPerms('products', ['read', 'approve']),
               },
               {
+                name: 'Pending Review',
+                key: 'bundle-products-list-pending',
+                permissions: getPerms('products', ['read']),
+              },
+              {
                 name: 'Rejected',
-                key: 'products-list-rejected',
+                key: 'bundle-products-list-rejected',
                 permissions: getPerms('products', ['read', 'reject']),
               },
             ],
@@ -251,8 +264,24 @@ export class PermissionsService {
             permissions: getPerms('product_informations'),
           },
           {
+            name: 'Bulk Upload',
+            key: 'products-bulk-upload',
+            subItems: [
+              {
+                name: 'Product Upload',
+                key: 'products-bulk-upload-products',
+                permissions: getPerms('products', ['create']),
+              },
+              {
+                name: 'Price Update',
+                key: 'products-bulk-price-update',
+                permissions: getPerms('products', ['update']),
+              },
+            ],
+          },
+          {
             name: 'Media Gallery',
-            key: 'products-media-gallery',
+            key: 'products-gallery',
             permissions: getPerms('gallery', ['create', 'read', 'delete']),
           },
           {
@@ -260,21 +289,41 @@ export class PermissionsService {
             key: 'products-reviews',
             permissions: getPerms('product_reviews', ['read', 'update', 'delete']),
           },
-          {
-            name: 'Bulk Upload',
-            key: 'products-bulk-upload',
-            permissions: getPerms('products', ['create']),
-          },
         ],
       },
       {
-        name: 'Orders',
+        name: 'Order Management',
         key: 'orders',
         subItems: [
           {
-            name: 'Order Requests',
-            key: 'orders-requests',
-            permissions: getPerms('orders'),
+            name: 'Add Orders',
+            key: 'orders-add',
+            permissions: getPerms('orders', ['create']),
+          },
+          {
+            name: 'All Orders',
+            key: 'orders-list-all',
+            permissions: getPerms('orders', ['read']),
+          },
+          {
+            name: 'Active Orders',
+            key: 'active-orders',
+            permissions: getPerms('orders', ['read']),
+          },
+          {
+            name: 'In Transit',
+            key: 'in-transit-orders',
+            permissions: getPerms('orders', ['read']),
+          },
+          {
+            name: 'Completed',
+            key: 'delivered-orders',
+            permissions: getPerms('orders', ['read']),
+          },
+          {
+            name: 'Cancelled',
+            key: 'cancelled-orders',
+            permissions: getPerms('orders', ['read']),
           },
           {
             name: 'Abandoned Carts',
@@ -282,14 +331,79 @@ export class PermissionsService {
             permissions: getPerms('abandoned_carts'),
           },
           {
+            name: 'Return Requests',
+            key: 'orders-return-requests',
+            permissions: getPerms('returns', ['read']),
+            subItems: [
+              {
+                name: 'Create Return',
+                key: 'returns-create',
+                permissions: getPerms('returns', ['create']),
+              },
+              {
+                name: 'All Returns',
+                key: 'returns-all',
+                permissions: getPerms('returns', ['read']),
+              },
+              {
+                name: 'Pending Review',
+                key: 'returns-pending-review',
+                permissions: getPerms('returns', ['read']),
+              },
+              {
+                name: 'Pickup & Transit',
+                key: 'returns-pickup',
+                permissions: getPerms('returns', ['read']),
+              },
+              {
+                name: 'Quality Check',
+                key: 'returns-qc',
+                permissions: getPerms('returns', ['status']),
+              },
+              {
+                name: 'Refund Pending',
+                key: 'returns-refund-pending',
+                permissions: getPerms('returns', ['read']),
+              },
+              {
+                name: 'Return Policies',
+                key: 'returns-policies',
+                permissions: getPerms('return_policies'),
+              },
+            ],
+          },
+          {
             name: 'Refund Requests',
             key: 'orders-refund-requests',
-            permissions: getPerms('refund_requests'),
+            permissions: getPerms('refund_requests', ['read']),
+            subItems: [
+              {
+                name: 'All Refunds',
+                key: 'refunds-all',
+                permissions: getPerms('refund_requests'),
+              },
+              {
+                name: 'COD Payouts',
+                key: 'refunds-cod-payouts',
+                permissions: getPerms('refund_payouts'),
+              },
+            ],
           },
           {
             name: 'COD Blocklist',
             key: 'orders-cod-blocklist',
-            permissions: getPerms('cod_blocklist'),
+            subItems: [
+              {
+                name: 'All',
+                key: 'orders-cod-blocklist-all',
+                permissions: getPerms('cod_blocklist', ['read', 'update', 'status', 'delete']),
+              },
+              {
+                name: 'Bulk Upload',
+                key: 'orders-cod-blocklist-bulk-upload',
+                permissions: getPerms('cod_blocklist', ['create']),
+              },
+            ],
           },
         ],
       },
@@ -334,14 +448,39 @@ export class PermissionsService {
         key: 'cms',
         subItems: [
           {
+            name: 'Header Indexing',
+            key: 'cms-header-indexing',
+            permissions: getPerms('header_indexing'),
+          },
+          {
             name: 'Banners',
             key: 'cms-banners',
             permissions: getPerms('banners'),
           },
           {
-            name: 'Watch & Shop',
-            key: 'cms-watch-and-shop',
-            permissions: getPerms('watch_and_shop'),
+            name: 'Category Indexing',
+            key: 'cms-shopby-indexing',
+            permissions: getPerms('shop_by_indexing'),
+          },
+          {
+            name: 'Best Sellers Indexing',
+            key: 'best-sellers-indexing',
+            permissions: getPerms('best_sellers'),
+          },
+          {
+            name: 'Category Product Indexing',
+            key: 'category-product-indexing',
+            permissions: getPerms('category_product'),
+          },
+          {
+            name: 'Health Concern Indexing',
+            key: 'health-concern-indexing',
+            permissions: getPerms('health_concerns', ['read', 'update']),
+          },
+          {
+            name: 'Home Section Indexing',
+            key: 'cms-home-sections',
+            permissions: getPerms('home_sections'),
           },
           {
             name: 'Expert Talks & Podcasts',
@@ -354,29 +493,9 @@ export class PermissionsService {
             permissions: getPerms('testimonials'),
           },
           {
-            name: 'Home Section Indexing',
-            key: 'cms-home-sections',
-            permissions: getPerms('home_sections'),
-          },
-          {
-            name: 'Header Indexing',
-            key: 'cms-header-indexing',
-            permissions: getPerms('header_indexing'),
-          },
-          {
-            name: 'Shop By Indexing',
-            key: 'cms-shopby-indexing',
-            permissions: getPerms('shop_by_indexing'),
-          },
-          {
-            name: 'Best Sellers Indexing',
-            key: 'cms-best-sellers-indexing',
-            permissions: getPerms('best_sellers'),
-          },
-          {
-            name: 'Category Product Indexing',
-            key: 'cms-category-product-indexing',
-            permissions: getPerms('category_product'),
+            name: 'Watch & Shop',
+            key: 'cms-watch-and-shop',
+            permissions: getPerms('watch_and_shop'),
           },
           {
             name: 'Pages',
@@ -413,6 +532,27 @@ export class PermissionsService {
         ],
       },
       {
+        name: 'Blogs',
+        key: 'blogs',
+        subItems: [
+          {
+            name: 'Blog Categories',
+            key: 'blog-categories',
+            permissions: getPerms('blog_categories'),
+          },
+          {
+            name: 'Blog Posts',
+            key: 'blog-posts',
+            permissions: getPerms('blog_posts'),
+          },
+          {
+            name: 'Blog Comments',
+            key: 'blog-comments',
+            permissions: getPerms('blog_comments'),
+          },
+        ],
+      },
+      {
         name: 'Role Management',
         key: 'role-management',
         subItems: [
@@ -425,6 +565,83 @@ export class PermissionsService {
             name: 'Admin Users',
             key: 'admin-users-list',
             permissions: getPerms('admin_users'),
+          },
+        ],
+      },
+      {
+        name: 'Help & Support',
+        key: 'support',
+        subItems: [
+          {
+            name: 'Categories',
+            key: 'support-categories',
+            permissions: getPerms('support_categories'),
+          },
+          {
+            name: 'Articles',
+            key: 'support-articles',
+            permissions: getPerms('support_articles'),
+          },
+          {
+            name: 'FAQs',
+            key: 'support-faqs',
+            permissions: getPerms('support_faqs'),
+          },
+          {
+            name: 'Tickets',
+            key: 'support-tickets',
+            permissions: getPerms('support'),
+          },
+          {
+            name: 'Reason Master',
+            key: 'support-reason-master',
+            permissions: getPerms('reason_masters'),
+          },
+        ],
+      },
+      {
+        name: 'Reports',
+        key: 'reports',
+        subItems: [
+          {
+            name: 'Sales & Revenue',
+            key: 'reports-sales-revenue',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Orders',
+            key: 'reports-orders',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Product Performance',
+            key: 'reports-product-performance',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Inventory & Stock',
+            key: 'reports-inventory-stock',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Customers',
+            key: 'reports-customers',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Payments',
+            key: 'reports-payments',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Returns & Refunds',
+            key: 'reports-returns-refunds',
+            permissions: getPerms('reports'),
+          },
+          {
+            name: 'Coupons & Promotions',
+            key: 'reports-coupons',
+            permissions: getPerms('reports'),
           },
         ],
       },
@@ -454,8 +671,18 @@ export class PermissionsService {
             permissions: getPerms('settings'),
           },
           {
+            name: 'Store Configuration',
+            key: 'store-configuration-view',
+            permissions: getPerms('settings'),
+          },
+          {
             name: 'Logistic Partners',
             key: 'logistic-partners-view',
+            permissions: getPerms('settings'),
+          },
+          {
+            name: 'Email Recipient',
+            key: 'email-recipient-view',
             permissions: getPerms('settings'),
           },
         ],
