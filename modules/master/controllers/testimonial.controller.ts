@@ -16,19 +16,22 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { TestimonialService } from '../services/testimonial.service';
 import {
   TestimonialQueryDto,
   UpdateTestimonialStatusDto,
 } from '../dto/testimonial.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/testimonials')
 export class TestimonialController {
   constructor(private readonly testimonialService: TestimonialService) {}
 
   @ResponseMessage('Testimonial created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('testimonials.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -40,21 +43,21 @@ export class TestimonialController {
   }
 
   @ResponseMessage('Testimonials retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('testimonials.read')
   @Get()
   findAll(@Query() query: TestimonialQueryDto) {
     return this.testimonialService.findAll(query);
   }
 
   @ResponseMessage('Testimonial retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('testimonials.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.testimonialService.findOne(refId);
   }
 
   @ResponseMessage('Testimonial status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('testimonials.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -65,7 +68,7 @@ export class TestimonialController {
   }
 
   @ResponseMessage('Testimonial updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('testimonials.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -80,7 +83,7 @@ export class TestimonialController {
   }
 
   @ResponseMessage('Testimonial deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('testimonials.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.OK)
   remove(@Param('refId', RefIdPipe) refId: string) {

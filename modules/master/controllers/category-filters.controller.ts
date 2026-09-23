@@ -14,6 +14,8 @@ import {
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { CategoryFiltersService } from '../services/category-filters.service';
 import {
   CategoryFilterQueryDto,
@@ -22,13 +24,14 @@ import {
   UpdateCategoryFilterStatusDto,
 } from '../dto/category-filter.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/category-filters')
 export class CategoryFiltersController {
   constructor(private readonly categoryFiltersService: CategoryFiltersService) {}
 
   @ResponseMessage('Category filter created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('category_filters.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateCategoryFilterDto, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -36,21 +39,21 @@ export class CategoryFiltersController {
   }
 
   @ResponseMessage('Category filters retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('category_filters.read')
   @Get()
   findAll(@Query() query: CategoryFilterQueryDto) {
     return this.categoryFiltersService.findAll(query);
   }
 
   @ResponseMessage('Category filter retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('category_filters.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.categoryFiltersService.findOne(refId);
   }
 
   @ResponseMessage('Category filter status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('category_filters.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -61,7 +64,7 @@ export class CategoryFiltersController {
   }
 
   @ResponseMessage('Category filter updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('category_filters.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -72,7 +75,7 @@ export class CategoryFiltersController {
   }
 
   @ResponseMessage('Category filter deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('category_filters.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {

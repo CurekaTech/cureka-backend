@@ -14,6 +14,8 @@ import {
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { SubscriptionFrequenciesService } from '../services/subscription-frequencies.service';
 import {
   CreateSubscriptionFrequencyDto,
@@ -22,7 +24,8 @@ import {
 } from '../dto/subscription-frequency.dto';
 import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/subscription-frequencies')
 export class SubscriptionFrequenciesController {
   constructor(
@@ -30,7 +33,7 @@ export class SubscriptionFrequenciesController {
   ) {}
 
   @ResponseMessage('Subscription frequency created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('subscription_frequencies.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(
@@ -41,21 +44,21 @@ export class SubscriptionFrequenciesController {
   }
 
   @ResponseMessage('Subscription frequencies retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('subscription_frequencies.read')
   @Get()
   findAll(@Query() query: MasterListQueryDto) {
     return this.subscriptionFrequenciesService.findAll(query);
   }
 
   @ResponseMessage('Subscription frequency retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('subscription_frequencies.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.subscriptionFrequenciesService.findOne(refId);
   }
 
   @ResponseMessage('Subscription frequency status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('subscription_frequencies.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -66,7 +69,7 @@ export class SubscriptionFrequenciesController {
   }
 
   @ResponseMessage('Subscription frequency updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('subscription_frequencies.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -77,7 +80,7 @@ export class SubscriptionFrequenciesController {
   }
 
   @ResponseMessage('Subscription frequency deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('subscription_frequencies.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {

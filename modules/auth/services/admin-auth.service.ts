@@ -233,10 +233,11 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['brands.read'],
       },
       {
-        key: "country-of-origin",
-        name: "Country of Origin",
-        icon: "globe",
-        href: "/master/country",
+        key: 'country-of-origin',
+        name: 'Country of Origin',
+        icon: 'globe',
+        href: '/master/country',
+        requiredPermissions: ['countries.read'],
       },
 
       {

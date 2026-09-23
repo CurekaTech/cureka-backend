@@ -17,7 +17,7 @@ import { AdminSettingsService } from '../services/admin-settings.service';
 @ApiTags('Admin Settings')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('admin/settings')
 export class AdminSettingsController {
   constructor(private readonly adminSettingsService: AdminSettingsService) {}

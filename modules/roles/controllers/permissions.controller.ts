@@ -24,12 +24,12 @@ import { PermissionsGuard } from '../guards/permissions.guard';
 import { RequirePermissions } from '../decorators/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('permissions')
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
   @ResponseMessage('Permission created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('permissions.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -38,7 +38,6 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permissions retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('permissions.read')
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
@@ -46,7 +45,6 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permissions grouped by module retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('permissions.read')
   @Get('grouped/by-module')
   findGroupedByModule() {
@@ -54,7 +52,6 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permission retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('permissions.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
@@ -62,7 +59,6 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permission status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('permissions.status')
   @Patch(':refId/status')
   updateStatus(
@@ -74,7 +70,6 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permission updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('permissions.update')
   @Patch(':refId')
   update(
@@ -86,7 +81,6 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permission deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('permissions.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
