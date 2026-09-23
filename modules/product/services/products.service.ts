@@ -517,11 +517,15 @@ export class ProductsService {
     
     const paginationOptions = buildPaginationOptions(query);
     const filters = await this.resolveListFilters(query);
-    // Admin product list shows only simple/variable; bundles use /bundle-products
-    const excludeProductTypes = query.productType ? undefined : [ProductType.BUNDLE];
+    // Default admin list: simple/variable only. Bundles use /bundle-products unless includeBundles=true.
+    const excludeProductTypes =
+      query.productType || query.includeBundles === true
+        ? undefined
+        : [ProductType.BUNDLE];
     const queryHash = buildQueryCacheHash({
       ...filters,
       productType: query.productType,
+      includeBundles: query.includeBundles === true,
       excludeProductTypes,
       status: query.status,
       variantSlug: query.variantSlug,
