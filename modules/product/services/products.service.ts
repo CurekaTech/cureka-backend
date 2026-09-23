@@ -7,6 +7,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 import {
@@ -97,6 +98,7 @@ export class ProductsService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productMultipartService: ProductMultipartService,
     private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
+    private readonly configService: ConfigService,
     @Inject(forwardRef(() => ProductSubscriptionConfigService))
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly oosEmailQueueService: OosEmailQueueService,
@@ -222,6 +224,10 @@ export class ProductsService {
     }
 
     return this.variantsRepository.generateNextSku(category.name, brand.name);
+  }
+
+  private allowDuplicateSkuForBundles(): boolean {
+    return this.configService.get<boolean>('products.allowDuplicateSkuForBundles', false) === true;
   }
 
   private async replaceAutoSkuOnVariants<T extends { sku: string }>(
@@ -965,6 +971,9 @@ export class ProductsService {
           );
         }
 
+        const skipSkuUniqueness =
+          effectiveProductType === ProductType.BUNDLE && this.allowDuplicateSkuForBundles();
+
         await this.variantsRepository.syncVariants(
           manager,
           existing.id,
@@ -973,6 +982,7 @@ export class ProductsService {
           effectiveProductType,  // use the new type, not the old one
           variantsForSync,
           attributeIdByRefId,
+          { skipSkuUniqueness },
         ).then((transitions) => oosTransitions.push(...transitions));
       } else if (
         needsVariantSync &&
@@ -1008,6 +1018,7 @@ export class ProductsService {
           ProductType.BUNDLE,
           pricingVariants,
           attributeIdByRefId,
+          { skipSkuUniqueness: this.allowDuplicateSkuForBundles() },
         ).then((transitions) => oosTransitions.push(...transitions));
       }
 
