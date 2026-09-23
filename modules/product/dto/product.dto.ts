@@ -731,6 +731,22 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   productType?: ProductType;
 
   @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'When true (and productType is omitted), include bundle products in the list together with simple/variable. ' +
+      'Default false — bundles are excluded and listed via GET /bundle-products instead. ' +
+      'Use for homepage / catalog pickers that need to search products and bundles together.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  includeBundles?: boolean;
+
+  @ApiPropertyOptional({
     enum: ProductStatus,
     description: 'Filter by status. Alias `approved` is accepted as `published`.',
   })
