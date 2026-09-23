@@ -190,6 +190,12 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     action: PermissionAction.UPDATE,
   },
   {
+    name: 'Change COD Blocklist Status',
+    code: 'cod_blocklist.status',
+    module: 'cod_blocklist',
+    action: PermissionAction.STATUS,
+  },
+  {
     name: 'Delete COD Blocklist',
     code: 'cod_blocklist.delete',
     module: 'cod_blocklist',
@@ -206,6 +212,12 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     code: 'settings.update',
     module: 'settings',
     action: PermissionAction.UPDATE,
+  },
+  {
+    name: 'Change Settings Status',
+    code: 'settings.status',
+    module: 'settings',
+    action: PermissionAction.STATUS,
   },
   ...buildCrudPermissions('roles', 'Roles'),
   ...buildCrudPermissions('permissions', 'Permissions'),
@@ -284,6 +296,12 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     code: 'product_reviews.update',
     module: 'product_reviews',
     action: PermissionAction.UPDATE,
+  },
+  {
+    name: 'Change Product Review Status',
+    code: 'product_reviews.status',
+    module: 'product_reviews',
+    action: PermissionAction.STATUS,
   },
   {
     name: 'Delete Product Reviews',
