@@ -74,6 +74,22 @@ describe('ImagePipelineService', () => {
     expect(assets.upsertPending).not.toHaveBeenCalled();
   });
 
+  it('should schedule newly uploaded banner images through the existing hook', async () => {
+    assets.upsertPending.mockResolvedValue({ id: '1' });
+    await service.onStoredObject({
+      key: 'banners/068fa179-05ff-4848-a3a8-6988d3fbd4fe.png',
+      mimetype: 'image/png',
+      size: 912_000,
+    });
+    expect(assets.upsertPending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceKey: 'banners/068fa179-05ff-4848-a3a8-6988d3fbd4fe.png',
+        sourceBucket: 'bucket',
+      }),
+    );
+    expect(queue.add).toHaveBeenCalled();
+  });
+
   it('should publish only when the process token still matches', async () => {
     assets.findBySource.mockResolvedValue({
       id: 'asset-1',

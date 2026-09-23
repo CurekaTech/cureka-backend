@@ -11,6 +11,7 @@ import { mapAssetToDelivery } from '../mappers/image-delivery.mapper';
 import { IMAGE_ASSET_CACHE_TTL_MS } from '../constants/image-pipeline.constants';
 import { IImageAssetView, IImageSourceIdentity } from '../interfaces/image-pipeline.interface';
 import { sourceCacheKey } from '../utils/source-key.util';
+import { selectBannerStorefrontVariant } from '../utils/banner-derivative.util';
 import { ImageAssetEntity } from '../entities/image-asset.entity';
 
 @Injectable()
@@ -33,7 +34,7 @@ export class ImageDeliveryService {
     const deliveries = await this.buildDeliveries([reference], new Map([[reference.key, signed.url]]));
     const delivery = deliveries.get(sourceCacheKey(reference.name, reference.key));
     if (!delivery) return signed;
-    return { ...signed, imageDelivery: delivery };
+    return this.withBannerStorefrontUrl(reference, { ...signed, imageDelivery: delivery });
   }
 
   async attachToMany(
@@ -56,7 +57,9 @@ export class ImageDeliveryService {
       const ref = references[index];
       if (!item || !ref) return item;
       const delivery = deliveries.get(sourceCacheKey(ref.name, ref.key));
-      return delivery ? { ...item, imageDelivery: delivery } : item;
+      return delivery
+        ? this.withBannerStorefrontUrl(ref, { ...item, imageDelivery: delivery })
+        : item;
     });
   }
 
@@ -137,6 +140,29 @@ export class ImageDeliveryService {
     }
 
     return views;
+  }
+
+  /**
+   * Banner responses are what the storefront puts in the LCP `src`.
+   * When a suitable WebP already exists, `url` becomes that derivative's
+   * StorageService URL. `imageDelivery.original.url` stays the original object,
+   * which PublicMediaService still streams unchanged.
+   */
+  private withBannerStorefrontUrl(
+    reference: IStorageFileReference,
+    response: IStorageFileReferenceResponse,
+  ): IStorageFileReferenceResponse {
+    const delivery = response.imageDelivery;
+    if (!delivery) return response;
+
+    const variant = selectBannerStorefrontVariant({
+      sourceKey: reference.key,
+      status: delivery.status,
+      sourceWidth: delivery.original.width,
+      variants: delivery.variants,
+    });
+    if (!variant || variant.url === response.url) return response;
+    return { ...response, url: variant.url };
   }
 
   private toView(entity: ImageAssetEntity | null): IImageAssetView | null {
