@@ -2458,6 +2458,51 @@ export class ProductsRepository {
     return data.filter((product) => product.variants.length > 0);
   }
 
+  /**
+   * Cheapest sellable variant per published product — used for popular search
+   * when Typesense is off/stale, and to pad Typesense popular results.
+   */
+  async findPublishedPopularVariants(limit: number): Promise<ProductVariantEntity[]> {
+    if (limit <= 0) {
+      return [];
+    }
+
+    const candidates = await this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .innerJoin(BrandEntity, 'brand', 'brand.id = product.brandId')
+      .innerJoin('product.category', 'category')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('variant.outOfStock = false')
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('category.deletedAt IS NULL')
+      .orderBy('variant.sellingPrice', 'ASC')
+      .addOrderBy('product.name', 'ASC')
+      .take(Math.min(Math.max(limit * 8, limit), 200))
+      .getMany();
+
+    const seenRefIds = new Set<string>();
+    const results: ProductVariantEntity[] = [];
+    for (const variant of candidates) {
+      const refId = variant.product?.refId?.trim();
+      if (!refId || seenRefIds.has(refId)) {
+        continue;
+      }
+      seenRefIds.add(refId);
+      results.push(variant);
+      if (results.length >= limit) {
+        break;
+      }
+    }
+
+    return results;
+  }
+
   /** Lightweight native dropdown suggestions (Typesense fallback). */
   async findPublishedDropdownSuggestions(
     search: string,

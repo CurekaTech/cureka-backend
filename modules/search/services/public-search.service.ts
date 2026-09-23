@@ -108,59 +108,160 @@ export class PublicSearchService {
   }
 
   async getPopular(perPage = 4): Promise<IPublicSearchResult[]> {
-    if (!(await this.shouldUseTypesense())) {
-      return [];
-    }
-
     const normalizedPerPage = Math.min(Math.max(1, perPage), 30);
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.publicSearch.popular(normalizedPerPage),
       module: CacheModuleName.DEFAULT,
       ttlSeconds: SEARCH_POPULAR_CACHE_TTL_SECONDS,
-      loader: () => this.loadPopularFromTypesense(normalizedPerPage),
+      loader: () => this.loadPopular(normalizedPerPage),
     });
+  }
+
+  /**
+   * Popular dropdown: published + sellable products only, one hit per product.
+   * Typesense is a candidate source; Postgres is the source of truth for links.
+   */
+  private async loadPopular(perPage: number): Promise<IPublicSearchResult[]> {
+    if (await this.shouldUseTypesense()) {
+      try {
+        const fromTypesense = await this.loadPopularFromTypesense(perPage);
+        if (fromTypesense.length >= perPage) {
+          return fromTypesense;
+        }
+
+        const fromDb = await this.loadPopularFromDb(perPage);
+        return this.mergeUniquePopularResults(fromTypesense, fromDb, perPage);
+      } catch (error) {
+        this.logger.warn(
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+          '[Search] Typesense popular failed — using published DB fallback',
+        );
+      }
+    }
+
+    return this.loadPopularFromDb(perPage);
   }
 
   private async loadPopularFromTypesense(perPage: number): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
     const filterBy = config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT];
+    // Over-fetch: cheapest Typesense docs are often stale OOS that PDP would 404.
+    const fetchSize = Math.min(Math.max(perPage * 10, 40), 100);
 
-    try {
-      const result = await this.typesenseClient
-        .getSearchClient()
-        .collections(collectionName)
-        .documents()
-        .search({
-          q: '*',
-          query_by: 'name',
-          per_page: Math.min(perPage * 3, 30),
-          exhaustive_search: false,
-          ...(filterBy ? { filter_by: filterBy } : {}),
-          ...(config.hasPopularSortField
-            ? { sort_by: `${PRODUCT_POPULAR_SORT_FIELD}:asc` }
-            : {}),
-        });
+    const result = await this.typesenseClient
+      .getSearchClient()
+      .collections(collectionName)
+      .documents()
+      .search({
+        q: '*',
+        query_by: 'name',
+        per_page: fetchSize,
+        exhaustive_search: false,
+        ...(filterBy ? { filter_by: filterBy } : {}),
+        ...(config.hasPopularSortField
+          ? { sort_by: `${PRODUCT_POPULAR_SORT_FIELD}:asc` }
+          : {}),
+      });
 
-      return filterDistinctMatchingProductVariants(
+    const candidates = this.dedupePopularByRefId(
+      filterDistinctMatchingProductVariants(
         mapTypesenseHitsToSearchResults(
           (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
         ),
-      ).slice(0, perPage);
-    } catch (error) {
-      this.logger.warn(
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-        '[Search] Typesense popular failed — returning empty',
-      );
+      ),
+    );
+    if (!candidates.length) {
       return [];
     }
+
+    return this.resolvePopularFromPublishedProducts(candidates, perPage);
+  }
+
+  private async loadPopularFromDb(perPage: number): Promise<IPublicSearchResult[]> {
+    const variants = await this.productsRepository.findPublishedPopularVariants(perPage);
+    return variants
+      .map((variant) => mapVariantToSearchResult(variant))
+      .filter((result): result is IPublicSearchResult => Boolean(result))
+      .slice(0, perPage);
+  }
+
+  /**
+   * Keep Typesense ordering, but only products that are published with at least
+   * one sellable variant — rebuild title/slug/productPageUrl from DB so links work.
+   */
+  private async resolvePopularFromPublishedProducts(
+    candidates: IPublicSearchResult[],
+    perPage: number,
+  ): Promise<IPublicSearchResult[]> {
+    const published = await this.productsRepository.findPublishedByRefIds(
+      candidates.map((candidate) => candidate.refId),
+    );
+    const publishedByRefId = new Map(published.map((product) => [product.refId, product]));
+    const results: IPublicSearchResult[] = [];
+
+    for (const candidate of candidates) {
+      if (results.length >= perPage) {
+        break;
+      }
+
+      const product = publishedByRefId.get(candidate.refId);
+      if (!product?.variants?.length) {
+        continue;
+      }
+
+      const matchedVariant =
+        product.variants.find(
+          (variant) =>
+            variant.slug === candidate.slug ||
+            variant.productPageUrl === candidate.productPageUrl,
+        ) ??
+        [...product.variants].sort(
+          (left, right) =>
+            (Number(left.sellingPrice) || 0) - (Number(right.sellingPrice) || 0),
+        )[0];
+
+      if (!matchedVariant) {
+        continue;
+      }
+
+      // Variants from findPublishedByRefIds are not joined with product.
+      matchedVariant.product = product;
+      const mapped = mapVariantToSearchResult(matchedVariant);
+      if (mapped) {
+        results.push(mapped);
+      }
+    }
+
+    return results;
+  }
+
+  private dedupePopularByRefId(results: IPublicSearchResult[]): IPublicSearchResult[] {
+    const seenRefIds = new Set<string>();
+    const unique: IPublicSearchResult[] = [];
+    for (const result of results) {
+      if (!result.refId || seenRefIds.has(result.refId)) {
+        continue;
+      }
+      seenRefIds.add(result.refId);
+      unique.push(result);
+    }
+    return unique;
+  }
+
+  private mergeUniquePopularResults(
+    primary: IPublicSearchResult[],
+    secondary: IPublicSearchResult[],
+    perPage: number,
+  ): IPublicSearchResult[] {
+    return this.dedupePopularByRefId([...primary, ...secondary]).slice(0, perPage);
   }
 
   /**
    * Admin Store Configuration `enableTypesense` AND Typesense env/client must both be on.
-   * Otherwise search uses native Postgres fallback; popular returns [].
+   * Otherwise search uses native Postgres fallback; popular also falls back to Postgres.
    */
   private async shouldUseTypesense(): Promise<boolean> {
     if (!this.typesenseClient.isEnabled()) {

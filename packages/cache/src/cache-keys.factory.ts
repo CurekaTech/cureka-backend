@@ -86,7 +86,8 @@ export const CacheKeys = {
     footerNavPattern: () => 'homepage:footer-nav*',
   },
   publicSearch: {
-    popular: (perPage: number) => `public:search:popular:v2:${perPage}`,
+    // v3: DB-validated popular hits (published + sellable only; one per product).
+    popular: (perPage: number) => `public:search:popular:v3:${perPage}`,
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
