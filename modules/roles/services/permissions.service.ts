@@ -230,26 +230,27 @@ export class PermissionsService {
           {
             name: 'Bundle Products',
             key: 'bundle-product-list',
+            permissions: getPerms('bundle_products'),
             subItems: [
               {
                 name: 'All',
                 key: 'bundle-products-list-all',
-                permissions: getPerms('products', ['read']),
+                permissions: getPerms('bundle_products', ['read']),
               },
               {
                 name: 'Active',
                 key: 'bundle-products-list-approved',
-                permissions: getPerms('products', ['read', 'approve']),
+                permissions: getPerms('bundle_products', ['read', 'approve']),
               },
               {
                 name: 'Pending Review',
                 key: 'bundle-products-list-pending',
-                permissions: getPerms('products', ['read']),
+                permissions: getPerms('bundle_products', ['read']),
               },
               {
                 name: 'Rejected',
                 key: 'bundle-products-list-rejected',
-                permissions: getPerms('products', ['read', 'reject']),
+                permissions: getPerms('bundle_products', ['read', 'reject']),
               },
             ],
           },
