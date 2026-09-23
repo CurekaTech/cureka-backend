@@ -3,6 +3,8 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
@@ -35,8 +37,9 @@ export class UsersController {
    * Paginated admin users list with totalOrders / totalSpend.
    */
   @ResponseMessage('Users retrieved successfully')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
+  @RequirePermissions('users.read')
   @Get()
   findAll(@Query() query: UserListQueryDto) {
     // Storefront customers only — vendors/staff use separate admin APIs.
@@ -48,8 +51,9 @@ export class UsersController {
    * Paginated list of normal customer users for admin panel.
    */
   @ResponseMessage('Customer users retrieved successfully')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
+  @RequirePermissions('users.read')
   @Get('customers')
   findCustomers(@Query() query: UserListQueryDto) {
     return this.usersService.findCustomers(query);
@@ -107,8 +111,9 @@ export class UsersController {
    * Admin user detail — profile, addresses, recent orders, order metrics.
    */
   @ResponseMessage('User details retrieved successfully')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
+  @RequirePermissions('users.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.usersService.findOne(refId);
@@ -119,8 +124,9 @@ export class UsersController {
    * Toggle user ACTIVE / INACTIVE.
    */
   @ResponseMessage('User status updated successfully')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
+  @RequirePermissions('users.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -134,8 +140,9 @@ export class UsersController {
    * Add a new address for a user (admin).
    */
   @ResponseMessage('Address created successfully')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
+  @RequirePermissions('users.update')
   @Post(':refId/addresses')
   createAddress(
     @Param('refId', RefIdPipe) refId: string,

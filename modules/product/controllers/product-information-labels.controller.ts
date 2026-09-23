@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ProductInformationLabelsService } from '../services/product-information-labels.service';
 import {
   CreateProductInformationLabelDto,
@@ -26,7 +28,8 @@ import { MasterListQueryDto } from '@modules/master/dto/master-list-query.dto';
 
 @ApiTags('Product Information Labels')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('product-information-labels')
 export class ProductInformationLabelsController {
   constructor(
@@ -35,7 +38,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'Create product information label' })
   @ResponseMessage('Product information label created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('product_informations.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(
@@ -47,7 +50,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'List product information labels' })
   @ResponseMessage('Product information labels retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_informations.read')
   @Get()
   findAll(@Query() query: MasterListQueryDto) {
     return this.productInformationLabelsService.findAll(query);
@@ -55,7 +58,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'Reorder product information labels' })
   @ResponseMessage('Product information labels reordered successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_informations.update')
   @Patch('reorder')
   reorder(
     @Body() dto: ReorderProductInformationLabelsDto,
@@ -66,7 +69,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'Get product information label by refId' })
   @ResponseMessage('Product information label retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_informations.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.productInformationLabelsService.findOne(refId);
@@ -74,7 +77,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'Update product information label status' })
   @ResponseMessage('Product information label status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_informations.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -86,7 +89,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'Update product information label' })
   @ResponseMessage('Product information label updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_informations.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -98,7 +101,7 @@ export class ProductInformationLabelsController {
 
   @ApiOperation({ summary: 'Delete product information label' })
   @ResponseMessage('Product information label deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('product_informations.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {

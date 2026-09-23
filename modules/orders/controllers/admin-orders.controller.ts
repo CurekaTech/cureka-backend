@@ -20,26 +20,30 @@ import {
 } from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { AdminOrderQueryDto, CancelOrderDto, CompleteOrderDto } from '../dto/order.dto';
 import { OrdersService } from '../services/orders.service';
 
 @ApiTags('Admin Orders')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @ApiOperation({
-    summary: 'List all orders (super admin)',
+    summary: 'List all orders',
     description:
       'Paginated order list with search, status filters, date range, and sorting. Search matches order refId, order number, customer name/email/phone, product name, and grand total. ' +
       'Includes unpaid admin-created payment requests (`PAY…`, orderSource=Admin) until payment is captured and a real order is created. ' +
-      'Each row includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt.',
+      'Each row includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt. ' +
+      'Requires `orders.read`.',
   })
   @ResponseMessage('Orders fetched successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.read')
   @Get()
   findAll(@Query() query: AdminOrderQueryDto) {
     return this.ordersService.findAllForAdmin(query);
@@ -49,10 +53,11 @@ export class AdminOrdersController {
     summary: 'Retry an eligible failed cancellation integration step',
     description:
       'Re-queues Unicommerce saleOrder/cancel and/or Shipway /api/cancel. ' +
-      'Does not fabricate external success. Allowed for PROCESSING, REQUIRES_ATTENTION, and HISTORICAL_UNVERIFIED.',
+      'Does not fabricate external success. Allowed for PROCESSING, REQUIRES_ATTENTION, and HISTORICAL_UNVERIFIED. ' +
+      'Requires `orders.update`.',
   })
   @ResponseMessage('Cancellation retry queued')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.update')
   @Post(':id/cancellation/retry')
   retryCancellation(
     @Param('id') id: string,
@@ -62,15 +67,16 @@ export class AdminOrdersController {
   }
 
   @ApiOperation({
-    summary: 'Cancel an order (super admin)',
+    summary: 'Cancel an order',
     description:
       'Requests cancellation before shipping (PENDING / CONFIRMED / PROCESSING). ' +
       'PENDING orders that were never exported are confirmed immediately. ' +
       'Exported orders stay visible as PROCESSING until Unicommerce and Shipway steps settle. ' +
-      'Accepts order UUID (`id`) or business refId. Does not execute a refund.',
+      'Accepts order UUID (`id`) or business refId. Does not execute a refund. ' +
+      'Requires `orders.update`.',
   })
   @ResponseMessage('Cancellation request accepted')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.update')
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)
   cancel(
@@ -82,16 +88,17 @@ export class AdminOrdersController {
   }
 
   @ApiOperation({
-    summary: 'Mark order completed / delivered (super admin)',
+    summary: 'Mark order completed / delivered',
     description:
       'Force-sets order (and local shipment rows) to DELIVERED for testing / ops. ' +
       'Accepts order UUID or business refId. COD unpaid orders are marked PAID. ' +
       'Emits shipment.updated so GoKwik receives AWB status DELIVERED when AWB exists. ' +
       'UniCommerce delivered sync is skipped for now. ' +
-      'Rejected for CANCELLED / RTO. Idempotent if already DELIVERED.',
+      'Rejected for CANCELLED / RTO. Idempotent if already DELIVERED. ' +
+      'Requires `orders.update`.',
   })
   @ResponseMessage('Order marked completed successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.update')
   @Patch(':id/complete')
   @HttpCode(HttpStatus.OK)
   complete(
@@ -109,10 +116,11 @@ export class AdminOrdersController {
       'Do not call this for COD orders. ' +
       'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders. ' +
       'If a link already exists, returns it instead of creating a duplicate. ' +
-      'Optional body: `{ "phone": "9876543210", "email": "user@example.com" }`.',
+      'Optional body: `{ "phone": "9876543210", "email": "user@example.com" }`. ' +
+      'Requires `orders.update`.',
   })
   @ResponseMessage('Payment link generated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.update')
   @Post(':id/generate-link')
   generateLink(
     @Param('id') id: string,
@@ -126,10 +134,11 @@ export class AdminOrdersController {
     summary: 'Regenerate Razorpay payment link for an admin-created order',
     description:
       'Cancels the existing Razorpay link (if any) and creates a new one. ' +
-      'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders.',
+      'Accepts payment-request UUID, PAY refId, or the id returned by GET /admin/orders. ' +
+      'Requires `orders.update`.',
   })
   @ResponseMessage('Payment link regenerated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.update')
   @Post(':id/regenerate-link')
   regenerateLink(
     @Param('id') id: string,
@@ -140,15 +149,16 @@ export class AdminOrdersController {
   }
 
   @ApiOperation({
-    summary: 'Get order detail (super admin)',
+    summary: 'Get order detail',
     description:
       'Returns full order detail including line items, customer, shipment tracking, and all status timestamps ' +
       '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt). ' +
       'Accepts order UUID (`id`), order business refId (e.g. ORD2026123456), or admin payment-request refId (e.g. PAY2026123456). ' +
-      'Payment-request IDs are used by the admin create-order wizard before payment is captured.',
+      'Payment-request IDs are used by the admin create-order wizard before payment is captured. ' +
+      'Requires `orders.read`.',
   })
   @ResponseMessage('Order fetched successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('orders.read')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.ordersService.findOneForAdmin(id);

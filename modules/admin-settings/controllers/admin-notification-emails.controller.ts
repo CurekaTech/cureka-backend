@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import {
   AdminNotificationEmailQueryDto,
   CreateAdminNotificationEmailDto,
@@ -24,14 +26,15 @@ import { AdminNotificationEmailsService } from '../services/admin-notification-e
 
 @ApiTags('Admin Notification Emails')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('admin/settings/notification-emails')
 export class AdminNotificationEmailsController {
   constructor(private readonly service: AdminNotificationEmailsService) {}
 
   @ApiOperation({ summary: 'List notification email recipients' })
   @ResponseMessage('Notification emails retrieved successfully')
+  @RequirePermissions('settings.read')
   @Get()
   findAll(@Query() query: AdminNotificationEmailQueryDto) {
     return this.service.findAll(query);
@@ -39,6 +42,7 @@ export class AdminNotificationEmailsController {
 
   @ApiOperation({ summary: 'Create a notification email recipient' })
   @ResponseMessage('Notification email created successfully')
+  @RequirePermissions('settings.update')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(
@@ -50,6 +54,7 @@ export class AdminNotificationEmailsController {
 
   @ApiOperation({ summary: 'Get a notification email recipient' })
   @ResponseMessage('Notification email retrieved successfully')
+  @RequirePermissions('settings.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.service.findOne(refId);
@@ -57,6 +62,7 @@ export class AdminNotificationEmailsController {
 
   @ApiOperation({ summary: 'Update a notification email recipient' })
   @ResponseMessage('Notification email updated successfully')
+  @RequirePermissions('settings.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -68,6 +74,7 @@ export class AdminNotificationEmailsController {
 
   @ApiOperation({ summary: 'Delete a notification email recipient' })
   @ResponseMessage('Notification email deleted successfully')
+  @RequirePermissions('settings.update')
   @Delete(':refId')
   @HttpCode(HttpStatus.OK)
   remove(@Param('refId', RefIdPipe) refId: string) {

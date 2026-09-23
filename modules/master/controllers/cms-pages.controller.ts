@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import {
   CmsPageQueryDto,
   CreateCmsPageDto,
@@ -25,14 +27,15 @@ import { CmsPagesService } from '../services/cms-pages.service';
 
 @ApiTags('CMS Pages')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/cms-pages')
 export class CmsPagesController {
   constructor(private readonly cmsPagesService: CmsPagesService) {}
 
   @ApiOperation({ summary: 'List CMS pages' })
   @ResponseMessage('CMS pages retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.read')
   @Get()
   findAll(@Query() query: CmsPageQueryDto) {
     return this.cmsPagesService.findAll(query);
@@ -40,7 +43,7 @@ export class CmsPagesController {
 
   @ApiOperation({ summary: 'Get CMS page by slug (admin edit)' })
   @ResponseMessage('CMS page retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.read')
   @Get('by-slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.cmsPagesService.findOneBySlug(slug);
@@ -48,7 +51,7 @@ export class CmsPagesController {
 
   @ApiOperation({ summary: 'Get CMS page by refId' })
   @ResponseMessage('CMS page retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.cmsPagesService.findOne(refId);
@@ -58,7 +61,7 @@ export class CmsPagesController {
     summary: 'Create a CMS page (internal / optional — not used by Pages sidebar)',
   })
   @ResponseMessage('CMS page created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateCmsPageDto, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -67,7 +70,7 @@ export class CmsPagesController {
 
   @ApiOperation({ summary: 'Update CMS page content and SEO fields' })
   @ResponseMessage('CMS page updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -79,7 +82,7 @@ export class CmsPagesController {
 
   @ApiOperation({ summary: 'Update CMS page status' })
   @ResponseMessage('CMS page status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -91,7 +94,7 @@ export class CmsPagesController {
 
   @ApiOperation({ summary: 'Soft-delete a non-predefined CMS page' })
   @ResponseMessage('CMS page deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('cms_pages.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.OK)
   remove(@Param('refId', RefIdPipe) refId: string) {
