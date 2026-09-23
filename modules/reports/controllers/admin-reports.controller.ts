@@ -23,7 +23,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Sales & revenue report (summary + daily rows)' })
   @ResponseMessage('Sales & revenue report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_sales_revenue.read')
   @Get('sales-revenue')
   getSalesRevenue(@Query() query: ReportQueryDto) {
     return this.reportsService.getSalesRevenue(query);
@@ -31,7 +31,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Order report (status summary + daily rows)' })
   @ResponseMessage('Order report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_orders.read')
   @Get('orders')
   getOrders(@Query() query: ReportQueryDto) {
     return this.reportsService.getOrders(query);
@@ -39,7 +39,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Product performance report' })
   @ResponseMessage('Product performance report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_product_performance.read')
   @Get('product-performance')
   getProductPerformance(@Query() query: ReportQueryDto) {
     return this.reportsService.getProductPerformance(query);
@@ -47,7 +47,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Inventory & stock report' })
   @ResponseMessage('Inventory & stock report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_inventory_stock.read')
   @Get('inventory-stock')
   getInventoryStock(@Query() query: ReportQueryDto) {
     return this.reportsService.getInventoryStock(query);
@@ -55,7 +55,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Vendor performance report' })
   @ResponseMessage('Vendor performance report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_vendor_performance.read')
   @Get('vendor-performance')
   getVendorPerformance(@Query() query: ReportQueryDto) {
     return this.reportsService.getVendorPerformance(query);
@@ -63,7 +63,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Customer report' })
   @ResponseMessage('Customer report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_customers.read')
   @Get('customers')
   getCustomers(@Query() query: ReportQueryDto) {
     return this.reportsService.getCustomers(query);
@@ -71,7 +71,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Doctor consultation report (placeholder)' })
   @ResponseMessage('Consultation report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_consultations.read')
   @Get('consultations')
   getConsultations(@Query() query: ReportQueryDto) {
     return this.reportsService.getConsultations(query);
@@ -79,7 +79,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Payment report' })
   @ResponseMessage('Payment report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_payments.read')
   @Get('payments')
   getPayments(@Query() query: ReportQueryDto) {
     return this.reportsService.getPayments(query);
@@ -87,7 +87,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Return, refund & replacement report' })
   @ResponseMessage('Return & refund report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_returns_refunds.read')
   @Get('returns-refunds')
   getReturnsRefunds(@Query() query: ReportQueryDto) {
     return this.reportsService.getReturnsRefunds(query);
@@ -95,7 +95,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Coupon & promotion report' })
   @ResponseMessage('Coupon report fetched successfully')
-  @RequirePermissions('reports.read')
+  @RequirePermissions('reports_coupons.read')
   @Get('coupons')
   getCoupons(@Query() query: ReportQueryDto) {
     return this.reportsService.getCoupons(query);
@@ -103,7 +103,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download sales & revenue report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_sales_revenue.export')
   @Get('sales-revenue/export')
   async exportSalesRevenue(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getSalesRevenueExportRows(query);
@@ -117,7 +117,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download order report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_orders.export')
   @Get('orders/export')
   async exportOrders(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getOrdersExportRows(query);
@@ -131,7 +131,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download product performance report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_product_performance.export')
   @Get('product-performance/export')
   async exportProductPerformance(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getProductPerformanceExportRows(query);
@@ -145,7 +145,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download inventory & stock report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_inventory_stock.export')
   @Get('inventory-stock/export')
   async exportInventoryStock(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getInventoryExportRows(query);
@@ -155,7 +155,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download vendor performance report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_vendor_performance.export')
   @Get('vendor-performance/export')
   async exportVendorPerformance(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getVendorPerformanceExportRows(query);
@@ -169,7 +169,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download customer report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_customers.export')
   @Get('customers/export')
   async exportCustomers(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getCustomerExportRows(query);
@@ -183,7 +183,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download payment report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_payments.export')
   @Get('payments/export')
   async exportPayments(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getPaymentExportRows(query);
@@ -197,7 +197,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download return & refund report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_returns_refunds.export')
   @Get('returns-refunds/export')
   async exportReturnsRefunds(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getReturnRefundExportRows(query);
@@ -211,7 +211,7 @@ export class AdminReportsController {
 
   @ApiOperation({ summary: 'Download coupon report as XLSX' })
   @RawResponse()
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports_coupons.export')
   @Get('coupons/export')
   async exportCoupons(@Query() query: ReportQueryDto, @Res() reply: FastifyReply) {
     const rows = await this.reportsService.getCouponExportRows(query);
