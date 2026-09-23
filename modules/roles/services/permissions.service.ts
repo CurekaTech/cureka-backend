@@ -204,26 +204,27 @@ export class PermissionsService {
           {
             name: 'Product List',
             key: 'products-list-parent',
+            permissions: getPerms('products'),
             subItems: [
               {
                 name: 'All',
                 key: 'products-list-all',
-                permissions: getPerms('products', ['read']),
+                permissions: getPerms('products'),
               },
               {
                 name: 'Active',
                 key: 'products-list-approved',
-                permissions: getPerms('products', ['read', 'approve']),
+                permissions: getPerms('products', ['read', 'approve', 'update', 'status']),
               },
               {
                 name: 'Pending Review',
                 key: 'products-list-pending',
-                permissions: getPerms('products', ['read']),
+                permissions: getPerms('products', ['read', 'approve', 'reject', 'update']),
               },
               {
                 name: 'Rejected',
                 key: 'products-list-rejected',
-                permissions: getPerms('products', ['read', 'reject']),
+                permissions: getPerms('products', ['read', 'reject', 'update', 'delete']),
               },
             ],
           },
@@ -288,7 +289,7 @@ export class PermissionsService {
           {
             name: 'Product Reviews',
             key: 'products-reviews',
-            permissions: getPerms('product_reviews', ['read', 'update', 'delete']),
+            permissions: getPerms('product_reviews', ['read', 'status', 'delete']),
           },
         ],
       },
@@ -393,16 +394,17 @@ export class PermissionsService {
           {
             name: 'COD Blocklist',
             key: 'orders-cod-blocklist',
+            permissions: getPerms('cod_blocklist', ['read', 'create', 'status', 'update', 'delete']),
             subItems: [
               {
                 name: 'All',
                 key: 'orders-cod-blocklist-all',
-                permissions: getPerms('cod_blocklist', ['read', 'update', 'status', 'delete']),
+                permissions: getPerms('cod_blocklist', ['read', 'create', 'status', 'update', 'delete']),
               },
               {
                 name: 'Bulk Upload',
                 key: 'orders-cod-blocklist-bulk-upload',
-                permissions: getPerms('cod_blocklist', ['create']),
+                permissions: getPerms('cod_blocklist', ['create', 'read']),
               },
             ],
           },
@@ -603,6 +605,7 @@ export class PermissionsService {
       {
         name: 'Reports',
         key: 'reports',
+        permissions: getPerms('reports'),
         subItems: [
           {
             name: 'Sales & Revenue',
@@ -660,6 +663,7 @@ export class PermissionsService {
       {
         name: 'Settings',
         key: 'settings',
+        permissions: getPerms('settings'),
         subItems: [
           {
             name: 'Cart Charges',

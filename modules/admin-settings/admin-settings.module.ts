@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { AdminSettingEntity } from './entities/admin-setting.entity';
 import { AdminNotificationEmailEntity } from './entities/admin-notification-email.entity';
 import { AdminSettingsRepository } from './repositories/admin-settings.repository';
@@ -10,7 +11,13 @@ import { AdminSettingsController } from './controllers/admin-settings.controller
 import { AdminNotificationEmailsController } from './controllers/admin-notification-emails.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AdminSettingEntity, AdminNotificationEmailEntity])],
+  imports: [
+    TypeOrmModule.forFeature([
+      AdminSettingEntity,
+      AdminNotificationEmailEntity,
+      AdminUserEntity,
+    ]),
+  ],
   providers: [
     AdminSettingsRepository,
     AdminSettingsService,

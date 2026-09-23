@@ -36,7 +36,7 @@ export class AdminProductReviewsController {
 
   @ResponseMessage('Product review status updated successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @RequirePermissions('product_reviews.update')
+  @RequirePermissions('product_reviews.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
