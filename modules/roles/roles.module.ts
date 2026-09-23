@@ -28,6 +28,8 @@ import { PermissionsGuard } from './guards/permissions.guard';
     RolesRepository,
     PermissionsRepository,
     PermissionsGuard,
+    // So `@UseGuards(PermissionsGuard)` can resolve AdminUserEntity repo in every module
+    TypeOrmModule,
   ],
 })
 export class RolesModule {}
