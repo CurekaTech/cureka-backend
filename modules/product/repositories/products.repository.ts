@@ -749,11 +749,16 @@ export class ProductsRepository {
 
     const [data, total] = await qb.getManyAndCount();
 
-    if (data.length) {
-      await this.attachPublicListRelations(data);
+    // Defense-in-depth: never return non-published rows to the storefront.
+    const publishedOnly = data.filter(
+      (product) => product.status === ProductStatus.PUBLISHED && !product.deletedAt,
+    );
+
+    if (publishedOnly.length) {
+      await this.attachPublicListRelations(publishedOnly);
     }
 
-    return { data, total };
+    return { data: publishedOnly, total };
   }
 
   async findPublishedVariantsPaginated(
@@ -931,13 +936,27 @@ export class ProductsRepository {
         WHERE p.deleted_at IS NULL
           AND p.status = $2
           AND p.category_id = ANY($3::uuid[])
+          AND EXISTS (
+            SELECT 1
+            FROM product_variants pv_ins
+            WHERE pv_ins.product_id = p.id
+              AND pv_ins.deleted_at IS NULL
+              AND pv_ins.status = $5
+              AND pv_ins.out_of_stock = false
+          )
       )
       SELECT id, "categoryId"
       FROM ranked
       WHERE row_num <= $4
       ORDER BY "categoryId", row_num
       `,
-      [tagSlug, ProductStatus.PUBLISHED, uniqueCategoryIds, limitPerCategory],
+      [
+        tagSlug,
+        ProductStatus.PUBLISHED,
+        uniqueCategoryIds,
+        limitPerCategory,
+        VariantStatus.ACTIVE,
+      ],
     );
 
     if (!rows.length) {
@@ -1825,7 +1844,9 @@ export class ProductsRepository {
   ): SelectQueryBuilder<ProductEntity> {
     const qb = this.repo
       .createQueryBuilder('product')
-      .where('product.status = :status', { status: ProductStatus.PUBLISHED });
+      // Storefront: published only — never draft / pending_review / rejected / archived / inactive.
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.deletedAt IS NULL');
     this.applyPublicListFilters(qb, options, omit);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria, omit);
     return qb;
@@ -2282,7 +2303,12 @@ export class ProductsRepository {
     }
 
     for (const product of products) {
-      product.variants = variantsByProduct.get(product.id) ?? [];
+      product.variants = (variantsByProduct.get(product.id) ?? []).filter(
+        (variant) =>
+          !variant.deletedAt &&
+          variant.status === VariantStatus.ACTIVE &&
+          !(variant.outOfStock ?? false),
+      );
       product.media = mediaByProduct.get(product.id) ?? [];
       product.tagMappings = tagsByProduct.get(product.id) ?? [];
     }
@@ -2453,6 +2479,7 @@ export class ProductsRepository {
       .innerJoin('product.category', 'category')
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('variant.outOfStock = false')
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
@@ -2514,7 +2541,10 @@ export class ProductsRepository {
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
-        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
+        (variant) =>
+          !variant.deletedAt &&
+          variant.status === VariantStatus.ACTIVE &&
+          !(variant.outOfStock ?? false),
       );
     }
 
