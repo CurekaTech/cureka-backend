@@ -477,6 +477,7 @@ export class ProductVariantsRepository {
     productType: ProductType,
     variants: CreateVariantDto[],
     attributeIdByRefId: Map<string, string>,
+    options?: { skipSkuUniqueness?: boolean },
   ): Promise<VariantOosTransition[]> {
     if (productType === ProductType.SIMPLE && variants.length !== 1) {
       throw new BadRequestException('Simple products must have exactly one variant');
@@ -570,10 +571,11 @@ export class ProductVariantsRepository {
           previousProductSlug,
           productSlug,
           attributeIdByRefId,
+          options,
         );
         if (transition) oosTransitions.push(transition);
       } else {
-        await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId);
+        await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId, options);
       }
     }
 
@@ -634,11 +636,20 @@ export class ProductVariantsRepository {
     previousProductSlug: string,
     productSlug: string,
     attributeIdByRefId: Map<string, string>,
+    options?: { skipSkuUniqueness?: boolean },
   ): Promise<VariantOosTransition | null> {
     const variantRepo = manager.getRepository(ProductVariantEntity);
     const attributeRepo = manager.getRepository(VariantAttributeValueEntity);
 
-    await this.assertUniqueSkus(dto, existing.id);
+    // Keep existing SKU on edit without re-checking global uniqueness (shared SKUs
+    // are temporarily allowed for bundles via skipSkuUniqueness).
+    if (!options?.skipSkuUniqueness && dto.sku !== existing.sku) {
+      await this.assertUniqueSkus(dto, existing.id);
+    } else if (!options?.skipSkuUniqueness && dto.vendorSku && dto.vendorSku !== existing.vendorSku) {
+      if (await this.existsByVendorSku(dto.vendorSku, existing.id)) {
+        throw new ConflictException(`Vendor SKU "${dto.vendorSku}" already exists`);
+      }
+    }
     validateVariantPricing({
       mrp: dto.mrp,
       sellingPrice: dto.sellingPrice,
