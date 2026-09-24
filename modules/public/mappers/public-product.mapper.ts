@@ -54,8 +54,7 @@ const sanitizePublicProductPageUrl = (
 
 const getActiveVariants = (entity: ProductEntity) =>
   (entity.variants ?? []).filter(
-    (variant) =>
-      variant.status === VariantStatus.ACTIVE && !(variant.outOfStock ?? false),
+    (variant) => variant.status === VariantStatus.ACTIVE,
   );
 
 type CommerceFlagSource = {

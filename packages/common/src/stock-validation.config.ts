@@ -54,19 +54,25 @@ export const isStockInventoryManagementEnabled = (): boolean =>
  * Effective Cureka stock management for a single variant.
  * Env alone is not enough — variant must opt in via inCurekaInventory.
  */
-export const isCurekaInventoryManaged = (variant: {
-  inCurekaInventory?: boolean | null | string | number;
-}): boolean =>
-  isStockInventoryManagementEnabled() && coerceDbBoolean(variant.inCurekaInventory);
+export const isCurekaInventoryManaged = (
+  variant?: {
+    inCurekaInventory?: boolean | null | string | number;
+  } | null,
+): boolean =>
+  variant != null &&
+  isStockInventoryManagementEnabled() &&
+  coerceDbBoolean(variant.inCurekaInventory);
 
 /**
  * Qty enforcement for a specific variant (or global env when no variant given).
  * Without a variant, falls back to global env (legacy call sites).
  */
-export const isStockValidationEnabled = (variant?: {
-  inCurekaInventory?: boolean | null | string | number;
-}): boolean =>
-  variant === undefined
+export const isStockValidationEnabled = (
+  variant?: {
+    inCurekaInventory?: boolean | null | string | number;
+  } | null,
+): boolean =>
+  variant == null
     ? isStockInventoryManagementEnabled()
     : isCurekaInventoryManaged(variant);
 
@@ -86,7 +92,7 @@ export const STOCK_VALIDATION_ENABLED = isStockValidationEnabled;
  */
 export const isVariantInStock = (
   stock: number | null | undefined,
-  variant?: { inCurekaInventory?: boolean | null | string | number },
+  variant?: { inCurekaInventory?: boolean | null | string | number } | null,
 ): boolean => !isStockValidationEnabled(variant) || (stock ?? 0) > 0;
 
 /**
@@ -97,7 +103,7 @@ export const isVariantInStock = (
 export const getSalableStockQuantity = (
   actualStock: number | null | undefined,
   minimumRequired = 1,
-  variant?: { inCurekaInventory?: boolean | null | string | number },
+  variant?: { inCurekaInventory?: boolean | null | string | number } | null,
 ): number => {
   const stock = actualStock ?? 0;
   if (!isStockValidationEnabled(variant)) {

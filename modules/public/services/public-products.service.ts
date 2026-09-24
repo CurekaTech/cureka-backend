@@ -472,7 +472,6 @@ export class PublicProductsService {
           const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
-            // Fully OOS products are hidden from the storefront.
             if (!detail.variants.length) {
               continue;
             }
