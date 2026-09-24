@@ -566,7 +566,7 @@ export class CartService {
   ): Promise<CartLineItem[]> {
     return Promise.all(
       (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
-        const variant = item.variant as ProductVariantEntity | undefined;
+        const variant = item.variant ?? undefined;
         const product = item.product as ProductEntity | undefined;
         const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
         const mrpRaw = variant?.mrp != null ? parseFloat(String(variant.mrp)) : NaN;

@@ -85,7 +85,7 @@ export const envValidationSchema = Joi.object({
   IMAGE_DELIVERY_ENABLED: Joi.string().valid('true', 'false').default('false'),
   IMAGE_PROCESSING_ENABLED: Joi.string().valid('true', 'false').default('false'),
   IMAGE_WORKER_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  IMAGE_WORKER_CONCURRENCY: Joi.number().integer().min(1).max(4).default(1),
+  IMAGE_WORKER_CONCURRENCY: Joi.number().integer().min(1).max(8).default(1),
   IMAGE_PIPELINE_VERSION: Joi.string().max(32).default('v1'),
   IMAGE_DERIVATIVE_PREFIX: Joi.string().max(64).default('derivatives'),
   IMAGE_ALLOWED_WIDTHS: Joi.string().allow('').optional(),
@@ -162,6 +162,8 @@ export const envValidationSchema = Joi.object({
   SHIPROCKET_CHECKOUT_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
   STOREFRONT_URL: Joi.string().uri().allow('').optional(),
+  /** Shared with the storefront POST /api/revalidate. Empty skips the purge. */
+  REVALIDATE_SECRET: Joi.string().allow('').optional(),
   SITEMAP_ENABLED: Joi.string().valid('true', 'false').default('true'),
   SITEMAP_BASE_URL: Joi.string().uri().optional(),
   SITEMAP_BATCH_SIZE: Joi.number().integer().min(100).max(50000).default(10000),

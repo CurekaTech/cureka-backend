@@ -18,6 +18,7 @@ import { CategoriesRepository } from '@modules/master/repositories/categories.re
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
+import { PublicProductReviewStatsService } from './public-product-review-stats.service';
 import { mapCategoryEntitiesToPublicListItems } from '../mappers/public-category.mapper';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 import {
@@ -172,6 +173,7 @@ export class HomepageSectionsService implements OnModuleInit {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productsRepository: ProductsRepository,
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly reviewStats: PublicProductReviewStatsService,
   ) {}
 
   onModuleInit(): void {
@@ -213,7 +215,7 @@ export class HomepageSectionsService implements OnModuleInit {
     const l1 = this.enrichedL1.get(variant);
     if (l1 && l1.expiresAt > Date.now()) {
       this.logSectionsTiming('l1', variant, startedAt, 0);
-      return l1.value;
+      return this.withReviewStats(l1.value);
     }
 
     const enrichedKey = CacheKeys.homepage.sections(`v12-enriched-${variant}`);
@@ -221,7 +223,7 @@ export class HomepageSectionsService implements OnModuleInit {
     if (fromEnriched) {
       this.setL1(variant, fromEnriched);
       this.logSectionsTiming('enriched_redis', variant, startedAt, 0);
-      return fromEnriched;
+      return this.withReviewStats(fromEnriched);
     }
 
     const unsigned = await this.cacheStrategy.cacheAside({
@@ -242,7 +244,14 @@ export class HomepageSectionsService implements OnModuleInit {
     );
     this.setL1(variant, enriched);
     this.logSectionsTiming('unsigned_rebuild', variant, startedAt, enrichMs);
-    return enriched;
+    return this.withReviewStats(enriched);
+  }
+
+  private async withReviewStats(
+    sections: IHomepageSectionsResponse,
+  ): Promise<IHomepageSectionsResponse> {
+    await this.reviewStats.attachDeep(sections);
+    return sections;
   }
 
   private logSectionsTiming(

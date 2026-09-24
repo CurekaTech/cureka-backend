@@ -230,6 +230,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     WishlistService,
     // ── Reviews ──────────────────────────────────────────────────────────────
     ProductReviewsService,
+    ProductReviewsRepository,
   ],
 })
 export class ProductModule {}

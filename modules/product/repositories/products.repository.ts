@@ -942,7 +942,6 @@ export class ProductsRepository {
             WHERE pv_ins.product_id = p.id
               AND pv_ins.deleted_at IS NULL
               AND pv_ins.status = $5
-              AND pv_ins.out_of_stock = false
           )
       )
       SELECT id, "categoryId"
@@ -2199,14 +2198,13 @@ export class ProductsRepository {
       );
     }
 
-    // Public storefront: only products with at least one active in-stock variant.
+    // Public storefront: published products with an active variant, including out of stock.
     qb.andWhere(
       `EXISTS (
         SELECT 1 FROM product_variants pv_ins
         WHERE pv_ins.product_id = product.id
           AND pv_ins.deleted_at IS NULL
           AND pv_ins.status = :publicInStockVariantStatus
-          AND pv_ins.out_of_stock = false
       )`,
       { publicInStockVariantStatus: VariantStatus.ACTIVE },
     );
@@ -2304,10 +2302,7 @@ export class ProductsRepository {
 
     for (const product of products) {
       product.variants = (variantsByProduct.get(product.id) ?? []).filter(
-        (variant) =>
-          !variant.deletedAt &&
-          variant.status === VariantStatus.ACTIVE &&
-          !(variant.outOfStock ?? false),
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
       );
       product.media = mediaByProduct.get(product.id) ?? [];
       product.tagMappings = tagsByProduct.get(product.id) ?? [];
@@ -2586,10 +2581,7 @@ export class ProductsRepository {
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
-        (variant) =>
-          !variant.deletedAt &&
-          variant.status === VariantStatus.ACTIVE &&
-          !(variant.outOfStock ?? false),
+        (variant) => !variant.deletedAt && variant.status === VariantStatus.ACTIVE,
       );
     }
 
@@ -2756,7 +2748,6 @@ export class ProductsRepository {
           WHERE pv_ins.product_id = product.id
             AND pv_ins.deleted_at IS NULL
             AND pv_ins.status = $4
-            AND pv_ins.out_of_stock = false
         )
         AND (
           product.category_id = $3 OR

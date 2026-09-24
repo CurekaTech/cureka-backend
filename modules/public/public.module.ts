@@ -20,6 +20,9 @@ import { PublicProductsService } from './services/public-products.service';
 import { PublicProductFiltersService } from './services/public-product-filters.service';
 import { PublicBundlesService } from './services/public-bundles.service';
 import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.listener';
+import { StorefrontRevalidateListener } from './listeners/storefront-revalidate.listener';
+import { StorefrontRevalidateService } from './services/storefront-revalidate.service';
+import { PublicProductReviewStatsService } from './services/public-product-review-stats.service';
 
 @Module({
   imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule],
@@ -42,6 +45,9 @@ import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.l
     PublicProductFiltersService,
     PublicBundlesService,
     PublicHomepageCacheListener,
+    StorefrontRevalidateService,
+    StorefrontRevalidateListener,
+    PublicProductReviewStatsService,
   ],
   exports: [HomepageService],
 })

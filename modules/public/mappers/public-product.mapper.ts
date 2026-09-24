@@ -54,8 +54,7 @@ const sanitizePublicProductPageUrl = (
 
 const getActiveVariants = (entity: ProductEntity) =>
   (entity.variants ?? []).filter(
-    (variant) =>
-      variant.status === VariantStatus.ACTIVE && !(variant.outOfStock ?? false),
+    (variant) => variant.status === VariantStatus.ACTIVE,
   );
 
 type CommerceFlagSource = {
@@ -646,6 +645,8 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     name: mapping.tag?.name ?? '',
     slug: mapping.tag?.slug ?? '',
   })),
+  averageRating: 0,
+  reviewCount: 0,
   } as IPublicProductCard;
 };
 
@@ -673,6 +674,8 @@ export const toPublicStorefrontProductCard = (
   categoryName: card.categoryName,
   subCategoryName: card.subCategoryName,
   tags: card.tags.map((tag) => ({ name: tag.name })),
+  averageRating: card.averageRating ?? 0,
+  reviewCount: card.reviewCount ?? 0,
 });
 
 export const mapProductEntitiesToPublicStorefrontCards = (

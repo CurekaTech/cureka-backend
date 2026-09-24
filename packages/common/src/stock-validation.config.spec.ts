@@ -35,6 +35,13 @@ describe('stock-validation.config (Cureka inventory)', () => {
     expect(isVariantInStock(3, { inCurekaInventory: true })).toBe(true);
   });
 
+  it('treats a missing variant as not Cureka-managed', () => {
+    process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = 'true';
+    expect(isCurekaInventoryManaged(null)).toBe(false);
+    expect(isVariantInStock(0, null)).toBe(false);
+    expect(isStockValidationEnabled(null)).toBe(true);
+  });
+
   it('coerces QueryBuilder/driver string booleans for inCurekaInventory', () => {
     process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = 'true';
     expect(isCurekaInventoryManaged({ inCurekaInventory: 'true' as unknown as boolean })).toBe(

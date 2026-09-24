@@ -14,6 +14,7 @@ import { PublicWatchAndShopQueryDto } from '@modules/master/dto/watch-and-shop.d
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
+import { PublicProductReviewStatsService } from './public-product-review-stats.service';
 import { IPublicWatchAndShopItem } from '../interfaces/public-watch-and-shop.interface';
 
 @Injectable()
@@ -22,6 +23,7 @@ export class PublicWatchAndShopService {
     private readonly watchAndShopService: WatchAndShopService,
     private readonly productsRepository: ProductsRepository,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly reviewStats: PublicProductReviewStatsService,
   ) {}
 
   findAll(
@@ -39,6 +41,13 @@ export class PublicWatchAndShopService {
       key: CacheKeys.watchAndShop.list(queryHash),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadAllUncached(query),
+    }).then(async (result) => {
+      const cards = result.data.map((item) => item.product);
+      const withRatings = await this.reviewStats.attach(cards);
+      return {
+        ...result,
+        data: result.data.map((item, index) => ({ ...item, product: withRatings[index]! })),
+      };
     });
   }
 

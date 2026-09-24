@@ -6,6 +6,8 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -45,6 +47,7 @@ export class ProductReviewsService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async findAll(query: ProductReviewQueryDto): Promise<PaginatedResult<IProductReview>> {
@@ -183,6 +186,11 @@ export class ProductReviewsService {
       productImage,
     });
 
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(updated.productRefId, 'updated'),
+    );
+
     return this.storageUrlEnricher.enrichFields(item, ['productImage']);
   }
 
@@ -192,6 +200,10 @@ export class ProductReviewsService {
       throw new NotFoundException(`Product review with refId ${refId} not found`);
     }
     await this.reviewsRepository.softDeleteByRefId(refId);
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(existing.productRefId, 'updated'),
+    );
   }
 
   private async resolvePublishedProduct(slug: string) {

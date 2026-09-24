@@ -81,6 +81,7 @@ import {
   pickVariantForRequestSlug,
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
+import { PublicProductReviewStatsService } from './public-product-review-stats.service';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
 import {
   resolveFbtFallbackCategoryIds,
@@ -109,6 +110,7 @@ export class PublicProductsService {
     private readonly bannersService: BannersService,
     private readonly blogPostsService: BlogPostsService,
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
+    private readonly reviewStats: PublicProductReviewStatsService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -470,7 +472,6 @@ export class PublicProductsService {
           const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
-            // Fully OOS products are hidden from the storefront.
             if (!detail.variants.length) {
               continue;
             }
@@ -903,6 +904,7 @@ export class PublicProductsService {
 
   private async enrichPaginatedCards<
     T extends {
+      id: string;
       primaryImageUrl: IPublicProductCard['primaryImageUrl'];
       pricing: IPublicProductCard['pricing'];
       outOfStock: boolean;
@@ -920,7 +922,7 @@ export class PublicProductsService {
         };
 
         if (!card.primaryImageUrl) {
-          return { ...card, pricing };
+          return { ...card, pricing } as T;
         }
 
         const key =
@@ -930,14 +932,15 @@ export class PublicProductsService {
         const t = Date.now();
         const primaryImageUrl = await this.storageUrlEnricher.toReference(card.primaryImageUrl);
         this.logger.log(`  [IMG] key="${key}" signing=${Date.now() - t}ms`);
-    return {
+        return {
           ...card,
           primaryImageUrl,
           pricing,
-    };
+        } as T;
       }),
     );
-    return { ...result, data };
+    const withRatings = await this.reviewStats.attach(data);
+    return { ...result, data: withRatings as T[] };
   }
 
   private async enrichCard<
@@ -954,7 +957,7 @@ export class PublicProductsService {
         ...card.pricing,
         inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
       },
-    };
+    } as T;
   }
 
   private async enrichDetail(product: IPublicProductDetail): Promise<IPublicStorefrontProductDetail> {
@@ -1184,13 +1187,15 @@ export class PublicProductsService {
 
   private async enrichRecommendationResult<
     T extends {
+      id: string;
       primaryImageUrl: IPublicProductCard['primaryImageUrl'];
       pricing: IPublicProductCard['pricing'];
       outOfStock: boolean;
     },
   >(result: PaginatedResult<T>): Promise<PaginatedResult<T>> {
     const data = await Promise.all(result.data.map((card) => this.enrichCard(card)));
-    return { ...result, data };
+    const withRatings = await this.reviewStats.attach(data);
+    return { ...result, data: withRatings as T[] };
   }
 
   private async loadYouMayAlsoLikeCards(
