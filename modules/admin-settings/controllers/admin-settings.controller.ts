@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { ResponseMessage } from '@packages/common';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import {
   UpdateSettingValueDto,
   ToggleSettingStatusDto,
@@ -14,8 +16,8 @@ import { AdminSettingsService } from '../services/admin-settings.service';
 
 @ApiTags('Admin Settings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('admin/settings')
 export class AdminSettingsController {
   constructor(private readonly adminSettingsService: AdminSettingsService) {}
@@ -29,6 +31,7 @@ export class AdminSettingsController {
       'Filter settings by type: cart_charges, payment_methods, store_configuration, or logistic_partners',
   })
   @ResponseMessage('Admin settings retrieved successfully')
+  @RequirePermissions('settings.read')
   @Get()
   findAll(@Query('type') type?: string) {
     return this.adminSettingsService.findAll(type);
@@ -42,6 +45,7 @@ export class AdminSettingsController {
     description: 'Type: cart_charges, payment_methods, or logistic_partners',
   })
   @ResponseMessage('Admin settings updated successfully')
+  @RequirePermissions('settings.update')
   @Put()
   bulkUpdate(
     @Query('type') type: string,
@@ -53,6 +57,7 @@ export class AdminSettingsController {
 
   @ApiOperation({ summary: 'Get Allow Guest Login setting' })
   @ResponseMessage('Allow guest login setting retrieved successfully')
+  @RequirePermissions('settings.read')
   @Get('allow-guest-login')
   getAllowGuestLogin() {
     return this.adminSettingsService.getAllowGuestLogin();
@@ -60,6 +65,7 @@ export class AdminSettingsController {
 
   @ApiOperation({ summary: 'Update Allow Guest Login setting' })
   @ResponseMessage('Allow guest login setting updated successfully')
+  @RequirePermissions('settings.update')
   @Put('allow-guest-login')
   updateAllowGuestLogin(
     @Body() dto: UpdateAllowGuestLoginDto,
@@ -70,6 +76,7 @@ export class AdminSettingsController {
 
   @ApiOperation({ summary: 'Get Enable Typesense setting (Store Configuration)' })
   @ResponseMessage('Enable Typesense setting retrieved successfully')
+  @RequirePermissions('settings.read')
   @Get('enable-typesense')
   getEnableTypesense() {
     return this.adminSettingsService.getEnableTypesense();
@@ -77,6 +84,7 @@ export class AdminSettingsController {
 
   @ApiOperation({ summary: 'Update Enable Typesense setting (Store Configuration)' })
   @ResponseMessage('Enable Typesense setting updated successfully')
+  @RequirePermissions('settings.update')
   @Put('enable-typesense')
   updateEnableTypesense(
     @Body() dto: UpdateEnableTypesenseDto,
@@ -87,6 +95,7 @@ export class AdminSettingsController {
 
   @ApiOperation({ summary: 'Update admin setting value' })
   @ResponseMessage('Admin setting value updated successfully')
+  @RequirePermissions('settings.update')
   @Put(':key/value')
   updateValue(
     @Param('key') key: string,
@@ -98,6 +107,7 @@ export class AdminSettingsController {
 
   @ApiOperation({ summary: 'Toggle admin setting status' })
   @ResponseMessage('Admin setting status toggled successfully')
+  @RequirePermissions('settings.status')
   @Patch(':key/status')
   toggleStatus(
     @Param('key') key: string,

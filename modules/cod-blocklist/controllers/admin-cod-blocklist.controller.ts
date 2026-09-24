@@ -71,7 +71,7 @@ export class AdminCodBlocklistController {
 
   @ApiOperation({ summary: 'Update a COD blocklist entry' })
   @ResponseMessage('COD blocklist entry updated successfully')
-  @RequirePermissions('cod_blocklist.update')
+  @RequirePermissions('cod_blocklist.status')
   @Patch(':id')
   update(
     @Param('id') id: string,

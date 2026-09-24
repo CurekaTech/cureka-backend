@@ -3,19 +3,22 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ProductVariantsService } from '../services/product-variants.service';
 import { CreateVariantDto } from '../dto/variant.dto';
 
 @ApiTags('Product Variants')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('products/:productRefId/variants')
 export class ProductVariantsController {
   constructor(private readonly variantsService: ProductVariantsService) {}
 
   @ApiOperation({ summary: 'Bulk add variants to existing product' })
   @ResponseMessage('Variants added successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('products.update')
   @Post()
   addVariants(
     @Param('productRefId', RefIdPipe) productRefId: string,
@@ -27,7 +30,7 @@ export class ProductVariantsController {
 
   @ApiOperation({ summary: 'Soft delete variant' })
   @ResponseMessage('Variant deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('products.delete')
   @Delete(':variantId')
   @HttpCode(HttpStatus.NO_CONTENT)
   removeVariant(

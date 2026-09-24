@@ -24,6 +24,8 @@ describe('PublicSearchService native fallback', () => {
   };
   const productsRepository = {
     findPublishedDropdownSuggestions: jest.fn(),
+    findPublishedByRefIds: jest.fn(),
+    findPublishedPopularVariants: jest.fn(),
   };
   const brandsRepository = {
     findPublicPaginated: jest.fn(),
@@ -47,11 +49,14 @@ describe('PublicSearchService native fallback', () => {
     typesenseClient.isEnabled.mockReturnValue(false);
     adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(false);
     productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
+    productsRepository.findPublishedByRefIds.mockResolvedValue([]);
+    productsRepository.findPublishedPopularVariants.mockResolvedValue([]);
     brandsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
     categoriesRepository.findPublicPaginated.mockResolvedValue({ data: [] });
     categoriesRepository.findActiveByRefIds.mockResolvedValue([]);
     categoriesRepository.findSlugPathById.mockResolvedValue([]);
     healthConcernsRepository.findPublicPaginated.mockResolvedValue({ data: [] });
+    cacheStrategy.cacheAside.mockImplementation(async ({ loader }) => loader());
 
     service = new PublicSearchService(
       typesenseClient as unknown as TypesenseClientService,
@@ -190,5 +195,148 @@ describe('PublicSearchService native fallback', () => {
         refId: 'HC1',
       },
     ]);
+  });
+});
+
+describe('PublicSearchService popular', () => {
+  const typesenseClient = {
+    isEnabled: jest.fn(),
+    getCollectionName: jest.fn().mockReturnValue('products'),
+    getSearchClient: jest.fn(),
+  };
+  const collectionService = {
+    getSearchRuntimeConfig: jest.fn(),
+  };
+  const adminSettingsService = {
+    isTypesenseSearchEnabled: jest.fn(),
+  };
+  const productsRepository = {
+    findPublishedDropdownSuggestions: jest.fn(),
+    findPublishedByRefIds: jest.fn(),
+    findPublishedPopularVariants: jest.fn(),
+  };
+  const brandsRepository = { findPublicPaginated: jest.fn() };
+  const categoriesRepository = {
+    findPublicPaginated: jest.fn(),
+    findActiveByRefIds: jest.fn(),
+    findSlugPathById: jest.fn(),
+  };
+  const healthConcernsRepository = { findPublicPaginated: jest.fn() };
+  const cacheStrategy = {
+    cacheAside: jest.fn(async ({ loader }) => loader()),
+  };
+
+  let service: PublicSearchService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    cacheStrategy.cacheAside.mockImplementation(async ({ loader }) => loader());
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
+    productsRepository.findPublishedByRefIds.mockResolvedValue([]);
+    productsRepository.findPublishedPopularVariants.mockResolvedValue([]);
+
+    service = new PublicSearchService(
+      typesenseClient as unknown as TypesenseClientService,
+      collectionService as unknown as TypesenseCollectionService,
+      adminSettingsService as unknown as AdminSettingsService,
+      productsRepository as unknown as ProductsRepository,
+      brandsRepository as unknown as BrandsRepository,
+      categoriesRepository as unknown as CategoriesRepository,
+      healthConcernsRepository as unknown as HealthConcernsRepository,
+      cacheStrategy as unknown as CacheStrategyService,
+    );
+  });
+
+  it('falls back to published DB popular when Typesense is off', async () => {
+    typesenseClient.isEnabled.mockReturnValue(false);
+    productsRepository.findPublishedPopularVariants.mockResolvedValue([
+      {
+        slug: 'sellable-ors',
+        displayName: 'Sellable ORS',
+        productPageUrl: '/shop/sellable-ors/',
+        product: { refId: 'PRD-LIVE', name: 'Sellable ORS', slug: 'sellable-ors' },
+      },
+    ]);
+
+    await expect(service.getPopular(4)).resolves.toEqual([
+      {
+        entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+        title: 'Sellable ORS',
+        slug: 'sellable-ors',
+        refId: 'PRD-LIVE',
+        productPageUrl: '/shop/sellable-ors/',
+      },
+    ]);
+    expect(productsRepository.findPublishedPopularVariants).toHaveBeenCalledWith(4);
+  });
+
+  it('drops stale Typesense hits that are not sellable in Postgres', async () => {
+    typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasPopularSortField: true,
+      productQueryBy: 'name',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product && inStock:true',
+      },
+    });
+    typesenseClient.getSearchClient.mockReturnValue({
+      collections: () => ({
+        documents: () => ({
+          search: jest.fn().mockResolvedValue({
+            hits: [
+              {
+                document: {
+                  entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                  refId: 'OOS1',
+                  name: 'Stale OOS',
+                  slug: 'stale-oos',
+                  productPageUrl: '/shop/stale-oos/',
+                },
+              },
+              {
+                document: {
+                  entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                  refId: 'LIVE1',
+                  name: 'Live Product',
+                  slug: 'live-product',
+                  productPageUrl: '/shop/live-product/',
+                },
+              },
+            ],
+          }),
+        }),
+      }),
+    });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      {
+        refId: 'LIVE1',
+        name: 'Live Product',
+        slug: 'live-product',
+        variants: [
+          {
+            slug: 'live-product',
+            displayName: 'Live Product',
+            productPageUrl: '/shop/live-product/',
+            sellingPrice: '99',
+            product: { refId: 'LIVE1', name: 'Live Product', slug: 'live-product' },
+          },
+        ],
+      },
+    ]);
+
+    await expect(service.getPopular(4)).resolves.toEqual([
+      {
+        entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+        title: 'Live Product',
+        slug: 'live-product',
+        refId: 'LIVE1',
+        productPageUrl: '/shop/live-product/',
+      },
+    ]);
+    expect(productsRepository.findPublishedByRefIds).toHaveBeenCalledWith(['OOS1', 'LIVE1']);
+    expect(productsRepository.findPublishedPopularVariants).toHaveBeenCalled();
   });
 });
