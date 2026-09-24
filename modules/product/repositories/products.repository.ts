@@ -1692,6 +1692,20 @@ export class ProductsRepository {
         ? options?.tagSlug
         : undefined;
 
+    // Web lists keep the existing sort, with in-stock products before out-of-stock ones.
+    qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
+    qb.addSelect(
+      `(CASE WHEN EXISTS (
+          SELECT 1 FROM product_variants pv_avail
+          WHERE pv_avail.product_id = product.id
+            AND pv_avail.deleted_at IS NULL
+            AND pv_avail.status = :publicListStockVariantStatus
+            AND pv_avail.out_of_stock = false
+        ) THEN 0 ELSE 1 END)`,
+      'in_stock_rank',
+    );
+    qb.orderBy('in_stock_rank', 'ASC');
+
     if (bestsellerTagSlug) {
       qb.setParameter('bestsellerSortTagSlug', bestsellerTagSlug);
       qb.addSelect(
@@ -1709,7 +1723,7 @@ export class ProductsRepository {
           LIMIT 1)`,
         'bestseller_sort_order',
       );
-      qb.orderBy('bestseller_rank', 'ASC');
+      qb.addOrderBy('bestseller_rank', 'ASC');
       qb.addOrderBy('bestseller_sort_order', 'ASC', 'NULLS LAST');
     }
 
@@ -1736,23 +1750,13 @@ export class ProductsRepository {
             AND pv_top.is_top = true)`,
         'top_sort_order',
       );
-      if (bestsellerTagSlug) {
-        qb.addOrderBy('top_rank', 'ASC');
-      } else {
-        qb.orderBy('top_rank', 'ASC');
-      }
+      qb.addOrderBy('top_rank', 'ASC');
       qb.addOrderBy('top_sort_order', 'ASC', 'NULLS LAST');
     }
 
-    const hasPrimaryOrder = Boolean(bestsellerTagSlug || options?.prioritizeTopProducts);
-
     if (sortBy === 'bestsellerIndex' && options?.tagSlug && !options?.prioritizeBestsellers) {
       // Bestsellers-only listing: index already applied above; tie-break by publishedAt.
-      if (hasPrimaryOrder) {
-        qb.addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST');
-      } else {
-        qb.orderBy('product.publishedAt', 'DESC', 'NULLS LAST');
-      }
+      qb.addOrderBy('product.publishedAt', 'DESC', 'NULLS LAST');
       return;
     }
 
@@ -1762,11 +1766,7 @@ export class ProductsRepository {
         `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
         'min_price',
       );
-      if (hasPrimaryOrder) {
-        qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
-      } else {
-        qb.orderBy('min_price', sortOrder, 'NULLS LAST');
-      }
+      qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
       return;
     }
 
@@ -1780,11 +1780,7 @@ export class ProductsRepository {
         : (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
     const secondaryOrder = sortBy === 'bestsellerIndex' ? 'DESC' : sortOrder;
 
-    if (hasPrimaryOrder) {
-      qb.addOrderBy(sortColumn, secondaryOrder, 'NULLS LAST');
-    } else {
-      qb.orderBy(sortColumn, secondaryOrder, 'NULLS LAST');
-    }
+    qb.addOrderBy(sortColumn, secondaryOrder, 'NULLS LAST');
   }
 
   private applyPublicVariantSearchSort(
