@@ -7,6 +7,9 @@ import { IImageDeliveryVariant, ImageDeliveryStatus } from '@packages/storage';
  */
 export const BANNER_LCP_TARGET_WIDTH = 800;
 
+/** Product cards are ~212 CSS px; 480 covers 2x. */
+export const PRODUCT_CARD_TARGET_WIDTH = 480;
+
 export const selectBannerStorefrontVariant = (input: {
   sourceKey: string;
   status: ImageDeliveryStatus;
@@ -36,6 +39,36 @@ export const selectBannerStorefrontVariant = (input: {
   }
 
   return null;
+};
+
+/**
+ * Product list cards. Picks a WebP at least 480px wide when one exists.
+ * Smaller widths stay on `imageDelivery.variants` for srcset.
+ */
+export const selectProductCardStorefrontVariant = (input: {
+  sourceKey: string;
+  status: ImageDeliveryStatus;
+  variants: IImageDeliveryVariant[];
+}): IImageDeliveryVariant | null => {
+  if (!input.sourceKey.startsWith('images/')) return null;
+  if (input.status !== 'ready' && input.status !== 'partial') return null;
+
+  const variants = input.variants
+    .filter(
+      (variant) =>
+        variant.format === 'webp' &&
+        variant.width > 0 &&
+        isUsableDerivativeUrl(variant.url),
+    )
+    .sort((left, right) => left.width - right.width);
+
+  if (variants.length === 0) return null;
+
+  return (
+    variants.find((variant) => variant.width >= PRODUCT_CARD_TARGET_WIDTH) ??
+    variants[variants.length - 1] ??
+    null
+  );
 };
 
 const isUsableDerivativeUrl = (url: string): boolean =>

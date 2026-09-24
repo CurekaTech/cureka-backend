@@ -15,6 +15,7 @@ import {
 } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { rewriteLegacyStorefrontUrl } from '@modules/public/utils/rewrite-legacy-storefront-url';
 import { HomeSectionUpdatedEvent, EVENTS } from '@packages/events';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '../repositories/categories.repository';
@@ -398,7 +399,8 @@ export class HomeSectionsService implements OnModuleInit {
         {
           imageUrl: firstImage,
           mobileImageUrl: null,
-          linkUrl: (dto.linkUrl ?? existingBanners[0]?.linkUrl ?? '#').trim() || '#',
+          linkUrl:
+            rewriteLegacyStorefrontUrl(dto.linkUrl ?? existingBanners[0]?.linkUrl ?? '#') || '#',
           variant,
         },
       ];
@@ -412,8 +414,9 @@ export class HomeSectionsService implements OnModuleInit {
             imageUrl: secondImage,
             mobileImageUrl: null,
             linkUrl:
-              (dto.linkUrl2 ?? existingBanners[1]?.linkUrl ?? dto.linkUrl ?? '#').trim() ||
-              '#',
+              rewriteLegacyStorefrontUrl(
+                dto.linkUrl2 ?? existingBanners[1]?.linkUrl ?? dto.linkUrl ?? '#',
+              ) || '#',
             variant,
           });
         }
@@ -481,7 +484,8 @@ export class HomeSectionsService implements OnModuleInit {
         mobileImageUrl: this.storageUrlEnricher.persist(
           mobile ?? existingBanner?.mobileImageUrl,
         ),
-        linkUrl: (dto.linkUrl ?? existingBanner?.linkUrl ?? '#').trim() || '#',
+        linkUrl:
+          rewriteLegacyStorefrontUrl(dto.linkUrl ?? existingBanner?.linkUrl ?? '#') || '#',
       },
     ];
   }

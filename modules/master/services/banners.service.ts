@@ -19,6 +19,7 @@ import {
 } from '@packages/common';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { rewriteLegacyStorefrontUrl } from '@modules/public/utils/rewrite-legacy-storefront-url';
 import { BannersRepository } from '../repositories/banners.repository';
 import { BrandsRepository } from '../repositories/brands.repository';
 import { CategoriesRepository } from '../repositories/categories.repository';
@@ -387,7 +388,7 @@ export class BannersService {
 
     const resourceType = dto.resourceType;
     let resourceRefId: string | null = dto.resourceRefId ?? null;
-    let externalUrl: string | null = dto.externalUrl ?? null;
+    let externalUrl: string | null = rewriteLegacyStorefrontUrl(dto.externalUrl ?? null);
 
     switch (resourceType) {
       case BannerResourceType.BRAND:

@@ -11,7 +11,10 @@ import { mapAssetToDelivery } from '../mappers/image-delivery.mapper';
 import { IMAGE_ASSET_CACHE_TTL_MS } from '../constants/image-pipeline.constants';
 import { IImageAssetView, IImageSourceIdentity } from '../interfaces/image-pipeline.interface';
 import { sourceCacheKey } from '../utils/source-key.util';
-import { selectBannerStorefrontVariant } from '../utils/banner-derivative.util';
+import {
+  selectBannerStorefrontVariant,
+  selectProductCardStorefrontVariant,
+} from '../utils/banner-derivative.util';
 import { ImageAssetEntity } from '../entities/image-asset.entity';
 
 @Injectable()
@@ -155,12 +158,18 @@ export class ImageDeliveryService {
     const delivery = response.imageDelivery;
     if (!delivery) return response;
 
-    const variant = selectBannerStorefrontVariant({
-      sourceKey: reference.key,
-      status: delivery.status,
-      sourceWidth: delivery.original.width,
-      variants: delivery.variants,
-    });
+    const variant =
+      selectBannerStorefrontVariant({
+        sourceKey: reference.key,
+        status: delivery.status,
+        sourceWidth: delivery.original.width,
+        variants: delivery.variants,
+      }) ??
+      selectProductCardStorefrontVariant({
+        sourceKey: reference.key,
+        status: delivery.status,
+        variants: delivery.variants,
+      });
     if (!variant || variant.url === response.url) return response;
     return { ...response, url: variant.url };
   }

@@ -121,11 +121,11 @@ describe('ImageDeliveryService banner delivery', () => {
     ]);
   });
 
-  it('should not replace product image urls', async () => {
+  it('should point a product card at a webp at least 480px wide', async () => {
     const product = { key: 'images/product.jpg', name: BUCKET };
     assets.findBySources.mockResolvedValue([
       {
-        ...asset(ImageAssetStatus.READY, [derivative(800)]),
+        ...asset(ImageAssetStatus.READY, [derivative(240), derivative(480), derivative(800)]),
         sourceKey: product.key,
       },
     ]);
@@ -135,8 +135,11 @@ describe('ImageDeliveryService banner delivery', () => {
       [{ ...product, url: publicUrl(product.key) }],
     );
 
-    expect(result?.url).toBe(publicUrl(product.key));
-    expect(result?.imageDelivery?.variants[0]?.url).toBe(publicUrl('derivatives/v1/abc/w800.webp'));
+    expect(result?.url).toBe(publicUrl('derivatives/v1/abc/w480.webp'));
+    expect(result?.imageDelivery?.status).toBe('ready');
+    expect(result?.imageDelivery?.variants.map((item) => item.width)).toEqual([240, 480, 800]);
+    expect(result?.imageDelivery?.variants.every((item) => item.format === 'webp')).toBe(true);
+    expect(result?.imageDelivery?.original.url).toBe(publicUrl(product.key));
   });
 
   it('should omit delivery metadata when delivery is disabled', async () => {

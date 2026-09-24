@@ -162,6 +162,8 @@ export const envValidationSchema = Joi.object({
   SHIPROCKET_CHECKOUT_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   /** Public storefront origin used for Razorpay payment-link redirect after checkout. */
   STOREFRONT_URL: Joi.string().uri().allow('').optional(),
+  /** Shared with the storefront POST /api/revalidate. Empty skips the purge. */
+  REVALIDATE_SECRET: Joi.string().allow('').optional(),
   SITEMAP_ENABLED: Joi.string().valid('true', 'false').default('true'),
   SITEMAP_BASE_URL: Joi.string().uri().optional(),
   SITEMAP_BATCH_SIZE: Joi.number().integer().min(100).max(50000).default(10000),

@@ -86,4 +86,31 @@ export class ProductReviewsRepository {
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
+
+  async summarizeApprovedByProductIds(
+    productIds: string[],
+  ): Promise<Map<string, { averageRating: number; reviewCount: number }>> {
+    const ids = [...new Set(productIds.filter(Boolean))];
+    const result = new Map<string, { averageRating: number; reviewCount: number }>();
+    if (!ids.length) return result;
+
+    const rows = (await this.repo.query(
+      `
+      SELECT product_id, COUNT(*)::int AS review_count, AVG(rating)::float AS average_rating
+      FROM product_reviews
+      WHERE status = $1
+        AND deleted_at IS NULL
+        AND product_id = ANY($2::uuid[])
+      GROUP BY product_id
+      `,
+      [ProductReviewStatus.APPROVED, ids],
+    )) as Array<{ product_id: string; review_count: number; average_rating: number | null }>;
+
+    for (const row of rows) {
+      const count = Number(row.review_count) || 0;
+      const average = row.average_rating == null ? 0 : Math.round(Number(row.average_rating) * 10) / 10;
+      result.set(row.product_id, { averageRating: count ? average : 0, reviewCount: count });
+    }
+    return result;
+  }
 }

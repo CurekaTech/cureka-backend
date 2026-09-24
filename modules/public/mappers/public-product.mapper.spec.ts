@@ -33,6 +33,8 @@ describe('toPublicStorefrontProductCard', () => {
     tags: [{ refId: 'TAG001', name: 'Bestsellers', slug: 'bestsellers' }],
     variantId: 'var-uuid',
     sku: 'OMEGA-001',
+    averageRating: 4.5,
+    reviewCount: 12,
   };
 
   it('keeps storefront card fields and drops unused list-card fields', () => {
@@ -56,6 +58,8 @@ describe('toPublicStorefrontProductCard', () => {
       categoryName: 'Supplements',
       subCategoryName: 'Omega',
       tags: [{ name: 'Bestsellers' }],
+      averageRating: 4.5,
+      reviewCount: 12,
     });
 
     expect(slim).not.toHaveProperty('refId');

@@ -140,6 +140,10 @@ export interface IPublicProductCard {
   variantId: string | null;
   /** SKU of the primary list variant when resolved. */
   sku: string | null;
+  /** Approved-review average. 0 when the product has no approved reviews. */
+  averageRating: number;
+  /** Approved review count. 0 when none. */
+  reviewCount: number;
 }
 
 /**
@@ -166,6 +170,8 @@ export interface IPublicStorefrontProductCard {
   categoryName: string;
   subCategoryName: string | null;
   tags: Array<{ name: string }>;
+  averageRating: number;
+  reviewCount: number;
 }
 
 /** PDP variant — fields the Cureka website reads on chips, price, and delivery. */
