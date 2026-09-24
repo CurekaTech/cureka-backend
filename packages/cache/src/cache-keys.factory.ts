@@ -91,9 +91,9 @@ export const CacheKeys = {
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
-    // v8: slim storefront list cards (drops unused list-card fields).
-    list: (queryHash: string) => `public:products:v8:list:${queryHash}`,
-    listPattern: () => 'public:products:v8:list:*',
+    // v9: in-stock products sort before out-of-stock products.
+    list: (queryHash: string) => `public:products:v9:list:${queryHash}`,
+    listPattern: () => 'public:products:v9:list:*',
     variantSearch: (queryHash: string) => `public:products:v7:variant-search:${queryHash}`,
     variantSearchPattern: () => 'public:products:v7:variant-search:*',
     detail: (slug: string) => `public:products:v6:detail:${slug}`,
