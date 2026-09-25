@@ -111,6 +111,39 @@ describe('PublicSearchService native fallback', () => {
     expect(typesenseClient.getSearchClient).not.toHaveBeenCalled();
     expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30);
   });
+  it('searches Typesense products without an in-stock filter and ranks in-stock hits first', async () => {
+    typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    const perform = jest.fn().mockResolvedValue({ results: [] });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+    });
+
+    await service.search('vitamin', 10);
+
+    const searches = perform.mock.calls[0][0].searches as Array<{
+      filter_by?: string;
+      sort_by?: string;
+    }>;
+    const productSearch = searches.find((search) => search.filter_by === 'entityType:=Product');
+    expect(productSearch?.filter_by).toBe('entityType:=Product');
+    expect(productSearch?.filter_by).not.toContain('inStock:true');
+    expect(productSearch?.sort_by).toBe('inStock:desc,_text_match:desc');
+  });
+
   it('falls back to native search when Typesense throws', async () => {
     typesenseClient.isEnabled.mockReturnValue(true);
     adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);

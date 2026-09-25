@@ -2,6 +2,7 @@ import { SearchEntityType } from '../constants/search-entity-type.constant';
 
 export interface ITypesenseSearchRuntimeConfig {
   hasEntityType: boolean;
+  hasInStock: boolean;
   hasPopularSortField: boolean;
   productQueryBy: string;
   entityQueryBy: string;

@@ -460,7 +460,7 @@ export class PublicProductFiltersService {
       facetSearch: query.facetSearch,
       cursor: query.cursor,
       limit: query.limit,
-      inStockOnly: true,
+      inStockOnly: false,
     });
   }
 }

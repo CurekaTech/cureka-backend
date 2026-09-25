@@ -28,7 +28,8 @@ import {
   IPublicProductVariant,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
-import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
+import { getSalableStockQuantity } from '@packages/common';
+import { isPublicVariantSellable } from '@modules/product/utils/public-variant-availability.util';
 import { IStorageFileReference } from '@packages/storage';
 import {
   buildProductCategorySlugPathFromRelations,
@@ -349,7 +350,7 @@ export const buildListVariantPricing = (
 /** Available to buy: not admin-marked OOS, and passes stock rules when Cureka-managed. */
 const isVariantAvailable = (
   variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory'>,
-): boolean => !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant);
+): boolean => isPublicVariantSellable(variant);
 
 const storageMediaKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
   if (!ref) return null;

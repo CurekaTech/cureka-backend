@@ -18,6 +18,7 @@ import { ProductCategoryHierarchyEntity } from '../entities/product-category-hie
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
+import { sellableVariantAvailabilitySql } from '../utils/public-variant-availability.util';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
@@ -942,6 +943,7 @@ export class ProductsRepository {
             WHERE pv_ins.product_id = p.id
               AND pv_ins.deleted_at IS NULL
               AND pv_ins.status = $5
+              AND ${sellableVariantAvailabilitySql('pv_ins')}
           )
       )
       SELECT id, "categoryId"
@@ -1502,9 +1504,6 @@ export class ProductsRepository {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
     }
 
-    // Public variant search: exclude out-of-stock variants.
-    qb.andWhere('variant.outOfStock = false');
-
     this.applyPublicVariantPriceRangeFilter(qb, options);
   }
 
@@ -1692,7 +1691,7 @@ export class ProductsRepository {
         ? options?.tagSlug
         : undefined;
 
-    // Web lists keep the existing sort, with in-stock products before out-of-stock ones.
+    // Primary availability rank, then the existing sort inside each INS / OOS group.
     qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
     qb.addSelect(
       `(CASE WHEN EXISTS (
@@ -1700,7 +1699,7 @@ export class ProductsRepository {
           WHERE pv_avail.product_id = product.id
             AND pv_avail.deleted_at IS NULL
             AND pv_avail.status = :publicListStockVariantStatus
-            AND pv_avail.out_of_stock = false
+            AND ${sellableVariantAvailabilitySql('pv_avail')}
         ) THEN 0 ELSE 1 END)`,
       'in_stock_rank',
     );
@@ -1795,7 +1794,12 @@ export class ProductsRepository {
       variantSlug: 'variant.slug',
     };
     const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
-    qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    qb.addSelect(
+      `CASE WHEN ${sellableVariantAvailabilitySql('variant')} THEN 0 ELSE 1 END`,
+      'variant_stock_rank',
+    );
+    qb.orderBy('variant_stock_rank', 'ASC');
+    qb.addOrderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
 
   private async attachVariantSearchRelations(variants: ProductVariantEntity[]): Promise<void> {
@@ -2515,7 +2519,6 @@ export class ProductsRepository {
       .innerJoin('product.category', 'category')
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-      .andWhere('variant.outOfStock = false')
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
@@ -2526,6 +2529,10 @@ export class ProductsRepository {
           OR variant.slug ILIKE :search OR variant.sku ILIKE :search
           OR variant.displayName ILIKE :search)`,
         { search: containsSearch },
+      )
+      .addSelect(
+        `CASE WHEN ${sellableVariantAvailabilitySql('variant')} THEN 0 ELSE 1 END`,
+        'availability_rank',
       )
       .addSelect(
         `CASE
@@ -2543,7 +2550,8 @@ export class ProductsRepository {
         END`,
         'search_rank',
       )
-      .orderBy('search_rank', 'ASC')
+      .orderBy('availability_rank', 'ASC')
+      .addOrderBy('search_rank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
       .setParameters({ prefixSearch, search: containsSearch })

@@ -20,6 +20,7 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { isHomepageShopByHierarchyLevel } from '@modules/master/constants/homepage-shop-by-hierarchy.constant';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { hasSellablePublicVariant } from '@modules/product/utils/public-variant-availability.util';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -301,7 +302,7 @@ export class HomepageService {
   /** Used by cache refresh after Watch & Shop item mutations. */
   async loadWatchAndShopUncached(): Promise<IPublicWatchAndShopSection> {
     const storefrontItems = await this.watchAndShopService.loadWatchAndShopUncached(
-      HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT,
+      HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT * 4,
     );
     if (!storefrontItems.length) {
       return { items: [] };
@@ -314,7 +315,7 @@ export class HomepageService {
     const items = storefrontItems
       .map((item) => {
         const product = productByRefId.get(item.productRefId);
-        if (!product) return null;
+        if (!product || !hasSellablePublicVariant(product)) return null;
 
         return {
           refId: item.refId,
@@ -325,7 +326,8 @@ export class HomepageService {
           product: mapProductEntitiesToPublicStorefrontCards([product])[0]!,
         };
       })
-      .filter((item): item is IPublicWatchAndShopItem => item !== null);
+      .filter((item): item is IPublicWatchAndShopItem => item !== null)
+      .slice(0, HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT);
 
     return { items };
   }

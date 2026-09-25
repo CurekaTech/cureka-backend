@@ -16,6 +16,7 @@ import {
 import { IHomeSection } from '@modules/master/interfaces/home-section.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { hasSellablePublicVariant } from '@modules/product/utils/public-variant-availability.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
@@ -218,7 +219,7 @@ export class HomepageSectionsService implements OnModuleInit {
       return this.withReviewStats(l1.value);
     }
 
-    const enrichedKey = CacheKeys.homepage.sections(`v12-enriched-${variant}`);
+    const enrichedKey = CacheKeys.homepage.sections(`v13-enriched-${variant}`);
     const fromEnriched = await this.cacheService.get<IHomepageSectionsResponse>(enrichedKey);
     if (fromEnriched) {
       this.setL1(variant, fromEnriched);
@@ -227,8 +228,8 @@ export class HomepageSectionsService implements OnModuleInit {
     }
 
     const unsigned = await this.cacheStrategy.cacheAside({
-      // v11: slim storefront cards + shop-by-category tiles; URLs signed after this read.
-      key: CacheKeys.homepage.sections(`v11-${variant}`),
+      // v12: homepage product sliders exclude out-of-stock products.
+      key: CacheKeys.homepage.sections(`v12-${variant}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested),
@@ -447,7 +448,8 @@ export class HomepageSectionsService implements OnModuleInit {
       const byRefId = new Map(products.map((product) => [product.refId, product]));
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
-        .filter((product): product is NonNullable<typeof product> => Boolean(product));
+        .filter((product): product is NonNullable<typeof product> => Boolean(product))
+        .filter((product) => hasSellablePublicVariant(product));
       return {
         banner: section.banners?.[0] ?? null,
         products: mapProductEntitiesToPublicStorefrontCards(ordered),
