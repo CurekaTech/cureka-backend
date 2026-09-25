@@ -60,9 +60,9 @@ export const CacheKeys = {
     categoryHeaderPattern: () => 'homepage:category:header*',
     shopByCategory: () => 'homepage:section:shopByCategory:v2',
     shopByCategoryPattern: () => 'homepage:section:shopByCategory*',
-    bestSellers: () => 'homepage:section:bestSellers:v4',
+    bestSellers: () => 'homepage:section:bestSellers:v5',
     bestSellersPattern: () => 'homepage:section:bestSellers*',
-    watchAndShop: () => 'homepage:section:watchAndShop:v2',
+    watchAndShop: () => 'homepage:section:watchAndShop:v3',
     watchAndShopPattern: () => 'homepage:section:watchAndShop*',
     healthReads: () => 'homepage:section:healthReads',
     healthReadsPattern: () => 'homepage:section:healthReads*',
@@ -91,11 +91,11 @@ export const CacheKeys = {
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
-    // v9: in-stock products sort before out-of-stock products.
-    list: (queryHash: string) => `public:products:v9:list:${queryHash}`,
-    listPattern: () => 'public:products:v9:list:*',
-    variantSearch: (queryHash: string) => `public:products:v7:variant-search:${queryHash}`,
-    variantSearchPattern: () => 'public:products:v7:variant-search:*',
+    // v10: INS-before-OOS uses sellable stock rules, not only the admin OOS flag.
+    list: (queryHash: string) => `public:products:v10:list:${queryHash}`,
+    listPattern: () => 'public:products:v10:list:*',
+    variantSearch: (queryHash: string) => `public:products:v8:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:v8:variant-search:*',
     detail: (slug: string) => `public:products:v6:detail:${slug}`,
     detailPattern: (slug?: string) =>
       slug ? `public:products:v6:detail:${slug}` : 'public:products:v6:detail:*',

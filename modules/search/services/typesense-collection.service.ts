@@ -124,11 +124,11 @@ export class TypesenseCollectionService implements OnModuleInit {
     const productEntityFilter = hasEntityType
       ? `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.PRODUCT)}`
       : undefined;
-    const productInStockFilter = hasInStock ? 'inStock:true' : undefined;
-    const productFilterBy = [productEntityFilter, productInStockFilter].filter(Boolean).join(' && ');
+    const productFilterBy = productEntityFilter;
 
     this.searchRuntimeConfig = {
       hasEntityType,
+      hasInStock,
       hasPopularSortField: fieldNames.has(PRODUCT_POPULAR_SORT_FIELD),
       productQueryBy,
       entityQueryBy,
@@ -139,9 +139,7 @@ export class TypesenseCollectionService implements OnModuleInit {
             [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.HEALTH_CONCERN)}`,
             [SEARCH_ENTITY_TYPES.PRODUCT]: productFilterBy || `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.PRODUCT)}`,
           }
-        : productInStockFilter
-          ? { [SEARCH_ENTITY_TYPES.PRODUCT]: productInStockFilter }
-          : {},
+        : {},
     };
 
     return this.searchRuntimeConfig;

@@ -147,7 +147,10 @@ export class PublicSearchService {
   private async loadPopularFromTypesense(perPage: number): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
-    const filterBy = config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT];
+    const productFilter = config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT];
+    const filterBy = [productFilter, config.hasInStock ? 'inStock:true' : undefined]
+      .filter(Boolean)
+      .join(' && ');
     // Over-fetch: cheapest Typesense docs are often stale OOS that PDP would 404.
     const fetchSize = Math.min(Math.max(perPage * 10, 40), 100);
 
@@ -290,6 +293,9 @@ export class PublicSearchService {
           per_page: isProduct ? Math.min(perPage * 3, 30) : entityLimit,
           ...TYPESENSE_FAST_SEARCH_PARAMS,
           ...(filterBy ? { filter_by: filterBy } : {}),
+          ...(isProduct && config.hasInStock
+            ? { sort_by: 'inStock:desc,_text_match:desc' }
+            : {}),
         },
       ];
     });

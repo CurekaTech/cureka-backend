@@ -156,7 +156,7 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: true,
+      inStockOnly: false,
     });
 
     const tDb = Date.now();
@@ -339,7 +339,7 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: true,
+      inStockOnly: false,
     });
 
     const tDb = Date.now();
