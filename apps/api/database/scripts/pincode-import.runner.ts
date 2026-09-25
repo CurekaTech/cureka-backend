@@ -12,12 +12,38 @@
  */
 import 'reflect-metadata';
 import { createHash } from 'crypto';
-import { createReadStream } from 'fs';
+import { createReadStream, statSync } from 'fs';
 import { isAbsolute, resolve } from 'path';
-import { AppDataSource } from '../data-source';
+import * as dotenv from 'dotenv';
+import { DataSource } from 'typeorm';
+
+dotenv.config();
 
 const DEFAULT_FILE = 'docs/json/india_pincode_data.json';
 const BATCH_SIZE = 400;
+
+function createImportDataSource(): DataSource {
+  const url = process.env['DATABASE_URL'];
+  if (!url) {
+    throw new Error('DATABASE_URL environment variable is required');
+  }
+  return new DataSource({
+    type: 'postgres',
+    url,
+    synchronize: false,
+    logging: ['error'],
+    entities: [],
+    ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : false,
+    connectTimeoutMS: 10000,
+    extra: {
+      statement_timeout: 0,
+      query_timeout: 0,
+    },
+  });
+}
+
+const dataSource = createImportDataSource();
+let droppedCoordinates = 0;
 
 interface OfficeRow {
   pincode: string;
@@ -49,11 +75,16 @@ function text(value: unknown, max: number): string {
   return raw.length > max ? raw.slice(0, max) : raw;
 }
 
-function coordinate(value: unknown): string | null {
+function parseCoordinate(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed)) return null;
-  return parsed.toFixed(7);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** numeric(10,7) allows at most 3 digits before the decimal. Larger junk values are stored as null. */
+function fitCoordinate(value: number | null): string | null {
+  if (value === null || Math.abs(value) >= 1000) return null;
+  return value.toFixed(7);
 }
 
 function padPincode(value: unknown): string | null {
@@ -93,9 +124,15 @@ function toOffice(raw: Record<string, unknown>): OfficeRow | null {
     delivery: text(raw.delivery, 100),
     district: text(raw.district, 255),
     stateName: text(raw.statename, 255),
-    latitude: coordinate(raw.latitude),
-    longitude: coordinate(raw.longitude),
+    latitude: null as string | null,
+    longitude: null as string | null,
   };
+  const latitude = parseCoordinate(raw.latitude);
+  const longitude = parseCoordinate(raw.longitude);
+  row.latitude = fitCoordinate(latitude);
+  row.longitude = fitCoordinate(longitude);
+  if (row.latitude === null && latitude !== null) droppedCoordinates += 1;
+  if (row.longitude === null && longitude !== null) droppedCoordinates += 1;
   return { ...row, sourceHash: sourceHash(row) };
 }
 
@@ -151,7 +188,7 @@ async function upsertBatch(rows: OfficeRow[]): Promise<void> {
   const pincodes = [...new Set(offices.map((row) => row.pincode))];
 
   const pincodePlaceholders = pincodes.map((_, index) => `($${index + 1})`).join(', ');
-  await AppDataSource.query(
+  await dataSource.query(
     `
     INSERT INTO pincodes (pincode)
     VALUES ${pincodePlaceholders}
@@ -180,7 +217,7 @@ async function upsertBatch(rows: OfficeRow[]): Promise<void> {
     return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}::numeric, $${base + 11}::numeric, $${base + 12})`;
   });
 
-  await AppDataSource.query(
+  await dataSource.query(
     `
     INSERT INTO pincode_offices (
       pincode_id, pincode, circlename, regionname, divisionname, officename,
@@ -215,7 +252,7 @@ async function upsertBatch(rows: OfficeRow[]): Promise<void> {
 }
 
 async function refreshCanonicalPincodes(): Promise<void> {
-  await AppDataSource.query(`
+  await dataSource.query(`
     UPDATE pincodes p
     SET district = ranked.district,
         statename = ranked.statename,
@@ -242,18 +279,23 @@ async function refreshCanonicalPincodes(): Promise<void> {
 
 async function main(): Promise<void> {
   const file = readFileArg();
-  await AppDataSource.initialize();
+  const bytes = statSync(file).size;
+  console.log(`Pincode import starting. File ${file} (${Math.round(bytes / (1024 * 1024))} MB).`);
+  console.log('Connecting to the database...');
+  await dataSource.initialize();
+  console.log('Connected. Streaming office rows...');
   let written = 0;
+  const startedAt = Date.now();
   try {
     const seen = await streamOffices(file, async (rows) => {
       await upsertBatch(rows);
       written += rows.length;
-      if (written % 4000 === 0) {
-        console.log(`Imported ${written} office rows...`);
-      }
+      const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      console.log(`Imported ${written} office rows (${Math.round(written / seconds)} rows/s)...`);
     });
+    console.log('Refreshing canonical district and state for each pincode...');
     await refreshCanonicalPincodes();
-    const [{ offices, pincodes }] = await AppDataSource.query<
+    const [{ offices, pincodes }] = await dataSource.query<
       Array<{ offices: string; pincodes: string }>
     >(`
       SELECT
@@ -261,10 +303,10 @@ async function main(): Promise<void> {
         (SELECT COUNT(*) FROM pincodes) AS pincodes
     `);
     console.log(
-      `Pincode import complete. Read ${seen} offices from file. Database has ${offices} offices and ${pincodes} canonical pincodes.`,
+      `Pincode import complete. Read ${seen} offices from file. Database has ${offices} offices and ${pincodes} canonical pincodes. Dropped ${droppedCoordinates} out-of-range coordinates.`,
     );
   } finally {
-    await AppDataSource.destroy();
+    await dataSource.destroy();
   }
 }
 
