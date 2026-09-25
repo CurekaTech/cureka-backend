@@ -26,7 +26,7 @@ import {
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
-import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkUpdateVariantOosDto, BulkUpdateCurekaInventoryDto } from '../dto/product.dto';
+import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkRestoreVariantStockDto, BulkUpdateVariantOosDto, BulkUpdateCurekaInventoryDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
@@ -1275,7 +1275,10 @@ export class ProductsService {
    * Marks specific variants as Out-Of-Stock (outOfStock=true) or In-Stock (outOfStock=false)
    * using their SKUs. Only targets the exact variants identified by SKU, not all variants of the product.
    */
-  async bulkUpdateVariantOos(dto: BulkUpdateVariantOosDto): Promise<{
+  async bulkUpdateVariantOos(
+    dto: BulkUpdateVariantOosDto,
+    options?: { productType?: ProductType },
+  ): Promise<{
     requested: number;
     updated: string[];
     alreadyAtTarget: string[];
@@ -1289,7 +1292,11 @@ export class ProductsService {
     }
 
     const { bySkuResult, updatedProductIds, oosTransitions } =
-      await this.variantsRepository.updateOutOfStockBySkus(uniqueSkus, dto.outOfStock);
+      await this.variantsRepository.updateOutOfStockBySkus(
+        uniqueSkus,
+        dto.outOfStock,
+        options?.productType,
+      );
 
     const updated: string[] = [];
     const alreadyAtTarget: string[] = [];
@@ -1421,6 +1428,51 @@ export class ProductsService {
       updated,
       notFound,
       variantsUpdated,
+    };
+  }
+
+  /**
+   * Sets stock on the given SKUs only. Other variants of the same product are unchanged.
+   * stock > 0 clears outOfStock on that SKU.
+   */
+  async bulkRestoreVariantStock(
+    dto: BulkRestoreVariantStockDto,
+    options?: { productType?: ProductType },
+  ): Promise<{
+    requested: number;
+    updated: string[];
+    alreadyAtTarget: string[];
+    notFound: string[];
+    productsAffected: number;
+  }> {
+    const { bySkuResult, updatedProductIds, oosTransitions } =
+      await this.variantsRepository.restoreStockBySkus(dto.items, options?.productType);
+
+    const updated: string[] = [];
+    const alreadyAtTarget: string[] = [];
+    const notFound: string[] = [];
+
+    for (const [sku, status] of bySkuResult.entries()) {
+      if (status === 'updated') updated.push(sku);
+      else if (status === 'already') alreadyAtTarget.push(sku);
+      else notFound.push(sku);
+    }
+
+    if (updatedProductIds.size > 0) {
+      const affectedRefIds = await this.productsRepository.findRefIdsByIds([
+        ...updatedProductIds,
+      ]);
+      await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    }
+
+    this.enqueueOosEmails(oosTransitions);
+
+    return {
+      requested: bySkuResult.size,
+      updated,
+      alreadyAtTarget,
+      notFound,
+      productsAffected: updatedProductIds.size,
     };
   }
 

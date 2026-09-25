@@ -663,6 +663,36 @@ export class BulkUpdateCurekaInventoryDto {
   inCurekaInventory!: boolean;
 }
 
+export class BulkRestoreVariantStockItemDto {
+  @ApiProperty({ example: 'MUS/MUS/00001' })
+  @IsNotEmpty()
+  @IsString()
+  sku!: string;
+
+  @ApiProperty({
+    example: 50,
+    description: 'Stock quantity to set on this SKU only. stock > 0 also clears outOfStock.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock!: number;
+}
+
+export class BulkRestoreVariantStockDto {
+  @ApiProperty({
+    type: [BulkRestoreVariantStockItemDto],
+    description:
+      'Per-SKU stock restore. Other variants of the same product are not updated. Max 500.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BulkRestoreVariantStockItemDto)
+  items!: BulkRestoreVariantStockItemDto[];
+}
+
 export class BulkRestoreStockItemDto {
   @ApiProperty({ example: 'PRO20261234' })
   @IsNotEmpty()
