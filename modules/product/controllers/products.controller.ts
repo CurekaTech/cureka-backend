@@ -25,6 +25,7 @@ import {
   UpdateProductStatusDto,
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
+  BulkRestoreVariantStockDto,
   BulkUpdateVariantOosDto,
   BulkUpdateCurekaInventoryDto,
 } from '../dto/product.dto';
@@ -159,7 +160,8 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Bulk restore product stock',
     description:
-      'Sets stock on all variants for each productRefId and clears outOfStock (reverts bulk mark-out-of-stock so products are in stock again).',
+      'Sets stock on all variants for each productRefId and clears outOfStock when stock > 0. ' +
+      'To restore one SKU only, use POST /products/bulk-restore-variant-stock.',
   })
   @ResponseMessage('Product stock restored successfully')
   @RequirePermissions('products.update')
@@ -167,6 +169,20 @@ export class ProductsController {
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
     return this.productsService.bulkRestoreStock(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Restore stock on specific variants by SKU',
+    description:
+      'Sets stock on exactly the SKUs in items. Other variants of the same product are not changed. ' +
+      'stock > 0 also clears outOfStock on that SKU. stock 0 sets quantity to 0 and, when inCurekaInventory is true, marks that SKU out of stock.',
+  })
+  @ResponseMessage('Variant stock restored successfully')
+  @RequirePermissions('products.update')
+  @Post('bulk-restore-variant-stock')
+  @HttpCode(HttpStatus.OK)
+  bulkRestoreVariantStock(@Body() dto: BulkRestoreVariantStockDto) {
+    return this.productsService.bulkRestoreVariantStock(dto);
   }
 
   @ApiOperation({ summary: 'Re-submit product for checker approval (after rejection or draft edits)' })

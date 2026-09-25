@@ -1042,6 +1042,7 @@ export class ProductVariantsRepository {
   async updateOutOfStockBySkus(
     skus: string[],
     outOfStock: boolean,
+    productType?: ProductType,
   ): Promise<{
     bySkuResult: Map<string, 'updated' | 'already' | 'not_found' | 'blocked'>;
     updatedProductIds: Set<string>;
@@ -1056,13 +1057,13 @@ export class ProductVariantsRepository {
 
     if (!uniqueSkus.length) return { bySkuResult, updatedProductIds, oosTransitions };
 
-    const variants = await this.repo.find({
-      where: { sku: In(uniqueSkus) },
-      select: ['id', 'sku', 'productId', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
-    });
+    const variants = await this.findVariantsBySkus(uniqueSkus);
 
     const now = new Date();
     for (const variant of variants) {
+      if (productType && variant.product?.productType !== productType) {
+        continue;
+      }
       const opts = managementOptionsForVariant(variant);
       if (outOfStock) {
         const next = resolveManualOutOfStock(
@@ -1117,6 +1118,92 @@ export class ProductVariantsRepository {
     }
 
     return { bySkuResult, updatedProductIds, oosTransitions };
+  }
+
+  /**
+   * Sets stock on the given SKUs only.
+   * stock > 0 clears outOfStock. stock 0 marks Cureka-managed variants out of stock
+   * and leaves the flag unchanged on flag-only variants.
+   */
+  async restoreStockBySkus(
+    items: Array<{ sku: string; stock: number }>,
+    productType?: ProductType,
+  ): Promise<{
+    bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
+    updatedProductIds: Set<string>;
+    oosTransitions: VariantOosTransition[];
+  }> {
+    const stockBySku = new Map<string, number>();
+    for (const item of items) {
+      const sku = item.sku.trim();
+      if (!sku) continue;
+      stockBySku.set(sku, item.stock);
+    }
+    const uniqueSkus = [...stockBySku.keys()];
+    const bySkuResult = new Map<string, 'updated' | 'already' | 'not_found'>(
+      uniqueSkus.map((sku) => [sku, 'not_found']),
+    );
+    const updatedProductIds = new Set<string>();
+    const oosTransitions: VariantOosTransition[] = [];
+
+    if (!uniqueSkus.length) return { bySkuResult, updatedProductIds, oosTransitions };
+
+    const variants = await this.findVariantsBySkus(uniqueSkus);
+    const now = new Date();
+
+    for (const variant of variants) {
+      if (productType && variant.product?.productType !== productType) {
+        continue;
+      }
+      const stock = stockBySku.get(variant.sku);
+      if (stock === undefined) continue;
+      const next = resolveRestoreStock(
+        { stock: variant.stock, outOfStock: variant.outOfStock },
+        stock,
+        managementOptionsForVariant(variant),
+      );
+      if (Number(variant.stock) === next.stock && Boolean(variant.outOfStock) === next.outOfStock) {
+        bySkuResult.set(variant.sku, 'already');
+        continue;
+      }
+      await this.repo.update(
+        { id: variant.id },
+        { stock: next.stock, outOfStock: next.outOfStock },
+      );
+      bySkuResult.set(variant.sku, 'updated');
+      updatedProductIds.add(variant.productId);
+      if (next.becameOos) {
+        oosTransitions.push({
+          variantId: variant.id,
+          productId: variant.productId,
+          sku: variant.sku,
+          stock: next.stock,
+          variantDisplayName: variant.displayName,
+          occurredAt: now,
+        });
+      }
+    }
+
+    return { bySkuResult, updatedProductIds, oosTransitions };
+  }
+
+  private findVariantsBySkus(skus: string[]): Promise<ProductVariantEntity[]> {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.sku IN (:...skus)', { skus })
+      .select([
+        'variant.id',
+        'variant.sku',
+        'variant.productId',
+        'variant.stock',
+        'variant.outOfStock',
+        'variant.inCurekaInventory',
+        'variant.displayName',
+        'product.id',
+        'product.productType',
+      ])
+      .getMany();
   }
 
   /**

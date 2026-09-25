@@ -23,9 +23,12 @@ import { ProductsService } from '../services/products.service';
 import {
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
+  BulkRestoreVariantStockDto,
+  BulkUpdateVariantOosDto,
   ProductQueryDto,
   UpdateProductStatusDto,
 } from '../dto/product.dto';
+import { ProductType } from '../enums/product-type.enum';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { ProductStatus } from '../enums/product-status.enum';
 
@@ -98,7 +101,9 @@ export class BundleProductsController {
   @ApiOperation({
     summary: 'Bulk mark bundle products out of stock',
     description:
-      'Sets outOfStock = true on the pricing variant of each selected bundle. Does not change stock quantity.',
+      'Sets outOfStock = true on every non-deleted variant of each selected bundle. ' +
+      'Zeros stock only when that variant has inCurekaInventory = true. ' +
+      'To change one SKU, use POST /bundle-products/bulk-update-variant-oos.',
   })
   @ResponseMessage('Bundle products marked out of stock successfully')
   @RequirePermissions('bundle_products.update')
@@ -109,9 +114,24 @@ export class BundleProductsController {
   }
 
   @ApiOperation({
+    summary: 'Update OOS flag on specific bundle variants by SKU',
+    description:
+      'Sets outOfStock on exactly the SKUs sent. Other variants of the same bundle are not changed. ' +
+      'outOfStock=true also sets stock to 0 when that SKU has inCurekaInventory=true.',
+  })
+  @ResponseMessage('Bundle variant OOS status updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Post('bulk-update-variant-oos')
+  @HttpCode(HttpStatus.OK)
+  bulkUpdateVariantOos(@Body() dto: BulkUpdateVariantOosDto) {
+    return this.productsService.bulkUpdateVariantOos(dto, { productType: ProductType.BUNDLE });
+  }
+
+  @ApiOperation({
     summary: 'Bulk restore stock for bundle products',
     description:
-      'Sets stock on the pricing variant for each selected bundle and clears outOfStock (reverts mark-out-of-stock).',
+      'Sets the same stock on every non-deleted variant of each selected bundle and, when stock > 0, clears outOfStock. ' +
+      'To restore one SKU, use POST /bundle-products/bulk-restore-variant-stock.',
   })
   @ResponseMessage('Bundle product stock restored successfully')
   @RequirePermissions('bundle_products.update')
@@ -119,6 +139,20 @@ export class BundleProductsController {
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
     return this.productsService.bulkRestoreStock(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Restore stock on specific bundle variants by SKU',
+    description:
+      'Sets stock on exactly the SKUs in items. Other variants of the same bundle are not changed. ' +
+      'stock > 0 also clears outOfStock on that SKU.',
+  })
+  @ResponseMessage('Bundle variant stock restored successfully')
+  @RequirePermissions('bundle_products.update')
+  @Post('bulk-restore-variant-stock')
+  @HttpCode(HttpStatus.OK)
+  bulkRestoreVariantStock(@Body() dto: BulkRestoreVariantStockDto) {
+    return this.productsService.bulkRestoreVariantStock(dto, { productType: ProductType.BUNDLE });
   }
 
   @ApiOperation({ summary: 'Submit bundle for checker review' })
