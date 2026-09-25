@@ -29,7 +29,10 @@ import {
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
 import { getSalableStockQuantity } from '@packages/common';
-import { isPublicVariantSellable } from '@modules/product/utils/public-variant-availability.util';
+import {
+  hasSellablePublicVariant,
+  isPublicVariantSellable,
+} from '@modules/product/utils/public-variant-availability.util';
 import { IStorageFileReference } from '@packages/storage';
 import {
   buildProductCategorySlugPathFromRelations,
@@ -178,7 +181,7 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
     return activeVariants[0]!;
   }
 
-  const inStockVariants = activeVariants.filter((variant) => !variant.outOfStock);
+  const inStockVariants = activeVariants.filter((variant) => isPublicVariantSellable(variant));
   const pool = inStockVariants.length ? inStockVariants : activeVariants;
 
   const ranked = [...pool].sort((left, right) => {
@@ -338,12 +341,11 @@ export const buildListVariantPricing = (
     };
   }
 
-  const outOfStock = variant.outOfStock ?? false;
   return {
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discount: toNumber(variant.discountPercentage),
-    inStock: !outOfStock,
+    inStock: isPublicVariantSellable(variant),
   };
 };
 
@@ -589,7 +591,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
   const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
-  const outOfStock = listVariant?.outOfStock ?? false;
+  const outOfStock = !hasSellablePublicVariant(entity);
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   const listVariantSlug = listVariant
     ? sanitizeProductSlugSegment(listVariant.slug) || listVariant.slug

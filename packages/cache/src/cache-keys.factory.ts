@@ -91,9 +91,9 @@ export const CacheKeys = {
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
-    // v10: INS-before-OOS uses sellable stock rules, not only the admin OOS flag.
-    list: (queryHash: string) => `public:products:v10:list:${queryHash}`,
-    listPattern: () => 'public:products:v10:list:*',
+    // v11: public list includes OOS products after INS (id pagination, sellable card flag).
+    list: (queryHash: string) => `public:products:v11:list:${queryHash}`,
+    listPattern: () => 'public:products:v11:list:*',
     variantSearch: (queryHash: string) => `public:products:v8:variant-search:${queryHash}`,
     variantSearchPattern: () => 'public:products:v8:variant-search:*',
     detail: (slug: string) => `public:products:v6:detail:${slug}`,

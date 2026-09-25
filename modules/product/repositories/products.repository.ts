@@ -736,30 +736,44 @@ export class ProductsRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const sortOrder = options.sortOrder ?? 'DESC';
 
-    const qb = this.createEligibleProductsQb(options)
+    // Page ids with no joins so LIMIT/OFFSET follows in-stock rank, then the
+    // existing sort. Out-of-stock products stay in the result after in-stock ones.
+    const idQb = this.createEligibleProductsQb(options).select('product.id', 'id');
+    this.applyPublicListSort(idQb, options.sortBy, sortOrder, options);
+    idQb.offset(skip).limit(take);
+
+    const [idRows, total] = await Promise.all([
+      idQb.getRawMany<{ id: string }>(),
+      this.createEligibleProductsQb(options).getCount(),
+    ]);
+
+    const ids = idRows.map((row) => row.id).filter(Boolean);
+    if (!ids.length) {
+      return { data: [], total };
+    }
+
+    const products = await this.repo
+      .createQueryBuilder('product')
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
       .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
       .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
-      .skip(skip)
-      .take(take);
+      .where('product.id IN (:...ids)', { ids })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .getMany();
 
-    this.applyPublicListSort(qb, options.sortBy, sortOrder, options);
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const data = ids
+      .map((id) => productById.get(id))
+      .filter((product): product is ProductEntity => Boolean(product));
 
-    const [data, total] = await qb.getManyAndCount();
-
-    // Defense-in-depth: never return non-published rows to the storefront.
-    const publishedOnly = data.filter(
-      (product) => product.status === ProductStatus.PUBLISHED && !product.deletedAt,
-    );
-
-    if (publishedOnly.length) {
-      await this.attachPublicListRelations(publishedOnly);
+    if (data.length) {
+      await this.attachPublicListRelations(data);
     }
 
-    return { data: publishedOnly, total };
+    return { data, total };
   }
 
   async findPublishedVariantsPaginated(

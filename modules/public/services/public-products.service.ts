@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  isVariantInStock,
   PaginatedResult,
 } from '@packages/common';
 import {
@@ -915,10 +914,7 @@ export class PublicProductsService {
       result.data.map(async (card) => {
         const pricing = {
           ...card.pricing,
-          // Bypass only for non-Cureka (flag-only) variants; never force INS when admin OOS.
-          inStock:
-            !card.outOfStock &&
-            (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
+          inStock: !card.outOfStock && card.pricing.inStock,
         };
 
         if (!card.primaryImageUrl) {
@@ -955,7 +951,7 @@ export class PublicProductsService {
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
       pricing: {
         ...card.pricing,
-        inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
+        inStock: !card.outOfStock && card.pricing.inStock,
       },
     } as T;
   }
