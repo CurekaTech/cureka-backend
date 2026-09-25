@@ -10,6 +10,7 @@ import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { GalleryModule } from '../gallery/gallery.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
+import { PincodesModule } from '@modules/pincodes/pincodes.module';
 
 // ── Product entities ─────────────────────────────────────────────────────────
 import { ProductEntity } from './entities/product.entity';
@@ -128,6 +129,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     forwardRef(() => SubscriptionModule),
     forwardRef(() => SitemapModule),
     OosEmailModule,
+    PincodesModule,
     QueueModule.registerQueue('bulk-upload'),
     QueueModule.registerQueue('bulk-price-update'),
     QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
@@ -231,6 +233,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     // ── Reviews ──────────────────────────────────────────────────────────────
     ProductReviewsService,
     ProductReviewsRepository,
+    PincodesModule,
   ],
 })
 export class ProductModule {}

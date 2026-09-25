@@ -31,7 +31,10 @@ export class HomepageController {
   @ResponseMessage('Homepage sections retrieved successfully')
   @Get('sections')
   getSections(@Query() query: HomepageSectionsQueryDto) {
-    return this.homepageSectionsService.getSections(resolveHomepageSectionsFromFlags(query));
+    return this.homepageSectionsService.getSections(
+      resolveHomepageSectionsFromFlags(query),
+      query.pincode,
+    );
   }
 
   @ResponseMessage('Best sellers retrieved successfully')
@@ -83,11 +86,11 @@ export class HomepageController {
 
   @ResponseMessage('Home section retrieved successfully')
   @Get('home-sections/:slug')
-  getHomeSectionBySlug(@Param('slug') slug: string) {
+  getHomeSectionBySlug(@Param('slug') slug: string, @Query('pincode') pincode?: string) {
     if (!slug?.trim()) {
       throw new NotFoundException('Home section slug is required');
     }
-    return this.homepageSectionsService.getCustomSectionBySlug(slug.trim());
+    return this.homepageSectionsService.getCustomSectionBySlug(slug.trim(), pincode);
   }
 
   @ResponseMessage('Header categories retrieved successfully')

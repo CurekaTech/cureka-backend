@@ -5,6 +5,7 @@ import { CategoriesRepository } from '@modules/master/repositories/categories.re
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CacheStrategyService } from '@packages/cache';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { PublicSearchService } from './public-search.service';
 import { TypesenseClientService } from './typesense-client.service';
@@ -67,6 +68,7 @@ describe('PublicSearchService native fallback', () => {
       categoriesRepository as unknown as CategoriesRepository,
       healthConcernsRepository as unknown as HealthConcernsRepository,
       cacheStrategy as unknown as CacheStrategyService,
+      { resolveForStorefront: jest.fn().mockResolvedValue({ pincodeId: null, pincode: null }) } as unknown as PincodesService,
     );
   });
 
@@ -277,6 +279,7 @@ describe('PublicSearchService popular', () => {
       categoriesRepository as unknown as CategoriesRepository,
       healthConcernsRepository as unknown as HealthConcernsRepository,
       cacheStrategy as unknown as CacheStrategyService,
+      { resolveForStorefront: jest.fn().mockResolvedValue({ pincodeId: null, pincode: null }) } as unknown as PincodesService,
     );
   });
 

@@ -70,6 +70,7 @@ function mapVariantToTypesenseDocument(
     category?: string;
     subCategory?: string;
   },
+  mappedPincodes: readonly string[] = [],
 ): ITypesenseSearchDocument {
   const attributeValues = getVariantAttributeValues(variant);
   const variantDescription = buildVariantDescription(variant);
@@ -104,12 +105,17 @@ function mapVariantToTypesenseDocument(
     tags: shared.tags,
     description: description || undefined,
     inStock: !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant),
+    isPincodeManaged: Boolean(variant.isPincodeManaged),
+    ...(variant.isPincodeManaged ? { pincodes: [...mappedPincodes] } : {}),
     searchTags,
     minSellingPrice: sellingPrice ?? undefined,
   };
 }
 
-export function mapProductToTypesenseDocuments(product: ProductEntity): ITypesenseSearchDocument[] {
+export function mapProductToTypesenseDocuments(
+  product: ProductEntity,
+  codesByVariantId?: ReadonlyMap<string, readonly string[]>,
+): ITypesenseSearchDocument[] {
   if (product.status !== ProductStatus.PUBLISHED) {
     return [];
   }
@@ -132,7 +138,14 @@ export function mapProductToTypesenseDocuments(product: ProductEntity): ITypesen
     subCategory: product.subCategory?.name ?? undefined,
   };
 
-  return activeVariants.map((variant) => mapVariantToTypesenseDocument(product, variant, shared));
+  return activeVariants.map((variant) =>
+    mapVariantToTypesenseDocument(
+      product,
+      variant,
+      shared,
+      codesByVariantId?.get(variant.id) ?? [],
+    ),
+  );
 }
 
 /** @deprecated Prefer mapProductToTypesenseDocuments. */

@@ -60,9 +60,9 @@ export const CacheKeys = {
     categoryHeaderPattern: () => 'homepage:category:header*',
     shopByCategory: () => 'homepage:section:shopByCategory:v2',
     shopByCategoryPattern: () => 'homepage:section:shopByCategory*',
-    bestSellers: () => 'homepage:section:bestSellers:v5',
+    bestSellers: (pincode = 'none') => `homepage:section:bestSellers:v6:${pincode}`,
     bestSellersPattern: () => 'homepage:section:bestSellers*',
-    watchAndShop: () => 'homepage:section:watchAndShop:v3',
+    watchAndShop: (pincode = 'none') => `homepage:section:watchAndShop:v4:${pincode}`,
     watchAndShopPattern: () => 'homepage:section:watchAndShop*',
     healthReads: () => 'homepage:section:healthReads',
     healthReadsPattern: () => 'homepage:section:healthReads*',
@@ -87,7 +87,7 @@ export const CacheKeys = {
   },
   publicSearch: {
     // v3: DB-validated popular hits (published + sellable only; one per product).
-    popular: (perPage: number) => `public:search:popular:v3:${perPage}`,
+    popular: (perPage: number, pincode = 'none') => `public:search:popular:v4:${perPage}:${pincode}`,
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
@@ -96,9 +96,8 @@ export const CacheKeys = {
     listPattern: () => 'public:products:v11:list:*',
     variantSearch: (queryHash: string) => `public:products:v8:variant-search:${queryHash}`,
     variantSearchPattern: () => 'public:products:v8:variant-search:*',
-    detail: (slug: string) => `public:products:v6:detail:${slug}`,
-    detailPattern: (slug?: string) =>
-      slug ? `public:products:v6:detail:${slug}` : 'public:products:v6:detail:*',
+    detail: (slug: string) => `public:products:v7:detail:${slug}`,
+    detailPattern: () => 'public:products:*:detail:*',
     filters: (queryHash: string) => `public:products:v1:filters:${queryHash}`,
     filtersPattern: () => 'public:products:v1:filters:*',
     filterBrands: (queryHash: string) => `public:products:v1:filter-brands:${queryHash}`,
@@ -139,9 +138,8 @@ export const CacheKeys = {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.
     list: (queryHash: string) => `public:bundles:v2:list:${queryHash}`,
     listPattern: () => 'public:bundles:v2:list:*',
-    detail: (slug: string) => `public:bundles:v2:detail:${slug}`,
-    detailPattern: (slug?: string) =>
-      slug ? `public:bundles:v2:detail:${slug}` : 'public:bundles:v2:detail:*',
+    detail: (slug: string) => `public:bundles:v3:detail:${slug}`,
+    detailPattern: () => 'public:bundles:*:detail:*',
   },
   tags: {
     listPattern: () => 'tags:list:*',
@@ -158,8 +156,8 @@ export const CacheKeys = {
   },
   wishlist: {
     ids: (userId: string) => `wishlist:ids:${userId}`,
-    page: (userId: string, page: number, limit: number) =>
-      `wishlist:page:${userId}:${page}:${limit}`,
+    page: (userId: string, page: number, limit: number, pincode = 'none') =>
+      `wishlist:page:${userId}:${page}:${limit}:${pincode}`,
     pagePattern: (userId: string) => `wishlist:page:${userId}:*`,
   },
 } as const;

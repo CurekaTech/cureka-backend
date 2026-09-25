@@ -1803,8 +1803,8 @@ export class ProductsService {
     return this.productsRepository.findPublishedByIds(ids);
   }
 
-  findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
-    return this.productsRepository.findPublishedListByIds(ids);
+  findPublishedListByIds(ids: string[], pincodeId: string | null = null): Promise<ProductEntity[]> {
+    return this.productsRepository.findPublishedListByIds(ids, pincodeId);
   }
 
   existsPublishedById(id: string): Promise<boolean> {

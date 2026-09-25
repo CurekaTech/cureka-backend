@@ -245,16 +245,18 @@ export class HomepageService {
     return this.buildShopByCategoryTree(categories);
   }
 
-  async getBestSellers(): Promise<IPublicBestSellersSection> {
+  async getBestSellers(pincodeId: string | null = null): Promise<IPublicBestSellersSection> {
     return this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.bestSellers(),
+      key: CacheKeys.homepage.bestSellers(pincodeId ?? 'none'),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadBestSellersUncached(),
+      loader: () => this.loadBestSellersUncached(pincodeId),
     });
   }
 
   /** Used by cache refresh after product/category mutations. */
-  async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
+  async loadBestSellersUncached(
+    pincodeId: string | null = null,
+  ): Promise<IPublicBestSellersSection> {
     const categories = await this.productsRepository.findRootCategoriesWithTag(
       BEST_SELLERS_TAG_SLUG,
       { limit: BEST_SELLERS_MAX_CATEGORIES, publishedOnly: true },
@@ -269,6 +271,7 @@ export class HomepageService {
         categories.map((category) => category.id),
         BEST_SELLERS_TAG_SLUG,
         BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+        pincodeId,
       );
 
     const tabs = categories
@@ -291,16 +294,18 @@ export class HomepageService {
     return { categories: tabs };
   }
 
-  async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {
+  async getWatchAndShop(pincodeId: string | null = null): Promise<IPublicWatchAndShopSection> {
     return this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.watchAndShop(),
+      key: CacheKeys.homepage.watchAndShop(pincodeId ?? 'none'),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadWatchAndShopUncached(),
+      loader: () => this.loadWatchAndShopUncached(pincodeId),
     });
   }
 
   /** Used by cache refresh after Watch & Shop item mutations. */
-  async loadWatchAndShopUncached(): Promise<IPublicWatchAndShopSection> {
+  async loadWatchAndShopUncached(
+    pincodeId: string | null = null,
+  ): Promise<IPublicWatchAndShopSection> {
     const storefrontItems = await this.watchAndShopService.loadWatchAndShopUncached(
       HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT * 4,
     );
@@ -309,7 +314,7 @@ export class HomepageService {
     }
 
     const productRefIds = [...new Set(storefrontItems.map((item) => item.productRefId))];
-    const products = await this.productsRepository.findPublishedByRefIds(productRefIds);
+    const products = await this.productsRepository.findPublishedByRefIds(productRefIds, pincodeId);
     const productByRefId = new Map(products.map((product) => [product.refId, product]));
 
     const items = storefrontItems

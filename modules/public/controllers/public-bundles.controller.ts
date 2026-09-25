@@ -27,7 +27,7 @@ export class PublicBundlesController {
   })
   @ResponseMessage('Bundle retrieved successfully')
   @Get(':slug')
-  findBySlug(@Param('slug') slug: string) {
-    return this.publicBundlesService.findBySlug(slug);
+  findBySlug(@Param('slug') slug: string, @Query('pincode') pincode?: string) {
+    return this.publicBundlesService.findBySlug(slug, pincode);
   }
 }

@@ -18,6 +18,8 @@ export const PRODUCT_COLLECTION_FIELDS = [
   { name: 'permalink', type: 'string' as const, optional: true },
   { name: 'description', type: 'string' as const, optional: true },
   { name: 'inStock', type: 'bool' as const, optional: true },
+  { name: 'isPincodeManaged', type: 'bool' as const, optional: true },
+  { name: 'pincodes', type: 'string[]' as const, optional: true },
   { name: 'minSellingPrice', type: 'float' as const, optional: true },
 ] as const;
 
