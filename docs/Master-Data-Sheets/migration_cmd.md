@@ -317,8 +317,13 @@ npm run product:dedupe-media -- --ref-id=MEN2026665813 --drop-product-level
 npm run product:dedupe-media -- --drop-product-level --apply
 
 
-------------------
+-------------------------
 
 // Google Sheet
 npm run google-merchant:export-sheet
 npm run google-merchant:export-sheet -- --env-label=techbv
+
+-------------------------
+
+npm run import:pincodes
+npm run typesense:reindex

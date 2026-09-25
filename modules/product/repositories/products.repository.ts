@@ -19,6 +19,11 @@ import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { sellableVariantAvailabilitySql } from '../utils/public-variant-availability.util';
+import {
+  bindPincodeAvailability,
+  pincodeAvailabilityPositionalSql,
+  pincodeAvailabilitySql,
+} from '../utils/pincode-availability.util';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
@@ -105,6 +110,11 @@ export interface PublicProductListOptions {
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
   minPrice?: number;
   maxPrice?: number;
+  /**
+   * null/omitted on public list queries = shopper has not selected a pincode
+   * (only unmanaged variants). A uuid limits managed variants to that canonical pincode.
+   */
+  pincodeId?: string | null;
 }
 
 @Injectable()
@@ -590,7 +600,7 @@ export class ProductsRepository {
     );
   }
 
-  async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
+  async findPublishedByRefId(refId: string, pincodeId?: string | null): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { refId, status: ProductStatus.PUBLISHED },
       relations: {
@@ -608,10 +618,13 @@ export class ProductsRepository {
     });
     if (!product) return null;
     await this.attachDetailRelations([product], this.repo.manager);
+    if (pincodeId !== undefined) {
+      await this.retainPincodeEligibleVariants([product], pincodeId);
+    }
     return product;
   }
 
-  async findPublishedBySlug(slug: string): Promise<ProductEntity | null> {
+  async findPublishedBySlug(slug: string, pincodeId?: string | null): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { slug, status: ProductStatus.PUBLISHED },
       relations: {
@@ -629,26 +642,35 @@ export class ProductsRepository {
     });
     if (!product) return null;
     await this.attachDetailRelations([product], this.repo.manager);
+    if (pincodeId !== undefined) {
+      await this.retainPincodeEligibleVariants([product], pincodeId);
+    }
     return product;
   }
 
-  async findPublishedByVariantSlug(variantSlug: string): Promise<ProductEntity | null> {
-    const match = await this.repo.manager
+  async findPublishedByVariantSlug(
+    variantSlug: string,
+    pincodeId?: string | null,
+  ): Promise<ProductEntity | null> {
+    const matchQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoin('variant.product', 'product')
       .where('variant.slug = :variantSlug', { variantSlug })
       .andWhere('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .select('product.refId', 'refId')
-      .getRawOne<{ refId: string }>();
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED });
+    if (pincodeId !== undefined) {
+      matchQb.andWhere(pincodeAvailabilitySql('variant', pincodeId));
+      bindPincodeAvailability(matchQb, pincodeId);
+    }
+    const match = await matchQb.select('product.refId', 'refId').getRawOne<{ refId: string }>();
 
     if (!match?.refId) {
       return null;
     }
 
-    return this.findPublishedByRefId(match.refId);
+    return this.findPublishedByRefId(match.refId, pincodeId);
   }
 
   /**
@@ -658,6 +680,7 @@ export class ProductsRepository {
    */
   async findPublishedByProductPageUrl(
     pageUrl: string,
+    pincodeId?: string | null,
   ): Promise<{ product: ProductEntity; matchedVariantId: string | null } | null> {
     const candidates = Array.from(
       new Set(
@@ -672,7 +695,7 @@ export class ProductsRepository {
 
     const normalized = candidates.map((value) => value.replace(/\/+$/, '') || value);
 
-    const match = await this.repo.manager
+    const matchQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoin('variant.product', 'product')
@@ -686,7 +709,12 @@ export class ProductsRepository {
       )
       .andWhere('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED });
+    if (pincodeId !== undefined) {
+      matchQb.andWhere(pincodeAvailabilitySql('variant', pincodeId));
+      bindPincodeAvailability(matchQb, pincodeId);
+    }
+    const match = await matchQb
       .select('product.refId', 'refId')
       .addSelect('variant.id', 'variantId')
       .getRawOne<{ refId: string; variantId: string }>();
@@ -695,7 +723,7 @@ export class ProductsRepository {
       return null;
     }
 
-    const product = await this.findPublishedByRefId(match.refId);
+    const product = await this.findPublishedByRefId(match.refId, pincodeId);
     if (!product) {
       return null;
     }
@@ -770,7 +798,7 @@ export class ProductsRepository {
       .filter((product): product is ProductEntity => Boolean(product));
 
     if (data.length) {
-      await this.attachPublicListRelations(data);
+      await this.attachPublicListRelations(data, options.pincodeId ?? null);
     }
 
     return { data, total };
@@ -799,6 +827,8 @@ export class ProductsRepository {
     this.applyPublicVariantSearchFilters(qb, options);
     this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
+    qb.andWhere(pincodeAvailabilitySql('variant', options.pincodeId ?? null));
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
 
     const [data, total] = await qb.getManyAndCount();
 
@@ -927,6 +957,7 @@ export class ProductsRepository {
     categoryIds: string[],
     tagSlug: string,
     limitPerCategory: number,
+    pincodeId: string | null = null,
   ): Promise<Map<string, ProductEntity[]>> {
     const result = new Map<string, ProductEntity[]>();
     const uniqueCategoryIds = [...new Set(categoryIds.filter(Boolean))];
@@ -958,6 +989,7 @@ export class ProductsRepository {
               AND pv_ins.deleted_at IS NULL
               AND pv_ins.status = $5
               AND ${sellableVariantAvailabilitySql('pv_ins')}
+              AND ${pincodeAvailabilityPositionalSql('pv_ins', pincodeId, 6)}
           )
       )
       SELECT id, "categoryId"
@@ -971,6 +1003,7 @@ export class ProductsRepository {
         uniqueCategoryIds,
         limitPerCategory,
         VariantStatus.ACTIVE,
+        ...(pincodeId ? [pincodeId] : []),
       ],
     );
 
@@ -991,7 +1024,7 @@ export class ProductsRepository {
       .getMany();
 
     if (products.length) {
-      await this.attachPublicListRelations(products);
+      await this.attachPublicListRelations(products, pincodeId);
     }
 
     const productById = new Map(products.map((product) => [product.id, product]));
@@ -1696,7 +1729,7 @@ export class ProductsRepository {
     sortOrder: 'ASC' | 'DESC',
     options?: Pick<
       PublicProductListOptions,
-      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts'
+      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts' | 'pincodeId'
     >,
   ): void {
     const bestsellerTagSlug = options?.prioritizeBestsellers
@@ -1707,6 +1740,8 @@ export class ProductsRepository {
 
     // Primary availability rank, then the existing sort inside each INS / OOS group.
     qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
+    bindPincodeAvailability(qb, options?.pincodeId ?? null);
+    const pincodeRankSql = pincodeAvailabilitySql('pv_avail', options?.pincodeId ?? null);
     qb.addSelect(
       `(CASE WHEN EXISTS (
           SELECT 1 FROM product_variants pv_avail
@@ -1714,6 +1749,7 @@ export class ProductsRepository {
             AND pv_avail.deleted_at IS NULL
             AND pv_avail.status = :publicListStockVariantStatus
             AND ${sellableVariantAvailabilitySql('pv_avail')}
+            AND ${pincodeRankSql}
         ) THEN 0 ELSE 1 END)`,
       'in_stock_rank',
     );
@@ -1751,6 +1787,7 @@ export class ProductsRepository {
               AND pv_top.deleted_at IS NULL
               AND pv_top.status = :topVariantStatus
               AND pv_top.is_top = true
+              AND ${pincodeAvailabilitySql('pv_top', options?.pincodeId ?? null)}
           ) THEN 0 ELSE 1 END)`,
         'top_rank',
       );
@@ -1760,7 +1797,8 @@ export class ProductsRepository {
           WHERE pv_top.product_id = product.id
             AND pv_top.deleted_at IS NULL
             AND pv_top.status = :topVariantStatus
-            AND pv_top.is_top = true)`,
+            AND pv_top.is_top = true
+            AND ${pincodeAvailabilitySql('pv_top', options?.pincodeId ?? null)})`,
         'top_sort_order',
       );
       qb.addOrderBy('top_rank', 'ASC');
@@ -1776,7 +1814,7 @@ export class ProductsRepository {
     if (sortBy === 'price') {
       qb.setParameter('variantStatus', VariantStatus.ACTIVE);
       qb.addSelect(
-        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
+        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL AND ${pincodeAvailabilitySql('pv', options?.pincodeId ?? null)})`,
         'min_price',
       );
       qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
@@ -2080,6 +2118,11 @@ export class ProductsRepository {
     const eligibleQb = this.createEligibleProductsQb(options, omit).select('product.id', 'id');
     const [sql, params] = eligibleQb.getQueryAndParameters();
     const statusParamIndex = params.length + 1;
+    const pincodeId = options.pincodeId ?? null;
+    const pincodeParamIndex = statusParamIndex + 1;
+    const queryParams = pincodeId
+      ? [...params, VariantStatus.ACTIVE, pincodeId]
+      : [...params, VariantStatus.ACTIVE];
 
     const rows = await this.repo.manager.query<
       Array<{ min: string | number | null; max: string | number | null }>
@@ -2092,8 +2135,9 @@ export class ProductsRepository {
       INNER JOIN eligible e ON e.id = pv.product_id
       WHERE pv.deleted_at IS NULL
         AND pv.status = $${statusParamIndex}
+        AND ${pincodeAvailabilityPositionalSql('pv', pincodeId, pincodeParamIndex)}
       `,
-      [...params, VariantStatus.ACTIVE],
+      queryParams,
     );
 
     const row = rows[0];
@@ -2197,6 +2241,7 @@ export class ProductsRepository {
           WHERE pv.product_id = product.id
             AND pv.slug = :variantSlug
             AND pv.deleted_at IS NULL
+            AND ${pincodeAvailabilitySql('pv', options.pincodeId ?? null)}
         )`,
         { variantSlug: options.variantSlug },
       );
@@ -2219,10 +2264,12 @@ export class ProductsRepository {
         WHERE pv_ins.product_id = product.id
           AND pv_ins.deleted_at IS NULL
           AND pv_ins.status = :publicInStockVariantStatus
+          AND ${pincodeAvailabilitySql('pv_ins', options.pincodeId ?? null)}
       )`,
       { publicInStockVariantStatus: VariantStatus.ACTIVE },
     );
 
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
     this.applyPublicPriceRangeFilter(qb, options, 'product', omit);
   }
 
@@ -2242,6 +2289,7 @@ export class ProductsRepository {
       `pv.product_id = ${productAlias}.id`,
       'pv.deleted_at IS NULL',
       'pv.status = :priceVariantStatus',
+      pincodeAvailabilitySql('pv', options.pincodeId ?? null),
     ];
 
     if (options.minPrice !== undefined) {
@@ -2256,6 +2304,28 @@ export class ProductsRepository {
     qb.andWhere(
       `EXISTS (SELECT 1 FROM product_variants pv WHERE ${conditions.join(' AND ')})`,
     );
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
+  }
+
+  private async retainPincodeEligibleVariants(
+    products: ProductEntity[],
+    pincodeId: string | null,
+  ): Promise<void> {
+    const ids = products.flatMap((product) => (product.variants ?? []).map((variant) => variant.id));
+    if (!ids.length) {
+      return;
+    }
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .select(['variant.id'])
+      .where('variant.id IN (:...ids)', { ids })
+      .andWhere(pincodeAvailabilitySql('variant', pincodeId));
+    bindPincodeAvailability(qb, pincodeId);
+    const allowed = new Set((await qb.getMany()).map((variant) => variant.id));
+    for (const product of products) {
+      product.variants = (product.variants ?? []).filter((variant) => allowed.has(variant.id));
+    }
   }
 
   /**
@@ -2264,13 +2334,21 @@ export class ProductsRepository {
    * one-to-many relations (variants for pricing, media for the primary image)
    * using parallel queries to avoid sequential TypeORM relation loading.
    */
-  private async attachPublicListRelations(products: ProductEntity[]): Promise<void> {
+  private async attachPublicListRelations(
+    products: ProductEntity[],
+    pincodeId: string | null = null,
+  ): Promise<void> {
     const productIds = products.map((p) => p.id);
 
+    const variantQb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .where('variant.productId IN (:...productIds)', { productIds })
+      .andWhere(pincodeAvailabilitySql('variant', pincodeId));
+    bindPincodeAvailability(variantQb, pincodeId);
+
     const [variants, media, tagMappings] = await Promise.all([
-      this.repo.manager.getRepository(ProductVariantEntity).find({
-        where: { productId: In(productIds) },
-      }),
+      variantQb.getMany(),
       this.repo.manager.getRepository(ProductMediaEntity).find({
         where: { productId: In(productIds) },
         order: { sortOrder: 'ASC', createdAt: 'ASC' },
@@ -2471,12 +2549,15 @@ export class ProductsRepository {
    * Cheapest sellable variant per published product — used for popular search
    * when Typesense is off/stale, and to pad Typesense popular results.
    */
-  async findPublishedPopularVariants(limit: number): Promise<ProductVariantEntity[]> {
+  async findPublishedPopularVariants(
+    limit: number,
+    pincodeId: string | null = null,
+  ): Promise<ProductVariantEntity[]> {
     if (limit <= 0) {
       return [];
     }
 
-    const candidates = await this.repo.manager
+    const popularQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoinAndSelect('variant.product', 'product')
@@ -2486,10 +2567,13 @@ export class ProductsRepository {
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('variant.outOfStock = false')
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(pincodeAvailabilitySql('variant', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
-      .andWhere('category.deletedAt IS NULL')
+      .andWhere('category.deletedAt IS NULL');
+    bindPincodeAvailability(popularQb, pincodeId);
+    const candidates = await popularQb
       .orderBy('variant.sellingPrice', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .take(Math.min(Math.max(limit * 8, limit), 200))
@@ -2516,6 +2600,7 @@ export class ProductsRepository {
   async findPublishedDropdownSuggestions(
     search: string,
     limit: number,
+    pincodeId: string | null = null,
   ): Promise<ProductVariantEntity[]> {
     const term = search.trim();
     if (!term || limit <= 0) {
@@ -2534,6 +2619,7 @@ export class ProductsRepository {
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(pincodeAvailabilitySql('variant', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
@@ -2568,12 +2654,19 @@ export class ProductsRepository {
       .addOrderBy('search_rank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
-      .setParameters({ prefixSearch, search: containsSearch })
+      .setParameters({
+        prefixSearch,
+        search: containsSearch,
+        ...(pincodeId ? { pincodeAvailabilityId: pincodeId } : {}),
+      })
       .take(limit)
       .getMany();
   }
 
-  async findPublishedByRefIds(refIds: string[]): Promise<ProductEntity[]> {
+  async findPublishedByRefIds(
+    refIds: string[],
+    pincodeId: string | null = null,
+  ): Promise<ProductEntity[]> {
     if (!refIds.length) {
       return [];
     }
@@ -2595,7 +2688,7 @@ export class ProductsRepository {
     }
 
     // Card/list callers only — avoid attachDetailRelations (heavy + hierarchy joins).
-    await this.attachPublicListRelations(products);
+    await this.attachPublicListRelations(products, pincodeId);
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
@@ -2667,7 +2760,10 @@ export class ProductsRepository {
   }
 
   /** Lightweight published products for wishlist/list cards (no PDP relations). */
-  async findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
+  async findPublishedListByIds(
+    ids: string[],
+    pincodeId: string | null = null,
+  ): Promise<ProductEntity[]> {
     if (!ids.length) {
       return [];
     }
@@ -2686,7 +2782,7 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachPublicListRelations(products);
+    await this.attachPublicListRelations(products, pincodeId);
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
@@ -2798,6 +2894,7 @@ export class ProductsRepository {
     page: number;
     limit: number;
     search?: string;
+    pincodeId?: string | null;
   }): Promise<{
     data: Array<{
       id: string;
@@ -2835,6 +2932,24 @@ export class ProductsRepository {
       `;
     }
 
+    const pincodeId = options.pincodeId ?? null;
+    const pincodeSql = pincodeAvailabilityPositionalSql(
+      'pv_pin',
+      pincodeId,
+      pincodeId ? params.length + 1 : 0,
+    );
+    if (pincodeId) {
+      params.push(pincodeId);
+    }
+    const eligibleVariantSql = `
+      AND EXISTS (
+        SELECT 1 FROM product_variants pv_pin
+        WHERE pv_pin.product_id = p.id
+          AND pv_pin.deleted_at IS NULL
+          AND ${pincodeSql}
+      )
+    `;
+
     params.push(take);
     const limitIdx = params.length;
     params.push(skip);
@@ -2856,6 +2971,7 @@ export class ProductsRepository {
           WHERE p.brand_id = $1
             AND p.status = $2
             AND p.deleted_at IS NULL
+            ${eligibleVariantSql}
           UNION ALL
           SELECT
             p.id AS product_id,
@@ -2870,6 +2986,7 @@ export class ProductsRepository {
           WHERE p.brand_id = $1
             AND p.status = $2
             AND p.deleted_at IS NULL
+            ${eligibleVariantSql}
         ) expanded
         WHERE cat_id IS NOT NULL
         GROUP BY cat_id
@@ -2893,7 +3010,7 @@ export class ProductsRepository {
       SELECT COUNT(*)::int AS count
       ${fromWhere}
       `,
-      params.slice(0, search ? 4 : 3),
+      params.slice(0, params.length - 2),
     );
     const total = Number(countRows?.[0]?.count ?? 0);
 

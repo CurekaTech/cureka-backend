@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { IsRefId } from '@packages/common';
 
 export class PublicBundleQueryDto {
@@ -36,4 +36,9 @@ export class PublicBundleQueryDto {
   @IsString()
   @MaxLength(300)
   brandSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
 }

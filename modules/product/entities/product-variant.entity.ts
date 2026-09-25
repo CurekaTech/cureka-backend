@@ -15,6 +15,7 @@ import { VariantStatus } from '../enums/variant-status.enum';
 import { PolicyWindowUnit } from '../enums/policy-window-unit.enum';
 import { VariantAttributeValueEntity } from './variant-attribute-value.entity';
 import { ProductMediaEntity } from './product-media.entity';
+import type { ProductVariantPincodeEntity } from './product-variant-pincode.entity';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 import { IVariantInlineFaq, IVariantCategoryFilterBinding } from '../interfaces/variant-details.interface';
@@ -87,6 +88,13 @@ export class ProductVariantEntity {
   @Index()
   @Column({ name: 'in_cureka_inventory', type: 'boolean', default: false })
   inCurekaInventory!: boolean;
+
+  /**
+   * false = available at every pincode (including shoppers who have not chosen one).
+   * true = available only at explicitly mapped pincodes.
+   */
+  @Column({ name: 'is_pincode_managed', type: 'boolean', default: false })
+  isPincodeManaged!: boolean;
 
   /** Free-text delivery window for PDP, e.g. "3-5 Days". Nullable — not an enum. */
   @Column({ name: 'estimated_delivery_time', type: 'varchar', length: 50, nullable: true })
@@ -315,4 +323,7 @@ export class ProductVariantEntity {
 
   @OneToMany(() => ProductMediaEntity, (media) => media.variant)
   media!: ProductMediaEntity[];
+
+  @OneToMany('ProductVariantPincodeEntity', 'variant')
+  pincodeMappings?: ProductVariantPincodeEntity[];
 }

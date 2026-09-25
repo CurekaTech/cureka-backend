@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';

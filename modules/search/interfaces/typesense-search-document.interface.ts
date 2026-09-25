@@ -20,6 +20,8 @@ export interface ITypesenseSearchDocument {
   permalink?: string;
   description?: string;
   inStock?: boolean;
+  isPincodeManaged?: boolean;
+  pincodes?: string[];
   minSellingPrice?: number;
 }
 

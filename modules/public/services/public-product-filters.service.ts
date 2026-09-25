@@ -207,6 +207,7 @@ export class PublicProductFiltersService {
       variantSlug: query.variantSlug,
       tagSlug: query.tagSlug,
       categoryFilterCriteria: resolved.categoryFilterCriteria,
+      pincodeId: resolved.pincodeId,
       minPrice: priceRange?.minPrice,
       maxPrice: priceRange?.maxPrice,
     };
@@ -461,6 +462,7 @@ export class PublicProductFiltersService {
       cursor: query.cursor,
       limit: query.limit,
       inStockOnly: false,
+      pincode: query.pincode ?? null,
     });
   }
 }

@@ -5,6 +5,7 @@ import { BrandsRepository } from '@modules/master/repositories/brands.repository
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { buildCategoryPermalink } from '@modules/public/utils/category-permalink.util';
 import {
@@ -20,6 +21,7 @@ import {
   TYPESENSE_FAST_SEARCH_PARAMS,
 } from '../constants/typesense-search-performance.constant';
 import { PRODUCT_POPULAR_SORT_FIELD } from '../constants/typesense-product.schema';
+import { ITypesenseSearchRuntimeConfig } from '../interfaces/typesense-search-runtime-config.interface';
 import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
 import {
   mapBrandToSearchResult,
@@ -63,16 +65,18 @@ export class PublicSearchService {
     private readonly categoriesRepository: CategoriesRepository,
     private readonly healthConcernsRepository: HealthConcernsRepository,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
-  async search(query: string, perPage = 10): Promise<IPublicSearchResult[]> {
+  async search(query: string, perPage = 10, pincode?: string): Promise<IPublicSearchResult[]> {
     const trimmed = query.trim();
     if (!trimmed) {
       return [];
     }
 
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
     const useTypesense = await this.shouldUseTypesense();
-    const cacheKey = this.buildCacheKey(trimmed, perPage, useTypesense);
+    const cacheKey = this.buildCacheKey(trimmed, perPage, useTypesense, scope.pincode);
     const cached = this.readCache(cacheKey);
     if (cached) {
       return cached;
@@ -81,7 +85,7 @@ export class PublicSearchService {
     if (useTypesense) {
       try {
         const merged = await this.attachCategoryPermalinks(
-          await this.searchWithTypesense(trimmed, perPage),
+          await this.searchWithTypesense(trimmed, perPage, scope.pincode),
         );
         this.writeCache(cacheKey, merged);
         return merged;
@@ -101,19 +105,20 @@ export class PublicSearchService {
     }
 
     const fallback = await this.attachCategoryPermalinks(
-      await this.searchWithNative(trimmed, perPage),
+      await this.searchWithNative(trimmed, perPage, scope.pincodeId),
     );
     this.writeCache(cacheKey, fallback);
     return fallback;
   }
 
-  async getPopular(perPage = 4): Promise<IPublicSearchResult[]> {
+  async getPopular(perPage = 4, pincode?: string): Promise<IPublicSearchResult[]> {
     const normalizedPerPage = Math.min(Math.max(1, perPage), 30);
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
     return this.cacheStrategy.cacheAside({
-      key: CacheKeys.publicSearch.popular(normalizedPerPage),
+      key: CacheKeys.publicSearch.popular(normalizedPerPage, scope.pincode ?? 'none'),
       module: CacheModuleName.DEFAULT,
       ttlSeconds: SEARCH_POPULAR_CACHE_TTL_SECONDS,
-      loader: () => this.loadPopular(normalizedPerPage),
+      loader: () => this.loadPopular(normalizedPerPage, scope.pincode, scope.pincodeId),
     });
   }
 
@@ -121,15 +126,19 @@ export class PublicSearchService {
    * Popular dropdown: published + sellable products only, one hit per product.
    * Typesense is a candidate source; Postgres is the source of truth for links.
    */
-  private async loadPopular(perPage: number): Promise<IPublicSearchResult[]> {
+  private async loadPopular(
+    perPage: number,
+    pincode: string | null,
+    pincodeId: string | null,
+  ): Promise<IPublicSearchResult[]> {
     if (await this.shouldUseTypesense()) {
       try {
-        const fromTypesense = await this.loadPopularFromTypesense(perPage);
+        const fromTypesense = await this.loadPopularFromTypesense(perPage, pincode, pincodeId);
         if (fromTypesense.length >= perPage) {
           return fromTypesense;
         }
 
-        const fromDb = await this.loadPopularFromDb(perPage);
+        const fromDb = await this.loadPopularFromDb(perPage, pincodeId);
         return this.mergeUniquePopularResults(fromTypesense, fromDb, perPage);
       } catch (error) {
         this.logger.warn(
@@ -141,14 +150,22 @@ export class PublicSearchService {
       }
     }
 
-    return this.loadPopularFromDb(perPage);
+    return this.loadPopularFromDb(perPage, pincodeId);
   }
 
-  private async loadPopularFromTypesense(perPage: number): Promise<IPublicSearchResult[]> {
+  private async loadPopularFromTypesense(
+    perPage: number,
+    pincode: string | null,
+    pincodeId: string | null,
+  ): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
     const productFilter = config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT];
-    const filterBy = [productFilter, config.hasInStock ? 'inStock:true' : undefined]
+    const filterBy = [
+      productFilter,
+      config.hasInStock ? 'inStock:true' : undefined,
+      this.typesensePincodeClause(config, pincode),
+    ]
       .filter(Boolean)
       .join(' && ');
     // Over-fetch: cheapest Typesense docs are often stale OOS that PDP would 404.
@@ -180,11 +197,16 @@ export class PublicSearchService {
       return [];
     }
 
-    return this.resolvePopularFromPublishedProducts(candidates, perPage);
+    return this.resolvePopularFromPublishedProducts(candidates, perPage, pincodeId);
   }
 
-  private async loadPopularFromDb(perPage: number): Promise<IPublicSearchResult[]> {
-    const variants = await this.productsRepository.findPublishedPopularVariants(perPage);
+  private async loadPopularFromDb(
+    perPage: number,
+    pincodeId: string | null,
+  ): Promise<IPublicSearchResult[]> {
+    const variants = pincodeId
+      ? await this.productsRepository.findPublishedPopularVariants(perPage, pincodeId)
+      : await this.productsRepository.findPublishedPopularVariants(perPage);
     return variants
       .map((variant) => mapVariantToSearchResult(variant))
       .filter((result): result is IPublicSearchResult => Boolean(result))
@@ -198,10 +220,12 @@ export class PublicSearchService {
   private async resolvePopularFromPublishedProducts(
     candidates: IPublicSearchResult[],
     perPage: number,
+    pincodeId: string | null,
   ): Promise<IPublicSearchResult[]> {
-    const published = await this.productsRepository.findPublishedByRefIds(
-      candidates.map((candidate) => candidate.refId),
-    );
+    const refIds = candidates.map((candidate) => candidate.refId);
+    const published = pincodeId
+      ? await this.productsRepository.findPublishedByRefIds(refIds, pincodeId)
+      : await this.productsRepository.findPublishedByRefIds(refIds);
     const publishedByRefId = new Map(published.map((product) => [product.refId, product]));
     const results: IPublicSearchResult[] = [];
 
@@ -273,7 +297,11 @@ export class PublicSearchService {
     return this.adminSettingsService.isTypesenseSearchEnabled();
   }
 
-  private async searchWithTypesense(trimmed: string, perPage: number): Promise<IPublicSearchResult[]> {
+  private async searchWithTypesense(
+    trimmed: string,
+    perPage: number,
+    pincode: string | null,
+  ): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
     const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
@@ -282,8 +310,14 @@ export class PublicSearchService {
         return [];
       }
 
-      const filterBy = config.entityTypeFilters[entityType];
       const isProduct = entityType === SEARCH_ENTITY_TYPES.PRODUCT;
+      const filterBy = isProduct
+        ? this.applyProductPincodeFilter(
+            config.entityTypeFilters[entityType],
+            config,
+            pincode,
+          )
+        : config.entityTypeFilters[entityType];
 
       return [
         {
@@ -317,7 +351,11 @@ export class PublicSearchService {
     );
   }
 
-  private async searchWithNative(trimmed: string, perPage: number): Promise<IPublicSearchResult[]> {
+  private async searchWithNative(
+    trimmed: string,
+    perPage: number,
+    pincodeId: string | null,
+  ): Promise<IPublicSearchResult[]> {
     const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
     const productLimit = Math.min(perPage * 3, 30);
     const pagination = { page: 1, limit: entityLimit, search: trimmed, sortBy: 'name', sortOrder: 'ASC' as const };
@@ -326,7 +364,9 @@ export class PublicSearchService {
       this.categoriesRepository.findPublicPaginated(pagination),
       this.brandsRepository.findPublicPaginated(pagination),
       this.healthConcernsRepository.findPublicPaginated(pagination),
-      this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit),
+      pincodeId
+        ? this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit, pincodeId)
+        : this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit),
     ]);
 
     const products = filterDistinctMatchingProductVariants(
@@ -439,8 +479,36 @@ export class PublicSearchService {
     return results;
   }
 
-  private buildCacheKey(query: string, perPage: number, useTypesense: boolean): string {
-    return `${useTypesense ? 'ts' : 'native'}\0${query.toLowerCase()}\0${perPage}`;
+  private buildCacheKey(
+    query: string,
+    perPage: number,
+    useTypesense: boolean,
+    pincode: string | null,
+  ): string {
+    return `${useTypesense ? 'ts' : 'native'}\0${query.toLowerCase()}\0${perPage}\0${pincode ?? 'none'}`;
+  }
+
+  private typesensePincodeClause(
+    config: ITypesenseSearchRuntimeConfig,
+    pincode: string | null,
+  ): string | undefined {
+    if (!config.hasIsPincodeManaged) {
+      return undefined;
+    }
+    if (!pincode) {
+      return 'isPincodeManaged:=false';
+    }
+    return `(isPincodeManaged:=false || pincodes:=${pincode})`;
+  }
+
+  private applyProductPincodeFilter(
+    filterBy: string | undefined,
+    config: ITypesenseSearchRuntimeConfig,
+    pincode: string | null,
+  ): string | undefined {
+    const clause = this.typesensePincodeClause(config, pincode);
+    const combined = [filterBy, clause].filter(Boolean).join(' && ');
+    return combined || undefined;
   }
 
   private readCache(cacheKey: string): IPublicSearchResult[] | null {

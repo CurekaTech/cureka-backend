@@ -11,6 +11,7 @@ import {
 } from '@packages/cache';
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PublicBundleQueryDto } from '../dto/public-bundle-query.dto';
@@ -31,11 +32,13 @@ export class PublicBundlesService {
     private readonly brandsRepository: BrandsRepository,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly pincodesService: PincodesService,
   ) {}
 
   async findAll(query: PublicBundleQueryDto): Promise<IPublicBundleListResponse> {
     const paginationOptions = buildPaginationOptions(query);
     const brandId = await this.resolveBrandId(query);
+    const scope = await this.pincodesService.resolveForStorefront(query.pincode);
     const queryHash = buildQueryCacheHash({
       page: paginationOptions.page,
       limit: paginationOptions.limit,
@@ -46,6 +49,7 @@ export class PublicBundlesService {
       brandSlug: query.brandSlug,
       brandId,
       productType: ProductType.BUNDLE,
+      pincode: scope.pincode,
     });
 
     const raw = await this.cacheStrategy.cacheAside({
@@ -60,6 +64,7 @@ export class PublicBundlesService {
           sortOrder: paginationOptions.sortOrder,
           productType: ProductType.BUNDLE,
           brandId,
+          pincodeId: scope.pincodeId,
         });
         return buildPaginatedResult(
           mapProductEntitiesToPublicBundleCards(data),
@@ -75,17 +80,18 @@ export class PublicBundlesService {
     };
   }
 
-  async findBySlug(slug: string): Promise<IPublicBundleDetail> {
+  async findBySlug(slug: string, pincode?: string): Promise<IPublicBundleDetail> {
     const key = slug.trim();
     if (!key) {
       throw new NotFoundException('Bundle slug is required');
     }
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
 
     const raw = await this.cacheStrategy.cacheAside({
-      key: CacheKeys.publicBundles.detail(key),
+      key: CacheKeys.publicBundles.detail(`${key}:pincode:${scope.pincode ?? 'none'}`),
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
-        const entity = await this.productsRepository.findPublishedBySlug(key);
+        const entity = await this.productsRepository.findPublishedBySlug(key, scope.pincodeId);
         if (!entity || entity.productType !== ProductType.BUNDLE) {
           throw new NotFoundException(`Bundle with slug "${key}" not found`);
         }

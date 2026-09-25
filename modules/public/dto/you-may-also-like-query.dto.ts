@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsInt, IsOptional, IsUUID, ArrayMaxSize, Max, Min } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, IsUUID, ArrayMaxSize, Matches, Max, Min } from 'class-validator';
 
 export class YouMayAlsoLikeQueryDto {
   /**
@@ -34,4 +34,9 @@ export class YouMayAlsoLikeQueryDto {
   @Min(1)
   @Max(40)
   limit?: number = 20;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
 }
