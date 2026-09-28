@@ -29,6 +29,7 @@ export class ProductCacheListener {
         CacheKeys.publicBundles.detailPattern(),
         CacheKeys.homepage.bestSellersPattern(),
         CacheKeys.homepage.sectionsPattern(),
+        CacheKeys.publicSearch.popularPattern(),
       ],
       keys: [CacheKeys.products.detail(event.refId)],
     });

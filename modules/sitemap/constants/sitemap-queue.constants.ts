@@ -1,7 +1,10 @@
 export const SITEMAP_XMLNS = 'http://www.sitemaps.org/schemas/sitemap/0.9';
 
-export const SITEMAP_CACHE_CONTROL =
-  'public, max-age=300, s-maxage=300, stale-while-revalidate=3600';
+/** Child sitemaps. No stale-while-revalidate, so a host change is not served for an extra hour. */
+export const SITEMAP_CACHE_CONTROL = 'public, max-age=120, s-maxage=120, must-revalidate';
+
+/** Index is the file clients and Google open first. Do not let a CDN keep yesterday's host. */
+export const SITEMAP_INDEX_CACHE_CONTROL = 'public, max-age=0, s-maxage=0, must-revalidate';
 
 export const SITEMAP_CONTENT_TYPE = 'application/xml; charset=utf-8';
 
