@@ -28,6 +28,8 @@ import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapp
 import { mapHealthConcernEntityToResponse } from '@modules/master/mappers/health-concern.mapper';
 import { mapVariantEntityToDetailFields } from './variant-details.mapper';
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
+import { IBundleAvailability } from '../interfaces/bundle-availability.interface';
+import { buildBundleAvailability } from '../utils/bundle-availability.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -148,6 +150,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   tags: (entity.tagMappings ?? []).map(mapTag),
   faqs: sortProductFaqMappings(entity.faqMappings ?? []).map(mapFaq),
   bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
+  bundleAvailability: mapBundleAvailability(entity),
   outOfStock: isProductOutOfStock(entity),
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
@@ -414,6 +417,38 @@ const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBund
   childProductName: item.childProduct?.name ?? '',
   quantity: item.quantity,
 });
+
+const mapBundleAvailability = (entity: ProductEntity): IBundleAvailability | null => {
+  if (entity.productType !== ProductType.BUNDLE) return null;
+
+  return buildBundleAvailability(
+    (entity.variants ?? []).map((variant) => ({
+      sku: variant.sku,
+      stock: variant.stock,
+      outOfStock: variant.outOfStock,
+      inCurekaInventory: variant.inCurekaInventory,
+      status: variant.status,
+      deletedAt: variant.deletedAt,
+    })),
+    (entity.bundleItems ?? []).map((item) => ({
+      refId: item.childProduct?.refId ?? '',
+      name: item.childProduct?.name ?? '',
+      productType: item.childProduct?.productType ?? ProductType.SIMPLE,
+      bundleComponentOos: item.childProduct?.bundleComponentOos ?? false,
+      deleted: !item.childProduct || Boolean(item.childProduct.deletedAt),
+      quantity: item.quantity,
+      variants: (item.childProduct?.variants ?? []).map((variant) => ({
+        sku: variant.sku,
+        name: variant.displayName,
+        stock: variant.stock,
+        outOfStock: variant.outOfStock,
+        inCurekaInventory: variant.inCurekaInventory,
+        status: variant.status,
+        deletedAt: variant.deletedAt,
+      })),
+    })),
+  );
+};
 
 export const mapCategoryFilters = (entity: ProductEntity): IProductCategoryFilterBinding[] => {
   const grouped = new Map<string, IProductCategoryFilterBinding>();

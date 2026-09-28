@@ -18,7 +18,11 @@ import { ProductCategoryHierarchyEntity } from '../entities/product-category-hie
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
-import { sellableVariantAvailabilitySql } from '../utils/public-variant-availability.util';
+import {
+  bundleDependencyAvailableSql,
+  publicAvailabilityRankSql,
+  sellableVariantAvailabilitySql,
+} from '../utils/public-variant-availability.util';
 import {
   bindPincodeAvailability,
   pincodeAvailabilityPositionalSql,
@@ -982,6 +986,7 @@ export class ProductsRepository {
         WHERE p.deleted_at IS NULL
           AND p.status = $2
           AND p.category_id = ANY($3::uuid[])
+          AND ${bundleDependencyAvailableSql('p')}
           AND EXISTS (
             SELECT 1
             FROM product_variants pv_ins
@@ -1445,6 +1450,23 @@ export class ProductsRepository {
       bundleByProduct.set(b.parentProductId, arr);
     }
 
+    const childProductIds = [...new Set(bundleItems.map((item) => item.childProductId))];
+    if (childProductIds.length) {
+      const childVariants = await mgr.getRepository(ProductVariantEntity).find({
+        where: { productId: In(childProductIds) },
+      });
+      const childVariantsByProduct = new Map<string, ProductVariantEntity[]>();
+      for (const variant of childVariants) {
+        const list = childVariantsByProduct.get(variant.productId) ?? [];
+        list.push(variant);
+        childVariantsByProduct.set(variant.productId, list);
+      }
+      for (const item of bundleItems) {
+        if (!item.childProduct) continue;
+        item.childProduct.variants = childVariantsByProduct.get(item.childProductId) ?? [];
+      }
+    }
+
     for (const product of products) {
       product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
       product.variants = variantsByProduct.get(product.id) ?? [];
@@ -1750,7 +1772,7 @@ export class ProductsRepository {
             AND pv_avail.status = :publicListStockVariantStatus
             AND ${sellableVariantAvailabilitySql('pv_avail')}
             AND ${pincodeRankSql}
-        ) THEN 0 ELSE 1 END)`,
+        ) AND ${bundleDependencyAvailableSql('product')} THEN 0 ELSE 1 END)`,
       'in_stock_rank',
     );
     qb.orderBy('in_stock_rank', 'ASC');
@@ -1846,10 +1868,7 @@ export class ProductsRepository {
       variantSlug: 'variant.slug',
     };
     const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
-    qb.addSelect(
-      `CASE WHEN ${sellableVariantAvailabilitySql('variant')} THEN 0 ELSE 1 END`,
-      'variant_stock_rank',
-    );
+    qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'variant_stock_rank');
     qb.orderBy('variant_stock_rank', 'ASC');
     qb.addOrderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
@@ -2566,6 +2585,7 @@ export class ProductsRepository {
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('variant.outOfStock = false')
+      .andWhere(bundleDependencyAvailableSql('product'))
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere(pincodeAvailabilitySql('variant', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
@@ -2630,10 +2650,7 @@ export class ProductsRepository {
           OR variant.displayName ILIKE :search)`,
         { search: containsSearch },
       )
-      .addSelect(
-        `CASE WHEN ${sellableVariantAvailabilitySql('variant')} THEN 0 ELSE 1 END`,
-        'availability_rank',
-      )
+      .addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank')
       .addSelect(
         `CASE
           WHEN variant.sku ILIKE :prefixSearch THEN 0

@@ -53,6 +53,7 @@ import { ProductReviewsRepository } from './repositories/product-reviews.reposit
 
 // ── Product services ─────────────────────────────────────────────────────────
 import { ProductsService } from './services/products.service';
+import { BundleAvailabilityService } from './services/bundle-availability.service';
 import { CombineSimpleProductsService } from './services/combine-simple-products.service';
 import { BestSellersIndexingService } from './services/best-sellers-indexing.service';
 import { CategoryProductIndexingService } from './services/category-product-indexing.service';
@@ -105,6 +106,7 @@ import { PublicProductReviewsController } from './controllers/public-product-rev
 
 // ── Listeners ────────────────────────────────────────────────────────────────
 import { ProductCacheListener } from './listeners/product-cache.listener';
+import { BundleAvailabilityListener } from './listeners/bundle-availability.listener';
 
 // ── Processors ───────────────────────────────────────────────────────────────
 import { BulkUploadProcessor } from './processors/bulk-upload.processor';
@@ -184,6 +186,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     ProductTagsRepository,
     ProductInformationLabelsRepository,
     ProductsService,
+    BundleAvailabilityService,
     CombineSimpleProductsService,
     BestSellersIndexingService,
     CategoryProductIndexingService,
@@ -199,6 +202,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     BundleProductStrategy,
     ProductStrategyFactory,
     ProductCacheListener,
+    BundleAvailabilityListener,
     BulkUploadsRepository,
     BulkUploadService,
     BulkUploadExportStreamService,

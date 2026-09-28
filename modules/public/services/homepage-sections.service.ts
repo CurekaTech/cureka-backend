@@ -17,7 +17,7 @@ import { IHomeSection } from '@modules/master/interfaces/home-section.interface'
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
-import { hasSellablePublicVariant } from '@modules/product/utils/public-variant-availability.util';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
@@ -223,7 +223,7 @@ export class HomepageSectionsService implements OnModuleInit {
       return this.withReviewStats(l1.value);
     }
 
-    const enrichedKey = CacheKeys.homepage.sections(`v13-enriched-${variant}`);
+    const enrichedKey = CacheKeys.homepage.sections(`v14-enriched-${variant}`);
     const fromEnriched = await this.cacheService.get<IHomepageSectionsResponse>(enrichedKey);
     if (fromEnriched) {
       this.setL1(variant, fromEnriched);
@@ -232,8 +232,8 @@ export class HomepageSectionsService implements OnModuleInit {
     }
 
     const unsigned = await this.cacheStrategy.cacheAside({
-      // v12: homepage product sliders exclude out-of-stock products.
-      key: CacheKeys.homepage.sections(`v12-${variant}`),
+      // v13: homepage product sliders also exclude dependency-OOS bundles.
+      key: CacheKeys.homepage.sections(`v13-${variant}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
       loader: () => this.buildSections(requested, scope.pincodeId),
@@ -464,7 +464,7 @@ export class HomepageSectionsService implements OnModuleInit {
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
         .filter((product): product is NonNullable<typeof product> => Boolean(product))
-        .filter((product) => hasSellablePublicVariant(product));
+        .filter((product) => isPublicProductSellable(product));
       return {
         banner: section.banners?.[0] ?? null,
         products: mapProductEntitiesToPublicStorefrontCards(ordered),

@@ -14,7 +14,7 @@ import { PublicWatchAndShopQueryDto } from '@modules/master/dto/watch-and-shop.d
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
-import { hasSellablePublicVariant } from '@modules/product/utils/public-variant-availability.util';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
 import { IPublicWatchAndShopItem } from '../interfaces/public-watch-and-shop.interface';
@@ -74,7 +74,7 @@ export class PublicWatchAndShopService {
       await Promise.all(
         enriched.map(async (item) => {
           const product = productByRefId.get(item.productRefId);
-          if (!product || !hasSellablePublicVariant(product)) return null;
+          if (!product || !isPublicProductSellable(product)) return null;
 
           return {
             refId: item.refId,

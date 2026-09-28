@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
@@ -6,6 +7,7 @@ import { AdminNotificationEmailType } from '@modules/admin-settings/enums/admin-
 import { AdminNotificationEmailsService } from '@modules/admin-settings/services/admin-notification-emails.service';
 import { VariantOosTransition } from '@modules/product/repositories/product-variants.repository';
 import {
+  BundleOosEmailJobData,
   OOS_EMAIL_JOB_NAMES,
   OosEmailJobData,
 } from '../constants/oos-email-queue.constants';
@@ -41,6 +43,59 @@ export class OosEmailQueueService {
     for (const transition of transitions) {
       await this.enqueueOne(transition);
     }
+  }
+
+  async enqueueBundleNotifications(notifications: BundleOosEmailJobData[]): Promise<void> {
+    if (!notifications.length) return;
+
+    if (!this.mailService.isConfigured()) {
+      this.logSkipOnce('SMTP unset — skipping OOS email enqueue');
+      return;
+    }
+
+    const recipientCount = await this.notificationEmailsService.countActiveByType(
+      AdminNotificationEmailType.PRODUCT_OOS,
+    );
+    if (recipientCount === 0) {
+      this.logSkipOnce('No active product_oos recipients — skipping OOS email enqueue');
+      return;
+    }
+
+    for (const notification of notifications) {
+      const componentKey = notification.components
+        .map(
+          (component) =>
+            `${component.refId}:${component.variants.map((variant) => variant.sku).sort().join(',')}`,
+        )
+        .sort()
+        .join('|');
+      const digest = createHash('sha1').update(componentKey).digest('hex').slice(0, 16);
+      const jobId = `bundle-oos-${notification.bundleRefId}-${digest}`;
+      await this.queue.add(OOS_EMAIL_JOB_NAMES.SEND_BUNDLE_OOS, notification, {
+        jobId,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 3000 },
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      });
+      this.logger.log(
+        { bundleRefId: notification.bundleRefId, bundleSku: notification.bundleSku, jobId },
+        'Enqueued bundle OOS email job',
+      );
+    }
+  }
+
+  enqueueBundleOosSafe(notifications: BundleOosEmailJobData[]): void {
+    if (!notifications.length) return;
+    void this.enqueueBundleNotifications(notifications).catch((error: unknown) => {
+      this.logger.error(
+        {
+          err: error instanceof Error ? error.message : String(error),
+          count: notifications.length,
+        },
+        'Failed to enqueue bundle OOS email jobs',
+      );
+    });
   }
 
   /** Fire-and-forget wrapper; never throws to callers. */

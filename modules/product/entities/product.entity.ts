@@ -27,6 +27,7 @@ import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { ProductNatureEntity } from '@modules/master/entities/product-nature.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
+import { IBundleOosComponent } from '../interfaces/bundle-availability.interface';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
@@ -192,6 +193,17 @@ export class ProductEntity extends BaseEntity {
   /** Bundle-only icon shown on public bundle list/detail cards. */
   @Column({ ...storageFileReferenceColumn({ name: 'bundle_icon', nullable: true }) })
   bundleIcon!: IStorageFileReference | null;
+
+  /**
+   * True when a bundle has at least one unavailable component product.
+   * Independent of the pricing variant's admin outOfStock flag.
+   */
+  @Column({ name: 'bundle_component_oos', type: 'boolean', default: false })
+  bundleComponentOos!: boolean;
+
+  /** Components that currently make this bundle unavailable. Null when none. */
+  @Column({ name: 'bundle_oos_components', type: 'jsonb', nullable: true })
+  bundleOosComponents!: IBundleOosComponent[] | null;
 
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;

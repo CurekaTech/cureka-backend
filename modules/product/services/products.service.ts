@@ -1336,7 +1336,10 @@ export class ProductsService {
   /**
    * Sets inCurekaInventory for variants by SKU only — does not change stock or outOfStock.
    */
-  async bulkUpdateCurekaInventory(dto: BulkUpdateCurekaInventoryDto): Promise<{
+  async bulkUpdateCurekaInventory(
+    dto: BulkUpdateCurekaInventoryDto,
+    options?: { productType?: ProductType },
+  ): Promise<{
     requested: number;
     updated: string[];
     alreadyAtTarget: string[];
@@ -1352,6 +1355,7 @@ export class ProductsService {
       await this.variantsRepository.updateInCurekaInventoryBySkus(
         uniqueSkus,
         dto.inCurekaInventory,
+        options?.productType,
       );
 
     const updated: string[] = [];
