@@ -47,6 +47,16 @@ export const sitemapGroupLegacyLivePath = (group: SitemapGroup): string | null =
   return `${group}/${group}.xml`;
 };
 
+/** Group that owns a live object key (relative to sitemaps/), or null. */
+export const liveKeyToGroup = (relativePath: string): SitemapGroup | null => {
+  const path = relativePath.replace(/^\/+/, '');
+  if (/^products\/products-\d+\.xml$/.test(path)) return 'products';
+  const nested = path.match(/^([a-z0-9-]+)\/\1\.xml$/i);
+  const flat = path.match(/^([a-z0-9-]+)\.xml$/i);
+  const name = nested?.[1] ?? flat?.[1];
+  return name && isSitemapGroup(name) ? name : null;
+};
+
 /** Map a live object key (relative to sitemaps/) to the public storefront path. */
 export const liveKeyToPublicPath = (relativePath: string): string | null => {
   const path = relativePath.replace(/^\/+/, '');

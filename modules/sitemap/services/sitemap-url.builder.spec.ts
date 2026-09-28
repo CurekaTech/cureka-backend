@@ -272,9 +272,11 @@ describe('sitemap-url.builder', () => {
   });
 
   it('maps predefined CMS slugs to storefront shortcuts', () => {
-    expect(buildCmsLocPath('about-cureka')).toBe('/about');
+    expect(buildCmsLocPath('about-us')).toBe('/about-us');
+    expect(buildCmsLocPath('about-cureka')).toBe('/about-us');
     expect(buildCmsLocPath('privacy-policy')).toBe('/policies/privacy');
-    expect(buildCmsLocPath('custom-page')).toBe('/policies/custom-page');
+    // Storefront serves only mapped CMS pages; unmapped slugs are not guessed.
+    expect(buildCmsLocPath('custom-page')).toBeNull();
     expect(buildCmsLocPath('')).toBeNull();
   });
 
@@ -306,5 +308,18 @@ describe('sitemap-url.builder', () => {
   it('normalizes storefront paths', () => {
     expect(toStorefrontPath('/shop/foo/')).toBe('/shop/foo');
     expect(toStorefrontPath('')).toBeNull();
+  });
+
+  it('ignores serialised empty product page URLs', () => {
+    expect(toStorefrontPath('undefined')).toBeNull();
+    expect(toStorefrontPath('/undefined')).toBeNull();
+    expect(toStorefrontPath('NULL')).toBeNull();
+    expect(
+      buildProductLocPath({
+        slug: 'zyndet-bar-125gm',
+        productPageUrl: 'undefined',
+        categorySlugPath: ['skin-care', 'bathing-bars'],
+      }),
+    ).toBe('/shop/skin-care/bathing-bars/zyndet-bar-125gm');
   });
 });
