@@ -50,6 +50,7 @@ export class PublicBundlesService {
       brandId,
       productType: ProductType.BUNDLE,
       pincode: scope.pincode,
+      isHomePage: query.isHomePage === true,
     });
 
     const raw = await this.cacheStrategy.cacheAside({
@@ -65,6 +66,7 @@ export class PublicBundlesService {
           productType: ProductType.BUNDLE,
           brandId,
           pincodeId: scope.pincodeId,
+          inStockOnly: query.isHomePage === true,
         });
         return buildPaginatedResult(
           mapProductEntitiesToPublicBundleCards(data),
