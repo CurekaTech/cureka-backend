@@ -1813,6 +1813,8 @@ export class ProductsService {
       importer,
       countryOfOrigin: product.countryOfOrigin,
       healthConcerns,
+      isPincodeManaged: product.isPincodeManaged,
+      pincodes: product.pincodes,
     };
   }
 
