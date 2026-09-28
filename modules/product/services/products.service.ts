@@ -71,6 +71,8 @@ import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query
 import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
 import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
 import { VariantOosTransition } from '../repositories/product-variants.repository';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
+import { IProductPincodeAvailability } from '@modules/pincodes/interfaces/pincode.interface';
 
 export interface ProductMutationOptions {
   /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
@@ -102,6 +104,7 @@ export class ProductsService {
     @Inject(forwardRef(() => ProductSubscriptionConfigService))
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly oosEmailQueueService: OosEmailQueueService,
+    private readonly pincodesService: PincodesService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -165,6 +168,101 @@ export class ProductsService {
   async findBundleOne(refId: string): Promise<IProductDetail> {
     await this.assertProductIsBundle(refId);
     return this.findOne(refId);
+  }
+
+  async getPincodeAvailability(
+    productRefId: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    const pincodes = await this.pincodesService.listMappedSummaries(product.id);
+    return { isPincodeManaged: product.isPincodeManaged, pincodes };
+  }
+
+  async updatePincodeManagement(
+    productRefId: string,
+    isPincodeManaged: boolean,
+    updatedBy: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    const oldCodes = await this.pincodesService.listMappedCodes(product.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(ProductEntity).update(product.id, { isPincodeManaged });
+      if (!isPincodeManaged) {
+        await this.pincodesService.clearMappings(manager, product.id);
+      }
+      await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
+    });
+
+    this.logger.log({
+      msg: 'product_pincode_availability_updated',
+      admin: updatedBy,
+      productRefId,
+      oldIsPincodeManaged: product.isPincodeManaged,
+      newIsPincodeManaged: isPincodeManaged,
+      oldPincodes: oldCodes,
+      newPincodes: isPincodeManaged ? oldCodes : [],
+    });
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(product.refId, 'updated'),
+    );
+    return this.getPincodeAvailability(productRefId, productType);
+  }
+
+  async replacePincodes(
+    productRefId: string,
+    pincodes: string[],
+    updatedBy: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    if (!product.isPincodeManaged) {
+      throw new BadRequestException('Enable pincode management before assigning pincodes');
+    }
+    const resolved = await this.pincodesService.resolveExistingCodes(pincodes);
+    const oldCodes = await this.pincodesService.listMappedCodes(product.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await this.pincodesService.replaceMappings(
+        manager,
+        product.id,
+        resolved.map((row) => row.id),
+      );
+      await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
+    });
+
+    this.logger.log({
+      msg: 'product_pincode_availability_updated',
+      admin: updatedBy,
+      productRefId,
+      oldIsPincodeManaged: true,
+      newIsPincodeManaged: true,
+      oldPincodes: oldCodes,
+      newPincodes: resolved.map((row) => row.pincode).sort(),
+    });
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(product.refId, 'updated'),
+    );
+    return this.getPincodeAvailability(productRefId, productType);
+  }
+
+  private async requirePincodeProduct(refId: string, productType?: ProductType): Promise<ProductEntity> {
+    const product = await this.productsRepository.findByRefId(refId);
+    if (!product) {
+      throw new NotFoundException(`Product with refId ${refId} not found`);
+    }
+    if (productType && product.productType !== productType) {
+      throw new NotFoundException(
+        productType === ProductType.BUNDLE
+          ? `Bundle product with refId ${refId} not found`
+          : `Product with refId ${refId} not found`,
+      );
+    }
+    return product;
   }
 
   private async assertProductIsBundle(refId: string): Promise<void> {

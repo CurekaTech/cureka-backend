@@ -8,7 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import type { PincodeOfficeEntity } from './pincode-office.entity';
-import type { ProductVariantPincodeEntity } from '@modules/product/entities/product-variant-pincode.entity';
+import type { ProductPincodeEntity } from '@modules/product/entities/product-pincode.entity';
 
 /** One row per 6-digit Indian pincode. Product mappings point here, not at a post office. */
 @Entity('pincodes')
@@ -36,6 +36,6 @@ export class PincodeEntity {
   @OneToMany('PincodeOfficeEntity', 'pincode')
   offices?: PincodeOfficeEntity[];
 
-  @OneToMany('ProductVariantPincodeEntity', 'pincode')
-  variantMappings?: ProductVariantPincodeEntity[];
+  @OneToMany('ProductPincodeEntity', 'pincode')
+  productMappings?: ProductPincodeEntity[];
 }

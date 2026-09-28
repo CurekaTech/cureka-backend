@@ -665,7 +665,7 @@ export class ProductsRepository {
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED });
     if (pincodeId !== undefined) {
-      matchQb.andWhere(pincodeAvailabilitySql('variant', pincodeId));
+      matchQb.andWhere(pincodeAvailabilitySql('product', pincodeId));
       bindPincodeAvailability(matchQb, pincodeId);
     }
     const match = await matchQb.select('product.refId', 'refId').getRawOne<{ refId: string }>();
@@ -715,7 +715,7 @@ export class ProductsRepository {
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED });
     if (pincodeId !== undefined) {
-      matchQb.andWhere(pincodeAvailabilitySql('variant', pincodeId));
+      matchQb.andWhere(pincodeAvailabilitySql('product', pincodeId));
       bindPincodeAvailability(matchQb, pincodeId);
     }
     const match = await matchQb
@@ -831,7 +831,7 @@ export class ProductsRepository {
     this.applyPublicVariantSearchFilters(qb, options);
     this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
-    qb.andWhere(pincodeAvailabilitySql('variant', options.pincodeId ?? null));
+    qb.andWhere(pincodeAvailabilitySql('product', options.pincodeId ?? null));
     bindPincodeAvailability(qb, options.pincodeId ?? null);
 
     const [data, total] = await qb.getManyAndCount();
@@ -994,7 +994,7 @@ export class ProductsRepository {
               AND pv_ins.deleted_at IS NULL
               AND pv_ins.status = $5
               AND ${sellableVariantAvailabilitySql('pv_ins')}
-              AND ${pincodeAvailabilityPositionalSql('pv_ins', pincodeId, 6)}
+              AND ${pincodeAvailabilityPositionalSql('p', pincodeId, 6)}
           )
       )
       SELECT id, "categoryId"
@@ -1763,7 +1763,7 @@ export class ProductsRepository {
     // Primary availability rank, then the existing sort inside each INS / OOS group.
     qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
     bindPincodeAvailability(qb, options?.pincodeId ?? null);
-    const pincodeRankSql = pincodeAvailabilitySql('pv_avail', options?.pincodeId ?? null);
+    const pincodeRankSql = pincodeAvailabilitySql('product', options?.pincodeId ?? null);
     qb.addSelect(
       `(CASE WHEN EXISTS (
           SELECT 1 FROM product_variants pv_avail
@@ -1809,7 +1809,7 @@ export class ProductsRepository {
               AND pv_top.deleted_at IS NULL
               AND pv_top.status = :topVariantStatus
               AND pv_top.is_top = true
-              AND ${pincodeAvailabilitySql('pv_top', options?.pincodeId ?? null)}
+              AND ${pincodeAvailabilitySql('product', options?.pincodeId ?? null)}
           ) THEN 0 ELSE 1 END)`,
         'top_rank',
       );
@@ -1820,7 +1820,7 @@ export class ProductsRepository {
             AND pv_top.deleted_at IS NULL
             AND pv_top.status = :topVariantStatus
             AND pv_top.is_top = true
-            AND ${pincodeAvailabilitySql('pv_top', options?.pincodeId ?? null)})`,
+            AND ${pincodeAvailabilitySql('product', options?.pincodeId ?? null)})`,
         'top_sort_order',
       );
       qb.addOrderBy('top_rank', 'ASC');
@@ -1836,7 +1836,7 @@ export class ProductsRepository {
     if (sortBy === 'price') {
       qb.setParameter('variantStatus', VariantStatus.ACTIVE);
       qb.addSelect(
-        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL AND ${pincodeAvailabilitySql('pv', options?.pincodeId ?? null)})`,
+        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL AND ${pincodeAvailabilitySql('product', options?.pincodeId ?? null)})`,
         'min_price',
       );
       qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
@@ -2137,11 +2137,7 @@ export class ProductsRepository {
     const eligibleQb = this.createEligibleProductsQb(options, omit).select('product.id', 'id');
     const [sql, params] = eligibleQb.getQueryAndParameters();
     const statusParamIndex = params.length + 1;
-    const pincodeId = options.pincodeId ?? null;
-    const pincodeParamIndex = statusParamIndex + 1;
-    const queryParams = pincodeId
-      ? [...params, VariantStatus.ACTIVE, pincodeId]
-      : [...params, VariantStatus.ACTIVE];
+    const queryParams = [...params, VariantStatus.ACTIVE];
 
     const rows = await this.repo.manager.query<
       Array<{ min: string | number | null; max: string | number | null }>
@@ -2154,7 +2150,6 @@ export class ProductsRepository {
       INNER JOIN eligible e ON e.id = pv.product_id
       WHERE pv.deleted_at IS NULL
         AND pv.status = $${statusParamIndex}
-        AND ${pincodeAvailabilityPositionalSql('pv', pincodeId, pincodeParamIndex)}
       `,
       queryParams,
     );
@@ -2260,7 +2255,7 @@ export class ProductsRepository {
           WHERE pv.product_id = product.id
             AND pv.slug = :variantSlug
             AND pv.deleted_at IS NULL
-            AND ${pincodeAvailabilitySql('pv', options.pincodeId ?? null)}
+            AND ${pincodeAvailabilitySql('product', options.pincodeId ?? null)}
         )`,
         { variantSlug: options.variantSlug },
       );
@@ -2283,7 +2278,7 @@ export class ProductsRepository {
         WHERE pv_ins.product_id = product.id
           AND pv_ins.deleted_at IS NULL
           AND pv_ins.status = :publicInStockVariantStatus
-          AND ${pincodeAvailabilitySql('pv_ins', options.pincodeId ?? null)}
+          AND ${pincodeAvailabilitySql('product', options.pincodeId ?? null)}
       )`,
       { publicInStockVariantStatus: VariantStatus.ACTIVE },
     );
@@ -2308,7 +2303,7 @@ export class ProductsRepository {
       `pv.product_id = ${productAlias}.id`,
       'pv.deleted_at IS NULL',
       'pv.status = :priceVariantStatus',
-      pincodeAvailabilitySql('pv', options.pincodeId ?? null),
+      pincodeAvailabilitySql(productAlias, options.pincodeId ?? null),
     ];
 
     if (options.minPrice !== undefined) {
@@ -2330,20 +2325,21 @@ export class ProductsRepository {
     products: ProductEntity[],
     pincodeId: string | null,
   ): Promise<void> {
-    const ids = products.flatMap((product) => (product.variants ?? []).map((variant) => variant.id));
-    if (!ids.length) {
+    if (!products.length) {
       return;
     }
-    const qb = this.repo.manager
-      .getRepository(ProductVariantEntity)
-      .createQueryBuilder('variant')
-      .select(['variant.id'])
-      .where('variant.id IN (:...ids)', { ids })
-      .andWhere(pincodeAvailabilitySql('variant', pincodeId));
+    const ids = products.map((product) => product.id);
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .select(['product.id'])
+      .where('product.id IN (:...ids)', { ids })
+      .andWhere(pincodeAvailabilitySql('product', pincodeId));
     bindPincodeAvailability(qb, pincodeId);
-    const allowed = new Set((await qb.getMany()).map((variant) => variant.id));
+    const allowed = new Set((await qb.getMany()).map((product) => product.id));
     for (const product of products) {
-      product.variants = (product.variants ?? []).filter((variant) => allowed.has(variant.id));
+      if (!allowed.has(product.id)) {
+        product.variants = [];
+      }
     }
   }
 
@@ -2362,9 +2358,7 @@ export class ProductsRepository {
     const variantQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
-      .where('variant.productId IN (:...productIds)', { productIds })
-      .andWhere(pincodeAvailabilitySql('variant', pincodeId));
-    bindPincodeAvailability(variantQb, pincodeId);
+      .where('variant.productId IN (:...productIds)', { productIds });
 
     const [variants, media, tagMappings] = await Promise.all([
       variantQb.getMany(),
@@ -2418,6 +2412,8 @@ export class ProductsRepository {
       product.media = mediaByProduct.get(product.id) ?? [];
       product.tagMappings = tagsByProduct.get(product.id) ?? [];
     }
+
+    await this.retainPincodeEligibleVariants(products, pincodeId);
   }
 
   /**
@@ -2587,7 +2583,7 @@ export class ProductsRepository {
       .andWhere('variant.outOfStock = false')
       .andWhere(bundleDependencyAvailableSql('product'))
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere(pincodeAvailabilitySql('variant', pincodeId))
+      .andWhere(pincodeAvailabilitySql('product', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
@@ -2639,7 +2635,7 @@ export class ProductsRepository {
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere(pincodeAvailabilitySql('variant', pincodeId))
+      .andWhere(pincodeAvailabilitySql('product', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
@@ -2951,7 +2947,7 @@ export class ProductsRepository {
 
     const pincodeId = options.pincodeId ?? null;
     const pincodeSql = pincodeAvailabilityPositionalSql(
-      'pv_pin',
+      'p',
       pincodeId,
       pincodeId ? params.length + 1 : 0,
     );

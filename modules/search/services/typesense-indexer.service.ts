@@ -62,15 +62,13 @@ export class TypesenseIndexerService {
   }
 
   private async mapProductsWithPincodes(products: ProductEntity[]) {
-    const variantIds = products.flatMap((product) =>
-      (product.variants ?? [])
-        .filter((variant) => variant.isPincodeManaged)
-        .map((variant) => variant.id),
-    );
-    const codesByVariantId = variantIds.length
-      ? await this.pincodesService.findMappedCodesByVariantIds(variantIds)
+    const productIds = products.filter((product) => product.isPincodeManaged).map((product) => product.id);
+    const codesByProductId = productIds.length
+      ? await this.pincodesService.findMappedCodesByProductIds(productIds)
       : new Map<string, string[]>();
-    return products.map((product) => mapProductToTypesenseDocuments(product, codesByVariantId));
+    return products.map((product) =>
+      mapProductToTypesenseDocuments(product, codesByProductId.get(product.id) ?? []),
+    );
   }
 
   private async syncProductDocuments(

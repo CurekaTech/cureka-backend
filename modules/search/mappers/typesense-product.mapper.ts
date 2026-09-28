@@ -108,8 +108,8 @@ function mapVariantToTypesenseDocument(
       !(product.bundleComponentOos ?? false) &&
       !(variant.outOfStock ?? false) &&
       isVariantInStock(variant.stock, variant),
-    isPincodeManaged: Boolean(variant.isPincodeManaged),
-    ...(variant.isPincodeManaged ? { pincodes: [...mappedPincodes] } : {}),
+    isPincodeManaged: Boolean(product.isPincodeManaged),
+    ...(product.isPincodeManaged ? { pincodes: [...mappedPincodes] } : {}),
     searchTags,
     minSellingPrice: sellingPrice ?? undefined,
   };
@@ -117,7 +117,7 @@ function mapVariantToTypesenseDocument(
 
 export function mapProductToTypesenseDocuments(
   product: ProductEntity,
-  codesByVariantId?: ReadonlyMap<string, readonly string[]>,
+  mappedPincodes: readonly string[] = [],
 ): ITypesenseSearchDocument[] {
   if (product.status !== ProductStatus.PUBLISHED) {
     return [];
@@ -142,12 +142,7 @@ export function mapProductToTypesenseDocuments(
   };
 
   return activeVariants.map((variant) =>
-    mapVariantToTypesenseDocument(
-      product,
-      variant,
-      shared,
-      codesByVariantId?.get(variant.id) ?? [],
-    ),
+    mapVariantToTypesenseDocument(product, variant, shared, mappedPincodes),
   );
 }
 

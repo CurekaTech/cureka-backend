@@ -92,7 +92,7 @@ export class PublicBundlesService {
       module: CacheModuleName.HOMEPAGE,
       loader: async () => {
         const entity = await this.productsRepository.findPublishedBySlug(key, scope.pincodeId);
-        if (!entity || entity.productType !== ProductType.BUNDLE) {
+        if (!entity || entity.productType !== ProductType.BUNDLE || !entity.variants?.length) {
           throw new NotFoundException(`Bundle with slug "${key}" not found`);
         }
         return mapProductEntityToPublicBundleDetail(entity);

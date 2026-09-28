@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { ProductVariantPincodeEntity } from '@modules/product/entities/product-variant-pincode.entity';
+import { ProductPincodeEntity } from '@modules/product/entities/product-pincode.entity';
 import { PincodeEntity } from '../entities/pincode.entity';
 import { PincodesService } from './pincodes.service';
 
@@ -11,7 +11,7 @@ describe('PincodesService public lookup', () => {
   const mappings = {};
   const service = new PincodesService(
     pincodes as unknown as Repository<PincodeEntity>,
-    mappings as unknown as Repository<ProductVariantPincodeEntity>,
+    mappings as unknown as Repository<ProductPincodeEntity>,
   );
 
   beforeEach(() => {
