@@ -1,0 +1,75 @@
+{
+  "mcpServers": {
+    "google-analytics": {
+      "command": "pipx",
+      "args": ["run", "analytics-mcp"],
+      "env": {
+        "GOOGLE_PROJECT_ID": "${GCP_PROJECT_ID:-cureka-501005}",
+        "GOOGLE_APPLICATION_CREDENTIALS": "${MCP_GOOGLE_CREDENTIALS:-}"
+      }
+    },
+    "search-console": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-gsc"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "${MCP_GSC_CREDENTIALS:-}"
+      }
+    },
+    "gcloud": {
+      "command": "npx",
+      "args": ["-y", "@google-cloud/gcloud-mcp"],
+      "env": {
+        "CLOUDSDK_CORE_PROJECT": "${GCP_PROJECT_ID:-cureka-501005}",
+        "CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT": "${MCP_GCP_SERVICE_ACCOUNT:-}"
+      }
+    },
+    "gcp-observability": {
+      "command": "npx",
+      "args": ["-y", "@google-cloud/observability-mcp"],
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": "${GCP_PROJECT_ID:-cureka-501005}"
+      }
+    },
+    "cloudsql-postgres": {
+      "command": "npx",
+      "args": ["-y", "@toolbox-sdk/server", "--prebuilt", "cloud-sql-postgres", "--stdio"],
+      "env": {
+        "CLOUD_SQL_POSTGRES_PROJECT": "${GCP_PROJECT_ID:-cureka-501005}",
+        "CLOUD_SQL_POSTGRES_REGION": "${MCP_CLOUDSQL_REGION:-asia-south1}",
+        "CLOUD_SQL_POSTGRES_INSTANCE": "${MCP_CLOUDSQL_INSTANCE:-}",
+        "CLOUD_SQL_POSTGRES_DATABASE": "${MCP_CLOUDSQL_DATABASE:-}",
+        "CLOUD_SQL_POSTGRES_USER": "${MCP_CLOUDSQL_USER:-mcp_readonly}",
+        "CLOUD_SQL_POSTGRES_PASSWORD": "${MCP_CLOUDSQL_PASSWORD:-}",
+        "CLOUD_SQL_POSTGRES_IP_TYPE": "${MCP_CLOUDSQL_IP_TYPE:-public}"
+      }
+    },
+    "redis": {
+      "command": "uvx",
+      "args": ["--from", "redis-mcp-server@latest", "redis-mcp-server", "--url", "${MCP_REDIS_URL:-redis://127.0.0.1:6379/0}"]
+    },
+    "cloudflare-graphql": {
+      "type": "http",
+      "url": "https://graphql.mcp.cloudflare.com/mcp"
+    },
+    "cloudflare-dns-analytics": {
+      "type": "http",
+      "url": "https://dns-analytics.mcp.cloudflare.com/mcp"
+    },
+    "cloudflare-audit-logs": {
+      "type": "http",
+      "url": "https://auditlogs.mcp.cloudflare.com/mcp"
+    },
+    "cloudflare-browser": {
+      "type": "http",
+      "url": "https://browser.mcp.cloudflare.com/mcp"
+    },
+    "cloudflare-docs": {
+      "type": "http",
+      "url": "https://docs.mcp.cloudflare.com/mcp"
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated"]
+    }
+  }
+}

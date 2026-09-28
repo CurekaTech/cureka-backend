@@ -60,3 +60,7 @@ docs/wp-image-harvest-cache.json.tmp
 # Google Merchant client export sheets (regenerate via npm run google-merchant:export-sheet)
 docs/Master-Data-Sheets/exports/*.xlsx
 !docs/Master-Data-Sheets/exports/.gitkeep
+
+# MCP analysis-agent credentials (see docs/mcp/SETUP.md)
+.env.mcp
+.mcp-credentials/
