@@ -159,7 +159,7 @@ export class BlogPostsRepository {
 
     if (options.search) {
       qb.andWhere(
-        '(post.title ILIKE :search OR post.excerpt ILIKE :search OR post.content ILIKE :search OR post.slug ILIKE :search)',
+        'post.title ILIKE :search',
         { search: `%${options.search}%` },
       );
     }

@@ -8,7 +8,7 @@ import {
   isValidIndianPincode,
   normalizePincode,
 } from '@modules/cod-blocklist/utils/pincode.util';
-import { toIlikeContains } from '@modules/cod-blocklist/utils/ilike-escape.util';
+import { escapeIlikePattern, toIlikeContains } from '@modules/cod-blocklist/utils/ilike-escape.util';
 import { ProductVariantPincodeEntity } from '@modules/product/entities/product-variant-pincode.entity';
 import { PincodeEntity } from '../entities/pincode.entity';
 import { IPincodeSummary, IStorefrontPincodeScope } from '../interfaces/pincode.interface';
@@ -64,30 +64,51 @@ export class PincodesService {
       sortOrder: 'ASC',
     });
     const { skip, take } = buildSkipTake(options.page, options.limit);
-    const qb = this.pincodes.createQueryBuilder('pincode').orderBy('pincode.pincode', 'ASC');
+    const term = options.search?.trim() ?? '';
+    const contains = term ? toIlikeContains(term) : null;
+    const prefix = term ? `${escapeIlikePattern(term)}%` : null;
+    const where = `
+      WHERE $1::text IS NULL
+         OR pincode ILIKE $1 ESCAPE '\\'
+         OR district ILIKE $1 ESCAPE '\\'
+         OR statename ILIKE $1 ESCAPE '\\'
+    `;
+    const [rows, countRows] = await Promise.all([
+      this.pincodes.manager.query<
+        Array<{ pincode: string; district: string; statename: string }>
+      >(
+        `
+        SELECT pincode, district, statename
+        FROM pincodes
+        ${where}
+        ORDER BY
+          CASE
+            WHEN $2::text IS NOT NULL AND pincode ILIKE $2 ESCAPE '\\' THEN 0
+            WHEN $2::text IS NOT NULL AND district ILIKE $2 ESCAPE '\\' THEN 1
+            WHEN $2::text IS NOT NULL AND statename ILIKE $2 ESCAPE '\\' THEN 2
+            WHEN $1::text IS NOT NULL AND district ILIKE $1 ESCAPE '\\' THEN 3
+            ELSE 4
+          END,
+          pincode ASC
+        LIMIT $3 OFFSET $4
+        `,
+        [contains, prefix, take, skip],
+      ),
+      this.pincodes.manager.query<Array<{ total: number }>>(
+        `SELECT COUNT(*)::int AS total FROM pincodes ${where}`,
+        [contains],
+      ),
+    ]);
 
-    if (options.search) {
-      const pattern = toIlikeContains(options.search);
-      qb.andWhere(
-        `(pincode.pincode ILIKE :pincodeSearch ESCAPE '\\'
-          OR pincode.district ILIKE :pincodeSearch ESCAPE '\\'
-          OR pincode.stateName ILIKE :pincodeSearch ESCAPE '\\'
-          OR EXISTS (
-            SELECT 1 FROM pincode_offices office
-            WHERE office.pincode_id = pincode.id
-              AND (
-                office.officename ILIKE :pincodeSearch ESCAPE '\\'
-                OR office.district ILIKE :pincodeSearch ESCAPE '\\'
-                OR office.statename ILIKE :pincodeSearch ESCAPE '\\'
-                OR office.pincode ILIKE :pincodeSearch ESCAPE '\\'
-              )
-          ))`,
-        { pincodeSearch: pattern },
-      );
-    }
-
-    const [rows, total] = await qb.skip(skip).take(take).getManyAndCount();
-    return buildPaginatedResult(rows.map((row) => this.toSummary(row)), total, options);
+    return buildPaginatedResult(
+      rows.map((row) => ({
+        pincode: row.pincode,
+        city: row.district,
+        state: row.statename,
+      })),
+      Number(countRows[0]?.total ?? 0),
+      options,
+    );
   }
 
   async listMappedSummaries(variantId: string): Promise<IPincodeSummary[]> {

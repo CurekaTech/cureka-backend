@@ -19,7 +19,7 @@ export class AdminPincodesController {
   @ApiOperation({
     summary: 'Search canonical pincodes by pincode, city, or state',
     description:
-      'Returns one row per pincode (not one row per post office). City is the representative district. Office name and other districts for the same pincode are searchable.',
+      'One row per pincode. Search matches only pincode, city, and state. City is the representative district.',
   })
   @ResponseMessage('Pincodes retrieved successfully')
   @RequirePermissions('products.read')

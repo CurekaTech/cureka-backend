@@ -18,6 +18,7 @@ import {
   absoluteSitemapUrl,
   splitUrlEntries,
 } from './sitemap-url.builder';
+import { assertSitemapPublishAllowed } from './sitemap-publish-guard';
 import {
   SitemapIndexEntry,
   buildSitemapIndexXml,
@@ -68,10 +69,16 @@ export class SitemapGeneratorService {
     const baseUrl = this.requireBaseUrl();
     const batchSize = this.configService.get<number>('sitemap.batchSize') ?? 10_000;
     const maxUrlsPerFile = this.configService.get<number>('sitemap.maxUrlsPerFile') ?? 50_000;
+    const liveOrigin = await this.readLiveSitemapOrigin();
+    assertSitemapPublishAllowed({
+      baseUrl,
+      storageDriver: this.configService.get<string>('storage.driver') ?? 'local',
+      bucket: this.configService.get<string>('storage.gcs.bucket'),
+      liveOrigin,
+    });
 
     let targetGroups = [...groups];
     if (targetGroups.length < SITEMAP_GROUPS.length) {
-      const liveOrigin = await this.readLiveSitemapOrigin();
       if (liveOrigin && liveOrigin !== baseUrl) {
         this.logger.warn(
           {

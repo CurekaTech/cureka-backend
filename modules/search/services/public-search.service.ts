@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -7,6 +8,7 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { EVENTS } from '@packages/events';
 import { buildCategoryPermalink } from '@modules/public/utils/category-permalink.util';
 import {
   SEARCH_ENTITY_TYPES,
@@ -85,7 +87,7 @@ export class PublicSearchService {
     if (useTypesense) {
       try {
         const merged = await this.attachCategoryPermalinks(
-          await this.searchWithTypesense(trimmed, perPage, scope.pincode),
+          await this.searchWithTypesense(trimmed, perPage, scope.pincode, scope.pincodeId),
         );
         this.writeCache(cacheKey, merged);
         return merged;
@@ -297,10 +299,17 @@ export class PublicSearchService {
     return this.adminSettingsService.isTypesenseSearchEnabled();
   }
 
+  /** Drop dropdown hits cached before a pincode or catalog change. */
+  @OnEvent(EVENTS.PRODUCT_UPDATED)
+  clearSearchCache(): void {
+    this.searchCache.clear();
+  }
+
   private async searchWithTypesense(
     trimmed: string,
     perPage: number,
     pincode: string | null,
+    pincodeId: string | null,
   ): Promise<IPublicSearchResult[]> {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
@@ -339,16 +348,70 @@ export class PublicSearchService {
       .multiSearch.perform({ searches })) as MultiSearchResponse;
 
     const grouped = this.groupMultiSearchResults(multiResult, config.hasEntityType);
-    return this.mergeSearchResults(
-      grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
+    const productHits = await this.retainProductsVisibleForPincode(
       filterDistinctMatchingProductVariants(
         grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [],
         trimmed,
       ),
+      pincodeId,
+    );
+    return this.mergeSearchResults(
+      grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
+      grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
+      grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
+      productHits,
       perPage,
     );
+  }
+
+  /**
+   * Typesense can still return a variant the PDP would 404 (stale index, or the
+   * pincode field is not on the collection yet). Keep a hit only when Postgres
+   * still has an active variant for this pincode, and rebuild the link from that row.
+   */
+  private async retainProductsVisibleForPincode(
+    hits: IPublicSearchResult[],
+    pincodeId: string | null,
+  ): Promise<IPublicSearchResult[]> {
+    if (!hits.length) {
+      return [];
+    }
+
+    const refIds = [...new Set(hits.map((hit) => hit.refId).filter(Boolean))];
+    const published = await this.productsRepository.findPublishedByRefIds(refIds, pincodeId);
+    const publishedByRefId = new Map(published.map((product) => [product.refId, product]));
+    const visible: IPublicSearchResult[] = [];
+
+    for (const hit of hits) {
+      const product = publishedByRefId.get(hit.refId);
+      if (!product?.variants?.length) {
+        continue;
+      }
+      const variants = product.variants;
+
+      const matched =
+        variants.find(
+          (variant) =>
+            variant.slug === hit.slug ||
+            (Boolean(hit.productPageUrl) && variant.productPageUrl === hit.productPageUrl),
+        ) ??
+        [...variants].sort(
+          (left, right) =>
+            (Number(left.sellingPrice) || 0) - (Number(right.sellingPrice) || 0),
+        )[0];
+
+      if (!matched) {
+        continue;
+      }
+
+      matched.product = product;
+      const mapped = mapVariantToSearchResult(matched);
+      if (mapped) {
+        visible.push(mapped);
+      }
+    }
+
+    return visible;
   }
 
   private async searchWithNative(
@@ -364,9 +427,7 @@ export class PublicSearchService {
       this.categoriesRepository.findPublicPaginated(pagination),
       this.brandsRepository.findPublicPaginated(pagination),
       this.healthConcernsRepository.findPublicPaginated(pagination),
-      pincodeId
-        ? this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit, pincodeId)
-        : this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit),
+      this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit, pincodeId),
     ]);
 
     const products = filterDistinctMatchingProductVariants(

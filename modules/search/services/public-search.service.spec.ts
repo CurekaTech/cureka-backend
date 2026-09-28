@@ -42,11 +42,15 @@ describe('PublicSearchService native fallback', () => {
   const cacheStrategy = {
     cacheAside: jest.fn(),
   };
+  const pincodesService = {
+    resolveForStorefront: jest.fn(),
+  };
 
   let service: PublicSearchService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    pincodesService.resolveForStorefront.mockResolvedValue({ pincodeId: null, pincode: null });
     typesenseClient.isEnabled.mockReturnValue(false);
     adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(false);
     productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([]);
@@ -68,7 +72,7 @@ describe('PublicSearchService native fallback', () => {
       categoriesRepository as unknown as CategoriesRepository,
       healthConcernsRepository as unknown as HealthConcernsRepository,
       cacheStrategy as unknown as CacheStrategyService,
-      { resolveForStorefront: jest.fn().mockResolvedValue({ pincodeId: null, pincode: null }) } as unknown as PincodesService,
+      pincodesService as unknown as PincodesService,
     );
   });
 
@@ -90,7 +94,7 @@ describe('PublicSearchService native fallback', () => {
 
     const results = await service.search('vit');
 
-    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30);
+    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30, null);
     expect(results).toEqual([
       {
         entityType: SEARCH_ENTITY_TYPES.PRODUCT,
@@ -102,6 +106,21 @@ describe('PublicSearchService native fallback', () => {
     ]);
   });
 
+  it('passes the selected pincode into native product search', async () => {
+    pincodesService.resolveForStorefront.mockResolvedValue({
+      pincodeId: 'pin-other',
+      pincode: '560001',
+    });
+
+    await service.search('vitamin', 10, '560001');
+
+    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith(
+      'vitamin',
+      30,
+      'pin-other',
+    );
+  });
+
   it('uses native fallback when Typesense client is up but admin flag is off', async () => {
     typesenseClient.isEnabled.mockReturnValue(true);
     adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(false);
@@ -111,7 +130,7 @@ describe('PublicSearchService native fallback', () => {
 
     expect(adminSettingsService.isTypesenseSearchEnabled).toHaveBeenCalled();
     expect(typesenseClient.getSearchClient).not.toHaveBeenCalled();
-    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30);
+    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30, null);
   });
   it('searches Typesense products without an in-stock filter and ranks in-stock hits first', async () => {
     typesenseClient.isEnabled.mockReturnValue(true);
@@ -144,6 +163,62 @@ describe('PublicSearchService native fallback', () => {
     expect(productSearch?.filter_by).toBe('entityType:=Product');
     expect(productSearch?.filter_by).not.toContain('inStock:true');
     expect(productSearch?.sort_by).toBe('inStock:desc,_text_match:desc');
+  });
+
+  it('drops a Typesense product that is not available for the selected pincode', async () => {
+    typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
+    pincodesService.resolveForStorefront.mockResolvedValue({
+      pincodeId: 'pin-other',
+      pincode: '560001',
+    });
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasIsPincodeManaged: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    const perform = jest.fn().mockResolvedValue({
+      results: [
+        { hits: [] },
+        { hits: [] },
+        { hits: [] },
+        {
+          hits: [
+            {
+              document: {
+                entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                refId: 'PRD-PIN',
+                name: 'Vitamin Restricted',
+                slug: 'vitamin-restricted',
+                productPageUrl: '/shop/vitamin-restricted/',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+    });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([]);
+
+    const results = await service.search('vitamin', 10, '560001');
+
+    expect(productsRepository.findPublishedByRefIds).toHaveBeenCalledWith(['PRD-PIN'], 'pin-other');
+    expect(results.filter((result) => result.entityType === SEARCH_ENTITY_TYPES.PRODUCT)).toEqual([]);
+    const productSearch = perform.mock.calls[0][0].searches.find(
+      (search: { filter_by?: string }) => search.filter_by?.includes('entityType:=Product'),
+    );
+    expect(productSearch?.filter_by).toContain('pincodes:=560001');
   });
 
   it('falls back to native search when Typesense throws', async () => {

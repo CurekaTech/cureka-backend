@@ -105,6 +105,21 @@ describe('SitemapGeneratorService publish safety', () => {
     );
   });
 
+  it('does not publish when a techbv host would be written into the production bucket', async () => {
+    configService.get.mockImplementation((key: string): string | number | undefined => {
+      if (key === 'sitemap.baseUrl') return 'https://cureka.techbv.in';
+      if (key === 'sitemap.batchSize') return 10_000;
+      if (key === 'sitemap.maxUrlsPerFile') return 50_000;
+      if (key === 'storage.driver') return 'gcs';
+      if (key === 'storage.gcs.bucket') return 'cureka-files-prod';
+      return undefined;
+    });
+
+    await expect(generator.generateAll()).rejects.toThrow(/production bucket/);
+    expect(storageService.publishLive).not.toHaveBeenCalled();
+    expect(storageService.writeStagingXml).not.toHaveBeenCalled();
+  });
+
   it('forces full regenerate when live index host differs from configured base URL', async () => {
     storageService.readLiveText.mockResolvedValue(
       '<?xml version="1.0"?><sitemapindex><sitemap><loc>https://cureka.techbv.in/sitemaps/static.xml</loc></sitemap></sitemapindex>',
