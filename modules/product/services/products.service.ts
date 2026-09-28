@@ -759,10 +759,11 @@ export class ProductsService {
     const tEnrich = Date.now();
     const result = await this.enrichProductDetail(raw);
     const withConfig = await this.attachSubscriptionConfig(result);
+    const withPincodes = await this.attachPincodeAvailability(withConfig);
     this.logger.log(
       `[PERF] findOne refId="${refId}" | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    return withConfig;
+    return withPincodes;
   }
 
   async update(
@@ -1755,6 +1756,21 @@ export class ProductsService {
         }
       }
     }
+  }
+
+  private async attachPincodeAvailability(product: IProductDetail): Promise<IProductDetail> {
+    const [row, pincodes] = await Promise.all([
+      this.dataSource.getRepository(ProductEntity).findOne({
+        where: { id: product.id },
+        select: { id: true, isPincodeManaged: true },
+      }),
+      this.pincodesService.listMappedSummaries(product.id),
+    ]);
+    return {
+      ...product,
+      isPincodeManaged: Boolean(row?.isPincodeManaged),
+      pincodes,
+    };
   }
 
   private async enrichProductDetail(product: IProductDetail): Promise<IProductDetail> {

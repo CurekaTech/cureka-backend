@@ -60,4 +60,14 @@ export class ProductWizardBootstrapQueryDto {
   })
   @IsBoolean()
   excludeComboBrand?: boolean;
+
+  /** When true and type=brand, return only the Combo brand. */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  onlyCombo?: boolean;
 }
