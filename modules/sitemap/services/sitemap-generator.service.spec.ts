@@ -105,6 +105,23 @@ describe('SitemapGeneratorService publish safety', () => {
     );
   });
 
+  it('drops an emptied group from the index instead of listing its stale live file', async () => {
+    // Live store still holds support.xml from an earlier run; support now has 0 entries
+    // and its file is pruned after publish, so the index must not reference it.
+    storageService.listLive.mockResolvedValue(['static.xml', 'brands.xml', 'support.xml']);
+    queryService.collectSupportEntries.mockResolvedValue([]);
+
+    await generator.generateGroup('support');
+
+    const indexCall = storageService.writeStagingXml.mock.calls.find(
+      ([, relativePath]) => relativePath === 'sitemap.xml',
+    );
+    const indexXml = String(indexCall?.[2] ?? '');
+    expect(indexXml).not.toContain('/sitemaps/support.xml');
+    expect(indexXml).toContain('/sitemaps/static.xml');
+    expect(indexXml).toContain('/sitemaps/brands.xml');
+  });
+
   it('forces full regenerate when live index host differs from configured base URL', async () => {
     storageService.readLiveText.mockResolvedValue(
       '<?xml version="1.0"?><sitemapindex><sitemap><loc>https://cureka.techbv.in/sitemaps/static.xml</loc></sitemap></sitemapindex>',

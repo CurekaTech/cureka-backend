@@ -5,6 +5,7 @@ import {
   SITEMAP_GROUPS,
   SitemapGroup,
   isSitemapGroup,
+  liveKeyToGroup,
   liveKeyToPublicPath,
   sitemapGroupLegacyLivePath,
   sitemapGroupLivePath,
@@ -245,8 +246,14 @@ export class SitemapGeneratorService {
   ): Promise<SitemapIndexEntry[]> {
     const entries: SitemapIndexEntry[] = stagedPublicPaths.map((locPath) => ({ locPath, lastmod }));
 
+    // Groups regenerated in this run are listed only from their fresh shards:
+    // their old live files are pruned after publish, so listing them here would
+    // point the index at files that no longer exist (e.g. an emptied group).
+    const regenerated = new Set<SitemapGroup>(regeneratedGroups);
     const live = await this.storageService.listLive('');
     for (const path of live) {
+      const group = liveKeyToGroup(path);
+      if (group && regenerated.has(group)) continue;
       const locPath = liveKeyToPublicPath(path);
       if (!locPath) continue;
       entries.push({ locPath, lastmod });
