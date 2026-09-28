@@ -11,11 +11,12 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
@@ -268,6 +269,19 @@ export class BundleProductsController {
     return this.productsService.findBundleOne(refId);
   }
 
+  @ApiOperation({ summary: 'Download the bundle product pincode bulk-upload sample sheet' })
+  @RawResponse()
+  @RequirePermissions('bundle_products.read')
+  @Get('pincodes/bulk-upload/template')
+  async downloadPincodeTemplate(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.productsService.getPincodeBulkTemplate();
+    return reply
+      .code(200)
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
+
   @ApiOperation({ summary: 'Get pincode availability for a bundle product' })
   @ResponseMessage('Bundle product pincode availability retrieved successfully')
   @RequirePermissions('bundle_products.read')
@@ -303,6 +317,23 @@ export class BundleProductsController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.productsService.replacePincodes(refId, dto.pincodes, user.email, ProductType.BUNDLE);
+  }
+
+  @ApiOperation({
+    summary: 'Replace a bundle product’s pincodes from an Excel or CSV sheet',
+    description:
+      'Multipart field "file". The sheet is the full list and replaces any pincodes already mapped to this bundle. This also sets isPincodeManaged to true.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ResponseMessage('Bundle product pincodes updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Post(':refId/pincodes/bulk-upload')
+  bulkUploadPincodes(
+    @Req() req: FastifyRequest,
+    @Param('refId', RefIdPipe) refId: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.bulkUploadPincodes(req, refId, user.email, ProductType.BUNDLE);
   }
 
   @ApiOperation({

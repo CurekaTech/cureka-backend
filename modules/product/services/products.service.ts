@@ -73,6 +73,11 @@ import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queu
 import { VariantOosTransition } from '../repositories/product-variants.repository';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { IProductPincodeAvailability } from '@modules/pincodes/interfaces/pincode.interface';
+import {
+  buildProductPincodeTemplate,
+  parseProductPincodeSheet,
+  readProductPincodeUpload,
+} from '@modules/pincodes/utils/product-pincode-bulk.util';
 
 export interface ProductMutationOptions {
   /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
@@ -239,6 +244,53 @@ export class ProductsService {
       admin: updatedBy,
       productRefId,
       oldIsPincodeManaged: true,
+      newIsPincodeManaged: true,
+      oldPincodes: oldCodes,
+      newPincodes: resolved.map((row) => row.pincode).sort(),
+    });
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(product.refId, 'updated'),
+    );
+    return this.getPincodeAvailability(productRefId, productType);
+  }
+
+  async getPincodeBulkTemplate(): Promise<{ fileName: string; fileBuffer: Buffer }> {
+    return buildProductPincodeTemplate();
+  }
+
+  /**
+   * Replaces every pincode mapped to the product with the codes in the sheet
+   * and turns pincode management on. Codes that are not in the new sheet are removed.
+   */
+  async bulkUploadPincodes(
+    req: FastifyRequest,
+    productRefId: string,
+    updatedBy: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    const upload = await readProductPincodeUpload(req);
+    const codes = await parseProductPincodeSheet(upload.filename, upload.buffer);
+    const resolved = await this.pincodesService.resolveExistingCodes(codes);
+    const oldCodes = await this.pincodesService.listMappedCodes(product.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(ProductEntity).update(product.id, { isPincodeManaged: true });
+      await this.pincodesService.replaceMappings(
+        manager,
+        product.id,
+        resolved.map((row) => row.id),
+      );
+      await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
+    });
+
+    this.logger.log({
+      msg: 'product_pincode_availability_updated',
+      admin: updatedBy,
+      productRefId,
+      source: 'bulk_upload',
+      oldIsPincodeManaged: product.isPincodeManaged,
       newIsPincodeManaged: true,
       oldPincodes: oldCodes,
       newPincodes: resolved.map((row) => row.pincode).sort(),
