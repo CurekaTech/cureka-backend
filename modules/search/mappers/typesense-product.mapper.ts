@@ -104,7 +104,10 @@ function mapVariantToTypesenseDocument(
     wellnessGoals: shared.wellnessGoals,
     tags: shared.tags,
     description: description || undefined,
-    inStock: !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant),
+    inStock:
+      !(product.bundleComponentOos ?? false) &&
+      !(variant.outOfStock ?? false) &&
+      isVariantInStock(variant.stock, variant),
     isPincodeManaged: Boolean(variant.isPincodeManaged),
     ...(variant.isPincodeManaged ? { pincodes: [...mappedPincodes] } : {}),
     searchTags,

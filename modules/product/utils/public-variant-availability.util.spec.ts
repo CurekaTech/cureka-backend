@@ -1,8 +1,11 @@
 import { ProductEntity } from '../entities/product.entity';
 import { VariantStatus } from '../enums/variant-status.enum';
 import {
+  bundleDependencyAvailableSql,
   hasSellablePublicVariant,
+  isPublicProductSellable,
   isPublicVariantSellable,
+  publicAvailabilityRankSql,
   sellableVariantAvailabilitySql,
 } from './public-variant-availability.util';
 
@@ -88,5 +91,50 @@ describe('public variant availability', () => {
     expect(sql).toContain('pv_avail.out_of_stock');
     expect(sql).toContain('pv_avail.in_cureka_inventory');
     expect(sql).toContain('pv_avail.stock');
+  });
+
+  it('treats a dependency-OOS bundle as unsellable even when its own variant is sellable', () => {
+    process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = 'true';
+    const product = {
+      bundleComponentOos: true,
+      variants: [
+        {
+          status: VariantStatus.ACTIVE,
+          deletedAt: null,
+          outOfStock: false,
+          stock: 4,
+          inCurekaInventory: false,
+        },
+      ],
+    } as unknown as ProductEntity;
+
+    expect(hasSellablePublicVariant(product)).toBe(true);
+    expect(isPublicProductSellable(product)).toBe(false);
+  });
+
+  it('keeps a bundle sellable when the dependency flag is clear and a variant is sellable', () => {
+    const product = {
+      bundleComponentOos: false,
+      variants: [
+        {
+          status: VariantStatus.ACTIVE,
+          deletedAt: null,
+          outOfStock: false,
+          stock: 1,
+          inCurekaInventory: false,
+        },
+      ],
+    } as unknown as ProductEntity;
+
+    expect(isPublicProductSellable(product)).toBe(true);
+  });
+
+  it('ranks a variant OOS when the product dependency flag is set, without excluding it', () => {
+    process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = 'true';
+    const sql = publicAvailabilityRankSql('variant', 'product');
+    expect(sql.startsWith('CASE WHEN')).toBe(true);
+    expect(sql).toContain(bundleDependencyAvailableSql('product'));
+    expect(sql).toContain('product.bundle_component_oos');
+    expect(sql).not.toContain('WHERE');
   });
 });

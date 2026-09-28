@@ -3,6 +3,7 @@ import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { IStorageFileReferenceResponse, IStorageFileReference } from '@packages/storage';
+import { IBundleAvailability } from './bundle-availability.interface';
 import { IProductInformationItem } from './product-information.interface';
 import { IProductPackMetadataItem } from './product-pack-metadata.interface';
 import { IVariantDetailFields, IVariantInlineFaq } from './variant-details.interface';
@@ -226,6 +227,11 @@ export interface IProduct {
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];
+  /**
+   * Effective bundle availability. Null for simple and variable products.
+   * `variants[].outOfStock` stays the manual flag.
+   */
+  bundleAvailability: IBundleAvailability | null;
   /**
    * True when the product has no sellable stock:
    * no variants, or every variant has stock &lt;= 0.

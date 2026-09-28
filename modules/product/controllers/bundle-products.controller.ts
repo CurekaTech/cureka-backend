@@ -24,6 +24,7 @@ import {
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
   BulkRestoreVariantStockDto,
+  BulkUpdateCurekaInventoryDto,
   BulkUpdateVariantOosDto,
   ProductQueryDto,
   UpdateProductStatusDto,
@@ -96,6 +97,34 @@ export class BundleProductsController {
   @Get('drafts')
   findDrafts(@Query() query: ProductQueryDto) {
     return this.productsService.findBundles(query, ProductStatus.DRAFT);
+  }
+
+  @ApiOperation({
+    summary: 'Cureka inventory feature status',
+    description:
+      'Returns whether STOCK_INVENTORY_MANAGEMENT_ENABLED is on. Hide the Cureka Inventory controls on the bundle admin when enabled is false.',
+  })
+  @ResponseMessage('Cureka inventory status retrieved successfully')
+  @RequirePermissions('bundle_products.read')
+  @Get('cureka-inventory/status')
+  getCurekaInventoryStatus() {
+    return this.productsService.getCurekaInventoryStatus();
+  }
+
+  @ApiOperation({
+    summary: 'Mark bundle SKUs in or out of Cureka inventory',
+    description:
+      'Sets inCurekaInventory on the given bundle SKUs only. Does not change stock or outOfStock. ' +
+      'SKUs that are not bundle products are returned as notFound.',
+  })
+  @ResponseMessage('Bundle Cureka inventory flag updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Patch('bulk-update-cureka-inventory')
+  @HttpCode(HttpStatus.OK)
+  bulkUpdateCurekaInventory(@Body() dto: BulkUpdateCurekaInventoryDto) {
+    return this.productsService.bulkUpdateCurekaInventory(dto, {
+      productType: ProductType.BUNDLE,
+    });
   }
 
   @ApiOperation({

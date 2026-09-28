@@ -53,6 +53,18 @@ describe('typesense-product.mapper', () => {
     });
   });
 
+  it('marks a dependency-OOS bundle out of stock without dropping the document', () => {
+    const product = {
+      ...baseProduct,
+      bundleComponentOos: true,
+    } as unknown as ProductEntity;
+
+    const documents = mapProductToTypesenseDocuments(product);
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]?.inStock).toBe(false);
+  });
+
   it('indexes productPageUrl when present on the variant', () => {
     const product = {
       ...baseProduct,

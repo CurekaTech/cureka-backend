@@ -74,4 +74,37 @@ describe('OosEmailQueueService', () => {
       occurredAt: occurredAt.toISOString(),
     });
   });
+
+  it('enqueues one bundle email that includes every OOS component', async () => {
+    mailService.isConfigured.mockReturnValue(true);
+    notificationEmailsService.countActiveByType.mockResolvedValue(1);
+    queue.add.mockResolvedValue({ id: 'job-2' });
+
+    await service.enqueueBundleNotifications([
+      {
+        bundleRefId: 'BNDA',
+        bundleName: 'Immunity Care Bundle',
+        bundleSku: 'BND-12345',
+        reason: 'component oos',
+        occurredAt: '2026-09-28T00:00:00.000Z',
+        components: [
+          {
+            refId: 'VITC',
+            name: 'Vitamin C 500mg',
+            variants: [{ sku: 'VIT-C-001', name: 'Vitamin C 500mg' }],
+          },
+          {
+            refId: 'ZINC',
+            name: 'Zinc Tablets',
+            variants: [{ sku: 'ZIN-002', name: 'Zinc Tablets' }],
+          },
+        ],
+      },
+    ]);
+
+    expect(queue.add).toHaveBeenCalledTimes(1);
+    expect(queue.add.mock.calls[0][0]).toBe('send-bundle-oos');
+    expect(queue.add.mock.calls[0][1].components).toHaveLength(2);
+    expect(queue.add.mock.calls[0][2].jobId).toMatch(/^bundle-oos-BNDA-/);
+  });
 });

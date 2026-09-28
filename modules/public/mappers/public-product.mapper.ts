@@ -30,7 +30,7 @@ import {
 } from '../interfaces/public-product.interface';
 import { getSalableStockQuantity } from '@packages/common';
 import {
-  hasSellablePublicVariant,
+  isPublicProductSellable,
   isPublicVariantSellable,
 } from '@modules/product/utils/public-variant-availability.util';
 import { IStorageFileReference } from '@packages/storage';
@@ -324,7 +324,9 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     maxSellingPrice: sellingPrices.length ? Math.max(...sellingPrices) : 0,
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
-    inStock: activeVariants.some((variant) => !variant.outOfStock),
+    inStock:
+      !(entity.bundleComponentOos ?? false) &&
+      activeVariants.some((variant) => !variant.outOfStock),
   };
 };
 
@@ -564,8 +566,8 @@ export const mapVariantEntityToPublicSearchItem = (
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
     stock: getSalableStockQuantity(variant.stock, 1, variant),
-    inStock: isVariantAvailable(variant),
-    outOfStock: variant.outOfStock ?? false,
+    inStock: isVariantAvailable(variant) && !(variant.product?.bundleComponentOos ?? false),
+    outOfStock: (variant.outOfStock ?? false) || Boolean(variant.product?.bundleComponentOos),
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
     length: toNumber(variant.length),
@@ -591,7 +593,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
   const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
-  const outOfStock = !hasSellablePublicVariant(entity);
+  const outOfStock = !isPublicProductSellable(entity);
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   const listVariantSlug = listVariant
     ? sanitizeProductSlugSegment(listVariant.slug) || listVariant.slug
@@ -606,6 +608,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
       )
     : [];
   const uniqueListPageUrl = pageUrlOwners.length <= 1 ? productPageUrl : null;
+  const listPricing = buildListVariantPricing(listVariant);
 
   return {
   id: entity.id,
@@ -630,7 +633,10 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   primaryImageUrl: listVariant
     ? getVariantPrimaryImageUrl(entity, listVariant.id)
     : getPrimaryImageUrl(entity),
-  pricing: buildListVariantPricing(listVariant),
+  pricing: {
+    ...listPricing,
+    inStock: !outOfStock && listPricing.inStock,
+  },
   outOfStock,
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
@@ -879,8 +885,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
       stock: getSalableStockQuantity(variant.stock, 1, variant),
-      inStock: isVariantAvailable(variant),
-      outOfStock: variant.outOfStock ?? false,
+      inStock: isVariantAvailable(variant) && !(entity.bundleComponentOos ?? false),
+      outOfStock: (variant.outOfStock ?? false) || Boolean(entity.bundleComponentOos),
       gtinNumber: variant.gtinNumber ?? null,
       estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
       weight: toNumber(variant.weight),

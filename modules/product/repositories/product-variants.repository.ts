@@ -1213,6 +1213,7 @@ export class ProductVariantsRepository {
   async updateInCurekaInventoryBySkus(
     skus: string[],
     inCurekaInventory: boolean,
+    productType?: ProductType,
   ): Promise<{
     bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
     updatedProductIds: Set<string>;
@@ -1225,12 +1226,12 @@ export class ProductVariantsRepository {
 
     if (!uniqueSkus.length) return { bySkuResult, updatedProductIds };
 
-    const variants = await this.repo.find({
-      where: { sku: In(uniqueSkus) },
-      select: ['id', 'sku', 'productId', 'inCurekaInventory'],
-    });
+    const variants = await this.findVariantsBySkus(uniqueSkus);
 
     for (const variant of variants) {
+      if (productType && variant.product?.productType !== productType) {
+        continue;
+      }
       if (variant.inCurekaInventory === inCurekaInventory) {
         bySkuResult.set(variant.sku, 'already');
         continue;

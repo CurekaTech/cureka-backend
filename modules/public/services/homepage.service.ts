@@ -20,7 +20,7 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { isHomepageShopByHierarchyLevel } from '@modules/master/constants/homepage-shop-by-hierarchy.constant';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
-import { hasSellablePublicVariant } from '@modules/product/utils/public-variant-availability.util';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -320,7 +320,7 @@ export class HomepageService {
     const items = storefrontItems
       .map((item) => {
         const product = productByRefId.get(item.productRefId);
-        if (!product || !hasSellablePublicVariant(product)) return null;
+        if (!product || !isPublicProductSellable(product)) return null;
 
         return {
           refId: item.refId,

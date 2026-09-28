@@ -23,6 +23,24 @@ export const hasSellablePublicVariant = (product: ProductEntity): boolean =>
       isPublicVariantSellable(variant),
   );
 
+/** Own-variant sellable and, for bundles, no unavailable component snapshot. */
+export const isPublicProductSellable = (product: ProductEntity): boolean =>
+  !(product.bundleComponentOos ?? false) && hasSellablePublicVariant(product);
+
+/** SQL form of `bundle_component_oos = false` for a products alias. */
+export const bundleDependencyAvailableSql = (productAlias: string): string =>
+  `COALESCE(${productAlias}.bundle_component_oos, false) = false`;
+
+/**
+ * INS rank 0 only when the variant is sellable and its product is not
+ * dependency-OOS. OOS rows stay in the result and sort after INS.
+ */
+export const publicAvailabilityRankSql = (
+  variantAlias: string,
+  productAlias: string,
+): string =>
+  `CASE WHEN ${sellableVariantAvailabilitySql(variantAlias)} AND ${bundleDependencyAvailableSql(productAlias)} THEN 0 ELSE 1 END`;
+
 /**
  * Raw SQL predicate for an active variant row alias.
  * Mirrors `isPublicVariantSellable` so list/search ORDER BY matches the API flag.
