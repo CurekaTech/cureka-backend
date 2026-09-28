@@ -119,6 +119,8 @@ export interface PublicProductListOptions {
    * (only unmanaged variants). A uuid limits managed variants to that canonical pincode.
    */
   pincodeId?: string | null;
+  /** When true, omit products that are out of stock (including bundle component OOS). */
+  inStockOnly?: boolean;
 }
 
 @Injectable()
@@ -2284,6 +2286,20 @@ export class ProductsRepository {
     );
 
     bindPincodeAvailability(qb, options.pincodeId ?? null);
+
+    if (options.inStockOnly) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv_home
+          WHERE pv_home.product_id = product.id
+            AND pv_home.deleted_at IS NULL
+            AND pv_home.status = :publicHomeVariantStatus
+            AND ${sellableVariantAvailabilitySql('pv_home')}
+        ) AND ${bundleDependencyAvailableSql('product')}`,
+        { publicHomeVariantStatus: VariantStatus.ACTIVE },
+      );
+    }
+
     this.applyPublicPriceRangeFilter(qb, options, 'product', omit);
   }
 
