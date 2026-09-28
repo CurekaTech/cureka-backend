@@ -257,6 +257,8 @@ export const mapProductEntityToDetailResponse = (entity: ProductEntity): IProduc
     .map((mapping) => mapping.healthConcern)
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .map(mapHealthConcernEntityToResponse),
+  isPincodeManaged: Boolean(entity.isPincodeManaged),
+  pincodes: [],
 });
 
 const mapAttribute = (
