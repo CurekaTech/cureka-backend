@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,6 +20,11 @@ import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } f
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
+import { ProductType } from '../enums/product-type.enum';
+import {
+  ReplaceProductPincodesDto,
+  UpdateProductPincodeManagementDto,
+} from '@modules/pincodes/dto/variant-pincode.dto';
 import { ProductsService } from '../services/products.service';
 import {
   BulkMarkOutOfStockDto,
@@ -29,7 +35,6 @@ import {
   ProductQueryDto,
   UpdateProductStatusDto,
 } from '../dto/product.dto';
-import { ProductType } from '../enums/product-type.enum';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { ProductStatus } from '../enums/product-status.enum';
 
@@ -261,6 +266,43 @@ export class BundleProductsController {
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.productsService.findBundleOne(refId);
+  }
+
+  @ApiOperation({ summary: 'Get pincode availability for a bundle product' })
+  @ResponseMessage('Bundle product pincode availability retrieved successfully')
+  @RequirePermissions('bundle_products.read')
+  @Get(':refId/pincodes')
+  getPincodes(@Param('refId', RefIdPipe) refId: string) {
+    return this.productsService.getPincodeAvailability(refId, ProductType.BUNDLE);
+  }
+
+  @ApiOperation({ summary: 'Enable or disable pincode management for a bundle product' })
+  @ResponseMessage('Bundle product pincode management updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Patch(':refId/pincode-management')
+  updatePincodeManagement(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: UpdateProductPincodeManagementDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.updatePincodeManagement(
+      refId,
+      dto.isPincodeManaged,
+      user.email,
+      ProductType.BUNDLE,
+    );
+  }
+
+  @ApiOperation({ summary: 'Replace the pincodes where a managed bundle product is available' })
+  @ResponseMessage('Bundle product pincodes updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Put(':refId/pincodes')
+  replacePincodes(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: ReplaceProductPincodesDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.replacePincodes(refId, dto.pincodes, user.email, ProductType.BUNDLE);
   }
 
   @ApiOperation({

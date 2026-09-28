@@ -31,6 +31,7 @@ import { IBundleOosComponent } from '../interfaces/bundle-availability.interface
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
+import type { ProductPincodeEntity } from './product-pincode.entity';
 
 @Entity('products')
 export class ProductEntity extends BaseEntity {
@@ -113,6 +114,13 @@ export class ProductEntity extends BaseEntity {
 
   @Column({ name: 'emi_available', type: 'boolean', default: false })
   emiAvailable!: boolean;
+
+  /**
+   * false = available at every pincode (including shoppers who have not chosen one).
+   * true = the whole product is available only at explicitly mapped pincodes.
+   */
+  @Column({ name: 'is_pincode_managed', type: 'boolean', default: false })
+  isPincodeManaged!: boolean;
 
   @Column({ name: 'replace_allowed', type: 'boolean', default: false })
   replaceAllowed!: boolean;
@@ -272,6 +280,9 @@ export class ProductEntity extends BaseEntity {
 
   @OneToMany(() => ProductVariantEntity, (variant) => variant.product)
   variants!: ProductVariantEntity[];
+
+  @OneToMany('ProductPincodeEntity', 'product')
+  pincodeMappings?: ProductPincodeEntity[];
 
   @OneToMany(() => ProductMediaEntity, (media) => media.product)
   media!: ProductMediaEntity[];

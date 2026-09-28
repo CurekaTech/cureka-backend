@@ -10,7 +10,7 @@ export interface IStorefrontPincodeScope {
   pincode: string | null;
 }
 
-export interface IVariantPincodeAvailability {
+export interface IProductPincodeAvailability {
   isPincodeManaged: boolean;
   pincodes: IPincodeSummary[];
 }

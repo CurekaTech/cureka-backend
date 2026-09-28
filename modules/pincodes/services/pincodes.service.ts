@@ -9,7 +9,7 @@ import {
   normalizePincode,
 } from '@modules/cod-blocklist/utils/pincode.util';
 import { escapeIlikePattern, toIlikeContains } from '@modules/cod-blocklist/utils/ilike-escape.util';
-import { ProductVariantPincodeEntity } from '@modules/product/entities/product-variant-pincode.entity';
+import { ProductPincodeEntity } from '@modules/product/entities/product-pincode.entity';
 import { PincodeEntity } from '../entities/pincode.entity';
 import { IPincodeSummary, IStorefrontPincodeScope } from '../interfaces/pincode.interface';
 
@@ -18,8 +18,8 @@ export class PincodesService {
   constructor(
     @InjectRepository(PincodeEntity)
     private readonly pincodes: Repository<PincodeEntity>,
-    @InjectRepository(ProductVariantPincodeEntity)
-    private readonly mappings: Repository<ProductVariantPincodeEntity>,
+    @InjectRepository(ProductPincodeEntity)
+    private readonly mappings: Repository<ProductPincodeEntity>,
   ) {}
 
   async resolveForStorefront(pincode?: string | null): Promise<IStorefrontPincodeScope> {
@@ -111,9 +111,9 @@ export class PincodesService {
     );
   }
 
-  async listMappedSummaries(variantId: string): Promise<IPincodeSummary[]> {
+  async listMappedSummaries(productId: string): Promise<IPincodeSummary[]> {
     const rows = await this.mappings.find({
-      where: { productVariantId: variantId },
+      where: { productId },
       relations: { pincode: true },
       order: { createdAt: 'ASC' },
     });
@@ -123,10 +123,10 @@ export class PincodesService {
       .map((pincode) => this.toSummary(pincode));
   }
 
-  async listMappedCodes(variantId: string, manager?: EntityManager): Promise<string[]> {
-    const repo = manager ? manager.getRepository(ProductVariantPincodeEntity) : this.mappings;
+  async listMappedCodes(productId: string, manager?: EntityManager): Promise<string[]> {
+    const repo = manager ? manager.getRepository(ProductPincodeEntity) : this.mappings;
     const rows = await repo.find({
-      where: { productVariantId: variantId },
+      where: { productId },
       relations: { pincode: true },
     });
     return rows
@@ -155,38 +155,38 @@ export class PincodesService {
 
   async replaceMappings(
     manager: EntityManager,
-    variantId: string,
+    productId: string,
     pincodeIds: string[],
   ): Promise<void> {
-    await manager.delete(ProductVariantPincodeEntity, { productVariantId: variantId });
+    await manager.delete(ProductPincodeEntity, { productId });
     if (!pincodeIds.length) {
       return;
     }
     await manager.insert(
-      ProductVariantPincodeEntity,
-      pincodeIds.map((pincodeId) => ({ productVariantId: variantId, pincodeId })),
+      ProductPincodeEntity,
+      pincodeIds.map((pincodeId) => ({ productId, pincodeId })),
     );
   }
 
-  async clearMappings(manager: EntityManager, variantId: string): Promise<void> {
-    await manager.delete(ProductVariantPincodeEntity, { productVariantId: variantId });
+  async clearMappings(manager: EntityManager, productId: string): Promise<void> {
+    await manager.delete(ProductPincodeEntity, { productId });
   }
 
-  async findMappedCodesByVariantIds(variantIds: string[]): Promise<Map<string, string[]>> {
+  async findMappedCodesByProductIds(productIds: string[]): Promise<Map<string, string[]>> {
     const result = new Map<string, string[]>();
-    if (!variantIds.length) {
+    if (!productIds.length) {
       return result;
     }
     const rows = await this.mappings.find({
-      where: { productVariantId: In(variantIds) },
+      where: { productId: In(productIds) },
       relations: { pincode: true },
     });
     for (const row of rows) {
       const code = row.pincode?.pincode;
       if (!code) continue;
-      const list = result.get(row.productVariantId) ?? [];
+      const list = result.get(row.productId) ?? [];
       list.push(code);
-      result.set(row.productVariantId, list);
+      result.set(row.productId, list);
     }
     return result;
   }
