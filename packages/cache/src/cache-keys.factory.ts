@@ -94,8 +94,9 @@ export const CacheKeys = {
     // v12: bundle dependency OOS ranks with out-of-stock products.
     list: (queryHash: string) => `public:products:v12:list:${queryHash}`,
     listPattern: () => 'public:products:v12:list:*',
-    variantSearch: (queryHash: string) => `public:products:v9:variant-search:${queryHash}`,
-    variantSearchPattern: () => 'public:products:v9:variant-search:*',
+    // v10: typo, spacing, and nearest-catalog fallback for searches that previously returned nothing.
+    variantSearch: (queryHash: string) => `public:products:v10:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:v10:variant-search:*',
     detail: (slug: string) => `public:products:v8:detail:${slug}`,
     detailPattern: () => 'public:products:*:detail:*',
     filters: (queryHash: string) => `public:products:v1:filters:${queryHash}`,

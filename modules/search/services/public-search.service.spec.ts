@@ -306,6 +306,194 @@ describe('PublicSearchService native fallback', () => {
       },
     ]);
   });
+
+  function enableTypesense(perform = jest.fn().mockResolvedValue({ results: [] })) {
+    typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    return perform;
+  }
+
+  it('does not run tolerance search when the existing match already hits', async () => {
+    const perform = enableTypesense(
+      jest.fn().mockResolvedValue({
+        results: [
+          { hits: [] },
+          { hits: [] },
+          { hits: [] },
+          {
+            hits: [
+              {
+                document: {
+                  entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                  refId: 'PRD1',
+                  name: 'Cetaphil',
+                  slug: 'cetaphil',
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const documentSearch = jest.fn();
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      {
+        refId: 'PRD1',
+        variants: [{ slug: 'cetaphil', sellingPrice: '10', displayName: 'Cetaphil' }],
+      },
+    ]);
+
+    const results = await service.search('cetaphil');
+
+    expect(perform).toHaveBeenCalledTimes(1);
+    expect(documentSearch).not.toHaveBeenCalled();
+    expect(results[0]).toEqual(expect.objectContaining({ title: 'Cetaphil', refId: 'PRD1' }));
+  });
+
+  it('keeps a one-character typo when Typesense already returned the product', async () => {
+    const perform = enableTypesense(
+      jest.fn().mockResolvedValue({
+        results: [
+          { hits: [] },
+          { hits: [] },
+          { hits: [] },
+          {
+            hits: [
+              {
+                document: {
+                  entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                  refId: 'PRD1',
+                  name: 'Cetaphil',
+                  slug: 'cetaphil',
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const documentSearch = jest.fn();
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      {
+        refId: 'PRD1',
+        variants: [
+          {
+            slug: 'cetaphil',
+            sellingPrice: '10',
+            displayName: 'Cetaphil',
+            productPageUrl: '/shop/cetaphil/',
+          },
+        ],
+      },
+    ]);
+
+    const results = await service.search('setaphil');
+
+    expect(documentSearch).not.toHaveBeenCalled();
+    expect(results).toEqual([
+      expect.objectContaining({
+        entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+        title: 'Cetaphil',
+        refId: 'PRD1',
+      }),
+    ]);
+  });
+
+  it('retries a spaced query as one compact token', async () => {
+    const perform = enableTypesense();
+    const documentSearch = jest.fn().mockResolvedValue({
+      hits: [
+        {
+          document: {
+            entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+            refId: 'PRD1',
+            name: 'Cetaphil',
+            slug: 'cetaphil',
+          },
+        },
+      ],
+    });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      {
+        refId: 'PRD1',
+        variants: [{ slug: 'cetaphil', sellingPrice: '10', displayName: 'Cetaphil' }],
+      },
+    ]);
+
+    const results = await service.search('ceta phil');
+
+    expect(documentSearch).toHaveBeenCalledWith(expect.objectContaining({ q: 'cetaphil' }));
+    expect(results[0]).toEqual(expect.objectContaining({ title: 'Cetaphil', refId: 'PRD1' }));
+  });
+
+  it('returns nearest catalog products for a normal word with no close match', async () => {
+    const perform = enableTypesense();
+    const documentSearch = jest.fn().mockResolvedValue({
+      hits: [
+        {
+          document: {
+            entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+            refId: 'PRD9',
+            name: 'Cetaphil',
+            slug: 'cetaphil',
+          },
+        },
+      ],
+    });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      {
+        refId: 'PRD9',
+        variants: [{ slug: 'cetaphil', sellingPrice: '10', displayName: 'Cetaphil' }],
+      },
+    ]);
+
+    const results = await service.search('iphone');
+
+    expect(documentSearch).toHaveBeenCalledWith(expect.objectContaining({ q: '*' }));
+    expect(results[0]).toEqual(expect.objectContaining({ title: 'Cetaphil' }));
+  });
+
+  it('returns an empty list for gibberish', async () => {
+    const perform = enableTypesense();
+    const documentSearch = jest.fn();
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+
+    await expect(service.search('asdfqwerzx')).resolves.toEqual([]);
+    await expect(service.search('xqzplkmn')).resolves.toEqual([]);
+    expect(documentSearch).not.toHaveBeenCalled();
+  });
 });
 
 describe('PublicSearchService popular', () => {

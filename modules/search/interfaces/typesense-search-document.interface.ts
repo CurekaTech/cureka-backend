@@ -3,6 +3,8 @@ export interface ITypesenseSearchDocument {
   refId: string;
   entityType: string;
   name: string;
+  /** Lowercase alphanumeric name/brand. Optional until the collection is reindexed. */
+  nameCompact?: string;
   slug: string;
   brand?: string;
   category?: string;

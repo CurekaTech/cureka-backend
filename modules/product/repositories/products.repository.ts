@@ -33,6 +33,11 @@ import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list
 import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import { hasCategoryFilterAllSentinel } from '../utils/category-filter-all.util';
+import {
+  compactSearchText,
+  isGibberishSearchQuery,
+  SEARCH_TYPO_SIMILARITY_FLOOR,
+} from '@modules/search/utils/search-tolerance.util';
 
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
@@ -837,6 +842,10 @@ export class ProductsRepository {
     bindPincodeAvailability(qb, options.pincodeId ?? null);
 
     const [data, total] = await qb.getManyAndCount();
+
+    if (total === 0 && options.search?.trim()) {
+      return this.findPublishedVariantsWithTolerance(options);
+    }
 
     if (data.length) {
       await this.attachVariantSearchRelations(data);
@@ -2642,7 +2651,7 @@ export class ProductsRepository {
     const prefixSearch = `${term}%`;
     const containsSearch = `%${term}%`;
 
-    return this.repo.manager
+    const primary = await this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoinAndSelect('variant.product', 'product')
@@ -2690,6 +2699,176 @@ export class ProductsRepository {
       })
       .take(limit)
       .getMany();
+
+    if (primary.length) return primary;
+    return this.findDropdownSuggestionsWithTolerance(term, limit, pincodeId);
+  }
+
+  /**
+   * Used only when the existing ILIKE search returned no rows.
+   * Compact match, then pg_trgm typo match, then nearest catalog rows for a real word.
+   */
+  private async findPublishedVariantsWithTolerance(
+    options: PublicProductListOptions,
+  ): Promise<{ data: ProductVariantEntity[]; total: number }> {
+    const search = options.search?.trim() ?? '';
+    const compact = compactSearchText(search);
+    if (!compact) return { data: [], total: 0 };
+
+    const compactResult = await this.queryPublishedVariantsByTolerance(options, 'compact', compact);
+    if (compactResult.total > 0) return compactResult;
+    if (isGibberishSearchQuery(search)) return { data: [], total: 0 };
+
+    try {
+      const typoResult = await this.queryPublishedVariantsByTolerance(options, 'typo', compact);
+      if (typoResult.total > 0) return typoResult;
+      return this.queryPublishedVariantsByTolerance(options, 'nearest', compact);
+    } catch (error) {
+      if (!this.isMissingTrigramFunction(error)) throw error;
+      return this.queryPublishedVariantsByTolerance(options, 'catalog', compact);
+    }
+  }
+
+  private async findDropdownSuggestionsWithTolerance(
+    term: string,
+    limit: number,
+    pincodeId: string | null,
+  ): Promise<ProductVariantEntity[]> {
+    const compact = compactSearchText(term);
+    if (!compact) return [];
+
+    const compactHits = await this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'compact', compact);
+    if (compactHits.length) return compactHits;
+    if (isGibberishSearchQuery(term)) return [];
+
+    try {
+      const typoHits = await this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'typo', compact);
+      if (typoHits.length) return typoHits;
+      return this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'nearest', compact);
+    } catch (error) {
+      if (!this.isMissingTrigramFunction(error)) throw error;
+      return this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'catalog', compact);
+    }
+  }
+
+  private async queryPublishedVariantsByTolerance(
+    options: PublicProductListOptions,
+    mode: 'compact' | 'typo' | 'nearest' | 'catalog',
+    compact: string,
+  ): Promise<{ data: ProductVariantEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const sortOrder = options.sortOrder ?? 'DESC';
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
+      .leftJoin(BrandEntity, 'searchBrand', 'searchBrand.id = product.brandId')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .skip(skip)
+      .take(take);
+
+    this.applyPublicVariantSearchFilters(qb, { ...options, search: undefined });
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
+    qb.andWhere(pincodeAvailabilitySql('product', options.pincodeId ?? null));
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
+    this.applyVariantToleranceMatch(qb, mode, compact, 'searchBrand');
+
+    if (mode === 'compact' || mode === 'catalog') {
+      this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    if (data.length) await this.attachVariantSearchRelations(data);
+    return { data, total };
+  }
+
+  private async queryDropdownSuggestionsByTolerance(
+    _term: string,
+    limit: number,
+    pincodeId: string | null,
+    mode: 'compact' | 'typo' | 'nearest' | 'catalog',
+    compact: string,
+  ): Promise<ProductVariantEntity[]> {
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .innerJoin(BrandEntity, 'brand', 'brand.id = product.brandId')
+      .innerJoin('product.category', 'category')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(pincodeAvailabilitySql('product', pincodeId))
+      .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('category.deletedAt IS NULL');
+    bindPincodeAvailability(qb, pincodeId);
+    this.applyVariantToleranceMatch(qb, mode, compact, 'brand');
+    if (mode === 'compact' || mode === 'catalog') {
+      qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank');
+      qb.orderBy('availability_rank', 'ASC').addOrderBy('product.name', 'ASC');
+    }
+    return qb.take(limit).getMany();
+  }
+
+  private applyVariantToleranceMatch(
+    qb: SelectQueryBuilder<ProductVariantEntity>,
+    mode: 'compact' | 'typo' | 'nearest' | 'catalog',
+    compact: string,
+    brandAlias: string,
+  ): void {
+    if (mode === 'catalog') return;
+
+    const similarity = this.variantSearchSimilaritySql(brandAlias);
+    if (mode === 'compact') {
+      qb.andWhere(this.variantSearchCompactPredicate(brandAlias), { compactQuery: compact });
+      return;
+    }
+
+    qb.addSelect(similarity, 'search_similarity');
+    qb.setParameter('compactQuery', compact);
+    if (mode === 'typo') {
+      qb.andWhere(`${similarity} >= :similarityFloor`, {
+        similarityFloor: SEARCH_TYPO_SIMILARITY_FLOOR,
+      });
+    }
+    qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'variant_stock_rank');
+    qb.orderBy('search_similarity', 'DESC');
+    qb.addOrderBy('variant_stock_rank', 'ASC');
+    qb.addOrderBy('product.name', 'ASC');
+  }
+
+  private variantSearchCompactPredicate(brandAlias: string): string {
+    const like = (expr: string): string =>
+      `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g') LIKE '%' || :compactQuery || '%'`;
+    return `(${like('product.name')} OR ${like('variant.display_name')} OR ${like('variant.sku')} OR ${like('variant.slug')} OR ${like('product.slug')} OR ${like(`${brandAlias}.name`)} OR EXISTS (
+      SELECT 1 FROM variant_attribute_values vav
+      WHERE vav.variant_id = variant.id
+        AND regexp_replace(lower(COALESCE(vav.value, '')), '[^a-z0-9]+', '', 'g') LIKE '%' || :compactQuery || '%'
+    ))`;
+  }
+
+  private variantSearchSimilaritySql(brandAlias: string): string {
+    const compact = (expr: string): string =>
+      `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g')`;
+    return `GREATEST(
+      word_similarity(:compactQuery, ${compact('product.name')}),
+      word_similarity(:compactQuery, ${compact('variant.display_name')}),
+      word_similarity(:compactQuery, ${compact('variant.sku')}),
+      word_similarity(:compactQuery, ${compact(`${brandAlias}.name`)})
+    )`;
+  }
+
+  private isMissingTrigramFunction(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /word_similarity/i.test(message) && /does not exist|42883/i.test(message);
   }
 
   async findPublishedByRefIds(
