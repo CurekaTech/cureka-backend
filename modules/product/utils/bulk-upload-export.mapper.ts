@@ -412,8 +412,11 @@ const mapBundleProductRows = (
   for (const bundleItem of product.bundleItems ?? []) {
     const childProduct =
       productById.get(bundleItem.childProductId) ?? bundleItem.childProduct ?? null;
+    const selectedVariant = bundleItem.childVariantId
+      ? childProduct?.variants?.find((variant) => variant.id === bundleItem.childVariantId)
+      : childProduct?.variants?.[0];
     const childSku =
-      childProduct?.variants?.[0]?.sku ??
+      selectedVariant?.sku ??
       exportContext?.firstVariantSkuByProductId?.get(bundleItem.childProductId);
     if (!childSku) continue;
 

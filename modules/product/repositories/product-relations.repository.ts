@@ -305,7 +305,7 @@ export class ProductRelationsRepository {
   async syncBundles(
     manager: EntityManager,
     parentProductId: string,
-    items: Array<{ childProductId: string; quantity: number }>,
+    items: Array<{ childProductId: string; childVariantId: string; quantity: number }>,
   ): Promise<void> {
     const repo = manager.getRepository(ProductBundleEntity);
     await repo.delete({ parentProductId });
@@ -315,6 +315,7 @@ export class ProductRelationsRepository {
         repo.create({
           parentProductId,
           childProductId: item.childProductId,
+          childVariantId: item.childVariantId,
           quantity: item.quantity,
         }),
       ),

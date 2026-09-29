@@ -282,8 +282,11 @@ export class BundleAvailabilityService {
         FROM product_bundles pb
         LEFT JOIN products child ON child.id = pb.child_product_id
         LEFT JOIN product_variants cv
-          ON cv.product_id = child.id
-          AND cv.deleted_at IS NULL
+          ON cv.deleted_at IS NULL
+          AND (
+            (pb.child_variant_id IS NOT NULL AND cv.id = pb.child_variant_id)
+            OR (pb.child_variant_id IS NULL AND cv.product_id = child.id)
+          )
         WHERE pb.parent_product_id = ANY($1::uuid[])
         `,
         [bundleIds],

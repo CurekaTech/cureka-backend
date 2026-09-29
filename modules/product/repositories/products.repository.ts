@@ -1136,6 +1136,21 @@ export class ProductsRepository {
     return new Map(rows.map((row) => [row.refId, row.id]));
   }
 
+  async findVariantsByProductIds(
+    productIds: string[],
+    manager?: EntityManager,
+  ): Promise<Array<{ id: string; productId: string; sku: string }>> {
+    if (!productIds.length) return [];
+    const repository = manager
+      ? manager.getRepository(ProductVariantEntity)
+      : this.repo.manager.getRepository(ProductVariantEntity);
+    const rows = await repository.find({
+      where: { productId: In([...new Set(productIds)]) },
+      select: ['id', 'productId', 'sku'],
+    });
+    return rows.map((row) => ({ id: row.id, productId: row.productId, sku: row.sku }));
+  }
+
   /** Reverse of findIdsByRefIds — given a list of primary IDs, return the matching refIds. */
   async findRefIdsByIds(ids: string[]): Promise<string[]> {
     if (!ids.length) return [];

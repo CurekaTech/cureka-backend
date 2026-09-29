@@ -1,4 +1,5 @@
 import { ProductEntity } from '../entities/product.entity';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
 import {
   IProduct,
   IProductVariant,
@@ -414,22 +415,33 @@ const mapFaq = (mapping: ProductEntity['faqMappings'][number]): IProductFaq => (
   sequence: mapping.sortOrder ?? 0,
 });
 
+const selectedBundleItemVariants = (
+  item: ProductEntity['bundleItems'][number],
+): ProductVariantEntity[] => {
+  const variants = (item.childProduct?.variants ?? []).filter((variant) => !variant.deletedAt);
+  if (!item.childVariantId) return variants;
+  return variants.filter((variant) => variant.id === item.childVariantId);
+};
+
+const mapBundleItemVariant = (
+  variant: ProductVariantEntity,
+): IProductBundleItem['variants'][number] => ({
+  id: variant.id,
+  sku: variant.sku,
+  displayName: variant.displayName?.trim() || null,
+  stock: variant.stock ?? 0,
+  outOfStock: variant.outOfStock ?? false,
+  inCurekaInventory: variant.inCurekaInventory ?? false,
+  status: variant.status,
+});
+
 const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBundleItem => ({
   id: item.id,
   childProductRefId: item.childProduct?.refId ?? '',
   childProductName: item.childProduct?.name ?? '',
+  childVariantId: item.childVariantId ?? null,
   quantity: item.quantity,
-  variants: (item.childProduct?.variants ?? [])
-    .filter((variant) => !variant.deletedAt)
-    .map((variant) => ({
-      id: variant.id,
-      sku: variant.sku,
-      displayName: variant.displayName?.trim() || null,
-      stock: variant.stock ?? 0,
-      outOfStock: variant.outOfStock ?? false,
-      inCurekaInventory: variant.inCurekaInventory ?? false,
-      status: variant.status,
-    })),
+  variants: selectedBundleItemVariants(item).map(mapBundleItemVariant),
 });
 
 const mapBundleAvailability = (entity: ProductEntity): IBundleAvailability | null => {
@@ -451,7 +463,7 @@ const mapBundleAvailability = (entity: ProductEntity): IBundleAvailability | nul
       bundleComponentOos: item.childProduct?.bundleComponentOos ?? false,
       deleted: !item.childProduct || Boolean(item.childProduct.deletedAt),
       quantity: item.quantity,
-      variants: (item.childProduct?.variants ?? []).map((variant) => ({
+      variants: selectedBundleItemVariants(item).map((variant) => ({
         sku: variant.sku,
         name: variant.displayName,
         stock: variant.stock,

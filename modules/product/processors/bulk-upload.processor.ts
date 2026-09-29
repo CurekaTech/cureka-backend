@@ -1184,6 +1184,7 @@ export class BulkUploadProcessor extends WorkerHost {
                       const childRefId = this.validatorService.resolveProductRefIdBySku(item.childSku);
                       return {
                         childProductRefId: childRefId!,
+                        childVariantSku: item.childSku,
                         quantity: item.quantity,
                       };
                     }).filter(item => !!item.childProductRefId)
