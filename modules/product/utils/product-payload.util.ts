@@ -20,6 +20,7 @@ type SpecificationFields = Pick<
   | 'metaDescription'
   | 'metaKeywords'
   | 'sizeChart'
+  | 'faqBanner'
   | 'externalProductId'
   | 'singleProductUrl'
   | 'packMetadata'
@@ -56,6 +57,7 @@ export const mapSpecificationFields = (
   ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription ?? null }),
   ...(dto.metaKeywords !== undefined && { metaKeywords: dto.metaKeywords ?? null }),
   ...(dto.sizeChart !== undefined && { sizeChart: dto.sizeChart ?? null }),
+  ...(dto.faqBanner !== undefined && { faqBanner: dto.faqBanner ?? null }),
   ...(dto.externalProductId !== undefined && { externalProductId: dto.externalProductId ?? null }),
   ...(dto.singleProductUrl !== undefined && { singleProductUrl: dto.singleProductUrl ?? null }),
   ...(dto.packMetadata !== undefined && { packMetadata: dto.packMetadata ?? [] }),

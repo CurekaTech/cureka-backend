@@ -423,6 +423,18 @@ export class CreateProductDto {
   @Type(() => ProductFileReferenceDto)
   sizeChart?: ProductFileReferenceDto | null;
 
+  @ApiPropertyOptional({
+    type: ProductFileReferenceDto,
+    nullable: true,
+    description:
+      'Optional product FAQ banner, shared by every variant. Accepts a storage path string (e.g. images/abc.jpg), { key, name }, { url } from GET responses, or null to clear. Omit on update to keep the current image. Multipart file field "faqBanner" is also supported.',
+    example: 'images/5d6657f9-0df5-4648-a874-f499dbb13979.jpg',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFileReferenceDto)
+  faqBanner?: ProductFileReferenceDto | null;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()

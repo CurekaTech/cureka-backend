@@ -856,6 +856,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   metaKeywords: entity.metaKeywords,
   publishedAt: entity.publishedAt,
   sizeChart: entity.sizeChart,
+  faqBanner: entity.faqBanner ?? null,
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,

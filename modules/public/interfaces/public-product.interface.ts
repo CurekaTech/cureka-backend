@@ -408,6 +408,8 @@ export interface IPublicProductDetail {
   metaKeywords: string[] | null;
   publishedAt: Date | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  /** Product FAQ image used to fill `banners` when set. Not returned on the storefront payload. */
+  faqBanner: IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
   /**
    * True when the displayed selling price is above `shipping_charge_threshold`
@@ -440,7 +442,7 @@ export interface IPublicProductDetail {
     childProductSlug: string;
     quantity: number;
   }>;
-  /** Active banners with placement `pdp` from banner master (empty when none). */
+  /** Product FAQ banner when set (one item), otherwise active CMS banners with placement `pdp`. */
   banners: IStorefrontBannerItem[];
 }
 

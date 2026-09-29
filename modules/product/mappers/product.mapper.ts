@@ -132,6 +132,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
   sizeChart: entity.sizeChart,
+  faqBanner: entity.faqBanner ?? null,
   bundleIcon: entity.bundleIcon ?? null,
   publishedAt: entity.publishedAt,
   curatedBy: entity.curatedBy ?? null,
