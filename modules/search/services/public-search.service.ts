@@ -31,7 +31,13 @@ import {
   mapHealthConcernToSearchResult,
   mapVariantToSearchResult,
 } from '../mappers/public-search-result.mapper';
-import { mapTypesenseHitsToSearchResults, filterDistinctMatchingProductVariants } from '../mappers/typesense-search-result.mapper';
+import { mapTypesenseHitsToSearchResults, filterDistinctMatchingProductVariants, filterDistinctTolerantProductVariants } from '../mappers/typesense-search-result.mapper';
+import {
+  compactSearchText,
+  isGibberishSearchQuery,
+  searchQueryNeedsCompactRetry,
+  searchTypoBudget,
+} from '../utils/search-tolerance.util';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
 
@@ -348,20 +354,246 @@ export class PublicSearchService {
       .multiSearch.perform({ searches })) as MultiSearchResponse;
 
     const grouped = this.groupMultiSearchResults(multiResult, config.hasEntityType);
-    const productHits = await this.retainProductsVisibleForPincode(
-      filterDistinctMatchingProductVariants(
-        grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [],
-        trimmed,
-      ),
-      pincodeId,
-    );
+    const rawProducts = grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [];
+    const strictProducts = filterDistinctMatchingProductVariants(rawProducts, trimmed);
+    // Pincode can drop a real text match. Do not replace that with a fuzzy catalog.
+    const productHits = strictProducts.length
+      ? await this.retainProductsVisibleForPincode(strictProducts, pincodeId)
+      : await this.recoverTolerantProductHits(
+          trimmed,
+          perPage,
+          config,
+          pincode,
+          pincodeId,
+          rawProducts,
+        );
+
+    const entities = strictProducts.length
+      ? {
+          [SEARCH_ENTITY_TYPES.CATEGORY]: grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
+          [SEARCH_ENTITY_TYPES.BRAND]: grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
+          [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
+        }
+      : await this.recoverEmptyEntityHits(trimmed, entityLimit, config, {
+          [SEARCH_ENTITY_TYPES.CATEGORY]: grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
+          [SEARCH_ENTITY_TYPES.BRAND]: grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
+          [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
+        });
+
     return this.mergeSearchResults(
-      grouped[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.BRAND] ?? [],
-      grouped[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
+      entities[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
+      entities[SEARCH_ENTITY_TYPES.BRAND] ?? [],
+      entities[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
       productHits,
       perPage,
     );
+  }
+
+  /**
+   * Runs only when the existing strict title filter kept nothing.
+   * Order: typo hits already returned, compact query, higher typo budget, then
+   * nearest in-stock catalog products for a normal word.
+   */
+  private async recoverTolerantProductHits(
+    trimmed: string,
+    perPage: number,
+    config: ITypesenseSearchRuntimeConfig,
+    pincode: string | null,
+    pincodeId: string | null,
+    rawProducts: IPublicSearchResult[],
+  ): Promise<IPublicSearchResult[]> {
+    const tolerant = filterDistinctTolerantProductVariants(rawProducts, trimmed);
+    if (isGibberishSearchQuery(trimmed)) {
+      return tolerant.length
+        ? this.retainProductsVisibleForPincode(tolerant, pincodeId)
+        : [];
+    }
+    if (tolerant.length) {
+      return this.retainProductsVisibleForPincode(tolerant, pincodeId);
+    }
+
+    const compact = compactSearchText(trimmed);
+    if (searchQueryNeedsCompactRetry(trimmed)) {
+      const compactHits = await this.searchProductDocuments(
+        compact,
+        perPage,
+        config,
+        pincode,
+        TYPESENSE_FAST_SEARCH_PARAMS,
+      );
+      const matched = await this.retainProductsVisibleForPincode(
+        filterDistinctMatchingProductVariants(compactHits, compact),
+        pincodeId,
+      );
+      if (matched.length) return matched;
+    }
+
+    const budget = searchTypoBudget(compact.length);
+    if (budget > TYPESENSE_FAST_SEARCH_PARAMS.num_typos) {
+      const typoHits = await this.searchProductDocuments(trimmed, perPage, config, pincode, {
+        ...TYPESENSE_FAST_SEARCH_PARAMS,
+        num_typos: budget,
+      });
+      const matched = await this.retainProductsVisibleForPincode(
+        filterDistinctTolerantProductVariants(typoHits, trimmed),
+        pincodeId,
+      );
+      if (matched.length) return matched;
+    }
+
+    if (compact.length < 4) {
+      return [];
+    }
+
+    const nearest = await this.searchProductDocuments('*', Math.min(perPage, 30), config, pincode, {
+      num_typos: 0,
+      prefix: false,
+      exhaustive_search: false,
+      ...(config.hasInStock ? { sort_by: 'inStock:desc' } : {}),
+    });
+    return this.retainProductsVisibleForPincode(
+      filterDistinctMatchingProductVariants(nearest),
+      pincodeId,
+    );
+  }
+
+  private async recoverEmptyEntityHits(
+    trimmed: string,
+    entityLimit: number,
+    config: ITypesenseSearchRuntimeConfig,
+    current: Partial<Record<SearchEntityType, IPublicSearchResult[]>>,
+  ): Promise<Partial<Record<SearchEntityType, IPublicSearchResult[]>>> {
+    if (!config.hasEntityType || isGibberishSearchQuery(trimmed)) {
+      return current;
+    }
+
+    const emptyTypes = (
+      [SEARCH_ENTITY_TYPES.CATEGORY, SEARCH_ENTITY_TYPES.BRAND, SEARCH_ENTITY_TYPES.HEALTH_CONCERN] as const
+    ).filter((entityType) => !(current[entityType]?.length));
+    if (!emptyTypes.length) return current;
+
+    const compact = compactSearchText(trimmed);
+    const recovered = { ...current };
+    if (searchQueryNeedsCompactRetry(trimmed)) {
+      await this.fillEmptyEntityHits(
+        recovered,
+        emptyTypes,
+        compact,
+        entityLimit,
+        config,
+        TYPESENSE_FAST_SEARCH_PARAMS,
+      );
+    }
+
+    const stillEmpty = emptyTypes.filter((entityType) => !(recovered[entityType]?.length));
+    const budget = searchTypoBudget(compact.length);
+    if (stillEmpty.length && budget > TYPESENSE_FAST_SEARCH_PARAMS.num_typos) {
+      await this.fillEmptyEntityHits(recovered, stillEmpty, trimmed, entityLimit, config, {
+        ...TYPESENSE_FAST_SEARCH_PARAMS,
+        num_typos: budget,
+      });
+    }
+
+    return recovered;
+  }
+
+  private async fillEmptyEntityHits(
+    recovered: Partial<Record<SearchEntityType, IPublicSearchResult[]>>,
+    entityTypes: SearchEntityType[],
+    query: string,
+    entityLimit: number,
+    config: ITypesenseSearchRuntimeConfig,
+    params: Record<string, unknown>,
+  ): Promise<void> {
+    if (!query) return;
+
+    try {
+      const collectionName = this.typesenseClient.getCollectionName();
+      const searches = entityTypes.map((entityType) => ({
+        collection: collectionName,
+        q: query,
+        query_by: this.entityQueryBy(config),
+        per_page: entityLimit,
+        ...params,
+        ...(config.entityTypeFilters[entityType]
+          ? { filter_by: config.entityTypeFilters[entityType] }
+          : {}),
+      }));
+      const multiResult = (await this.typesenseClient
+        .getSearchClient()
+        .multiSearch.perform({ searches })) as MultiSearchResponse;
+      entityTypes.forEach((entityType, index) => {
+        const hits = mapTypesenseHitsToSearchResults(multiResult.results?.[index]?.hits ?? []);
+        if (hits.length) recovered[entityType] = hits;
+      });
+    } catch (error) {
+      this.logger.warn(
+        { query, error: error instanceof Error ? error.message : String(error) },
+        '[Search] Entity tolerance search failed',
+      );
+    }
+  }
+
+  private async searchProductDocuments(
+    query: string,
+    perPage: number,
+    config: ITypesenseSearchRuntimeConfig,
+    pincode: string | null,
+    params: Record<string, unknown>,
+  ): Promise<IPublicSearchResult[]> {
+    if (!query) return [];
+
+    const filterBy = this.applyProductPincodeFilter(
+      config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT],
+      config,
+      pincode,
+    );
+
+    try {
+      const client = this.typesenseClient.getSearchClient() as {
+        collections?: (name: string) => {
+          documents: () => { search: (params: Record<string, unknown>) => Promise<{ hits?: unknown[] }> };
+        };
+      };
+      if (typeof client.collections !== 'function') return [];
+
+      const result = await client
+        .collections(this.typesenseClient.getCollectionName())
+        .documents()
+        .search({
+          q: query,
+          query_by: this.productQueryBy(config, query !== '*'),
+          per_page: Math.min(Math.max(perPage, 1) * 3, 30),
+          ...params,
+          ...(filterBy ? { filter_by: filterBy } : {}),
+          ...(query !== '*' && config.hasInStock && !('sort_by' in params)
+            ? { sort_by: 'inStock:desc,_text_match:desc' }
+            : {}),
+        });
+
+      return mapTypesenseHitsToSearchResults(
+        (result.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+      );
+    } catch (error) {
+      this.logger.warn(
+        { query, error: error instanceof Error ? error.message : String(error) },
+        '[Search] Product tolerance search failed',
+      );
+      return [];
+    }
+  }
+
+  /** Primary query_by is unchanged. nameCompact is added only on tolerance retries. */
+  private productQueryBy(config: ITypesenseSearchRuntimeConfig, includeCompact: boolean): string {
+    if (!includeCompact || !config.hasNameCompact) return config.productQueryBy;
+    if (config.productQueryBy.split(',').includes('nameCompact')) return config.productQueryBy;
+    return `${config.productQueryBy},nameCompact`;
+  }
+
+  private entityQueryBy(config: ITypesenseSearchRuntimeConfig): string {
+    if (!config.hasNameCompact) return config.entityQueryBy;
+    if (config.entityQueryBy.split(',').includes('nameCompact')) return config.entityQueryBy;
+    return `${config.entityQueryBy},nameCompact`;
   }
 
   /**

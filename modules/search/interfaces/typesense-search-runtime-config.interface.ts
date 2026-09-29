@@ -6,6 +6,8 @@ export interface ITypesenseSearchRuntimeConfig {
   hasPopularSortField: boolean;
   /** True after `isPincodeManaged` exists on the live collection. Until then, skip the filter. */
   hasIsPincodeManaged: boolean;
+  /** True after `nameCompact` exists. Primary query_by stays unchanged either way. */
+  hasNameCompact?: boolean;
   productQueryBy: string;
   entityQueryBy: string;
   entityTypeFilters: Partial<Record<SearchEntityType, string>>;

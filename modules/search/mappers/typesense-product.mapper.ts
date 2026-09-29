@@ -8,6 +8,7 @@ import { sanitizeProductPagePath, sanitizeProductSlugSegment } from '@modules/pr
 import { buildProductDocumentId, buildVariantDocumentId } from '../constants/typesense-document-id.constant';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
+import { compactSearchText } from '../utils/search-tolerance.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -95,6 +96,12 @@ function mapVariantToTypesenseDocument(
       : undefined,
     entityType: SEARCH_ENTITY_TYPES.PRODUCT,
     name: buildVariantSearchTitle(product, variant),
+    nameCompact:
+      compactSearchText(
+        [buildVariantSearchTitle(product, variant), shared.brand, product.name]
+          .filter(Boolean)
+          .join(' '),
+      ) || undefined,
     slug: sanitizeProductSlugSegment(variant.slug) || variant.slug,
     sku: variant.sku?.trim() || undefined,
     brand: shared.brand,
