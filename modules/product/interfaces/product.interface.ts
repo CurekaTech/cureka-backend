@@ -210,6 +210,8 @@ export interface IProduct {
   metaDescription: string | null;
   metaKeywords: string[] | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  /** Signed FAQ banner, or null when the product has none. No CMS fallback. */
+  faqBanner: IStorageFileReferenceResponse | null;
   /** Bundle-only icon. Null for non-bundle products. */
   bundleIcon: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;

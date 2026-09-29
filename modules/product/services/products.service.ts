@@ -1859,6 +1859,9 @@ export class ProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
+    const faqBanner = product.faqBanner
+      ? await this.storageUrlEnricher.toReference(product.faqBanner)
+      : null;
     const bundleIcon = product.bundleIcon
       ? await this.storageUrlEnricher.toReference(product.bundleIcon)
       : null;
@@ -1898,7 +1901,16 @@ export class ProductsService {
       resolvedLabelCatalog,
     );
 
-    return { ...product, productInformation, media, wellnessGoals, sizeChart, bundleIcon, variants };
+    return {
+      ...product,
+      productInformation,
+      media,
+      wellnessGoals,
+      sizeChart,
+      faqBanner,
+      bundleIcon,
+      variants,
+    };
   }
 
   private async enrichPaginatedProducts(

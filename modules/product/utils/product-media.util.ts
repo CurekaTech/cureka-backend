@@ -11,6 +11,7 @@ export interface ProductUploadedFiles {
   productImages: string[];
   variantImages: Record<string, string[]>;
   sizeChart?: string;
+  faqBanner?: string;
   bundleIcon?: string;
 }
 

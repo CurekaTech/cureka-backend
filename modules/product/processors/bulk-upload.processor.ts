@@ -772,6 +772,27 @@ export class BulkUploadProcessor extends WorkerHost {
                 }
               }
 
+              if (
+                group.faqBanner &&
+                !isBulkUploadSizeChartResolvableWithoutGallery(group.faqBanner)
+              ) {
+                const normalizedFaqBanner = group.faqBanner.toLowerCase().trim();
+                if (!galleryMap.has(normalizedFaqBanner)) {
+                  return {
+                    ok: false as const,
+                    sheetRows: countSheetRowsForProductGroup(group),
+                    variantSlots: countVariantSlotsForProductGroup(group),
+                    errors: this.buildGroupFailureErrors(group, {
+                      column: 'FAQ Banner Filename/Path',
+                      invalidValue: group.faqBanner,
+                      reason: `FAQ banner "${group.faqBanner}" does not exist in Media Gallery.`,
+                      suggestedFix:
+                        'Upload the file to Media Gallery first, provide FAQ Banner URL, or use an images/ storage path.',
+                    }),
+                  };
+                }
+              }
+
               const refs = this.validatorService.resolveReferences(group);
               const lookupProductId = normalizeLookupProductId(group.externalProductId);
               const lookupManufacturerAddress = lookupProductId
@@ -1133,6 +1154,12 @@ export class BulkUploadProcessor extends WorkerHost {
                   ? this.storageService.toFileReference(
                       (await this.resolveBulkUploadSizeChart(group.sizeChart, galleryMap)) ??
                         group.sizeChart,
+                    )
+                  : undefined,
+                faqBanner: group.faqBanner
+                  ? this.storageService.toFileReference(
+                      (await this.resolveBulkUploadSizeChart(group.faqBanner, galleryMap)) ??
+                        group.faqBanner,
                     )
                   : undefined,
                 ...(autoManufacturerRefId ? { manufacturerRefId: autoManufacturerRefId } : {}),

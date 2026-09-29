@@ -19,6 +19,7 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { BannersService } from '@modules/master/services/banners.service';
+import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
@@ -1041,7 +1042,7 @@ export class PublicProductsService {
 
     const { isFreeDelivery, codMinOrderAmount } =
       await this.resolveCheckoutBadgeHints(merged);
-    const banners = await this.bannersService.getPdpBanners();
+    const banners = await this.resolvePdpBanners(product);
     const subscriptionConfig =
       await this.productSubscriptionConfigService.findForProductVariant(
         merged.id,
@@ -1070,6 +1071,29 @@ export class PublicProductsService {
         labelCatalog,
       ),
     });
+  }
+
+  /**
+   * One product FAQ banner when set; otherwise active CMS banners with placement pdp.
+   */
+  private async resolvePdpBanners(
+    product: IPublicProductDetail,
+  ): Promise<IStorefrontBannerItem[]> {
+    if (product.faqBanner) {
+      const imageUrl = await this.storageUrlEnricher.toReference(product.faqBanner);
+      if (imageUrl) {
+        return [
+          {
+            refId: product.refId,
+            title: product.name,
+            imageUrl,
+            ctaHref: null,
+          },
+        ];
+      }
+    }
+
+    return this.bannersService.getPdpBanners();
   }
 
   /**

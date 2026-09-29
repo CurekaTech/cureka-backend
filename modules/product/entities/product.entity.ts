@@ -216,6 +216,10 @@ export class ProductEntity extends BaseEntity {
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;
 
+  /** One optional FAQ section image, shared by every variant of this product. */
+  @Column({ ...storageFileReferenceColumn({ name: 'faq_banner', nullable: true }) })
+  faqBanner!: IStorageFileReference | null;
+
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;
 

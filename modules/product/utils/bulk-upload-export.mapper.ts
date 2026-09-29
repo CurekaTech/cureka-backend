@@ -291,6 +291,12 @@ const buildSharedProductValues = (
     })).filter((faq) => faq.question && faq.answer) ?? [];
   applyFaqs(values, faqs);
 
+  const faqBannerPath = product.faqBanner?.key?.trim();
+  if (faqBannerPath) {
+    values.set('FAQ Banner', faqBannerPath);
+    values.set('FAQ Banner Filename/Path', faqBannerPath);
+  }
+
   applyProductInformation(values, product.productInformation, headers);
   applyCategoryFilters(values, product.categoryFilterMappings);
 
