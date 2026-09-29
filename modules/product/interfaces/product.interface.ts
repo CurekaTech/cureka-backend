@@ -123,6 +123,8 @@ export interface IProductBundleItem {
   id: string;
   childProductRefId: string;
   childProductName: string;
+  /** Variant saved on this bundle line. Null when the row was saved before variant selection. */
+  childVariantId: string | null;
   quantity: number;
   variants: IProductBundleItemVariant[];
 }

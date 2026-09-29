@@ -1086,6 +1086,7 @@ export class ProductsService {
           dto.bundleItems,
           existing.id,
           (refIds) => this.productsRepository.findIdsByRefIds(refIds, manager),
+          (productIds) => this.productsRepository.findVariantsByProductIds(productIds, manager),
         );
         await this.relationsRepository.syncBundles(manager, existing.id, resolvedItems);
       }
