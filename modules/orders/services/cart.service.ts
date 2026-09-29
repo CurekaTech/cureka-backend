@@ -7,6 +7,7 @@ import { ProductMediaEntity } from '@modules/product/entities/product-media.enti
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -601,7 +602,7 @@ export class CartService {
               singleProductUrl: product?.singleProductUrl,
               categorySlugPath: [],
             }) ?? null,
-          productName: product?.name ?? '',
+          productName: this.resolveCartProductName(product, variant),
           slug: variantSlug || productSlug,
           productPageUrl,
           sku: variant?.sku ?? '',
@@ -793,6 +794,17 @@ export class CartService {
     }
 
     return parts.length ? parts.join(' · ') : null;
+  }
+
+  private resolveCartProductName(
+    product: ProductEntity | undefined,
+    variant: ProductVariantEntity | undefined,
+  ): string {
+    const productName = product?.name?.trim() ?? '';
+    if (product?.productType !== ProductType.VARIABLE) {
+      return productName;
+    }
+    return variant?.displayName?.trim() || productName;
   }
 
   private formatVariantWeight(variant: ProductVariantEntity): string | null {
