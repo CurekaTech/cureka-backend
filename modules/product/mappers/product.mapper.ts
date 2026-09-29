@@ -419,6 +419,17 @@ const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBund
   childProductRefId: item.childProduct?.refId ?? '',
   childProductName: item.childProduct?.name ?? '',
   quantity: item.quantity,
+  variants: (item.childProduct?.variants ?? [])
+    .filter((variant) => !variant.deletedAt)
+    .map((variant) => ({
+      id: variant.id,
+      sku: variant.sku,
+      displayName: variant.displayName?.trim() || null,
+      stock: variant.stock ?? 0,
+      outOfStock: variant.outOfStock ?? false,
+      inCurekaInventory: variant.inCurekaInventory ?? false,
+      status: variant.status,
+    })),
 });
 
 const mapBundleAvailability = (entity: ProductEntity): IBundleAvailability | null => {

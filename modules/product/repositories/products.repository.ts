@@ -17,6 +17,7 @@ import { ProductCategoryFilterMappingEntity } from '../entities/product-category
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
+import { ProductType } from '../enums/product-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import {
   bundleDependencyAvailableSql,
@@ -1152,6 +1153,23 @@ export class ProductsRepository {
   ): Promise<void> {
     const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
     await repository.update({ refId }, data);
+  }
+
+  async existsByBundleName(name: string, excludeRefId?: string): Promise<boolean> {
+    const title = name.trim();
+    if (!title) return false;
+
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .where('product.productType = :productType', { productType: ProductType.BUNDLE })
+      .andWhere('LOWER(TRIM(product.name)) = LOWER(:title)', { title })
+      .andWhere('product.deletedAt IS NULL');
+
+    if (excludeRefId) {
+      qb.andWhere('product.refId != :excludeRefId', { excludeRefId });
+    }
+
+    return (await qb.getCount()) > 0;
   }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
