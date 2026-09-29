@@ -317,6 +317,14 @@ export class ProductsService {
     return product;
   }
 
+  private async assertBundleTitleAvailable(name: string, excludeRefId?: string): Promise<void> {
+    const title = name.trim();
+    if (!title) return;
+    if (await this.productsRepository.existsByBundleName(title, excludeRefId)) {
+      throw new ConflictException(`A bundle product with title "${title}" already exists`);
+    }
+  }
+
   private async assertProductIsBundle(refId: string): Promise<void> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
@@ -527,6 +535,9 @@ export class ProductsService {
 
     if (slugExists.exists) {
       throw new ConflictException(`Product slug "${slugExists.slug}" already exists`);
+    }
+    if (normalizedDto.productType === ProductType.BUNDLE) {
+      await this.assertBundleTitleAvailable(normalizedDto.name);
     }
     const slug = slugExists.slug;
     assertProductUrlSlugLength(slug, 'Product');
@@ -785,6 +796,9 @@ export class ProductsService {
       ...mapSpecificationFields(dto, { labelSortOrders, labelRefIdsByName }),
     };
     if (dto.name !== undefined) payload.name = dto.name;
+    if (existing.productType === ProductType.BUNDLE && dto.name !== undefined) {
+      await this.assertBundleTitleAvailable(dto.name, refId);
+    }
     if (dto.description !== undefined) payload.description = dto.description ?? null;
     if (dto.vendorId !== undefined) payload.vendorId = dto.vendorId ?? null;
 

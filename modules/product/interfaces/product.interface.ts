@@ -109,11 +109,22 @@ export interface IProductMedia {
   variantId: string | null;
 }
 
+export interface IProductBundleItemVariant {
+  id: string;
+  sku: string;
+  displayName: string | null;
+  stock: number;
+  outOfStock: boolean;
+  inCurekaInventory: boolean;
+  status: VariantStatus;
+}
+
 export interface IProductBundleItem {
   id: string;
   childProductRefId: string;
   childProductName: string;
   quantity: number;
+  variants: IProductBundleItemVariant[];
 }
 
 export interface IProductTag {
