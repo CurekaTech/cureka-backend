@@ -37,6 +37,7 @@ import {
   isGibberishSearchQuery,
   searchQueryNeedsCompactRetry,
   searchTypoBudget,
+  significantSearchTokens,
 } from '../utils/search-tolerance.util';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
@@ -357,16 +358,22 @@ export class PublicSearchService {
     const rawProducts = grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [];
     const strictProducts = filterDistinctMatchingProductVariants(rawProducts, trimmed);
     // Pincode can drop a real text match. Do not replace that with a fuzzy catalog.
-    const productHits = strictProducts.length
+    let productHits = strictProducts.length
       ? await this.retainProductsVisibleForPincode(strictProducts, pincodeId)
-      : await this.recoverTolerantProductHits(
-          trimmed,
-          perPage,
-          config,
-          pincode,
-          pincodeId,
-          rawProducts,
-        );
+      : [];
+    if (!productHits.length) {
+      productHits = await this.loadPublishedProductHits(trimmed, perPage, pincodeId);
+    }
+    if (!productHits.length) {
+      productHits = await this.recoverTolerantProductHits(
+        trimmed,
+        perPage,
+        config,
+        pincode,
+        pincodeId,
+        rawProducts,
+      );
+    }
 
     const entities = strictProducts.length
       ? {
@@ -390,9 +397,32 @@ export class PublicSearchService {
   }
 
   /**
+   * Published product name / variant display name in Postgres.
+   * Used when Typesense has not indexed that title yet.
+   */
+  private async loadPublishedProductHits(
+    trimmed: string,
+    perPage: number,
+    pincodeId: string | null,
+  ): Promise<IPublicSearchResult[]> {
+    const variants = await this.productsRepository.findPublishedDropdownSuggestions(
+      trimmed,
+      Math.min(perPage * 3, 30),
+      pincodeId,
+    );
+    return filterDistinctMatchingProductVariants(
+      variants
+        .map((variant) => mapVariantToSearchResult(variant))
+        .filter((result): result is IPublicSearchResult => Boolean(result)),
+      trimmed,
+    );
+  }
+
+  /**
    * Runs only when the existing strict title filter kept nothing.
    * Order: typo hits already returned, compact query, higher typo budget, then
-   * nearest in-stock catalog products for a normal word.
+   * the longest word in the query ("cetaphil" from "cetaphil serum").
+   * Unrelated catalog rows are not used.
    */
   private async recoverTolerantProductHits(
     trimmed: string,
@@ -441,20 +471,24 @@ export class PublicSearchService {
       if (matched.length) return matched;
     }
 
-    if (compact.length < 4) {
-      return [];
+    const fullCompact = compactSearchText(trimmed);
+    for (const token of significantSearchTokens(trimmed)) {
+      if (token === fullCompact) continue;
+      const tokenHits = await this.searchProductDocuments(
+        token,
+        perPage,
+        config,
+        pincode,
+        TYPESENSE_FAST_SEARCH_PARAMS,
+      );
+      const matched = await this.retainProductsVisibleForPincode(
+        filterDistinctMatchingProductVariants(tokenHits, token),
+        pincodeId,
+      );
+      if (matched.length) return matched;
     }
 
-    const nearest = await this.searchProductDocuments('*', Math.min(perPage, 30), config, pincode, {
-      num_typos: 0,
-      prefix: false,
-      exhaustive_search: false,
-      ...(config.hasInStock ? { sort_by: 'inStock:desc' } : {}),
-    });
-    return this.retainProductsVisibleForPincode(
-      filterDistinctMatchingProductVariants(nearest),
-      pincodeId,
-    );
+    return [];
   }
 
   private async recoverEmptyEntityHits(
