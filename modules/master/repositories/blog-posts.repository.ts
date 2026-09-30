@@ -54,6 +54,20 @@ export class BlogPostsRepository {
     return (await qb.getCount()) > 0;
   }
 
+  async existsByTitle(title: string, excludeRefId?: string): Promise<boolean> {
+    const normalized = title.trim();
+    if (!normalized) return false;
+
+    const qb = this.repo
+      .createQueryBuilder('p')
+      .where('LOWER(TRIM(p.title)) = LOWER(:title)', { title: normalized })
+      .andWhere('p.deletedAt IS NULL');
+    if (excludeRefId) {
+      qb.andWhere('p.refId != :excludeRefId', { excludeRefId });
+    }
+    return (await qb.getCount()) > 0;
+  }
+
   async updateByRefId(
     refId: string,
     data: Partial<BlogPostEntity>,

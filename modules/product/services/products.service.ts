@@ -697,6 +697,7 @@ export class ProductsService {
       status: query.status,
       variantSlug: query.variantSlug,
       outOfStock: query.outOfStock,
+      inStock: query.inStock,
       isTop: query.isTop,
       prioritizeTop: query.prioritizeTop,
       categoryFilterCriteria: filters.categoryFilterCriteria,
@@ -730,6 +731,7 @@ export class ProductsService {
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
           outOfStock: query.outOfStock,
+          inStock: query.inStock,
           isTop: query.isTop,
           prioritizeTop: query.prioritizeTop,
         });

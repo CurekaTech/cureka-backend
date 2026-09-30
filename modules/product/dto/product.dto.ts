@@ -861,6 +861,20 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
 
   @ApiPropertyOptional({
     type: Boolean,
+    description:
+      'Website product pickers only. true = variant is not marked out of stock, and stock > 0 when inCurekaInventory is true. Bundles also require components to be available. Do not send this on the main Products or Bundle Products catalog lists.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  inStock?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
     description: 'When true, return only variants with is_top = true (Top Products).',
   })
   @IsOptional()

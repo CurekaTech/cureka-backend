@@ -82,6 +82,8 @@ export interface ProductListOptions {
   productNatureId?: string;
   variantSlug?: string;
   outOfStock?: boolean;
+  /** When set, keep rows that match storefront sellable stock (and bundle component availability). */
+  inStock?: boolean;
   isTop?: boolean;
   /** When true, pin `is_top` variants first (then apply normal sortBy). */
   prioritizeTop?: boolean;
@@ -1686,6 +1688,15 @@ export class ProductsRepository {
       qb.andWhere('variant.outOfStock = true');
     } else if (options.outOfStock === false) {
       qb.andWhere('variant.outOfStock = false');
+    }
+    if (options.inStock === true) {
+      qb.andWhere(
+        `${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')}`,
+      );
+    } else if (options.inStock === false) {
+      qb.andWhere(
+        `NOT (${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')})`,
+      );
     }
     if (options.isTop === true) {
       qb.andWhere('variant.isTop = true');
