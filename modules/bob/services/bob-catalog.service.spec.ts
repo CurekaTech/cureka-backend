@@ -117,7 +117,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
 
     expect(result).toEqual([
       {
-        id: CATALOGUE_ID,
+        id: 217301,
         title: 'Lactisyn Sachets (10 x 1gm Sachet)',
         status: 'ACTIVE',
         tags: [],
@@ -133,7 +133,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
 
     for (const identifier of [PRODUCT_UUID, REF_ID, CATALOGUE_ID]) {
       const detail = await service.getProduct(identifier);
-      expect(detail.id).toBe(CATALOGUE_ID);
+      expect(detail.id).toBe(217301);
       expect(detail.variants[0]?.id).toBe(VARIANT_UUID);
     }
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(1, PRODUCT_UUID);
@@ -154,7 +154,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     const result = await service.listProducts(`${CATALOGUE_ID},217482`);
 
     expect(resolver.findPublishedByBobIds).toHaveBeenCalledWith([CATALOGUE_ID, '217482']);
-    expect(result.map((item) => item.id)).toEqual([CATALOGUE_ID, '217482']);
+    expect(result.map((item) => item.id)).toEqual([217301, 217482]);
   });
 
   it('updates tags through the internal UUID and returns the catalogue id', async () => {
@@ -168,7 +168,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
 
     expect(productsService.replaceTags).toHaveBeenCalledWith(PRODUCT_UUID, ['hair'], 'bob');
     expect(result).toEqual({
-      id: CATALOGUE_ID,
+      id: 217301,
       title: 'Lactisyn Sachets (10 x 1gm Sachet)',
       status: 'ACTIVE',
       tags: ['hair'],
@@ -182,7 +182,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     const result = await service.getVariant(VARIANT_UUID);
 
     expect(result.id).toBe(VARIANT_UUID);
-    expect(result.product.id).toBe(CATALOGUE_ID);
+    expect(result.product.id).toBe(217301);
   });
 
   it('rejects a variant whose product has no catalogue id', async () => {

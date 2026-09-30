@@ -8,12 +8,20 @@ export function bobCatalogueProductId(
   return value || null;
 }
 
+/** Numeric catalogue sheet id for BOB payloads, for example 407432. */
 export function requireBobCatalogueProductId(
   product: Pick<ProductEntity, 'externalProductId'>,
-): string {
+): number {
   const id = bobCatalogueProductId(product);
   if (!id) {
     throw new Error('Product has no externalProductId for the BOB catalogue');
   }
-  return id;
+  if (!/^\d+$/.test(id)) {
+    throw new Error(`Product catalogue id "${id}" is not a number`);
+  }
+  const numeric = Number(id);
+  if (!Number.isSafeInteger(numeric)) {
+    throw new Error(`Product catalogue id "${id}" is not a number`);
+  }
+  return numeric;
 }

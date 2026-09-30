@@ -82,7 +82,7 @@ describe('BOB catalogue product id', () => {
     const product = catalogueProduct();
 
     expect(mapBobProductSummary(product)).toEqual({
-      id: CATALOGUE_ID,
+      id: 217301,
       title: 'Lactisyn Sachets (10 x 1gm Sachet)',
       status: 'ACTIVE',
       tags: [],
@@ -93,7 +93,7 @@ describe('BOB catalogue product id', () => {
   it('keeps variant ids as internal UUIDs on the product detail', () => {
     const detail = mapBobProductDetail(catalogueProduct(), new Map(), '');
 
-    expect(detail.id).toBe(CATALOGUE_ID);
+    expect(detail.id).toBe(217301);
     expect(detail.title).toBe('Lactisyn Sachets (10 x 1gm Sachet)');
     expect(detail.variants[0]?.id).toBe(VARIANT_UUID);
   });
@@ -104,7 +104,7 @@ describe('BOB catalogue product id', () => {
     const detail = mapBobVariantDetail(variant, product, new Map());
 
     expect(detail.id).toBe(VARIANT_UUID);
-    expect(detail.product.id).toBe(CATALOGUE_ID);
+    expect(detail.product.id).toBe(217301);
   });
 
   it('does not invent a catalogue id when externalProductId is missing', () => {
