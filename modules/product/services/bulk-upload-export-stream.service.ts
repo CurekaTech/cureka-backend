@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createWriteStream } from 'fs';
 import { Writable } from 'stream';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
+import { buildPublicMediaAbsoluteUrl, isAllowedPublicMediaKey, normalizeStorageKey } from '@packages/storage';
 import { ProductsRepository } from '../repositories/products.repository';
 import { ProductType } from '../enums/product-type.enum';
 import { buildUnifiedBulkUploadHeaders, buildCategoryFilterColumnHeader } from '../utils/bulk-upload-columns.util';
@@ -10,6 +11,7 @@ import {
   createBulkExportLookupContext,
   IBulkExportLookupContext,
   mapProductsToBulkExportRows,
+  BulkExportMediaUrlResolver,
 } from '../utils/bulk-upload-export.mapper';
 import { CSV_UTF8_BOM, formatCsvRow } from '../utils/bulk-upload-csv.util';
 import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
@@ -22,6 +24,17 @@ export class BulkUploadExportStreamService {
     private readonly categoryFiltersRepository: CategoryFiltersRepository,
     private readonly configService: ConfigService,
   ) {}
+
+  private exportMediaUrl(): BulkExportMediaUrlResolver {
+    const stable = this.configService.get<boolean>('storage.publicMedia.stableUrls') ?? true;
+    const baseUrl = this.configService.get<string>('storage.publicMedia.baseUrl')?.trim() ?? '';
+    return (storageKey: string) => {
+      if (!stable || !baseUrl) return null;
+      const key = normalizeStorageKey(storageKey);
+      if (!key || !isAllowedPublicMediaKey(key)) return null;
+      return buildPublicMediaAbsoluteUrl(baseUrl, key);
+    };
+  }
 
   async resolveExportHeaders(): Promise<string[]> {
     const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
@@ -39,6 +52,7 @@ export class BulkUploadExportStreamService {
       Number(this.configService.get('PRODUCT_BULK_BATCH_SIZE')),
     );
     const headers = await this.resolveExportHeaders();
+    const toExportMediaUrl = this.exportMediaUrl();
     const totalProducts = await this.productsRepository.countForBulkExport();
 
     let bundleLookups: Pick<
@@ -75,7 +89,10 @@ export class BulkUploadExportStreamService {
 
       const hasBundles = products.some((product) => product.productType === ProductType.BUNDLE);
       const bundleLookupData = hasBundles ? await ensureBundleLookups() : undefined;
-      const lookupContext = createBulkExportLookupContext(products, bundleLookupData);
+      const lookupContext = createBulkExportLookupContext(products, {
+        ...bundleLookupData,
+        toExportMediaUrl,
+      });
       const rows = mapProductsToBulkExportRows(products, headers, lookupContext);
       if (rows.length) {
         const csvChunk = rows.map((row) => `${formatCsvRow(row)}\r\n`).join('');

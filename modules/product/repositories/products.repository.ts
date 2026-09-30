@@ -571,7 +571,7 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachDetailRelations(products, this.repo.manager, { includeMedia: false });
+    await this.attachDetailRelations(products, this.repo.manager, { includeMedia: true });
     return products;
   }
 
