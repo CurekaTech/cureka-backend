@@ -35,6 +35,7 @@ import {
   BobProductSummary,
   BobVariantDetail,
 } from '../interfaces/bob.interface';
+import { requireBobCatalogueProductId } from '../utils/bob-product-id.util';
 import { toBobE164Phone, toBobOrderAlias } from '../utils/bob.util';
 
 export function mapBobCategory(
@@ -61,7 +62,7 @@ export function mapBobProductTags(product: ProductEntity): string[] {
 
 export function mapBobProductSummary(product: ProductEntity): BobProductSummary {
   return {
-    id: product.id,
+    id: requireBobCatalogueProductId(product),
     title: product.name,
     status: mapBobProductStatus(product.status),
     tags: mapBobProductTags(product),
@@ -77,7 +78,7 @@ export function mapBobProductDetail(
   const image = resolveProductImageUrl(product, null, imageByKey);
   const options = collectOptions(variants);
   return {
-    id: product.id,
+    id: requireBobCatalogueProductId(product),
     title: product.name,
     status: mapBobProductStatus(product.status),
     tags: mapBobProductTags(product),
@@ -117,7 +118,7 @@ export function mapBobVariantDetail(
     inventoryManaged: true,
     image: resolveProductImageUrl(product, variant.id, imageByKey) || productImage,
     product: {
-      id: product.id,
+      id: requireBobCatalogueProductId(product),
       title: product.name,
       image: productImage,
     },

@@ -19,9 +19,12 @@ export const slugifyForUrl = (value: string): string =>
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+/** Serialised empty values seen in product_page_url (e.g. "undefined"). */
+const EMPTY_PATH_VALUES = new Set(['undefined', 'null', '/undefined', '/null']);
+
 export const toStorefrontPath = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
-  if (!trimmed) return null;
+  if (!trimmed || EMPTY_PATH_VALUES.has(trimmed.toLowerCase())) return null;
 
   try {
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
