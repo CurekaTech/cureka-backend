@@ -1,3 +1,5 @@
+import { isAllowedPublicMediaKey, normalizeStorageKey } from '@packages/storage';
+
 export const BULK_UPLOAD_VARIANT_IMAGE_COUNT = 5;
 export const BULK_UPLOAD_GALLERY_IMAGE_COUNT = 6;
 /** Sample template shows this many common_media columns; upload accepts any N. */
@@ -7,24 +9,81 @@ export const isRemoteImageUrl = (value: string): boolean =>
   /^https?:\/\//i.test(value.trim());
 
 const LIVE_CUREKA_ORIGIN_RE = /^https?:\/\/(?:www\.)?cureka\.com/i;
+const PUBLIC_MEDIA_PATH_RE = /\/public\/media\//i;
 export const LEGACY_CUREKA_ORIGIN = 'https://legacy.cureka.com';
+
+/**
+ * Already-uploaded file served by GET /api/v1/public/media/{key}.
+ * Returns the bucket key (for example gallery/uuid.png), or null for WordPress and other hosts.
+ */
+export const existingPublicMediaStorageKey = (url: string): string | null => {
+  const trimmed = url.trim();
+  if (!isRemoteImageUrl(trimmed) || !PUBLIC_MEDIA_PATH_RE.test(trimmed)) {
+    return null;
+  }
+  const key = normalizeStorageKey(trimmed);
+  if (!key || !isAllowedPublicMediaKey(key)) return null;
+  return key;
+};
 
 /**
  * WooCommerce / bulk sheets still list www.cureka.com image URLs.
  * Those files now live on the temporary WordPress host. Rewrite the host only.
- * Non-Cureka URLs and GCS keys are left unchanged.
+ * Our public media URLs, non-Cureka URLs, and GCS keys are left unchanged.
  */
 export const toLegacyCurekaImageUrl = (url: string): string => {
   const trimmed = url.trim();
   if (!trimmed) return trimmed;
+  if (PUBLIC_MEDIA_PATH_RE.test(trimmed)) return trimmed;
   if (/^https?:\/\/legacy\.cureka\.com/i.test(trimmed)) {
     return trimmed.replace(/^http:\/\//i, 'https://');
   }
   return trimmed.replace(LIVE_CUREKA_ORIGIN_RE, LEGACY_CUREKA_ORIGIN);
 };
 
-export const isStorageImageKey = (value: string): boolean =>
-  /^(images|videos)\//i.test(value.trim());
+export const isStorageImageKey = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed || isRemoteImageUrl(trimmed)) return false;
+  const key = normalizeStorageKey(trimmed);
+  return Boolean(key && isAllowedPublicMediaKey(key));
+};
+
+/**
+ * Sheet cell that already points at a stored file.
+ * Public media URLs (gallery, images, banners, …) and harvest-cache hits
+ * are reused as-is. WordPress URLs return null so the caller can download them.
+ */
+export const reuseStoredBulkUploadImageKey = (
+  url: string,
+  harvestBySourceUrl?: ReadonlyMap<string, string>,
+): string | null => {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  const publicKey = existingPublicMediaStorageKey(trimmed);
+  if (publicKey) return publicKey;
+
+  if (!isRemoteImageUrl(trimmed)) {
+    const key = normalizeStorageKey(trimmed);
+    if (key && isAllowedPublicMediaKey(key)) return key;
+  }
+
+  if (!harvestBySourceUrl?.size || !isRemoteImageUrl(trimmed)) return null;
+
+  const candidates = new Set<string>([trimmed, toLegacyCurekaImageUrl(trimmed)]);
+  if (/^https?:\/\/legacy\.cureka\.com/i.test(trimmed)) {
+    candidates.add(trimmed.replace(/^https?:\/\/legacy\.cureka\.com/i, 'https://www.cureka.com'));
+  }
+
+  for (const candidate of candidates) {
+    const stored = harvestBySourceUrl.get(candidate)?.trim();
+    if (!stored) continue;
+    const key = normalizeStorageKey(stored);
+    if (key && isAllowedPublicMediaKey(key)) return key;
+  }
+
+  return null;
+};
 
 /** Public http(s) URL or already-uploaded storage key usable as media[].url. */
 export const isBulkUploadImageUrlValue = (value: string): boolean =>
