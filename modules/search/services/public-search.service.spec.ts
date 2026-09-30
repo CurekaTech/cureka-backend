@@ -451,19 +451,51 @@ describe('PublicSearchService native fallback', () => {
     expect(results[0]).toEqual(expect.objectContaining({ title: 'Cetaphil', refId: 'PRD1' }));
   });
 
-  it('returns nearest catalog products for a normal word with no close match', async () => {
-    const perform = enableTypesense();
-    const documentSearch = jest.fn().mockResolvedValue({
-      hits: [
-        {
-          document: {
-            entityType: SEARCH_ENTITY_TYPES.PRODUCT,
-            refId: 'PRD9',
-            name: 'Cetaphil',
-            slug: 'cetaphil',
+  it('returns a published product from the database when the title contains the query', async () => {
+    const perform = enableTypesense(
+      jest.fn().mockResolvedValue({ results: [{ hits: [] }, { hits: [] }, { hits: [] }, { hits: [] }] }),
+    );
+    const documentSearch = jest.fn().mockResolvedValue({ hits: [] });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
+      {
+        displayName: 'Cetaphil Serum TestSkin',
+        slug: 'cetaphil-serum-testskin',
+        productPageUrl: '/shop/cetaphil-serum-testskin/',
+        product: { refId: 'CET1', name: 'Cetaphil Serum TestSkin', slug: 'cetaphil-serum-testskin' },
+      },
+    ]);
+
+    const results = await service.search('cetaphil serum');
+
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        title: 'Cetaphil Serum TestSkin',
+        refId: 'CET1',
+      }),
+    );
+    expect(documentSearch).not.toHaveBeenCalledWith(expect.objectContaining({ q: '*' }));
+  });
+
+  it('matches the longest word when the full phrase is not in a title', async () => {
+    const perform = enableTypesense(jest.fn().mockResolvedValue({ results: [{ hits: [] }, { hits: [] }, { hits: [] }, { hits: [] }] }));
+    const documentSearch = jest.fn().mockImplementation(async (params: { q?: string }) => {
+      if (params.q !== 'cetaphil') return { hits: [] };
+      return {
+        hits: [
+          {
+            document: {
+              entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+              refId: 'PRD1',
+              name: 'Cetaphil Serum TestSkin',
+              slug: 'cetaphil-serum',
+            },
           },
-        },
-      ],
+        ],
+      };
     });
     typesenseClient.getSearchClient.mockReturnValue({
       multiSearch: { perform },
@@ -471,15 +503,28 @@ describe('PublicSearchService native fallback', () => {
     });
     productsRepository.findPublishedByRefIds.mockResolvedValue([
       {
-        refId: 'PRD9',
-        variants: [{ slug: 'cetaphil', sellingPrice: '10', displayName: 'Cetaphil' }],
+        refId: 'PRD1',
+        variants: [{ slug: 'cetaphil-serum', sellingPrice: '10', displayName: 'Cetaphil Serum TestSkin' }],
       },
     ]);
 
-    const results = await service.search('iphone');
+    const results = await service.search('cetaphil serum');
 
-    expect(documentSearch).toHaveBeenCalledWith(expect.objectContaining({ q: '*' }));
-    expect(results[0]).toEqual(expect.objectContaining({ title: 'Cetaphil' }));
+    expect(documentSearch).toHaveBeenCalledWith(expect.objectContaining({ q: 'cetaphil' }));
+    expect(documentSearch).not.toHaveBeenCalledWith(expect.objectContaining({ q: '*' }));
+    expect(results[0]).toEqual(expect.objectContaining({ title: 'Cetaphil Serum TestSkin', refId: 'PRD1' }));
+  });
+
+  it('does not fill the dropdown with unrelated products when nothing matches', async () => {
+    const perform = enableTypesense();
+    const documentSearch = jest.fn().mockResolvedValue({ hits: [] });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: documentSearch }) }),
+    });
+
+    await expect(service.search('iphone')).resolves.toEqual([]);
+    expect(documentSearch).not.toHaveBeenCalledWith(expect.objectContaining({ q: '*' }));
   });
 
   it('returns an empty list for gibberish', async () => {

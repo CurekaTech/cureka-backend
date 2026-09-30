@@ -1,6 +1,7 @@
 import { access } from 'fs/promises';
 import { isAbsolute, resolve } from 'path';
 import * as ExcelJS from 'exceljs';
+import { loadHarvestCache } from './wp-image-harvest.util';
 import { normalizeSkuMatchKey } from './sku-match.util';
 
 const DEFAULT_MANUFACTURER_LOOKUP_FILE = 'docs/Manufacture details (1).xlsx';
@@ -198,6 +199,20 @@ export const loadImageUrlsByProductId = async (
   }
 
   return { path: filePath, loaded: true, byProductId };
+};
+
+/**
+ * Original WordPress image URL → harvested GCS key (`images/<uuid>.ext`).
+ * Missing file yields an empty map so bulk upload can still download.
+ */
+export const loadHarvestedImageUrlCache = async (
+  filePath = resolveLookupPath(
+    process.env['BULK_UPLOAD_IMAGE_HARVEST_CACHE_FILE'],
+    DEFAULT_IMAGE_HARVEST_CACHE_FILE,
+  ),
+): Promise<{ path: string; loaded: boolean; bySourceUrl: Map<string, string> }> => {
+  const bySourceUrl = await loadHarvestCache(filePath);
+  return { path: filePath, loaded: bySourceUrl.size > 0, bySourceUrl };
 };
 
 const parseImageUrlList = (imagesRaw: string): string[] =>

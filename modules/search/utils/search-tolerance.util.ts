@@ -17,6 +17,24 @@ export function searchTypoBudget(compactLength: number): number {
  * A spaced or punctuated query should also be tried as one compact token.
  * "ceta phil" → "cetaphil". An already-compact query does not need this retry.
  */
+/**
+ * Words long enough to identify a product on their own.
+ * "cetaphil serum" → ["cetaphil", "serum"], longest first.
+ */
+export function significantSearchTokens(query: string): string[] {
+  const tokens = [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/\s+/)
+        .map((token) => token.replace(/[^a-z0-9]+/g, ''))
+        .filter((token) => token.length >= 4),
+    ),
+  ];
+  tokens.sort((left, right) => right.length - left.length || left.localeCompare(right));
+  return tokens;
+}
+
 export function searchQueryNeedsCompactRetry(query: string): boolean {
   const compact = compactSearchText(query);
   if (compact.length < 3) return false;
