@@ -39,7 +39,9 @@ export class AdminOrdersController {
     description:
       'Paginated order list with search, status filters, date range, and sorting. Search matches order refId, order number, customer name/email/phone, product name, and grand total. ' +
       'datePreset: today | yesterday | last_7_days | last_30_days | this_month (Asia/Kolkata). When datePreset is set, fromDate and toDate are ignored. ' +
-      'Includes unpaid admin-created payment requests (`PAY…`, orderSource=Admin) until payment is captured and a real order is created. ' +
+      'A date window filters orders by placedAt, or createdAt when placedAt is empty, and leaves out unpaid payment links so the total matches the dashboard. ' +
+      'orderStatus=PENDING returns real orders in that status for every payment status. ' +
+      'Unpaid admin payment requests (`PAY…`) appear only when no date filter is applied. ' +
       'Each row includes status timestamps: placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt. ' +
       'Requires `orders.read`.',
   })
