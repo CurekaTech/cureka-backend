@@ -21,6 +21,7 @@ import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { resolveAdminDatePreset } from '@modules/dashboard/utils/admin-date-preset.util';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
@@ -1215,6 +1216,7 @@ export class OrdersService {
 
   async findAllForAdmin(query: AdminOrderQueryDto) {
     const paginationOptions = buildPaginationOptions(query);
+    const presetRange = resolveAdminDatePreset(query.datePreset);
     const { keys, total } = await this.ordersRepository.findAdminListKeys({
       page: paginationOptions.page,
       limit: paginationOptions.limit,
@@ -1224,8 +1226,8 @@ export class OrdersService {
       paymentMethod: query.paymentMethod,
       orderSource: query.orderSource,
       userId: query.customerId,
-      fromDate: query.fromDate,
-      toDate: query.toDate,
+      fromDate: presetRange ? presetRange.start.toISOString() : query.fromDate,
+      toDate: presetRange ? presetRange.end.toISOString() : query.toDate,
       sortBy: query.sortBy,
       sortOrder: paginationOptions.sortOrder,
     });

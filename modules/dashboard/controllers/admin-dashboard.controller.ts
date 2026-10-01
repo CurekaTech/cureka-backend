@@ -20,7 +20,9 @@ export class AdminDashboardController {
     summary: 'Dashboard overview (single API for homepage)',
     description:
       'Returns all dashboard widgets in one response. Use this for the main dashboard page. ' +
-      'For View All screens, use /view-all/* endpoints.',
+      'For View All screens, use /view-all/* endpoints. ' +
+      'datePreset: today | yesterday | last_7_days | last_30_days | this_month (Asia/Kolkata). ' +
+      'When datePreset is set, startDate and endDate are ignored.',
   })
   @ResponseMessage('Dashboard overview fetched successfully')
   @RequirePermissions('dashboard.read')
