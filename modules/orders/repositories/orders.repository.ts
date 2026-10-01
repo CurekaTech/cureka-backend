@@ -396,10 +396,10 @@ export class OrdersRepository {
       orderWhere.push(`o.user_id = ${push(options.userId)}`);
     }
     if (options.fromDate) {
-      orderWhere.push(`o.created_at >= ${push(options.fromDate)}`);
+      orderWhere.push(`COALESCE(o.placed_at, o.created_at) >= ${push(options.fromDate)}`);
     }
     if (options.toDate) {
-      orderWhere.push(`o.created_at <= ${push(options.toDate)}`);
+      orderWhere.push(`COALESCE(o.placed_at, o.created_at) <= ${push(options.toDate)}`);
     }
     if (options.search?.trim()) {
       const searchLike = push(`%${options.search.trim()}%`);
@@ -445,11 +445,14 @@ export class OrdersRepository {
       WHERE ${orderWhere.join(' AND ')}
     `;
 
-    const prStatuses = resolveAdminListPaymentRequestStatuses({
-      orderSource: options.orderSource,
-      orderStatus: options.orderStatus,
-      paymentStatus: options.paymentStatus,
-    });
+    const prStatuses =
+      options.fromDate || options.toDate
+        ? []
+        : resolveAdminListPaymentRequestStatuses({
+            orderSource: options.orderSource,
+            orderStatus: options.orderStatus,
+            paymentStatus: options.paymentStatus,
+          });
 
     let prSelect: string | null = null;
     if (prStatuses.length) {
