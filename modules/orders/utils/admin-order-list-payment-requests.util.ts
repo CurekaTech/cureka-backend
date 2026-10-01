@@ -40,16 +40,12 @@ export function resolveAdminListPaymentRequestStatuses(options: {
     return [];
   }
 
+  if (options.orderStatus === OrderStatus.PENDING) {
+    return [];
+  }
+
   if (options.orderStatus === OrderStatus.CANCELLED) {
     return [PaymentRequestStatus.CANCELLED, PaymentRequestStatus.EXPIRED];
-  }
-
-  if (options.orderStatus === OrderStatus.PENDING && options.paymentStatus === OrderPaymentStatus.FAILED) {
-    return [PaymentRequestStatus.FAILED];
-  }
-
-  if (options.orderStatus === OrderStatus.PENDING) {
-    return [PaymentRequestStatus.PAYMENT_PENDING, PaymentRequestStatus.LINK_GENERATED];
   }
 
   if (options.paymentStatus === OrderPaymentStatus.FAILED) {

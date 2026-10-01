@@ -19,7 +19,7 @@ export class ProductWizardController {
   @ApiOperation({
     summary: 'Get paginated master data for the Add Product wizard by type',
     description:
-      'Pass `type` (brand, category, wellness-goal, etc.) with optional search, sortBy, sortOrder, limit, and cursor for cursor-based pagination.',
+      'Pass `type` (brand, category, wellness-goal, etc.) with optional search, sortBy, sortOrder, limit, and cursor for cursor-based pagination. For type=brand, onlyCombo=true returns only the Combo brand.',
   })
   @ResponseMessage('Product wizard master data retrieved successfully')
   @RequirePermissions('products.read')

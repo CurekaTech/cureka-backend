@@ -8,23 +8,30 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
+import {
+  ReplaceProductPincodesDto,
+  UpdateProductPincodeManagementDto,
+} from '@modules/pincodes/dto/variant-pincode.dto';
 import { ProductsService } from '../services/products.service';
 import {
   ProductQueryDto,
   UpdateProductStatusDto,
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
+  BulkRestoreVariantStockDto,
   BulkUpdateVariantOosDto,
   BulkUpdateCurekaInventoryDto,
 } from '../dto/product.dto';
@@ -49,7 +56,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Create product and submit for checker review',
     description:
-      'JSON or multipart/form-data. Variant images: variants[].images + variantImages_<sku> files. Product images: media[] + images files. For variable products, use media[].type=`common` for images/videos shared across all variants (auto-merged into every variant on GET). Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart". Expiry date: send `expiryDate` as dd-mm-yyyy — on simple products at top-level (or variants[0]); on variable products on each variants[] entry.',
+      'JSON or multipart/form-data. Variant images: variants[].images + variantImages_<sku> files. Product images: media[] + images files. For variable products, use media[].type=`common` for images/videos shared across all variants (auto-merged into every variant on GET). Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart". FAQ banner: optional faqBanner object ({key,name}) or multipart file field "faqBanner" (one image for the whole product). Expiry date: send `expiryDate` as dd-mm-yyyy — on simple products at top-level (or variants[0]); on variable products on each variants[] entry.',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product created and submitted for review')
@@ -159,7 +166,8 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Bulk restore product stock',
     description:
-      'Sets stock on all variants for each productRefId and clears outOfStock (reverts bulk mark-out-of-stock so products are in stock again).',
+      'Sets stock on all variants for each productRefId and clears outOfStock when stock > 0. ' +
+      'To restore one SKU only, use POST /products/bulk-restore-variant-stock.',
   })
   @ResponseMessage('Product stock restored successfully')
   @RequirePermissions('products.update')
@@ -167,6 +175,20 @@ export class ProductsController {
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
     return this.productsService.bulkRestoreStock(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Restore stock on specific variants by SKU',
+    description:
+      'Sets stock on exactly the SKUs in items. Other variants of the same product are not changed. ' +
+      'stock > 0 also clears outOfStock on that SKU. stock 0 sets quantity to 0 and, when inCurekaInventory is true, marks that SKU out of stock.',
+  })
+  @ResponseMessage('Variant stock restored successfully')
+  @RequirePermissions('products.update')
+  @Post('bulk-restore-variant-stock')
+  @HttpCode(HttpStatus.OK)
+  bulkRestoreVariantStock(@Body() dto: BulkRestoreVariantStockDto) {
+    return this.productsService.bulkRestoreVariantStock(dto);
   }
 
   @ApiOperation({ summary: 'Re-submit product for checker approval (after rejection or draft edits)' })
@@ -200,6 +222,68 @@ export class ProductsController {
     return this.productsService.reject(refId, dto, user.email);
   }
 
+  @ApiOperation({ summary: 'Download the product pincode bulk-upload sample sheet' })
+  @RawResponse()
+  @RequirePermissions('products.read')
+  @Get('pincodes/bulk-upload/template')
+  async downloadPincodeTemplate(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.productsService.getPincodeBulkTemplate();
+    return reply
+      .code(200)
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
+
+  @ApiOperation({ summary: 'Get pincode availability for a product' })
+  @ResponseMessage('Product pincode availability retrieved successfully')
+  @RequirePermissions('products.read')
+  @Get(':refId/pincodes')
+  getPincodes(@Param('refId', RefIdPipe) refId: string) {
+    return this.productsService.getPincodeAvailability(refId);
+  }
+
+  @ApiOperation({ summary: 'Enable or disable pincode management for a product' })
+  @ResponseMessage('Product pincode management updated successfully')
+  @RequirePermissions('products.update')
+  @Patch(':refId/pincode-management')
+  updatePincodeManagement(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: UpdateProductPincodeManagementDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.updatePincodeManagement(refId, dto.isPincodeManaged, user.email);
+  }
+
+  @ApiOperation({ summary: 'Replace the pincodes where a managed product is available' })
+  @ResponseMessage('Product pincodes updated successfully')
+  @RequirePermissions('products.update')
+  @Put(':refId/pincodes')
+  replacePincodes(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: ReplaceProductPincodesDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.replacePincodes(refId, dto.pincodes, user.email);
+  }
+
+  @ApiOperation({
+    summary: 'Replace a product’s pincodes from an Excel or CSV sheet',
+    description:
+      'Multipart field "file". The sheet is the full list and replaces any pincodes already mapped to this product. This also sets isPincodeManaged to true.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ResponseMessage('Product pincodes updated successfully')
+  @RequirePermissions('products.update')
+  @Post(':refId/pincodes/bulk-upload')
+  bulkUploadPincodes(
+    @Req() req: FastifyRequest,
+    @Param('refId', RefIdPipe) refId: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.bulkUploadPincodes(req, refId, user.email);
+  }
+
   @ApiOperation({ summary: 'Get product detail by refId' })
   @ResponseMessage('Product retrieved successfully')
   @RequirePermissions('products.read')
@@ -211,7 +295,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Update product metadata and mappings',
     description:
-      'JSON or multipart/form-data. Product type may be changed between simple (single) and variable (variant); when converting variable → simple, send exactly one variant (without attributes) to keep. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart". Expiry date: dd-mm-yyyy — simple products via top-level expiryDate or variants[0].expiryDate; variable products via each variants[].expiryDate.',
+      'JSON or multipart/form-data. Product type may be changed between simple (single) and variable (variant); when converting variable → simple, send exactly one variant (without attributes) to keep. When media or variants[].images is sent, all product_media rows are replaced — include every image you want to keep. Variant images: variants[].images + variantImages_<sku>. Size chart: optional sizeChart object ({key,name}) or multipart file field "sizeChart". FAQ banner: optional faqBanner object ({key,name}), null to clear, or multipart file field "faqBanner"; omit it to keep the current image. Expiry date: dd-mm-yyyy — simple products via top-level expiryDate or variants[0].expiryDate; variable products via each variants[].expiryDate.',
   })
   @ApiConsumes('application/json', 'multipart/form-data')
   @ResponseMessage('Product updated successfully')

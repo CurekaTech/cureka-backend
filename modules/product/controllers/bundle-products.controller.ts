@@ -8,21 +8,31 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RefIdPipe, ResponseMessage } from '@packages/common';
+import { RawResponse, RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
+import { ProductType } from '../enums/product-type.enum';
+import {
+  ReplaceProductPincodesDto,
+  UpdateProductPincodeManagementDto,
+} from '@modules/pincodes/dto/variant-pincode.dto';
 import { ProductsService } from '../services/products.service';
 import {
   BulkMarkOutOfStockDto,
   BulkRestoreStockDto,
+  BulkRestoreVariantStockDto,
+  BulkUpdateCurekaInventoryDto,
+  BulkUpdateVariantOosDto,
   ProductQueryDto,
   UpdateProductStatusDto,
 } from '../dto/product.dto';
@@ -96,9 +106,39 @@ export class BundleProductsController {
   }
 
   @ApiOperation({
+    summary: 'Cureka inventory feature status',
+    description:
+      'Returns whether STOCK_INVENTORY_MANAGEMENT_ENABLED is on. Hide the Cureka Inventory controls on the bundle admin when enabled is false.',
+  })
+  @ResponseMessage('Cureka inventory status retrieved successfully')
+  @RequirePermissions('bundle_products.read')
+  @Get('cureka-inventory/status')
+  getCurekaInventoryStatus() {
+    return this.productsService.getCurekaInventoryStatus();
+  }
+
+  @ApiOperation({
+    summary: 'Mark bundle SKUs in or out of Cureka inventory',
+    description:
+      'Sets inCurekaInventory on the given bundle SKUs only. Does not change stock or outOfStock. ' +
+      'SKUs that are not bundle products are returned as notFound.',
+  })
+  @ResponseMessage('Bundle Cureka inventory flag updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Patch('bulk-update-cureka-inventory')
+  @HttpCode(HttpStatus.OK)
+  bulkUpdateCurekaInventory(@Body() dto: BulkUpdateCurekaInventoryDto) {
+    return this.productsService.bulkUpdateCurekaInventory(dto, {
+      productType: ProductType.BUNDLE,
+    });
+  }
+
+  @ApiOperation({
     summary: 'Bulk mark bundle products out of stock',
     description:
-      'Sets outOfStock = true on the pricing variant of each selected bundle. Does not change stock quantity.',
+      'Sets outOfStock = true on every non-deleted variant of each selected bundle. ' +
+      'Zeros stock only when that variant has inCurekaInventory = true. ' +
+      'To change one SKU, use POST /bundle-products/bulk-update-variant-oos.',
   })
   @ResponseMessage('Bundle products marked out of stock successfully')
   @RequirePermissions('bundle_products.update')
@@ -109,9 +149,24 @@ export class BundleProductsController {
   }
 
   @ApiOperation({
+    summary: 'Update OOS flag on specific bundle variants by SKU',
+    description:
+      'Sets outOfStock on exactly the SKUs sent. Other variants of the same bundle are not changed. ' +
+      'outOfStock=true also sets stock to 0 when that SKU has inCurekaInventory=true.',
+  })
+  @ResponseMessage('Bundle variant OOS status updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Post('bulk-update-variant-oos')
+  @HttpCode(HttpStatus.OK)
+  bulkUpdateVariantOos(@Body() dto: BulkUpdateVariantOosDto) {
+    return this.productsService.bulkUpdateVariantOos(dto, { productType: ProductType.BUNDLE });
+  }
+
+  @ApiOperation({
     summary: 'Bulk restore stock for bundle products',
     description:
-      'Sets stock on the pricing variant for each selected bundle and clears outOfStock (reverts mark-out-of-stock).',
+      'Sets the same stock on every non-deleted variant of each selected bundle and, when stock > 0, clears outOfStock. ' +
+      'To restore one SKU, use POST /bundle-products/bulk-restore-variant-stock.',
   })
   @ResponseMessage('Bundle product stock restored successfully')
   @RequirePermissions('bundle_products.update')
@@ -119,6 +174,20 @@ export class BundleProductsController {
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
     return this.productsService.bulkRestoreStock(dto);
+  }
+
+  @ApiOperation({
+    summary: 'Restore stock on specific bundle variants by SKU',
+    description:
+      'Sets stock on exactly the SKUs in items. Other variants of the same bundle are not changed. ' +
+      'stock > 0 also clears outOfStock on that SKU.',
+  })
+  @ResponseMessage('Bundle variant stock restored successfully')
+  @RequirePermissions('bundle_products.update')
+  @Post('bulk-restore-variant-stock')
+  @HttpCode(HttpStatus.OK)
+  bulkRestoreVariantStock(@Body() dto: BulkRestoreVariantStockDto) {
+    return this.productsService.bulkRestoreVariantStock(dto, { productType: ProductType.BUNDLE });
   }
 
   @ApiOperation({ summary: 'Submit bundle for checker review' })
@@ -198,6 +267,73 @@ export class BundleProductsController {
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.productsService.findBundleOne(refId);
+  }
+
+  @ApiOperation({ summary: 'Download the bundle product pincode bulk-upload sample sheet' })
+  @RawResponse()
+  @RequirePermissions('bundle_products.read')
+  @Get('pincodes/bulk-upload/template')
+  async downloadPincodeTemplate(@Res() reply: FastifyReply) {
+    const { fileName, fileBuffer } = await this.productsService.getPincodeBulkTemplate();
+    return reply
+      .code(200)
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .send(fileBuffer);
+  }
+
+  @ApiOperation({ summary: 'Get pincode availability for a bundle product' })
+  @ResponseMessage('Bundle product pincode availability retrieved successfully')
+  @RequirePermissions('bundle_products.read')
+  @Get(':refId/pincodes')
+  getPincodes(@Param('refId', RefIdPipe) refId: string) {
+    return this.productsService.getPincodeAvailability(refId, ProductType.BUNDLE);
+  }
+
+  @ApiOperation({ summary: 'Enable or disable pincode management for a bundle product' })
+  @ResponseMessage('Bundle product pincode management updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Patch(':refId/pincode-management')
+  updatePincodeManagement(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: UpdateProductPincodeManagementDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.updatePincodeManagement(
+      refId,
+      dto.isPincodeManaged,
+      user.email,
+      ProductType.BUNDLE,
+    );
+  }
+
+  @ApiOperation({ summary: 'Replace the pincodes where a managed bundle product is available' })
+  @ResponseMessage('Bundle product pincodes updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Put(':refId/pincodes')
+  replacePincodes(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: ReplaceProductPincodesDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.replacePincodes(refId, dto.pincodes, user.email, ProductType.BUNDLE);
+  }
+
+  @ApiOperation({
+    summary: 'Replace a bundle product’s pincodes from an Excel or CSV sheet',
+    description:
+      'Multipart field "file". The sheet is the full list and replaces any pincodes already mapped to this bundle. This also sets isPincodeManaged to true.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ResponseMessage('Bundle product pincodes updated successfully')
+  @RequirePermissions('bundle_products.update')
+  @Post(':refId/pincodes/bulk-upload')
+  bulkUploadPincodes(
+    @Req() req: FastifyRequest,
+    @Param('refId', RefIdPipe) refId: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.productsService.bulkUploadPincodes(req, refId, user.email, ProductType.BUNDLE);
   }
 
   @ApiOperation({

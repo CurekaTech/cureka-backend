@@ -3,6 +3,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
   ValidateIf,
@@ -39,4 +40,9 @@ export class PublicBrandCategoryFiltersQueryDto {
   @IsInt()
   @Min(1)
   limit?: number = 20;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
 }

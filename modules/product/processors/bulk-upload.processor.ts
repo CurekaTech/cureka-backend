@@ -25,6 +25,7 @@ import {
   isBulkUploadSizeChartResolvableWithoutGallery,
   isRemoteImageUrl,
   compactBulkUploadImageSequence,
+  reuseStoredBulkUploadImageKey,
   toLegacyCurekaImageUrl,
 } from '../utils/bulk-upload-image.util';
 import {
@@ -34,6 +35,7 @@ import {
 } from '../utils/bulk-upload-error-message.util';
 import {
   buildImagesFromLookupUrls,
+  loadHarvestedImageUrlCache,
   loadImageUrlsByProductId,
   loadManufacturerAddressByProductId,
   loadProductPageUrlsByProductId,
@@ -95,6 +97,8 @@ interface BulkExportJobData {
 export class BulkUploadProcessor extends WorkerHost {
   /** Bound per job (concurrency: 1). Falls back to root pino logger outside process(). */
   private jobLogger: JobLogger | null = null;
+  /** Original WordPress URL → images/… key. Empty when the harvest cache file is absent. */
+  private harvestedImageKeys = new Map<string, string>();
 
   private get logger(): JobLogger {
     return this.jobLogger ?? createJobLogger(this.pinoLogger, { queue: 'bulk-upload' });
@@ -206,9 +210,10 @@ export class BulkUploadProcessor extends WorkerHost {
   /**
    * Resolve sheet media for product_media (same end state as admin CRUD media[].url).
    * URL is required at parse time. Resolution order:
-   * 1) public http(s) URL → download into UploadFolder.IMAGES
-   * 2) storage key/path in URL → use as-is
-   * 3) optional filename → Media Gallery / images ZIP (fallback only)
+   * 1) already stored (public media URL, gallery/images key, harvest cache) → reuse the key
+   * 2) other public http(s) URL → download into UploadFolder.IMAGES
+   * 3) other storage key/path in URL → use as-is
+   * 4) optional filename → Media Gallery / images ZIP (fallback only)
    */
   private async resolveBulkUploadImage(
     img: IParsedImage,
@@ -221,7 +226,16 @@ export class BulkUploadProcessor extends WorkerHost {
       return null;
     }
 
-    // 1) Public image URL → download (primary path for bulk media)
+    const reusedKey = reuseStoredBulkUploadImageKey(mediaUrl, this.harvestedImageKeys);
+    if (reusedKey) {
+      return {
+        url: reusedKey,
+        isPrimary: img.isPrimary,
+        sortOrder: img.sortOrder,
+      };
+    }
+
+    // 2) Public image URL → download (WordPress and other hosts)
     if (isRemoteImageUrl(mediaUrl)) {
       const downloadUrl = toLegacyCurekaImageUrl(mediaUrl);
       try {
@@ -665,11 +679,22 @@ export class BulkUploadProcessor extends WorkerHost {
       const galleryMap = await this.galleryService.getAllGalleryMap();
       const manufacturerLookup = await loadManufacturerAddressByProductId();
       const imageLookup = await loadImageUrlsByProductId();
+      const harvestCache = await loadHarvestedImageUrlCache();
+      this.harvestedImageKeys = harvestCache.bySourceUrl;
       const slugLookup = await loadSlugsByProductId();
       const productPageUrlLookup = await loadProductPageUrlsByProductId();
       if (!manufacturerLookup.loaded) {
         this.logger.warn(
           `Manufacturer lookup file not loaded (${manufacturerLookup.path}). Manufacturer auto-attach by Product ID is disabled for this job.`,
+        );
+      }
+      if (!harvestCache.loaded) {
+        this.logger.warn(
+          `Image harvest cache not loaded (${harvestCache.path}). Legacy WordPress URLs will be downloaded. Public gallery URLs are still reused.`,
+        );
+      } else {
+        this.logger.log(
+          `Image harvest cache loaded (${harvestCache.path}) urls=${harvestCache.bySourceUrl.size}`,
         );
       }
       if (!imageLookup.loaded) {
@@ -767,6 +792,27 @@ export class BulkUploadProcessor extends WorkerHost {
                       reason: `Size chart "${group.sizeChart}" does not exist in Media Gallery.`,
                       suggestedFix:
                         'Upload the file to Media Gallery first, provide Size Chart URL, or use an images/ storage path.',
+                    }),
+                  };
+                }
+              }
+
+              if (
+                group.faqBanner &&
+                !isBulkUploadSizeChartResolvableWithoutGallery(group.faqBanner)
+              ) {
+                const normalizedFaqBanner = group.faqBanner.toLowerCase().trim();
+                if (!galleryMap.has(normalizedFaqBanner)) {
+                  return {
+                    ok: false as const,
+                    sheetRows: countSheetRowsForProductGroup(group),
+                    variantSlots: countVariantSlotsForProductGroup(group),
+                    errors: this.buildGroupFailureErrors(group, {
+                      column: 'FAQ Banner Filename/Path',
+                      invalidValue: group.faqBanner,
+                      reason: `FAQ banner "${group.faqBanner}" does not exist in Media Gallery.`,
+                      suggestedFix:
+                        'Upload the file to Media Gallery first, provide FAQ Banner URL, or use an images/ storage path.',
                     }),
                   };
                 }
@@ -1135,6 +1181,12 @@ export class BulkUploadProcessor extends WorkerHost {
                         group.sizeChart,
                     )
                   : undefined,
+                faqBanner: group.faqBanner
+                  ? this.storageService.toFileReference(
+                      (await this.resolveBulkUploadSizeChart(group.faqBanner, galleryMap)) ??
+                        group.faqBanner,
+                    )
+                  : undefined,
                 ...(autoManufacturerRefId ? { manufacturerRefId: autoManufacturerRefId } : {}),
                 packerRefId: refs.packerRefId,
                 importerRefId: refs.importerRefId,
@@ -1157,6 +1209,7 @@ export class BulkUploadProcessor extends WorkerHost {
                       const childRefId = this.validatorService.resolveProductRefIdBySku(item.childSku);
                       return {
                         childProductRefId: childRefId!,
+                        childVariantSku: item.childSku,
                         quantity: item.quantity,
                       };
                     }).filter(item => !!item.childProductRefId)
@@ -1392,6 +1445,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
       throw error;
     } finally {
+      this.harvestedImageKeys = new Map();
       // Cleanup temp file
       try {
         await unlink(tempFilePath);

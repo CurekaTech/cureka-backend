@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MasterModule } from '@modules/master/master.module';
 import { OrdersModule } from '@modules/orders/orders.module';
+import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductModule } from '@modules/product/product.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
@@ -27,6 +28,7 @@ import { BobAbandonedCartQueueService } from './services/bob-abandoned-cart-queu
 import { BobAbandonedCartWebhookService } from './services/bob-abandoned-cart-webhook.service';
 import { BobBrandService } from './services/bob-brand.service';
 import { BobCatalogService } from './services/bob-catalog.service';
+import { BobProductResolver } from './services/bob-product-resolver.service';
 import { BobNotifyService } from './services/bob-notify.service';
 import { BobFulfillmentNotifyOutboxService } from './services/bob-fulfillment-notify-outbox.service';
 import { BobOrdersService } from './services/bob-orders.service';
@@ -40,7 +42,11 @@ import { BobOrdersService } from './services/bob-orders.service';
     MasterModule,
     UploadsModule,
     QueueModule.registerQueue(QUEUE_NAMES.BOB_ABANDONED_CART),
-    TypeOrmModule.forFeature([BobNotifyOutboxEntity, BobAbandonedCartOutboxEntity]),
+    TypeOrmModule.forFeature([
+      BobNotifyOutboxEntity,
+      BobAbandonedCartOutboxEntity,
+      ProductEntity,
+    ]),
     HttpModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -56,6 +62,7 @@ import { BobOrdersService } from './services/bob-orders.service';
     BobWebhookSecretGuard,
     BobRequestLogInterceptor,
     BobCatalogService,
+    BobProductResolver,
     BobOrdersService,
     BobBrandService,
     BobNotifyService,

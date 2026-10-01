@@ -559,6 +559,21 @@ export class CreateBundleItemDto {
   @IsRefId()
   childProductRefId!: string;
 
+  @ApiPropertyOptional({
+    description: 'Selected child variant id. Required unless childVariantSku is sent.',
+  })
+  @IsOptional()
+  @IsUUID()
+  childVariantId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Selected child variant SKU. Required unless childVariantId is sent.',
+    example: 'SKI/CET/11909',
+  })
+  @IsOptional()
+  @IsString()
+  childVariantSku?: string;
+
   @ApiProperty({ example: 2 })
   @Type(() => Number)
   @IsInt()

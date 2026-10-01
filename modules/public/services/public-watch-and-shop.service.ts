@@ -13,6 +13,8 @@ import {
 import { PublicWatchAndShopQueryDto } from '@modules/master/dto/watch-and-shop.dto';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
 import { IPublicWatchAndShopItem } from '../interfaces/public-watch-and-shop.interface';
@@ -24,35 +26,38 @@ export class PublicWatchAndShopService {
     private readonly productsRepository: ProductsRepository,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly reviewStats: PublicProductReviewStatsService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
-  findAll(
+  async findAll(
     query: PublicWatchAndShopQueryDto,
   ): Promise<PaginatedResult<IPublicWatchAndShopItem>> {
+    const scope = await this.pincodesService.resolveForStorefront(query.pincode);
     const queryHash = buildQueryCacheHash({
       page: query.page,
       limit: query.limit,
       search: query.search,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
+      pincode: scope.pincode,
     });
 
-    return this.cacheStrategy.cacheAside({
+    const result = await this.cacheStrategy.cacheAside({
       key: CacheKeys.watchAndShop.list(queryHash),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadAllUncached(query),
-    }).then(async (result) => {
-      const cards = result.data.map((item) => item.product);
-      const withRatings = await this.reviewStats.attach(cards);
-      return {
-        ...result,
-        data: result.data.map((item, index) => ({ ...item, product: withRatings[index]! })),
-      };
+      loader: () => this.loadAllUncached(query, scope.pincodeId),
     });
+    const cards = result.data.map((item) => item.product);
+    const withRatings = await this.reviewStats.attach(cards);
+    return {
+      ...result,
+      data: result.data.map((item, index) => ({ ...item, product: withRatings[index]! })),
+    };
   }
 
   private async loadAllUncached(
     query: PublicWatchAndShopQueryDto,
+    pincodeId: string | null,
   ): Promise<PaginatedResult<IPublicWatchAndShopItem>> {
     const paginated = await this.watchAndShopService.findActivePublicPaginated(query);
     const enriched = paginated.data;
@@ -62,14 +67,14 @@ export class PublicWatchAndShopService {
     }
 
     const productRefIds = [...new Set(enriched.map((item) => item.productRefId))];
-    const products = await this.productsRepository.findPublishedByRefIds(productRefIds);
+    const products = await this.productsRepository.findPublishedByRefIds(productRefIds, pincodeId);
     const productByRefId = new Map(products.map((product) => [product.refId, product]));
 
     const items = (
       await Promise.all(
         enriched.map(async (item) => {
           const product = productByRefId.get(item.productRefId);
-          if (!product) return null;
+          if (!product || !isPublicProductSellable(product)) return null;
 
           return {
             refId: item.refId,

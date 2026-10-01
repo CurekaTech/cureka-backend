@@ -14,6 +14,7 @@ import { mergeUploadedProductMedia, ProductUploadedFiles } from '../utils/produc
 
 const PRODUCT_IMAGE_FIELDS = new Set(['images', 'image', 'images[]']);
 const SIZE_CHART_FIELDS = new Set(['sizeChart', 'size_chart']);
+const FAQ_BANNER_FIELDS = new Set(['faqBanner', 'faq_banner']);
 const BUNDLE_ICON_FIELDS = new Set(['bundleIcon', 'bundle_icon']);
 const VARIANT_IMAGE_PREFIX = 'variantImages_';
 const CLIENT_ONLY_FIELDS = new Set(['refId']);
@@ -89,6 +90,7 @@ export class ProductMultipartService {
       productImages: [],
       variantImages: {},
       sizeChart: undefined,
+      faqBanner: undefined,
       bundleIcon: undefined,
     };
 
@@ -100,6 +102,10 @@ export class ProductMultipartService {
         }
         if (SIZE_CHART_FIELDS.has(part.fieldname)) {
           uploads.sizeChart = await this.uploadImagePart(part, UploadFolder.IMAGES);
+          continue;
+        }
+        if (FAQ_BANNER_FIELDS.has(part.fieldname)) {
+          uploads.faqBanner = await this.uploadImagePart(part, UploadFolder.IMAGES);
           continue;
         }
         if (BUNDLE_ICON_FIELDS.has(part.fieldname)) {
@@ -117,7 +123,7 @@ export class ProductMultipartService {
 
         part.file.resume();
         throw new BadRequestException(
-          `Unexpected file field "${part.fieldname}". Use "images" for product photos, "variantImages_<sku>" for variant photos, "sizeChart" for size chart, or "bundleIcon" for bundle icon.`,
+          `Unexpected file field "${part.fieldname}". Use "images" for product photos, "variantImages_<sku>" for variant photos, "sizeChart" for size chart, "faqBanner" for the product FAQ banner, or "bundleIcon" for bundle icon.`,
         );
       }
 
@@ -153,7 +159,7 @@ export class ProductMultipartService {
 
   private normalizeFileRefInPayload(
     payload: Record<string, unknown>,
-    field: 'sizeChart' | 'bundleIcon',
+    field: 'sizeChart' | 'faqBanner' | 'bundleIcon',
   ): Record<string, unknown> {
     if (!(field in payload)) return payload;
 
@@ -192,6 +198,12 @@ export class ProductMultipartService {
         sizeChart: this.storageService.toFileReference(uploads.sizeChart),
       };
     }
+    if (uploads?.faqBanner) {
+      merged = {
+        ...merged,
+        faqBanner: this.storageService.toFileReference(uploads.faqBanner),
+      };
+    }
     if (uploads?.bundleIcon) {
       merged = {
         ...merged,
@@ -206,7 +218,10 @@ export class ProductMultipartService {
     uploads?: ProductUploadedFiles,
   ): Promise<CreateProductDto> {
     let prepared = this.normalizeFileRefInPayload(
-      this.normalizeFileRefInPayload(this.stripClientOnlyFields(payload), 'sizeChart'),
+      this.normalizeFileRefInPayload(
+        this.normalizeFileRefInPayload(this.stripClientOnlyFields(payload), 'sizeChart'),
+        'faqBanner',
+      ),
       'bundleIcon',
     );
     prepared = ensureVariantSkusInPayload(prepared);
@@ -226,7 +241,10 @@ export class ProductMultipartService {
     uploads?: ProductUploadedFiles,
   ): Promise<UpdateProductDto> {
     let prepared = this.normalizeFileRefInPayload(
-      this.normalizeFileRefInPayload(this.stripClientOnlyFields(payload), 'sizeChart'),
+      this.normalizeFileRefInPayload(
+        this.normalizeFileRefInPayload(this.stripClientOnlyFields(payload), 'sizeChart'),
+        'faqBanner',
+      ),
       'bundleIcon',
     );
     if (prepared.productType === ProductType.BUNDLE) {

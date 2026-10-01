@@ -4,6 +4,7 @@ import { buildPaginatedResult, buildPaginationOptions, generateUniqueRefId } fro
 import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
 import { IPublicProductCard } from '@modules/public/interfaces/public-product.interface';
 import { ProductsService } from '@modules/product/services/products.service';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddWishlistItemDto } from '../dto/wishlist.dto';
 import {
@@ -34,14 +35,16 @@ export class WishlistService {
     private readonly productsService: ProductsService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
-  async findAll(userId: string, page = 1, limit = 20): Promise<IWishlistResponse> {
+  async findAll(userId: string, page = 1, limit = 20, pincode?: string): Promise<IWishlistResponse> {
     const startedAt = Date.now();
     const pagination = buildPaginationOptions({ page, limit });
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
 
     const cachedPage = await this.cacheStrategy.cacheAside<CachedWishlistPage>({
-      key: CacheKeys.wishlist.page(userId, pagination.page, pagination.limit),
+      key: CacheKeys.wishlist.page(userId, pagination.page, pagination.limit, scope.pincode ?? 'none'),
       module: CacheModuleName.DEFAULT,
       ttlSeconds: WISHLIST_PAGE_CACHE_TTL_SECONDS,
       loader: async () => {
@@ -63,7 +66,10 @@ export class WishlistService {
           };
         }
 
-        const products = await this.productsService.findPublishedListByIds(productIds);
+        const products = await this.productsService.findPublishedListByIds(
+          productIds,
+          scope.pincodeId,
+        );
         const cards = mapPublishedProductsToWishlistCards(products);
         const orderedItems = orderWishlistCardsByProductIds(productIds, cards);
         const paginated = buildPaginatedResult(orderedItems, total, pagination);

@@ -8,6 +8,7 @@ import { sanitizeProductPagePath, sanitizeProductSlugSegment } from '@modules/pr
 import { buildProductDocumentId, buildVariantDocumentId } from '../constants/typesense-document-id.constant';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
+import { compactSearchText } from '../utils/search-tolerance.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -70,6 +71,7 @@ function mapVariantToTypesenseDocument(
     category?: string;
     subCategory?: string;
   },
+  mappedPincodes: readonly string[] = [],
 ): ITypesenseSearchDocument {
   const attributeValues = getVariantAttributeValues(variant);
   const variantDescription = buildVariantDescription(variant);
@@ -94,6 +96,12 @@ function mapVariantToTypesenseDocument(
       : undefined,
     entityType: SEARCH_ENTITY_TYPES.PRODUCT,
     name: buildVariantSearchTitle(product, variant),
+    nameCompact:
+      compactSearchText(
+        [buildVariantSearchTitle(product, variant), shared.brand, product.name]
+          .filter(Boolean)
+          .join(' '),
+      ) || undefined,
     slug: sanitizeProductSlugSegment(variant.slug) || variant.slug,
     sku: variant.sku?.trim() || undefined,
     brand: shared.brand,
@@ -103,13 +111,21 @@ function mapVariantToTypesenseDocument(
     wellnessGoals: shared.wellnessGoals,
     tags: shared.tags,
     description: description || undefined,
-    inStock: !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant),
+    inStock:
+      !(product.bundleComponentOos ?? false) &&
+      !(variant.outOfStock ?? false) &&
+      isVariantInStock(variant.stock, variant),
+    isPincodeManaged: Boolean(product.isPincodeManaged),
+    ...(product.isPincodeManaged ? { pincodes: [...mappedPincodes] } : {}),
     searchTags,
     minSellingPrice: sellingPrice ?? undefined,
   };
 }
 
-export function mapProductToTypesenseDocuments(product: ProductEntity): ITypesenseSearchDocument[] {
+export function mapProductToTypesenseDocuments(
+  product: ProductEntity,
+  mappedPincodes: readonly string[] = [],
+): ITypesenseSearchDocument[] {
   if (product.status !== ProductStatus.PUBLISHED) {
     return [];
   }
@@ -132,7 +148,9 @@ export function mapProductToTypesenseDocuments(product: ProductEntity): ITypesen
     subCategory: product.subCategory?.name ?? undefined,
   };
 
-  return activeVariants.map((variant) => mapVariantToTypesenseDocument(product, variant, shared));
+  return activeVariants.map((variant) =>
+    mapVariantToTypesenseDocument(product, variant, shared, mappedPincodes),
+  );
 }
 
 /** @deprecated Prefer mapProductToTypesenseDocuments. */

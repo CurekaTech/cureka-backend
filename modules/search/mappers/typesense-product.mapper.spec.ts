@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -50,6 +51,18 @@ describe('typesense-product.mapper', () => {
       inStock: true,
       minSellingPrice: 32.5,
     });
+  });
+
+  it('marks a dependency-OOS bundle out of stock without dropping the document', () => {
+    const product = {
+      ...baseProduct,
+      bundleComponentOos: true,
+    } as unknown as ProductEntity;
+
+    const documents = mapProductToTypesenseDocuments(product);
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]?.inStock).toBe(false);
   });
 
   it('indexes productPageUrl when present on the variant', () => {

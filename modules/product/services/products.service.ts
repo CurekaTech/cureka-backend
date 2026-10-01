@@ -26,7 +26,7 @@ import {
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
-import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkUpdateVariantOosDto, BulkUpdateCurekaInventoryDto } from '../dto/product.dto';
+import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkRestoreVariantStockDto, BulkUpdateVariantOosDto, BulkUpdateCurekaInventoryDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
@@ -71,6 +71,13 @@ import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query
 import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
 import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
 import { VariantOosTransition } from '../repositories/product-variants.repository';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
+import { IProductPincodeAvailability } from '@modules/pincodes/interfaces/pincode.interface';
+import {
+  buildProductPincodeTemplate,
+  parseProductPincodeSheet,
+  readProductPincodeUpload,
+} from '@modules/pincodes/utils/product-pincode-bulk.util';
 
 export interface ProductMutationOptions {
   /** Skip signed-URL enrichment on the returned payload (bulk upload path). */
@@ -102,6 +109,7 @@ export class ProductsService {
     @Inject(forwardRef(() => ProductSubscriptionConfigService))
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly oosEmailQueueService: OosEmailQueueService,
+    private readonly pincodesService: PincodesService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -165,6 +173,156 @@ export class ProductsService {
   async findBundleOne(refId: string): Promise<IProductDetail> {
     await this.assertProductIsBundle(refId);
     return this.findOne(refId);
+  }
+
+  async getPincodeAvailability(
+    productRefId: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    const pincodes = await this.pincodesService.listMappedSummaries(product.id);
+    return { isPincodeManaged: product.isPincodeManaged, pincodes };
+  }
+
+  async updatePincodeManagement(
+    productRefId: string,
+    isPincodeManaged: boolean,
+    updatedBy: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    const oldCodes = await this.pincodesService.listMappedCodes(product.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(ProductEntity).update(product.id, { isPincodeManaged });
+      if (!isPincodeManaged) {
+        await this.pincodesService.clearMappings(manager, product.id);
+      }
+      await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
+    });
+
+    this.logger.log({
+      msg: 'product_pincode_availability_updated',
+      admin: updatedBy,
+      productRefId,
+      oldIsPincodeManaged: product.isPincodeManaged,
+      newIsPincodeManaged: isPincodeManaged,
+      oldPincodes: oldCodes,
+      newPincodes: isPincodeManaged ? oldCodes : [],
+    });
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(product.refId, 'updated'),
+    );
+    return this.getPincodeAvailability(productRefId, productType);
+  }
+
+  async replacePincodes(
+    productRefId: string,
+    pincodes: string[],
+    updatedBy: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    if (!product.isPincodeManaged) {
+      throw new BadRequestException('Enable pincode management before assigning pincodes');
+    }
+    const resolved = await this.pincodesService.resolveExistingCodes(pincodes);
+    const oldCodes = await this.pincodesService.listMappedCodes(product.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await this.pincodesService.replaceMappings(
+        manager,
+        product.id,
+        resolved.map((row) => row.id),
+      );
+      await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
+    });
+
+    this.logger.log({
+      msg: 'product_pincode_availability_updated',
+      admin: updatedBy,
+      productRefId,
+      oldIsPincodeManaged: true,
+      newIsPincodeManaged: true,
+      oldPincodes: oldCodes,
+      newPincodes: resolved.map((row) => row.pincode).sort(),
+    });
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(product.refId, 'updated'),
+    );
+    return this.getPincodeAvailability(productRefId, productType);
+  }
+
+  async getPincodeBulkTemplate(): Promise<{ fileName: string; fileBuffer: Buffer }> {
+    return buildProductPincodeTemplate();
+  }
+
+  /**
+   * Replaces every pincode mapped to the product with the codes in the sheet
+   * and turns pincode management on. Codes that are not in the new sheet are removed.
+   */
+  async bulkUploadPincodes(
+    req: FastifyRequest,
+    productRefId: string,
+    updatedBy: string,
+    productType?: ProductType,
+  ): Promise<IProductPincodeAvailability> {
+    const product = await this.requirePincodeProduct(productRefId, productType);
+    const upload = await readProductPincodeUpload(req);
+    const codes = await parseProductPincodeSheet(upload.filename, upload.buffer);
+    const resolved = await this.pincodesService.resolveExistingCodes(codes);
+    const oldCodes = await this.pincodesService.listMappedCodes(product.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(ProductEntity).update(product.id, { isPincodeManaged: true });
+      await this.pincodesService.replaceMappings(
+        manager,
+        product.id,
+        resolved.map((row) => row.id),
+      );
+      await this.productsRepository.updateByRefId(productRefId, { updatedBy }, manager);
+    });
+
+    this.logger.log({
+      msg: 'product_pincode_availability_updated',
+      admin: updatedBy,
+      productRefId,
+      source: 'bulk_upload',
+      oldIsPincodeManaged: product.isPincodeManaged,
+      newIsPincodeManaged: true,
+      oldPincodes: oldCodes,
+      newPincodes: resolved.map((row) => row.pincode).sort(),
+    });
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(product.refId, 'updated'),
+    );
+    return this.getPincodeAvailability(productRefId, productType);
+  }
+
+  private async requirePincodeProduct(refId: string, productType?: ProductType): Promise<ProductEntity> {
+    const product = await this.productsRepository.findByRefId(refId);
+    if (!product) {
+      throw new NotFoundException(`Product with refId ${refId} not found`);
+    }
+    if (productType && product.productType !== productType) {
+      throw new NotFoundException(
+        productType === ProductType.BUNDLE
+          ? `Bundle product with refId ${refId} not found`
+          : `Product with refId ${refId} not found`,
+      );
+    }
+    return product;
+  }
+
+  private async assertBundleTitleAvailable(name: string, excludeRefId?: string): Promise<void> {
+    const title = name.trim();
+    if (!title) return;
+    if (await this.productsRepository.existsByBundleName(title, excludeRefId)) {
+      throw new ConflictException(`A bundle product with title "${title}" already exists`);
+    }
   }
 
   private async assertProductIsBundle(refId: string): Promise<void> {
@@ -378,6 +536,9 @@ export class ProductsService {
     if (slugExists.exists) {
       throw new ConflictException(`Product slug "${slugExists.slug}" already exists`);
     }
+    if (normalizedDto.productType === ProductType.BUNDLE) {
+      await this.assertBundleTitleAvailable(normalizedDto.name);
+    }
     const slug = slugExists.slug;
     assertProductUrlSlugLength(slug, 'Product');
 
@@ -536,6 +697,7 @@ export class ProductsService {
       status: query.status,
       variantSlug: query.variantSlug,
       outOfStock: query.outOfStock,
+      inStock: query.inStock,
       isTop: query.isTop,
       prioritizeTop: query.prioritizeTop,
       categoryFilterCriteria: filters.categoryFilterCriteria,
@@ -569,6 +731,7 @@ export class ProductsService {
           variantSlug: query.variantSlug,
           categoryFilterCriteria: filters.categoryFilterCriteria,
           outOfStock: query.outOfStock,
+          inStock: query.inStock,
           isTop: query.isTop,
           prioritizeTop: query.prioritizeTop,
         });
@@ -609,10 +772,11 @@ export class ProductsService {
     const tEnrich = Date.now();
     const result = await this.enrichProductDetail(raw);
     const withConfig = await this.attachSubscriptionConfig(result);
+    const withPincodes = await this.attachPincodeAvailability(withConfig);
     this.logger.log(
       `[PERF] findOne refId="${refId}" | Image URL signing: ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
-    return withConfig;
+    return withPincodes;
   }
 
   async update(
@@ -634,6 +798,9 @@ export class ProductsService {
       ...mapSpecificationFields(dto, { labelSortOrders, labelRefIdsByName }),
     };
     if (dto.name !== undefined) payload.name = dto.name;
+    if (existing.productType === ProductType.BUNDLE && dto.name !== undefined) {
+      await this.assertBundleTitleAvailable(dto.name, refId);
+    }
     if (dto.description !== undefined) payload.description = dto.description ?? null;
     if (dto.vendorId !== undefined) payload.vendorId = dto.vendorId ?? null;
 
@@ -921,6 +1088,7 @@ export class ProductsService {
           dto.bundleItems,
           existing.id,
           (refIds) => this.productsRepository.findIdsByRefIds(refIds, manager),
+          (productIds) => this.productsRepository.findVariantsByProductIds(productIds, manager),
         );
         await this.relationsRepository.syncBundles(manager, existing.id, resolvedItems);
       }
@@ -1275,7 +1443,10 @@ export class ProductsService {
    * Marks specific variants as Out-Of-Stock (outOfStock=true) or In-Stock (outOfStock=false)
    * using their SKUs. Only targets the exact variants identified by SKU, not all variants of the product.
    */
-  async bulkUpdateVariantOos(dto: BulkUpdateVariantOosDto): Promise<{
+  async bulkUpdateVariantOos(
+    dto: BulkUpdateVariantOosDto,
+    options?: { productType?: ProductType },
+  ): Promise<{
     requested: number;
     updated: string[];
     alreadyAtTarget: string[];
@@ -1289,7 +1460,11 @@ export class ProductsService {
     }
 
     const { bySkuResult, updatedProductIds, oosTransitions } =
-      await this.variantsRepository.updateOutOfStockBySkus(uniqueSkus, dto.outOfStock);
+      await this.variantsRepository.updateOutOfStockBySkus(
+        uniqueSkus,
+        dto.outOfStock,
+        options?.productType,
+      );
 
     const updated: string[] = [];
     const alreadyAtTarget: string[] = [];
@@ -1329,7 +1504,10 @@ export class ProductsService {
   /**
    * Sets inCurekaInventory for variants by SKU only — does not change stock or outOfStock.
    */
-  async bulkUpdateCurekaInventory(dto: BulkUpdateCurekaInventoryDto): Promise<{
+  async bulkUpdateCurekaInventory(
+    dto: BulkUpdateCurekaInventoryDto,
+    options?: { productType?: ProductType },
+  ): Promise<{
     requested: number;
     updated: string[];
     alreadyAtTarget: string[];
@@ -1345,6 +1523,7 @@ export class ProductsService {
       await this.variantsRepository.updateInCurekaInventoryBySkus(
         uniqueSkus,
         dto.inCurekaInventory,
+        options?.productType,
       );
 
     const updated: string[] = [];
@@ -1421,6 +1600,51 @@ export class ProductsService {
       updated,
       notFound,
       variantsUpdated,
+    };
+  }
+
+  /**
+   * Sets stock on the given SKUs only. Other variants of the same product are unchanged.
+   * stock > 0 clears outOfStock on that SKU.
+   */
+  async bulkRestoreVariantStock(
+    dto: BulkRestoreVariantStockDto,
+    options?: { productType?: ProductType },
+  ): Promise<{
+    requested: number;
+    updated: string[];
+    alreadyAtTarget: string[];
+    notFound: string[];
+    productsAffected: number;
+  }> {
+    const { bySkuResult, updatedProductIds, oosTransitions } =
+      await this.variantsRepository.restoreStockBySkus(dto.items, options?.productType);
+
+    const updated: string[] = [];
+    const alreadyAtTarget: string[] = [];
+    const notFound: string[] = [];
+
+    for (const [sku, status] of bySkuResult.entries()) {
+      if (status === 'updated') updated.push(sku);
+      else if (status === 'already') alreadyAtTarget.push(sku);
+      else notFound.push(sku);
+    }
+
+    if (updatedProductIds.size > 0) {
+      const affectedRefIds = await this.productsRepository.findRefIdsByIds([
+        ...updatedProductIds,
+      ]);
+      await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    }
+
+    this.enqueueOosEmails(oosTransitions);
+
+    return {
+      requested: bySkuResult.size,
+      updated,
+      alreadyAtTarget,
+      notFound,
+      productsAffected: updatedProductIds.size,
     };
   }
 
@@ -1551,6 +1775,21 @@ export class ProductsService {
     }
   }
 
+  private async attachPincodeAvailability(product: IProductDetail): Promise<IProductDetail> {
+    const [row, pincodes] = await Promise.all([
+      this.dataSource.getRepository(ProductEntity).findOne({
+        where: { id: product.id },
+        select: { id: true, isPincodeManaged: true },
+      }),
+      this.pincodesService.listMappedSummaries(product.id),
+    ]);
+    return {
+      ...product,
+      isPincodeManaged: Boolean(row?.isPincodeManaged),
+      pincodes,
+    };
+  }
+
   private async enrichProductDetail(product: IProductDetail): Promise<IProductDetail> {
     const enrichedBase = await this.enrichProduct(product);
     const brandFields = ['logo', 'banner', 'video', 'featuredBanner', 'promotionalBanner'] as const;
@@ -1591,6 +1830,8 @@ export class ProductsService {
       importer,
       countryOfOrigin: product.countryOfOrigin,
       healthConcerns,
+      isPincodeManaged: product.isPincodeManaged,
+      pincodes: product.pincodes,
     };
   }
 
@@ -1635,6 +1876,9 @@ export class ProductsService {
     const sizeChart = product.sizeChart
       ? await this.storageUrlEnricher.toReference(product.sizeChart)
       : null;
+    const faqBanner = product.faqBanner
+      ? await this.storageUrlEnricher.toReference(product.faqBanner)
+      : null;
     const bundleIcon = product.bundleIcon
       ? await this.storageUrlEnricher.toReference(product.bundleIcon)
       : null;
@@ -1674,7 +1918,16 @@ export class ProductsService {
       resolvedLabelCatalog,
     );
 
-    return { ...product, productInformation, media, wellnessGoals, sizeChart, bundleIcon, variants };
+    return {
+      ...product,
+      productInformation,
+      media,
+      wellnessGoals,
+      sizeChart,
+      faqBanner,
+      bundleIcon,
+      variants,
+    };
   }
 
   private async enrichPaginatedProducts(
@@ -1803,8 +2056,8 @@ export class ProductsService {
     return this.productsRepository.findPublishedByIds(ids);
   }
 
-  findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
-    return this.productsRepository.findPublishedListByIds(ids);
+  findPublishedListByIds(ids: string[], pincodeId: string | null = null): Promise<ProductEntity[]> {
+    return this.productsRepository.findPublishedListByIds(ids, pincodeId);
   }
 
   existsPublishedById(id: string): Promise<boolean> {

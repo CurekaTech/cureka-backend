@@ -105,6 +105,19 @@ describe('SitemapGeneratorService publish safety', () => {
     );
   });
 
+  it('does not publish when a techbv host would be written into the production bucket', async () => {
+    configService.get.mockImplementation((key: string): string | number | undefined => {
+      if (key === 'sitemap.baseUrl') return 'https://cureka.techbv.in';
+      if (key === 'sitemap.batchSize') return 10_000;
+      if (key === 'sitemap.maxUrlsPerFile') return 50_000;
+      if (key === 'storage.driver') return 'gcs';
+      if (key === 'storage.gcs.bucket') return 'cureka-files-prod';
+      return undefined;
+    });
+
+    await expect(generator.generateAll()).rejects.toThrow(/production bucket/);
+    expect(storageService.publishLive).not.toHaveBeenCalled();
+    expect(storageService.writeStagingXml).not.toHaveBeenCalled();
   it('drops an emptied group from the index instead of listing its stale live file', async () => {
     // Live store still holds support.xml from an earlier run; support now has 0 entries
     // and its file is pruned after publish, so the index must not reference it.

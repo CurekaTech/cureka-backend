@@ -3,6 +3,8 @@ export const PRODUCT_COLLECTION_FIELDS = [
   { name: 'refId', type: 'string' as const, optional: true },
   { name: 'entityType', type: 'string' as const, facet: true, optional: true },
   { name: 'name', type: 'string' as const },
+  /** Space-stripped name + brand. Searched only on the tolerance fallback. */
+  { name: 'nameCompact', type: 'string' as const, optional: true },
   { name: 'slug', type: 'string' as const },
   { name: 'sku', type: 'string' as const, optional: true },
   { name: 'brand', type: 'string' as const, optional: true },
@@ -18,6 +20,8 @@ export const PRODUCT_COLLECTION_FIELDS = [
   { name: 'permalink', type: 'string' as const, optional: true },
   { name: 'description', type: 'string' as const, optional: true },
   { name: 'inStock', type: 'bool' as const, optional: true },
+  { name: 'isPincodeManaged', type: 'bool' as const, optional: true },
+  { name: 'pincodes', type: 'string[]' as const, optional: true },
   { name: 'minSellingPrice', type: 'float' as const, optional: true },
 ] as const;
 

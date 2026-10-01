@@ -42,6 +42,7 @@ import {
   startOfDay,
   toNumber,
 } from '../utils/dashboard-format.util';
+import { resolveAdminDatePreset } from '../utils/admin-date-preset.util';
 
 type DateRange = { start: Date; end: Date };
 
@@ -1003,7 +1004,12 @@ export class AdminDashboardService {
 
   // ─── helpers ──────────────────────────────────────────────────────────────
 
-  private resolveRange(query: DashboardQueryDto): DateRange {
+  private resolveRange(
+    query: Pick<DashboardQueryDto, 'datePreset' | 'startDate' | 'endDate'>,
+  ): DateRange {
+    const preset = resolveAdminDatePreset(query.datePreset);
+    if (preset) return preset;
+
     const end = query.endDate ? new Date(query.endDate) : endOfDay(new Date());
     const start = query.startDate
       ? new Date(query.startDate)

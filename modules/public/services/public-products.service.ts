@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  isVariantInStock,
   PaginatedResult,
 } from '@packages/common';
 import {
@@ -20,6 +19,7 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { BannersService } from '@modules/master/services/banners.service';
+import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
@@ -82,6 +82,7 @@ import {
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
 import {
   resolveFbtFallbackCategoryIds,
@@ -111,6 +112,7 @@ export class PublicProductsService {
     private readonly blogPostsService: BlogPostsService,
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly reviewStats: PublicProductReviewStatsService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -156,7 +158,8 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: true,
+      inStockOnly: false,
+      pincode: query.pincode ?? null,
     });
 
     const tDb = Date.now();
@@ -184,6 +187,7 @@ export class PublicProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
+          pincodeId: filters.pincodeId,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
@@ -251,11 +255,13 @@ export class PublicProductsService {
     }
 
     const paginationOptions = buildPaginationOptions(query);
+    const pincodeScope = await this.pincodesService.resolveForStorefront(query.pincode);
     const { data, total } = await this.productsRepository.findActiveCategoriesPaginatedForBrand({
       brandId: brand.id,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
+      pincodeId: pincodeScope.pincodeId,
     });
 
     const slugPaths = await Promise.all(
@@ -339,7 +345,8 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: true,
+      inStockOnly: false,
+      pincode: query.pincode ?? null,
     });
 
     const tDb = Date.now();
@@ -364,6 +371,7 @@ export class PublicProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
+          pincodeId: filters.pincodeId,
         });
         this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
@@ -430,7 +438,8 @@ export class PublicProductsService {
     };
   }
 
-  async findBySlug(slugOrPath: string): Promise<IPublicStorefrontProductDetail> {
+  async findBySlug(slugOrPath: string, pincode?: string): Promise<IPublicStorefrontProductDetail> {
+    const pincodeScope = await this.pincodesService.resolveForStorefront(pincode);
     const tDb = Date.now();
     const key = decodeProductUrlEncoding(String(slugOrPath ?? '').trim());
     const sanitizedPath = key.includes('/') ? sanitizeProductPagePath(key) : '';
@@ -448,7 +457,9 @@ export class PublicProductsService {
         ].filter(Boolean),
       ),
     );
-    const cacheKey = CacheKeys.publicProducts.detail(sanitizedPath || sanitizedSlug || key);
+    const cacheKey = CacheKeys.publicProducts.detail(
+      `${sanitizedPath || sanitizedSlug || key}:pincode:${pincodeScope.pincode ?? 'none'}`,
+    );
     const raw = await this.cacheStrategy.cacheAside({
       key: cacheKey,
       module: CacheModuleName.HOMEPAGE,
@@ -469,7 +480,10 @@ export class PublicProductsService {
         };
 
         for (const slugKey of slugKeys) {
-          const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
+          const byProductSlug = await this.productsRepository.findPublishedBySlug(
+            slugKey,
+            pincodeScope.pincodeId,
+          );
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
             if (!detail.variants.length) {
@@ -502,7 +516,7 @@ export class PublicProductsService {
 
         for (const slugKey of slugKeys) {
           const byVariantSlug =
-            await this.productsRepository.findPublishedByVariantSlug(slugKey);
+            await this.productsRepository.findPublishedByVariantSlug(slugKey, pincodeScope.pincodeId);
           if (byVariantSlug) {
             const detail = mapProductEntityToPublicDetail(byVariantSlug);
             if (!detail.variants.length) {
@@ -533,7 +547,10 @@ export class PublicProductsService {
 
         for (const candidate of buildProductPageUrlLookupCandidates(key)) {
           const byPageUrl =
-            await this.productsRepository.findPublishedByProductPageUrl(candidate);
+            await this.productsRepository.findPublishedByProductPageUrl(
+              candidate,
+              pincodeScope.pincodeId,
+            );
           if (!byPageUrl) {
             continue;
           }
@@ -683,6 +700,7 @@ export class PublicProductsService {
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
+    const pincodeScope = await this.pincodesService.resolveForStorefront(query.pincode);
     const queryBindings = parseCategoryFilterQueryBindings(query);
     const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
@@ -749,6 +767,7 @@ export class PublicProductsService {
       selectedBrands: brandFilters.selectedBrands,
       healthConcern,
       wellnessGoal,
+      pincodeId: pincodeScope.pincodeId,
     };
   }
 
@@ -915,10 +934,7 @@ export class PublicProductsService {
       result.data.map(async (card) => {
         const pricing = {
           ...card.pricing,
-          // Bypass only for non-Cureka (flag-only) variants; never force INS when admin OOS.
-          inStock:
-            !card.outOfStock &&
-            (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
+          inStock: !card.outOfStock && card.pricing.inStock,
         };
 
         if (!card.primaryImageUrl) {
@@ -955,7 +971,7 @@ export class PublicProductsService {
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
       pricing: {
         ...card.pricing,
-        inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0, { inCurekaInventory: false })),
+        inStock: !card.outOfStock && card.pricing.inStock,
       },
     } as T;
   }
@@ -1026,7 +1042,7 @@ export class PublicProductsService {
 
     const { isFreeDelivery, codMinOrderAmount } =
       await this.resolveCheckoutBadgeHints(merged);
-    const banners = await this.bannersService.getPdpBanners();
+    const banners = await this.resolvePdpBanners(product);
     const subscriptionConfig =
       await this.productSubscriptionConfigService.findForProductVariant(
         merged.id,
@@ -1055,6 +1071,29 @@ export class PublicProductsService {
         labelCatalog,
       ),
     });
+  }
+
+  /**
+   * One product FAQ banner when set; otherwise active CMS banners with placement pdp.
+   */
+  private async resolvePdpBanners(
+    product: IPublicProductDetail,
+  ): Promise<IStorefrontBannerItem[]> {
+    if (product.faqBanner) {
+      const imageUrl = await this.storageUrlEnricher.toReference(product.faqBanner);
+      if (imageUrl) {
+        return [
+          {
+            refId: product.refId,
+            title: product.name,
+            imageUrl,
+            ctaHref: null,
+          },
+        ];
+      }
+    }
+
+    return this.bannersService.getPdpBanners();
   }
 
   /**
@@ -1108,19 +1147,27 @@ export class PublicProductsService {
     variantIds: string[],
     page: number,
     limit: number,
+    pincode?: string,
   ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(40, Math.max(1, limit));
+    const pincodeScope = await this.pincodesService.resolveForStorefront(pincode);
     if (!variantIds.length) {
       return this.emptyRecommendationResult(resolvedPage, resolvedLimit);
     }
 
     const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.youMayAlsoLike(
-        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit),
+        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit, pincodeScope.pincode),
       ),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadYouMayAlsoLikeCards(variantIds, resolvedPage, resolvedLimit),
+      loader: () =>
+        this.loadYouMayAlsoLikeCards(
+          variantIds,
+          resolvedPage,
+          resolvedLimit,
+          pincodeScope.pincodeId,
+        ),
     });
     return this.enrichRecommendationResult(raw);
   }
@@ -1144,21 +1191,34 @@ export class PublicProductsService {
     variantIds: string[],
     page: number,
     limit: number,
+    pincode?: string,
   ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(20, Math.max(1, limit));
+    const pincodeScope = await this.pincodesService.resolveForStorefront(pincode);
     const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.frequentlyBoughtTogether(
-        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit),
+        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit, pincodeScope.pincode),
       ),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadFrequentlyBoughtTogetherCards(variantIds, resolvedPage, resolvedLimit),
+      loader: () =>
+        this.loadFrequentlyBoughtTogetherCards(
+          variantIds,
+          resolvedPage,
+          resolvedLimit,
+          pincodeScope.pincodeId,
+        ),
     });
     return this.enrichRecommendationResult(raw);
   }
 
-  private recommendationQueryHash(variantIds: string[], page: number, limit: number): string {
-    return buildQueryCacheHash({ variantIds, page, limit });
+  private recommendationQueryHash(
+    variantIds: string[],
+    page: number,
+    limit: number,
+    pincode: string | null,
+  ): string {
+    return buildQueryCacheHash({ variantIds, page, limit, pincode });
   }
 
   private emptyRecommendationResult(
@@ -1202,6 +1262,7 @@ export class PublicProductsService {
     variantIds: string[],
     resolvedPage: number,
     resolvedLimit: number,
+    pincodeId: string | null,
   ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const emptyResult = this.emptyRecommendationResult(resolvedPage, resolvedLimit);
     const variantInfos = await this.productsRepository.findVariantInfoByIds(variantIds);
@@ -1236,6 +1297,7 @@ export class PublicProductsService {
       sortBy: 'bestsellerIndex' as const,
       sortOrder: 'ASC' as const,
       prioritizeBestsellers: true,
+      pincodeId,
     };
 
     let { data, total } = await this.productsRepository.findPublishedPaginated({
@@ -1254,6 +1316,7 @@ export class PublicProductsService {
     variantIds: string[],
     resolvedPage: number,
     resolvedLimit: number,
+    pincodeId: string | null,
   ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const sparseThreshold = Math.ceil(resolvedLimit / 2);
     const isSparse = (total: number) => resolvedPage === 1 && total < sparseThreshold;
@@ -1270,6 +1333,7 @@ export class PublicProductsService {
       sortBy: 'bestsellerIndex' as const,
       sortOrder: 'ASC' as const,
       prioritizeBestsellers: true,
+      pincodeId,
     };
 
     if (variantInfos.length) {

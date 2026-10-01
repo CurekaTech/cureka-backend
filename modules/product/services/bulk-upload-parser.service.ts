@@ -162,6 +162,7 @@ export interface IParsedProductGroup {
   metaKeywords: string[];
   categoryFilters: { categoryFilterRefId: string; values: string[] }[];
   sizeChart?: string;
+  faqBanner?: string;
   subscriptionEnabled: boolean;
   returnAllowed: boolean;
   returnPolicy?: string;
@@ -766,6 +767,14 @@ export class BulkUploadParserService {
             productInformation,
           );
         }
+      }
+
+      const rowFaqBanner = resolveBulkUploadSizeChart(
+        getVal('faq banner url'),
+        this.getFirstAvailable(getVal, ['faq banner filename/path', 'faq banner']),
+      );
+      if (rowFaqBanner && !group.faqBanner) {
+        group.faqBanner = rowFaqBanner;
       }
 
       // Bundle rows

@@ -17,12 +17,28 @@ import { ProductCategoryFilterMappingEntity } from '../entities/product-category
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 import { ProductTagEntity } from '../entities/product-tag.entity';
 import { ProductStatus } from '../enums/product-status.enum';
+import { ProductType } from '../enums/product-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
+import {
+  bundleDependencyAvailableSql,
+  publicAvailabilityRankSql,
+  sellableVariantAvailabilitySql,
+} from '../utils/public-variant-availability.util';
+import {
+  bindPincodeAvailability,
+  pincodeAvailabilityPositionalSql,
+  pincodeAvailabilitySql,
+} from '../utils/pincode-availability.util';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { DEFAULT_ADMIN_PRODUCT_LIST_SORT } from '../constants/admin-product-list-sort.constants';
 import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import { hasCategoryFilterAllSentinel } from '../utils/category-filter-all.util';
+import {
+  compactSearchText,
+  isGibberishSearchQuery,
+  SEARCH_TYPO_SIMILARITY_FLOOR,
+} from '@modules/search/utils/search-tolerance.util';
 
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
@@ -66,6 +82,8 @@ export interface ProductListOptions {
   productNatureId?: string;
   variantSlug?: string;
   outOfStock?: boolean;
+  /** When set, keep rows that match storefront sellable stock (and bundle component availability). */
+  inStock?: boolean;
   isTop?: boolean;
   /** When true, pin `is_top` variants first (then apply normal sortBy). */
   prioritizeTop?: boolean;
@@ -104,6 +122,13 @@ export interface PublicProductListOptions {
   categoryFilterCriteria?: ProductCategoryFilterCriterion[];
   minPrice?: number;
   maxPrice?: number;
+  /**
+   * null/omitted on public list queries = shopper has not selected a pincode
+   * (only unmanaged variants). A uuid limits managed variants to that canonical pincode.
+   */
+  pincodeId?: string | null;
+  /** When true, omit products that are out of stock (including bundle component OOS). */
+  inStockOnly?: boolean;
 }
 
 @Injectable()
@@ -546,7 +571,7 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachDetailRelations(products, this.repo.manager, { includeMedia: false });
+    await this.attachDetailRelations(products, this.repo.manager, { includeMedia: true });
     return products;
   }
 
@@ -589,7 +614,7 @@ export class ProductsRepository {
     );
   }
 
-  async findPublishedByRefId(refId: string): Promise<ProductEntity | null> {
+  async findPublishedByRefId(refId: string, pincodeId?: string | null): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { refId, status: ProductStatus.PUBLISHED },
       relations: {
@@ -607,10 +632,13 @@ export class ProductsRepository {
     });
     if (!product) return null;
     await this.attachDetailRelations([product], this.repo.manager);
+    if (pincodeId !== undefined) {
+      await this.retainPincodeEligibleVariants([product], pincodeId);
+    }
     return product;
   }
 
-  async findPublishedBySlug(slug: string): Promise<ProductEntity | null> {
+  async findPublishedBySlug(slug: string, pincodeId?: string | null): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { slug, status: ProductStatus.PUBLISHED },
       relations: {
@@ -628,26 +656,35 @@ export class ProductsRepository {
     });
     if (!product) return null;
     await this.attachDetailRelations([product], this.repo.manager);
+    if (pincodeId !== undefined) {
+      await this.retainPincodeEligibleVariants([product], pincodeId);
+    }
     return product;
   }
 
-  async findPublishedByVariantSlug(variantSlug: string): Promise<ProductEntity | null> {
-    const match = await this.repo.manager
+  async findPublishedByVariantSlug(
+    variantSlug: string,
+    pincodeId?: string | null,
+  ): Promise<ProductEntity | null> {
+    const matchQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoin('variant.product', 'product')
       .where('variant.slug = :variantSlug', { variantSlug })
       .andWhere('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .select('product.refId', 'refId')
-      .getRawOne<{ refId: string }>();
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED });
+    if (pincodeId !== undefined) {
+      matchQb.andWhere(pincodeAvailabilitySql('product', pincodeId));
+      bindPincodeAvailability(matchQb, pincodeId);
+    }
+    const match = await matchQb.select('product.refId', 'refId').getRawOne<{ refId: string }>();
 
     if (!match?.refId) {
       return null;
     }
 
-    return this.findPublishedByRefId(match.refId);
+    return this.findPublishedByRefId(match.refId, pincodeId);
   }
 
   /**
@@ -657,6 +694,7 @@ export class ProductsRepository {
    */
   async findPublishedByProductPageUrl(
     pageUrl: string,
+    pincodeId?: string | null,
   ): Promise<{ product: ProductEntity; matchedVariantId: string | null } | null> {
     const candidates = Array.from(
       new Set(
@@ -671,7 +709,7 @@ export class ProductsRepository {
 
     const normalized = candidates.map((value) => value.replace(/\/+$/, '') || value);
 
-    const match = await this.repo.manager
+    const matchQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoin('variant.product', 'product')
@@ -685,7 +723,12 @@ export class ProductsRepository {
       )
       .andWhere('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED });
+    if (pincodeId !== undefined) {
+      matchQb.andWhere(pincodeAvailabilitySql('product', pincodeId));
+      bindPincodeAvailability(matchQb, pincodeId);
+    }
+    const match = await matchQb
       .select('product.refId', 'refId')
       .addSelect('variant.id', 'variantId')
       .getRawOne<{ refId: string; variantId: string }>();
@@ -694,7 +737,7 @@ export class ProductsRepository {
       return null;
     }
 
-    const product = await this.findPublishedByRefId(match.refId);
+    const product = await this.findPublishedByRefId(match.refId, pincodeId);
     if (!product) {
       return null;
     }
@@ -735,30 +778,44 @@ export class ProductsRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const sortOrder = options.sortOrder ?? 'DESC';
 
-    const qb = this.createEligibleProductsQb(options)
+    // Page ids with no joins so LIMIT/OFFSET follows in-stock rank, then the
+    // existing sort. Out-of-stock products stay in the result after in-stock ones.
+    const idQb = this.createEligibleProductsQb(options).select('product.id', 'id');
+    this.applyPublicListSort(idQb, options.sortBy, sortOrder, options);
+    idQb.offset(skip).limit(take);
+
+    const [idRows, total] = await Promise.all([
+      idQb.getRawMany<{ id: string }>(),
+      this.createEligibleProductsQb(options).getCount(),
+    ]);
+
+    const ids = idRows.map((row) => row.id).filter(Boolean);
+    if (!ids.length) {
+      return { data: [], total };
+    }
+
+    const products = await this.repo
+      .createQueryBuilder('product')
       .leftJoinAndSelect('product.productNature', 'productNature')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.subCategory', 'subCategory')
       .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
       .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
       .leftJoinAndSelect('product.brand', 'brand')
-      .skip(skip)
-      .take(take);
+      .where('product.id IN (:...ids)', { ids })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .getMany();
 
-    this.applyPublicListSort(qb, options.sortBy, sortOrder, options);
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const data = ids
+      .map((id) => productById.get(id))
+      .filter((product): product is ProductEntity => Boolean(product));
 
-    const [data, total] = await qb.getManyAndCount();
-
-    // Defense-in-depth: never return non-published rows to the storefront.
-    const publishedOnly = data.filter(
-      (product) => product.status === ProductStatus.PUBLISHED && !product.deletedAt,
-    );
-
-    if (publishedOnly.length) {
-      await this.attachPublicListRelations(publishedOnly);
+    if (data.length) {
+      await this.attachPublicListRelations(data, options.pincodeId ?? null);
     }
 
-    return { data: publishedOnly, total };
+    return { data, total };
   }
 
   async findPublishedVariantsPaginated(
@@ -784,8 +841,14 @@ export class ProductsRepository {
     this.applyPublicVariantSearchFilters(qb, options);
     this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
+    qb.andWhere(pincodeAvailabilitySql('product', options.pincodeId ?? null));
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
 
     const [data, total] = await qb.getManyAndCount();
+
+    if (total === 0 && options.search?.trim()) {
+      return this.findPublishedVariantsWithTolerance(options);
+    }
 
     if (data.length) {
       await this.attachVariantSearchRelations(data);
@@ -912,6 +975,7 @@ export class ProductsRepository {
     categoryIds: string[],
     tagSlug: string,
     limitPerCategory: number,
+    pincodeId: string | null = null,
   ): Promise<Map<string, ProductEntity[]>> {
     const result = new Map<string, ProductEntity[]>();
     const uniqueCategoryIds = [...new Set(categoryIds.filter(Boolean))];
@@ -936,12 +1000,15 @@ export class ProductsRepository {
         WHERE p.deleted_at IS NULL
           AND p.status = $2
           AND p.category_id = ANY($3::uuid[])
+          AND ${bundleDependencyAvailableSql('p')}
           AND EXISTS (
             SELECT 1
             FROM product_variants pv_ins
             WHERE pv_ins.product_id = p.id
               AND pv_ins.deleted_at IS NULL
               AND pv_ins.status = $5
+              AND ${sellableVariantAvailabilitySql('pv_ins')}
+              AND ${pincodeAvailabilityPositionalSql('p', pincodeId, 6)}
           )
       )
       SELECT id, "categoryId"
@@ -955,6 +1022,7 @@ export class ProductsRepository {
         uniqueCategoryIds,
         limitPerCategory,
         VariantStatus.ACTIVE,
+        ...(pincodeId ? [pincodeId] : []),
       ],
     );
 
@@ -975,7 +1043,7 @@ export class ProductsRepository {
       .getMany();
 
     if (products.length) {
-      await this.attachPublicListRelations(products);
+      await this.attachPublicListRelations(products, pincodeId);
     }
 
     const productById = new Map(products.map((product) => [product.id, product]));
@@ -1070,6 +1138,21 @@ export class ProductsRepository {
     return new Map(rows.map((row) => [row.refId, row.id]));
   }
 
+  async findVariantsByProductIds(
+    productIds: string[],
+    manager?: EntityManager,
+  ): Promise<Array<{ id: string; productId: string; sku: string }>> {
+    if (!productIds.length) return [];
+    const repository = manager
+      ? manager.getRepository(ProductVariantEntity)
+      : this.repo.manager.getRepository(ProductVariantEntity);
+    const rows = await repository.find({
+      where: { productId: In([...new Set(productIds)]) },
+      select: ['id', 'productId', 'sku'],
+    });
+    return rows.map((row) => ({ id: row.id, productId: row.productId, sku: row.sku }));
+  }
+
   /** Reverse of findIdsByRefIds — given a list of primary IDs, return the matching refIds. */
   async findRefIdsByIds(ids: string[]): Promise<string[]> {
     if (!ids.length) return [];
@@ -1087,6 +1170,23 @@ export class ProductsRepository {
   ): Promise<void> {
     const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
     await repository.update({ refId }, data);
+  }
+
+  async existsByBundleName(name: string, excludeRefId?: string): Promise<boolean> {
+    const title = name.trim();
+    if (!title) return false;
+
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .where('product.productType = :productType', { productType: ProductType.BUNDLE })
+      .andWhere('LOWER(TRIM(product.name)) = LOWER(:title)', { title })
+      .andWhere('product.deletedAt IS NULL');
+
+    if (excludeRefId) {
+      qb.andWhere('product.refId != :excludeRefId', { excludeRefId });
+    }
+
+    return (await qb.getCount()) > 0;
   }
 
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
@@ -1396,6 +1496,23 @@ export class ProductsRepository {
       bundleByProduct.set(b.parentProductId, arr);
     }
 
+    const childProductIds = [...new Set(bundleItems.map((item) => item.childProductId))];
+    if (childProductIds.length) {
+      const childVariants = await mgr.getRepository(ProductVariantEntity).find({
+        where: { productId: In(childProductIds) },
+      });
+      const childVariantsByProduct = new Map<string, ProductVariantEntity[]>();
+      for (const variant of childVariants) {
+        const list = childVariantsByProduct.get(variant.productId) ?? [];
+        list.push(variant);
+        childVariantsByProduct.set(variant.productId, list);
+      }
+      for (const item of bundleItems) {
+        if (!item.childProduct) continue;
+        item.childProduct.variants = childVariantsByProduct.get(item.childProductId) ?? [];
+      }
+    }
+
     for (const product of products) {
       product.attributeMappings = attrMappingsByProduct.get(product.id) ?? [];
       product.variants = variantsByProduct.get(product.id) ?? [];
@@ -1502,9 +1619,6 @@ export class ProductsRepository {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
     }
 
-    // Public variant search: exclude out-of-stock variants.
-    qb.andWhere('variant.outOfStock = false');
-
     this.applyPublicVariantPriceRangeFilter(qb, options);
   }
 
@@ -1574,6 +1688,15 @@ export class ProductsRepository {
       qb.andWhere('variant.outOfStock = true');
     } else if (options.outOfStock === false) {
       qb.andWhere('variant.outOfStock = false');
+    }
+    if (options.inStock === true) {
+      qb.andWhere(
+        `${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')}`,
+      );
+    } else if (options.inStock === false) {
+      qb.andWhere(
+        `NOT (${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')})`,
+      );
     }
     if (options.isTop === true) {
       qb.andWhere('variant.isTop = true');
@@ -1683,7 +1806,7 @@ export class ProductsRepository {
     sortOrder: 'ASC' | 'DESC',
     options?: Pick<
       PublicProductListOptions,
-      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts'
+      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts' | 'pincodeId'
     >,
   ): void {
     const bestsellerTagSlug = options?.prioritizeBestsellers
@@ -1692,16 +1815,19 @@ export class ProductsRepository {
         ? options?.tagSlug
         : undefined;
 
-    // Web lists keep the existing sort, with in-stock products before out-of-stock ones.
+    // Primary availability rank, then the existing sort inside each INS / OOS group.
     qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
+    bindPincodeAvailability(qb, options?.pincodeId ?? null);
+    const pincodeRankSql = pincodeAvailabilitySql('product', options?.pincodeId ?? null);
     qb.addSelect(
       `(CASE WHEN EXISTS (
           SELECT 1 FROM product_variants pv_avail
           WHERE pv_avail.product_id = product.id
             AND pv_avail.deleted_at IS NULL
             AND pv_avail.status = :publicListStockVariantStatus
-            AND pv_avail.out_of_stock = false
-        ) THEN 0 ELSE 1 END)`,
+            AND ${sellableVariantAvailabilitySql('pv_avail')}
+            AND ${pincodeRankSql}
+        ) AND ${bundleDependencyAvailableSql('product')} THEN 0 ELSE 1 END)`,
       'in_stock_rank',
     );
     qb.orderBy('in_stock_rank', 'ASC');
@@ -1738,6 +1864,7 @@ export class ProductsRepository {
               AND pv_top.deleted_at IS NULL
               AND pv_top.status = :topVariantStatus
               AND pv_top.is_top = true
+              AND ${pincodeAvailabilitySql('product', options?.pincodeId ?? null)}
           ) THEN 0 ELSE 1 END)`,
         'top_rank',
       );
@@ -1747,7 +1874,8 @@ export class ProductsRepository {
           WHERE pv_top.product_id = product.id
             AND pv_top.deleted_at IS NULL
             AND pv_top.status = :topVariantStatus
-            AND pv_top.is_top = true)`,
+            AND pv_top.is_top = true
+            AND ${pincodeAvailabilitySql('product', options?.pincodeId ?? null)})`,
         'top_sort_order',
       );
       qb.addOrderBy('top_rank', 'ASC');
@@ -1763,7 +1891,7 @@ export class ProductsRepository {
     if (sortBy === 'price') {
       qb.setParameter('variantStatus', VariantStatus.ACTIVE);
       qb.addSelect(
-        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL)`,
+        `(SELECT COALESCE(MIN(pv.selling_price::numeric), 0) FROM product_variants pv WHERE pv.product_id = product.id AND pv.status = :variantStatus AND pv.deleted_at IS NULL AND ${pincodeAvailabilitySql('product', options?.pincodeId ?? null)})`,
         'min_price',
       );
       qb.addOrderBy('min_price', sortOrder, 'NULLS LAST');
@@ -1795,7 +1923,9 @@ export class ProductsRepository {
       variantSlug: 'variant.slug',
     };
     const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
-    qb.orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'variant_stock_rank');
+    qb.orderBy('variant_stock_rank', 'ASC');
+    qb.addOrderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
 
   private async attachVariantSearchRelations(variants: ProductVariantEntity[]): Promise<void> {
@@ -2062,6 +2192,7 @@ export class ProductsRepository {
     const eligibleQb = this.createEligibleProductsQb(options, omit).select('product.id', 'id');
     const [sql, params] = eligibleQb.getQueryAndParameters();
     const statusParamIndex = params.length + 1;
+    const queryParams = [...params, VariantStatus.ACTIVE];
 
     const rows = await this.repo.manager.query<
       Array<{ min: string | number | null; max: string | number | null }>
@@ -2075,7 +2206,7 @@ export class ProductsRepository {
       WHERE pv.deleted_at IS NULL
         AND pv.status = $${statusParamIndex}
       `,
-      [...params, VariantStatus.ACTIVE],
+      queryParams,
     );
 
     const row = rows[0];
@@ -2179,6 +2310,7 @@ export class ProductsRepository {
           WHERE pv.product_id = product.id
             AND pv.slug = :variantSlug
             AND pv.deleted_at IS NULL
+            AND ${pincodeAvailabilitySql('product', options.pincodeId ?? null)}
         )`,
         { variantSlug: options.variantSlug },
       );
@@ -2201,9 +2333,25 @@ export class ProductsRepository {
         WHERE pv_ins.product_id = product.id
           AND pv_ins.deleted_at IS NULL
           AND pv_ins.status = :publicInStockVariantStatus
+          AND ${pincodeAvailabilitySql('product', options.pincodeId ?? null)}
       )`,
       { publicInStockVariantStatus: VariantStatus.ACTIVE },
     );
+
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
+
+    if (options.inStockOnly) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv_home
+          WHERE pv_home.product_id = product.id
+            AND pv_home.deleted_at IS NULL
+            AND pv_home.status = :publicHomeVariantStatus
+            AND ${sellableVariantAvailabilitySql('pv_home')}
+        ) AND ${bundleDependencyAvailableSql('product')}`,
+        { publicHomeVariantStatus: VariantStatus.ACTIVE },
+      );
+    }
 
     this.applyPublicPriceRangeFilter(qb, options, 'product', omit);
   }
@@ -2224,6 +2372,7 @@ export class ProductsRepository {
       `pv.product_id = ${productAlias}.id`,
       'pv.deleted_at IS NULL',
       'pv.status = :priceVariantStatus',
+      pincodeAvailabilitySql(productAlias, options.pincodeId ?? null),
     ];
 
     if (options.minPrice !== undefined) {
@@ -2238,6 +2387,29 @@ export class ProductsRepository {
     qb.andWhere(
       `EXISTS (SELECT 1 FROM product_variants pv WHERE ${conditions.join(' AND ')})`,
     );
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
+  }
+
+  private async retainPincodeEligibleVariants(
+    products: ProductEntity[],
+    pincodeId: string | null,
+  ): Promise<void> {
+    if (!products.length) {
+      return;
+    }
+    const ids = products.map((product) => product.id);
+    const qb = this.repo
+      .createQueryBuilder('product')
+      .select(['product.id'])
+      .where('product.id IN (:...ids)', { ids })
+      .andWhere(pincodeAvailabilitySql('product', pincodeId));
+    bindPincodeAvailability(qb, pincodeId);
+    const allowed = new Set((await qb.getMany()).map((product) => product.id));
+    for (const product of products) {
+      if (!allowed.has(product.id)) {
+        product.variants = [];
+      }
+    }
   }
 
   /**
@@ -2246,13 +2418,19 @@ export class ProductsRepository {
    * one-to-many relations (variants for pricing, media for the primary image)
    * using parallel queries to avoid sequential TypeORM relation loading.
    */
-  private async attachPublicListRelations(products: ProductEntity[]): Promise<void> {
+  private async attachPublicListRelations(
+    products: ProductEntity[],
+    pincodeId: string | null = null,
+  ): Promise<void> {
     const productIds = products.map((p) => p.id);
 
+    const variantQb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .where('variant.productId IN (:...productIds)', { productIds });
+
     const [variants, media, tagMappings] = await Promise.all([
-      this.repo.manager.getRepository(ProductVariantEntity).find({
-        where: { productId: In(productIds) },
-      }),
+      variantQb.getMany(),
       this.repo.manager.getRepository(ProductMediaEntity).find({
         where: { productId: In(productIds) },
         order: { sortOrder: 'ASC', createdAt: 'ASC' },
@@ -2303,6 +2481,8 @@ export class ProductsRepository {
       product.media = mediaByProduct.get(product.id) ?? [];
       product.tagMappings = tagsByProduct.get(product.id) ?? [];
     }
+
+    await this.retainPincodeEligibleVariants(products, pincodeId);
   }
 
   /**
@@ -2453,12 +2633,15 @@ export class ProductsRepository {
    * Cheapest sellable variant per published product — used for popular search
    * when Typesense is off/stale, and to pad Typesense popular results.
    */
-  async findPublishedPopularVariants(limit: number): Promise<ProductVariantEntity[]> {
+  async findPublishedPopularVariants(
+    limit: number,
+    pincodeId: string | null = null,
+  ): Promise<ProductVariantEntity[]> {
     if (limit <= 0) {
       return [];
     }
 
-    const candidates = await this.repo.manager
+    const popularQb = this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoinAndSelect('variant.product', 'product')
@@ -2467,11 +2650,15 @@ export class ProductsRepository {
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
       .andWhere('variant.outOfStock = false')
+      .andWhere(bundleDependencyAvailableSql('product'))
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(pincodeAvailabilitySql('product', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
-      .andWhere('category.deletedAt IS NULL')
+      .andWhere('category.deletedAt IS NULL');
+    bindPincodeAvailability(popularQb, pincodeId);
+    const candidates = await popularQb
       .orderBy('variant.sellingPrice', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .take(Math.min(Math.max(limit * 8, limit), 200))
@@ -2498,6 +2685,7 @@ export class ProductsRepository {
   async findPublishedDropdownSuggestions(
     search: string,
     limit: number,
+    pincodeId: string | null = null,
   ): Promise<ProductVariantEntity[]> {
     const term = search.trim();
     if (!term || limit <= 0) {
@@ -2507,7 +2695,7 @@ export class ProductsRepository {
     const prefixSearch = `${term}%`;
     const containsSearch = `%${term}%`;
 
-    return this.repo.manager
+    const primary = await this.repo.manager
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
       .innerJoinAndSelect('variant.product', 'product')
@@ -2515,8 +2703,8 @@ export class ProductsRepository {
       .innerJoin('product.category', 'category')
       .where('variant.deletedAt IS NULL')
       .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-      .andWhere('variant.outOfStock = false')
       .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(pincodeAvailabilitySql('product', pincodeId))
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
@@ -2527,6 +2715,7 @@ export class ProductsRepository {
           OR variant.displayName ILIKE :search)`,
         { search: containsSearch },
       )
+      .addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank')
       .addSelect(
         `CASE
           WHEN variant.sku ILIKE :prefixSearch THEN 0
@@ -2543,15 +2732,193 @@ export class ProductsRepository {
         END`,
         'search_rank',
       )
-      .orderBy('search_rank', 'ASC')
+      .orderBy('availability_rank', 'ASC')
+      .addOrderBy('search_rank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
-      .setParameters({ prefixSearch, search: containsSearch })
+      .setParameters({
+        prefixSearch,
+        search: containsSearch,
+        ...(pincodeId ? { pincodeAvailabilityId: pincodeId } : {}),
+      })
       .take(limit)
       .getMany();
+
+    if (primary.length) return primary;
+    return this.findDropdownSuggestionsWithTolerance(term, limit, pincodeId);
   }
 
-  async findPublishedByRefIds(refIds: string[]): Promise<ProductEntity[]> {
+  /**
+   * Used only when the existing ILIKE search returned no rows.
+   * Compact match, then pg_trgm typo match, then nearest catalog rows for a real word.
+   */
+  private async findPublishedVariantsWithTolerance(
+    options: PublicProductListOptions,
+  ): Promise<{ data: ProductVariantEntity[]; total: number }> {
+    const search = options.search?.trim() ?? '';
+    const compact = compactSearchText(search);
+    if (!compact) return { data: [], total: 0 };
+
+    const compactResult = await this.queryPublishedVariantsByTolerance(options, 'compact', compact);
+    if (compactResult.total > 0) return compactResult;
+    if (isGibberishSearchQuery(search)) return { data: [], total: 0 };
+
+    try {
+      const typoResult = await this.queryPublishedVariantsByTolerance(options, 'typo', compact);
+      if (typoResult.total > 0) return typoResult;
+      return this.queryPublishedVariantsByTolerance(options, 'nearest', compact);
+    } catch (error) {
+      if (!this.isMissingTrigramFunction(error)) throw error;
+      return this.queryPublishedVariantsByTolerance(options, 'catalog', compact);
+    }
+  }
+
+  private async findDropdownSuggestionsWithTolerance(
+    term: string,
+    limit: number,
+    pincodeId: string | null,
+  ): Promise<ProductVariantEntity[]> {
+    const compact = compactSearchText(term);
+    if (!compact) return [];
+
+    const compactHits = await this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'compact', compact);
+    if (compactHits.length) return compactHits;
+    if (isGibberishSearchQuery(term)) return [];
+
+    try {
+      const typoHits = await this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'typo', compact);
+      if (typoHits.length) return typoHits;
+      return this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'nearest', compact);
+    } catch (error) {
+      if (!this.isMissingTrigramFunction(error)) throw error;
+      return this.queryDropdownSuggestionsByTolerance(term, limit, pincodeId, 'catalog', compact);
+    }
+  }
+
+  private async queryPublishedVariantsByTolerance(
+    options: PublicProductListOptions,
+    mode: 'compact' | 'typo' | 'nearest' | 'catalog',
+    compact: string,
+  ): Promise<{ data: ProductVariantEntity[]; total: number }> {
+    const { skip, take } = buildSkipTake(options.page, options.limit);
+    const sortOrder = options.sortOrder ?? 'DESC';
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.subSubCategory', 'subSubCategory')
+      .leftJoinAndSelect('product.subSubSubCategory', 'subSubSubCategory')
+      .leftJoin(BrandEntity, 'searchBrand', 'searchBrand.id = product.brandId')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .skip(skip)
+      .take(take);
+
+    this.applyPublicVariantSearchFilters(qb, { ...options, search: undefined });
+    this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
+    qb.andWhere(pincodeAvailabilitySql('product', options.pincodeId ?? null));
+    bindPincodeAvailability(qb, options.pincodeId ?? null);
+    this.applyVariantToleranceMatch(qb, mode, compact, 'searchBrand');
+
+    if (mode === 'compact' || mode === 'catalog') {
+      this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    if (data.length) await this.attachVariantSearchRelations(data);
+    return { data, total };
+  }
+
+  private async queryDropdownSuggestionsByTolerance(
+    _term: string,
+    limit: number,
+    pincodeId: string | null,
+    mode: 'compact' | 'typo' | 'nearest' | 'catalog',
+    compact: string,
+  ): Promise<ProductVariantEntity[]> {
+    const qb = this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .innerJoin(BrandEntity, 'brand', 'brand.id = product.brandId')
+      .innerJoin('product.category', 'category')
+      .where('variant.deletedAt IS NULL')
+      .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+      .andWhere('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(pincodeAvailabilitySql('product', pincodeId))
+      .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('brand.deletedAt IS NULL')
+      .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
+      .andWhere('category.deletedAt IS NULL');
+    bindPincodeAvailability(qb, pincodeId);
+    this.applyVariantToleranceMatch(qb, mode, compact, 'brand');
+    if (mode === 'compact' || mode === 'catalog') {
+      qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank');
+      qb.orderBy('availability_rank', 'ASC').addOrderBy('product.name', 'ASC');
+    }
+    return qb.take(limit).getMany();
+  }
+
+  private applyVariantToleranceMatch(
+    qb: SelectQueryBuilder<ProductVariantEntity>,
+    mode: 'compact' | 'typo' | 'nearest' | 'catalog',
+    compact: string,
+    brandAlias: string,
+  ): void {
+    if (mode === 'catalog') return;
+
+    const similarity = this.variantSearchSimilaritySql(brandAlias);
+    if (mode === 'compact') {
+      qb.andWhere(this.variantSearchCompactPredicate(brandAlias), { compactQuery: compact });
+      return;
+    }
+
+    qb.addSelect(similarity, 'search_similarity');
+    qb.setParameter('compactQuery', compact);
+    if (mode === 'typo') {
+      qb.andWhere(`${similarity} >= :similarityFloor`, {
+        similarityFloor: SEARCH_TYPO_SIMILARITY_FLOOR,
+      });
+    }
+    qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'variant_stock_rank');
+    qb.orderBy('search_similarity', 'DESC');
+    qb.addOrderBy('variant_stock_rank', 'ASC');
+    qb.addOrderBy('product.name', 'ASC');
+  }
+
+  private variantSearchCompactPredicate(brandAlias: string): string {
+    const like = (expr: string): string =>
+      `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g') LIKE '%' || :compactQuery || '%'`;
+    return `(${like('product.name')} OR ${like('variant.display_name')} OR ${like('variant.sku')} OR ${like('variant.slug')} OR ${like('product.slug')} OR ${like(`${brandAlias}.name`)} OR EXISTS (
+      SELECT 1 FROM variant_attribute_values vav
+      WHERE vav.variant_id = variant.id
+        AND regexp_replace(lower(COALESCE(vav.value, '')), '[^a-z0-9]+', '', 'g') LIKE '%' || :compactQuery || '%'
+    ))`;
+  }
+
+  private variantSearchSimilaritySql(brandAlias: string): string {
+    const compact = (expr: string): string =>
+      `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g')`;
+    return `GREATEST(
+      word_similarity(:compactQuery, ${compact('product.name')}),
+      word_similarity(:compactQuery, ${compact('variant.display_name')}),
+      word_similarity(:compactQuery, ${compact('variant.sku')}),
+      word_similarity(:compactQuery, ${compact(`${brandAlias}.name`)})
+    )`;
+  }
+
+  private isMissingTrigramFunction(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /word_similarity/i.test(message) && /does not exist|42883/i.test(message);
+  }
+
+  async findPublishedByRefIds(
+    refIds: string[],
+    pincodeId: string | null = null,
+  ): Promise<ProductEntity[]> {
     if (!refIds.length) {
       return [];
     }
@@ -2573,7 +2940,7 @@ export class ProductsRepository {
     }
 
     // Card/list callers only — avoid attachDetailRelations (heavy + hierarchy joins).
-    await this.attachPublicListRelations(products);
+    await this.attachPublicListRelations(products, pincodeId);
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
@@ -2645,7 +3012,10 @@ export class ProductsRepository {
   }
 
   /** Lightweight published products for wishlist/list cards (no PDP relations). */
-  async findPublishedListByIds(ids: string[]): Promise<ProductEntity[]> {
+  async findPublishedListByIds(
+    ids: string[],
+    pincodeId: string | null = null,
+  ): Promise<ProductEntity[]> {
     if (!ids.length) {
       return [];
     }
@@ -2664,7 +3034,7 @@ export class ProductsRepository {
       return [];
     }
 
-    await this.attachPublicListRelations(products);
+    await this.attachPublicListRelations(products, pincodeId);
 
     for (const product of products) {
       product.variants = (product.variants ?? []).filter(
@@ -2776,6 +3146,7 @@ export class ProductsRepository {
     page: number;
     limit: number;
     search?: string;
+    pincodeId?: string | null;
   }): Promise<{
     data: Array<{
       id: string;
@@ -2813,6 +3184,24 @@ export class ProductsRepository {
       `;
     }
 
+    const pincodeId = options.pincodeId ?? null;
+    const pincodeSql = pincodeAvailabilityPositionalSql(
+      'p',
+      pincodeId,
+      pincodeId ? params.length + 1 : 0,
+    );
+    if (pincodeId) {
+      params.push(pincodeId);
+    }
+    const eligibleVariantSql = `
+      AND EXISTS (
+        SELECT 1 FROM product_variants pv_pin
+        WHERE pv_pin.product_id = p.id
+          AND pv_pin.deleted_at IS NULL
+          AND ${pincodeSql}
+      )
+    `;
+
     params.push(take);
     const limitIdx = params.length;
     params.push(skip);
@@ -2834,6 +3223,7 @@ export class ProductsRepository {
           WHERE p.brand_id = $1
             AND p.status = $2
             AND p.deleted_at IS NULL
+            ${eligibleVariantSql}
           UNION ALL
           SELECT
             p.id AS product_id,
@@ -2848,6 +3238,7 @@ export class ProductsRepository {
           WHERE p.brand_id = $1
             AND p.status = $2
             AND p.deleted_at IS NULL
+            ${eligibleVariantSql}
         ) expanded
         WHERE cat_id IS NOT NULL
         GROUP BY cat_id
@@ -2871,7 +3262,7 @@ export class ProductsRepository {
       SELECT COUNT(*)::int AS count
       ${fromWhere}
       `,
-      params.slice(0, search ? 4 : 3),
+      params.slice(0, params.length - 2),
     );
     const total = Number(countRows?.[0]?.count ?? 0);
 

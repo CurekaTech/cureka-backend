@@ -28,7 +28,11 @@ import {
   IPublicProductVariant,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
-import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
+import { getSalableStockQuantity } from '@packages/common';
+import {
+  isPublicProductSellable,
+  isPublicVariantSellable,
+} from '@modules/product/utils/public-variant-availability.util';
 import { IStorageFileReference } from '@packages/storage';
 import {
   buildProductCategorySlugPathFromRelations,
@@ -177,7 +181,7 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
     return activeVariants[0]!;
   }
 
-  const inStockVariants = activeVariants.filter((variant) => !variant.outOfStock);
+  const inStockVariants = activeVariants.filter((variant) => isPublicVariantSellable(variant));
   const pool = inStockVariants.length ? inStockVariants : activeVariants;
 
   const ranked = [...pool].sort((left, right) => {
@@ -320,7 +324,9 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     maxSellingPrice: sellingPrices.length ? Math.max(...sellingPrices) : 0,
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
-    inStock: activeVariants.some((variant) => !variant.outOfStock),
+    inStock:
+      !(entity.bundleComponentOos ?? false) &&
+      activeVariants.some((variant) => !variant.outOfStock),
   };
 };
 
@@ -337,19 +343,18 @@ export const buildListVariantPricing = (
     };
   }
 
-  const outOfStock = variant.outOfStock ?? false;
   return {
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discount: toNumber(variant.discountPercentage),
-    inStock: !outOfStock,
+    inStock: isPublicVariantSellable(variant),
   };
 };
 
 /** Available to buy: not admin-marked OOS, and passes stock rules when Cureka-managed. */
 const isVariantAvailable = (
   variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory'>,
-): boolean => !(variant.outOfStock ?? false) && isVariantInStock(variant.stock, variant);
+): boolean => isPublicVariantSellable(variant);
 
 const storageMediaKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
   if (!ref) return null;
@@ -561,8 +566,8 @@ export const mapVariantEntityToPublicSearchItem = (
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
     stock: getSalableStockQuantity(variant.stock, 1, variant),
-    inStock: isVariantAvailable(variant),
-    outOfStock: variant.outOfStock ?? false,
+    inStock: isVariantAvailable(variant) && !(variant.product?.bundleComponentOos ?? false),
+    outOfStock: (variant.outOfStock ?? false) || Boolean(variant.product?.bundleComponentOos),
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
     length: toNumber(variant.length),
@@ -588,7 +593,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
   const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
-  const outOfStock = listVariant?.outOfStock ?? false;
+  const outOfStock = !isPublicProductSellable(entity);
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   const listVariantSlug = listVariant
     ? sanitizeProductSlugSegment(listVariant.slug) || listVariant.slug
@@ -603,6 +608,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
       )
     : [];
   const uniqueListPageUrl = pageUrlOwners.length <= 1 ? productPageUrl : null;
+  const listPricing = buildListVariantPricing(listVariant);
 
   return {
   id: entity.id,
@@ -627,7 +633,10 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   primaryImageUrl: listVariant
     ? getVariantPrimaryImageUrl(entity, listVariant.id)
     : getPrimaryImageUrl(entity),
-  pricing: buildListVariantPricing(listVariant),
+  pricing: {
+    ...listPricing,
+    inStock: !outOfStock && listPricing.inStock,
+  },
   outOfStock,
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
@@ -847,6 +856,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   metaKeywords: entity.metaKeywords,
   publishedAt: entity.publishedAt,
   sizeChart: entity.sizeChart,
+  faqBanner: entity.faqBanner ?? null,
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
@@ -876,8 +886,8 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
       stock: getSalableStockQuantity(variant.stock, 1, variant),
-      inStock: isVariantAvailable(variant),
-      outOfStock: variant.outOfStock ?? false,
+      inStock: isVariantAvailable(variant) && !(entity.bundleComponentOos ?? false),
+      outOfStock: (variant.outOfStock ?? false) || Boolean(entity.bundleComponentOos),
       gtinNumber: variant.gtinNumber ?? null,
       estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
       weight: toNumber(variant.weight),

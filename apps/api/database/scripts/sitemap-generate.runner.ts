@@ -14,6 +14,7 @@ import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../../app.module';
 import { SitemapGeneratorService } from '@modules/sitemap/services/sitemap-generator.service';
+import { assertSitemapPublishAllowed } from '@modules/sitemap/services/sitemap-publish-guard';
 import { isSitemapGroup } from '@modules/sitemap/config/sitemap-groups';
 
 async function run(): Promise<void> {
@@ -42,11 +43,11 @@ async function run(): Promise<void> {
       throw new Error('SITEMAP_BASE_URL or STOREFRONT_URL must be set');
     }
 
-    if (/techbv|localhost|example\.com/i.test(baseUrl) && storageDriver === 'gcs') {
-      console.warn(
-        `[sitemap:generate] WARNING: baseUrl looks non-production (${baseUrl}) but STORAGE_DRIVER=gcs — this will overwrite bucket XML with that host.`,
-      );
-    }
+    assertSitemapPublishAllowed({
+      baseUrl,
+      storageDriver,
+      bucket,
+    });
 
     const generator = app.get(SitemapGeneratorService);
     const result = groupArg

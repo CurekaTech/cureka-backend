@@ -2,7 +2,11 @@ import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FastifyReply } from 'fastify';
 import { RawResponse } from '@packages/common';
-import { SITEMAP_CACHE_CONTROL, SITEMAP_CONTENT_TYPE } from '../constants/sitemap-queue.constants';
+import {
+  SITEMAP_CACHE_CONTROL,
+  SITEMAP_CONTENT_TYPE,
+  SITEMAP_INDEX_CACHE_CONTROL,
+} from '../constants/sitemap-queue.constants';
 import { SitemapStorageService } from '../services/sitemap-storage.service';
 
 @ApiTags('Public Sitemap')
@@ -14,7 +18,7 @@ export class PublicSitemapController {
   @ApiOperation({ summary: 'Sitemap index XML (pre-generated, no database query)' })
   @Get('sitemap.xml')
   async getIndex(@Res() reply: FastifyReply): Promise<void> {
-    await this.sendLiveFile(reply, 'sitemap.xml');
+    await this.sendLiveFile(reply, 'sitemap.xml', SITEMAP_INDEX_CACHE_CONTROL);
   }
 
   @ApiOperation({ summary: 'Nested child sitemap XML, e.g. products/products-1.xml' })
@@ -46,13 +50,17 @@ export class PublicSitemapController {
     }
   }
 
-  private async sendLiveFile(reply: FastifyReply, relativePath: string): Promise<void> {
+  private async sendLiveFile(
+    reply: FastifyReply,
+    relativePath: string,
+    cacheControl: string = SITEMAP_CACHE_CONTROL,
+  ): Promise<void> {
     try {
       this.assertSafeRelative(relativePath);
       const stream = await this.storageService.createLiveReadStream(relativePath);
       await reply
         .header('Content-Type', SITEMAP_CONTENT_TYPE)
-        .header('Cache-Control', SITEMAP_CACHE_CONTROL)
+        .header('Cache-Control', cacheControl)
         .send(stream);
     } catch (error) {
       if (error instanceof NotFoundException && !reply.sent) {

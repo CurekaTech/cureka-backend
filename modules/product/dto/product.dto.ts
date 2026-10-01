@@ -423,6 +423,18 @@ export class CreateProductDto {
   @Type(() => ProductFileReferenceDto)
   sizeChart?: ProductFileReferenceDto | null;
 
+  @ApiPropertyOptional({
+    type: ProductFileReferenceDto,
+    nullable: true,
+    description:
+      'Optional product FAQ banner, shared by every variant. Accepts a storage path string (e.g. images/abc.jpg), { key, name }, { url } from GET responses, or null to clear. Omit on update to keep the current image. Multipart file field "faqBanner" is also supported.',
+    example: 'images/5d6657f9-0df5-4648-a874-f499dbb13979.jpg',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFileReferenceDto)
+  faqBanner?: ProductFileReferenceDto | null;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -663,6 +675,36 @@ export class BulkUpdateCurekaInventoryDto {
   inCurekaInventory!: boolean;
 }
 
+export class BulkRestoreVariantStockItemDto {
+  @ApiProperty({ example: 'MUS/MUS/00001' })
+  @IsNotEmpty()
+  @IsString()
+  sku!: string;
+
+  @ApiProperty({
+    example: 50,
+    description: 'Stock quantity to set on this SKU only. stock > 0 also clears outOfStock.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock!: number;
+}
+
+export class BulkRestoreVariantStockDto {
+  @ApiProperty({
+    type: [BulkRestoreVariantStockItemDto],
+    description:
+      'Per-SKU stock restore. Other variants of the same product are not updated. Max 500.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BulkRestoreVariantStockItemDto)
+  items!: BulkRestoreVariantStockItemDto[];
+}
+
 export class BulkRestoreStockItemDto {
   @ApiProperty({ example: 'PRO20261234' })
   @IsNotEmpty()
@@ -816,6 +858,20 @@ export class ProductQueryDto extends ProductCategoryFilterQueryDto {
   })
   @IsBoolean()
   outOfStock?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'Website product pickers only. true = variant is not marked out of stock, and stock > 0 when inCurekaInventory is true. Bundles also require components to be available. Do not send this on the main Products or Bundle Products catalog lists.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  inStock?: boolean;
 
   @ApiPropertyOptional({
     type: Boolean,

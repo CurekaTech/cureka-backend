@@ -16,6 +16,8 @@ import {
 import { IHomeSection } from '@modules/master/interfaces/home-section.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
@@ -151,8 +153,6 @@ export class HomepageSectionsService implements OnModuleInit {
     [HomeSectionType.BRANDS_WE_TRUST]: () => this.homepageService.getBrandsWeTrust(),
     [HomeSectionType.EXPERT_CURATED_BUNDLES]: () =>
       this.homepageService.getExpertCuratedBundlesCached(),
-    [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
-    [HomeSectionType.WATCH_AND_SHOP]: () => this.homepageService.getWatchAndShop(),
     [HomeSectionType.HEALTH_READS]: () => this.homepageService.getHealthReads(),
     [HomeSectionType.CURATED_WELLNESS_ESSENTIALS]: () =>
       this.homepageService.getCuratedWellnessEssentials(),
@@ -174,6 +174,7 @@ export class HomepageSectionsService implements OnModuleInit {
     private readonly productsRepository: ProductsRepository,
     private readonly categoriesRepository: CategoriesRepository,
     private readonly reviewStats: PublicProductReviewStatsService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
   onModuleInit(): void {
@@ -208,9 +209,13 @@ export class HomepageSectionsService implements OnModuleInit {
    *
    * Hot path: L1 (memory) → enriched Redis → unsigned Redis + sign URLs.
    */
-  async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
+  async getSections(
+    requested?: HomepageSectionKey[],
+    pincode?: string,
+  ): Promise<IHomepageSectionsResponse> {
     const startedAt = Date.now();
-    const variant = this.buildVariantKey(requested);
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
+    const variant = this.buildVariantKey(requested, scope.pincode ?? 'none');
 
     const l1 = this.enrichedL1.get(variant);
     if (l1 && l1.expiresAt > Date.now()) {
@@ -218,7 +223,7 @@ export class HomepageSectionsService implements OnModuleInit {
       return this.withReviewStats(l1.value);
     }
 
-    const enrichedKey = CacheKeys.homepage.sections(`v12-enriched-${variant}`);
+    const enrichedKey = CacheKeys.homepage.sections(`v14-enriched-${variant}`);
     const fromEnriched = await this.cacheService.get<IHomepageSectionsResponse>(enrichedKey);
     if (fromEnriched) {
       this.setL1(variant, fromEnriched);
@@ -227,11 +232,11 @@ export class HomepageSectionsService implements OnModuleInit {
     }
 
     const unsigned = await this.cacheStrategy.cacheAside({
-      // v11: slim storefront cards + shop-by-category tiles; URLs signed after this read.
-      key: CacheKeys.homepage.sections(`v11-${variant}`),
+      // v13: homepage product sliders also exclude dependency-OOS bundles.
+      key: CacheKeys.homepage.sections(`v13-${variant}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
-      loader: () => this.buildSections(requested),
+      loader: () => this.buildSections(requested, scope.pincodeId),
     });
 
     const signStartedAt = Date.now();
@@ -293,9 +298,10 @@ export class HomepageSectionsService implements OnModuleInit {
    * Public detail for admin-created custom sections (product/category/banner).
    * Used by storefront "View all" listing pages.
    */
-  async getCustomSectionBySlug(slug: string): Promise<IHomepageSection> {
+  async getCustomSectionBySlug(slug: string, pincode?: string): Promise<IHomepageSection> {
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
     const section = await this.homeSectionsService.findActiveCustomBySlug(slug);
-    const data = await this.loadCustomSectionData(section);
+    const data = await this.loadCustomSectionData(section, scope.pincodeId);
     const payload: IHomepageSection = {
       refId: section.refId,
       index: section.index,
@@ -317,13 +323,14 @@ export class HomepageSectionsService implements OnModuleInit {
   }
 
   /** Stable cache-key suffix for the requested section filter combination. */
-  private buildVariantKey(requested?: HomepageSectionKey[]): string {
-    if (!requested?.length) return 'all';
-    return [...new Set(requested)].sort().join(',');
+  private buildVariantKey(requested: HomepageSectionKey[] | undefined, pincode = 'none'): string {
+    const sections = !requested?.length ? 'all' : [...new Set(requested)].sort().join(',');
+    return `${sections}:pincode:${pincode}`;
   }
 
   private async buildSections(
-    requested?: HomepageSectionKey[],
+    requested: HomepageSectionKey[] | undefined,
+    pincodeId: string | null,
   ): Promise<IHomepageSectionsResponse> {
     const { sections } = await this.homeSectionsService.findActive();
 
@@ -382,7 +389,7 @@ export class HomepageSectionsService implements OnModuleInit {
       visibleSections.map(async (section): Promise<IHomepageSection> => {
         let data: HomepageSectionData | null = null;
         try {
-          data = await this.resolveSectionData(section, bannerBundle);
+          data = await this.resolveSectionData(section, bannerBundle, pincodeId);
         } catch (error) {
           // Keep the rest of the homepage usable if one section loader fails.
           this.logger.error(
@@ -410,6 +417,7 @@ export class HomepageSectionsService implements OnModuleInit {
     bannerBundle: Awaited<
       ReturnType<HomepageService['loadHomepageBannerReferences']>
     > | null,
+    pincodeId: string | null,
   ): Promise<HomepageSectionData | null> {
     if (bannerBundle) {
       if (section.type === HomeSectionType.HERO_BANNER) {
@@ -427,7 +435,14 @@ export class HomepageSectionsService implements OnModuleInit {
     }
 
     if (isCustomHomeSectionType(section.type) && section.source) {
-      return this.loadCustomSectionData(section.source);
+      return this.loadCustomSectionData(section.source, pincodeId);
+    }
+
+    if (section.type === HomeSectionType.BEST_SELLERS) {
+      return this.homepageService.getBestSellers(pincodeId);
+    }
+    if (section.type === HomeSectionType.WATCH_AND_SHOP) {
+      return this.homepageService.getWatchAndShop(pincodeId);
     }
 
     const loader = this.loaders[section.type];
@@ -436,6 +451,7 @@ export class HomepageSectionsService implements OnModuleInit {
 
   private async loadCustomSectionData(
     section: IHomeSection,
+    pincodeId: string | null = null,
   ): Promise<HomepageSectionData | null> {
     if (section.type === HomeSectionType.BANNER) {
       return { banners: section.banners ?? [] };
@@ -443,11 +459,12 @@ export class HomepageSectionsService implements OnModuleInit {
 
     if (section.type === HomeSectionType.PRODUCT_SLIDER) {
       const refIds = section.productRefIds ?? [];
-      const products = await this.productsRepository.findPublishedByRefIds(refIds);
+      const products = await this.productsRepository.findPublishedByRefIds(refIds, pincodeId);
       const byRefId = new Map(products.map((product) => [product.refId, product]));
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
-        .filter((product): product is NonNullable<typeof product> => Boolean(product));
+        .filter((product): product is NonNullable<typeof product> => Boolean(product))
+        .filter((product) => isPublicProductSellable(product));
       return {
         banner: section.banners?.[0] ?? null,
         products: mapProductEntitiesToPublicStorefrontCards(ordered),

@@ -6,6 +6,7 @@ import { IImporter } from '@modules/master/interfaces/importer.interface';
 import { IManufacturer } from '@modules/master/interfaces/manufacturer.interface';
 import { IPacker } from '@modules/master/interfaces/packer.interface';
 import { IProductNature } from '@modules/master/interfaces/product-nature.interface';
+import { IPincodeSummary } from '@modules/pincodes/interfaces/pincode.interface';
 import { IProduct } from './product.interface';
 
 export interface IProductCategoryHierarchyDetail {
@@ -30,4 +31,7 @@ export interface IProductDetail extends IProduct {
   importer: IImporter | null;
   countryOfOrigin: ICountry | null;
   healthConcerns: IHealthConcern[];
+  /** All India when false. When true, `pincodes` is the full mapped list. */
+  isPincodeManaged: boolean;
+  pincodes: IPincodeSummary[];
 }

@@ -98,6 +98,7 @@ export class BlogPostsService {
     actor: string,
   ) {
     await this.categoriesService.assertCategoryExists(dto.categoryRefId);
+    await this.assertTitleAvailable(dto.title);
 
     if (await this.postsRepo.existsBySlug(dto.slug)) {
       throw new ConflictException('Blog slug already exists');
@@ -479,6 +480,10 @@ export class BlogPostsService {
       }
     }
 
+    if (dto.title !== undefined) {
+      await this.assertTitleAvailable(dto.title, refId);
+    }
+
     if (dto.productRefIds?.length) {
       await this.assertProductsExist(dto.productRefIds);
     }
@@ -672,6 +677,14 @@ export class BlogPostsService {
         ...(subtitle ? { subtitle } : {}),
       };
     });
+  }
+
+  private async assertTitleAvailable(title: string, excludeRefId?: string): Promise<void> {
+    const normalized = title.trim();
+    if (!normalized) return;
+    if (await this.postsRepo.existsByTitle(normalized, excludeRefId)) {
+      throw new ConflictException(`A blog with title "${normalized}" already exists`);
+    }
   }
 
   private async assertProductsExist(productRefIds: string[]) {
