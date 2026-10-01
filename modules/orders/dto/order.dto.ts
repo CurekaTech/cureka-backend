@@ -14,6 +14,10 @@ import {
   MinLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
+import {
+  ADMIN_DATE_PRESETS,
+  type AdminDatePreset,
+} from '@modules/dashboard/utils/admin-date-preset.util';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderSource } from '../enums/order-source.enum';
@@ -142,6 +146,15 @@ export class AdminOrderQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  /**
+   * Same dropdown as the dashboard.
+   * today | yesterday | last_7_days | last_30_days | this_month.
+   * Asia/Kolkata, inclusive. When set, fromDate and toDate are ignored.
+   */
+  @IsOptional()
+  @IsIn([...ADMIN_DATE_PRESETS])
+  datePreset?: AdminDatePreset;
 
   @IsOptional()
   @IsDateString()
