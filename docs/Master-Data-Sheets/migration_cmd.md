@@ -327,3 +327,22 @@ npm run google-merchant:export-sheet -- --env-label=techbv
 
 npm run import:pincodes
 npm run typesense:reindex
+
+---------------------------
+
+# No-COD and no-return from no-return-no-cod sheet
+# Sheet SKU → variant.sku (case-insensitive; SKU is the only match key)
+# Matches: codAvailable=false, returnAllowed=false (other variants unchanged)
+# If every active variant SKU of a product is in the sheet, the product flags are set the same way
+# Reports: docs/Master-Data-Sheets/exports/no-return-no-cod-unmatched.csv
+#          docs/Master-Data-Sheets/exports/no-return-no-cod-updated.csv
+#          docs/Master-Data-Sheets/exports/no-return-no-cod.log
+
+# Dry-run first
+npm run product:no-return-no-cod
+
+# Apply (writes DB, clears Redis product cache, revalidates the storefront)
+npm run product:no-return-no-cod -- --apply
+
+# Optional
+npm run product:no-return-no-cod -- --file="docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx" --apply
