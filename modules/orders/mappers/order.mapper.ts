@@ -16,8 +16,24 @@ import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { parseMoney } from '../utils/money.util';
 import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
+import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
+import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
+import { isWithinWindow, resolveWindowExpiry } from '@modules/returns/utils/return-window.util';
 import { resolvePrimaryProductImageRef } from '../utils/resolve-primary-product-image.util';
 
+export type OrderItemReturnReplaceResponse = {
+  /** Ordered variant allowed returns when the order was placed. */
+  returnAllowed: boolean;
+  /** Ordered variant allowed replacement when the order was placed. */
+  replaceAllowed: boolean;
+  /** Day window stored for that variant. Null when the policy has no day window. */
+  returnWindowDays: number | null;
+  replaceWindowDays: number | null;
+  /** True only for a delivered order, when return is allowed and the window is still open. */
+  withinReturnWindow: boolean;
+  /** True only for a delivered order, when replacement is allowed and the window is still open. */
+  withinReplaceWindow: boolean;
+};
 
 export type OrderItemResponse = {
   id: string;
@@ -39,6 +55,7 @@ export type OrderItemResponse = {
   primaryImageUrl: IStorageFileReferenceResponse | null;
   /** Resolved browser URL for list/detail thumbnails. */
   imageUrl: string | null;
+  returnReplace: OrderItemReturnReplaceResponse;
 };
 
 /** Per-status times on the order row (set once when that status is first reached). */
@@ -72,6 +89,16 @@ export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
     /** Number of distinct line items in the order. */
     lineItemCount: number;
     items: OrderItemResponse[];
+    /**
+     * Show the order Return button only for a delivered order, when any ordered variant
+     * allows return and is still inside its return window. Otherwise hide the button.
+     */
+    returnAllowed: boolean;
+    /**
+     * Show the order Replace button only for a delivered order, when any ordered variant
+     * allows replacement and is still inside its replacement window. Otherwise hide the button.
+     */
+    replaceAllowed: boolean;
     /** Authoritative payment breakdown from stored order snapshots. */
     paymentSummary: OrderPaymentSummaryResponse;
     /**
@@ -109,9 +136,59 @@ type OrderWithShipment = OrderEntity & {
   shipwayStatus?: boolean;
 };
 
+const windowDays = (
+  window: number | null | undefined,
+  unit: PolicyWindowUnit | null | undefined,
+): number | null => (unit === PolicyWindowUnit.DAYS && window != null ? window : null);
+
+/** Flags frozen on the ordered variant. Windows open only after the order is delivered. */
+export function resolveOrderItemReturnReplace(
+  snapshot: IOrderItemReturnPolicySnapshot | null | undefined,
+  deliveredAt: Date | null,
+  isDelivered: boolean,
+  now: Date = new Date(),
+): OrderItemReturnReplaceResponse {
+  if (!snapshot) {
+    return {
+      returnAllowed: false,
+      replaceAllowed: false,
+      returnWindowDays: null,
+      replaceWindowDays: null,
+      withinReturnWindow: false,
+      withinReplaceWindow: false,
+    };
+  }
+
+  const returnAllowed = snapshot.returnable === true;
+  const replaceAllowed = snapshot.replaceable === true;
+  const returnWindowExpiresAt = resolveWindowExpiry(
+    deliveredAt,
+    snapshot.returnWindow,
+    snapshot.returnWindowUnit,
+  );
+  const replaceWindowExpiresAt = resolveWindowExpiry(
+    deliveredAt,
+    snapshot.replacementWindow,
+    snapshot.replacementWindowUnit,
+  );
+
+  return {
+    returnAllowed,
+    replaceAllowed,
+    returnWindowDays: windowDays(snapshot.returnWindow, snapshot.returnWindowUnit),
+    replaceWindowDays: windowDays(snapshot.replacementWindow, snapshot.replacementWindowUnit),
+    withinReturnWindow:
+      isDelivered && returnAllowed && isWithinWindow(returnWindowExpiresAt, now),
+    withinReplaceWindow:
+      isDelivered && replaceAllowed && isWithinWindow(replaceWindowExpiresAt, now),
+  };
+}
+
 async function mapOrderItemToResponse(
   item: OrderItemEntity,
   enricher: StorageUrlEnricher,
+  deliveredAt: Date | null,
+  isDelivered: boolean,
 ): Promise<OrderItemResponse> {
   const imageRef = resolvePrimaryProductImageRef(item.product, item.variantId);
   const primaryImageUrl = await enricher.toReference(imageRef);
@@ -135,6 +212,11 @@ async function mapOrderItemToResponse(
     updatedAt: item.updatedAt,
     primaryImageUrl,
     imageUrl: primaryImageUrl?.url ?? null,
+    returnReplace: resolveOrderItemReturnReplace(
+      item.returnPolicySnapshot,
+      deliveredAt,
+      isDelivered,
+    ),
   };
 }
 
@@ -216,8 +298,11 @@ export async function mapOrderToResponse(
   order: OrderWithShipment,
   enricher: StorageUrlEnricher,
 ): Promise<OrderResponse> {
+  const isDelivered = order.orderStatus === OrderStatus.DELIVERED;
   const items = await Promise.all(
-    (order.items ?? []).map((item) => mapOrderItemToResponse(item, enricher)),
+    (order.items ?? []).map((item) =>
+      mapOrderItemToResponse(item, enricher, order.deliveredAt ?? null, isDelivered),
+    ),
   );
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -238,6 +323,10 @@ export async function mapOrderToResponse(
     itemCount,
     lineItemCount,
     items,
+    returnAllowed:
+      isDelivered && items.some((item) => item.returnReplace.withinReturnWindow),
+    replaceAllowed:
+      isDelivered && items.some((item) => item.returnReplace.withinReplaceWindow),
     paymentSummary: mapOrderPaymentSummary(order),
     shipment: resolveShipmentResponse(order),
   };
