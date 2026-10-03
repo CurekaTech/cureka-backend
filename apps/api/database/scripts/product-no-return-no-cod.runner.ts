@@ -7,14 +7,14 @@
  * Matching variants: codAvailable = false, returnAllowed = false.
  * returnWindowDays and returnPolicy are left unchanged on those variants.
  *
- * Active variants whose SKU is not in the sheet:
+ * Active variants, and out-of-stock variants, whose SKU is not in the sheet:
  *   codAvailable = true, returnAllowed = true, returnWindowDays = 2.
- * Inactive variants that are not in the sheet are left unchanged.
+ * Inactive variants that are not out of stock and are not in the sheet are left unchanged.
  *
  * When every non-deleted variant SKU of a product is in the sheet, the product
  * row is set the same way (codAvailable = false, returnAllowed = false).
- * When every active variant SKU is absent from the sheet, the product row is
- * set to codAvailable = true, returnAllowed = true, returnWindowDays = 2.
+ * When every active or out-of-stock variant SKU is absent from the sheet, the product
+ * row is set to codAvailable = true, returnAllowed = true, returnWindowDays = 2.
  * Mixed products keep their product-level flags unchanged.
  *
  * SAFE BY DEFAULT — dry-run unless --apply is passed.
@@ -47,7 +47,7 @@ const RETURN_WINDOW_DAYS = 2;
 const CHUNK_SIZE = 500;
 const REVALIDATE_BATCH = 32;
 const LOG_PREFIX = '[no-return-no-cod]';
-const ONCE_SCRIPT_KEY = 'product-no-return-no-cod';
+const ONCE_SCRIPT_KEY = 'product-no-return-no-cod-oos';
 
 interface CliOptions {
   file: string;
@@ -70,6 +70,7 @@ interface VariantRow {
   productId: string;
   sku: string;
   status: string;
+  outOfStock: boolean;
   codAvailable: boolean;
   returnAllowed: boolean;
   returnWindowDays: number | null;
@@ -94,6 +95,10 @@ const toWindowDays = (value: number | string | null | undefined): number | null 
 };
 
 const isActiveVariant = (variant: VariantRow): boolean => variant.status === 'active';
+
+/** Active SKUs and OOS SKUs both receive COD / return updates. */
+const isFlagTarget = (variant: VariantRow): boolean =>
+  isActiveVariant(variant) || variant.outOfStock;
 
 const absolutePath = (p: string): string => (isAbsolute(p) ? p : resolve(process.cwd(), p));
 
@@ -436,6 +441,7 @@ async function run(): Promise<void> {
   }
   log(`${LOG_PREFIX} file=${filePath}`);
   log(`${LOG_PREFIX} apply=${opts.apply}`);
+  log(`${LOG_PREFIX} out-of-stock variants are included with active variants`);
 
   await AppDataSource.initialize();
   try {
@@ -487,6 +493,7 @@ async function run(): Promise<void> {
         productId: string;
         sku: string | null;
         status: string;
+        outOfStock: boolean | string | number | null;
         codAvailable: boolean | string | number | null;
         returnAllowed: boolean | string | number | null;
         returnWindowDays: number | string | null;
@@ -503,6 +510,7 @@ async function run(): Promise<void> {
         v.product_id AS "productId",
         v.sku,
         v.status,
+        v.out_of_stock AS "outOfStock",
         v.cod_available AS "codAvailable",
         v.return_allowed AS "returnAllowed",
         v.return_window_days AS "returnWindowDays",
@@ -522,6 +530,7 @@ async function run(): Promise<void> {
       productId: row.productId,
       sku: (row.sku ?? '').trim(),
       status: row.status,
+      outOfStock: coerceDbBoolean(row.outOfStock),
       codAvailable: coerceDbBoolean(row.codAvailable),
       returnAllowed: coerceDbBoolean(row.returnAllowed),
       returnWindowDays: toWindowDays(row.returnWindowDays),
@@ -558,10 +567,10 @@ async function run(): Promise<void> {
         fullyCoveredProductIds.add(productId);
       }
 
-      const activeVariants = productVariants.filter(isActiveVariant);
+      const flagTargets = productVariants.filter(isFlagTarget);
       if (
-        activeVariants.length > 0 &&
-        activeVariants.every((variant) => !sheetSkuKeys.has(skuKey(variant.sku)))
+        flagTargets.length > 0 &&
+        flagTargets.every((variant) => !sheetSkuKeys.has(skuKey(variant.sku)))
       ) {
         fullyOutsideProductIds.add(productId);
       }
@@ -576,7 +585,7 @@ async function run(): Promise<void> {
     const alreadyFalse = matching.length - variantsChanging.length;
 
     const variantsOutside = variants.filter(
-      (variant) => isActiveVariant(variant) && !sheetSkuKeys.has(skuKey(variant.sku)),
+      (variant) => isFlagTarget(variant) && !sheetSkuKeys.has(skuKey(variant.sku)),
     );
     const variantsResetting = variantsOutside.filter(
       (variant) =>
@@ -594,7 +603,7 @@ async function run(): Promise<void> {
     const productsChanging = new Set(productsChangingIds);
 
     const productsResettingIds = [...fullyOutsideProductIds].filter((productId) => {
-      const sample = variantsByProduct.get(productId)?.find(isActiveVariant);
+      const sample = variantsByProduct.get(productId)?.find(isFlagTarget);
       if (!sample) return false;
       return (
         sample.productCodAvailable !== true ||
@@ -611,13 +620,13 @@ async function run(): Promise<void> {
     log(`${LOG_PREFIX} matched variants:                         ${matching.length}`);
     log(`${LOG_PREFIX} already codAvailable=false and returnAllowed=false: ${alreadyFalse}`);
     log(`${LOG_PREFIX} matched variants that will change:        ${variantsChanging.length}`);
-    log(`${LOG_PREFIX} active variants not in sheet:             ${variantsOutside.length}`);
+    log(`${LOG_PREFIX} active or OOS variants not in sheet:      ${variantsOutside.length}`);
     log(`${LOG_PREFIX} already codAvailable=true, returnAllowed=true, returnWindowDays=${RETURN_WINDOW_DAYS}: ${alreadyReturnable}`);
-    log(`${LOG_PREFIX} active variants that will reset:          ${variantsResetting.length}`);
+    log(`${LOG_PREFIX} active or OOS variants that will reset:   ${variantsResetting.length}`);
     log(`${LOG_PREFIX} unmatched sheet SKU rows:                 ${unmatchedRows.length}`);
     log(`${LOG_PREFIX} products fully covered (product flags false): ${fullyCoveredProductIds.size}`);
     log(`${LOG_PREFIX} products whose flags will be set false:   ${productsChanging.size}`);
-    log(`${LOG_PREFIX} products with every active SKU absent:    ${fullyOutsideProductIds.size}`);
+    log(`${LOG_PREFIX} products with every active or OOS SKU absent: ${fullyOutsideProductIds.size}`);
     log(`${LOG_PREFIX} products whose flags will be set true:    ${productsResetting.size}`);
     log(`${LOG_PREFIX} partial matches (product flags unchanged): ${partialProductIds.length}`);
 
@@ -698,7 +707,7 @@ async function run(): Promise<void> {
             returnWindowDays: RETURN_WINDOW_DAYS,
           })
           .whereInIds(ids)
-          .andWhere('status = :status', { status: 'active' })
+          .andWhere('(status = :status OR out_of_stock = true)', { status: 'active' })
           .execute();
         variantsReset += ids.length;
         log(`${LOG_PREFIX} not-in-sheet variants ${variantsReset}/${variantsResetting.length}`);
