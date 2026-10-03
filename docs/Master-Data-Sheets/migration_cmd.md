@@ -332,8 +332,11 @@ npm run typesense:reindex
 
 # No-COD and no-return from no-return-no-cod sheet
 # Sheet SKU → variant.sku (case-insensitive; SKU is the only match key)
-# Matches: codAvailable=false, returnAllowed=false (other variants unchanged)
-# If every active variant SKU of a product is in the sheet, the product flags are set the same way
+# SKU in sheet: codAvailable=false, returnAllowed=false (returnWindowDays unchanged)
+# Active SKU not in sheet: codAvailable=true, returnAllowed=true, returnWindowDays=2
+# All non-deleted variant SKUs in the sheet: product codAvailable=false, returnAllowed=false
+# Every active variant SKU absent from the sheet: product codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Mixed products: variant flags follow each SKU; product flags stay unchanged
 # Reports: docs/Master-Data-Sheets/exports/no-return-no-cod-unmatched.csv
 #          docs/Master-Data-Sheets/exports/no-return-no-cod-updated.csv
 #          docs/Master-Data-Sheets/exports/no-return-no-cod.log
@@ -344,5 +347,20 @@ npm run product:no-return-no-cod
 # Apply (writes DB, clears Redis product cache, revalidates the storefront)
 npm run product:no-return-no-cod -- --apply
 
+# First deploy only. Uses STOREFRONT_URL:
+#   techbv  → docs/Master-Data-Sheets/test-techbv.xlsx
+#   live    → docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx
+# Writes a row in one_time_data_scripts and skips on every later deploy.
+# scripts/deploy-beta.sh runs this after migrations.
+npm run product:no-return-no-cod -- --once
+
 # Optional
 npm run product:no-return-no-cod -- --file="docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx" --apply
+
+# TechBV test sheet only (docs/Master-Data-Sheets/test-techbv.xlsx). Dry-run unless --apply.
+# Run this on the TechBV server, where DATABASE_URL points at the TechBV database.
+npm run product:no-return-no-cod -- --test
+npm run product:no-return-no-cod -- --test --apply
+
+# Optional later test sheet
+npm run product:no-return-no-cod -- --test --test-file="docs/Master-Data-Sheets/another-test.xlsx"

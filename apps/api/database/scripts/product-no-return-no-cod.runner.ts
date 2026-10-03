@@ -5,11 +5,17 @@
  *   SKU → variant.sku  (case-insensitive; the only match key)
  *
  * Matching variants: codAvailable = false, returnAllowed = false.
- * returnWindowDays and returnPolicy are left unchanged.
- * Other variants are not changed.
+ * returnWindowDays and returnPolicy are left unchanged on those variants.
+ *
+ * Active variants whose SKU is not in the sheet:
+ *   codAvailable = true, returnAllowed = true, returnWindowDays = 2.
+ * Inactive variants that are not in the sheet are left unchanged.
  *
  * When every non-deleted variant SKU of a product is in the sheet, the product
- * row is updated the same way (codAvailable = false, returnAllowed = false).
+ * row is set the same way (codAvailable = false, returnAllowed = false).
+ * When every active variant SKU is absent from the sheet, the product row is
+ * set to codAvailable = true, returnAllowed = true, returnWindowDays = 2.
+ * Mixed products keep their product-level flags unchanged.
  *
  * SAFE BY DEFAULT — dry-run unless --apply is passed.
  * Both modes write unmatched and updated CSV reports plus a log file.
@@ -18,6 +24,10 @@
  *   npm run product:no-return-no-cod
  *   npm run product:no-return-no-cod -- --apply
  *   npm run product:no-return-no-cod -- --file="docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx" --apply
+ *   npm run product:no-return-no-cod -- --test
+ *   npm run product:no-return-no-cod -- --test --apply
+ *   npm run product:no-return-no-cod -- --once
+ *   npm run product:no-return-no-cod -- --test --test-file="docs/Master-Data-Sheets/another-test.xlsx"
  */
 import 'reflect-metadata';
 import * as ExcelJS from 'exceljs';
@@ -31,18 +41,21 @@ import { coerceDbBoolean } from '../../../../packages/common/src/stock-validatio
 import { invalidateProductCache } from './product-cleanup.redis';
 
 const DEFAULT_FILE = 'docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx';
+const TEST_FILE = 'docs/Master-Data-Sheets/test-techbv.xlsx';
 const EXPORT_DIR = 'docs/Master-Data-Sheets/exports';
-const UNMATCHED_CSV = `${EXPORT_DIR}/no-return-no-cod-unmatched.csv`;
-const UPDATED_CSV = `${EXPORT_DIR}/no-return-no-cod-updated.csv`;
-const LOG_FILE = `${EXPORT_DIR}/no-return-no-cod.log`;
+const RETURN_WINDOW_DAYS = 2;
 const CHUNK_SIZE = 500;
 const REVALIDATE_BATCH = 32;
 const LOG_PREFIX = '[no-return-no-cod]';
+const ONCE_SCRIPT_KEY = 'product-no-return-no-cod';
 
 interface CliOptions {
   file: string;
   apply: boolean;
+  test: boolean;
+  once: boolean;
   sheet?: string;
+  ignoredFile?: string;
 }
 
 interface SheetRow {
@@ -56,12 +69,15 @@ interface VariantRow {
   id: string;
   productId: string;
   sku: string;
+  status: string;
   codAvailable: boolean;
   returnAllowed: boolean;
+  returnWindowDays: number | null;
   productRefId: string;
   productSlug: string;
   productCodAvailable: boolean;
   productReturnAllowed: boolean;
+  productReturnWindowDays: number | null;
 }
 
 interface RevalidateTarget {
@@ -70,6 +86,14 @@ interface RevalidateTarget {
 }
 
 const skuKey = (sku: string): string => sku.trim().toLowerCase();
+
+const toWindowDays = (value: number | string | null | undefined): number | null => {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const isActiveVariant = (variant: VariantRow): boolean => variant.status === 'active';
 
 const absolutePath = (p: string): string => (isAbsolute(p) ? p : resolve(process.cwd(), p));
 
@@ -121,14 +145,19 @@ const printUsage = (): void => {
 product:no-return-no-cod — Mark sheet SKUs as no-COD and non-returnable
 
 Options:
-  --file <path>   XLSX file  (default: ${DEFAULT_FILE})
-  --sheet <name>  Worksheet name (default: first sheet)
-  --apply         Persist changes to DB and refresh cache (default: dry-run)
+  --file <path>        XLSX file  (default: ${DEFAULT_FILE})
+  --test               Use the TechBV test sheet instead of the default file. Does not write unless --apply is also passed.
+  --test-file <path>   Sheet used with --test (default: ${TEST_FILE})
+  --sheet <name>       Worksheet name (default: first sheet)
+  --apply              Persist changes to DB and refresh cache (default: dry-run)
+  --once               Deploy mode. Applies once per database, then skips. TechBV STOREFRONT_URL uses the test sheet; any other storefront uses the full sheet.
 `);
 };
 
 const parseCli = (argv: string[]): CliOptions => {
-  const opts: CliOptions = { file: DEFAULT_FILE, apply: false };
+  const opts: CliOptions = { file: DEFAULT_FILE, apply: false, test: false, once: false };
+  let testFile = TEST_FILE;
+  let fileFromFlag: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') {
@@ -139,15 +168,80 @@ const parseCli = (argv: string[]): CliOptions => {
       opts.apply = true;
       continue;
     }
+    if (arg === '--once') {
+      opts.once = true;
+      continue;
+    }
+    if (arg === '--test') {
+      opts.test = true;
+      continue;
+    }
     if (arg === '--file' || arg.startsWith('--file=')) {
-      opts.file = arg.includes('=') ? arg.split('=').slice(1).join('=') : argv[++i] ?? opts.file;
+      fileFromFlag = arg.includes('=') ? arg.split('=').slice(1).join('=') : argv[++i] ?? opts.file;
+      continue;
+    }
+    if (arg === '--test-file' || arg.startsWith('--test-file=')) {
+      testFile = arg.includes('=') ? arg.split('=').slice(1).join('=') : argv[++i] ?? testFile;
       continue;
     }
     if (arg === '--sheet' || arg.startsWith('--sheet=')) {
       opts.sheet = arg.includes('=') ? arg.split('=').slice(1).join('=') : argv[++i];
     }
   }
+
+  if (opts.test) {
+    opts.file = testFile;
+    if (fileFromFlag && fileFromFlag !== testFile) {
+      opts.ignoredFile = fileFromFlag;
+    }
+  } else if (fileFromFlag) {
+    opts.file = fileFromFlag;
+  }
+
   return opts;
+};
+
+const applyOnceTarget = (opts: CliOptions): void => {
+  if (!opts.once) return;
+  const storefrontUrl = process.env['STOREFRONT_URL']?.trim() ?? '';
+  if (!storefrontUrl) {
+    throw new Error(
+      '--once requires STOREFRONT_URL so TechBV uses the test sheet and live uses the full sheet',
+    );
+  }
+  opts.apply = true;
+  opts.test = /techbv/i.test(storefrontUrl);
+  opts.file = opts.test ? TEST_FILE : DEFAULT_FILE;
+  opts.ignoredFile = undefined;
+  log(`${LOG_PREFIX} --once storefront=${storefrontUrl}`);
+  log(`${LOG_PREFIX} --once target=${opts.test ? 'techbv test sheet' : 'live full sheet'}`);
+};
+
+const ensureOnceTable = async (): Promise<void> => {
+  await AppDataSource.query(`
+    CREATE TABLE IF NOT EXISTS one_time_data_scripts (
+      script_key varchar(200) PRIMARY KEY,
+      environment varchar(50) NOT NULL,
+      input_file text NOT NULL,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+};
+
+const findOnceRun = async (): Promise<{
+  environment: string;
+  input_file: string;
+  applied_at: Date | string;
+} | null> => {
+  const rows = await AppDataSource.query<
+    Array<{ environment: string; input_file: string; applied_at: Date | string }>
+  >(
+    `SELECT environment, input_file, applied_at
+     FROM one_time_data_scripts
+     WHERE script_key = $1`,
+    [ONCE_SCRIPT_KEY],
+  );
+  return rows[0] ?? null;
 };
 
 const readSheet = async (
@@ -168,9 +262,15 @@ const readSheet = async (
   let nameCol = 0;
   worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, colNumber) => {
     const header = normalizeText(cell).toLowerCase().replace(/\s+/g, ' ').replace(/\*$/, '').trim();
-    if (header === 'id') idCol = colNumber;
-    else if (header === 'sku' || header === 'sku code') skuCol = colNumber;
-    else if (header === 'name' || header === 'product name') nameCol = colNumber;
+    if (header === 'id' || header === 'product id') idCol = colNumber;
+    else if (
+      header === 'sku' ||
+      header === 'sku code' ||
+      header === 'product sku' ||
+      header === 'product sku code'
+    ) {
+      skuCol = colNumber;
+    } else if (header === 'name' || header === 'product name') nameCol = colNumber;
   });
 
   if (!skuCol) {
@@ -319,15 +419,38 @@ const revalidateStorefront = async (targets: RevalidateTarget[]): Promise<void> 
 
 async function run(): Promise<void> {
   const opts = parseCli(process.argv.slice(2));
+  applyOnceTarget(opts);
   const filePath = absolutePath(opts.file);
-  const unmatchedPath = absolutePath(UNMATCHED_CSV);
-  const updatedPath = absolutePath(UPDATED_CSV);
-  const logPath = absolutePath(LOG_FILE);
+  const reportPrefix = opts.test ? 'no-return-no-cod-test' : 'no-return-no-cod';
+  const unmatchedPath = absolutePath(`${EXPORT_DIR}/${reportPrefix}-unmatched.csv`);
+  const updatedPath = absolutePath(`${EXPORT_DIR}/${reportPrefix}-updated.csv`);
+  const logPath = absolutePath(`${EXPORT_DIR}/${reportPrefix}.log`);
 
+  if (opts.test) {
+    log(`${LOG_PREFIX} TEST MODE active`);
+    log(`${LOG_PREFIX} TEST MODE input file=${filePath}`);
+    log(`${LOG_PREFIX} TEST MODE does not write unless --apply is also passed`);
+    if (opts.ignoredFile) {
+      log(`${LOG_PREFIX} TEST MODE ignored --file=${opts.ignoredFile}`);
+    }
+  }
   log(`${LOG_PREFIX} file=${filePath}`);
   log(`${LOG_PREFIX} apply=${opts.apply}`);
 
-  const { rows: sheetRows, skippedBlankSku, sheetName } = await readSheet(filePath, opts.sheet);
+  await AppDataSource.initialize();
+  try {
+    if (opts.once) {
+      await ensureOnceTable();
+      const existing = await findOnceRun();
+      if (existing) {
+        log(
+          `${LOG_PREFIX} already applied once at ${existing.applied_at} environment=${existing.environment} file=${existing.input_file}; skipping`,
+        );
+        return;
+      }
+    }
+
+    const { rows: sheetRows, skippedBlankSku, sheetName } = await readSheet(filePath, opts.sheet);
   if (!sheetRows.length) {
     throw new Error('Sheet is empty or has no rows with SKU');
   }
@@ -358,19 +481,20 @@ async function run(): Promise<void> {
     );
   }
 
-  await AppDataSource.initialize();
-  try {
-    const rawVariants = await AppDataSource.query<
+  const rawVariants = await AppDataSource.query<
       Array<{
         id: string;
         productId: string;
         sku: string | null;
+        status: string;
         codAvailable: boolean | string | number | null;
         returnAllowed: boolean | string | number | null;
+        returnWindowDays: number | string | null;
         productRefId: string;
         productSlug: string;
         productCodAvailable: boolean | string | number | null;
         productReturnAllowed: boolean | string | number | null;
+        productReturnWindowDays: number | string | null;
       }>
     >(
       `
@@ -378,12 +502,15 @@ async function run(): Promise<void> {
         v.id,
         v.product_id AS "productId",
         v.sku,
+        v.status,
         v.cod_available AS "codAvailable",
         v.return_allowed AS "returnAllowed",
+        v.return_window_days AS "returnWindowDays",
         p.ref_id AS "productRefId",
         p.slug AS "productSlug",
         p.cod_available AS "productCodAvailable",
-        p.return_allowed AS "productReturnAllowed"
+        p.return_allowed AS "productReturnAllowed",
+        p.return_window_days AS "productReturnWindowDays"
       FROM product_variants v
       INNER JOIN products p ON p.id = v.product_id AND p.deleted_at IS NULL
       WHERE v.deleted_at IS NULL
@@ -394,12 +521,15 @@ async function run(): Promise<void> {
       id: row.id,
       productId: row.productId,
       sku: (row.sku ?? '').trim(),
+      status: row.status,
       codAvailable: coerceDbBoolean(row.codAvailable),
       returnAllowed: coerceDbBoolean(row.returnAllowed),
+      returnWindowDays: toWindowDays(row.returnWindowDays),
       productRefId: row.productRefId,
       productSlug: row.productSlug,
       productCodAvailable: coerceDbBoolean(row.productCodAvailable),
       productReturnAllowed: coerceDbBoolean(row.productReturnAllowed),
+      productReturnWindowDays: toWindowDays(row.productReturnWindowDays),
     }));
 
     const variantsByProduct = new Map<string, VariantRow[]>();
@@ -419,12 +549,21 @@ async function run(): Promise<void> {
     }
 
     const fullyCoveredProductIds = new Set<string>();
+    const fullyOutsideProductIds = new Set<string>();
     for (const [productId, productVariants] of variantsByProduct) {
       if (
         productVariants.length > 0 &&
         productVariants.every((variant) => sheetSkuKeys.has(skuKey(variant.sku)))
       ) {
         fullyCoveredProductIds.add(productId);
+      }
+
+      const activeVariants = productVariants.filter(isActiveVariant);
+      if (
+        activeVariants.length > 0 &&
+        activeVariants.every((variant) => !sheetSkuKeys.has(skuKey(variant.sku)))
+      ) {
+        fullyOutsideProductIds.add(productId);
       }
     }
 
@@ -436,6 +575,17 @@ async function run(): Promise<void> {
     );
     const alreadyFalse = matching.length - variantsChanging.length;
 
+    const variantsOutside = variants.filter(
+      (variant) => isActiveVariant(variant) && !sheetSkuKeys.has(skuKey(variant.sku)),
+    );
+    const variantsResetting = variantsOutside.filter(
+      (variant) =>
+        variant.codAvailable !== true ||
+        variant.returnAllowed !== true ||
+        variant.returnWindowDays !== RETURN_WINDOW_DAYS,
+    );
+    const alreadyReturnable = variantsOutside.length - variantsResetting.length;
+
     const productsChangingIds = [...fullyCoveredProductIds].filter((productId) => {
       const sample = variantsByProduct.get(productId)?.[0];
       if (!sample) return false;
@@ -443,17 +593,48 @@ async function run(): Promise<void> {
     });
     const productsChanging = new Set(productsChangingIds);
 
+    const productsResettingIds = [...fullyOutsideProductIds].filter((productId) => {
+      const sample = variantsByProduct.get(productId)?.find(isActiveVariant);
+      if (!sample) return false;
+      return (
+        sample.productCodAvailable !== true ||
+        sample.productReturnAllowed !== true ||
+        sample.productReturnWindowDays !== RETURN_WINDOW_DAYS
+      );
+    });
+    const productsResetting = new Set(productsResettingIds);
+
     const unmatchedRows = sheetRows.filter((row) => !matchedSkuKeys.has(skuKey(row.sku)));
 
     log(`${LOG_PREFIX} --- summary ---`);
     log(`${LOG_PREFIX} variants scanned:                         ${variants.length}`);
     log(`${LOG_PREFIX} matched variants:                         ${matching.length}`);
     log(`${LOG_PREFIX} already codAvailable=false and returnAllowed=false: ${alreadyFalse}`);
-    log(`${LOG_PREFIX} variants that will change:                ${variantsChanging.length}`);
+    log(`${LOG_PREFIX} matched variants that will change:        ${variantsChanging.length}`);
+    log(`${LOG_PREFIX} active variants not in sheet:             ${variantsOutside.length}`);
+    log(`${LOG_PREFIX} already codAvailable=true, returnAllowed=true, returnWindowDays=${RETURN_WINDOW_DAYS}: ${alreadyReturnable}`);
+    log(`${LOG_PREFIX} active variants that will reset:          ${variantsResetting.length}`);
     log(`${LOG_PREFIX} unmatched sheet SKU rows:                 ${unmatchedRows.length}`);
-    log(`${LOG_PREFIX} products fully covered (product flags):   ${fullyCoveredProductIds.size}`);
-    log(`${LOG_PREFIX} products whose flags will change:         ${productsChanging.size}`);
+    log(`${LOG_PREFIX} products fully covered (product flags false): ${fullyCoveredProductIds.size}`);
+    log(`${LOG_PREFIX} products whose flags will be set false:   ${productsChanging.size}`);
+    log(`${LOG_PREFIX} products with every active SKU absent:    ${fullyOutsideProductIds.size}`);
+    log(`${LOG_PREFIX} products whose flags will be set true:    ${productsResetting.size}`);
     log(`${LOG_PREFIX} partial matches (product flags unchanged): ${partialProductIds.length}`);
+
+    const updatedRow = (
+      variant: VariantRow,
+      action: 'in-sheet' | 'not-in-sheet',
+      productFlagsUpdated: boolean,
+    ): string =>
+      [
+        csvEscape(variant.sku),
+        csvEscape(variant.productRefId),
+        action,
+        variant.codAvailable,
+        variant.returnAllowed,
+        variant.returnWindowDays ?? '',
+        productFlagsUpdated,
+      ].join(',');
 
     const unmatchedLines = [
       'ID,SKU,Name',
@@ -462,10 +643,12 @@ async function run(): Promise<void> {
       ),
     ];
     const updatedLines = [
-      'sku,productRefId,previousCodAvailable,previousReturnAllowed,productFlagsUpdated',
-      ...variantsChanging.map(
-        (variant) =>
-          `${csvEscape(variant.sku)},${csvEscape(variant.productRefId)},${variant.codAvailable},${variant.returnAllowed},${productsChanging.has(variant.productId)}`,
+      'sku,productRefId,action,previousCodAvailable,previousReturnAllowed,previousReturnWindowDays,productFlagsUpdated',
+      ...variantsChanging.map((variant) =>
+        updatedRow(variant, 'in-sheet', productsChanging.has(variant.productId)),
+      ),
+      ...variantsResetting.map((variant) =>
+        updatedRow(variant, 'not-in-sheet', productsResetting.has(variant.productId)),
       ),
     ];
     writeCsv(unmatchedPath, unmatchedLines);
@@ -480,7 +663,9 @@ async function run(): Promise<void> {
     }
 
     let variantsUpdated = 0;
+    let variantsReset = 0;
     let productsUpdated = 0;
+    let productsReset = 0;
 
     await AppDataSource.transaction(async (manager) => {
       const variantRepo = manager.getRepository(ProductVariantEntity);
@@ -496,7 +681,27 @@ async function run(): Promise<void> {
           .whereInIds(ids)
           .execute();
         variantsUpdated += ids.length;
-        log(`${LOG_PREFIX} variants ${variantsUpdated}/${variantsChanging.length}`);
+        log(`${LOG_PREFIX} in-sheet variants ${variantsUpdated}/${variantsChanging.length}`);
+      }
+
+      for (const ids of chunk(
+        variantsResetting.map((variant) => variant.id),
+        CHUNK_SIZE,
+      )) {
+        if (!ids.length) continue;
+        await variantRepo
+          .createQueryBuilder()
+          .update(ProductVariantEntity)
+          .set({
+            codAvailable: true,
+            returnAllowed: true,
+            returnWindowDays: RETURN_WINDOW_DAYS,
+          })
+          .whereInIds(ids)
+          .andWhere('status = :status', { status: 'active' })
+          .execute();
+        variantsReset += ids.length;
+        log(`${LOG_PREFIX} not-in-sheet variants ${variantsReset}/${variantsResetting.length}`);
       }
 
       const productRepo = manager.getRepository(ProductEntity);
@@ -509,14 +714,42 @@ async function run(): Promise<void> {
           .whereInIds(ids)
           .execute();
         productsUpdated += ids.length;
-        log(`${LOG_PREFIX} products ${productsUpdated}/${productsChanging.size}`);
+        log(`${LOG_PREFIX} in-sheet products ${productsUpdated}/${productsChanging.size}`);
+      }
+
+      for (const ids of chunk([...productsResetting], CHUNK_SIZE)) {
+        if (!ids.length) continue;
+        await productRepo
+          .createQueryBuilder()
+          .update(ProductEntity)
+          .set({
+            codAvailable: true,
+            returnAllowed: true,
+            returnWindowDays: RETURN_WINDOW_DAYS,
+          })
+          .whereInIds(ids)
+          .execute();
+        productsReset += ids.length;
+        log(`${LOG_PREFIX} not-in-sheet products ${productsReset}/${productsResetting.size}`);
+      }
+
+      if (opts.once) {
+        await manager.query(
+          `INSERT INTO one_time_data_scripts (script_key, environment, input_file)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (script_key) DO NOTHING`,
+          [ONCE_SCRIPT_KEY, opts.test ? 'techbv' : 'live', opts.file],
+        );
+        log(`${LOG_PREFIX} recorded one-time run key=${ONCE_SCRIPT_KEY}`);
       }
     });
 
     const changedProductIds = [
       ...new Set([
         ...variantsChanging.map((variant) => variant.productId),
+        ...variantsResetting.map((variant) => variant.productId),
         ...productsChanging,
+        ...productsResetting,
       ]),
     ];
 
@@ -542,7 +775,9 @@ async function run(): Promise<void> {
 
     log(`${LOG_PREFIX} --- apply complete ---`);
     log(`${LOG_PREFIX} variants marked no-COD and non-returnable: ${variantsUpdated}`);
+    log(`${LOG_PREFIX} active variants reset to COD and returnable (${RETURN_WINDOW_DAYS} days): ${variantsReset}`);
     log(`${LOG_PREFIX} products marked no-COD and non-returnable: ${productsUpdated}`);
+    log(`${LOG_PREFIX} products reset to COD and returnable (${RETURN_WINDOW_DAYS} days): ${productsReset}`);
     log(`${LOG_PREFIX} unmatched sheet SKU rows:                  ${unmatchedRows.length}`);
     log(`${LOG_PREFIX} unmatched CSV: ${unmatchedPath}`);
     log(`${LOG_PREFIX} updated CSV: ${updatedPath}`);
@@ -559,6 +794,11 @@ run()
     const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
     console.error(`${LOG_PREFIX} failed:`, error);
     logLines.push(`${LOG_PREFIX} failed: ${detail}`);
-    flushLog(absolutePath(LOG_FILE));
+    const failedLog =
+      process.argv.includes('--test') ||
+      (process.argv.includes('--once') && /techbv/i.test(process.env['STOREFRONT_URL'] ?? ''))
+        ? `${EXPORT_DIR}/no-return-no-cod-test.log`
+        : `${EXPORT_DIR}/no-return-no-cod.log`;
+    flushLog(absolutePath(failedLog));
     process.exit(1);
   });
