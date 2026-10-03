@@ -68,7 +68,8 @@ export class OrdersController {
     summary: 'Get my order by id',
     description:
       'Full order detail including line items, shipment tracking, and all status timestamps ' +
-      '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt).',
+      '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt). ' +
+      '`returnAllowed` / `replaceAllowed` are true only for a delivered order, when at least one ordered variant has that action enabled and the order is still inside that variant window. Hide the button when the flag is false.',
   })
   @ResponseMessage('Order fetched successfully')
   @Get(':id')

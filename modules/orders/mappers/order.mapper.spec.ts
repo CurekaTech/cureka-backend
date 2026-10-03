@@ -2,7 +2,13 @@ import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-re
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
-import { mapOrderPaymentSummary, mapPaymentRequestToOrderStatuses } from './order.mapper';
+import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
+import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
+import {
+  mapOrderPaymentSummary,
+  mapPaymentRequestToOrderStatuses,
+  resolveOrderItemReturnReplace,
+} from './order.mapper';
 
 describe('mapOrderPaymentSummary', () => {
   const baseOrder = {
@@ -52,6 +58,83 @@ describe('mapOrderPaymentSummary', () => {
     expect(summary.paidAmount).toBe(695);
     expect(summary.paymentMethod).toBe('RAZORPAY');
     expect(summary.paymentStatus).toBe('PAID');
+  });
+});
+
+describe('resolveOrderItemReturnReplace', () => {
+  const deliveredAt = new Date('2026-10-01T00:00:00.000Z');
+  const snapshot = (
+    overrides: Partial<IOrderItemReturnPolicySnapshot> = {},
+  ): IOrderItemReturnPolicySnapshot => ({
+    source: 'SNAPSHOT',
+    capturedAt: deliveredAt.toISOString(),
+    returnable: true,
+    refundable: true,
+    replaceable: true,
+    returnWindow: 2,
+    returnWindowUnit: PolicyWindowUnit.DAYS,
+    replacementWindow: 2,
+    replacementWindowUnit: PolicyWindowUnit.DAYS,
+    pickupRequired: true,
+    qcRequired: true,
+    customerEvidenceRequired: false,
+    noPickupRefundAllowed: false,
+    policyText: null,
+    ...overrides,
+  });
+
+  it('keeps the window open on the day it was delivered', () => {
+    const flags = resolveOrderItemReturnReplace(snapshot(), deliveredAt, true, deliveredAt);
+    expect(flags.returnAllowed).toBe(true);
+    expect(flags.replaceAllowed).toBe(true);
+    expect(flags.returnWindowDays).toBe(2);
+    expect(flags.replaceWindowDays).toBe(2);
+    expect(flags.withinReturnWindow).toBe(true);
+    expect(flags.withinReplaceWindow).toBe(true);
+  });
+
+  it('closes the window after the variant window days', () => {
+    const flags = resolveOrderItemReturnReplace(
+      snapshot(),
+      deliveredAt,
+      true,
+      new Date('2026-10-04T00:00:00.000Z'),
+    );
+    expect(flags.returnAllowed).toBe(true);
+    expect(flags.withinReturnWindow).toBe(false);
+    expect(flags.withinReplaceWindow).toBe(false);
+  });
+
+  it('does not open a window when the ordered variant disallows the action', () => {
+    const flags = resolveOrderItemReturnReplace(
+      snapshot({ returnable: false, replaceable: false }),
+      deliveredAt,
+      true,
+      deliveredAt,
+    );
+    expect(flags.returnAllowed).toBe(false);
+    expect(flags.replaceAllowed).toBe(false);
+    expect(flags.withinReturnWindow).toBe(false);
+    expect(flags.withinReplaceWindow).toBe(false);
+  });
+
+  it('keeps both windows closed until the order is delivered', () => {
+    const flags = resolveOrderItemReturnReplace(snapshot(), deliveredAt, false, deliveredAt);
+    expect(flags.returnAllowed).toBe(true);
+    expect(flags.replaceAllowed).toBe(true);
+    expect(flags.withinReturnWindow).toBe(false);
+    expect(flags.withinReplaceWindow).toBe(false);
+  });
+
+  it('hides both actions when the order has no policy snapshot', () => {
+    expect(resolveOrderItemReturnReplace(null, deliveredAt, true)).toEqual({
+      returnAllowed: false,
+      replaceAllowed: false,
+      returnWindowDays: null,
+      replaceWindowDays: null,
+      withinReturnWindow: false,
+      withinReplaceWindow: false,
+    });
   });
 });
 
