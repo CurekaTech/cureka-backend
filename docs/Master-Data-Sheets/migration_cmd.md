@@ -333,13 +333,18 @@ npm run typesense:reindex
 # No-COD and no-return from no-return-no-cod sheet
 # Sheet SKU → variant.sku (case-insensitive; SKU is the only match key)
 # SKU in sheet: codAvailable=false, returnAllowed=false (returnWindowDays unchanged)
-# Active SKU not in sheet: codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Active or out-of-stock SKU not in sheet: codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Inactive SKU that is not out of stock and not in the sheet: unchanged
 # All non-deleted variant SKUs in the sheet: product codAvailable=false, returnAllowed=false
-# Every active variant SKU absent from the sheet: product codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Every active or out-of-stock variant SKU absent from the sheet: product codAvailable=true, returnAllowed=true, returnWindowDays=2
 # Mixed products: variant flags follow each SKU; product flags stay unchanged
 # Reports: docs/Master-Data-Sheets/exports/no-return-no-cod-unmatched.csv
 #          docs/Master-Data-Sheets/exports/no-return-no-cod-updated.csv
 #          docs/Master-Data-Sheets/exports/no-return-no-cod.log
+
+# Same COD / return rules for every command below, including out-of-stock variants.
+# Dry-run writes nothing. --apply writes. --test only swaps the sheet.
+# --once applies once per database: TechBV uses the test sheet, any other storefront uses the full sheet.
 
 # Dry-run first
 npm run product:no-return-no-cod
@@ -347,20 +352,21 @@ npm run product:no-return-no-cod
 # Apply (writes DB, clears Redis product cache, revalidates the storefront)
 npm run product:no-return-no-cod -- --apply
 
-# First deploy only. Uses STOREFRONT_URL:
+# First deploy of this version only. Uses STOREFRONT_URL:
 #   techbv  → docs/Master-Data-Sheets/test-techbv.xlsx
 #   live    → docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx
-# Writes a row in one_time_data_scripts and skips on every later deploy.
+# Writes one_time_data_scripts key product-no-return-no-cod-oos and skips on every later deploy.
+# A database that already ran the older key still runs this version once, so OOS variants are included.
 # scripts/deploy-beta.sh runs this after migrations.
 npm run product:no-return-no-cod -- --once
 
 # Optional
 npm run product:no-return-no-cod -- --file="docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx" --apply
 
-# TechBV test sheet only (docs/Master-Data-Sheets/test-techbv.xlsx). Dry-run unless --apply.
+# TechBV test sheet only (docs/Master-Data-Sheets/test-techbv.xlsx). Same rules, including OOS. Dry-run unless --apply.
 # Run this on the TechBV server, where DATABASE_URL points at the TechBV database.
 npm run product:no-return-no-cod -- --test
 npm run product:no-return-no-cod -- --test --apply
 
-# Optional later test sheet
+# Optional later test sheet. Same rules, including OOS.
 npm run product:no-return-no-cod -- --test --test-file="docs/Master-Data-Sheets/another-test.xlsx"
