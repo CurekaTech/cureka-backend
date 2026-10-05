@@ -341,6 +341,13 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('expert_talks', 'Expert Talks'),
   ...buildCrudPermissions('testimonials', 'Testimonials'),
   ...buildCrudPermissions('cms_pages', 'CMS Pages'),
+  ...buildCrudPermissions('promotional_landing_pages', 'Promotional Landing Pages'),
+  {
+    name: 'Preview Promotional Landing Pages',
+    code: 'promotional_landing_pages.preview',
+    module: 'promotional_landing_pages',
+    action: PermissionAction.READ,
+  },
   ...buildCrudPermissions('audit_logs', 'Audit Logs'),
   ...buildCrudPermissions('support_categories', 'Support Categories'),
   ...buildCrudPermissions('support_articles', 'Support Articles'),
