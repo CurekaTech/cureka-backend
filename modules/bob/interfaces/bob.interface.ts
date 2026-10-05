@@ -1,5 +1,5 @@
 export type BobCategory = {
-  id: string;
+  id: number;
   title: string;
   parentId: string | null;
   parentTitle: string | null;
