@@ -49,6 +49,13 @@ export class CategoriesRepository {
       .getOne();
   }
 
+  async findActiveByHierarchyId(hierarchyId: number): Promise<CategoryEntity | null> {
+    if (!Number.isSafeInteger(hierarchyId) || hierarchyId <= 0) return null;
+    return this.repo.findOne({
+      where: { hierarchyId, status: MasterStatus.ACTIVE },
+    });
+  }
+
   async findByRefId(refId: string): Promise<CategoryEntity | null> {
     return this.repo
       .createQueryBuilder('category')

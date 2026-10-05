@@ -54,10 +54,10 @@ describe('mapBobCategory', () => {
       parentCategoryId: 'parent-uuid',
     } as CategoryEntity;
 
-    expect(mapBobCategory(child, 'Healthcare Devices')).toEqual({
+    expect(mapBobCategory(child, { hierarchyId: 1031, name: 'Healthcare Devices' })).toEqual({
       id: 220184,
       title: 'Medical Equipments',
-      parentId: 'parent-uuid',
+      parentId: 1031,
       parentTitle: 'Healthcare Devices',
     });
   });
