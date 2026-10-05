@@ -35,7 +35,10 @@ import {
   BobProductSummary,
   BobVariantDetail,
 } from '../interfaces/bob.interface';
-import { requireBobCatalogueProductId } from '../utils/bob-product-id.util';
+import {
+  requireBobCatalogueCategoryId,
+  requireBobCatalogueProductId,
+} from '../utils/bob-product-id.util';
 import { toBobE164Phone, toBobOrderAlias } from '../utils/bob.util';
 
 export function mapBobCategory(
@@ -43,7 +46,7 @@ export function mapBobCategory(
   parentTitle: string | null = null,
 ): BobCategory {
   return {
-    id: category.id,
+    id: requireBobCatalogueCategoryId(category),
     title: category.name,
     parentId: category.parentCategoryId,
     parentTitle: parentTitle ?? category.parent?.name ?? null,
