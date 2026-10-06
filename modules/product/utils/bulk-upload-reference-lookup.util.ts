@@ -200,6 +200,92 @@ export const loadImageUrlsByProductId = async (
   return { path: filePath, loaded: true, byProductId };
 };
 
+export interface HarvestedImageLookup {
+  path: string;
+  loaded: boolean;
+  byProductId: Map<string, string[]>;
+  bySku: Map<string, string[]>;
+  rows: Array<{ productId: string; sku: string; keys: string[] }>;
+}
+
+const sameLookupKeyList = (left: string[], right: string[]): boolean =>
+  left.length === right.length && left.every((key, index) => key === right[index]);
+
+/**
+ * Harvested GCS map: Product ID and SKU → ordered storage keys.
+ * The first key is the primary image. Rows that only have a SKU are still indexed.
+ * A SKU whose rows disagree is omitted from `bySku` so bulk upload will not guess.
+ */
+export const loadHarvestedImageLookup = async (
+  filePath = resolveLookupPath(
+    process.env['BULK_UPLOAD_IMAGE_LOOKUP_FILE'],
+    DEFAULT_HARVESTED_IMAGE_LOOKUP_FILE,
+  ),
+): Promise<HarvestedImageLookup> => {
+  const byProductId = new Map<string, string[]>();
+  const bySku = new Map<string, string[]>();
+  const skuConflicts = new Set<string>();
+  const rows: HarvestedImageLookup['rows'] = [];
+  if (!(await fileExists(filePath))) {
+    return { path: filePath, loaded: false, byProductId, bySku, rows };
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) {
+    return { path: filePath, loaded: false, byProductId, bySku, rows };
+  }
+
+  const headers = new Map<string, number>();
+  worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, columnNumber) => {
+    const header = normalizeHeader(cellText(cell));
+    if (header) headers.set(header, columnNumber);
+  });
+
+  const idColumn = getHeaderIndex(headers, ['ID', 'Product ID', 'External Product ID']);
+  const skuColumn = getHeaderIndex(headers, ['SKU', 'Sku', 'Product SKU']);
+  const imagesColumn = getHeaderIndex(headers, ['Images', 'Image', 'Image URLs', 'Image Url']);
+  if (imagesColumn === undefined || (idColumn === undefined && skuColumn === undefined)) {
+    return { path: filePath, loaded: false, byProductId, bySku, rows };
+  }
+
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const productId =
+      idColumn !== undefined ? normalizeLookupProductId(cellText(row.getCell(idColumn))) : '';
+    const sku = skuColumn !== undefined ? normalizeLookupSku(cellText(row.getCell(skuColumn))) : '';
+    const urls = parseImageUrlList(cellText(row.getCell(imagesColumn)));
+    if ((!productId && !sku) || !urls.length) continue;
+
+    if (productId && !byProductId.has(productId)) {
+      byProductId.set(productId, urls);
+      rows.push({ productId, sku, keys: urls });
+    } else if (!productId && sku) {
+      rows.push({ productId: '', sku, keys: urls });
+    }
+
+    if (!sku || skuConflicts.has(sku)) continue;
+    const existing = bySku.get(sku);
+    if (!existing) {
+      bySku.set(sku, urls);
+      continue;
+    }
+    if (!sameLookupKeyList(existing, urls)) {
+      bySku.delete(sku);
+      skuConflicts.add(sku);
+    }
+  }
+
+  return {
+    path: filePath,
+    loaded: byProductId.size > 0 || bySku.size > 0,
+    byProductId,
+    bySku,
+    rows,
+  };
+};
+
 const parseImageUrlList = (imagesRaw: string): string[] =>
   imagesRaw
     .split(',')

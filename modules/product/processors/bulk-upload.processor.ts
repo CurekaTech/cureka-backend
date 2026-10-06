@@ -34,12 +34,17 @@ import {
 } from '../utils/bulk-upload-error-message.util';
 import {
   buildImagesFromLookupUrls,
-  loadImageUrlsByProductId,
+  DEFAULT_IMAGE_HARVEST_CACHE_FILE,
+  loadHarvestedImageLookup,
   loadManufacturerAddressByProductId,
   loadProductPageUrlsByProductId,
   loadSlugsByProductId,
   normalizeLookupProductId,
+  normalizeLookupSku,
 } from '../utils/bulk-upload-reference-lookup.util';
+import { findHarvestedGcsKey, resolveHarvestedImageKeys } from '../utils/legacy-image-reconcile.util';
+import { loadHarvestCache } from '../utils/wp-image-harvest.util';
+import { isAbsolute, join, resolve as resolvePath } from 'path';
 import {
   toManufacturerImportCode,
   toStoredManufacturerName,
@@ -57,7 +62,6 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductMediaDto } from '../dto/variant.dto';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
-import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as exceljs from 'exceljs';
@@ -95,6 +99,9 @@ interface BulkExportJobData {
 export class BulkUploadProcessor extends WorkerHost {
   /** Bound per job (concurrency: 1). Falls back to root pino logger outside process(). */
   private jobLogger: JobLogger | null = null;
+
+  /** URL → validated GCS key. Loaded once per job so Cureka URLs are not downloaded again. */
+  private harvestedUrlCache: Map<string, string> = new Map();
 
   private get logger(): JobLogger {
     return this.jobLogger ?? createJobLogger(this.pinoLogger, { queue: 'bulk-upload' });
@@ -221,8 +228,16 @@ export class BulkUploadProcessor extends WorkerHost {
       return null;
     }
 
-    // 1) Public image URL → download (primary path for bulk media)
+    // 1) Public image URL → harvested GCS key, otherwise download
     if (isRemoteImageUrl(mediaUrl)) {
+      const cachedKey = findHarvestedGcsKey(this.harvestedUrlCache, mediaUrl);
+      if (cachedKey) {
+        return {
+          url: cachedKey,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder,
+        };
+      }
       const downloadUrl = toLegacyCurekaImageUrl(mediaUrl);
       try {
         const response = await fetch(downloadUrl, {
@@ -664,7 +679,11 @@ export class BulkUploadProcessor extends WorkerHost {
       await this.validatorService.primeValidationCache();
       const galleryMap = await this.galleryService.getAllGalleryMap();
       const manufacturerLookup = await loadManufacturerAddressByProductId();
-      const imageLookup = await loadImageUrlsByProductId();
+      const imageLookup = await loadHarvestedImageLookup();
+      const cachePath = isAbsolute(DEFAULT_IMAGE_HARVEST_CACHE_FILE)
+        ? DEFAULT_IMAGE_HARVEST_CACHE_FILE
+        : resolvePath(process.cwd(), DEFAULT_IMAGE_HARVEST_CACHE_FILE);
+      this.harvestedUrlCache = await loadHarvestCache(cachePath);
       const slugLookup = await loadSlugsByProductId();
       const productPageUrlLookup = await loadProductPageUrlsByProductId();
       if (!manufacturerLookup.loaded) {
@@ -678,7 +697,7 @@ export class BulkUploadProcessor extends WorkerHost {
         );
       } else {
         this.logger.log(
-          `Harvested GCS image map loaded (${imageLookup.path}) productIds=${imageLookup.byProductId.size}`,
+          `Harvested GCS image map loaded (${imageLookup.path}) productIds=${imageLookup.byProductId.size} skus=${imageLookup.bySku.size} cachedUrls=${this.harvestedUrlCache.size}`,
         );
       }
       if (!slugLookup.loaded) {
@@ -777,12 +796,10 @@ export class BulkUploadProcessor extends WorkerHost {
               const lookupManufacturerAddress = lookupProductId
                 ? manufacturerLookup.byProductId.get(lookupProductId)
                 : undefined;
-              const lookupImageUrls = lookupProductId
-                ? imageLookup.byProductId.get(lookupProductId)
-                : undefined;
               const lookupSlug = lookupProductId
                 ? slugLookup.byProductId.get(lookupProductId)
                 : undefined;
+              let imageLookupConflict = false;
 
               // Sheet Manufacturer Name wins; otherwise Product ID lookup fills in.
               let autoManufacturerRefId = refs.manufacturerRefId;
@@ -826,9 +843,18 @@ export class BulkUploadProcessor extends WorkerHost {
                     normalizeLookupProductId(v.externalProductId) ||
                     normalizeLookupProductId(group.externalProductId) ||
                     '';
-                  const variantLookupImageUrls = variantLookupProductId
-                    ? imageLookup.byProductId.get(variantLookupProductId)
-                    : undefined;
+                  const harvestedImages = resolveHarvestedImageKeys(
+                    variantLookupProductId,
+                    normalizeLookupSku(v.sku),
+                    imageLookup.byProductId,
+                    imageLookup.bySku,
+                  );
+                  if (harvestedImages.conflict) {
+                    imageLookupConflict = true;
+                    this.logger.warn(
+                      `[BULK_UPLOAD] SKU ${v.sku} productId ${variantLookupProductId || '(empty)'}: harvested SKU and Product ID image lists differ; skipping auto-attach`,
+                    );
+                  }
                   const variantLookupSlug = variantLookupProductId
                     ? slugLookup.byProductId.get(variantLookupProductId)
                     : undefined;
@@ -836,8 +862,8 @@ export class BulkUploadProcessor extends WorkerHost {
                     ? productPageUrlLookup.byProductId.get(variantLookupProductId)
                     : undefined;
 
-                  if (processedImages.length === 0 && variantLookupImageUrls?.length) {
-                    for (const item of buildImagesFromLookupUrls(variantLookupImageUrls)) {
+                  if (processedImages.length === 0 && !harvestedImages.conflict && harvestedImages.keys.length) {
+                    for (const item of buildImagesFromLookupUrls(harvestedImages.keys)) {
                       const resolved = await this.resolveBulkUploadImage(
                         { url: item.url, isPrimary: item.isPrimary, sortOrder: item.sortOrder },
                         galleryMap,
@@ -1008,10 +1034,13 @@ export class BulkUploadProcessor extends WorkerHost {
               const resolvedImageCount =
                 (processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0) +
                 processedCommonMedia.length;
-              if (lookupProductId && lookupImageUrls?.length && resolvedImageCount === 0) {
-                this.logger.warn(
-                  `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId} has ${lookupImageUrls.length} lookup image(s), but none could be resolved. Continuing without images temporarily.`,
-                );
+              if (!imageLookupConflict && lookupProductId && resolvedImageCount === 0) {
+                const lookupImageUrls = imageLookup.byProductId.get(lookupProductId);
+                if (lookupImageUrls?.length) {
+                  this.logger.warn(
+                    `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId} has ${lookupImageUrls.length} lookup image(s), but none could be resolved. Continuing without images temporarily.`,
+                  );
+                }
               }
 
               if (unresolvedCommonMedia.length) {

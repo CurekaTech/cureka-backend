@@ -283,3 +283,37 @@ npm run product:harvest-images -- --limit=20
 # apply (resume-safe; re-run until pending=0)
 npm run product:harvest-images -- --limit=20 --apply
 npm run product:harvest-images -- --apply
+
+# Reconcile the updated legacy image sheet (docs/Master-Data-Sheets/legacy-image-urls-10-09.xlsx)
+# against the harvest cache and missing-images.xlsx.
+# Dry-run does not download, write GCS, or change the DB.
+# --apply copies the cache JSON and GCS map to timestamped .bak files first.
+# It refuses to run if docs/wp-image-harvest-cache.json is missing, unless --allow-empty-cache.
+# A URL already in the cache is reused only after the GCS object exists and validates as an image.
+# Invalid objects are downloaded again from legacy.cureka.com while that site is still up.
+# After a valid GCS key is stored, bulk upload uses that key and does not call the legacy host.
+# Simple products get the images on their single default variant (type=image), not as common media.
+# DB writes are limited to unambiguous matches that are also on missing-images.xlsx.
+# Conflicts are reported and not written. Products missing from the DB are still stored in the map.
+
+# preview
+npm run product:reconcile-legacy-images
+
+# apply
+npm run product:reconcile-legacy-images -- --apply
+
+# small batch, then re-run until pending downloads are done
+npm run product:reconcile-legacy-images -- --limit=20 --apply
+
+# Report: docs/Master-Data-Sheets/legacy-image-reconcile-report.xlsx
+# Sheets: Updated, Download Failures, Not In DB, Missing Without Legacy, Conflicts
+
+# TechBV / current-environment test. Uses the DB and GCS config of the process
+# that launches it (no hardcoded database). Only unambiguous variant matches in
+# that database are downloaded, backed up, and written. Unmatched legacy rows
+# are counted and skipped. Dry-run is the default and does not write.
+# Report: docs/Master-Data-Sheets/legacy-image-reconcile-techbv-report.xlsx
+
+npm run product:reconcile-legacy-images:test
+npm run product:reconcile-legacy-images:test -- --dry-run
+npm run product:reconcile-legacy-images:test -- --apply
