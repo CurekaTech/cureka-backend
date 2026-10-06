@@ -23,6 +23,6 @@ export const RASTER_IMAGE_MIME_TYPES = [
   'image/x-ms-bmp',
 ] as const;
 
-export const DERIVATIVE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
+export const DERIVATIVE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 export const IMAGE_ASSET_CACHE_TTL_MS = 15_000;

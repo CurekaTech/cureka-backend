@@ -22,10 +22,12 @@ import {
   buildPaginatedResult,
   buildPaginationOptions,
   generateUniqueRefId,
+  isCurekaInventoryManaged,
   PaginatedResult,
 } from '@packages/common';
-import { EVENTS } from '@packages/events';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { EVENTS, ProductUpdatedEvent } from '@packages/events';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { ProductEntity } from '@modules/product/entities/product.entity';
 import {
   INVALID_STATUS_TRANSITION,
   RETURN_ALREADY_REPLACED,
@@ -762,6 +764,7 @@ export class ReturnWorkflowService {
     const nextStatus =
       overallResult === ReturnQcResult.FAIL ? ReturnStatus.QC_FAILED : ReturnStatus.QC_PASSED;
     const performedAt = new Date();
+    let stockAffectedProductIds = new Set<string>();
 
     await this.dataSource.transaction(async (manager) => {
       const locked = await this.lockAndAssert(manager, request.id, nextStatus);
@@ -827,9 +830,16 @@ export class ReturnWorkflowService {
       });
 
       if (nextStatus === ReturnStatus.QC_PASSED) {
-        await this.restockAcceptedUnits(manager, request.id, dto, actor);
+        stockAffectedProductIds = await this.restockAcceptedUnits(
+          manager,
+          request.id,
+          dto,
+          actor,
+        );
       }
     });
+
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
 
     await this.eventEmitter.emitAsync(EVENTS.RETURN_QC_COMPLETED, {
       returnRequestId: request.id,
@@ -1107,18 +1117,16 @@ export class ReturnWorkflowService {
   }
 
   /**
-   * Unicommerce is the fulfilment system of record, so restocking here is off by
-   * default; enabling both would double-count returned stock.
+   * Restock accepted QC units for Cureka-managed variants only
+   * (STOCK_INVENTORY_MANAGEMENT_ENABLED + inCurekaInventory).
+   * Non-managed inventory stays with Unicommerce — do not dual-write.
    */
   private async restockAcceptedUnits(
     manager: EntityManager,
     returnRequestId: string,
     dto: SubmitQcDto,
     actor: ReturnActor,
-  ): Promise<void> {
-    if (!this.configService.get<boolean>('returns.inventory.restockOnQcPass')) {
-      return;
-    }
+  ): Promise<Set<string>> {
     const items = await this.returnRequestsRepository.findItemsByReturnRequestId(
       returnRequestId,
       manager,
@@ -1127,17 +1135,49 @@ export class ReturnWorkflowService {
       dto.items.map((line) => [line.returnRequestItemId, line.acceptedQuantity]),
     );
 
+    const stockAffectedProductIds = new Set<string>();
     for (const item of items) {
       const accepted = acceptedByItemId.get(item.id) ?? 0;
       if (accepted <= 0) continue;
-      await applyStockDeltaInManager(manager, item.variantId, accepted);
+
+      const variant = await manager.getRepository(ProductVariantEntity).findOne({
+        where: { id: item.variantId },
+        select: ['id', 'productId', 'inCurekaInventory'],
+      });
+      if (!variant || !isCurekaInventoryManaged(variant)) continue;
+
+      await applyStockDeltaInManager(manager, item.variantId, accepted, {
+        requireVariant: false,
+      });
+      stockAffectedProductIds.add(variant.productId);
     }
-    await this.returnRequestsRepository.updateById(
-      returnRequestId,
-      { inventoryRestored: true, updatedBy: actor.email ?? actor.id },
-      manager,
+
+    if (stockAffectedProductIds.size > 0) {
+      await this.returnRequestsRepository.updateById(
+        returnRequestId,
+        { inventoryRestored: true, updatedBy: actor.email ?? actor.id },
+        manager,
+      );
+      this.logger.log({ returnRequestId }, 'Restored accepted return units to variant stock');
+    }
+    return stockAffectedProductIds;
+  }
+
+  private async emitProductsUpdatedAfterStockChange(productIds: Set<string>): Promise<void> {
+    const ids = [...productIds].filter(Boolean);
+    if (!ids.length) return;
+    const products = await this.dataSource.getRepository(ProductEntity).find({
+      where: { id: In(ids) },
+      select: ['id', 'refId'],
+    });
+    await Promise.all(
+      products.map((product) =>
+        this.eventEmitter.emitAsync(
+          EVENTS.PRODUCT_UPDATED,
+          new ProductUpdatedEvent(product.refId, 'updated'),
+        ),
+      ),
     );
-    this.logger.log({ returnRequestId }, 'Restored accepted return units to variant stock');
   }
 
   private async buildRefundLink(request: ReturnRequestEntity): Promise<IReturnRefundLinkView> {

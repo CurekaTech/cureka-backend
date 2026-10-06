@@ -18,6 +18,7 @@ import {
   resolveProductInformationLabelName,
   sanitizeBulkUploadCellText,
 } from '../utils/bulk-upload-columns.util';
+import { repairUtf8Mojibake } from '@modules/public/utils/repair-utf8-mojibake';
 import {
   VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
   parseAttributeDetailsFromRow,
@@ -161,6 +162,7 @@ export interface IParsedProductGroup {
   metaKeywords: string[];
   categoryFilters: { categoryFilterRefId: string; values: string[] }[];
   sizeChart?: string;
+  faqBanner?: string;
   subscriptionEnabled: boolean;
   returnAllowed: boolean;
   returnPolicy?: string;
@@ -294,7 +296,7 @@ export class BulkUploadParserService {
     if (typeof val === 'object') {
       if ('richText' in val && Array.isArray((val as any).richText)) {
         if (options?.preserveRichTextAsHtml) {
-          return sanitizeBulkUploadCellText(this.richTextToHtml((val as any).richText));
+          return repairUtf8Mojibake(sanitizeBulkUploadCellText(this.richTextToHtml((val as any).richText)));
         }
         text = (val as any).richText.map((t: any) => t.text || '').join('');
       } else if ('text' in val) {
@@ -307,7 +309,7 @@ export class BulkUploadParserService {
     } else {
       text = String(val);
     }
-    return sanitizeBulkUploadCellText(text);
+    return repairUtf8Mojibake(sanitizeBulkUploadCellText(text));
   }
 
   private parseCategoryFilters(raw: string): { categoryFilterRefId: string; values: string[] }[] {
@@ -765,6 +767,14 @@ export class BulkUploadParserService {
             productInformation,
           );
         }
+      }
+
+      const rowFaqBanner = resolveBulkUploadSizeChart(
+        getVal('faq banner url'),
+        this.getFirstAvailable(getVal, ['faq banner filename/path', 'faq banner']),
+      );
+      if (rowFaqBanner && !group.faqBanner) {
+        group.faqBanner = rowFaqBanner;
       }
 
       // Bundle rows

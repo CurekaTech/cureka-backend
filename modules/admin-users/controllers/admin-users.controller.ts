@@ -26,12 +26,12 @@ import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('admin-users')
 export class AdminUsersController {
   constructor(private readonly adminUsersService: AdminUsersService) {}
 
-  @Roles(AdminUserRole.SUPER_ADMIN)
-  @RequirePermissions('users.create')
+  @RequirePermissions('admin_users.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateAdminUserDto, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -42,22 +42,19 @@ export class AdminUsersController {
     );
   }
 
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @RequirePermissions('users.read')
+  @RequirePermissions('admin_users.read')
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
     return this.adminUsersService.findAll(query);
   }
 
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
-  @RequirePermissions('users.read')
+  @RequirePermissions('admin_users.read')
   @Get(':refIdOrId')
   findOne(@Param('refIdOrId') refIdOrId: string) {
     return this.adminUsersService.findOne(refIdOrId);
   }
 
-  @Roles(AdminUserRole.SUPER_ADMIN)
-  @RequirePermissions('users.update')
+  @RequirePermissions('admin_users.update')
   @Patch(':refIdOrId')
   update(
     @Param('refIdOrId') refIdOrId: string,
@@ -67,8 +64,7 @@ export class AdminUsersController {
     return this.adminUsersService.update(refIdOrId, dto, user.role as AdminUserRole);
   }
 
-  @Roles(AdminUserRole.SUPER_ADMIN)
-  @RequirePermissions('users.delete')
+  @RequirePermissions('admin_users.delete')
   @Delete(':refIdOrId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refIdOrId') refIdOrId: string) {

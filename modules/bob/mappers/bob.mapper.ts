@@ -35,10 +35,22 @@ import {
   BobProductSummary,
   BobVariantDetail,
 } from '../interfaces/bob.interface';
+import {
+  requireBobCatalogueCategoryId,
+  requireBobCatalogueProductId,
+} from '../utils/bob-product-id.util';
 import { toBobE164Phone, toBobOrderAlias } from '../utils/bob.util';
 
-export function mapBobCategory(category: CategoryEntity): BobCategory {
-  return { id: category.id, title: category.name };
+export function mapBobCategory(
+  category: CategoryEntity,
+  parent: Pick<CategoryEntity, 'hierarchyId' | 'name'> | null = null,
+): BobCategory {
+  return {
+    id: requireBobCatalogueCategoryId(category),
+    title: category.name,
+    parentId: parent ? requireBobCatalogueCategoryId(parent) : null,
+    parentTitle: parent?.name ?? null,
+  };
 }
 
 export function mapBobProductStatus(status: ProductStatus): 'ACTIVE' | 'inactive' {
@@ -53,7 +65,7 @@ export function mapBobProductTags(product: ProductEntity): string[] {
 
 export function mapBobProductSummary(product: ProductEntity): BobProductSummary {
   return {
-    id: product.id,
+    id: requireBobCatalogueProductId(product),
     title: product.name,
     status: mapBobProductStatus(product.status),
     tags: mapBobProductTags(product),
@@ -69,7 +81,7 @@ export function mapBobProductDetail(
   const image = resolveProductImageUrl(product, null, imageByKey);
   const options = collectOptions(variants);
   return {
-    id: product.id,
+    id: requireBobCatalogueProductId(product),
     title: product.name,
     status: mapBobProductStatus(product.status),
     tags: mapBobProductTags(product),
@@ -82,7 +94,7 @@ export function mapBobProductDetail(
       title: variantTitle(product, variant),
       price: String(variant.sellingPrice),
       inventoryQuantity: variant.stock,
-      inventoryPolicy: STOCK_VALIDATION_ENABLED ? 'deny' : 'continue',
+      inventoryPolicy: STOCK_VALIDATION_ENABLED(variant) ? 'deny' : 'continue',
       inventoryManaged: true,
       image: resolveProductImageUrl(product, variant.id, imageByKey) || image,
       description: product.description ?? '',
@@ -105,11 +117,11 @@ export function mapBobVariantDetail(
     title: variantTitle(product, variant),
     price: String(variant.sellingPrice),
     inventoryQuantity: variant.stock,
-    inventoryPolicy: STOCK_VALIDATION_ENABLED ? 'deny' : 'continue',
+    inventoryPolicy: STOCK_VALIDATION_ENABLED(variant) ? 'deny' : 'continue',
     inventoryManaged: true,
     image: resolveProductImageUrl(product, variant.id, imageByKey) || productImage,
     product: {
-      id: product.id,
+      id: requireBobCatalogueProductId(product),
       title: product.name,
       image: productImage,
     },

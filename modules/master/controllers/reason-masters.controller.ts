@@ -14,6 +14,8 @@ import {
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ReasonMastersService } from '../services/reason-masters.service';
 import {
   CreateReasonMasterDto,
@@ -22,13 +24,14 @@ import {
   UpdateReasonMasterStatusDto,
 } from '../dto/reason-master.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/reason-masters')
 export class ReasonMastersController {
   constructor(private readonly reasonMastersService: ReasonMastersService) {}
 
   @ResponseMessage('Reason created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('reason_masters.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(
@@ -39,21 +42,21 @@ export class ReasonMastersController {
   }
 
   @ResponseMessage('Reasons retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('reason_masters.read')
   @Get()
   findAll(@Query() query: ReasonMasterQueryDto) {
     return this.reasonMastersService.findAll(query);
   }
 
   @ResponseMessage('Reason retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('reason_masters.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.reasonMastersService.findOne(refId);
   }
 
   @ResponseMessage('Reason status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('reason_masters.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -64,7 +67,7 @@ export class ReasonMastersController {
   }
 
   @ResponseMessage('Reason updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('reason_masters.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -75,7 +78,7 @@ export class ReasonMastersController {
   }
 
   @ResponseMessage('Reason deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('reason_masters.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {

@@ -1,28 +1,48 @@
 import { CreateProductDto } from '../dto/product.dto';
 import { CreateProductMediaDto, CreateVariantDto, VariantImageDto } from '../dto/variant.dto';
 import { ProductMediaType } from '../enums/product-media-type.enum';
-import { IStorageFileReference, isStorageFileReference } from '@packages/storage';
+import {
+  IStorageFileReference,
+  isStorageFileReference,
+  normalizeStorageKey,
+} from '@packages/storage';
 
 export interface ProductUploadedFiles {
   productImages: string[];
   variantImages: Record<string, string[]>;
   sizeChart?: string;
+  faqBanner?: string;
   bundleIcon?: string;
 }
 
 type ImageMeta = {
-  url?: string | IStorageFileReference;
+  url?: string | IStorageFileReference | { key?: string | null; name?: string; url?: string };
   isPrimary?: boolean;
   sortOrder?: number;
 };
 
+/** Reduce upload keys, `{ key, name }`, or public/signed URLs to a storage key. */
 const normalizeImageUrl = (
-  url: string | IStorageFileReference | undefined,
+  url: string | IStorageFileReference | { key?: string | null; name?: string; url?: string } | null | undefined,
 ): string | undefined => {
-  if (!url) return undefined;
-  if (typeof url === 'string' && url.trim()) return url;
-  if (isStorageFileReference(url)) return url.key;
-  return undefined;
+  if (url == null || url === '') return undefined;
+  if (typeof url === 'string') {
+    return normalizeStorageKey(url) ?? undefined;
+  }
+  if (typeof url !== 'object') return undefined;
+
+  if (isStorageFileReference(url)) {
+    return normalizeStorageKey(url.key) ?? undefined;
+  }
+
+  // Enriched / partial admin shapes: { key }, { key, name, url }, { url: public media URL }
+  const raw =
+    typeof url.key === 'string' && url.key.trim()
+      ? url.key.trim()
+      : typeof url.url === 'string' && url.url.trim()
+        ? url.url.trim()
+        : '';
+  return raw ? normalizeStorageKey(raw) ?? undefined : undefined;
 };
 
 const hasStoredImageUrl = (url: string | IStorageFileReference | undefined): boolean =>
@@ -163,7 +183,23 @@ const variantImagesToMedia = (variant: CreateVariantDto): CreateProductMediaDto[
   );
 };
 
-/** Apply files uploaded in the same multipart request onto the product payload. */
+const toVariantImagesFromMerged = (
+  merged: Array<ImageMeta & { url: string }>,
+): VariantImageDto[] =>
+  merged.map((item) => ({
+    url: item.url,
+    sortOrder: item.sortOrder,
+    isPrimary: item.isPrimary,
+  }));
+
+/**
+ * Apply files uploaded in the same multipart request onto the product payload.
+ *
+ * Admin simple-product UI often uploads via field `images` while editing
+ * `variants[0].images` slots (url omitted for new files). Those uploads must
+ * fill both `media[]` and the single variant's images, otherwise GET only
+ * returns variant-scoped rows and the new image appears "not saved".
+ */
 export const mergeUploadedProductMedia = (
   dto: CreateProductDto,
   uploads: ProductUploadedFiles,
@@ -184,38 +220,90 @@ export const mergeUploadedProductMedia = (
     }));
   }
 
-  if (next.variants?.length && Object.keys(uploads.variantImages).length) {
+  if (next.variants?.length) {
     next.variants = next.variants.map((variant) => {
-      const paths = uploads.variantImages[variant.sku];
-      if (!paths?.length) return variant;
+      const dedicatedPaths = uploads.variantImages[variant.sku];
+      if (dedicatedPaths?.length) {
+        return {
+          ...variant,
+          images: toVariantImagesFromMerged(
+            mergeImageMetaWithUploads(variant.images, dedicatedPaths),
+          ),
+        };
+      }
 
-      const images: VariantImageDto[] = mergeImageMetaWithUploads(variant.images, paths).map(
-        (item) => ({
-          url: item.url,
-          sortOrder: item.sortOrder,
-          isPrimary: item.isPrimary,
-        }),
-      );
+      // Single-variant / simple: reuse product `images` uploads for empty slots.
+      if (
+        uploads.productImages.length &&
+        next.variants?.length === 1 &&
+        (variant.images?.length || dto.media?.length)
+      ) {
+        return {
+          ...variant,
+          images: toVariantImagesFromMerged(
+            mergeImageMetaWithUploads(variant.images ?? dto.media, uploads.productImages),
+          ),
+        };
+      }
 
-      return { ...variant, images };
+      return variant;
     });
   }
 
   return next;
 };
 
+/** Prefer variant-scoped rows when the same storage key appears twice. */
+const dedupeMediaByUrl = (media: CreateProductMediaDto[]): CreateProductMediaDto[] => {
+  const ranked = [...media].sort((left, right) => {
+    const leftRank = left.variantSku ? 0 : 1;
+    const rightRank = right.variantSku ? 0 : 1;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return (left.sortOrder ?? 0) - (right.sortOrder ?? 0);
+  });
+
+  const seen = new Set<string>();
+  const unique: CreateProductMediaDto[] = [];
+  for (const item of ranked) {
+    const key = normalizeImageUrl(item.url) ?? '';
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
+};
+
 /** Merge product-level media and variant images into rows for product_media. */
 export const collectProductMedia = (dto: CreateProductDto): CreateProductMediaDto[] => {
+  const singleVariantSku =
+    dto.variants?.length === 1 && dto.variants[0]?.sku?.trim()
+      ? dto.variants[0]!.sku.trim()
+      : undefined;
+
   const fromMedia = (dto.media ?? [])
-    .filter((item) => item.url && !isLegacyManualProductKey(item.url))
-    .map((item) =>
-      item.type === ProductMediaType.COMMON
-        ? { ...item, variantSku: undefined }
-        : item,
-    );
+    .map((item) => {
+      const url = normalizeImageUrl(item.url as string | IStorageFileReference | undefined);
+      if (!url || isLegacyManualProductKey(url)) return null;
+      const withSku: CreateProductMediaDto = {
+        ...item,
+        url,
+        ...(item.type === ProductMediaType.COMMON ? { variantSku: undefined } : {}),
+      };
+      // Simple products: attach product-level media to the only variant so admin
+      // GET variants[].images (variantId-scoped) includes multipart `images` uploads.
+      if (
+        singleVariantSku &&
+        withSku.type !== ProductMediaType.COMMON &&
+        !withSku.variantSku
+      ) {
+        withSku.variantSku = singleVariantSku;
+      }
+      return withSku;
+    })
+    .filter((item): item is CreateProductMediaDto => item != null);
   const fromVariants = (dto.variants ?? []).flatMap(variantImagesToMedia);
 
-  return normalizePrimaryFlags([...fromMedia, ...fromVariants]);
+  return normalizePrimaryFlags(dedupeMediaByUrl([...fromMedia, ...fromVariants]));
 };
 
 /** True when the payload explicitly includes media fields (including empty arrays = clear/replace). */

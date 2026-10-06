@@ -43,6 +43,9 @@ export class CategoriesCacheSyncService {
     await this.cacheInvalidation.invalidateByPattern(
       CacheKeys.homepage.sectionsPattern(),
     );
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.homepage.footerNavPattern(),
+    );
   }
 
   async invalidateHomepageBestSellersCache(): Promise<void> {
@@ -60,6 +63,9 @@ export class CategoriesCacheSyncService {
       CacheKeys.publicProducts.variantSearchPattern(),
     );
     await this.cacheInvalidation.invalidateByPattern(CacheKeys.publicProducts.detailPattern());
+    await this.cacheInvalidation.invalidateByPattern(
+      CacheKeys.publicListingContext.categoryPattern(),
+    );
     for (const pattern of CacheKeys.publicProducts.recommendationPatterns()) {
       await this.cacheInvalidation.invalidateByPattern(pattern);
     }

@@ -2,8 +2,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import {
   buildPaginatedResult,
   buildPaginationOptions,
-  getSalableStockQuantity,
-  isVariantInStock,
   PaginatedResult,
 } from '@packages/common';
 import {
@@ -21,6 +19,7 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { mapMasterFaqs } from '@modules/master/utils/master-faq.util';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { BannersService } from '@modules/master/services/banners.service';
+import { IStorefrontBannerItem } from '@modules/master/interfaces/banner.interface';
 import { BlogPostsService } from '@modules/master/services/blog-posts.service';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
@@ -60,6 +59,8 @@ import {
   IPublicManufacturerSummary,
   IPublicPackerSummary,
   IPublicProductCard,
+  IPublicStorefrontProductCard,
+  IPublicStorefrontProductDetail,
   IPublicProductDetail,
   IPublicProductListResponse,
   IPublicProductVariantSearchItem,
@@ -72,13 +73,16 @@ import { mapBrandEntityToListingContext } from '../mappers/public-brand.mapper';
 import { mapHealthConcernEntityToListingContext } from '../mappers/public-health-concern.mapper';
 import { mapWellnessGoalEntityToListingContext } from '../mappers/public-wellness-goal.mapper';
 import {
-  mapProductEntitiesToPublicCards,
+  mapProductEntitiesToPublicStorefrontCards,
   mapProductEntityToPublicDetail,
+  toPublicStorefrontProductDetail,
   mapVariantEntitiesToPublicSearchItems,
   pickPreferredPublicVariant,
   pickVariantForRequestSlug,
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
+import { PublicProductReviewStatsService } from './public-product-review-stats.service';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
 import {
   resolveFbtFallbackCategoryIds,
@@ -107,6 +111,8 @@ export class PublicProductsService {
     private readonly bannersService: BannersService,
     private readonly blogPostsService: BlogPostsService,
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
+    private readonly reviewStats: PublicProductReviewStatsService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -152,7 +158,8 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: true,
+      inStockOnly: false,
+      pincode: query.pincode ?? null,
     });
 
     const tDb = Date.now();
@@ -180,10 +187,11 @@ export class PublicProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
+          pincodeId: filters.pincodeId,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
-          mapProductEntitiesToPublicCards(data),
+          mapProductEntitiesToPublicStorefrontCards(data),
           total,
           paginationOptions,
         );
@@ -247,11 +255,13 @@ export class PublicProductsService {
     }
 
     const paginationOptions = buildPaginationOptions(query);
+    const pincodeScope = await this.pincodesService.resolveForStorefront(query.pincode);
     const { data, total } = await this.productsRepository.findActiveCategoriesPaginatedForBrand({
       brandId: brand.id,
       page: paginationOptions.page,
       limit: paginationOptions.limit,
       search: paginationOptions.search,
+      pincodeId: pincodeScope.pincodeId,
     });
 
     const slugPaths = await Promise.all(
@@ -335,7 +345,8 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: true,
+      inStockOnly: false,
+      pincode: query.pincode ?? null,
     });
 
     const tDb = Date.now();
@@ -360,6 +371,7 @@ export class PublicProductsService {
           categoryFilterCriteria: filters.categoryFilterCriteria,
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
+          pincodeId: filters.pincodeId,
         });
         this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
@@ -426,7 +438,8 @@ export class PublicProductsService {
     };
   }
 
-  async findBySlug(slugOrPath: string): Promise<IPublicProductDetail> {
+  async findBySlug(slugOrPath: string, pincode?: string): Promise<IPublicStorefrontProductDetail> {
+    const pincodeScope = await this.pincodesService.resolveForStorefront(pincode);
     const tDb = Date.now();
     const key = decodeProductUrlEncoding(String(slugOrPath ?? '').trim());
     const sanitizedPath = key.includes('/') ? sanitizeProductPagePath(key) : '';
@@ -444,7 +457,9 @@ export class PublicProductsService {
         ].filter(Boolean),
       ),
     );
-    const cacheKey = CacheKeys.publicProducts.detail(sanitizedPath || sanitizedSlug || key);
+    const cacheKey = CacheKeys.publicProducts.detail(
+      `${sanitizedPath || sanitizedSlug || key}:pincode:${pincodeScope.pincode ?? 'none'}`,
+    );
     const raw = await this.cacheStrategy.cacheAside({
       key: cacheKey,
       module: CacheModuleName.HOMEPAGE,
@@ -465,9 +480,15 @@ export class PublicProductsService {
         };
 
         for (const slugKey of slugKeys) {
-          const byProductSlug = await this.productsRepository.findPublishedBySlug(slugKey);
+          const byProductSlug = await this.productsRepository.findPublishedBySlug(
+            slugKey,
+            pincodeScope.pincodeId,
+          );
         if (byProductSlug) {
           const detail = mapProductEntityToPublicDetail(byProductSlug);
+            if (!detail.variants.length) {
+              continue;
+            }
             const requestSlug = sanitizedSlug || slugKey;
             const matchedVariant =
               detail.variants.find((variant) =>
@@ -495,9 +516,12 @@ export class PublicProductsService {
 
         for (const slugKey of slugKeys) {
           const byVariantSlug =
-            await this.productsRepository.findPublishedByVariantSlug(slugKey);
+            await this.productsRepository.findPublishedByVariantSlug(slugKey, pincodeScope.pincodeId);
           if (byVariantSlug) {
             const detail = mapProductEntityToPublicDetail(byVariantSlug);
+            if (!detail.variants.length) {
+              continue;
+            }
             const matchedVariant = detail.variants.find(
               (variant) =>
                 slugKeys.includes(variant.slug) ||
@@ -523,12 +547,18 @@ export class PublicProductsService {
 
         for (const candidate of buildProductPageUrlLookupCandidates(key)) {
           const byPageUrl =
-            await this.productsRepository.findPublishedByProductPageUrl(candidate);
+            await this.productsRepository.findPublishedByProductPageUrl(
+              candidate,
+              pincodeScope.pincodeId,
+            );
           if (!byPageUrl) {
             continue;
           }
 
           const detail = mapProductEntityToPublicDetail(byPageUrl.product);
+          if (!detail.variants.length) {
+            continue;
+          }
           const requestSlug = sanitizedSlug || key;
           const matchedVariant =
             pickVariantForRequestSlug(
@@ -562,8 +592,7 @@ export class PublicProductsService {
     });
     const tEnrich = Date.now();
     const result = await this.enrichDetail(raw);
-    const imageCount =
-      result.media.filter((m) => m.url).length + result.wellnessGoals.filter((g) => g.image).length;
+    const imageCount = result.media.filter((m) => m.url).length;
     this.logger.log(
       `[PERF] findBySlug slug="${key}" | Image URL signing (${imageCount} images): ${Date.now() - tEnrich}ms | TOTAL: ${Date.now() - tDb}ms`,
     );
@@ -574,7 +603,7 @@ export class PublicProductsService {
   private logFindBySlugUrls(
     slug: string,
     raw: IPublicProductDetail,
-    result: IPublicProductDetail,
+    result: IPublicStorefrontProductDetail,
   ): void {
     this.logger.log(
       `[findBySlug] response summary slug="${slug}" refId="${result.refId}" name="${result.name}" variantCount=${result.variants.length} mediaCount=${result.media.length}`,
@@ -587,13 +616,6 @@ export class PublicProductsService {
       );
     });
 
-    result.wellnessGoals.forEach((goal, index) => {
-      const rawRef = raw.wellnessGoals[index]?.image;
-      this.logger.log(
-        `[findBySlug] wellnessGoal[${index}] refId=${goal.refId} name="${goal.name}" | raw=${this.formatFileRef(rawRef)} | response=${this.formatFileRef(goal.image)}`,
-      );
-    });
-
     if (result.sizeChart || raw.sizeChart) {
       this.logger.log(
         `[findBySlug] sizeChart | raw=${this.formatFileRef(raw.sizeChart)} | response=${this.formatFileRef(result.sizeChart)}`,
@@ -602,10 +624,9 @@ export class PublicProductsService {
 
     for (const party of ['manufacturer', 'packer', 'importer'] as const) {
       const rawParty = raw[party];
-      const enrichedParty = result[party];
-      if (!rawParty && !enrichedParty) continue;
+      if (!rawParty) continue;
       this.logger.log(
-        `[findBySlug] ${party} refId="${enrichedParty?.refId ?? rawParty?.refId ?? ''}" | rawLogo=${this.formatFileRef(rawParty?.logo)} | responseLogo=${this.formatFileRef(enrichedParty?.logo)}`,
+        `[findBySlug] ${party} refId="${rawParty.refId ?? ''}" | rawLogo=${this.formatFileRef(rawParty.logo)} (omitted from storefront payload)`,
       );
     }
   }
@@ -679,6 +700,7 @@ export class PublicProductsService {
   }
 
   private async resolveListFilters(query: PublicProductQueryDto) {
+    const pincodeScope = await this.pincodesService.resolveForStorefront(query.pincode);
     const queryBindings = parseCategoryFilterQueryBindings(query);
     const [category, brandFilters, nature, healthConcern, wellnessGoal, categoryFilterCriteria] =
       await Promise.all([
@@ -745,6 +767,7 @@ export class PublicProductsService {
       selectedBrands: brandFilters.selectedBrands,
       healthConcern,
       wellnessGoal,
+      pincodeId: pincodeScope.pincodeId,
     };
   }
 
@@ -891,28 +914,31 @@ export class PublicProductsService {
   private async enrichVariantSearchItem(
     item: IPublicProductVariantSearchItem,
   ): Promise<IPublicProductVariantSearchItem> {
+    // stock / inStock already resolved in the mapper with per-variant Cureka rules.
     return {
       ...item,
-      stock: getSalableStockQuantity(item.stock),
-      inStock: !item.outOfStock && isVariantInStock(item.stock),
       primaryImageUrl: await this.storageUrlEnricher.toReference(item.primaryImageUrl),
     };
   }
 
-  private async enrichPaginatedCards(
-    result: PaginatedResult<IPublicProductCard>,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+  private async enrichPaginatedCards<
+    T extends {
+      id: string;
+      primaryImageUrl: IPublicProductCard['primaryImageUrl'];
+      pricing: IPublicProductCard['pricing'];
+      outOfStock: boolean;
+    },
+  >(result: PaginatedResult<T>): Promise<PaginatedResult<T>> {
     // Resolve all primary images in parallel and log each key's signing time
     const data = await Promise.all(
       result.data.map(async (card) => {
         const pricing = {
           ...card.pricing,
-          // Keep stock-bypass behavior, but never force in-stock when the list variant is OOS.
-          inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0)),
+          inStock: !card.outOfStock && card.pricing.inStock,
         };
 
         if (!card.primaryImageUrl) {
-          return { ...card, pricing };
+          return { ...card, pricing } as T;
         }
 
         const key =
@@ -922,28 +948,35 @@ export class PublicProductsService {
         const t = Date.now();
         const primaryImageUrl = await this.storageUrlEnricher.toReference(card.primaryImageUrl);
         this.logger.log(`  [IMG] key="${key}" signing=${Date.now() - t}ms`);
-    return {
+        return {
           ...card,
           primaryImageUrl,
           pricing,
-    };
+        } as T;
       }),
     );
-    return { ...result, data };
+    const withRatings = await this.reviewStats.attach(data);
+    return { ...result, data: withRatings as T[] };
   }
 
-  private async enrichCard(card: IPublicProductCard): Promise<IPublicProductCard> {
+  private async enrichCard<
+    T extends {
+      primaryImageUrl: IPublicProductCard['primaryImageUrl'];
+      pricing: IPublicProductCard['pricing'];
+      outOfStock: boolean;
+    },
+  >(card: T): Promise<T> {
     return {
       ...card,
       primaryImageUrl: await this.storageUrlEnricher.toReference(card.primaryImageUrl),
       pricing: {
         ...card.pricing,
-        inStock: !card.outOfStock && (card.pricing.inStock || isVariantInStock(0)),
+        inStock: !card.outOfStock && card.pricing.inStock,
       },
-    };
+    } as T;
   }
 
-  private async enrichDetail(product: IPublicProductDetail): Promise<IPublicProductDetail> {
+  private async enrichDetail(product: IPublicProductDetail): Promise<IPublicStorefrontProductDetail> {
     const media = await Promise.all(
       product.media.map(async (item) => {
         if (!item.url) return item;
@@ -1009,7 +1042,7 @@ export class PublicProductsService {
 
     const { isFreeDelivery, codMinOrderAmount } =
       await this.resolveCheckoutBadgeHints(merged);
-    const banners = await this.bannersService.getPdpBanners();
+    const banners = await this.resolvePdpBanners(product);
     const subscriptionConfig =
       await this.productSubscriptionConfigService.findForProductVariant(
         merged.id,
@@ -1021,7 +1054,7 @@ export class PublicProductsService {
       merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig);
 
     // Re-apply live master order after variant merge (variant payload may replace product info).
-    return {
+    return toPublicStorefrontProductDetail({
       ...merged,
       isFreeDelivery,
       codMinOrderAmount,
@@ -1037,7 +1070,30 @@ export class PublicProductsService {
         merged.productInformation,
         labelCatalog,
       ),
-    };
+    });
+  }
+
+  /**
+   * One product FAQ banner when set; otherwise active CMS banners with placement pdp.
+   */
+  private async resolvePdpBanners(
+    product: IPublicProductDetail,
+  ): Promise<IStorefrontBannerItem[]> {
+    if (product.faqBanner) {
+      const imageUrl = await this.storageUrlEnricher.toReference(product.faqBanner);
+      if (imageUrl) {
+        return [
+          {
+            refId: product.refId,
+            title: product.name,
+            imageUrl,
+            ctaHref: null,
+          },
+        ];
+      }
+    }
+
+    return this.bannersService.getPdpBanners();
   }
 
   /**
@@ -1091,19 +1147,27 @@ export class PublicProductsService {
     variantIds: string[],
     page: number,
     limit: number,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+    pincode?: string,
+  ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(40, Math.max(1, limit));
+    const pincodeScope = await this.pincodesService.resolveForStorefront(pincode);
     if (!variantIds.length) {
       return this.emptyRecommendationResult(resolvedPage, resolvedLimit);
     }
 
     const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.youMayAlsoLike(
-        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit),
+        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit, pincodeScope.pincode),
       ),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadYouMayAlsoLikeCards(variantIds, resolvedPage, resolvedLimit),
+      loader: () =>
+        this.loadYouMayAlsoLikeCards(
+          variantIds,
+          resolvedPage,
+          resolvedLimit,
+          pincodeScope.pincodeId,
+        ),
     });
     return this.enrichRecommendationResult(raw);
   }
@@ -1127,59 +1191,79 @@ export class PublicProductsService {
     variantIds: string[],
     page: number,
     limit: number,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+    pincode?: string,
+  ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const resolvedPage = Math.max(1, page);
     const resolvedLimit = Math.min(20, Math.max(1, limit));
+    const pincodeScope = await this.pincodesService.resolveForStorefront(pincode);
     const raw = await this.cacheStrategy.cacheAside({
       key: CacheKeys.publicProducts.frequentlyBoughtTogether(
-        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit),
+        this.recommendationQueryHash(variantIds, resolvedPage, resolvedLimit, pincodeScope.pincode),
       ),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadFrequentlyBoughtTogetherCards(variantIds, resolvedPage, resolvedLimit),
+      loader: () =>
+        this.loadFrequentlyBoughtTogetherCards(
+          variantIds,
+          resolvedPage,
+          resolvedLimit,
+          pincodeScope.pincodeId,
+        ),
     });
     return this.enrichRecommendationResult(raw);
   }
 
-  private recommendationQueryHash(variantIds: string[], page: number, limit: number): string {
-    return buildQueryCacheHash({ variantIds, page, limit });
+  private recommendationQueryHash(
+    variantIds: string[],
+    page: number,
+    limit: number,
+    pincode: string | null,
+  ): string {
+    return buildQueryCacheHash({ variantIds, page, limit, pincode });
   }
 
   private emptyRecommendationResult(
     page: number,
     limit: number,
-  ): PaginatedResult<IPublicProductCard> {
-    return buildPaginatedResult<IPublicProductCard>([], 0, {
+  ): PaginatedResult<IPublicStorefrontProductCard> {
+    return buildPaginatedResult<IPublicStorefrontProductCard>([], 0, {
       page,
       limit,
       sortOrder: 'ASC',
     });
   }
 
-  private toRecommendationCards(
+  private toStorefrontRecommendationCards(
     data: Awaited<ReturnType<typeof this.productsRepository.findPublishedPaginated>>['data'],
     total: number,
     page: number,
     limit: number,
-  ): PaginatedResult<IPublicProductCard> {
-    return buildPaginatedResult(mapProductEntitiesToPublicCards(data), total, {
+  ): PaginatedResult<IPublicStorefrontProductCard> {
+    return buildPaginatedResult(mapProductEntitiesToPublicStorefrontCards(data), total, {
       page,
       limit,
       sortOrder: 'ASC',
     });
   }
 
-  private async enrichRecommendationResult(
-    result: PaginatedResult<IPublicProductCard>,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+  private async enrichRecommendationResult<
+    T extends {
+      id: string;
+      primaryImageUrl: IPublicProductCard['primaryImageUrl'];
+      pricing: IPublicProductCard['pricing'];
+      outOfStock: boolean;
+    },
+  >(result: PaginatedResult<T>): Promise<PaginatedResult<T>> {
     const data = await Promise.all(result.data.map((card) => this.enrichCard(card)));
-    return { ...result, data };
+    const withRatings = await this.reviewStats.attach(data);
+    return { ...result, data: withRatings as T[] };
   }
 
   private async loadYouMayAlsoLikeCards(
     variantIds: string[],
     resolvedPage: number,
     resolvedLimit: number,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+    pincodeId: string | null,
+  ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const emptyResult = this.emptyRecommendationResult(resolvedPage, resolvedLimit);
     const variantInfos = await this.productsRepository.findVariantInfoByIds(variantIds);
     if (!variantInfos.length) return emptyResult;
@@ -1213,6 +1297,7 @@ export class PublicProductsService {
       sortBy: 'bestsellerIndex' as const,
       sortOrder: 'ASC' as const,
       prioritizeBestsellers: true,
+      pincodeId,
     };
 
     let { data, total } = await this.productsRepository.findPublishedPaginated({
@@ -1224,14 +1309,15 @@ export class PublicProductsService {
       ({ data, total } = await this.productsRepository.findPublishedPaginated(baseOptions));
     }
 
-    return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
+    return this.toStorefrontRecommendationCards(data, total, resolvedPage, resolvedLimit);
   }
 
   private async loadFrequentlyBoughtTogetherCards(
     variantIds: string[],
     resolvedPage: number,
     resolvedLimit: number,
-  ): Promise<PaginatedResult<IPublicProductCard>> {
+    pincodeId: string | null,
+  ): Promise<PaginatedResult<IPublicStorefrontProductCard>> {
     const sparseThreshold = Math.ceil(resolvedLimit / 2);
     const isSparse = (total: number) => resolvedPage === 1 && total < sparseThreshold;
 
@@ -1247,6 +1333,7 @@ export class PublicProductsService {
       sortBy: 'bestsellerIndex' as const,
       sortOrder: 'ASC' as const,
       prioritizeBestsellers: true,
+      pincodeId,
     };
 
     if (variantInfos.length) {
@@ -1316,7 +1403,7 @@ export class PublicProductsService {
           }
 
           if (total > 0 || resolvedPage > 1) {
-            return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
+            return this.toStorefrontRecommendationCards(data, total, resolvedPage, resolvedLimit);
           }
         }
       }
@@ -1330,12 +1417,12 @@ export class PublicProductsService {
         });
 
         if (total > 0 || resolvedPage > 1) {
-          return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
+          return this.toStorefrontRecommendationCards(data, total, resolvedPage, resolvedLimit);
         }
       }
     }
 
     const { data, total } = await this.productsRepository.findPublishedPaginated(listBase);
-    return this.toRecommendationCards(data, total, resolvedPage, resolvedLimit);
+    return this.toStorefrontRecommendationCards(data, total, resolvedPage, resolvedLimit);
   }
 }

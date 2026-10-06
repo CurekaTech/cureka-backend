@@ -230,7 +230,7 @@ export class AuthController {
     };
   }
 
-  @ResponseMessage('Profile retrieved successfullyyyyy')
+  @ResponseMessage('Profile retrieved successfully')
   @UseGuards(SessionCookieGuard)
   @Get('me')
   getProfile(@CurrentSessionUser() user: IUserSessionContext): Promise<IUser> {

@@ -1,5 +1,6 @@
 import {
   collectUniqueImageUrls,
+  filterImageUrlsByProductIds,
   mapProductUrlsToGcsKeys,
 } from './wp-image-harvest.util';
 
@@ -14,6 +15,17 @@ describe('wp-image-harvest.util', () => {
       'https://www.cureka.com/b.jpg',
       'https://www.cureka.com/c.jpg',
     ]);
+  });
+
+  it('filters sheet galleries to unmatched product IDs only', () => {
+    const byProductId = new Map<string, string[]>([
+      ['10', ['https://www.cureka.com/a.jpg']],
+      ['11', ['https://www.cureka.com/b.jpg']],
+      ['12', ['https://www.cureka.com/c.jpg']],
+    ]);
+    const filtered = filterImageUrlsByProductIds(byProductId, new Set(['11', '12']));
+    expect([...filtered.keys()]).toEqual(['11', '12']);
+    expect(filtered.get('11')).toEqual(['https://www.cureka.com/b.jpg']);
   });
 
   it('maps each product gallery to harvested GCS keys without requiring the product in DB', () => {

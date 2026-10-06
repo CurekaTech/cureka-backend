@@ -22,11 +22,11 @@ Example `POST /api/v1/uploads/images` `file` object after processing has finishe
 {
   "key": "images/<uuid>.jpg",
   "name": "cureka-files-prod",
-  "url": "https://storage.googleapis.com/cureka-files-prod/images/<uuid>.jpg?...",
+  "url": "https://www.cureka.com/api/v1/public/media/images/<uuid>.jpg",
   "imageDelivery": {
     "status": "ready",
-    "original": { "url": "https://…", "width": 1500, "height": 1500 },
-    "variants": [{ "url": "https://…/w240.webp?…", "width": 240, "height": 240, "format": "webp", "bytes": 12000 }]
+    "original": { "url": "https://www.cureka.com/api/v1/public/media/images/<uuid>.jpg", "width": 1500, "height": 1500 },
+    "variants": [{ "url": "https://www.cureka.com/api/v1/public/media/derivatives/v1/<hash>/w240.webp", "width": 240, "height": 240, "format": "webp", "bytes": 12000 }]
   }
 }
 ```

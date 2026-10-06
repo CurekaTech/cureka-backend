@@ -34,10 +34,11 @@ export class WishlistController {
     @CurrentSessionUser() user: IUserSessionContext,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('pincode') pincode?: string,
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
-    return this.wishlistService.findAll(user.sub, pageNum, limitNum);
+    return this.wishlistService.findAll(user.sub, pageNum, limitNum, pincode);
   }
 
   @ApiOperation({ summary: 'List wishlisted product ids for the authenticated user' })

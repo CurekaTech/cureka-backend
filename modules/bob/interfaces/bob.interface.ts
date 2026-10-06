@@ -1,10 +1,12 @@
 export type BobCategory = {
-  id: string;
+  id: number;
   title: string;
+  parentId: number | null;
+  parentTitle: string | null;
 };
 
 export type BobProductSummary = {
-  id: string;
+  id: number;
   title: string;
   status: 'ACTIVE' | 'inactive';
   tags: string[];
@@ -33,7 +35,7 @@ export type BobVariant = {
 };
 
 export type BobProductDetail = {
-  id: string;
+  id: number;
   title: string;
   status: 'ACTIVE' | 'inactive';
   tags: string[];
@@ -53,7 +55,7 @@ export type BobVariantDetail = {
   inventoryManaged: boolean;
   image: string;
   product: {
-    id: string;
+    id: number;
     title: string;
     image: string;
   };

@@ -8,12 +8,12 @@ import {
   IPublicHeroBannerSection,
 } from './public-banner-section.interface';
 import { IPublicBrandCard } from './public-brand.interface';
-import { IPublicCategoryTree } from './public-category.interface';
+import { IPublicShopByCategoryTile } from './public-category.interface';
 import {
   IPublicHealthConcernCard,
   IPublicHomePageHealthConcern,
 } from './public-health-concern.interface';
-import { IPublicProductCard } from './public-product.interface';
+import { IPublicStorefrontProductCard } from './public-product.interface';
 import { IPublicWellnessGoalCard } from './public-wellness-goal.interface';
 import { IPublicWatchAndShopSection } from './public-watch-and-shop.interface';
 import { IPublicHealthReadsSection } from './public-health-reads.interface';
@@ -27,7 +27,7 @@ export type IPublicCustomBannerSection = {
 export type IPublicProductSliderSection = {
   /** Optional section promo banner (desktop + optional mobile). */
   banner: HomeSectionBannerItem | null;
-  products: IPublicProductCard[];
+  products: IPublicStorefrontProductCard[];
 };
 
 export type IPublicCategorySliderSection = {
@@ -38,7 +38,7 @@ export type IPublicCategorySliderSection = {
 
 export type HomepageSectionDataMap = {
   [HomepageSectionKey.HERO_BANNER]: IPublicHeroBannerSection;
-  [HomepageSectionKey.SHOP_BY_CATEGORY]: IPublicCategoryTree[];
+  [HomepageSectionKey.SHOP_BY_CATEGORY]: IPublicShopByCategoryTile[];
   [HomepageSectionKey.SHOP_BY_WELLNESS_GOALS]: IPublicWellnessGoalCard[];
   [HomepageSectionKey.HEALTH_CONCERNS]: IPublicHomePageHealthConcern[];
   [HomepageSectionKey.BRANDS_WE_TRUST]: IPublicBrandCard[];
@@ -48,7 +48,7 @@ export type HomepageSectionDataMap = {
   [HomepageSectionKey.BEST_SELLERS]: IPublicBestSellersSection;
   [HomepageSectionKey.WATCH_AND_SHOP]: IPublicWatchAndShopSection;
   [HomepageSectionKey.HEALTH_READS]: IPublicHealthReadsSection;
-  [HomepageSectionKey.FEATURED_PRODUCTS]: IPublicProductCard[];
+  [HomepageSectionKey.FEATURED_PRODUCTS]: IPublicStorefrontProductCard[];
   [HomepageSectionKey.BANNER]: IPublicCustomBannerSection;
   [HomepageSectionKey.PRODUCT_SLIDER]: IPublicProductSliderSection;
   [HomepageSectionKey.CATEGORY_SLIDER]: IPublicCategorySliderSection;

@@ -3,6 +3,8 @@ import { HealthConcernsRepository } from '@modules/master/repositories/health-co
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import {
   buildBrandDocumentId,
   buildCategoryDocumentId,
@@ -32,6 +34,7 @@ export class TypesenseIndexerService {
     private readonly brandsRepository: BrandsRepository,
     private readonly categoriesRepository: CategoriesRepository,
     private readonly healthConcernsRepository: HealthConcernsRepository,
+    private readonly pincodesService: PincodesService,
   ) {}
 
   async syncProduct(refId: string): Promise<void> {
@@ -45,14 +48,27 @@ export class TypesenseIndexerService {
       return;
     }
 
-    const documents = mapProductToTypesenseDocuments(product);
-    if (!documents.length) {
+    const documents = await this.mapProductsWithPincodes([product]);
+    const productDocuments = documents[0] ?? [];
+    if (!productDocuments.length) {
       await this.removeProduct(refId);
       return;
     }
 
-    await this.syncProductDocuments(product, documents);
-    this.logger.log(`Typesense indexed product refId=${refId} (${documents.length} variant doc(s))`);
+    await this.syncProductDocuments(product, productDocuments);
+    this.logger.log(
+      `Typesense indexed product refId=${refId} (${productDocuments.length} variant doc(s))`,
+    );
+  }
+
+  private async mapProductsWithPincodes(products: ProductEntity[]) {
+    const productIds = products.filter((product) => product.isPincodeManaged).map((product) => product.id);
+    const codesByProductId = productIds.length
+      ? await this.pincodesService.findMappedCodesByProductIds(productIds)
+      : new Map<string, string[]>();
+    return products.map((product) =>
+      mapProductToTypesenseDocuments(product, codesByProductId.get(product.id) ?? []),
+    );
   }
 
   private async syncProductDocuments(
@@ -238,10 +254,12 @@ export class TypesenseIndexerService {
         break;
       }
 
+      const pageDocuments = await this.mapProductsWithPincodes(products);
       let pageIndexed = 0;
       let pageSkipped = 0;
-      for (const product of products) {
-        const productDocuments = mapProductToTypesenseDocuments(product);
+      for (let index = 0; index < products.length; index += 1) {
+        const product = products[index]!;
+        const productDocuments = pageDocuments[index] ?? [];
         if (!productDocuments.length) {
           skipped += 1;
           pageSkipped += 1;

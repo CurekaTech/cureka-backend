@@ -16,7 +16,7 @@ import {
 } from '../utils/variant-combination-key.util';
 import { buildVariantSlugCandidates } from '../utils/variant-slug.util';
 import { assertProductUrlSlugLength } from '../utils/product-slug.util';
-import { APP_CONSTANTS } from '@packages/common';
+import { APP_CONSTANTS, isCurekaInventoryManaged } from '@packages/common';
 import {
   computeDiscountPercentage,
   validateVariantAttributes,
@@ -41,10 +41,13 @@ import {
 } from '../utils/bulk-upload-variable.util';
 import { shouldRegenerateVariantSlugFromProductChange } from '../utils/variant-slug-sync.util';
 import {
+  resolveAvailabilityFromAdminDto,
   resolveAvailabilityFromDelta,
   resolveAvailabilityFromStock,
   resolveManualInStock,
   resolveManualOutOfStock,
+  resolveRestoreStock,
+  managementOptionsForVariant,
 } from '../utils/variant-stock-availability.util';
 
 export type VariantOosTransition = {
@@ -402,12 +405,12 @@ export class ProductVariantsRepository {
         reservedSlugs,
       );
 
-      const availability =
-        dto.outOfStock === true
-          ? resolveManualOutOfStock({ stock: dto.stock, outOfStock: false })
-          : dto.outOfStock === false
-            ? resolveManualInStock({ stock: dto.stock, outOfStock: true }, dto.stock)
-            : resolveAvailabilityFromStock(dto.stock, false);
+      const inCurekaInventory = dto.inCurekaInventory === true;
+      const availability = resolveAvailabilityFromAdminDto(
+        { stock: dto.stock, outOfStock: false },
+        { stock: dto.stock, outOfStock: dto.outOfStock },
+        managementOptionsForVariant({ inCurekaInventory }),
+      );
 
       const variant = variantRepo.create({
         productId,
@@ -425,6 +428,7 @@ export class ProductVariantsRepository {
         discountPercentage: discountPercentage.toFixed(2),
         stock: availability.stock,
         outOfStock: availability.outOfStock,
+        inCurekaInventory,
         estimatedDeliveryTime: dto.estimatedDeliveryTime ?? null,
         weight: dto.weight?.toFixed(3) ?? null,
         weightUnit: pickVariantUnit(dto, 'weightUnit', 'weight_unit'),
@@ -473,6 +477,7 @@ export class ProductVariantsRepository {
     productType: ProductType,
     variants: CreateVariantDto[],
     attributeIdByRefId: Map<string, string>,
+    options?: { skipSkuUniqueness?: boolean },
   ): Promise<VariantOosTransition[]> {
     if (productType === ProductType.SIMPLE && variants.length !== 1) {
       throw new BadRequestException('Simple products must have exactly one variant');
@@ -566,10 +571,11 @@ export class ProductVariantsRepository {
           previousProductSlug,
           productSlug,
           attributeIdByRefId,
+          options,
         );
         if (transition) oosTransitions.push(transition);
       } else {
-        await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId);
+        await this.createVariants(manager, productId, productSlug, [dto], attributeIdByRefId, options);
       }
     }
 
@@ -630,11 +636,20 @@ export class ProductVariantsRepository {
     previousProductSlug: string,
     productSlug: string,
     attributeIdByRefId: Map<string, string>,
+    options?: { skipSkuUniqueness?: boolean },
   ): Promise<VariantOosTransition | null> {
     const variantRepo = manager.getRepository(ProductVariantEntity);
     const attributeRepo = manager.getRepository(VariantAttributeValueEntity);
 
-    await this.assertUniqueSkus(dto, existing.id);
+    // Keep existing SKU on edit without re-checking global uniqueness (shared SKUs
+    // are temporarily allowed for bundles via skipSkuUniqueness).
+    if (!options?.skipSkuUniqueness && dto.sku !== existing.sku) {
+      await this.assertUniqueSkus(dto, existing.id);
+    } else if (!options?.skipSkuUniqueness && dto.vendorSku && dto.vendorSku !== existing.vendorSku) {
+      if (await this.existsByVendorSku(dto.vendorSku, existing.id)) {
+        throw new ConflictException(`Vendor SKU "${dto.vendorSku}" already exists`);
+      }
+    }
     validateVariantPricing({
       mrp: dto.mrp,
       sellingPrice: dto.sellingPrice,
@@ -688,12 +703,18 @@ export class ProductVariantsRepository {
         : existing.slug;
 
     const previous = { stock: existing.stock, outOfStock: existing.outOfStock };
-    const availability =
-      dto.outOfStock === true
-        ? resolveManualOutOfStock(previous)
-        : dto.outOfStock === false
-          ? resolveManualInStock(previous, dto.stock)
-          : resolveAvailabilityFromStock(dto.stock, previous.outOfStock);
+    const nextInCurekaInventory =
+      dto.inCurekaInventory !== undefined
+        ? dto.inCurekaInventory === true
+        : existing.inCurekaInventory === true;
+    const availability = resolveAvailabilityFromAdminDto(
+      previous,
+      {
+        stock: dto.stock,
+        outOfStock: dto.outOfStock,
+      },
+      managementOptionsForVariant({ inCurekaInventory: nextInCurekaInventory }),
+    );
 
     try {
       await variantRepo.update(
@@ -711,6 +732,9 @@ export class ProductVariantsRepository {
           discountPercentage: discountPercentage.toFixed(2),
           stock: availability.stock,
           outOfStock: availability.outOfStock,
+          ...(dto.inCurekaInventory !== undefined
+            ? { inCurekaInventory: dto.inCurekaInventory === true }
+            : {}),
           ...(dto.estimatedDeliveryTime !== undefined
             ? { estimatedDeliveryTime: dto.estimatedDeliveryTime }
             : {}),
@@ -833,11 +857,20 @@ export class ProductVariantsRepository {
   async updateStockById(variantId: string, stock: number): Promise<VariantOosTransition | null> {
     const variant = await this.repo.findOne({
       where: { id: variantId },
-      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
     });
     if (!variant) return null;
 
-    const next = resolveAvailabilityFromStock(stock, variant.outOfStock);
+    // Absolute stock sync (incl. auto-OOS) only for Cureka-managed variants.
+    if (!isCurekaInventoryManaged(variant)) {
+      return null;
+    }
+
+    const next = resolveAvailabilityFromStock(
+      stock,
+      variant.outOfStock,
+      managementOptionsForVariant(variant),
+    );
     await this.repo.update(
       { id: variantId },
       { stock: next.stock, outOfStock: next.outOfStock },
@@ -865,16 +898,21 @@ export class ProductVariantsRepository {
     const repo = manager ? manager.getRepository(ProductVariantEntity) : this.repo;
     const variant = await repo.findOne({
       where: { id: variantId },
-      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
       ...(manager ? { lock: { mode: 'pessimistic_write' } } : {}),
     });
     if (!variant) {
       throw new BadRequestException(`Variant ${variantId} not found while adjusting stock`);
     }
 
+    if (!isCurekaInventoryManaged(variant)) {
+      return null;
+    }
+
     const next = resolveAvailabilityFromDelta(
       { stock: variant.stock, outOfStock: variant.outOfStock },
       delta,
+      managementOptionsForVariant(variant),
     );
     await repo.update(
       { id: variantId },
@@ -893,8 +931,8 @@ export class ProductVariantsRepository {
   }
 
   /**
-   * Sets stock on all non-deleted variants for the given products and syncs outOfStock
-   * (stock > 0 → INS, stock 0 → OOS).
+   * Sets stock on all non-deleted variants for the given products.
+   * stock > 0 clears outOfStock when Cureka-managed; otherwise restore rules apply per variant.
    */
   async setStockByProductIds(
     updates: Array<{ productId: string; stock: number }>,
@@ -906,7 +944,7 @@ export class ProductVariantsRepository {
     const productIds = [...new Set(updates.map((item) => item.productId))];
     const variants = await this.repo.find({
       where: { productId: In(productIds) },
-      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
     });
     const stockByProductId = new Map(updates.map((item) => [item.productId, item.stock]));
     const now = new Date();
@@ -914,7 +952,11 @@ export class ProductVariantsRepository {
     for (const variant of variants) {
       const stock = stockByProductId.get(variant.productId);
       if (stock === undefined) continue;
-      const next = resolveAvailabilityFromStock(stock, variant.outOfStock);
+      const next = resolveRestoreStock(
+        { stock: variant.stock, outOfStock: variant.outOfStock },
+        stock,
+        managementOptionsForVariant(variant),
+      );
       await this.repo.update(
         { id: variant.id },
         { stock: next.stock, outOfStock: next.outOfStock },
@@ -936,7 +978,7 @@ export class ProductVariantsRepository {
   }
 
   /**
-   * Sets outOfStock = true and stock = 0 for all non-deleted variants of the given products.
+   * Always sets outOfStock=true. Zeros stock only when the variant is Cureka-managed.
    */
   async markOutOfStockByProductIds(
     productIds: string[],
@@ -950,7 +992,7 @@ export class ProductVariantsRepository {
 
     const variants = await this.repo.find({
       where: { productId: In([...new Set(productIds)]) },
-      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'displayName'],
+      select: ['id', 'productId', 'sku', 'stock', 'outOfStock', 'inCurekaInventory', 'displayName'],
     });
 
     for (const productId of productIds) {
@@ -960,11 +1002,15 @@ export class ProductVariantsRepository {
     const now = new Date();
     for (const variant of variants) {
       const stats = statsByProductId.get(variant.productId) ?? { updated: 0, alreadyMarked: 0 };
-      const next = resolveManualOutOfStock({
-        stock: variant.stock,
-        outOfStock: variant.outOfStock,
-      });
-      if (variant.outOfStock && variant.stock === 0) {
+      const opts = managementOptionsForVariant(variant);
+      const next = resolveManualOutOfStock(
+        {
+          stock: variant.stock,
+          outOfStock: variant.outOfStock,
+        },
+        opts,
+      );
+      if (variant.outOfStock && variant.stock === next.stock) {
         stats.alreadyMarked += 1;
       } else {
         stats.updated += 1;
@@ -990,11 +1036,13 @@ export class ProductVariantsRepository {
   }
 
   /**
-   * Sets `outOfStock` for variants matched by SKU and syncs stock (OOS → stock 0; INS requires stock > 0).
+   * Sets `outOfStock` for variants matched by SKU.
+   * OOS always flips the flag; stock sync only when Cureka-managed.
    */
   async updateOutOfStockBySkus(
     skus: string[],
     outOfStock: boolean,
+    productType?: ProductType,
   ): Promise<{
     bySkuResult: Map<string, 'updated' | 'already' | 'not_found' | 'blocked'>;
     updatedProductIds: Set<string>;
@@ -1009,19 +1057,23 @@ export class ProductVariantsRepository {
 
     if (!uniqueSkus.length) return { bySkuResult, updatedProductIds, oosTransitions };
 
-    const variants = await this.repo.find({
-      where: { sku: In(uniqueSkus) },
-      select: ['id', 'sku', 'productId', 'stock', 'outOfStock', 'displayName'],
-    });
+    const variants = await this.findVariantsBySkus(uniqueSkus);
 
     const now = new Date();
     for (const variant of variants) {
+      if (productType && variant.product?.productType !== productType) {
+        continue;
+      }
+      const opts = managementOptionsForVariant(variant);
       if (outOfStock) {
-        const next = resolveManualOutOfStock({
-          stock: variant.stock,
-          outOfStock: variant.outOfStock,
-        });
-        if (variant.outOfStock && variant.stock === 0) {
+        const next = resolveManualOutOfStock(
+          {
+            stock: variant.stock,
+            outOfStock: variant.outOfStock,
+          },
+          opts,
+        );
+        if (variant.outOfStock && variant.stock === next.stock) {
           bySkuResult.set(variant.sku, 'already');
           continue;
         }
@@ -1044,14 +1096,15 @@ export class ProductVariantsRepository {
         continue;
       }
 
-      const next = resolveManualInStock({
-        stock: variant.stock,
-        outOfStock: variant.outOfStock,
-      });
-      if (next.outOfStock) {
-        bySkuResult.set(variant.sku, 'blocked');
-        continue;
-      }
+      // Admin INS always clears the flag (even at stock 0). Stock qty is unchanged here.
+      const next = resolveManualInStock(
+        {
+          stock: variant.stock,
+          outOfStock: variant.outOfStock,
+        },
+        undefined,
+        opts,
+      );
       if (!variant.outOfStock) {
         bySkuResult.set(variant.sku, 'already');
         continue;
@@ -1067,6 +1120,129 @@ export class ProductVariantsRepository {
     return { bySkuResult, updatedProductIds, oosTransitions };
   }
 
+  /**
+   * Sets stock on the given SKUs only.
+   * stock > 0 clears outOfStock. stock 0 marks Cureka-managed variants out of stock
+   * and leaves the flag unchanged on flag-only variants.
+   */
+  async restoreStockBySkus(
+    items: Array<{ sku: string; stock: number }>,
+    productType?: ProductType,
+  ): Promise<{
+    bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
+    updatedProductIds: Set<string>;
+    oosTransitions: VariantOosTransition[];
+  }> {
+    const stockBySku = new Map<string, number>();
+    for (const item of items) {
+      const sku = item.sku.trim();
+      if (!sku) continue;
+      stockBySku.set(sku, item.stock);
+    }
+    const uniqueSkus = [...stockBySku.keys()];
+    const bySkuResult = new Map<string, 'updated' | 'already' | 'not_found'>(
+      uniqueSkus.map((sku) => [sku, 'not_found']),
+    );
+    const updatedProductIds = new Set<string>();
+    const oosTransitions: VariantOosTransition[] = [];
+
+    if (!uniqueSkus.length) return { bySkuResult, updatedProductIds, oosTransitions };
+
+    const variants = await this.findVariantsBySkus(uniqueSkus);
+    const now = new Date();
+
+    for (const variant of variants) {
+      if (productType && variant.product?.productType !== productType) {
+        continue;
+      }
+      const stock = stockBySku.get(variant.sku);
+      if (stock === undefined) continue;
+      const next = resolveRestoreStock(
+        { stock: variant.stock, outOfStock: variant.outOfStock },
+        stock,
+        managementOptionsForVariant(variant),
+      );
+      if (Number(variant.stock) === next.stock && Boolean(variant.outOfStock) === next.outOfStock) {
+        bySkuResult.set(variant.sku, 'already');
+        continue;
+      }
+      await this.repo.update(
+        { id: variant.id },
+        { stock: next.stock, outOfStock: next.outOfStock },
+      );
+      bySkuResult.set(variant.sku, 'updated');
+      updatedProductIds.add(variant.productId);
+      if (next.becameOos) {
+        oosTransitions.push({
+          variantId: variant.id,
+          productId: variant.productId,
+          sku: variant.sku,
+          stock: next.stock,
+          variantDisplayName: variant.displayName,
+          occurredAt: now,
+        });
+      }
+    }
+
+    return { bySkuResult, updatedProductIds, oosTransitions };
+  }
+
+  private findVariantsBySkus(skus: string[]): Promise<ProductVariantEntity[]> {
+    return this.repo
+      .createQueryBuilder('variant')
+      .innerJoinAndSelect('variant.product', 'product')
+      .where('variant.sku IN (:...skus)', { skus })
+      .select([
+        'variant.id',
+        'variant.sku',
+        'variant.productId',
+        'variant.stock',
+        'variant.outOfStock',
+        'variant.inCurekaInventory',
+        'variant.displayName',
+        'product.id',
+        'product.productType',
+      ])
+      .getMany();
+  }
+
+  /**
+   * Updates only `inCurekaInventory` for variants matched by SKU.
+   * Does not change stock or outOfStock.
+   */
+  async updateInCurekaInventoryBySkus(
+    skus: string[],
+    inCurekaInventory: boolean,
+    productType?: ProductType,
+  ): Promise<{
+    bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
+    updatedProductIds: Set<string>;
+  }> {
+    const uniqueSkus = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
+    const bySkuResult = new Map<string, 'updated' | 'already' | 'not_found'>(
+      uniqueSkus.map((sku) => [sku, 'not_found']),
+    );
+    const updatedProductIds = new Set<string>();
+
+    if (!uniqueSkus.length) return { bySkuResult, updatedProductIds };
+
+    const variants = await this.findVariantsBySkus(uniqueSkus);
+
+    for (const variant of variants) {
+      if (productType && variant.product?.productType !== productType) {
+        continue;
+      }
+      if (variant.inCurekaInventory === inCurekaInventory) {
+        bySkuResult.set(variant.sku, 'already');
+        continue;
+      }
+      await this.repo.update({ id: variant.id }, { inCurekaInventory });
+      bySkuResult.set(variant.sku, 'updated');
+      updatedProductIds.add(variant.productId);
+    }
+
+    return { bySkuResult, updatedProductIds };
+  }
   /**
    * Copies product-level commerce / eligibility flags onto every non-deleted variant
    * so admin PDP toggles stay in sync with variant rows.

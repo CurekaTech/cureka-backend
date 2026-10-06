@@ -71,7 +71,7 @@ export class CheckoutService {
       unitPrice: item.unitPrice,
       mrp: null,
       totalPrice: item.totalPrice,
-      stock: getSalableStockQuantity(0, item.quantity),
+      stock: getSalableStockQuantity(0, item.quantity, { inCurekaInventory: false }),
       inStock: true,
       isAvailable: true,
       codAvailable: true,
@@ -260,7 +260,10 @@ export class CheckoutService {
         if (!variant) {
           throw new BadRequestException('Cart contains inactive product/variant');
         }
-        if (STOCK_VALIDATION_ENABLED && variant.stock < item.quantity) {
+        if (variant.outOfStock) {
+          throw new BadRequestException(`SKU ${variant.sku} is out of stock`);
+        }
+        if (STOCK_VALIDATION_ENABLED(variant) && variant.stock < item.quantity) {
           throw new BadRequestException(`Insufficient stock for SKU ${variant.sku}`);
         }
 

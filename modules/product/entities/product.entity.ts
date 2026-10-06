@@ -27,9 +27,11 @@ import { PackerEntity } from '@modules/master/entities/packer.entity';
 import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { ProductNatureEntity } from '@modules/master/entities/product-nature.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
+import { IBundleOosComponent } from '../interfaces/bundle-availability.interface';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 import { IStorageFileReference, storageFileReferenceColumn } from '@packages/storage';
+import type { ProductPincodeEntity } from './product-pincode.entity';
 
 @Entity('products')
 export class ProductEntity extends BaseEntity {
@@ -113,6 +115,13 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'emi_available', type: 'boolean', default: false })
   emiAvailable!: boolean;
 
+  /**
+   * false = available at every pincode (including shoppers who have not chosen one).
+   * true = the whole product is available only at explicitly mapped pincodes.
+   */
+  @Column({ name: 'is_pincode_managed', type: 'boolean', default: false })
+  isPincodeManaged!: boolean;
+
   @Column({ name: 'replace_allowed', type: 'boolean', default: false })
   replaceAllowed!: boolean;
 
@@ -193,8 +202,23 @@ export class ProductEntity extends BaseEntity {
   @Column({ ...storageFileReferenceColumn({ name: 'bundle_icon', nullable: true }) })
   bundleIcon!: IStorageFileReference | null;
 
+  /**
+   * True when a bundle has at least one unavailable component product.
+   * Independent of the pricing variant's admin outOfStock flag.
+   */
+  @Column({ name: 'bundle_component_oos', type: 'boolean', default: false })
+  bundleComponentOos!: boolean;
+
+  /** Components that currently make this bundle unavailable. Null when none. */
+  @Column({ name: 'bundle_oos_components', type: 'jsonb', nullable: true })
+  bundleOosComponents!: IBundleOosComponent[] | null;
+
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;
+
+  /** One optional FAQ section image, shared by every variant of this product. */
+  @Column({ ...storageFileReferenceColumn({ name: 'faq_banner', nullable: true }) })
+  faqBanner!: IStorageFileReference | null;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;
@@ -260,6 +284,9 @@ export class ProductEntity extends BaseEntity {
 
   @OneToMany(() => ProductVariantEntity, (variant) => variant.product)
   variants!: ProductVariantEntity[];
+
+  @OneToMany('ProductPincodeEntity', 'product')
+  pincodeMappings?: ProductPincodeEntity[];
 
   @OneToMany(() => ProductMediaEntity, (media) => media.product)
   media!: ProductMediaEntity[];

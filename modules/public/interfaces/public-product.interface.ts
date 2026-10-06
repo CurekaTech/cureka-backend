@@ -138,6 +138,128 @@ export interface IPublicProductCard {
   tags: Array<{ refId: string; name: string; slug: string }>;
   /** Primary list variant — lowest-price active variant, or the only active variant for simple products. */
   variantId: string | null;
+  /** SKU of the primary list variant when resolved. */
+  sku: string | null;
+  /** Approved-review average. 0 when the product has no approved reviews. */
+  averageRating: number;
+  /** Approved review count. 0 when none. */
+  reviewCount: number;
+}
+
+/**
+ * Storefront product card — fields the Cureka website reads on PLP, homepage, recs, and search-result cards.
+ */
+export interface IPublicStorefrontProductCard {
+  id: string;
+  name: string;
+  slug: string;
+  /** Active list variant — cart/wishlist. Same value as `variantId`. */
+  defaultVariantId: string | null;
+  variantId: string | null;
+  /** Active list variant SKU when a list variant is resolved. */
+  sku: string | null;
+  /** Signed `{ url, imageDelivery? }` after enrich; unsigned `{ key, name }` while cached. */
+  primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
+  pricing: IPublicProductListPricing;
+  outOfStock: boolean;
+  isBestSeller: boolean;
+  productPageUrl: string | null;
+  permalink: string;
+  categorySlugPath: string[];
+  brandName: string | null;
+  categoryName: string;
+  subCategoryName: string | null;
+  tags: Array<{ name: string }>;
+  averageRating: number;
+  reviewCount: number;
+}
+
+/** PDP variant — fields the Cureka website reads on chips, price, and delivery. */
+export interface IPublicStorefrontProductVariant {
+  id: string;
+  sku: string;
+  slug: string;
+  productPageUrl?: string | null;
+  displayName?: string | null;
+  mrp: number;
+  sellingPrice: number;
+  discountPercentage: number | null;
+  stock: number;
+  inStock: boolean;
+  outOfStock: boolean;
+  /** GTIN / barcode for structured data and Merchant alignment. */
+  gtinNumber: string | null;
+  estimatedDeliveryTime: string | null;
+  subscriptionEnabled?: boolean;
+  subscriptionConfig?: IProductSubscriptionConfig | null;
+  emiAvailable?: boolean;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
+  returnWindowDays: number | null;
+  replaceAllowed: boolean;
+  replaceWindowDays: number | null;
+  weight: number | null;
+  weightUnit: string | null;
+  length: number | null;
+  lengthUnit: string | null;
+  width: number | null;
+  widthUnit: string | null;
+  height: number | null;
+  heightUnit: string | null;
+  expiryDate: string | null;
+  attributes: Array<{
+    attributeRefId: string;
+    attributeName?: string;
+    value: string;
+  }>;
+}
+
+/** PDP product — storefront fields only. Overlay still uses the fuller internal detail. */
+export interface IPublicStorefrontProductDetail {
+  id: string;
+  refId: string;
+  name: string;
+  slug: string;
+  selectedVariantId?: string | null;
+  categoryName: string;
+  subCategoryName: string | null;
+  subSubCategoryName: string | null;
+  subSubSubCategoryName: string | null;
+  categorySlugPath: string[];
+  permalink: string;
+  brandName: string | null;
+  brandSlug: string | null;
+  description: string | null;
+  components: string | null;
+  countryOfOriginName: string | null;
+  manufacturerName: string | null;
+  manufacturerAddress: string | null;
+  packerName: string | null;
+  packerAddress: string | null;
+  importerName: string | null;
+  importerAddress: string | null;
+  productInformation: PublicProductInformationItem[];
+  subscriptionEnabled: boolean;
+  subscriptionConfig?: IProductSubscriptionConfig | null;
+  codAvailable: boolean;
+  emiAvailable: boolean;
+  replaceAllowed: boolean;
+  replaceWindowDays: number | null;
+  returnAllowed: boolean;
+  returnPolicy: string | null;
+  returnWindowDays: number | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  sizeChart: IStorageFileReferenceResponse | null;
+  pricing: IPublicProductPriceSummary;
+  isFreeDelivery: boolean;
+  codMinOrderAmount: number;
+  attributes: Array<{ refId: string; name: string }>;
+  variants: IPublicStorefrontProductVariant[];
+  media: IPublicProductMedia[];
+  healthConcerns: Array<{ refId: string; name: string; slug: string }>;
+  faqs: Array<{ refId: string; question: string; answer: string; sequence: number }>;
+  banners: IStorefrontBannerItem[];
 }
 
 export interface IPublicProductVariant {
@@ -187,6 +309,7 @@ export interface IPublicProductVariant {
   stock: number;
   inStock: boolean;
   outOfStock: boolean;
+  gtinNumber: string | null;
   /** Estimated delivery window text (e.g. "3-5 Days"), or null when unset. */
   estimatedDeliveryTime: string | null;
   weight: number | null;
@@ -285,6 +408,8 @@ export interface IPublicProductDetail {
   metaKeywords: string[] | null;
   publishedAt: Date | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  /** Product FAQ image used to fill `banners` when set. Not returned on the storefront payload. */
+  faqBanner: IStorageFileReferenceResponse | null;
   pricing: IPublicProductPriceSummary;
   /**
    * True when the displayed selling price is above `shipping_charge_threshold`
@@ -317,11 +442,11 @@ export interface IPublicProductDetail {
     childProductSlug: string;
     quantity: number;
   }>;
-  /** Active banners with placement `pdp` from banner master (empty when none). */
+  /** Product FAQ banner when set (one item), otherwise active CMS banners with placement `pdp`. */
   banners: IStorefrontBannerItem[];
 }
 
-export interface IPublicProductListResponse extends PaginatedResult<IPublicProductCard> {
+export interface IPublicProductListResponse extends PaginatedResult<IPublicStorefrontProductCard> {
   /** Present when the listing is filtered by categorySlug or categoryRefId. */
   category?: IPublicCategoryProductListingContext | null;
   /** Present when the listing is filtered by a single brandSlug or brandRefId. */

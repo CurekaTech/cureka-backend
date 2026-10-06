@@ -21,6 +21,7 @@ import {
   hasAccessibleUrlSupport,
   IStorageProviderWithAccessibleUrl,
 } from './storage-accessible-url.interface';
+import { buildPublicMediaAbsoluteUrl, isAllowedPublicMediaKey } from './public-media.util';
 
 @Injectable()
 export class StorageService {
@@ -155,6 +156,9 @@ export class StorageService {
         ? normalizeStorageKey(stored.key)
         : normalizeStorageKey(typeof stored === 'string' ? stored : null);
     if (!key) return null;
+
+    const publicMediaUrl = this.buildStablePublicMediaUrl(key);
+    if (publicMediaUrl) return publicMediaUrl;
 
     if (!options?.forceRefresh) {
       const cached = this.accessibleUrlCache.get(key);
@@ -312,6 +316,21 @@ export class StorageService {
     } catch {
       // Upload already succeeded; pending-row reconciliation covers hook failures.
     }
+  }
+
+  /**
+   * Catalog/banner objects are public merchandising. Return a stable
+   * storefront media URL instead of a rotating GCS signature so /_next/image
+   * and CDNs can cache by object key. Private folders still use signed URLs.
+   * The bucket is never made world-readable; GET /public/media streams via SA.
+   */
+  private buildStablePublicMediaUrl(key: string): string | null {
+    const enabled = this.configService.get<boolean>('storage.publicMedia.stableUrls') ?? true;
+    if (!enabled) return null;
+    const baseUrl = this.configService.get<string>('storage.publicMedia.baseUrl')?.trim();
+    if (!baseUrl) return null;
+    if (!isAllowedPublicMediaKey(key)) return null;
+    return buildPublicMediaAbsoluteUrl(baseUrl, key);
   }
 
   private getAccessibleUrlCacheTtlMs(): number {

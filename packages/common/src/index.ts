@@ -16,6 +16,12 @@ export type { ApiResponse, ApiErrorResponse } from './api-response.type';
 export { hashPassword, comparePasswords } from './hash.util';
 export { APP_CONSTANTS } from './app.constants';
 export {
+  isStockInventoryManagementEnabled,
+  isCurekaInventoryManaged,
+  coerceDbBoolean,
+  isInCurekaInventoryFlag,
+  isStockValidationEnabled,
+  STOCK_INVENTORY_MANAGEMENT_ENABLED,
   STOCK_VALIDATION_ENABLED,
   isVariantInStock,
   getSalableStockQuantity,

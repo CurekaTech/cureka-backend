@@ -108,7 +108,7 @@ describe('ReturnEligibilityService', () => {
     expect(result.items[0].ineligibilityCode).toBe('DELIVERY_DATE_UNAVAILABLE');
   });
 
-  it('blocks non-returnable products', async () => {
+  it('lets a customer request a return when the product is marked not returnable', async () => {
     const result = await service.evaluateOrder(
       order({
         items: [
@@ -118,8 +118,11 @@ describe('ReturnEligibilityService', () => {
       { now: NOW },
     );
 
-    expect(result.items[0].ineligibilityCode).toBe('RETURN_NOT_ALLOWED');
-    expect(result.hasEligibleItems).toBe(false);
+    expect(result.items[0].ineligibilityCode).toBeNull();
+    expect(result.items[0].canReturn).toBe(true);
+    expect(result.items[0].canRequestRefund).toBe(true);
+    expect(result.items[0].allowedResolutions).toContain(ReturnResolution.REFUND);
+    expect(result.hasEligibleItems).toBe(true);
   });
 
   it('blocks a return once the window has closed', async () => {
@@ -139,7 +142,7 @@ describe('ReturnEligibilityService', () => {
     expect(result.items[0].canReturn).toBe(true);
   });
 
-  it('still refuses a non-returnable product on an expired-product claim', async () => {
+  it('accepts an expired-product claim for a product marked not returnable', async () => {
     const result = await service.evaluateOrder(
       order({
         items: [
@@ -149,8 +152,8 @@ describe('ReturnEligibilityService', () => {
       { now: NOW, isExpiredProductClaim: true },
     );
 
-    expect(result.items[0].canReturn).toBe(false);
-    expect(result.items[0].ineligibilityCode).toBe('RETURN_NOT_ALLOWED');
+    expect(result.items[0].canReturn).toBe(true);
+    expect(result.items[0].ineligibilityCode).toBeNull();
   });
 
   it('subtracts quantity already committed to other returns', async () => {
@@ -176,7 +179,7 @@ describe('ReturnEligibilityService', () => {
     expect(result.items[0].ineligibilityCode).toBe('ACTIVE_RETURN_ALREADY_EXISTS');
   });
 
-  it('offers replacement only when the policy allows it', async () => {
+  it('still offers a refund when the product is not returnable but replacement is allowed', async () => {
     const result = await service.evaluateOrder(
       order({
         items: [
@@ -188,8 +191,11 @@ describe('ReturnEligibilityService', () => {
       { now: NOW },
     );
 
-    expect(result.items[0].allowedResolutions).toEqual([ReturnResolution.REPLACEMENT]);
-    expect(result.items[0].canRequestRefund).toBe(false);
+    expect(result.items[0].allowedResolutions).toEqual([
+      ReturnResolution.REFUND,
+      ReturnResolution.REPLACEMENT,
+    ]);
+    expect(result.items[0].canRequestRefund).toBe(true);
   });
 
   it('does not offer a refund when the product is returnable but non-refundable', async () => {

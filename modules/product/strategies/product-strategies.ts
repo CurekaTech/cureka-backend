@@ -131,6 +131,7 @@ export class BundleProductStrategy implements IProductCreationStrategy {
       bundleItems,
       product.id,
       (refIds) => this.productsRepository.findIdsByRefIds(refIds, manager),
+      (productIds) => this.productsRepository.findVariantsByProductIds(productIds, manager),
     );
 
     await this.relationsRepository.syncBundles(manager, product.id, resolvedItems);

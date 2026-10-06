@@ -50,8 +50,13 @@ export const mapAssetToDelivery = (input: {
     variants.push(mapVariant(variant, url));
   }
 
+  let status = toPublicStatus(input.asset.status);
+  if (variants.length > 0 && (status === 'pending' || status === 'failed')) {
+    status = 'partial';
+  }
+
   return {
-    status: toPublicStatus(input.asset.status),
+    status,
     original,
     variants,
   };

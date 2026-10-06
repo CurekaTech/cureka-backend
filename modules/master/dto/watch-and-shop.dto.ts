@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   MaxLength,
   Min,
   ValidateNested,
@@ -65,7 +66,12 @@ export class WatchAndShopItemQueryDto extends PaginationQueryDto {
   status?: MasterStatus;
 }
 
-export class PublicWatchAndShopQueryDto extends PaginationQueryDto {}
+export class PublicWatchAndShopQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
+}
 
 export class ReorderWatchAndShopItemDto {
   @IsNotEmpty()

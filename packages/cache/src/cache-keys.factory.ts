@@ -42,8 +42,8 @@ export const CacheKeys = {
     featuredPattern: () => 'products:featured*',
   },
   watchAndShop: {
-    list: (queryHash: string) => `watch-and-shop:list:${queryHash}`,
-    listPattern: () => 'watch-and-shop:list:*',
+    list: (queryHash: string) => `watch-and-shop:v3:list:${queryHash}`,
+    listPattern: () => 'watch-and-shop:*',
   },
   expertTalks: {
     list: (queryHash: string) => `expert-talks:list:${queryHash}`,
@@ -52,17 +52,17 @@ export const CacheKeys = {
   homepage: {
     banners: () => 'homepage:banners',
     bannersPattern: () => 'homepage:banners*',
-    pdpBanners: () => 'homepage:pdp-banners:v2',
+    pdpBanners: () => 'homepage:pdp-banners:v3',
     pdpBannersPattern: () => 'homepage:pdp-banners*',
     config: () => 'homepage:config',
     configPattern: () => 'homepage:config*',
     categoryHeader: () => 'homepage:category:header:v2',
     categoryHeaderPattern: () => 'homepage:category:header*',
-    shopByCategory: () => 'homepage:section:shopByCategory',
+    shopByCategory: () => 'homepage:section:shopByCategory:v2',
     shopByCategoryPattern: () => 'homepage:section:shopByCategory*',
-    bestSellers: () => 'homepage:section:bestSellers:v3',
+    bestSellers: (pincode = 'none') => `homepage:section:bestSellers:v7:${pincode}`,
     bestSellersPattern: () => 'homepage:section:bestSellers*',
-    watchAndShop: () => 'homepage:section:watchAndShop',
+    watchAndShop: (pincode = 'none') => `homepage:section:watchAndShop:v5:${pincode}`,
     watchAndShopPattern: () => 'homepage:section:watchAndShop*',
     healthReads: () => 'homepage:section:healthReads',
     healthReadsPattern: () => 'homepage:section:healthReads*',
@@ -82,41 +82,67 @@ export const CacheKeys = {
     sectionsPattern: () => 'homepage:sections*',
     cmsPages: () => 'homepage:cms-pages:v1',
     cmsPagesPattern: () => 'homepage:cms-pages*',
+    footerNav: () => 'homepage:footer-nav:v1',
+    footerNavPattern: () => 'homepage:footer-nav*',
   },
   publicSearch: {
-    popular: (perPage: number) => `public:search:popular:${perPage}`,
+    // v3: DB-validated popular hits (published + sellable only; one per product).
+    popular: (perPage: number, pincode = 'none') => `public:search:popular:v5:${perPage}:${pincode}`,
     popularPattern: () => 'public:search:popular:*',
   },
   publicProducts: {
-    // v7: stable cache hash for categoryFilterCriteria objects (was "[object Object]").
-    list: (queryHash: string) => `public:products:v7:list:${queryHash}`,
-    listPattern: () => 'public:products:v7:list:*',
-    variantSearch: (queryHash: string) => `public:products:v7:variant-search:${queryHash}`,
-    variantSearchPattern: () => 'public:products:v7:variant-search:*',
-    detail: (slug: string) => `public:products:v6:detail:${slug}`,
-    detailPattern: (slug?: string) =>
-      slug ? `public:products:v6:detail:${slug}` : 'public:products:v6:detail:*',
+    // v12: bundle dependency OOS ranks with out-of-stock products.
+    list: (queryHash: string) => `public:products:v12:list:${queryHash}`,
+    listPattern: () => 'public:products:v12:list:*',
+    // v10: typo, spacing, and nearest-catalog fallback for searches that previously returned nothing.
+    variantSearch: (queryHash: string) => `public:products:v10:variant-search:${queryHash}`,
+    variantSearchPattern: () => 'public:products:v10:variant-search:*',
+    detail: (slug: string) => `public:products:v8:detail:${slug}`,
+    detailPattern: () => 'public:products:*:detail:*',
     filters: (queryHash: string) => `public:products:v1:filters:${queryHash}`,
     filtersPattern: () => 'public:products:v1:filters:*',
     filterBrands: (queryHash: string) => `public:products:v1:filter-brands:${queryHash}`,
     filterBrandsPattern: () => 'public:products:v1:filter-brands:*',
-    // v1: unsigned cards; GCS URLs are signed after Redis. Key = sorted variantIds + page + limit.
-    youMayAlsoLike: (queryHash: string) => `public:products:v1:ymal:${queryHash}`,
-    youMayAlsoLikePattern: () => 'public:products:v1:ymal:*',
-    frequentlyBoughtTogether: (queryHash: string) => `public:products:v1:fbt:${queryHash}`,
-    frequentlyBoughtTogetherPattern: () => 'public:products:v1:fbt:*',
+    // v2: slim storefront card (drops unused list-card fields). Unsigned; GCS URLs signed after Redis.
+    youMayAlsoLike: (queryHash: string) => `public:products:v3:ymal:${queryHash}`,
+    youMayAlsoLikePattern: () => 'public:products:v3:ymal:*',
+    frequentlyBoughtTogether: (queryHash: string) => `public:products:v3:fbt:${queryHash}`,
+    frequentlyBoughtTogetherPattern: () => 'public:products:v3:fbt:*',
     recommendationPatterns: () => [
       'public:products:v1:ymal:*',
+      'public:products:v2:ymal:*',
+      'public:products:v3:ymal:*',
       'public:products:v1:fbt:*',
+      'public:products:v2:fbt:*',
+      'public:products:v3:fbt:*',
+    ],
+  },
+  /**
+   * PLP listing-context objects (unsigned storage refs). Signed GCS URLs are
+   * attached after Redis. Facet values for category context are baked in.
+   */
+  publicListingContext: {
+    category: (refId: string) => `public:listing-context:v1:category:${refId}`,
+    categoryPattern: () => 'public:listing-context:v1:category:*',
+    brand: (refId: string) => `public:listing-context:v1:brand:${refId}`,
+    brandPattern: () => 'public:listing-context:v1:brand:*',
+    healthConcern: (refId: string) => `public:listing-context:v1:healthConcern:${refId}`,
+    healthConcernPattern: () => 'public:listing-context:v1:healthConcern:*',
+    wellnessGoal: (refId: string) => `public:listing-context:v1:wellnessGoal:${refId}`,
+    wellnessGoalPattern: () => 'public:listing-context:v1:wellnessGoal:*',
+    allPatterns: () => [
+      'public:listing-context:v1:category:*',
+      'public:listing-context:v1:brand:*',
+      'public:listing-context:v1:healthConcern:*',
+      'public:listing-context:v1:wellnessGoal:*',
     ],
   },
   publicBundles: {
     // v2: list cards include primaryImageUrl fallback when bundleIcon is null.
-    list: (queryHash: string) => `public:bundles:v2:list:${queryHash}`,
-    listPattern: () => 'public:bundles:v2:list:*',
-    detail: (slug: string) => `public:bundles:v2:detail:${slug}`,
-    detailPattern: (slug?: string) =>
-      slug ? `public:bundles:v2:detail:${slug}` : 'public:bundles:v2:detail:*',
+    list: (queryHash: string) => `public:bundles:v3:list:${queryHash}`,
+    listPattern: () => 'public:bundles:v3:list:*',
+    detail: (slug: string) => `public:bundles:v4:detail:${slug}`,
+    detailPattern: () => 'public:bundles:*:detail:*',
   },
   tags: {
     listPattern: () => 'tags:list:*',
@@ -133,8 +159,8 @@ export const CacheKeys = {
   },
   wishlist: {
     ids: (userId: string) => `wishlist:ids:${userId}`,
-    page: (userId: string, page: number, limit: number) =>
-      `wishlist:page:${userId}:${page}:${limit}`,
+    page: (userId: string, page: number, limit: number, pincode = 'none') =>
+      `wishlist:page:${userId}:${page}:${limit}:${pincode}`,
     pagePattern: (userId: string) => `wishlist:page:${userId}:*`,
   },
 } as const;

@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
   PaginatedResult,
   PaginationOptions,
 } from '@packages/common';
-import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cache';
+import {
+  CacheKeys,
+  CacheModuleName,
+  CacheStrategyService,
+} from '@packages/cache';
 import { BannersService } from '@modules/master/services/banners.service';
 import { WatchAndShopService } from '@modules/master/services/watch-and-shop.service';
 import { ExpertTalkService } from '@modules/master/services/expert-talk.service';
@@ -16,6 +20,7 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { CategoryHierarchyLevel } from '@modules/master/enums/category-hierarchy-level.enum';
 import { isHomepageShopByHierarchyLevel } from '@modules/master/constants/homepage-shop-by-hierarchy.constant';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { WellnessGoalsRepository } from '@modules/master/repositories/wellness-goals.repository';
 import { HealthConcernsRepository } from '@modules/master/repositories/health-concerns.repository';
 import { BrandsRepository } from '@modules/master/repositories/brands.repository';
@@ -33,10 +38,14 @@ import {
 } from '../interfaces/public-banner-section.interface';
 import { IPublicBrandCard } from '../interfaces/public-brand.interface';
 import { IPublicHealthConcernCard, IPublicHomePageHealthConcern } from '../interfaces/public-health-concern.interface';
-import { IPublicCategoryTree, IPublicHeaderCategory } from '../interfaces/public-category.interface';
+import {
+  IPublicHeaderCategory,
+  IPublicShopByCategoryTile,
+} from '../interfaces/public-category.interface';
+import { IPublicFooterNav } from '../interfaces/public-footer.interface';
 import { IPublicWellnessGoalCard } from '../interfaces/public-wellness-goal.interface';
-import { mapCategoryEntityToPublicTree, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
-import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+import { mapCategoryEntityToShopByTile, mapHeaderCategoryEntity } from '../mappers/public-category.mapper';
+import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import {
   HOMEPAGE_SECTION_PREVIEW_LIMIT,
   HOMEPAGE_TESTIMONIALS_PREVIEW_LIMIT,
@@ -64,8 +73,20 @@ const BRANDS_WE_TRUST_LIMIT = 10;
 /** Max health concerns shown in the homepage "Expert-Curated Wellness Bundles" section. */
 const EXPERT_CURATED_BUNDLES_LIMIT = 10;
 
+/** Footer chrome link caps. */
+const FOOTER_CATEGORY_LIMIT = 8;
+const FOOTER_BRAND_LIMIT = 8;
+
+/** Process-local hot cache TTL for header tree / footer nav. */
+const CHROME_L1_TTL_MS = 60 * 1000;
+
 @Injectable()
 export class HomepageService {
+  private readonly logger = new Logger(HomepageService.name);
+
+  private headerTreeL1: { expiresAt: number; value: IPublicHeaderCategory[] } | null = null;
+  private footerNavL1: { expiresAt: number; value: IPublicFooterNav } | null = null;
+
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
     private readonly productsRepository: ProductsRepository,
@@ -95,10 +116,62 @@ export class HomepageService {
   }
 
   /** Used by cache invalidation after CMS page mutations. */
-  invalidatePublicCmsPagesCache(): Promise<void> {
-    return this.cacheStrategy.invalidateOnly({
-      patterns: [CacheKeys.homepage.cmsPagesPattern()],
+  async invalidatePublicCmsPagesCache(): Promise<void> {
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.homepage.cmsPagesPattern(),
+        CacheKeys.homepage.footerNavPattern(),
+      ],
     });
+    this.invalidateFooterNavLocalCache();
+  }
+
+  /**
+   * Lightweight footer chrome for every page — categories, brands, policy links.
+   * No images / signed URLs / CMS HTML bodies.
+   */
+  async getFooterNav(): Promise<IPublicFooterNav> {
+    const startedAt = Date.now();
+    if (this.footerNavL1 && this.footerNavL1.expiresAt > Date.now()) {
+      this.logger.debug(`footer_nav L1 hit ${Date.now() - startedAt}ms`);
+      return this.footerNavL1.value;
+    }
+
+    const value = await this.cacheStrategy.cacheAside({
+      key: CacheKeys.homepage.footerNav(),
+      module: CacheModuleName.HOMEPAGE,
+      loader: () => this.loadFooterNavUncached(),
+    });
+    this.footerNavL1 = { expiresAt: Date.now() + CHROME_L1_TTL_MS, value };
+    this.logger.debug(`footer_nav redis ${Date.now() - startedAt}ms`);
+    return value;
+  }
+
+  async loadFooterNavUncached(): Promise<IPublicFooterNav> {
+    const [shopByTiles, brands, policies] = await Promise.all([
+      this.loadShopByCategoryTreeUncached(),
+      this.brandsRepository.findHomePageBrands(FOOTER_BRAND_LIMIT),
+      this.cmsPagesService.findActivePolicyLinks(),
+    ]);
+
+    return {
+      categories: shopByTiles.slice(0, FOOTER_CATEGORY_LIMIT).map((tile) => ({
+        refId: tile.refId,
+        name: tile.name,
+        slug: tile.slug,
+        permalink: tile.permalink,
+      })),
+      brands: brands.map((brand) => ({
+        refId: brand.refId,
+        name: brand.name,
+        slug: brand.slug,
+      })),
+      policies,
+    };
+  }
+
+  invalidateFooterNavLocalCache(): void {
+    this.footerNavL1 = null;
   }
 
   /** Cached banner bundle (unsigned refs) — fetch once per `/sections` build. */
@@ -128,12 +201,28 @@ export class HomepageService {
   }
 
   async getHeaderCategoryTree(): Promise<IPublicHeaderCategory[]> {
+    const startedAt = Date.now();
     // Nav tree has no storage refs — skip enrichDeep (was signing unused image/banner URLs).
-    return this.cacheStrategy.cacheAside({
+    if (this.headerTreeL1 && this.headerTreeL1.expiresAt > Date.now()) {
+      this.logger.debug(
+        `header_category_tree L1 hit ${Date.now() - startedAt}ms`,
+      );
+      return this.headerTreeL1.value;
+    }
+
+    const value = await this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.categoryHeader(),
       module: CacheModuleName.HOMEPAGE,
       loader: () => this.loadHeaderCategoryTreeUncached(),
     });
+    this.headerTreeL1 = { expiresAt: Date.now() + CHROME_L1_TTL_MS, value };
+    this.logger.debug(`header_category_tree redis ${Date.now() - startedAt}ms`);
+    return value;
+  }
+
+  /** Drop process-local header tree cache (call with Redis header invalidation). */
+  invalidateHeaderTreeLocalCache(): void {
+    this.headerTreeL1 = null;
   }
 
   /** Used by cache refresh after category mutations. */
@@ -142,7 +231,7 @@ export class HomepageService {
     return this.buildHeaderCategoryTree(categories);
   }
 
-  async getShopByCategoryTree(): Promise<IPublicCategoryTree[]> {
+  async getShopByCategoryTree(): Promise<IPublicShopByCategoryTile[]> {
     return this.cacheStrategy.cacheAside({
       key: CacheKeys.homepage.shopByCategory(),
       module: CacheModuleName.HOMEPAGE,
@@ -151,21 +240,23 @@ export class HomepageService {
   }
 
   /** Used by cache refresh after category mutations. */
-  async loadShopByCategoryTreeUncached(): Promise<IPublicCategoryTree[]> {
+  async loadShopByCategoryTreeUncached(): Promise<IPublicShopByCategoryTile[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
     return this.buildShopByCategoryTree(categories);
   }
 
-  async getBestSellers(): Promise<IPublicBestSellersSection> {
+  async getBestSellers(pincodeId: string | null = null): Promise<IPublicBestSellersSection> {
     return this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.bestSellers(),
+      key: CacheKeys.homepage.bestSellers(pincodeId ?? 'none'),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadBestSellersUncached(),
+      loader: () => this.loadBestSellersUncached(pincodeId),
     });
   }
 
   /** Used by cache refresh after product/category mutations. */
-  async loadBestSellersUncached(): Promise<IPublicBestSellersSection> {
+  async loadBestSellersUncached(
+    pincodeId: string | null = null,
+  ): Promise<IPublicBestSellersSection> {
     const categories = await this.productsRepository.findRootCategoriesWithTag(
       BEST_SELLERS_TAG_SLUG,
       { limit: BEST_SELLERS_MAX_CATEGORIES, publishedOnly: true },
@@ -180,6 +271,7 @@ export class HomepageService {
         categories.map((category) => category.id),
         BEST_SELLERS_TAG_SLUG,
         BEST_SELLERS_PRODUCTS_PER_CATEGORY,
+        pincodeId,
       );
 
     const tabs = categories
@@ -194,7 +286,7 @@ export class HomepageService {
           refId: category.refId,
           name: category.name,
           slug: category.slug,
-          products: mapProductEntitiesToPublicCards(products),
+          products: mapProductEntitiesToPublicStorefrontCards(products),
         };
       })
       .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
@@ -202,31 +294,33 @@ export class HomepageService {
     return { categories: tabs };
   }
 
-  async getWatchAndShop(): Promise<IPublicWatchAndShopSection> {
+  async getWatchAndShop(pincodeId: string | null = null): Promise<IPublicWatchAndShopSection> {
     return this.cacheStrategy.cacheAside({
-      key: CacheKeys.homepage.watchAndShop(),
+      key: CacheKeys.homepage.watchAndShop(pincodeId ?? 'none'),
       module: CacheModuleName.HOMEPAGE,
-      loader: () => this.loadWatchAndShopUncached(),
+      loader: () => this.loadWatchAndShopUncached(pincodeId),
     });
   }
 
   /** Used by cache refresh after Watch & Shop item mutations. */
-  async loadWatchAndShopUncached(): Promise<IPublicWatchAndShopSection> {
+  async loadWatchAndShopUncached(
+    pincodeId: string | null = null,
+  ): Promise<IPublicWatchAndShopSection> {
     const storefrontItems = await this.watchAndShopService.loadWatchAndShopUncached(
-      HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT,
+      HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT * 4,
     );
     if (!storefrontItems.length) {
       return { items: [] };
     }
 
     const productRefIds = [...new Set(storefrontItems.map((item) => item.productRefId))];
-    const products = await this.productsRepository.findPublishedByRefIds(productRefIds);
+    const products = await this.productsRepository.findPublishedByRefIds(productRefIds, pincodeId);
     const productByRefId = new Map(products.map((product) => [product.refId, product]));
 
     const items = storefrontItems
       .map((item) => {
         const product = productByRefId.get(item.productRefId);
-        if (!product) return null;
+        if (!product || !isPublicProductSellable(product)) return null;
 
         return {
           refId: item.refId,
@@ -234,10 +328,11 @@ export class HomepageService {
           videoUrl: item.videoUrl,
           mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
           sortOrder: item.sortOrder,
-          product: mapProductEntitiesToPublicCards([product])[0]!,
+          product: mapProductEntitiesToPublicStorefrontCards([product])[0]!,
         };
       })
-      .filter((item): item is IPublicWatchAndShopItem => item !== null);
+      .filter((item): item is IPublicWatchAndShopItem => item !== null)
+      .slice(0, HOMEPAGE_WATCH_AND_SHOP_PREVIEW_LIMIT);
 
     return { items };
   }
@@ -523,16 +618,8 @@ export class HomepageService {
     ).map((entity) => buildNode(entity));
   }
 
-  private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicCategoryTree[] {
+  private buildShopByCategoryTree(categories: CategoryEntity[]): IPublicShopByCategoryTile[] {
     const byId = new Map(categories.map((category) => [category.id, category]));
-    const childrenByParentId = new Map<string, CategoryEntity[]>();
-
-    for (const category of categories) {
-      if (!category.parentCategoryId) continue;
-      const siblings = childrenByParentId.get(category.parentCategoryId) ?? [];
-      siblings.push(category);
-      childrenByParentId.set(category.parentCategoryId, siblings);
-    }
 
     const sortCategories = (items: CategoryEntity[]): CategoryEntity[] =>
       [...items].sort((a, b) => a.position - b.position || a.hierarchyId - b.hierarchyId);
@@ -549,18 +636,11 @@ export class HomepageService {
       return slugs;
     };
 
-    const buildNode = (entity: CategoryEntity, parentSlugPath: string[] = []): IPublicCategoryTree => {
-      const children = sortCategories(childrenByParentId.get(entity.id) ?? []).map((child) =>
-        buildNode(child, [...parentSlugPath, entity.slug]),
-      );
-      return mapCategoryEntityToPublicTree(entity, children, parentSlugPath);
-    };
-
     return sortCategories(
       categories.filter(
         (category) =>
           category.isInShopBy && isHomepageShopByHierarchyLevel(category.hierarchyLevel),
       ),
-    ).map((entity) => buildNode(entity, buildAncestorSlugPath(entity)));
+    ).map((entity) => mapCategoryEntityToShopByTile(entity, buildAncestorSlugPath(entity)));
   }
 }

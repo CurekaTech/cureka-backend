@@ -4,12 +4,15 @@ import {
   NotFoundException,
   Param,
   Query,
+  Res,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ResponseMessage } from '@packages/common';
+import { FastifyReply } from 'fastify';
 import { HomepageSectionsQueryDto, resolveHomepageSectionsFromFlags } from '../dto/homepage-sections-query.dto';
 import { HomepageViewAllQueryDto } from '../dto/homepage-view-all-query.dto';
 import { PublicProductQueryDto } from '../dto/public-product-query.dto';
+import { PUBLIC_CHROME_CACHE_CONTROL } from '../constants/public-chrome-cache.constant';
 import { HomepageSectionsService } from '../services/homepage-sections.service';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
 import { HomepageService } from '../services/homepage.service';
@@ -28,7 +31,10 @@ export class HomepageController {
   @ResponseMessage('Homepage sections retrieved successfully')
   @Get('sections')
   getSections(@Query() query: HomepageSectionsQueryDto) {
-    return this.homepageSectionsService.getSections(resolveHomepageSectionsFromFlags(query));
+    return this.homepageSectionsService.getSections(
+      resolveHomepageSectionsFromFlags(query),
+      query.pincode,
+    );
   }
 
   @ResponseMessage('Best sellers retrieved successfully')
@@ -80,16 +86,17 @@ export class HomepageController {
 
   @ResponseMessage('Home section retrieved successfully')
   @Get('home-sections/:slug')
-  getHomeSectionBySlug(@Param('slug') slug: string) {
+  getHomeSectionBySlug(@Param('slug') slug: string, @Query('pincode') pincode?: string) {
     if (!slug?.trim()) {
       throw new NotFoundException('Home section slug is required');
     }
-    return this.homepageSectionsService.getCustomSectionBySlug(slug.trim());
+    return this.homepageSectionsService.getCustomSectionBySlug(slug.trim(), pincode);
   }
 
   @ResponseMessage('Header categories retrieved successfully')
   @Get('category/header')
-  getHeaderCategoryTree() {
+  async getHeaderCategoryTree(@Res({ passthrough: true }) reply: FastifyReply) {
+    reply.header('Cache-Control', PUBLIC_CHROME_CACHE_CONTROL);
     return this.homepageService.getHeaderCategoryTree();
   }
 

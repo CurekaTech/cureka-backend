@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
@@ -84,6 +84,11 @@ export class HomepageSectionsQueryDto {
   @Transform(parseBoolean)
   @IsBoolean()
   categorySlider?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
 }
 
 export const resolveHomepageSectionsFromFlags = (

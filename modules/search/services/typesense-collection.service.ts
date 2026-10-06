@@ -120,10 +120,18 @@ export class TypesenseCollectionService implements OnModuleInit {
     const productQueryBy = this.resolveQueryBy(PRODUCT_SEARCH_QUERY_FIELDS, fieldNames);
     const entityQueryBy = this.resolveQueryBy(ENTITY_SEARCH_QUERY_FIELDS, fieldNames);
     const hasEntityType = fieldNames.has('entityType');
+    const hasInStock = fieldNames.has('inStock');
+    const productEntityFilter = hasEntityType
+      ? `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.PRODUCT)}`
+      : undefined;
+    const productFilterBy = productEntityFilter;
 
     this.searchRuntimeConfig = {
       hasEntityType,
+      hasInStock,
       hasPopularSortField: fieldNames.has(PRODUCT_POPULAR_SORT_FIELD),
+      hasIsPincodeManaged: fieldNames.has('isPincodeManaged'),
+      hasNameCompact: fieldNames.has('nameCompact'),
       productQueryBy,
       entityQueryBy,
       entityTypeFilters: hasEntityType
@@ -131,7 +139,7 @@ export class TypesenseCollectionService implements OnModuleInit {
             [SEARCH_ENTITY_TYPES.CATEGORY]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.CATEGORY)}`,
             [SEARCH_ENTITY_TYPES.BRAND]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.BRAND)}`,
             [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.HEALTH_CONCERN)}`,
-            [SEARCH_ENTITY_TYPES.PRODUCT]: `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.PRODUCT)}`,
+            [SEARCH_ENTITY_TYPES.PRODUCT]: productFilterBy || `entityType:=${toTypesenseFilterValue(SEARCH_ENTITY_TYPES.PRODUCT)}`,
           }
         : {},
     };

@@ -36,7 +36,7 @@ export function mapCartToGokwikCart(
 ): GokwikCart {
   const items: GokwikCartItem[] = cart.items.map((item) => {
     const productDetails = resolveProductDetails(item);
-    const inStock = item.inStock ?? (item.isAvailable && isVariantInStock(item.stock));
+    const inStock = item.inStock ?? (item.isAvailable && isVariantInStock(item.stock, { inCurekaInventory: false }));
     const mrp = item.mrp != null && Number.isFinite(item.mrp) ? item.mrp : item.unitPrice;
 
     return {
@@ -55,7 +55,8 @@ export function mapCartToGokwikCart(
       quantity: item.quantity,
       title: item.productName,
       image_url: item.primaryImageUrl?.url ?? '',
-      salable_qty: getSalableStockQuantity(item.stock, item.quantity),
+      // Cart line stock is already salable-adjusted; treat as flag-only here.
+      salable_qty: getSalableStockQuantity(item.stock, item.quantity, { inCurekaInventory: false }),
       stock_status: inStock ? 'IN_STOCK' : 'OUT_OF_STOCK',
       ...(options.shippingAddress ? { serviceable_status: inStock } : {}),
       metadata: {

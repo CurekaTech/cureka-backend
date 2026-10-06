@@ -35,7 +35,7 @@ export class AdminPaymentRequestsController {
 
   @ApiOperation({ summary: 'Lightweight product variant search for payment request creation wizard' })
   @ResponseMessage('Products retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.read')
   @Get('product-search')
   productSearch(
@@ -47,7 +47,7 @@ export class AdminPaymentRequestsController {
 
   @ApiOperation({ summary: 'Validate coupon for order/payment request items' })
   @ResponseMessage('Coupon validated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.create')
   @Post('validate-coupon')
   validateCoupon(@Body() dto: ValidateAdminCouponDto) {
@@ -62,7 +62,7 @@ export class AdminPaymentRequestsController {
       'COD requires a delivery address and immediately creates a confirmed order (payment remains pending until delivery). Do not generate a payment link for COD.',
   })
   @ResponseMessage('Payment request created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.create')
   @Post()
   create(@Body() dto: CreatePaymentRequestDto, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -72,7 +72,7 @@ export class AdminPaymentRequestsController {
 
   @ApiOperation({ summary: 'Update payment request' })
   @ResponseMessage('Payment request updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.update')
   @Put(':id')
   update(
@@ -89,7 +89,7 @@ export class AdminPaymentRequestsController {
       'Returns payment_requests plus COD rows from orders. COD rows have recordType=COD_ORDER and paymentProvider=COD.',
   })
   @ResponseMessage('Payment requests fetched successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.read')
   @Get()
   findAll(@Query() query: PaymentRequestQueryDto) {
@@ -101,7 +101,7 @@ export class AdminPaymentRequestsController {
     description: 'Also resolves COD orders by order UUID / refId / orderNumber.',
   })
   @ResponseMessage('Payment request fetched successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.read')
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -110,7 +110,7 @@ export class AdminPaymentRequestsController {
 
   @ApiOperation({ summary: 'Cancel payment request' })
   @ResponseMessage('Payment request cancelled successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.cancel')
   @Post(':id/cancel')
   cancel(@Param('id') id: string, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -119,7 +119,7 @@ export class AdminPaymentRequestsController {
 
   @ApiOperation({ summary: 'Generate payment link' })
   @ResponseMessage('Payment link generated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.generate-link')
   @Post(':id/generate-link')
   generateLink(
@@ -132,7 +132,7 @@ export class AdminPaymentRequestsController {
 
   @ApiOperation({ summary: 'Regenerate payment link' })
   @ResponseMessage('Payment link regenerated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.regenerate')
   @Post(':id/regenerate-link')
   regenerateLink(
@@ -144,7 +144,7 @@ export class AdminPaymentRequestsController {
   }
 
   @ApiOperation({ summary: 'Soft delete payment request' })
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, 'telecaller')
+  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.delete')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)

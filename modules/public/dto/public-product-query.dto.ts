@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -123,4 +124,9 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   maxPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
 }

@@ -3,6 +3,7 @@ import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { VariantStatus } from '../enums/variant-status.enum';
 import { IStorageFileReferenceResponse, IStorageFileReference } from '@packages/storage';
+import { IBundleAvailability } from './bundle-availability.interface';
 import { IProductInformationItem } from './product-information.interface';
 import { IProductPackMetadataItem } from './product-pack-metadata.interface';
 import { IVariantDetailFields, IVariantInlineFaq } from './variant-details.interface';
@@ -38,6 +39,8 @@ export interface IProductVariant {
   discountPercentage: number | null;
   stock: number;
   outOfStock: boolean;
+  /** When true and global env is on, variant uses Cureka stock inventory. */
+  inCurekaInventory: boolean;
   /** Estimated delivery window text (e.g. "3-5 Days"), or null when unset. */
   estimatedDeliveryTime: string | null;
   /** True when this variant is marked as a Top Product for category PLP ordering. */
@@ -106,11 +109,24 @@ export interface IProductMedia {
   variantId: string | null;
 }
 
+export interface IProductBundleItemVariant {
+  id: string;
+  sku: string;
+  displayName: string | null;
+  stock: number;
+  outOfStock: boolean;
+  inCurekaInventory: boolean;
+  status: VariantStatus;
+}
+
 export interface IProductBundleItem {
   id: string;
   childProductRefId: string;
   childProductName: string;
+  /** Variant saved on this bundle line. Null when the row was saved before variant selection. */
+  childVariantId: string | null;
   quantity: number;
+  variants: IProductBundleItemVariant[];
 }
 
 export interface IProductTag {
@@ -207,6 +223,8 @@ export interface IProduct {
   metaDescription: string | null;
   metaKeywords: string[] | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  /** Signed FAQ banner, or null when the product has none. No CMS fallback. */
+  faqBanner: IStorageFileReferenceResponse | null;
   /** Bundle-only icon. Null for non-bundle products. */
   bundleIcon: IStorageFileReferenceResponse | null;
   publishedAt: Date | null;
@@ -224,6 +242,11 @@ export interface IProduct {
   tags: IProductTag[];
   faqs: IProductFaq[];
   bundleItems: IProductBundleItem[];
+  /**
+   * Effective bundle availability. Null for simple and variable products.
+   * `variants[].outOfStock` stays the manual flag.
+   */
+  bundleAvailability: IBundleAvailability | null;
   /**
    * True when the product has no sellable stock:
    * no variants, or every variant has stock &lt;= 0.

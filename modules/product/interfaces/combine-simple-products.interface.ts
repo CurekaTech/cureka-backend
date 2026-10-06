@@ -20,6 +20,7 @@ export interface ICombinePreviewProduct {
   sellingPrice: string;
   stock: number;
   outOfStock: boolean;
+  inCurekaInventory: boolean;
   /** Current variant display name (or product name). Editable via assignments[].variantTitle on combine. */
   variantTitle: string;
   /** Existing option values on this variant (preview helper). Combine overwrites them. */

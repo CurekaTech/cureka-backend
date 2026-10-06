@@ -1930,7 +1930,7 @@ export class PaymentRequestsService {
         sku: v.sku,
         mrp: v.mrp,
         sellingPrice: v.sellingPrice,
-        stock: getSalableStockQuantity(v.stock),
+        stock: getSalableStockQuantity(v.stock, 1, v),
         attributeLabel: attrLabel,
       });
     }
@@ -2200,8 +2200,8 @@ export class PaymentRequestsService {
           unitPrice: unitPriceNum,
           mrp: null,
           totalPrice: unitPriceNum * item.quantity,
-          stock: getSalableStockQuantity(variant?.stock ?? 0, item.quantity),
-          inStock: isVariantInStock(variant?.stock ?? 0),
+          stock: getSalableStockQuantity(variant?.stock ?? 0, item.quantity, variant ?? undefined),
+          inStock: isVariantInStock(variant?.stock ?? 0, variant ?? undefined),
           isAvailable: true,
           codAvailable: !!variant?.codAvailable,
           primaryImageUrl: null,

@@ -7,6 +7,8 @@ import { ProductVariantsRepository } from '@modules/product/repositories/product
 import { ProductsService } from '@modules/product/services/products.service';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { StorageService } from '@packages/storage';
+import { BobProductResolver } from './bob-product-resolver.service';
+import { bobCatalogueProductId } from '../utils/bob-product-id.util';
 import { isUuid } from '../utils/bob.util';
 import {
   collectImageRefs,
@@ -35,28 +37,31 @@ export class BobCatalogService {
     private readonly productsService: ProductsService,
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
+    private readonly bobProductResolver: BobProductResolver,
   ) {}
 
   async listCategories(): Promise<BobCategory[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
+    const byId = new Map(categories.map((category) => [category.id, category]));
     this.logger.log({ count: categories.length }, '[BOB inbound] GET /categories');
-    return categories.map(mapBobCategory);
+    return categories.map((category) => {
+      const parent = category.parentCategoryId ? byId.get(category.parentCategoryId) : undefined;
+      return mapBobCategory(category, parent ?? null);
+    });
   }
 
   async listProductsByCategory(categoryId: string): Promise<BobProductSummary[]> {
-    const category = isUuid(categoryId)
-      ? await this.categoriesRepository.findById(categoryId)
-      : await this.categoriesRepository.findByRefId(categoryId);
-    if (!category) {
-      throw new NotFoundException('Bad Request!!');
-    }
+    const category = await this.resolveCategory(categoryId);
     const refIds = await this.productsRepository.findPublishedRefIdsByCategoryId(category.id);
-    const products = await this.loadPublishedByRefIds(refIds);
+    const products = this.onlyCatalogueProducts(
+      await this.loadPublishedByRefIds(refIds),
+      'GET /categories/:categoryId/products',
+    );
     return products.map(mapBobProductSummary);
   }
 
   async getProduct(productId: string): Promise<BobProductDetail> {
-    const product = await this.resolvePublishedProduct(productId);
+    const product = await this.bobProductResolver.findPublishedByBobId(productId);
     if (!product) {
       throw new NotFoundException('Bad Request!!');
     }
@@ -70,24 +75,12 @@ export class BobCatalogService {
       .map((id) => id.trim())
       .filter(Boolean);
 
-    let products: ProductEntity[] = [];
-    if (ids.length) {
-      const unique = [...new Set(ids)];
-      const byUuid = unique.filter(isUuid);
-      const byRef = unique.filter((id) => !isUuid(id));
-      const loaded = [
-        ...(byUuid.length ? await this.productsRepository.findPublishedByIds(byUuid) : []),
-        ...(byRef.length ? await this.loadPublishedByRefIds(byRef) : []),
-      ];
-      const byId = new Map(loaded.map((product) => [product.id, product]));
-      const byRefId = new Map(loaded.map((product) => [product.refId, product]));
-      products = unique
-        .map((id) => byId.get(id) ?? byRefId.get(id))
-        .filter((product): product is ProductEntity => Boolean(product));
-    } else {
-      const allRefIds = await this.productsRepository.findAllPublishedRefIds();
-      products = await this.loadPublishedByRefIds(allRefIds);
-    }
+    const products = ids.length
+      ? await this.bobProductResolver.findPublishedByBobIds(ids)
+      : this.onlyCatalogueProducts(
+          await this.loadPublishedByRefIds(await this.productsRepository.findAllPublishedRefIds()),
+          'GET /products',
+        );
 
     const imageByKey = await this.signImages(products);
     const storefront = this.storefrontUrl();
@@ -100,15 +93,28 @@ export class BobCatalogService {
       throw new NotFoundException('Bad Request!!');
     }
     const product = await this.productsRepository.findPublishedById(variant.productId);
-    if (!product) {
+    if (!product || !bobCatalogueProductId(product)) {
       throw new NotFoundException('Bad Request!!');
     }
     const imageByKey = await this.signImages([product]);
     return mapBobVariantDetail(variant, product, imageByKey);
   }
 
+  private async resolveCategory(categoryId: string) {
+    const key = categoryId.trim();
+    const category = isUuid(key)
+      ? await this.categoriesRepository.findById(key)
+      : /^\d+$/.test(key)
+        ? await this.categoriesRepository.findActiveByHierarchyId(Number(key))
+        : await this.categoriesRepository.findByRefId(key);
+    if (!category) {
+      throw new NotFoundException('Bad Request!!');
+    }
+    return category;
+  }
+
   async updateTags(productId: string, tags: string[]): Promise<BobProductSummary> {
-    const id = await this.productsRepository.findIdByUuidOrRefId(productId);
+    const id = await this.bobProductResolver.findIdByBobIdentifier(productId);
     if (!id) {
       throw new NotFoundException('Bad Request!!');
     }
@@ -120,12 +126,27 @@ export class BobCatalogService {
     return mapBobProductSummary(product);
   }
 
-  private async resolvePublishedProduct(productId: string): Promise<ProductEntity | null> {
-    if (isUuid(productId)) {
-      return this.productsRepository.findPublishedById(productId);
+  /**
+   * BOB has no catalogue id contract for products without externalProductId.
+   * Omit them instead of returning id null or a generated id.
+   */
+  private onlyCatalogueProducts(products: ProductEntity[], context: string): ProductEntity[] {
+    const ready: ProductEntity[] = [];
+    const skipped: string[] = [];
+    for (const product of products) {
+      if (bobCatalogueProductId(product)) {
+        ready.push(product);
+      } else {
+        skipped.push(product.refId);
+      }
     }
-    const [product] = await this.loadPublishedByRefIds([productId]);
-    return product ?? null;
+    if (skipped.length) {
+      this.logger.warn(
+        { context, refIds: skipped },
+        '[BOB catalog] omitted products without externalProductId',
+      );
+    }
+    return ready;
   }
 
   private async loadPublishedByRefIds(refIds: string[]): Promise<ProductEntity[]> {

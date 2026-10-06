@@ -39,6 +39,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
 import { PublicModule } from '@modules/public/public.module';
+import { GoogleMerchantModule } from '@modules/google-merchant/google-merchant.module';
 import { ProductModule } from '@modules/product/product.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
@@ -61,6 +62,7 @@ import { ReturnsModule } from '@modules/returns/returns.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
+import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-pages.module';
 
 @Module({
   imports: [
@@ -117,11 +119,13 @@ import { OosEmailModule } from '@modules/oos-email/oos-email.module';
     AdminUsersModule,
     UsersModule,
     MasterModule,
+    PromotionalPagesModule,
     UploadsModule,
     ImagePipelineModule,
     OosEmailModule,
     HealthModule,
     PublicModule,
+    GoogleMerchantModule,
     ProductModule,
     UnicommerceModule,
     OrdersModule,

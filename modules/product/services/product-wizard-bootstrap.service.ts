@@ -73,6 +73,7 @@ export class ProductWizardBootstrapService {
           ...pagination,
           status,
           excludeComboBrand: query.excludeComboBrand,
+          onlyCombo: query.onlyCombo,
         });
         const data = await this.storageUrlEnricher.enrichManyFields(
           mapBrandEntitiesToResponse(page.data),

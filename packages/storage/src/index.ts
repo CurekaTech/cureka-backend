@@ -26,3 +26,18 @@ export type {
 export { isStorageFileReference } from './storage-file-reference.interface';
 export { storageFileReferenceColumn } from './storage-file-reference.column';
 export { parseStorageFileReference, storageFileReferenceTransformer } from './storage-file-reference.transformer';
+export {
+  PUBLIC_MEDIA_API_PREFIX,
+  PUBLIC_MEDIA_CACHE_CONTROL,
+  PUBLIC_MEDIA_DERIVATIVE_CACHE_CONTROL,
+  PUBLIC_MEDIA_ALLOWED_PREFIXES,
+  PUBLIC_MEDIA_DENIED_PREFIXES,
+  normalizePublicMediaKey,
+  isAllowedPublicMediaKey,
+  isDeniedPublicMediaKey,
+  isDerivativePublicMediaKey,
+  cacheControlForPublicMediaKey,
+  guessMimeFromKey,
+  buildPublicMediaAbsoluteUrl,
+  publicMediaFilename,
+} from './public-media.util';

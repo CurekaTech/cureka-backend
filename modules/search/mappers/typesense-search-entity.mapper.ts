@@ -10,6 +10,7 @@ import {
 } from '../constants/typesense-document-id.constant';
 import { SEARCH_ENTITY_TYPES } from '../constants/search-entity-type.constant';
 import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
+import { compactSearchText } from '../utils/search-tolerance.util';
 
 export function mapCategoryToTypesenseDocument(
   category: CategoryEntity,
@@ -26,6 +27,7 @@ export function mapCategoryToTypesenseDocument(
     refId: category.refId,
     entityType: SEARCH_ENTITY_TYPES.CATEGORY,
     name: category.name,
+    nameCompact: compactSearchText(category.name) || undefined,
     slug: category.slug,
     permalink: buildCategoryPermalink(path),
   };
@@ -41,6 +43,7 @@ export function mapBrandToTypesenseDocument(brand: BrandEntity): ITypesenseSearc
     refId: brand.refId,
     entityType: SEARCH_ENTITY_TYPES.BRAND,
     name: brand.name,
+    nameCompact: compactSearchText(brand.name) || undefined,
     slug: brand.slug,
   };
 }
@@ -57,6 +60,7 @@ export function mapHealthConcernToTypesenseDocument(
     refId: healthConcern.refId,
     entityType: SEARCH_ENTITY_TYPES.HEALTH_CONCERN,
     name: healthConcern.name,
+    nameCompact: compactSearchText(healthConcern.name) || undefined,
     slug: healthConcern.slug,
   };
 }

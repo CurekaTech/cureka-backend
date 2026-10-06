@@ -81,6 +81,7 @@ export class CombineSimpleProductsService {
         sellingPrice: variant.sellingPrice,
         stock: variant.stock,
         outOfStock: variant.outOfStock,
+        inCurekaInventory: variant.inCurekaInventory ?? false,
         variantTitle: (variant.displayName?.trim() || product.name).trim(),
         currentAttributes: mapCurrentAttributes(variant),
         brandId: product.brandId,

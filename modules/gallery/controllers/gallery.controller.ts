@@ -11,13 +11,13 @@ import { GalleryService } from '../services/gallery.service';
 @ApiTags('Gallery Management')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('gallery')
 export class GalleryController {
   constructor(private readonly galleryService: GalleryService) {}
 
   @ApiOperation({ summary: 'Upload single or multiple images to gallery' })
   @ResponseMessage('Images uploaded successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('gallery.create')
   @Post('upload')
   async upload(
@@ -29,7 +29,6 @@ export class GalleryController {
 
   @ApiOperation({ summary: 'List gallery images with pagination and search' })
   @ResponseMessage('Gallery images retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('gallery.read')
   @Get()
   async list(
@@ -44,7 +43,6 @@ export class GalleryController {
 
   @ApiOperation({ summary: 'Delete gallery image by Ref ID' })
   @ResponseMessage('Image deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('gallery.delete')
   @Delete(':refId')
   async delete(@Param('refId', RefIdPipe) refId: string) {

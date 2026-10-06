@@ -31,6 +31,7 @@ type CliOptions = {
   retryFailed: boolean;
   help: boolean;
   priorityHomepage: boolean;
+  keys?: string[];
   entityTypes?: ImageBackfillEntityType[];
   sampleLimit?: number;
   batchSize?: number;
@@ -51,7 +52,8 @@ Options:
   --apply                 Enqueue work (default: dry-run)
   --resume                Continue from image_pipeline_checkpoints
   --retry-failed          Re-queue failed/pending/processing rows via backfill scan
-  --priority=homepage     Banners and home-section images first (default)
+  --keys=a,b              Queue specific object keys (no table scan)
+  --priority=homepage     Banners, home-sections, products, brands, categories, health-concerns first (default)
   --priority=all          All entity types in default order
   --entity-types=a,b      Restrict to types: ${ALL_IMAGE_BACKFILL_ENTITY_TYPES.join(', ')}
   --sample-limit=N        Stop after N scanned rows
@@ -92,6 +94,12 @@ const parseCli = (argv: string[]): CliOptions => {
     else if (arg === '--priority=homepage') options.priorityHomepage = true;
     else if (arg.startsWith('--entity-types=')) {
       options.entityTypes = parseCsvTypes(arg.slice('--entity-types='.length));
+    } else if (arg.startsWith('--keys=')) {
+      options.keys = arg
+        .slice('--keys='.length)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
     } else if (arg.startsWith('--sample-limit=')) {
       options.sampleLimit = Number(arg.slice('--sample-limit='.length));
     } else if (arg.startsWith('--batch-size=')) {
@@ -146,6 +154,14 @@ async function run(): Promise<void> {
     }
 
     const backfill = app.get(ImageBackfillService);
+
+    if (options.keys?.length) {
+      const stats = await backfill.enqueueKeys(options.keys, options.apply, options.retryFailed);
+      console.log('[image:backfill] complete (explicit keys)');
+      console.log(JSON.stringify({ apply: options.apply, keys: options.keys, ...stats }, null, 2));
+      return;
+    }
+
     const entityTypes = options.entityTypes?.length
       ? options.entityTypes
       : backfill.defaultEntityTypes(options.priorityHomepage);

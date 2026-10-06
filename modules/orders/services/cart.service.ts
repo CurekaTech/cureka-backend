@@ -7,6 +7,7 @@ import { ProductMediaEntity } from '@modules/product/entities/product-media.enti
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -231,8 +232,21 @@ export class CartService {
         throw new BadRequestException('Invalid cart id');
       }
 
-      if (!STOCK_VALIDATION_ENABLED) {
-        return this.toCartResponse(cart, cart.userId, manager, { clearInvalidCoupon: true });
+      if (!STOCK_VALIDATION_ENABLED()) {
+        // Still drop OOS-flagged / inactive lines even when qty validation is off.
+        const lineItems = await this.buildLineItems(cart);
+        for (const item of lineItems) {
+          if (!item.isAvailable || !item.inStock) {
+            await this.cartItemsRepository.deleteById(item.id, manager);
+          }
+        }
+        const refreshed = await this.cartsRepository.findActiveById(cartId, manager);
+        if (!refreshed) {
+          throw new BadRequestException('Invalid cart id');
+        }
+        return this.toCartResponse(refreshed, refreshed.userId, manager, {
+          clearInvalidCoupon: true,
+        });
       }
 
       const lineItems = await this.buildLineItems(cart);
@@ -326,7 +340,7 @@ export class CartService {
       if (!item) throw new NotFoundException(`Cart item ${itemId} not found`);
 
       const variant = await this.getValidVariant(item.productId, item.variantId, manager);
-      this.assertStockAvailable(dto.quantity, variant.stock);
+      this.assertStockAvailable(dto.quantity, variant);
 
       await this.cartItemsRepository.updateById(itemId, { quantity: dto.quantity }, manager);
       await this.cartsRepository.touchCustomerActivity(cart.id, userId, manager);
@@ -427,7 +441,7 @@ export class CartService {
 
           if (existing) {
             const nextQty = existing.quantity + item.quantity;
-            this.assertStockAvailable(nextQty, variant.stock);
+            this.assertStockAvailable(nextQty, variant);
             await this.cartItemsRepository.updateById(
               existing.id,
               { quantity: nextQty, updatedBy: toUserId },
@@ -553,7 +567,7 @@ export class CartService {
   ): Promise<CartLineItem[]> {
     return Promise.all(
       (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
-        const variant = item.variant as ProductVariantEntity | undefined;
+        const variant = item.variant ?? undefined;
         const product = item.product as ProductEntity | undefined;
         const unitPrice = variant ? parseFloat(variant.sellingPrice) : 0;
         const mrpRaw = variant?.mrp != null ? parseFloat(String(variant.mrp)) : NaN;
@@ -565,9 +579,10 @@ export class CartService {
 
         const isAvailable =
           variant?.status === VariantStatus.ACTIVE &&
-          product?.status === ProductStatus.PUBLISHED;
+          product?.status === ProductStatus.PUBLISHED &&
+          !(variant?.outOfStock === true);
         const rawStock = variant?.stock ?? 0;
-        const stock = getSalableStockQuantity(rawStock, item.quantity);
+        const stock = getSalableStockQuantity(rawStock, item.quantity, variant);
 
         const variantSlug = variant?.slug?.trim() ?? '';
         const productSlug = product?.slug?.trim() ?? '';
@@ -587,7 +602,7 @@ export class CartService {
               singleProductUrl: product?.singleProductUrl,
               categorySlugPath: [],
             }) ?? null,
-          productName: product?.name ?? '',
+          productName: this.resolveCartProductName(product, variant),
           slug: variantSlug || productSlug,
           productPageUrl,
           sku: variant?.sku ?? '',
@@ -597,7 +612,7 @@ export class CartService {
           mrp,
           totalPrice: unitPrice * item.quantity,
           stock,
-          inStock: isAvailable && isVariantInStock(rawStock),
+          inStock: isAvailable && isVariantInStock(rawStock, variant),
           isAvailable,
           codAvailable: !!variant?.codAvailable,
           primaryImageUrl,
@@ -647,7 +662,7 @@ export class CartService {
 
     if (existing) {
       const nextQty = existing.quantity + dto.quantity;
-      this.assertStockAvailable(nextQty, variant.stock);
+      this.assertStockAvailable(nextQty, variant);
       await this.cartItemsRepository.updateById(
         existing.id,
         { quantity: nextQty, updatedBy: userId },
@@ -657,7 +672,7 @@ export class CartService {
       return;
     }
 
-    this.assertStockAvailable(dto.quantity, variant.stock);
+    this.assertStockAvailable(dto.quantity, variant);
     const refId = await generateUniqueRefId('cart-item', (candidate) =>
       this.cartItemsRepository.existsByRefId(candidate),
     );
@@ -719,11 +734,17 @@ export class CartService {
     return variant;
   }
 
-  private assertStockAvailable(requiredQty: number, stock: number): void {
-    if (!STOCK_VALIDATION_ENABLED) {
+  private assertStockAvailable(
+    requiredQty: number,
+    variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory' | 'sku'>,
+  ): void {
+    if (variant.outOfStock) {
+      throw new BadRequestException(`SKU ${variant.sku} is out of stock`);
+    }
+    if (!STOCK_VALIDATION_ENABLED(variant)) {
       return;
     }
-    if (requiredQty > stock) {
+    if (requiredQty > variant.stock) {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
   }
@@ -773,6 +794,17 @@ export class CartService {
     }
 
     return parts.length ? parts.join(' · ') : null;
+  }
+
+  private resolveCartProductName(
+    product: ProductEntity | undefined,
+    variant: ProductVariantEntity | undefined,
+  ): string {
+    const productName = product?.name?.trim() ?? '';
+    if (product?.productType !== ProductType.VARIABLE) {
+      return productName;
+    }
+    return variant?.displayName?.trim() || productName;
   }
 
   private formatVariantWeight(variant: ProductVariantEntity): string | null {

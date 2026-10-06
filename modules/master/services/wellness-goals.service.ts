@@ -218,6 +218,7 @@ export class WellnessGoalsService {
         CacheKeys.homepage.shopByWellnessGoalsPattern(),
         CacheKeys.homepage.sectionsPattern(),
         CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicListingContext.wellnessGoalPattern(),
       ],
     });
   }

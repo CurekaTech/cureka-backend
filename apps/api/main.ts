@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import { IncomingMessage } from 'http';
 import { Http2ServerRequest } from 'http2';
+import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
@@ -58,6 +59,14 @@ async function bootstrap(): Promise<void> {
     done();
   });
 
+  // Gzip/deflate JSON responses (homepage sections ~62KB → much smaller on the wire).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (app as any).register(fastifyCompress, {
+    global: true,
+    encodings: ['gzip', 'deflate'],
+    threshold: 1024,
+  });
+
   // @fastify/cors uses fastify-plugin internally, which breaks Fastify's
   // encapsulation — registering here (after create, before listen) makes it
   // global and applies to every route NestJS has registered.
@@ -65,7 +74,7 @@ async function bootstrap(): Promise<void> {
   await (app as any).register(fastifyCors, {
     origin: corsOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
       'Authorization',

@@ -1,9 +1,13 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import {
   CacheKeys,
   CacheModuleName,
+  CacheService,
   CacheStrategyService,
+  RedisConnectionService,
 } from '@packages/cache';
+import { EVENTS } from '@packages/events';
 import { HomeSectionsService } from '@modules/master/services/home-sections.service';
 import {
   HomeSectionType,
@@ -12,8 +16,11 @@ import {
 import { IHomeSection } from '@modules/master/interfaces/home-section.interface';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
+import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
-import { mapProductEntitiesToPublicCards } from '../mappers/public-product.mapper';
+import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
+import { PublicProductReviewStatsService } from './public-product-review-stats.service';
 import { mapCategoryEntitiesToPublicListItems } from '../mappers/public-category.mapper';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 import {
@@ -23,8 +30,28 @@ import {
 } from '../interfaces/homepage-section.interface';
 import { HomepageService } from './homepage.service';
 
-/** Full homepage sections response is cached for 60 minutes. */
+/** Unsigned section payload (no signed URLs) — long TTL; rebuilt on CMS/product invalidation. */
 const HOMEPAGE_SECTIONS_TTL_SECONDS = 60 * 60;
+
+/**
+ * Enriched (signed-URL) payload cache.
+ * Safe while GCS_SIGNED_URL_TTL_SECONDS ≫ this window (typically 24h).
+ * Short enough that admin edits appear within a few minutes after Redis invalidation
+ * (L1 clears immediately via invalidateLocalCache).
+ */
+const HOMEPAGE_SECTIONS_ENRICHED_TTL_SECONDS = 5 * 60;
+
+/** Process-local hot cache — skips Upstash Redis + GCS signing on repeat hits. */
+const HOMEPAGE_SECTIONS_L1_TTL_MS = 60 * 1000;
+
+type SectionsCacheLayer = 'l1' | 'enriched_redis' | 'unsigned_rebuild';
+
+type SectionsHitCounters = {
+  total: number;
+  l1: number;
+  enrichedRedis: number;
+  unsignedRebuild: number;
+};
 
 /**
  * Fixed storefront sections — always included in `/sections` data even when
@@ -102,6 +129,20 @@ type SectionMeta = {
 export class HomepageSectionsService implements OnModuleInit {
   private readonly logger = new Logger(HomepageSectionsService.name);
 
+  /** Hot in-process cache of fully enriched responses (per worker). */
+  private readonly enrichedL1 = new Map<
+    string,
+    { expiresAt: number; value: IHomepageSectionsResponse }
+  >();
+
+  /** Process-lifetime counters for cache-layer hit rates (logged on each request). */
+  private readonly hitCounters: SectionsHitCounters = {
+    total: 0,
+    l1: 0,
+    enrichedRedis: 0,
+    unsignedRebuild: 0,
+  };
+
   /** Data loaders keyed by section type. Types without a loader return null data. */
   private readonly loaders: Partial<
     Record<HomeSectionType, () => Promise<HomepageSectionData>>
@@ -112,8 +153,6 @@ export class HomepageSectionsService implements OnModuleInit {
     [HomeSectionType.BRANDS_WE_TRUST]: () => this.homepageService.getBrandsWeTrust(),
     [HomeSectionType.EXPERT_CURATED_BUNDLES]: () =>
       this.homepageService.getExpertCuratedBundlesCached(),
-    [HomeSectionType.BEST_SELLERS]: () => this.homepageService.getBestSellers(),
-    [HomeSectionType.WATCH_AND_SHOP]: () => this.homepageService.getWatchAndShop(),
     [HomeSectionType.HEALTH_READS]: () => this.homepageService.getHealthReads(),
     [HomeSectionType.CURATED_WELLNESS_ESSENTIALS]: () =>
       this.homepageService.getCuratedWellnessEssentials(),
@@ -129,13 +168,17 @@ export class HomepageSectionsService implements OnModuleInit {
     private readonly homepageService: HomepageService,
     private readonly homeSectionsService: HomeSectionsService,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly cacheService: CacheService,
+    private readonly redisConnection: RedisConnectionService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly productsRepository: ProductsRepository,
     private readonly categoriesRepository: CategoriesRepository,
+    private readonly reviewStats: PublicProductReviewStatsService,
+    private readonly pincodesService: PincodesService,
   ) {}
 
   onModuleInit(): void {
-    // Warm unsigned sections payload so the first storefront request avoids a cold miss.
+    // Warm unsigned + enriched caches so the first storefront request is hot.
     setImmediate(() => {
       void this.getSections().catch((error) => {
         this.logger.warn(
@@ -147,34 +190,118 @@ export class HomepageSectionsService implements OnModuleInit {
     });
   }
 
+  /** Drop process-local enriched cache (call alongside Redis sections invalidation). */
+  invalidateLocalCache(): void {
+    this.enrichedL1.clear();
+  }
+
+  @OnEvent(EVENTS.HOME_SECTION_UPDATED)
+  onHomeSectionUpdated(): void {
+    this.invalidateLocalCache();
+  }
+
   /**
    * Returns every active home section (in configured index order). Sections whose
    * type has a registered loader carry rendered data; the rest carry `data: null`
    * so the storefront can lay them out and we can wire them up incrementally.
    *
    * When `requested` is a non-empty list, only those section types are included.
+   *
+   * Hot path: L1 (memory) → enriched Redis → unsigned Redis + sign URLs.
    */
-  async getSections(requested?: HomepageSectionKey[]): Promise<IHomepageSectionsResponse> {
-    const cached = await this.cacheStrategy.cacheAside({
-      // v10: sign URLs only after outer cache read (no nested enrichDeep in section loaders).
-      key: CacheKeys.homepage.sections(`v10-${this.buildVariantKey(requested)}`),
+  async getSections(
+    requested?: HomepageSectionKey[],
+    pincode?: string,
+  ): Promise<IHomepageSectionsResponse> {
+    const startedAt = Date.now();
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
+    const variant = this.buildVariantKey(requested, scope.pincode ?? 'none');
+
+    const l1 = this.enrichedL1.get(variant);
+    if (l1 && l1.expiresAt > Date.now()) {
+      this.logSectionsTiming('l1', variant, startedAt, 0);
+      return this.withReviewStats(l1.value);
+    }
+
+    const enrichedKey = CacheKeys.homepage.sections(`v14-enriched-${variant}`);
+    const fromEnriched = await this.cacheService.get<IHomepageSectionsResponse>(enrichedKey);
+    if (fromEnriched) {
+      this.setL1(variant, fromEnriched);
+      this.logSectionsTiming('enriched_redis', variant, startedAt, 0);
+      return this.withReviewStats(fromEnriched);
+    }
+
+    const unsigned = await this.cacheStrategy.cacheAside({
+      // v13: homepage product sliders also exclude dependency-OOS bundles.
+      key: CacheKeys.homepage.sections(`v13-${variant}`),
       module: CacheModuleName.HOMEPAGE,
       ttlSeconds: HOMEPAGE_SECTIONS_TTL_SECONDS,
-      loader: () => this.buildSections(requested),
+      loader: () => this.buildSections(requested, scope.pincodeId),
     });
 
-    // Sign storage references AFTER the cache read so signed URLs (short-lived)
-    // are never persisted in the long-lived sections cache.
-    return this.storageUrlEnricher.enrichDeep(cached);
+    const signStartedAt = Date.now();
+    const enriched = await this.storageUrlEnricher.enrichDeep(unsigned);
+    const enrichMs = Date.now() - signStartedAt;
+    await this.cacheService.set(
+      enrichedKey,
+      enriched,
+      HOMEPAGE_SECTIONS_ENRICHED_TTL_SECONDS,
+    );
+    this.setL1(variant, enriched);
+    this.logSectionsTiming('unsigned_rebuild', variant, startedAt, enrichMs);
+    return this.withReviewStats(enriched);
+  }
+
+  private async withReviewStats(
+    sections: IHomepageSectionsResponse,
+  ): Promise<IHomepageSectionsResponse> {
+    await this.reviewStats.attachDeep(sections);
+    return sections;
+  }
+
+  private logSectionsTiming(
+    cacheLayer: SectionsCacheLayer,
+    variant: string,
+    startedAt: number,
+    enrichMs: number,
+  ): void {
+    this.hitCounters.total += 1;
+    if (cacheLayer === 'l1') this.hitCounters.l1 += 1;
+    else if (cacheLayer === 'enriched_redis') this.hitCounters.enrichedRedis += 1;
+    else this.hitCounters.unsignedRebuild += 1;
+
+    const total = this.hitCounters.total;
+    const l1HitRate = total > 0 ? this.hitCounters.l1 / total : 0;
+    const enrichedHitRate = total > 0 ? this.hitCounters.enrichedRedis / total : 0;
+
+    this.logger.log({
+      msg: 'homepage_sections_timing',
+      variant,
+      cacheLayer,
+      totalMs: Date.now() - startedAt,
+      enrichMs,
+      redisAvailable: this.redisConnection.isAvailable(),
+      l1HitRate: Number(l1HitRate.toFixed(3)),
+      enrichedHitRate: Number(enrichedHitRate.toFixed(3)),
+      requestsSinceBoot: total,
+    });
+  }
+
+  private setL1(variant: string, value: IHomepageSectionsResponse): void {
+    this.enrichedL1.set(variant, {
+      expiresAt: Date.now() + HOMEPAGE_SECTIONS_L1_TTL_MS,
+      value,
+    });
   }
 
   /**
    * Public detail for admin-created custom sections (product/category/banner).
    * Used by storefront "View all" listing pages.
    */
-  async getCustomSectionBySlug(slug: string): Promise<IHomepageSection> {
+  async getCustomSectionBySlug(slug: string, pincode?: string): Promise<IHomepageSection> {
+    const scope = await this.pincodesService.resolveForStorefront(pincode);
     const section = await this.homeSectionsService.findActiveCustomBySlug(slug);
-    const data = await this.loadCustomSectionData(section);
+    const data = await this.loadCustomSectionData(section, scope.pincodeId);
     const payload: IHomepageSection = {
       refId: section.refId,
       index: section.index,
@@ -196,13 +323,14 @@ export class HomepageSectionsService implements OnModuleInit {
   }
 
   /** Stable cache-key suffix for the requested section filter combination. */
-  private buildVariantKey(requested?: HomepageSectionKey[]): string {
-    if (!requested?.length) return 'all';
-    return [...new Set(requested)].sort().join(',');
+  private buildVariantKey(requested: HomepageSectionKey[] | undefined, pincode = 'none'): string {
+    const sections = !requested?.length ? 'all' : [...new Set(requested)].sort().join(',');
+    return `${sections}:pincode:${pincode}`;
   }
 
   private async buildSections(
-    requested?: HomepageSectionKey[],
+    requested: HomepageSectionKey[] | undefined,
+    pincodeId: string | null,
   ): Promise<IHomepageSectionsResponse> {
     const { sections } = await this.homeSectionsService.findActive();
 
@@ -261,7 +389,7 @@ export class HomepageSectionsService implements OnModuleInit {
       visibleSections.map(async (section): Promise<IHomepageSection> => {
         let data: HomepageSectionData | null = null;
         try {
-          data = await this.resolveSectionData(section, bannerBundle);
+          data = await this.resolveSectionData(section, bannerBundle, pincodeId);
         } catch (error) {
           // Keep the rest of the homepage usable if one section loader fails.
           this.logger.error(
@@ -289,6 +417,7 @@ export class HomepageSectionsService implements OnModuleInit {
     bannerBundle: Awaited<
       ReturnType<HomepageService['loadHomepageBannerReferences']>
     > | null,
+    pincodeId: string | null,
   ): Promise<HomepageSectionData | null> {
     if (bannerBundle) {
       if (section.type === HomeSectionType.HERO_BANNER) {
@@ -306,7 +435,14 @@ export class HomepageSectionsService implements OnModuleInit {
     }
 
     if (isCustomHomeSectionType(section.type) && section.source) {
-      return this.loadCustomSectionData(section.source);
+      return this.loadCustomSectionData(section.source, pincodeId);
+    }
+
+    if (section.type === HomeSectionType.BEST_SELLERS) {
+      return this.homepageService.getBestSellers(pincodeId);
+    }
+    if (section.type === HomeSectionType.WATCH_AND_SHOP) {
+      return this.homepageService.getWatchAndShop(pincodeId);
     }
 
     const loader = this.loaders[section.type];
@@ -315,6 +451,7 @@ export class HomepageSectionsService implements OnModuleInit {
 
   private async loadCustomSectionData(
     section: IHomeSection,
+    pincodeId: string | null = null,
   ): Promise<HomepageSectionData | null> {
     if (section.type === HomeSectionType.BANNER) {
       return { banners: section.banners ?? [] };
@@ -322,14 +459,15 @@ export class HomepageSectionsService implements OnModuleInit {
 
     if (section.type === HomeSectionType.PRODUCT_SLIDER) {
       const refIds = section.productRefIds ?? [];
-      const products = await this.productsRepository.findPublishedByRefIds(refIds);
+      const products = await this.productsRepository.findPublishedByRefIds(refIds, pincodeId);
       const byRefId = new Map(products.map((product) => [product.refId, product]));
       const ordered = refIds
         .map((refId) => byRefId.get(refId))
-        .filter((product): product is NonNullable<typeof product> => Boolean(product));
+        .filter((product): product is NonNullable<typeof product> => Boolean(product))
+        .filter((product) => isPublicProductSellable(product));
       return {
         banner: section.banners?.[0] ?? null,
-        products: mapProductEntitiesToPublicCards(ordered),
+        products: mapProductEntitiesToPublicStorefrontCards(ordered),
       };
     }
 

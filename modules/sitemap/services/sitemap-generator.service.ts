@@ -5,6 +5,7 @@ import {
   SITEMAP_GROUPS,
   SitemapGroup,
   isSitemapGroup,
+  liveKeyToGroup,
   liveKeyToPublicPath,
   sitemapGroupLegacyLivePath,
   sitemapGroupLivePath,
@@ -18,6 +19,7 @@ import {
   absoluteSitemapUrl,
   splitUrlEntries,
 } from './sitemap-url.builder';
+import { assertSitemapPublishAllowed } from './sitemap-publish-guard';
 import {
   SitemapIndexEntry,
   buildSitemapIndexXml,
@@ -68,10 +70,16 @@ export class SitemapGeneratorService {
     const baseUrl = this.requireBaseUrl();
     const batchSize = this.configService.get<number>('sitemap.batchSize') ?? 10_000;
     const maxUrlsPerFile = this.configService.get<number>('sitemap.maxUrlsPerFile') ?? 50_000;
+    const liveOrigin = await this.readLiveSitemapOrigin();
+    assertSitemapPublishAllowed({
+      baseUrl,
+      storageDriver: this.configService.get<string>('storage.driver') ?? 'local',
+      bucket: this.configService.get<string>('storage.gcs.bucket'),
+      liveOrigin,
+    });
 
     let targetGroups = [...groups];
     if (targetGroups.length < SITEMAP_GROUPS.length) {
-      const liveOrigin = await this.readLiveSitemapOrigin();
       if (liveOrigin && liveOrigin !== baseUrl) {
         this.logger.warn(
           {
@@ -245,8 +253,14 @@ export class SitemapGeneratorService {
   ): Promise<SitemapIndexEntry[]> {
     const entries: SitemapIndexEntry[] = stagedPublicPaths.map((locPath) => ({ locPath, lastmod }));
 
+    // Groups regenerated in this run are listed only from their fresh shards:
+    // their old live files are pruned after publish, so listing them here would
+    // point the index at files that no longer exist (e.g. an emptied group).
+    const regenerated = new Set<SitemapGroup>(regeneratedGroups);
     const live = await this.storageService.listLive('');
     for (const path of live) {
+      const group = liveKeyToGroup(path);
+      if (group && regenerated.has(group)) continue;
       const locPath = liveKeyToPublicPath(path);
       if (!locPath) continue;
       entries.push({ locPath, lastmod });

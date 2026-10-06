@@ -1,5 +1,7 @@
 import { ProductEntity } from '../entities/product.entity';
+import { ProductMediaEntity } from '../entities/product-media.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
+import { ProductMediaType } from '../enums/product-media-type.enum';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { buildCategoryFilterColumnHeader } from './bulk-upload-columns.util';
@@ -64,7 +66,125 @@ const PACK_COLUMN_PREFIXES: Record<
   },
 };
 
+/** Stable public media URL for a storage key. Null when the key is private or the base URL is unset. */
+export type BulkExportMediaUrlResolver = (storageKey: string) => string | null;
+
 const yesNo = (value: boolean | undefined | null): string => (value ? 'Yes' : 'No');
+
+const mediaStorageKey = (item: ProductMediaEntity): string => item.url?.key?.trim() ?? '';
+
+const isVideoMedia = (item: ProductMediaEntity): boolean =>
+  item.type === ProductMediaType.VIDEO || /\.(mp4|mov|webm)$/i.test(mediaStorageKey(item));
+
+const isGalleryMedia = (item: ProductMediaEntity): boolean =>
+  item.type === ProductMediaType.IMAGE ||
+  item.type === ProductMediaType.VIDEO ||
+  item.type === ProductMediaType.COMMON;
+
+const sortExportMedia = (items: ProductMediaEntity[]): ProductMediaEntity[] =>
+  [...items].sort((left, right) => {
+    if (Boolean(left.isPrimary) !== Boolean(right.isPrimary)) {
+      return left.isPrimary ? -1 : 1;
+    }
+    return (left.sortOrder ?? 0) - (right.sortOrder ?? 0);
+  });
+
+const writeMediaSlot = (
+  values: ExportRowValues,
+  nameHeader: string,
+  urlHeader: string,
+  item: ProductMediaEntity,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
+): void => {
+  const key = mediaStorageKey(item);
+  if (!key) return;
+  values.set(nameHeader, key);
+  const url = toExportMediaUrl?.(key);
+  if (url) values.set(urlHeader, url);
+};
+
+const writeFileReferenceUrl = (
+  values: ExportRowValues,
+  pathHeaders: string[],
+  urlHeader: string,
+  storageKey: string | undefined,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
+): void => {
+  const key = storageKey?.trim();
+  if (!key) return;
+  for (const header of pathHeaders) {
+    values.set(header, key);
+  }
+  const url = toExportMediaUrl?.(key);
+  if (url) values.set(urlHeader, url);
+};
+
+const applyCommonMedia = (
+  values: ExportRowValues,
+  product: ProductEntity,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
+): void => {
+  const shared = sortExportMedia(
+    (product.media ?? []).filter(
+      (item) =>
+        isGalleryMedia(item) &&
+        (item.type === ProductMediaType.COMMON || !item.variantId),
+    ),
+  );
+  shared.slice(0, 6).forEach((item, index) => {
+    const slot = index + 1;
+    writeMediaSlot(
+      values,
+      `common_media_${slot}`,
+      `common_media_${slot}_url`,
+      item,
+      toExportMediaUrl,
+    );
+  });
+};
+
+const applyVariantGallery = (
+  values: ExportRowValues,
+  product: ProductEntity,
+  variant: ProductVariantEntity,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
+): void => {
+  const owned = sortExportMedia(
+    (product.media ?? []).filter(
+      (item) =>
+        item.variantId === variant.id &&
+        (item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.VIDEO),
+    ),
+  );
+  const images = owned.filter((item) => !isVideoMedia(item));
+  const video = owned.find((item) => isVideoMedia(item));
+
+  if (images[0]) {
+    writeMediaSlot(values, 'Primary Image Filename', 'Primary Image URL', images[0], toExportMediaUrl);
+  }
+  images.slice(1, 6).forEach((item, index) => {
+    const slot = index + 2;
+    writeMediaSlot(values, `Gallery Image ${slot}`, `Gallery Image ${slot} URL`, item, toExportMediaUrl);
+  });
+  if (video) {
+    writeMediaSlot(
+      values,
+      'Gallery Image 2 (Video)',
+      'Gallery Image 2 (Video) URL',
+      video,
+      toExportMediaUrl,
+    );
+  }
+
+  const sizeChartKey = variant.sizeChart?.key?.trim() || product.sizeChart?.key?.trim();
+  writeFileReferenceUrl(
+    values,
+    ['Size Chart Filename/Path'],
+    'Size Chart URL',
+    sizeChartKey,
+    toExportMediaUrl,
+  );
+};
 
 const joinPipe = (items: Array<string | undefined | null>): string =>
   items.map((item) => item?.trim()).filter(Boolean).join(' | ');
@@ -196,6 +316,7 @@ const applyVariantFields = (
 const buildSharedProductValues = (
   product: ProductEntity,
   headers: Set<string>,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
 ): ExportRowValues => {
   const values: ExportRowValues = new Map();
 
@@ -291,6 +412,16 @@ const buildSharedProductValues = (
     })).filter((faq) => faq.question && faq.answer) ?? [];
   applyFaqs(values, faqs);
 
+  const faqBannerPath = product.faqBanner?.key?.trim();
+  writeFileReferenceUrl(
+    values,
+    ['FAQ Banner', 'FAQ Banner Filename/Path'],
+    'FAQ Banner URL',
+    faqBannerPath,
+    toExportMediaUrl,
+  );
+  applyCommonMedia(values, product, toExportMediaUrl);
+
   applyProductInformation(values, product.productInformation, headers);
   applyCategoryFilters(values, product.categoryFilterMappings);
 
@@ -330,12 +461,14 @@ const mapSimpleProductRows = (
   product: ProductEntity,
   headers: string[],
   headerSet: Set<string>,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
 ): ExportCellValue[][] => {
   const variant = product.variants?.[0];
   if (!variant) return [];
 
-  const values = buildSharedProductValues(product, headerSet);
+  const values = buildSharedProductValues(product, headerSet, toExportMediaUrl);
   applyVariantFields(values, variant, getAttributeNames(product));
+  applyVariantGallery(values, product, variant, toExportMediaUrl);
 
   return [buildRowFromValues(headers, values)];
 };
@@ -344,6 +477,7 @@ const mapVariableProductRows = (
   product: ProductEntity,
   headers: string[],
   headerSet: Set<string>,
+  toExportMediaUrl?: BulkExportMediaUrlResolver,
 ): ExportCellValue[][] => {
   const variants = [...(product.variants ?? [])].sort(
     (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
@@ -352,7 +486,7 @@ const mapVariableProductRows = (
 
   const attributeNames = getAttributeNames(product);
   const styleGroupId = product.refId;
-  const sharedValues = buildSharedProductValues(product, headerSet);
+  const sharedValues = buildSharedProductValues(product, headerSet, toExportMediaUrl);
 
   return variants.map((variant) => {
     const values = new Map(sharedValues);
@@ -364,6 +498,7 @@ const mapVariableProductRows = (
     }
 
     applyVariantFields(values, variant, attributeNames);
+    applyVariantGallery(values, product, variant, toExportMediaUrl);
 
     return buildRowFromValues(headers, values);
   });
@@ -374,6 +509,7 @@ export interface IBulkExportLookupContext {
   productById: Map<string, ProductEntity>;
   variantSkuPriceLookup?: Map<string, { mrp: number | null; sellingPrice: number | null }>;
   firstVariantSkuByProductId?: Map<string, string>;
+  toExportMediaUrl?: BulkExportMediaUrlResolver;
 }
 
 const mapBundleProductRows = (
@@ -388,7 +524,7 @@ const mapBundleProductRows = (
   if (!parentVariant) return [];
 
   const bundleSku = parentVariant.sku;
-  const parentValues = buildSharedProductValues(product, headerSet);
+  const parentValues = buildSharedProductValues(product, headerSet, exportContext?.toExportMediaUrl);
   parentValues.set('Product Type *', ProductType.BUNDLE);
   parentValues.set('Bundle SKU', bundleSku);
 
@@ -400,14 +536,18 @@ const mapBundleProductRows = (
   }
 
   applyVariantFields(parentValues, parentVariant, []);
+  applyVariantGallery(parentValues, product, parentVariant, exportContext?.toExportMediaUrl);
 
   const rows: ExportCellValue[][] = [buildRowFromValues(headers, parentValues)];
 
   for (const bundleItem of product.bundleItems ?? []) {
     const childProduct =
       productById.get(bundleItem.childProductId) ?? bundleItem.childProduct ?? null;
+    const selectedVariant = bundleItem.childVariantId
+      ? childProduct?.variants?.find((variant) => variant.id === bundleItem.childVariantId)
+      : childProduct?.variants?.[0];
     const childSku =
-      childProduct?.variants?.[0]?.sku ??
+      selectedVariant?.sku ??
       exportContext?.firstVariantSkuByProductId?.get(bundleItem.childProductId);
     if (!childSku) continue;
 
@@ -461,13 +601,15 @@ export const createBulkExportLookupContext = (
   options?: {
     variantSkuPriceLookup?: Map<string, { mrp: number | null; sellingPrice: number | null }>;
     firstVariantSkuByProductId?: Map<string, string>;
+    toExportMediaUrl?: BulkExportMediaUrlResolver;
   },
 ): IBulkExportLookupContext => ({
   skuLookup: buildSkuLookup(products),
   productById: new Map(products.map((product) => [product.id, product])),
-  variantSkuPriceLookup: options?.variantSkuPriceLookup,
-  firstVariantSkuByProductId: options?.firstVariantSkuByProductId,
-});
+    variantSkuPriceLookup: options?.variantSkuPriceLookup,
+    firstVariantSkuByProductId: options?.firstVariantSkuByProductId,
+    toExportMediaUrl: options?.toExportMediaUrl,
+  });
 
 export const mapProductsToBulkExportRows = (
   products: ProductEntity[],
@@ -491,7 +633,7 @@ export const mapProductsToBulkExportRows = (
 
     switch (product.productType) {
       case ProductType.VARIABLE:
-        rows.push(...mapVariableProductRows(product, headers, headerSet));
+        rows.push(...mapVariableProductRows(product, headers, headerSet, context.toExportMediaUrl));
         break;
       case ProductType.BUNDLE:
         rows.push(
@@ -506,7 +648,7 @@ export const mapProductsToBulkExportRows = (
         );
         break;
       default:
-        rows.push(...mapSimpleProductRows(product, headers, headerSet));
+        rows.push(...mapSimpleProductRows(product, headers, headerSet, context.toExportMediaUrl));
         break;
     }
   }

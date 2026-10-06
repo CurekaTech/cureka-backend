@@ -12,7 +12,8 @@ export class PublicBundlesController {
   @ApiOperation({
     summary: 'List published bundle products (paginated)',
     description:
-      'Returns active/published bundles with name, bundleIcon, brand (name/logo/etc), curatedBy, curatedFor, pricing, and OOS.',
+      'Returns active/published bundles with name, bundleIcon, brand (name/logo/etc), curatedBy, curatedFor, pricing, and OOS. ' +
+      'Out-of-stock bundles are listed after in-stock ones. Pass isHomePage=true to omit out-of-stock bundles. Default is false.',
   })
   @ResponseMessage('Bundles retrieved successfully')
   @Get()
@@ -27,7 +28,7 @@ export class PublicBundlesController {
   })
   @ResponseMessage('Bundle retrieved successfully')
   @Get(':slug')
-  findBySlug(@Param('slug') slug: string) {
-    return this.publicBundlesService.findBySlug(slug);
+  findBySlug(@Param('slug') slug: string, @Query('pincode') pincode?: string) {
+    return this.publicBundlesService.findBySlug(slug, pincode);
   }
 }

@@ -5,6 +5,7 @@ import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { ProductVariantsRepository } from '../repositories/product-variants.repository';
 import { ProductsRepository } from '../repositories/products.repository';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { ProductMasterResolverService } from './product-master-resolver.service';
 import { mapProductEntityToResponse } from '../mappers/product.mapper';
 import { IProduct } from '../interfaces/product.interface';
@@ -59,6 +60,15 @@ export class ProductVariantsService {
       EVENTS.PRODUCT_UPDATED,
       new ProductUpdatedEvent(productRefId, 'updated'),
     );
+  }
+
+  private async requireVariant(productRefId: string, variantId: string): Promise<ProductVariantEntity> {
+    const product = await this.requireProduct(productRefId);
+    const variant = await this.variantsRepository.findById(variantId);
+    if (!variant || variant.productId !== product.id || variant.deletedAt) {
+      throw new NotFoundException(`Variant ${variantId} not found for product ${productRefId}`);
+    }
+    return variant;
   }
 
   private async requireProduct(refId: string) {

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
-import { StorageService, parseStorageFileReference } from '@packages/storage';
+import { StorageService, parseStorageFileReference, normalizeStorageKey } from '@packages/storage';
 import { ImagePipelineService } from './image-pipeline.service';
 import { ImageAssetRepository } from '../repositories/image-asset.repository';
 import { ImagePipelineCheckpointRepository } from '../repositories/image-pipeline-checkpoint.repository';
@@ -141,6 +141,66 @@ export class ImageBackfillService {
 
         if (batch.length < options.batchSize) break;
         if (remaining !== undefined && remaining <= 0) break;
+      }
+    }
+
+    return stats;
+  }
+
+  /** Queue specific object keys (e.g. the production hero PNG) without a table scan. */
+  async enqueueKeys(rawKeys: string[], apply: boolean, retryFailed = false): Promise<IImageBackfillCounts> {
+    const stats = this.checkpoints.emptyStats();
+    const seen = new Set<string>();
+    const fallbackBucket = this.storageService.getBucketName();
+    const prefix = this.configService.get<string>('imagePipeline.derivativePrefix') ?? 'derivatives';
+    const pipelineVersion = this.pipeline.pipelineVersion();
+
+    for (const raw of rawKeys) {
+      stats.scanned += 1;
+      const key = normalizeStorageKey(raw);
+      if (!key || !isSafeObjectKey(key) || shouldSkipSourceKey(key, prefix)) {
+        stats.unsupported += 1;
+        continue;
+      }
+
+      const dedupeKey = `${fallbackBucket}\0${key}`;
+      if (seen.has(dedupeKey)) {
+        stats.skippedDuplicate += 1;
+        continue;
+      }
+      seen.add(dedupeKey);
+
+      const exists = await this.storageService.exists(key);
+      if (!exists) {
+        stats.missingSource += 1;
+        continue;
+      }
+
+      const current = await this.assets.findBySource(fallbackBucket, key);
+      if (
+        current &&
+        current.pipelineVersion === pipelineVersion &&
+        (current.status === ImageAssetStatus.READY ||
+          current.status === ImageAssetStatus.PARTIAL ||
+          current.status === ImageAssetStatus.UNSUPPORTED) &&
+        !retryFailed
+      ) {
+        stats.alreadyComplete += 1;
+        continue;
+      }
+
+      stats.eligible += 1;
+      if (!apply) continue;
+
+      try {
+        const result = await this.pipeline.scheduleSource({
+          key,
+          bucket: fallbackBucket,
+        });
+        if (result === 'queued') stats.queued += 1;
+        else stats.unsupported += 1;
+      } catch {
+        stats.failed += 1;
       }
     }
 

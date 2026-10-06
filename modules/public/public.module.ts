@@ -5,11 +5,13 @@ import { ProductModule } from '@modules/product/product.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { HomepageController } from './controllers/homepage.controller';
+import { FooterController } from './controllers/footer.controller';
 import { PublicCommonController } from './controllers/public-common.controller';
 import { PublicExpertTalkController } from './controllers/public-expert-talk.controller';
 import { PublicWatchAndShopController } from './controllers/public-watch-and-shop.controller';
 import { PublicProductsController } from './controllers/public-products.controller';
 import { PublicBundlesController } from './controllers/public-bundles.controller';
+import { PublicMediaController } from './controllers/public-media.controller';
 import { HomepageService } from './services/homepage.service';
 import { HomepageSectionsService } from './services/homepage-sections.service';
 import { PublicCommonService } from './services/public-common.service';
@@ -18,16 +20,21 @@ import { PublicProductsService } from './services/public-products.service';
 import { PublicProductFiltersService } from './services/public-product-filters.service';
 import { PublicBundlesService } from './services/public-bundles.service';
 import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.listener';
+import { StorefrontRevalidateListener } from './listeners/storefront-revalidate.listener';
+import { StorefrontRevalidateService } from './services/storefront-revalidate.service';
+import { PublicProductReviewStatsService } from './services/public-product-review-stats.service';
 
 @Module({
   imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule],
   controllers: [
     HomepageController,
+    FooterController,
     PublicCommonController,
     PublicExpertTalkController,
     PublicWatchAndShopController,
     PublicProductsController,
     PublicBundlesController,
+    PublicMediaController,
   ],
   providers: [
     HomepageService,
@@ -38,6 +45,10 @@ import { PublicHomepageCacheListener } from './listeners/public-homepage-cache.l
     PublicProductFiltersService,
     PublicBundlesService,
     PublicHomepageCacheListener,
+    StorefrontRevalidateService,
+    StorefrontRevalidateListener,
+    PublicProductReviewStatsService,
   ],
+  exports: [HomepageService],
 })
 export class PublicModule {}

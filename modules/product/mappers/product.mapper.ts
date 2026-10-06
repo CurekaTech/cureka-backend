@@ -1,4 +1,5 @@
 import { ProductEntity } from '../entities/product.entity';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
 import {
   IProduct,
   IProductVariant,
@@ -28,6 +29,8 @@ import { mapCountryEntityToResponse } from '@modules/master/mappers/country.mapp
 import { mapHealthConcernEntityToResponse } from '@modules/master/mappers/health-concern.mapper';
 import { mapVariantEntityToDetailFields } from './variant-details.mapper';
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
+import { IBundleAvailability } from '../interfaces/bundle-availability.interface';
+import { buildBundleAvailability } from '../utils/bundle-availability.util';
 
 const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
@@ -130,6 +133,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
   sizeChart: entity.sizeChart,
+  faqBanner: entity.faqBanner ?? null,
   bundleIcon: entity.bundleIcon ?? null,
   publishedAt: entity.publishedAt,
   curatedBy: entity.curatedBy ?? null,
@@ -148,6 +152,7 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   tags: (entity.tagMappings ?? []).map(mapTag),
   faqs: sortProductFaqMappings(entity.faqMappings ?? []).map(mapFaq),
   bundleItems: (entity.bundleItems ?? []).map(mapBundleItem),
+  bundleAvailability: mapBundleAvailability(entity),
   outOfStock: isProductOutOfStock(entity),
   createdBy: entity.createdBy,
   updatedBy: entity.updatedBy,
@@ -254,6 +259,8 @@ export const mapProductEntityToDetailResponse = (entity: ProductEntity): IProduc
     .map((mapping) => mapping.healthConcern)
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .map(mapHealthConcernEntityToResponse),
+  isPincodeManaged: Boolean(entity.isPincodeManaged),
+  pincodes: [],
 });
 
 const mapAttribute = (
@@ -350,6 +357,7 @@ const mapVariant = (
   discountPercentage: toNumber(variant.discountPercentage),
   stock: variant.stock,
   outOfStock: variant.outOfStock ?? false,
+  inCurekaInventory: variant.inCurekaInventory ?? false,
   estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
   isTop: variant.isTop ?? false,
   topSortOrder: variant.topSortOrder ?? null,
@@ -407,12 +415,66 @@ const mapFaq = (mapping: ProductEntity['faqMappings'][number]): IProductFaq => (
   sequence: mapping.sortOrder ?? 0,
 });
 
+const selectedBundleItemVariants = (
+  item: ProductEntity['bundleItems'][number],
+): ProductVariantEntity[] => {
+  const variants = (item.childProduct?.variants ?? []).filter((variant) => !variant.deletedAt);
+  if (!item.childVariantId) return variants;
+  return variants.filter((variant) => variant.id === item.childVariantId);
+};
+
+const mapBundleItemVariant = (
+  variant: ProductVariantEntity,
+): IProductBundleItem['variants'][number] => ({
+  id: variant.id,
+  sku: variant.sku,
+  displayName: variant.displayName?.trim() || null,
+  stock: variant.stock ?? 0,
+  outOfStock: variant.outOfStock ?? false,
+  inCurekaInventory: variant.inCurekaInventory ?? false,
+  status: variant.status,
+});
+
 const mapBundleItem = (item: ProductEntity['bundleItems'][number]): IProductBundleItem => ({
   id: item.id,
   childProductRefId: item.childProduct?.refId ?? '',
   childProductName: item.childProduct?.name ?? '',
+  childVariantId: item.childVariantId ?? null,
   quantity: item.quantity,
+  variants: selectedBundleItemVariants(item).map(mapBundleItemVariant),
 });
+
+const mapBundleAvailability = (entity: ProductEntity): IBundleAvailability | null => {
+  if (entity.productType !== ProductType.BUNDLE) return null;
+
+  return buildBundleAvailability(
+    (entity.variants ?? []).map((variant) => ({
+      sku: variant.sku,
+      stock: variant.stock,
+      outOfStock: variant.outOfStock,
+      inCurekaInventory: variant.inCurekaInventory,
+      status: variant.status,
+      deletedAt: variant.deletedAt,
+    })),
+    (entity.bundleItems ?? []).map((item) => ({
+      refId: item.childProduct?.refId ?? '',
+      name: item.childProduct?.name ?? '',
+      productType: item.childProduct?.productType ?? ProductType.SIMPLE,
+      bundleComponentOos: item.childProduct?.bundleComponentOos ?? false,
+      deleted: !item.childProduct || Boolean(item.childProduct.deletedAt),
+      quantity: item.quantity,
+      variants: selectedBundleItemVariants(item).map((variant) => ({
+        sku: variant.sku,
+        name: variant.displayName,
+        stock: variant.stock,
+        outOfStock: variant.outOfStock,
+        inCurekaInventory: variant.inCurekaInventory,
+        status: variant.status,
+        deletedAt: variant.deletedAt,
+      })),
+    })),
+  );
+};
 
 export const mapCategoryFilters = (entity: ProductEntity): IProductCategoryFilterBinding[] => {
   const grouped = new Map<string, IProductCategoryFilterBinding>();

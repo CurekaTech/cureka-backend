@@ -10,6 +10,7 @@ import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { GalleryModule } from '../gallery/gallery.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
+import { PincodesModule } from '@modules/pincodes/pincodes.module';
 
 // ── Product entities ─────────────────────────────────────────────────────────
 import { ProductEntity } from './entities/product.entity';
@@ -52,6 +53,7 @@ import { ProductReviewsRepository } from './repositories/product-reviews.reposit
 
 // ── Product services ─────────────────────────────────────────────────────────
 import { ProductsService } from './services/products.service';
+import { BundleAvailabilityService } from './services/bundle-availability.service';
 import { CombineSimpleProductsService } from './services/combine-simple-products.service';
 import { BestSellersIndexingService } from './services/best-sellers-indexing.service';
 import { CategoryProductIndexingService } from './services/category-product-indexing.service';
@@ -104,6 +106,7 @@ import { PublicProductReviewsController } from './controllers/public-product-rev
 
 // ── Listeners ────────────────────────────────────────────────────────────────
 import { ProductCacheListener } from './listeners/product-cache.listener';
+import { BundleAvailabilityListener } from './listeners/bundle-availability.listener';
 
 // ── Processors ───────────────────────────────────────────────────────────────
 import { BulkUploadProcessor } from './processors/bulk-upload.processor';
@@ -128,6 +131,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     forwardRef(() => SubscriptionModule),
     forwardRef(() => SitemapModule),
     OosEmailModule,
+    PincodesModule,
     QueueModule.registerQueue('bulk-upload'),
     QueueModule.registerQueue('bulk-price-update'),
     QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
@@ -182,6 +186,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     ProductTagsRepository,
     ProductInformationLabelsRepository,
     ProductsService,
+    BundleAvailabilityService,
     CombineSimpleProductsService,
     BestSellersIndexingService,
     CategoryProductIndexingService,
@@ -197,6 +202,7 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     BundleProductStrategy,
     ProductStrategyFactory,
     ProductCacheListener,
+    BundleAvailabilityListener,
     BulkUploadsRepository,
     BulkUploadService,
     BulkUploadExportStreamService,
@@ -230,6 +236,8 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     WishlistService,
     // ── Reviews ──────────────────────────────────────────────────────────────
     ProductReviewsService,
+    ProductReviewsRepository,
+    PincodesModule,
   ],
 })
 export class ProductModule {}

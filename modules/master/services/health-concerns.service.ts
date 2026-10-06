@@ -278,6 +278,7 @@ export class HealthConcernsService {
         CacheKeys.homepage.healthConcernsPattern(),
         CacheKeys.homepage.sectionsPattern(),
         CacheKeys.publicProducts.listPattern(),
+        CacheKeys.publicListingContext.healthConcernPattern(),
       ],
     });
   }

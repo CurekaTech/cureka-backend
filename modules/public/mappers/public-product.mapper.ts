@@ -18,13 +18,21 @@ import {
   IPublicManufacturerSummary,
   IPublicPackerSummary,
   IPublicProductCard,
+  IPublicStorefrontProductCard,
+  IPublicStorefrontProductDetail,
+  IPublicStorefrontProductVariant,
   IPublicProductDetail,
   IPublicProductMedia,
   IPublicProductListPricing,
   IPublicProductPriceSummary,
+  IPublicProductVariant,
   IPublicProductVariantSearchItem,
 } from '../interfaces/public-product.interface';
-import { getSalableStockQuantity, isVariantInStock } from '@packages/common';
+import { getSalableStockQuantity } from '@packages/common';
+import {
+  isPublicProductSellable,
+  isPublicVariantSellable,
+} from '@modules/product/utils/public-variant-availability.util';
 import { IStorageFileReference } from '@packages/storage';
 import {
   buildProductCategorySlugPathFromRelations,
@@ -49,7 +57,9 @@ const sanitizePublicProductPageUrl = (
 };
 
 const getActiveVariants = (entity: ProductEntity) =>
-  (entity.variants ?? []).filter((variant) => variant.status === VariantStatus.ACTIVE);
+  (entity.variants ?? []).filter(
+    (variant) => variant.status === VariantStatus.ACTIVE,
+  );
 
 type CommerceFlagSource = {
   subscriptionEnabled?: boolean | null;
@@ -171,7 +181,7 @@ const pickPreferredListVariant = (entity: ProductEntity): ProductVariantEntity |
     return activeVariants[0]!;
   }
 
-  const inStockVariants = activeVariants.filter((variant) => !variant.outOfStock);
+  const inStockVariants = activeVariants.filter((variant) => isPublicVariantSellable(variant));
   const pool = inStockVariants.length ? inStockVariants : activeVariants;
 
   const ranked = [...pool].sort((left, right) => {
@@ -314,7 +324,9 @@ const buildPriceSummary = (entity: ProductEntity): IPublicProductPriceSummary =>
     maxSellingPrice: sellingPrices.length ? Math.max(...sellingPrices) : 0,
     minMrp: mrps.length ? Math.min(...mrps) : 0,
     maxDiscountPercentage: discounts.length ? Math.max(...discounts) : null,
-    inStock: activeVariants.some((variant) => !variant.outOfStock),
+    inStock:
+      !(entity.bundleComponentOos ?? false) &&
+      activeVariants.some((variant) => !variant.outOfStock),
   };
 };
 
@@ -331,19 +343,18 @@ export const buildListVariantPricing = (
     };
   }
 
-  const outOfStock = variant.outOfStock ?? false;
   return {
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discount: toNumber(variant.discountPercentage),
-    inStock: !outOfStock,
+    inStock: isPublicVariantSellable(variant),
   };
 };
 
-/** Available to buy: not admin-marked OOS, and passes stock rules when enabled. */
+/** Available to buy: not admin-marked OOS, and passes stock rules when Cureka-managed. */
 const isVariantAvailable = (
-  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock'>,
-): boolean => !(variant.outOfStock ?? false) && isVariantInStock(variant.stock);
+  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory'>,
+): boolean => isPublicVariantSellable(variant);
 
 const storageMediaKey = (ref: IStorageFileReference | string | null | undefined): string | null => {
   if (!ref) return null;
@@ -554,9 +565,9 @@ export const mapVariantEntityToPublicSearchItem = (
     mrp: toNumber(variant.mrp) ?? 0,
     sellingPrice: toNumber(variant.sellingPrice) ?? 0,
     discountPercentage: toNumber(variant.discountPercentage),
-    stock: getSalableStockQuantity(variant.stock),
-    inStock: isVariantAvailable(variant),
-    outOfStock: variant.outOfStock ?? false,
+    stock: getSalableStockQuantity(variant.stock, 1, variant),
+    inStock: isVariantAvailable(variant) && !(variant.product?.bundleComponentOos ?? false),
+    outOfStock: (variant.outOfStock ?? false) || Boolean(variant.product?.bundleComponentOos),
     weight: toNumber(variant.weight),
     weightUnit: variant.weightUnit,
     length: toNumber(variant.length),
@@ -582,7 +593,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
   const listVariant = resolveListVariant(entity);
   const productPageUrl = sanitizePublicProductPageUrl(listVariant?.productPageUrl);
-  const outOfStock = listVariant?.outOfStock ?? false;
+  const outOfStock = !isPublicProductSellable(entity);
   const commerceFlags = resolveSharedCommerceFlags(entity, getActiveVariants(entity));
   const listVariantSlug = listVariant
     ? sanitizeProductSlugSegment(listVariant.slug) || listVariant.slug
@@ -597,6 +608,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
       )
     : [];
   const uniqueListPageUrl = pageUrlOwners.length <= 1 ? productPageUrl : null;
+  const listPricing = buildListVariantPricing(listVariant);
 
   return {
   id: entity.id,
@@ -621,7 +633,10 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   primaryImageUrl: listVariant
     ? getVariantPrimaryImageUrl(entity, listVariant.id)
     : getPrimaryImageUrl(entity),
-  pricing: buildListVariantPricing(listVariant),
+  pricing: {
+    ...listPricing,
+    inStock: !outOfStock && listPricing.inStock,
+  },
   outOfStock,
   isBestSeller: (entity.tagMappings ?? []).some(
     (mapping) => mapping.tag?.slug === 'bestsellers',
@@ -630,6 +645,7 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     (variant) => variant.status === VariantStatus.ACTIVE && (variant.isTop ?? false),
   ),
   variantId: listVariant?.id ?? null,
+  sku: listVariant?.sku ?? null,
   subscriptionEnabled: commerceFlags.subscriptionEnabled,
   codAvailable: commerceFlags.codAvailable,
   publishedAt: entity.publishedAt,
@@ -638,11 +654,137 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
     name: mapping.tag?.name ?? '',
     slug: mapping.tag?.slug ?? '',
   })),
+  averageRating: 0,
+  reviewCount: 0,
   } as IPublicProductCard;
 };
 
 export const mapProductEntitiesToPublicCards = (entities: ProductEntity[]): IPublicProductCard[] =>
   entities.map(mapProductEntityToPublicCard);
+
+/** Fields the Cureka storefront reads on recommendation / list cards. */
+export const toPublicStorefrontProductCard = (
+  card: IPublicProductCard,
+): IPublicStorefrontProductCard => ({
+  id: card.id,
+  name: card.name,
+  slug: card.slug,
+  defaultVariantId: card.defaultVariantId,
+  variantId: card.variantId,
+  sku: card.sku,
+  primaryImageUrl: card.primaryImageUrl,
+  pricing: card.pricing,
+  outOfStock: card.outOfStock,
+  isBestSeller: card.isBestSeller,
+  productPageUrl: card.productPageUrl,
+  permalink: card.permalink,
+  categorySlugPath: card.categorySlugPath,
+  brandName: card.brandName,
+  categoryName: card.categoryName,
+  subCategoryName: card.subCategoryName,
+  tags: card.tags.map((tag) => ({ name: tag.name })),
+  averageRating: card.averageRating ?? 0,
+  reviewCount: card.reviewCount ?? 0,
+});
+
+export const mapProductEntitiesToPublicStorefrontCards = (
+  entities: ProductEntity[],
+): IPublicStorefrontProductCard[] =>
+  mapProductEntitiesToPublicCards(entities).map(toPublicStorefrontProductCard);
+
+export const toPublicStorefrontProductVariant = (
+  variant: IPublicProductVariant,
+): IPublicStorefrontProductVariant => ({
+  id: variant.id,
+  sku: variant.sku,
+  slug: variant.slug,
+  productPageUrl: variant.productPageUrl,
+  displayName: variant.displayName,
+  mrp: variant.mrp,
+  sellingPrice: variant.sellingPrice,
+  discountPercentage: variant.discountPercentage,
+  stock: variant.stock,
+  inStock: variant.inStock,
+  outOfStock: variant.outOfStock,
+  gtinNumber: variant.gtinNumber ?? null,
+  estimatedDeliveryTime: variant.estimatedDeliveryTime,
+  subscriptionEnabled: variant.subscriptionEnabled,
+  subscriptionConfig: variant.subscriptionConfig,
+  emiAvailable: variant.emiAvailable,
+  returnAllowed: variant.returnAllowed,
+  returnPolicy: variant.returnPolicy,
+  returnWindowDays: variant.returnWindowDays,
+  replaceAllowed: variant.replaceAllowed,
+  replaceWindowDays: variant.replaceWindowDays,
+  weight: variant.weight,
+  weightUnit: variant.weightUnit,
+  length: variant.length,
+  lengthUnit: variant.lengthUnit,
+  width: variant.width,
+  widthUnit: variant.widthUnit,
+  height: variant.height,
+  heightUnit: variant.heightUnit,
+  expiryDate: variant.expiryDate,
+  attributes: (variant.attributes ?? []).map((item) => ({
+    attributeRefId: item.attributeRefId,
+    attributeName: item.attributeName,
+    value: item.value,
+  })),
+});
+
+export const toPublicStorefrontProductDetail = (
+  detail: IPublicProductDetail,
+): IPublicStorefrontProductDetail => ({
+  id: detail.id,
+  refId: detail.refId,
+  name: detail.name,
+  slug: detail.slug,
+  selectedVariantId: detail.selectedVariantId ?? null,
+  categoryName: detail.categoryName,
+  subCategoryName: detail.subCategoryName,
+  subSubCategoryName: detail.subSubCategoryName,
+  subSubSubCategoryName: detail.subSubSubCategoryName,
+  categorySlugPath: detail.categorySlugPath,
+  permalink: detail.permalink,
+  brandName: detail.brandName,
+  brandSlug: detail.brandSlug,
+  description: detail.description,
+  components: detail.components,
+  countryOfOriginName: detail.countryOfOriginName,
+  manufacturerName: detail.manufacturerName,
+  manufacturerAddress: detail.manufacturerAddress,
+  packerName: detail.packerName,
+  packerAddress: detail.packerAddress,
+  importerName: detail.importerName,
+  importerAddress: detail.importerAddress,
+  productInformation: detail.productInformation,
+  subscriptionEnabled: detail.subscriptionEnabled,
+  subscriptionConfig: detail.subscriptionConfig,
+  codAvailable: detail.codAvailable,
+  emiAvailable: detail.emiAvailable,
+  replaceAllowed: detail.replaceAllowed,
+  replaceWindowDays: detail.replaceWindowDays,
+  returnAllowed: detail.returnAllowed,
+  returnPolicy: detail.returnPolicy,
+  returnWindowDays: detail.returnWindowDays,
+  metaTitle: detail.metaTitle,
+  metaDescription: detail.metaDescription,
+  sizeChart: detail.sizeChart,
+  pricing: detail.pricing,
+  isFreeDelivery: detail.isFreeDelivery,
+  codMinOrderAmount: detail.codMinOrderAmount,
+  attributes: detail.attributes,
+  variants: detail.variants.map(toPublicStorefrontProductVariant),
+  media: detail.media,
+  healthConcerns: detail.healthConcerns,
+  faqs: detail.faqs,
+  banners: detail.banners.map((banner) => ({
+    refId: banner.refId,
+    title: banner.title,
+    imageUrl: banner.imageUrl,
+    ctaHref: banner.ctaHref,
+  })),
+});
 
 export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicProductDetail => {
   const categorySlugPath = buildProductCategorySlugPathFromRelations(entity);
@@ -714,6 +856,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   metaKeywords: entity.metaKeywords,
   publishedAt: entity.publishedAt,
   sizeChart: entity.sizeChart,
+  faqBanner: entity.faqBanner ?? null,
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
@@ -742,9 +885,10 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
       mrp: toNumber(variant.mrp) ?? 0,
       sellingPrice: toNumber(variant.sellingPrice) ?? 0,
       discountPercentage: toNumber(variant.discountPercentage),
-      stock: getSalableStockQuantity(variant.stock),
-      inStock: isVariantAvailable(variant),
-      outOfStock: variant.outOfStock ?? false,
+      stock: getSalableStockQuantity(variant.stock, 1, variant),
+      inStock: isVariantAvailable(variant) && !(entity.bundleComponentOos ?? false),
+      outOfStock: (variant.outOfStock ?? false) || Boolean(entity.bundleComponentOos),
+      gtinNumber: variant.gtinNumber ?? null,
       estimatedDeliveryTime: variant.estimatedDeliveryTime ?? null,
       weight: toNumber(variant.weight),
       weightUnit: variant.weightUnit,

@@ -13,6 +13,8 @@ import { applyOrderStatusTimestamps } from '@modules/orders/utils/order-status-t
 import { OrderFulfillmentEventsRepository } from '@modules/orders/repositories/order-fulfillment-events.repository';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
 import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
@@ -21,8 +23,9 @@ import { ShipmentsRepository } from '@modules/shipping/repositories/shipments.re
 import { ShipwayService } from '@modules/shipping/services/shipway.service';
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { EVENTS, OrderCancelledEvent } from '@packages/events';
-import { DataSource, EntityManager } from 'typeorm';
+import { isCurekaInventoryManaged } from '@packages/common';
+import { EVENTS, OrderCancelledEvent, ProductUpdatedEvent } from '@packages/events';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { UnicommerceOrderApiService } from './unicommerce-order-api.service';
 import { UnicommerceOrderQueueService } from './unicommerce-order-queue.service';
 import { UnicommerceOrderService } from './unicommerce-order.service';
@@ -597,6 +600,7 @@ export class OrderFulfillmentCancelService {
     shipwayStatus: CancellationSyncStatus,
   ): Promise<void> {
     const alreadyCancelled = order.orderStatus === OrderStatus.CANCELLED;
+    let stockAffectedProductIds = new Set<string>();
     await this.dataSource.transaction(async (manager) => {
       const locked = await manager
         .getRepository(OrderEntity)
@@ -611,7 +615,7 @@ export class OrderFulfillmentCancelService {
           locked.orderStatus === OrderStatus.CONFIRMED ||
           locked.orderStatus === OrderStatus.PROCESSING
         ) {
-          await this.restoreStockAndCoupon(manager, order.id);
+          stockAffectedProductIds = await this.restoreStockAndCoupon(manager, order.id);
         }
         await this.ordersRepository.updateById(
           order.id,
@@ -640,6 +644,8 @@ export class OrderFulfillmentCancelService {
       }
     });
 
+    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
+
     await this.eventsRepository.create({
       orderId: order.id,
       requestType: OrderFulfillmentRequestType.CANCELLATION,
@@ -663,12 +669,46 @@ export class OrderFulfillmentCancelService {
     await this.notifyCancelledSafely(fresh);
   }
 
-  private async restoreStockAndCoupon(manager: EntityManager, orderId: string): Promise<void> {
+  /**
+   * Restock Cureka-managed variants only (env + inCurekaInventory).
+   * Flag-only variants are left untouched — Unicommerce owns their inventory.
+   */
+  private async restoreStockAndCoupon(
+    manager: EntityManager,
+    orderId: string,
+  ): Promise<Set<string>> {
     const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId } });
+    const stockAffectedProductIds = new Set<string>();
     for (const item of items) {
-      await applyStockDeltaInManager(manager, item.variantId, item.quantity);
+      const variant = await manager.getRepository(ProductVariantEntity).findOne({
+        where: { id: item.variantId },
+        select: ['id', 'productId', 'inCurekaInventory'],
+      });
+      if (!variant || !isCurekaInventoryManaged(variant)) continue;
+      await applyStockDeltaInManager(manager, item.variantId, item.quantity, {
+        requireVariant: false,
+      });
+      stockAffectedProductIds.add(variant.productId);
     }
     await manager.getRepository(CouponUsageEntity).delete({ orderId });
+    return stockAffectedProductIds;
+  }
+
+  private async emitProductsUpdatedAfterStockChange(productIds: Set<string>): Promise<void> {
+    const ids = [...productIds].filter(Boolean);
+    if (!ids.length) return;
+    const products = await this.dataSource.getRepository(ProductEntity).find({
+      where: { id: In(ids) },
+      select: ['id', 'refId'],
+    });
+    await Promise.all(
+      products.map((product) =>
+        this.eventEmitter.emitAsync(
+          EVENTS.PRODUCT_UPDATED,
+          new ProductUpdatedEvent(product.refId, 'updated'),
+        ),
+      ),
+    );
   }
 
   private async createRefundRequestSafely(order: OrderEntity): Promise<void> {

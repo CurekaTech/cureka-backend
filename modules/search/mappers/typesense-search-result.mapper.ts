@@ -3,7 +3,7 @@ import {
   SearchEntityType,
 } from '../constants/search-entity-type.constant';
 import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
-import { ITypesenseSearchDocument } from '../interfaces/typesense-search-document.interface';
+import { compactSearchText, isCloseSearchMatch } from '../utils/search-tolerance.util';
 
 const SEARCH_ENTITY_TYPE_VALUES = new Set<string>(Object.values(SEARCH_ENTITY_TYPES));
 
@@ -23,24 +23,26 @@ export function mapTypesenseDocumentToSearchResult(
   const name = String(document.name ?? '').trim();
   const variantSlug = String(document.variantSlug ?? '').trim();
   const slug = variantSlug || String(document.slug ?? '').trim();
-  const variantId = String(document.variantId ?? '').trim() || undefined;
   const productPageUrlRaw = String(document.productPageUrl ?? '').trim();
   const productPageUrl = productPageUrlRaw || null;
   const permalinkRaw = String(document.permalink ?? '').trim();
   const permalink = permalinkRaw || null;
+  const entityType = parseEntityType(document.entityType);
 
   if (!refId || !name || !slug) {
     return null;
   }
 
   return {
-    entityType: parseEntityType(document.entityType),
+    entityType,
     title: name,
     slug,
     refId,
-    variantId,
     productPageUrl,
     ...(permalink ? { permalink } : {}),
+    ...(entityType === SEARCH_ENTITY_TYPES.PRODUCT && permalink
+      ? { product: { permalink } }
+      : {}),
   };
 }
 
@@ -87,14 +89,27 @@ export function titleMatchesSearchQuery(title: string, query: string): boolean {
 }
 
 /**
- * Keep variant-level Product hits, but:
- * - only when the variant/product title matches the search query (ILIKE-style)
- * - collapse identical titles (same product twice, or duplicate catalog rows with different refIds)
- * - keep different variants when their titles differ
+ * Same distinct-title rules as the strict filter, but also keeps a hit whose
+ * title is a close typo or space-stripped match. Used only after the strict
+ * filter returns nothing.
  */
+export function filterDistinctTolerantProductVariants(
+  results: IPublicSearchResult[],
+  searchQuery: string,
+): IPublicSearchResult[] {
+  const query = searchQuery.trim();
+  const compactQuery = compactSearchText(query);
+  return filterDistinctMatchingProductVariants(results, query, (title) => {
+    if (titleMatchesSearchQuery(title, query)) return true;
+    if (compactQuery && titleMatchesSearchQuery(title, compactQuery)) return true;
+    return isCloseSearchMatch(title, query);
+  });
+}
+
 export function filterDistinctMatchingProductVariants(
   results: IPublicSearchResult[],
   searchQuery?: string,
+  acceptTitle?: (title: string) => boolean,
 ): IPublicSearchResult[] {
   const query = searchQuery?.trim() ?? '';
   const seenTitles = new Set<string>();
@@ -103,7 +118,10 @@ export function filterDistinctMatchingProductVariants(
 
   for (const result of results) {
     if (result.entityType === SEARCH_ENTITY_TYPES.PRODUCT) {
-      if (query && !titleMatchesSearchQuery(result.title, query)) {
+      const accepted = acceptTitle
+        ? acceptTitle(result.title)
+        : !query || titleMatchesSearchQuery(result.title, query);
+      if (!accepted) {
         continue;
       }
 

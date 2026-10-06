@@ -21,12 +21,12 @@ import { PermissionsGuard } from '../guards/permissions.guard';
 import { RequirePermissions } from '../decorators/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @ResponseMessage('Role created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('roles.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -35,7 +35,6 @@ export class RolesController {
   }
 
   @ResponseMessage('Roles retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('roles.read')
   @Get()
   findAll(@Query() query: MasterListQueryDto) {
@@ -43,7 +42,6 @@ export class RolesController {
   }
 
   @ResponseMessage('Role retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('roles.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
@@ -51,7 +49,6 @@ export class RolesController {
   }
 
   @ResponseMessage('Role status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('roles.status')
   @Patch(':refId/status')
   updateStatus(
@@ -63,7 +60,6 @@ export class RolesController {
   }
 
   @ResponseMessage('Role updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('roles.update')
   @Patch(':refId')
   update(
@@ -75,7 +71,6 @@ export class RolesController {
   }
 
   @ResponseMessage('Role deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
   @RequirePermissions('roles.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)

@@ -61,6 +61,11 @@ npm run product:backfill-media -- --only-bmp --apply
 
 npm run product:backfill-media -- --only-bmp --replace --confirm --apply
 
+# Hardened backfill / harvest (manifest, audit, reports) — see docs/PRODUCT_MEDIA_BACKFILL.md
+npm run product:backfill-media -- --audit-only --only-missing --manifest=docs/legacy-uploads-manifest.tsv.gz
+npm run product:harvest-images -- --manifest=docs/legacy-uploads-manifest.tsv.gz
+npm run product:harvest-images -- --apply --manifest=docs/legacy-uploads-manifest.tsv.gz
+
 ----------------------------------
 
 # Dry-run first — shows what will be updated
@@ -283,6 +288,90 @@ npm run product:harvest-images -- --limit=20
 # apply (resume-safe; re-run until pending=0)
 npm run product:harvest-images -- --limit=20 --apply
 npm run product:harvest-images -- --apply
+
+# dry-run — should show matchedInDb ≈ 10597, unmatched ≈ 5040
+npm run product:harvest-images -- \
+  --manifest=docs/legacy-uploads-manifest.tsv.gz \
+  --report-dir=reports/product-image-harvest
+
+# then apply
+npm run product:harvest-images -- \
+  --apply \
+  --manifest=docs/legacy-uploads-manifest.tsv.gz \
+  --report-dir=reports/product-image-harvest
+
+# Dedupe redundant product_media (dry-run first)
+# same-key dupes always; product-level-while-variant-gallery needs --drop-product-level
+npm run product:dedupe-media
+npm run product:dedupe-media -- --ref-id=MEN2026665813
+npm run product:dedupe-media -- --drop-product-level
+npm run product:dedupe-media -- --drop-product-level --apply
+
+# 1) Dry-run all products
+npm run product:dedupe-media -- --drop-product-level
+
+# 2) Check the client example first
+npm run product:dedupe-media -- --ref-id=MEN2026665813 --drop-product-level
+
+# 3) Apply when reports look right
+npm run product:dedupe-media -- --drop-product-level --apply
+
+
+-------------------------
+
+// Google Sheet
+npm run google-merchant:export-sheet
+npm run google-merchant:export-sheet -- --env-label=techbv
+
+-------------------------
+
+npm run import:pincodes
+npm run typesense:reindex
+
+---------------------------
+
+# No-COD and no-return from no-return-no-cod sheet
+# Sheet SKU → variant.sku (case-insensitive; SKU is the only match key)
+# SKU in sheet: codAvailable=false, returnAllowed=false (returnWindowDays unchanged)
+# Active or out-of-stock SKU not in sheet: codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Inactive SKU that is not out of stock and not in the sheet: unchanged
+# All non-deleted variant SKUs in the sheet: product codAvailable=false, returnAllowed=false
+# Every active or out-of-stock variant SKU absent from the sheet: product codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Mixed products: variant flags follow each SKU; product flags stay unchanged
+# Reports: docs/Master-Data-Sheets/exports/no-return-no-cod-unmatched.csv
+#          docs/Master-Data-Sheets/exports/no-return-no-cod-updated.csv
+#          docs/Master-Data-Sheets/exports/no-return-no-cod.log
+
+# Same COD / return rules for every command below, including out-of-stock variants.
+# Dry-run writes nothing. --apply writes. --test only swaps the sheet.
+# --once applies once per database: TechBV uses the test sheet, any other storefront uses the full sheet.
+
+# Dry-run first
+npm run product:no-return-no-cod
+
+# Apply (writes DB, clears Redis product cache, revalidates the storefront)
+npm run product:no-return-no-cod -- --apply
+
+# First deploy of this version only. Uses STOREFRONT_URL:
+#   techbv  → docs/Master-Data-Sheets/test-techbv.xlsx
+#   live    → docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx
+# Writes one_time_data_scripts key product-no-return-no-cod-oos and skips on every later deploy.
+# A database that already ran the older key still runs this version once, so OOS variants are included.
+# scripts/deploy-beta.sh runs this after migrations.
+npm run product:no-return-no-cod -- --once
+
+# Optional
+npm run product:no-return-no-cod -- --file="docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx" --apply
+
+# TechBV test sheet only (docs/Master-Data-Sheets/test-techbv.xlsx). Same rules, including OOS. Dry-run unless --apply.
+# Run this on the TechBV server, where DATABASE_URL points at the TechBV database.
+npm run product:no-return-no-cod -- --test
+npm run product:no-return-no-cod -- --test --apply
+
+# Optional later test sheet. Same rules, including OOS.
+npm run product:no-return-no-cod -- --test --test-file="docs/Master-Data-Sheets/another-test.xlsx"
+
+----------------------------
 
 # Reconcile the updated legacy image sheet (docs/Master-Data-Sheets/legacy-image-urls-10-09.xlsx)
 # against the harvest cache and missing-images.xlsx.

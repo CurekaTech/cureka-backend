@@ -327,11 +327,11 @@ export class ExpertTalkService {
   } {
     const videoUrl = dto.videoUrl?.trim();
     if (!videoUrl) {
-      throw new BadRequestException('YouTube video URL is required');
+      throw new BadRequestException('A YouTube or Spotify URL is required');
     }
 
-    if (!this.isYouTubeUrl(videoUrl)) {
-      throw new BadRequestException('Only YouTube video URLs are supported');
+    if (!this.isSupportedVideoUrl(videoUrl)) {
+      throw new BadRequestException('Only YouTube and Spotify URLs are supported');
     }
 
     let thumbnail = existingThumbnail
@@ -353,8 +353,8 @@ export class ExpertTalkService {
     };
   }
 
-  private isYouTubeUrl(url: string): boolean {
-    return /(?:youtube\.com|youtu\.be)/i.test(url);
+  private isSupportedVideoUrl(url: string): boolean {
+    return /(?:youtube\.com|youtu\.be|open\.spotify\.com|spotify\.link)/i.test(url);
   }
 
   private async emitExpertTalkUpdated(

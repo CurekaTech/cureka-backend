@@ -32,4 +32,10 @@ describe('resolveAdminListPaymentRequestStatuses', () => {
       resolveAdminListPaymentRequestStatuses({ orderStatus: OrderStatus.CONFIRMED }),
     ).toEqual([]);
   });
+
+  it('excludes payment requests when filtering order status pending', () => {
+    expect(
+      resolveAdminListPaymentRequestStatuses({ orderStatus: OrderStatus.PENDING }),
+    ).toEqual([]);
+  });
 });

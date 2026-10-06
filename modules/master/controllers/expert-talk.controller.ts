@@ -16,6 +16,8 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ExpertTalkService } from '../services/expert-talk.service';
 import {
   ExpertTalkItemQueryDto,
@@ -23,13 +25,14 @@ import {
   UpdateExpertTalkItemStatusDto,
 } from '../dto/expert-talk.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/expert-talks')
 export class ExpertTalkController {
   constructor(private readonly expertTalkService: ExpertTalkService) {}
 
   @ResponseMessage('Expert talk item created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('expert_talks.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -41,14 +44,14 @@ export class ExpertTalkController {
   }
 
   @ResponseMessage('Expert talk items retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('expert_talks.read')
   @Get()
   findAll(@Query() query: ExpertTalkItemQueryDto) {
     return this.expertTalkService.findAll(query);
   }
 
   @ResponseMessage('Expert talk items reordered successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('expert_talks.update')
   @Patch('reorder')
   reorder(
     @Body() dto: ReorderExpertTalkItemsDto,
@@ -58,14 +61,14 @@ export class ExpertTalkController {
   }
 
   @ResponseMessage('Expert talk item retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('expert_talks.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.expertTalkService.findOne(refId);
   }
 
   @ResponseMessage('Expert talk item status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('expert_talks.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -76,7 +79,7 @@ export class ExpertTalkController {
   }
 
   @ResponseMessage('Expert talk item updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('expert_talks.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -91,7 +94,7 @@ export class ExpertTalkController {
   }
 
   @ResponseMessage('Expert talk item deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('expert_talks.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.OK)
   remove(@Param('refId', RefIdPipe) refId: string) {

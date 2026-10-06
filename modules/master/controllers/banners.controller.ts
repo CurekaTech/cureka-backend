@@ -16,6 +16,8 @@ import { FastifyRequest } from 'fastify';
 import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { BannersService } from '../services/banners.service';
 import {
   BannerQueryDto,
@@ -23,13 +25,14 @@ import {
   UpdateBannerStatusDto,
 } from '../dto/banner.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('master/banners')
 export class BannersController {
   constructor(private readonly bannersService: BannersService) {}
 
   @ResponseMessage('Banner created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('banners.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Req() req: FastifyRequest, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -37,28 +40,28 @@ export class BannersController {
   }
 
   @ResponseMessage('Banners retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('banners.read')
   @Get()
   findAll(@Query() query: BannerQueryDto) {
     return this.bannersService.findAll(query);
   }
 
   @ResponseMessage('Banners reordered successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('banners.update')
   @Patch('reorder')
   reorder(@Body() dto: ReorderBannersDto, @CurrentAdminUser() user: IAdminJwtPayload) {
     return this.bannersService.reorder(dto, user.email);
   }
 
   @ResponseMessage('Banner retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('banners.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.bannersService.findOne(refId);
   }
 
   @ResponseMessage('Banner status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('banners.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -69,7 +72,7 @@ export class BannersController {
   }
 
   @ResponseMessage('Banner updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('banners.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -80,7 +83,7 @@ export class BannersController {
   }
 
   @ResponseMessage('Banner deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('banners.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.OK)
   remove(@Param('refId', RefIdPipe) refId: string) {

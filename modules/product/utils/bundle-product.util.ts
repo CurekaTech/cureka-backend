@@ -1,7 +1,19 @@
 import { BadRequestException } from '@nestjs/common';
 import { CreateProductDto } from '../dto/product.dto';
-import { CreateVariantDto } from '../dto/variant.dto';
+import { CreateBundleItemDto, CreateVariantDto } from '../dto/variant.dto';
 import { ProductType } from '../enums/product-type.enum';
+
+export interface BundleChildVariantLookup {
+  id: string;
+  productId: string;
+  sku: string;
+}
+
+export interface ResolvedBundleChildItem {
+  childProductId: string;
+  childVariantId: string;
+  quantity: number;
+}
 
 /** Placeholder filled before validation; replaced with CAT/BRA/NNNNN after masters resolve. */
 export const AUTO_SKU_PLACEHOLDER = '__AUTO_SKU__';
@@ -142,16 +154,27 @@ export const ensureBundlePricingVariants = (
 };
 
 export const resolveBundleChildItems = async (
-  bundleItems: Array<{ childProductRefId: string; quantity: number }>,
+  bundleItems: CreateBundleItemDto[],
   parentProductId: string,
   findIdsByRefIds: (refIds: string[]) => Promise<Map<string, string>>,
-): Promise<Array<{ childProductId: string; quantity: number }>> => {
+  findVariantsByProductIds: (productIds: string[]) => Promise<BundleChildVariantLookup[]>,
+): Promise<ResolvedBundleChildItem[]> => {
   if (!bundleItems.length) {
     throw new BadRequestException('Bundle must contain at least one product');
   }
 
   const childIdsByRefId = await findIdsByRefIds(bundleItems.map((item) => item.childProductRefId));
-  const resolved: Array<{ childProductId: string; quantity: number }> = [];
+  const childProductIds = [...childIdsByRefId.values()];
+  const variants = childProductIds.length ? await findVariantsByProductIds(childProductIds) : [];
+  const variantsByProductId = new Map<string, BundleChildVariantLookup[]>();
+  for (const variant of variants) {
+    const list = variantsByProductId.get(variant.productId) ?? [];
+    list.push(variant);
+    variantsByProductId.set(variant.productId, list);
+  }
+
+  const resolved: ResolvedBundleChildItem[] = [];
+  const seenProducts = new Set<string>();
 
   for (const item of bundleItems) {
     const childProductId = childIdsByRefId.get(item.childProductRefId);
@@ -163,8 +186,55 @@ export const resolveBundleChildItems = async (
     if (childProductId === parentProductId) {
       throw new BadRequestException('Bundle cannot include itself as a child product');
     }
-    resolved.push({ childProductId, quantity: item.quantity });
+    if (seenProducts.has(childProductId)) {
+      throw new BadRequestException(
+        `Child product "${item.childProductRefId}" is already in this bundle`,
+      );
+    }
+    seenProducts.add(childProductId);
+
+    const childVariantId = matchBundleChildVariant(
+      item,
+      variantsByProductId.get(childProductId) ?? [],
+    );
+    resolved.push({ childProductId, childVariantId, quantity: item.quantity });
   }
 
   return resolved;
+};
+
+const matchBundleChildVariant = (
+  item: CreateBundleItemDto,
+  variants: BundleChildVariantLookup[],
+): string => {
+  const variantId = item.childVariantId?.trim();
+  const sku = item.childVariantSku?.trim();
+  if (!variantId && !sku) {
+    throw new BadRequestException(
+      `Bundle item "${item.childProductRefId}" requires childVariantId or childVariantSku`,
+    );
+  }
+
+  const byId = variantId ? variants.find((variant) => variant.id === variantId) : undefined;
+  const bySku = sku
+    ? variants.find((variant) => variant.sku.trim().toLowerCase() === sku.toLowerCase())
+    : undefined;
+
+  if (variantId && !byId) {
+    throw new BadRequestException(
+      `Variant "${variantId}" does not belong to product "${item.childProductRefId}"`,
+    );
+  }
+  if (sku && !bySku) {
+    throw new BadRequestException(
+      `Variant SKU "${sku}" does not belong to product "${item.childProductRefId}"`,
+    );
+  }
+  if (byId && bySku && byId.id !== bySku.id) {
+    throw new BadRequestException(
+      `childVariantId and childVariantSku do not match for product "${item.childProductRefId}"`,
+    );
+  }
+
+  return (byId ?? bySku)!.id;
 };

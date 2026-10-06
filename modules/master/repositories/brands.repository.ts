@@ -187,7 +187,7 @@ export class BrandsRepository {
   }
 
   async findCursorPaginated(
-    options: MasterCursorStatusOptions & { excludeComboBrand?: boolean },
+    options: MasterCursorStatusOptions & { excludeComboBrand?: boolean; onlyCombo?: boolean },
   ): Promise<CursorPaginatedResult<BrandEntity>> {
     return executeMasterCursorQuery(this.repo, options, {
       alias: 'brand',
@@ -201,7 +201,12 @@ export class BrandsRepository {
       defaultSortOrder: 'ASC',
       searchExpression: '(brand.name ILIKE :search OR brand.slug ILIKE :search)',
     }, (qb) => {
-      if (options.excludeComboBrand) {
+      if (options.onlyCombo) {
+        qb.andWhere(
+          '(LOWER(TRIM(brand.name)) = :comboBrandName OR LOWER(TRIM(brand.slug)) = :comboBrandName)',
+          { comboBrandName: 'combo' },
+        );
+      } else if (options.excludeComboBrand) {
         qb.andWhere('LOWER(TRIM(brand.name)) != :comboBrandName', {
           comboBrandName: 'combo',
         });

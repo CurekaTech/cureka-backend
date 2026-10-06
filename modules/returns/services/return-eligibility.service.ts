@@ -32,8 +32,8 @@ const MESSAGES: Record<ReturnIneligibilityCode, string> = {
 
 export interface IEligibilityOptions {
   /**
-   * Expired-product claims bypass the window check but never bypass the
-   * "product is not returnable" or quantity rules.
+   * Expired-product claims bypass the window check. Quantity rules still apply.
+   * A product marked not returnable can still be requested; an admin approves it.
    */
   isExpiredProductClaim?: boolean;
   manager?: EntityManager;
@@ -154,9 +154,6 @@ export class ReturnEligibilityService {
     if (!deliveredAt) {
       return reject('DELIVERY_DATE_UNAVAILABLE');
     }
-    if (!policy.returnable && !policy.replaceable) {
-      return reject('RETURN_NOT_ALLOWED');
-    }
     if (availableQuantity <= 0) {
       return reject(
         committedQuantity >= item.quantity
@@ -165,13 +162,17 @@ export class ReturnEligibilityService {
       );
     }
 
-    // The expired-product exception waives only the window, never the policy.
+    // The expired-product exception waives only the window.
+    // returnAllowed=false does not block the request; admin approval is the gate.
+    // A non-returnable product with no window configured is still requestable.
     const withinReturnWindow =
-      params.isExpiredProductClaim || isWithinWindow(returnWindowExpiresAt, now);
+      params.isExpiredProductClaim ||
+      isWithinWindow(returnWindowExpiresAt, now) ||
+      (!policy.returnable && returnWindowExpiresAt === null);
     const withinReplacementWindow =
       params.isExpiredProductClaim || isWithinWindow(replacementWindowExpiresAt, now);
 
-    const canReturn = policy.returnable && withinReturnWindow;
+    const canReturn = withinReturnWindow;
     const canReplace = policy.replaceable && withinReplacementWindow;
 
     if (!canReturn && !canReplace) {
@@ -179,7 +180,7 @@ export class ReturnEligibilityService {
     }
 
     const allowedResolutions: ReturnResolution[] = [];
-    const canRequestRefund = canReturn && policy.refundable;
+    const canRequestRefund = canReturn && (policy.refundable || !policy.returnable);
     if (canRequestRefund) {
       allowedResolutions.push(ReturnResolution.REFUND);
     }

@@ -15,7 +15,7 @@ export class PublicSearchController {
   @ResponseMessage('Popular search items retrieved successfully')
   @Get('popular')
   popular(@Query() query: PublicSearchPopularQueryDto) {
-    return this.publicSearchService.getPopular(query.per_page ?? 4);
+    return this.publicSearchService.getPopular(query.per_page ?? 4, query.pincode);
   }
 
   @ResponseMessage('Search config retrieved successfully')
@@ -27,6 +27,6 @@ export class PublicSearchController {
   @ResponseMessage('Search results retrieved successfully')
   @Get()
   search(@Query() query: PublicSearchQueryDto) {
-    return this.publicSearchService.search(query.q, query.per_page ?? 10);
+    return this.publicSearchService.search(query.q, query.per_page ?? 10, query.pincode);
   }
 }

@@ -68,6 +68,9 @@ export class PublicProductsController {
    * a paginated list of similar published products ranked by sub-category match, then
    * category, within ±35% price. Cart products are always excluded from results.
    *
+   * Each item is a slim storefront card (id, name, slug, variant ids, image, pricing,
+   * links, blurb names, tags[].name). Unused list-card fields are omitted.
+   *
    * GET /public/products/you-may-also-like?variantIds=<uuid1>,<uuid2>&page=1&limit=20
    */
   @ResponseMessage('You may also like products retrieved successfully')
@@ -77,6 +80,7 @@ export class PublicProductsController {
       query.variantIds,
       query.page ?? 1,
       query.limit ?? 20,
+      query.pincode,
     );
   }
 
@@ -90,6 +94,8 @@ export class PublicProductsController {
    * Cascade: FBT category rules → same deepest-category bestsellers → global bestsellers.
    * Seed/cart products are always excluded when variant IDs are provided.
    *
+   * Each item is a slim storefront card (same shape as you-may-also-like).
+   *
    * GET /public/products/frequently-bought-together?variantIds=<uuid1>,<uuid2>&page=1&limit=10
    * GET /public/products/frequently-bought-together?page=1&limit=10
    */
@@ -100,6 +106,7 @@ export class PublicProductsController {
       query.variantIds ?? [],
       query.page ?? 1,
       query.limit ?? 10,
+      query.pincode,
     );
   }
 
@@ -110,11 +117,11 @@ export class PublicProductsController {
    */
   @ResponseMessage('Product retrieved successfully')
   @Get('shop/*')
-  async findByProductPagePath(@Req() req: FastifyRequest) {
+  async findByProductPagePath(@Req() req: FastifyRequest, @Query('pincode') pincode?: string) {
     const path = this.extractShopRelativePath(req);
     const key = `/shop/${path}`;
     this.logger.log(`[findBySlug] request product_page_url="${key}"`);
-    const result = await this.publicProductsService.findBySlug(key);
+    const result = await this.publicProductsService.findBySlug(key, pincode);
     this.logger.log(
       `[findBySlug] response product_page_url="${key}" refId="${result.refId}" mediaWithUrl=${result.media.filter((m) => this.hasAccessibleUrl(m.url)).length}/${result.media.length}`,
     );
@@ -136,9 +143,9 @@ export class PublicProductsController {
 
   @ResponseMessage('Product retrieved successfully')
   @Get(':slug')
-  async findBySlug(@Param('slug') slug: string) {
+  async findBySlug(@Param('slug') slug: string, @Query('pincode') pincode?: string) {
     this.logger.log(`[findBySlug] request slug="${slug}"`);
-    const result = await this.publicProductsService.findBySlug(slug);
+    const result = await this.publicProductsService.findBySlug(slug, pincode);
     this.logger.log(
       `[findBySlug] response slug="${slug}" refId="${result.refId}" mediaWithUrl=${result.media.filter((m) => this.hasAccessibleUrl(m.url)).length}/${result.media.length}`,
     );

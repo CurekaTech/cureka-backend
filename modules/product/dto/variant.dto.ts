@@ -43,12 +43,12 @@ export class VariantImageDto {
   @ApiPropertyOptional({
     example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
     description:
-      'Storage path from POST /uploads/images, or omit when sending the file via multipart variantImages_<sku>',
+      'Storage path from POST /uploads/images, `{ key, name }` from GET product, or omit when using multipart variantImages_<sku>. ' +
+      'Prefer key (or { key, name }); signed/public URLs alone are accepted only as a fallback after key extraction.',
   })
   @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  url?: string;
+  // string path or enriched { key, name, url? } — same shape as CreateProductMediaDto.url
+  url?: string | { key: string; name?: string; url?: string };
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
@@ -160,11 +160,24 @@ export class CreateVariantDto {
 
   @ApiPropertyOptional({
     type: Boolean,
-    description: 'Manually flag this variant as out of stock. Defaults to false.',
+    description:
+      'Manually flag this variant as out of stock. ' +
+      'When STOCK_INVENTORY_MANAGEMENT_ENABLED=false, stock-coupled values ' +
+      '(outOfStock === stock<=0) are ignored so stock edits do not flip the flag.',
   })
   @IsOptional()
   @IsBoolean()
   outOfStock?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'When true and STOCK_INVENTORY_MANAGEMENT_ENABLED=true, this variant uses Cureka stock inventory. ' +
+      'Defaults to false. Updating this flag does not change stock or outOfStock.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  inCurekaInventory?: boolean;
 
   @ApiPropertyOptional({
     example: '5-7 Days',
@@ -512,12 +525,12 @@ export class CreateProductMediaDto {
   @ApiPropertyOptional({
     example: 'images/a1b2c3d4-e5f6-7890-abcd-ef1234567890.webp',
     description:
-      'Storage path from upload API or omit when sending image files via multipart "images" field',
+      'Storage path from upload API, or omit when sending image files via multipart "images" field. ' +
+      'Prefer `key` (or `{ key, name }`). Signed CDN URLs alone are not accepted for persistence.',
   })
   @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  url?: string;
+  // string path or enriched { key, name, url? } from GET product — validated in createMedia
+  url?: string | { key: string; name?: string; url?: string };
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
@@ -545,6 +558,21 @@ export class CreateBundleItemDto {
   @IsNotEmpty()
   @IsRefId()
   childProductRefId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Selected child variant id. Required unless childVariantSku is sent.',
+  })
+  @IsOptional()
+  @IsUUID()
+  childVariantId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Selected child variant SKU. Required unless childVariantId is sent.',
+    example: 'SKI/CET/11909',
+  })
+  @IsOptional()
+  @IsString()
+  childVariantSku?: string;
 
   @ApiProperty({ example: 2 })
   @Type(() => Number)

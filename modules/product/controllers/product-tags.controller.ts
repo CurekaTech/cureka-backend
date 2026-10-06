@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
+import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ProductTagsService } from '../services/product-tags.service';
 import {
   CreateProductTagDto,
@@ -24,14 +26,15 @@ import {
 
 @ApiTags('Product Tags')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
 @Controller('product-tags')
 export class ProductTagsController {
   constructor(private readonly productTagsService: ProductTagsService) {}
 
   @ApiOperation({ summary: 'Create product tag' })
   @ResponseMessage('Product tag created successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('product_tags.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateProductTagDto, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -40,7 +43,7 @@ export class ProductTagsController {
 
   @ApiOperation({ summary: 'List product tags' })
   @ResponseMessage('Product tags retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_tags.read')
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
     return this.productTagsService.findAll(query);
@@ -48,7 +51,7 @@ export class ProductTagsController {
 
   @ApiOperation({ summary: 'Get product tag by refId' })
   @ResponseMessage('Product tag retrieved successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_tags.read')
   @Get(':refId')
   findOne(@Param('refId', RefIdPipe) refId: string) {
     return this.productTagsService.findOne(refId);
@@ -56,7 +59,7 @@ export class ProductTagsController {
 
   @ApiOperation({ summary: 'Update product tag status' })
   @ResponseMessage('Product tag status updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_tags.status')
   @Patch(':refId/status')
   updateStatus(
     @Param('refId', RefIdPipe) refId: string,
@@ -68,7 +71,7 @@ export class ProductTagsController {
 
   @ApiOperation({ summary: 'Update product tag' })
   @ResponseMessage('Product tag updated successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
+  @RequirePermissions('product_tags.update')
   @Patch(':refId')
   update(
     @Param('refId', RefIdPipe) refId: string,
@@ -80,7 +83,7 @@ export class ProductTagsController {
 
   @ApiOperation({ summary: 'Delete product tag' })
   @ResponseMessage('Product tag deleted successfully')
-  @Roles(AdminUserRole.SUPER_ADMIN)
+  @RequirePermissions('product_tags.delete')
   @Delete(':refId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refId', RefIdPipe) refId: string) {
