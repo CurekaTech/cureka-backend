@@ -17,6 +17,7 @@ export interface ICategory {
   id: string;
   refId: string;
   name: string;
+  skuCode: string;
   hierarchyId: number;
   parentCategoryRefId: string | null;
   position: number;

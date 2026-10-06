@@ -117,6 +117,7 @@ import { SupportNotificationsRepository } from './repositories/support-notificat
 // ── Master services ──────────────────────────────────────────────────────────
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
+import { CatalogueCodeService } from './services/catalogue-code.service';
 import { CategoriesService } from './services/categories.service';
 import { CountriesService } from './services/countries.service';
 import { StatesService } from './services/states.service';
@@ -325,6 +326,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     AttributesService,
     AttributesRepository,
     BrandsService,
+    CatalogueCodeService,
     BrandsRepository,
     CategoriesService,
     CategoriesRepository,
