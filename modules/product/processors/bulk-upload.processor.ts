@@ -35,13 +35,16 @@ import {
 } from '../utils/bulk-upload-error-message.util';
 import {
   buildImagesFromLookupUrls,
+  loadHarvestedImageLookup,
   loadHarvestedImageUrlCache,
-  loadImageUrlsByProductId,
   loadManufacturerAddressByProductId,
   loadProductPageUrlsByProductId,
   loadSlugsByProductId,
   normalizeLookupProductId,
+  normalizeLookupSku,
 } from '../utils/bulk-upload-reference-lookup.util';
+import { resolveHarvestedImageKeys } from '../utils/legacy-image-reconcile.util';
+import { join } from 'path';
 import {
   toManufacturerImportCode,
   toStoredManufacturerName,
@@ -59,7 +62,6 @@ import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { CreateProductMediaDto } from '../dto/variant.dto';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
-import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as exceljs from 'exceljs';
@@ -235,7 +237,7 @@ export class BulkUploadProcessor extends WorkerHost {
       };
     }
 
-    // 2) Public image URL → download (WordPress and other hosts)
+    // Public image URL → download (WordPress and other hosts)
     if (isRemoteImageUrl(mediaUrl)) {
       const downloadUrl = toLegacyCurekaImageUrl(mediaUrl);
       try {
@@ -678,7 +680,7 @@ export class BulkUploadProcessor extends WorkerHost {
       await this.validatorService.primeValidationCache();
       const galleryMap = await this.galleryService.getAllGalleryMap();
       const manufacturerLookup = await loadManufacturerAddressByProductId();
-      const imageLookup = await loadImageUrlsByProductId();
+      const imageLookup = await loadHarvestedImageLookup();
       const harvestCache = await loadHarvestedImageUrlCache();
       this.harvestedImageKeys = harvestCache.bySourceUrl;
       const slugLookup = await loadSlugsByProductId();
@@ -703,7 +705,7 @@ export class BulkUploadProcessor extends WorkerHost {
         );
       } else {
         this.logger.log(
-          `Harvested GCS image map loaded (${imageLookup.path}) productIds=${imageLookup.byProductId.size}`,
+          `Harvested GCS image map loaded (${imageLookup.path}) productIds=${imageLookup.byProductId.size} skus=${imageLookup.bySku.size} cachedUrls=${harvestCache.bySourceUrl.size}`,
         );
       }
       if (!slugLookup.loaded) {
@@ -823,12 +825,10 @@ export class BulkUploadProcessor extends WorkerHost {
               const lookupManufacturerAddress = lookupProductId
                 ? manufacturerLookup.byProductId.get(lookupProductId)
                 : undefined;
-              const lookupImageUrls = lookupProductId
-                ? imageLookup.byProductId.get(lookupProductId)
-                : undefined;
               const lookupSlug = lookupProductId
                 ? slugLookup.byProductId.get(lookupProductId)
                 : undefined;
+              let imageLookupConflict = false;
 
               // Sheet Manufacturer Name wins; otherwise Product ID lookup fills in.
               let autoManufacturerRefId = refs.manufacturerRefId;
@@ -872,9 +872,18 @@ export class BulkUploadProcessor extends WorkerHost {
                     normalizeLookupProductId(v.externalProductId) ||
                     normalizeLookupProductId(group.externalProductId) ||
                     '';
-                  const variantLookupImageUrls = variantLookupProductId
-                    ? imageLookup.byProductId.get(variantLookupProductId)
-                    : undefined;
+                  const harvestedImages = resolveHarvestedImageKeys(
+                    variantLookupProductId,
+                    normalizeLookupSku(v.sku),
+                    imageLookup.byProductId,
+                    imageLookup.bySku,
+                  );
+                  if (harvestedImages.conflict) {
+                    imageLookupConflict = true;
+                    this.logger.warn(
+                      `[BULK_UPLOAD] SKU ${v.sku} productId ${variantLookupProductId || '(empty)'}: harvested SKU and Product ID image lists differ; skipping auto-attach`,
+                    );
+                  }
                   const variantLookupSlug = variantLookupProductId
                     ? slugLookup.byProductId.get(variantLookupProductId)
                     : undefined;
@@ -882,8 +891,8 @@ export class BulkUploadProcessor extends WorkerHost {
                     ? productPageUrlLookup.byProductId.get(variantLookupProductId)
                     : undefined;
 
-                  if (processedImages.length === 0 && variantLookupImageUrls?.length) {
-                    for (const item of buildImagesFromLookupUrls(variantLookupImageUrls)) {
+                  if (processedImages.length === 0 && !harvestedImages.conflict && harvestedImages.keys.length) {
+                    for (const item of buildImagesFromLookupUrls(harvestedImages.keys)) {
                       const resolved = await this.resolveBulkUploadImage(
                         { url: item.url, isPrimary: item.isPrimary, sortOrder: item.sortOrder },
                         galleryMap,
@@ -1054,10 +1063,13 @@ export class BulkUploadProcessor extends WorkerHost {
               const resolvedImageCount =
                 (processedVariants?.reduce((n, v) => n + (v.images?.length ?? 0), 0) ?? 0) +
                 processedCommonMedia.length;
-              if (lookupProductId && lookupImageUrls?.length && resolvedImageCount === 0) {
-                this.logger.warn(
-                  `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId} has ${lookupImageUrls.length} lookup image(s), but none could be resolved. Continuing without images temporarily.`,
-                );
+              if (!imageLookupConflict && lookupProductId && resolvedImageCount === 0) {
+                const lookupImageUrls = imageLookup.byProductId.get(lookupProductId);
+                if (lookupImageUrls?.length) {
+                  this.logger.warn(
+                    `[BULK_UPLOAD] product="${group.name}" productId=${lookupProductId} has ${lookupImageUrls.length} lookup image(s), but none could be resolved. Continuing without images temporarily.`,
+                  );
+                }
               }
 
               if (unresolvedCommonMedia.length) {

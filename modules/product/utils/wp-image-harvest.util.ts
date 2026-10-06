@@ -82,18 +82,42 @@ export const saveHarvestCache = async (
 export const writeHarvestedMappingWorkbook = async (
   filePath: string,
   byProductId: Map<string, string[]>,
+  skuByProductId: Map<string, string> = new Map(),
+): Promise<void> => {
+  await writeHarvestedImageRows(
+    filePath,
+    [...byProductId.entries()].map(([productId, keys]) => ({
+      productId,
+      sku: skuByProductId.get(productId) ?? '',
+      keys,
+    })),
+  );
+};
+
+export const writeHarvestedImageRows = async (
+  filePath: string,
+  rows: Array<{ productId: string; sku: string; keys: string[] }>,
 ): Promise<void> => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('images');
   worksheet.columns = [
     { header: 'ID', key: 'id', width: 16 },
+    { header: 'SKU', key: 'sku', width: 24 },
     { header: 'Images', key: 'images', width: 120 },
   ];
 
-  const ids = [...byProductId.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  for (const id of ids) {
-    const keys = byProductId.get(id) ?? [];
-    worksheet.addRow({ id, images: keys.join(', ') });
+  const sorted = [...rows].sort((left, right) => {
+    const idOrder = left.productId.localeCompare(right.productId, undefined, { numeric: true });
+    if (idOrder !== 0) return idOrder;
+    return left.sku.localeCompare(right.sku);
+  });
+  for (const row of sorted) {
+    if (!row.keys.length) continue;
+    worksheet.addRow({
+      id: row.productId,
+      sku: row.sku,
+      images: row.keys.join(', '),
+    });
   }
 
   await mkdir(dirname(filePath), { recursive: true });
