@@ -14,6 +14,7 @@ export interface IBrand {
   id: string;
   refId: string;
   name: string;
+  skuCode: string;
   slug: string;
   logo: IStorageFileReferenceResponse | null;
   banner: IStorageFileReferenceResponse | null;

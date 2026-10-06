@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '../repositories/brands.repository';
+import { CatalogueCodeService } from './catalogue-code.service';
 import {
   BrandHighlightDto,
   CreateBrandDto,
@@ -60,6 +61,7 @@ export class BrandsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly catalogueCodes: CatalogueCodeService,
     private readonly eventEmitter: EventEmitter2,
     private readonly cacheStrategy: CacheStrategyService,
   ) {}
@@ -122,8 +124,10 @@ export class BrandsService {
       throw new ConflictException(`A brand with slug "${slug}" already exists`);
     }
 
-    const entity = await this.brandsRepository.create({
+    const entity = await this.catalogueCodes.createWithCode(dto.name, 'GEN', async (skuCode, manager) =>
+      this.brandsRepository.create({
       name: dto.name,
+      skuCode,
       slug,
       logo: this.storageUrlEnricher.persist(media.logo),
       banner: this.storageUrlEnricher.persist(media.banner),
@@ -155,7 +159,7 @@ export class BrandsService {
         this.brandsRepository.existsByRefId(refId),
       ),
       createdBy,
-    });
+    }, manager));
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(entity));
     await this.emitBrandUpdated(brand.refId, 'created');

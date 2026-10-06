@@ -1,7 +1,7 @@
 import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
@@ -34,9 +34,11 @@ export class CategoriesRepository {
     data: Partial<CategoryEntity>,
     attributes: AttributeEntity[],
     categoryFilters: CategoryFilterEntity[] = [],
+    manager?: EntityManager,
   ): Promise<CategoryEntity> {
-    const entity = this.repo.create({ ...data, attributes, categoryFilters });
-    return this.repo.save(entity);
+    const repo = manager ? manager.getRepository(CategoryEntity) : this.repo;
+    const entity = repo.create({ ...data, attributes, categoryFilters });
+    return repo.save(entity);
   }
 
   async findById(id: string): Promise<CategoryEntity | null> {

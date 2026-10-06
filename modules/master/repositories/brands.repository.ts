@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, EntityManager } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CursorPaginatedResult, PaginationOptions } from '@packages/common';
@@ -19,9 +19,10 @@ export class BrandsRepository {
     private readonly repo: Repository<BrandEntity>,
   ) {}
 
-  async create(data: Partial<BrandEntity>): Promise<BrandEntity> {
-    const entity = this.repo.create(data);
-    return this.repo.save(entity);
+  async create(data: Partial<BrandEntity>, manager?: EntityManager): Promise<BrandEntity> {
+    const repo = manager ? manager.getRepository(BrandEntity) : this.repo;
+    const entity = repo.create(data);
+    return repo.save(entity);
   }
 
   async findById(id: string): Promise<BrandEntity | null> {
