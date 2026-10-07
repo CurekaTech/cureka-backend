@@ -14,6 +14,7 @@ import {
 import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { FastifyRequest } from 'fastify';
 import { CategoriesRepository } from '../repositories/categories.repository';
+import { CatalogueCodeService } from './catalogue-code.service';
 import { AttributesRepository } from '../repositories/attributes.repository';
 import { CategoryFiltersRepository } from '../repositories/category-filters.repository';
 import { CreateCategoryDto, UpdateCategoryDto, UpdateCategoryStatusDto, CategoryQueryDto, ReorderCategoriesDto } from '../dto/category.dto';
@@ -60,6 +61,7 @@ export class CategoriesService {
     private readonly eventEmitter: EventEmitter2,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly catalogueCodes: CatalogueCodeService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
@@ -139,9 +141,11 @@ export class CategoriesService {
       await this.categoriesRepository.getMaxPositionAmongSiblings(parentCategoryId);
     const position = dto.position ?? maxSiblingPosition + 1;
 
-    const entity = await this.categoriesRepository.createCategory(
+    const entity = await this.catalogueCodes.createWithCode(dto.name, 'CAT', async (skuCode, manager) =>
+      this.categoriesRepository.createCategory(
       {
         name: dto.name,
+        skuCode,
         hierarchyId,
         parentCategoryId,
         position,
@@ -167,7 +171,8 @@ export class CategoriesService {
       },
       attributes,
       categoryFilters,
-    );
+      manager,
+    ));
 
     await this.emitCategoryUpdated(entity.refId, 'created');
     return this.enrichCategory(mapCategoryEntityToResponse(entity));

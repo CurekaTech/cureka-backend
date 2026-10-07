@@ -35,7 +35,7 @@ import { ImporterEntity } from '@modules/master/entities/importer.entity';
 import { CountryEntity } from '@modules/master/entities/country.entity';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import {
-  buildSkuPrefix,
+  buildSkuPrefixFromCodes,
   findMaxSkuSequenceForPrefix,
   formatGeneratedSku,
 } from '../utils/bulk-upload-variable.util';
@@ -298,12 +298,12 @@ export class ProductVariantsRepository {
   }
 
   /**
-   * Next SKU in format CAT/BRA/NNNNN (first 3 letters of category + brand + 5-digit sequence).
+   * Next SKU in format CAT/BRA/NNNNN using the stored category and brand codes.
    * Uses the highest existing numeric suffix for the prefix (including legacy 3-digit SKUs).
    * Same format as bulk-upload / product-create auto SKUs.
    */
-  async generateNextSku(categoryName: string, brandName: string): Promise<string> {
-    const prefix = buildSkuPrefix(categoryName, brandName);
+  async generateNextSku(categoryCode: string, brandCode: string): Promise<string> {
+    const prefix = buildSkuPrefixFromCodes(categoryCode, brandCode);
     const likePattern = `${prefix.replace(/[%_]/g, '\\$&')}%`;
     const rows = await this.repo
       .createQueryBuilder('variant')

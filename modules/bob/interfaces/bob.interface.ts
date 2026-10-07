@@ -1,7 +1,7 @@
 export type BobCategory = {
-  id: string;
+  id: number;
   title: string;
-  parentId: string | null;
+  parentId: number | null;
   parentTitle: string | null;
 };
 

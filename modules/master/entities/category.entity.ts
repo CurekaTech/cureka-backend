@@ -20,6 +20,11 @@ export class CategoryEntity extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
+  /** Permanent 3-letter catalogue code. Unique across brands and categories. */
+  @Index({ unique: true })
+  @Column({ name: 'sku_code', type: 'varchar', length: 3 })
+  skuCode!: string;
+
   @Index({ unique: true })
   @Column({ name: 'hierarchy_id', type: 'int' })
   hierarchyId!: number;

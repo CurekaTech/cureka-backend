@@ -42,9 +42,10 @@ import {
   resolveBundleChildItems,
 } from '../utils/bundle-product.util';
 import {
-  buildSkuPrefix,
+  buildSkuPrefixFromCodes,
   findMaxSkuSequenceForPrefix,
   formatGeneratedSku,
+  resolveCatalogueCodes,
 } from '../utils/bulk-upload-variable.util';
 import { resolveSimpleVariantDisplayName } from '../utils/simple-product-display-name.util';
 import { pickVariableProductInformationCascade } from '../utils/variable-product-information-cascade.util';
@@ -381,7 +382,8 @@ export class ProductsService {
       );
     }
 
-    return this.variantsRepository.generateNextSku(category.name, brand.name);
+    const { categoryCode, brandCode } = resolveCatalogueCodes(category, brand);
+    return this.variantsRepository.generateNextSku(categoryCode, brandCode);
   }
 
   private allowDuplicateSkuForBundles(): boolean {
@@ -447,7 +449,8 @@ export class ProductsService {
       );
     }
 
-    const prefix = buildSkuPrefix(category.name, brand.name);
+    const { categoryCode, brandCode } = resolveCatalogueCodes(category, brand);
+    const prefix = buildSkuPrefixFromCodes(categoryCode, brandCode);
     const existingPrefixSkus = await this.variantsRepository.findSkusByPrefix(prefix);
     const reservedSkus = new Set(
       inputVariants

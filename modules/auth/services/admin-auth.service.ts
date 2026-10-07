@@ -822,6 +822,20 @@ export const MENU_HIERARCHY: MenuItem[] = [
     ],
   },
   {
+    name: 'Marketing',
+    key: 'marketing',
+    icon: 'Tag',
+    subItems: [
+      {
+        name: 'Promotional Landing Pages',
+        key: 'marketing-promotional-pages',
+        icon: 'LayoutTemplate',
+        href: '/marketing/promotional-pages',
+        requiredPermissions: ['promotional_landing_pages.read'],
+      },
+    ],
+  },
+  {
     name: 'Blogs',
     key: 'blogs',
     icon: 'BookOpen',

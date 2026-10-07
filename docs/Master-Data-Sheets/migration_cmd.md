@@ -327,3 +327,89 @@ npm run google-merchant:export-sheet -- --env-label=techbv
 
 npm run import:pincodes
 npm run typesense:reindex
+
+---------------------------
+
+# No-COD and no-return from no-return-no-cod sheet
+# Sheet SKU → variant.sku (case-insensitive; SKU is the only match key)
+# SKU in sheet: codAvailable=false, returnAllowed=false (returnWindowDays unchanged)
+# Active or out-of-stock SKU not in sheet: codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Inactive SKU that is not out of stock and not in the sheet: unchanged
+# All non-deleted variant SKUs in the sheet: product codAvailable=false, returnAllowed=false
+# Every active or out-of-stock variant SKU absent from the sheet: product codAvailable=true, returnAllowed=true, returnWindowDays=2
+# Mixed products: variant flags follow each SKU; product flags stay unchanged
+# Reports: docs/Master-Data-Sheets/exports/no-return-no-cod-unmatched.csv
+#          docs/Master-Data-Sheets/exports/no-return-no-cod-updated.csv
+#          docs/Master-Data-Sheets/exports/no-return-no-cod.log
+
+# Same COD / return rules for every command below, including out-of-stock variants.
+# Dry-run writes nothing. --apply writes. --test only swaps the sheet.
+# --once applies once per database: TechBV uses the test sheet, any other storefront uses the full sheet.
+
+# Dry-run first
+npm run product:no-return-no-cod
+
+# Apply (writes DB, clears Redis product cache, revalidates the storefront)
+npm run product:no-return-no-cod -- --apply
+
+# First deploy of this version only. Uses STOREFRONT_URL:
+#   techbv  → docs/Master-Data-Sheets/test-techbv.xlsx
+#   live    → docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx
+# Writes one_time_data_scripts key product-no-return-no-cod-oos and skips on every later deploy.
+# A database that already ran the older key still runs this version once, so OOS variants are included.
+# scripts/deploy-beta.sh runs this after migrations.
+npm run product:no-return-no-cod -- --once
+
+# Optional
+npm run product:no-return-no-cod -- --file="docs/Master-Data-Sheets/no-return-no-cod-02-10.xlsx" --apply
+
+# TechBV test sheet only (docs/Master-Data-Sheets/test-techbv.xlsx). Same rules, including OOS. Dry-run unless --apply.
+# Run this on the TechBV server, where DATABASE_URL points at the TechBV database.
+npm run product:no-return-no-cod -- --test
+npm run product:no-return-no-cod -- --test --apply
+
+# Optional later test sheet. Same rules, including OOS.
+npm run product:no-return-no-cod -- --test --test-file="docs/Master-Data-Sheets/another-test.xlsx"
+
+----------------------------
+
+# Reconcile the updated legacy image sheet (docs/Master-Data-Sheets/legacy-image-urls-10-09.xlsx)
+# against the harvest cache and missing-images.xlsx.
+# Dry-run does not download, write GCS, or change the DB.
+# --apply copies the cache JSON and GCS map to timestamped .bak files first.
+# It refuses to run if docs/wp-image-harvest-cache.json is missing, unless --allow-empty-cache.
+# A URL already in the cache is reused only after the GCS object exists and validates as an image.
+# Invalid objects are downloaded again from legacy.cureka.com while that site is still up.
+# After a valid GCS key is stored, bulk upload uses that key and does not call the legacy host.
+# Simple products get the images on their single default variant (type=image), not as common media.
+# DB writes are limited to unambiguous matches that are also on missing-images.xlsx.
+# Conflicts are reported and not written. Products missing from the DB are still stored in the map.
+
+# preview
+npm run product:reconcile-legacy-images
+
+# apply
+npm run product:reconcile-legacy-images -- --apply
+
+# small batch, then re-run until pending downloads are done
+npm run product:reconcile-legacy-images -- --limit=20 --apply
+
+# Report: docs/Master-Data-Sheets/legacy-image-reconcile-report.xlsx
+# Sheets: Updated, Download Failures, Not In DB, Missing Without Legacy, Conflicts
+
+# TechBV / current-environment test. Uses the DB and GCS config of the process
+# that launches it (no hardcoded database). Only unambiguous variant matches in
+# that database are downloaded, backed up, and written. Unmatched legacy rows
+# are counted and skipped. Dry-run is the default and does not write.
+# Report: docs/Master-Data-Sheets/legacy-image-reconcile-techbv-report.xlsx
+
+npm run product:reconcile-legacy-images:test
+npm run product:reconcile-legacy-images:test -- --dry-run
+npm run product:reconcile-legacy-images:test -- --apply
+
+# Back up only these SKUs from the legacy image sheet.
+# Does not check the database. Dry-run writes nothing.
+# --apply merges them into the existing cache JSON and GCS map.
+# Bulk upload reads docs/wp-image-harvest-cache.json and docs/wp-product-image-gcs-map.xlsx.
+npm run product:backup-legacy-skus -- --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
+npm run product:backup-legacy-skus -- --apply --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498

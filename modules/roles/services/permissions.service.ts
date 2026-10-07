@@ -535,6 +535,17 @@ export class PermissionsService {
         ],
       },
       {
+        name: 'Marketing',
+        key: 'marketing',
+        subItems: [
+          {
+            name: 'Promotional Landing Pages',
+            key: 'marketing-promotional-pages',
+            permissions: getPerms('promotional_landing_pages'),
+          },
+        ],
+      },
+      {
         name: 'Blogs',
         key: 'blogs',
         subItems: [

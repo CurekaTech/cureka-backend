@@ -62,6 +62,7 @@ import { ReturnsModule } from '@modules/returns/returns.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
+import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-pages.module';
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { OosEmailModule } from '@modules/oos-email/oos-email.module';
     AdminUsersModule,
     UsersModule,
     MasterModule,
+    PromotionalPagesModule,
     UploadsModule,
     ImagePipelineModule,
     OosEmailModule,

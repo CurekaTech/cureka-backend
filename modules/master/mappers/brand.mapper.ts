@@ -12,6 +12,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
     id: entity.id,
     refId: entity.refId,
     name: entity.name,
+    skuCode: entity.skuCode,
     slug: entity.slug,
     logo: entity.logo,
     banner: resolveBrandBannerForResponse(entity),

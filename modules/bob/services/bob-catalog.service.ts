@@ -42,23 +42,16 @@ export class BobCatalogService {
 
   async listCategories(): Promise<BobCategory[]> {
     const categories = await this.categoriesRepository.findActiveCategories();
-    const titleById = new Map(categories.map((category) => [category.id, category.name]));
+    const byId = new Map(categories.map((category) => [category.id, category]));
     this.logger.log({ count: categories.length }, '[BOB inbound] GET /categories');
-    return categories.map((category) =>
-      mapBobCategory(
-        category,
-        category.parentCategoryId ? (titleById.get(category.parentCategoryId) ?? null) : null,
-      ),
-    );
+    return categories.map((category) => {
+      const parent = category.parentCategoryId ? byId.get(category.parentCategoryId) : undefined;
+      return mapBobCategory(category, parent ?? null);
+    });
   }
 
   async listProductsByCategory(categoryId: string): Promise<BobProductSummary[]> {
-    const category = isUuid(categoryId)
-      ? await this.categoriesRepository.findById(categoryId)
-      : await this.categoriesRepository.findByRefId(categoryId);
-    if (!category) {
-      throw new NotFoundException('Bad Request!!');
-    }
+    const category = await this.resolveCategory(categoryId);
     const refIds = await this.productsRepository.findPublishedRefIdsByCategoryId(category.id);
     const products = this.onlyCatalogueProducts(
       await this.loadPublishedByRefIds(refIds),
@@ -105,6 +98,19 @@ export class BobCatalogService {
     }
     const imageByKey = await this.signImages([product]);
     return mapBobVariantDetail(variant, product, imageByKey);
+  }
+
+  private async resolveCategory(categoryId: string) {
+    const key = categoryId.trim();
+    const category = isUuid(key)
+      ? await this.categoriesRepository.findById(key)
+      : /^\d+$/.test(key)
+        ? await this.categoriesRepository.findActiveByHierarchyId(Number(key))
+        : await this.categoriesRepository.findByRefId(key);
+    if (!category) {
+      throw new NotFoundException('Bad Request!!');
+    }
+    return category;
   }
 
   async updateTags(productId: string, tags: string[]): Promise<BobProductSummary> {
