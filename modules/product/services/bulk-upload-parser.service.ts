@@ -66,8 +66,10 @@ export interface IParsedVariant {
   discountPercentage?: number;
   taxClass?: string;
   stock: number;
-  /** Admin OOS flag from "Out Of Stock" column (Yes/No). */
+  /** Admin OOS flag from "Out Of Stock" column (Yes/No). Empty cell leaves the stored flag unchanged. */
   outOfStock?: boolean;
+  /** Admin inventory flag from "In Cureka Inventory" column (Yes/No). Empty cell leaves the stored flag unchanged. */
+  inCurekaInventory?: boolean;
   /** Optional delivery window from "Estimated Delivery Time" column. */
   estimatedDeliveryTime?: string | null;
   weight?: number;
@@ -475,6 +477,13 @@ export class BulkUploadParserService {
     return normalized || 'simple';
   }
 
+  private parseOptionalYesNo(raw: string): boolean | undefined {
+    const value = raw.trim().toLowerCase();
+    if (value === 'yes' || value === 'true' || value === '1') return true;
+    if (value === 'no' || value === 'false' || value === '0') return false;
+    return undefined;
+  }
+
   private normalizeDiscountPercentage(raw: string): number | undefined {
     const value = raw.trim();
     if (!value) return undefined;
@@ -794,13 +803,8 @@ export class BulkUploadParserService {
         0;
       const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
       const stock = parseInt(getVal('quantity / stock'), 10) || 0;
-      const outOfStockRaw = getVal('out of stock').toLowerCase();
-      const outOfStock =
-        outOfStockRaw === 'yes' || outOfStockRaw === 'true' || outOfStockRaw === '1'
-          ? true
-          : outOfStockRaw === 'no' || outOfStockRaw === 'false' || outOfStockRaw === '0'
-            ? false
-            : undefined;
+      const outOfStock = this.parseOptionalYesNo(getVal('out of stock'));
+      const inCurekaInventory = this.parseOptionalYesNo(getVal('in cureka inventory'));
       const estimatedDeliveryRaw = getVal('estimated delivery time').trim();
       const estimatedDeliveryTime =
         estimatedDeliveryRaw.length > 0 ? estimatedDeliveryRaw.slice(0, 50) : undefined;
@@ -843,6 +847,7 @@ export class BulkUploadParserService {
         taxClass: getVal('tax class') || undefined,
         stock,
         outOfStock,
+        inCurekaInventory,
         estimatedDeliveryTime,
         weight,
         weightUnit: getVal('weight unit') || undefined,
