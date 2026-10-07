@@ -187,8 +187,12 @@ export interface IPublicStorefrontProductVariant {
   stock: number;
   inStock: boolean;
   outOfStock: boolean;
-  /** GTIN / barcode for structured data and Merchant alignment. */
+  /** GTIN / barcode for structured data and Merchant alignment. Admin label: GTN Number. */
   gtinNumber: string | null;
+  /** HSN code for the selected SKU. Null when unset. */
+  hsnCode: string | null;
+  /** Batch number for the selected SKU. Admin label: Batch No. Null when unset. */
+  batchNumber: string | null;
   estimatedDeliveryTime: string | null;
   subscriptionEnabled?: boolean;
   subscriptionConfig?: IProductSubscriptionConfig | null;
@@ -310,6 +314,10 @@ export interface IPublicProductVariant {
   inStock: boolean;
   outOfStock: boolean;
   gtinNumber: string | null;
+  /** HSN code for this SKU. Null when unset. */
+  hsnCode: string | null;
+  /** Batch number for this SKU. Null when unset. */
+  batchNumber: string | null;
   /** Estimated delivery window text (e.g. "3-5 Days"), or null when unset. */
   estimatedDeliveryTime: string | null;
   weight: number | null;

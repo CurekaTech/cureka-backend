@@ -831,9 +831,11 @@ export class BulkUploadParserService {
           this.getFirstAvailable(getVal, ['product url slug', 'product_url_slug']) || undefined,
         externalProductId: rowExternalProductId,
         barcode: getVal('barcode (ean/upc)') || undefined,
-        gtinNumber: getVal('gtin number') || undefined,
+        gtinNumber:
+          this.getFirstAvailable(getVal, ['gtin number', 'gtn number']) || undefined,
         hsnCode: getVal('hsn code') || undefined,
-        batchNumber: getVal('batch number') || undefined,
+        batchNumber:
+          this.getFirstAvailable(getVal, ['batch number', 'batch no']) || undefined,
         expiryDate: this.parseExpiryDate(getVal('expiry date')),
         mrp,
         sellingPrice,
