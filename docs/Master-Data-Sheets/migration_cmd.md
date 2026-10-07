@@ -407,7 +407,9 @@ npm run product:reconcile-legacy-images:test
 npm run product:reconcile-legacy-images:test -- --dry-run
 npm run product:reconcile-legacy-images:test -- --apply
 
-# Back up only these SKUs into docs/wp-image-harvest-cache.json and
-# docs/wp-product-image-gcs-map.xlsx, including rows that are not in the DB.
-# --apply is required. Without it nothing is written.
-npm run product:reconcile-legacy-images:test -- --apply --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
+# Back up only these SKUs from the legacy image sheet.
+# Does not check the database. Dry-run writes nothing.
+# --apply merges them into the existing cache JSON and GCS map.
+# Bulk upload reads docs/wp-image-harvest-cache.json and docs/wp-product-image-gcs-map.xlsx.
+npm run product:backup-legacy-skus -- --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
+npm run product:backup-legacy-skus -- --apply --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
