@@ -255,7 +255,7 @@ export const resolveProductInformationLabelName = (
  * migration it is accepted as an alias of "Search Tags".
  */
 export const LEGACY_FIXED_BULK_UPLOAD_COLUMN_ALIASES = new Set(
-  ['Tags'].map(normalizeBulkUploadHeader),
+  ['Tags', 'GTN Number', 'Batch No'].map(normalizeBulkUploadHeader),
 );
 
 /**

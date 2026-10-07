@@ -97,7 +97,8 @@ export const CacheKeys = {
     // v10: typo, spacing, and nearest-catalog fallback for searches that previously returned nothing.
     variantSearch: (queryHash: string) => `public:products:v10:variant-search:${queryHash}`,
     variantSearchPattern: () => 'public:products:v10:variant-search:*',
-    detail: (slug: string) => `public:products:v8:detail:${slug}`,
+    // v9: PDP variant includes hsnCode and batchNumber next to gtinNumber.
+    detail: (slug: string) => `public:products:v9:detail:${slug}`,
     detailPattern: () => 'public:products:*:detail:*',
     filters: (queryHash: string) => `public:products:v1:filters:${queryHash}`,
     filtersPattern: () => 'public:products:v1:filters:*',
