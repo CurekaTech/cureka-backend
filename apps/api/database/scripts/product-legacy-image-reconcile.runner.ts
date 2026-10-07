@@ -35,6 +35,7 @@ import {
   DEFAULT_HARVESTED_IMAGE_LOOKUP_FILE,
   DEFAULT_IMAGE_HARVEST_CACHE_FILE,
   loadHarvestedImageLookup,
+  normalizeLookupSku,
 } from '@modules/product/utils/bulk-upload-reference-lookup.util';
 import {
   classifyLegacyMatches,
@@ -78,6 +79,7 @@ interface CliOptions {
   apply: boolean;
   allowEmptyCache: boolean;
   matchedOnly: boolean;
+  skus: Set<string>;
   limit?: number;
   concurrency: number;
 }
@@ -151,6 +153,7 @@ Examples:
   npm run product:reconcile-legacy-images -- --limit=20 --apply
   npm run product:reconcile-legacy-images:test
   npm run product:reconcile-legacy-images:test -- --apply
+  npm run product:reconcile-legacy-images:test -- --apply --sku=BEB/ACN/05489,COM/COM/16483
 
 Options:
   --file <path>         Legacy image workbook (ID, SKU, Images)
@@ -162,6 +165,7 @@ Options:
   --dry-run             Preview only. This is the default, and it overrides --apply
   --allow-empty-cache   Allow --apply when the cache file is missing
   --matched-only        Only download and update variants that match the current DB
+  --sku <list>          Comma-separated SKUs. Only these rows are backed up into the JSON and map
   --limit <n>           Max new URLs to download
   --concurrency <n>     Parallel downloads (default ${DEFAULT_CONCURRENCY})
 `);
@@ -178,6 +182,7 @@ const parseCli = (argv: string[]): CliOptions => {
     apply: false,
     allowEmptyCache: false,
     matchedOnly,
+    skus: new Set<string>(),
     concurrency: DEFAULT_CONCURRENCY,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -196,7 +201,12 @@ const parseCli = (argv: string[]): CliOptions => {
     else if (arg === '--cache' || arg.startsWith('--cache=')) options.cache = valueOf();
     else if (arg === '--out' || arg.startsWith('--out=')) options.out = valueOf();
     else if (arg === '--report' || arg.startsWith('--report=')) options.report = valueOf();
-    else if (arg === '--limit' || arg.startsWith('--limit=')) {
+    else if (arg === '--sku' || arg.startsWith('--sku=')) {
+      for (const part of valueOf().split(',')) {
+        const sku = normalizeLookupSku(part);
+        if (sku) options.skus.add(sku);
+      }
+    } else if (arg === '--limit' || arg.startsWith('--limit=')) {
       const limit = Number(valueOf());
       if (Number.isFinite(limit) && limit > 0) options.limit = Math.trunc(limit);
     } else if (arg === '--concurrency' || arg.startsWith('--concurrency=')) {
@@ -211,6 +221,22 @@ const parseCli = (argv: string[]): CliOptions => {
 const mediaKey = (media: ProductMediaEntity): string => {
   const url = media.url as { key?: string } | null;
   return typeof url?.key === 'string' ? url.key : '';
+};
+
+/** Public image URLs are GET-only. A missing or failed response is not 200. */
+const httpStatus = async (url: string): Promise<number> => {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const status = response.status;
+    await response.body?.cancel().catch(() => undefined);
+    return status;
+  } catch {
+    return 0;
+  }
 };
 
 const addSheet = (
@@ -239,9 +265,30 @@ async function run(): Promise<void> {
   console.log(`[${logName}] missing=${missingPath}`);
   console.log(`[${logName}] cache=${cachePath}`);
   console.log(`[${logName}] out=${outPath}`);
-  console.log(`[${logName}] apply=${options.apply} matchedOnly=${options.matchedOnly}`);
+  console.log(
+    `[${logName}] apply=${options.apply} matchedOnly=${options.matchedOnly} skus=${options.skus.size}`,
+  );
 
-  const legacyRows = await loadIdSkuImageSheet(legacyPath, { requireImages: true });
+  let legacyRows = await loadIdSkuImageSheet(legacyPath, { requireImages: true });
+  if (options.skus.size > 0) {
+    const found = new Set<string>();
+    legacyRows = legacyRows.filter((row) => {
+      const sku = normalizeLookupSku(row.sku);
+      if (!options.skus.has(sku)) return false;
+      found.add(sku);
+      return true;
+    });
+    const notOnSheet = [...options.skus].filter((sku) => !found.has(sku));
+    console.log(
+      `[${logName}] skuFilter=${options.skus.size} sheetRows=${legacyRows.length} notOnSheet=${notOnSheet.length}`,
+    );
+    if (notOnSheet.length) {
+      console.log(`[${logName}] SKUs not on the legacy sheet: ${notOnSheet.join(', ')}`);
+    }
+    if (!legacyRows.length) {
+      throw new Error('None of the requested SKUs are on the legacy image sheet');
+    }
+  }
   const missingRows = await loadIdSkuImageSheet(missingPath);
   const cacheExists = await fileExists(cachePath);
   const cache = cacheExists ? await loadHarvestCache(cachePath) : new Map<string, string>();
@@ -304,11 +351,12 @@ async function run(): Promise<void> {
       return;
     }
 
-    const rowsToResolve = options.matchedOnly ? matchedRows : legacyRows;
+    const backupSelectedSkus = options.skus.size > 0;
+    const rowsToResolve = backupSelectedSkus ? legacyRows : options.matchedOnly ? matchedRows : legacyRows;
     const outcomes = await resolveUrls(rowsToResolve, cache, cachePath, storage, options);
-    const mergeKinds = options.matchedOnly
-      ? new Set(['sku_and_product_id', 'sku_only', 'product_id_only'])
-      : MERGE_KINDS;
+    const mergeKinds = backupSelectedSkus || !options.matchedOnly
+      ? MERGE_KINDS
+      : new Set(['sku_and_product_id', 'sku_only', 'product_id_only']);
     const incomingRows = legacyRows.flatMap((row, index) => {
       const match = legacyMatches[index];
       if (!match || !mergeKinds.has(match.kind)) return [];
@@ -604,16 +652,39 @@ const updateMissingVariants = async (
 
   for (const item of planned) {
     const variant = item.match.variant!;
+    const current = await dataSource.getRepository(ProductMediaEntity).find({
+      where: { variantId: variant.id, type: ProductMediaType.IMAGE },
+      order: { sortOrder: 'ASC' },
+    });
+    const checks = await mapPool(current, 3, async (media) => {
+      const accessibleUrl = await storage.resolveAccessibleUrl(media.url);
+      const status = accessibleUrl ? await httpStatus(accessibleUrl) : 0;
+      return { media, status };
+    });
+    const invalid = checks.filter((row) => row.status !== 200).map((row) => row.media);
+    if (current.length > 0 && invalid.length === 0) {
+      console.log(
+        `[product:reconcile-legacy-images] keep ${variant.id} sku=${variant.sku} images=${current.length} status=200`,
+      );
+      continue;
+    }
+    if (invalid.length > 0 && item.keys.length === 0) {
+      console.log(
+        `[product:reconcile-legacy-images] skip ${variant.id} sku=${variant.sku} invalid=${invalid.length} no legacy image to replace them`,
+      );
+      continue;
+    }
+
     await dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(ProductMediaEntity);
-      const existing = await repo.find({
-        where: { variantId: variant.id, type: ProductMediaType.IMAGE },
-        order: { sortOrder: 'ASC' },
-      });
-      const existingKeys = new Set(existing.map(mediaKey).filter(Boolean));
+      if (invalid.length) {
+        await repo.delete({ id: In(invalid.map((media) => media.id)) });
+      }
+      const kept = current.filter((media) => !invalid.some((row) => row.id === media.id));
+      const existingKeys = new Set(kept.map(mediaKey).filter(Boolean));
       const missingKeys = item.keys.filter((key) => !existingKeys.has(key));
-      const hasPrimary = existing.some((media) => media.isPrimary);
-      const sortOrder = existing.reduce((max, media) => Math.max(max, media.sortOrder ?? 0), -1);
+      const hasPrimary = kept.some((media) => media.isPrimary);
+      const sortOrder = kept.reduce((max, media) => Math.max(max, media.sortOrder ?? 0), -1);
 
       if (missingKeys.length) {
         await repo.save(
@@ -649,7 +720,7 @@ const updateMissingVariants = async (
       cacheTargets.push({ refId: variant.productRefId, slug: variant.productSlug });
     }
     console.log(
-      `[product:reconcile-legacy-images] DB ${variant.id} sku=${variant.sku} keys=${item.keys.length}`,
+      `[product:reconcile-legacy-images] DB ${variant.id} sku=${variant.sku} replaced=${invalid.length} keys=${item.keys.length}`,
     );
   }
 
