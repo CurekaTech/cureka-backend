@@ -53,6 +53,7 @@
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product:backfill-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-backfill.runner.ts",
     "product:harvest-images": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-image-harvest.runner.ts",
+    "product:legacy-image-sheet-matches": "ts-node -r tsconfig-paths/register apps/api/database/scripts/legacy-image-sheet-db-match.runner.ts",
     "product:reconcile-legacy-images": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-legacy-image-reconcile.runner.ts",
     "product:reconcile-legacy-images:test": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-legacy-image-reconcile-test.runner.ts",
     "product:dedupe-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-dedupe.runner.ts",
