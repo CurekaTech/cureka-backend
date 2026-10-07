@@ -25,6 +25,7 @@ import {
   ApproveNoPickupDto,
   ApproveReturnRequestDto,
   AssignReturnRequestDto,
+  ConfirmReplacementSelectionDto,
   LinkReplacementOrderDto,
   ReceiveAtWarehouseDto,
   RejectReturnRequestDto,
@@ -297,6 +298,41 @@ export class AdminReturnsController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.workflowService.createRefund(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Confirm the replacement product and freeze the price difference' })
+  @ResponseMessage('Replacement selection confirmed')
+  @RequirePermissions(RETURN_PERMISSIONS.STATUS)
+  @Post(':id/replacement-selection')
+  confirmReplacement(
+    @Param('id') id: string,
+    @Body() dto: ConfirmReplacementSelectionDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.workflowService.confirmReplacementSelection(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Create a payment link for a higher-priced replacement' })
+  @ResponseMessage('Replacement difference payment link created')
+  @RequirePermissions(RETURN_PERMISSIONS.APPROVE)
+  @Post(':id/replacement-difference/payment-link')
+  replacementPaymentLink(
+    @Param('id') id: string,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.workflowService.createReplacementDifferencePaymentLink(id, this.toActor(user));
+  }
+
+  @ApiOperation({ summary: 'Refund a lower-priced replacement difference to the customer bank account' })
+  @ResponseMessage('Replacement difference refund created')
+  @RequirePermissions(RETURN_PERMISSIONS.APPROVE)
+  @Post(':id/replacement-difference/refund')
+  replacementRefund(
+    @Param('id') id: string,
+    @Body() dto: ReturnCommentDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.workflowService.createReplacementDifferenceRefund(id, dto, this.toActor(user));
   }
 
   @ApiOperation({ summary: 'Link an externally created replacement order' })

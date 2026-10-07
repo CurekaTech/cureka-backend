@@ -150,6 +150,7 @@ export class RefundRequestsService {
     amount: string;
     reasonDetails: string;
     actor: RefundActor;
+    reason?: RefundReason;
   }): Promise<RefundRequestEntity> {
     const existing = await this.refundRequestsRepository.findByReturnRequestId(
       params.returnRequestId,
@@ -161,7 +162,7 @@ export class RefundRequestsService {
     try {
       const created = await this.persistNewRequest({
         order: params.order,
-        reason: RefundReason.PRODUCT_RETURN,
+        reason: params.reason ?? RefundReason.PRODUCT_RETURN,
         reasonDetails: params.reasonDetails,
         requestedAmount: params.amount,
         actor: params.actor,

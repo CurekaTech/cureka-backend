@@ -406,3 +406,18 @@ npm run product:reconcile-legacy-images -- --limit=20 --apply
 npm run product:reconcile-legacy-images:test
 npm run product:reconcile-legacy-images:test -- --dry-run
 npm run product:reconcile-legacy-images:test -- --apply
+
+----------------------------
+
+# Bundle component identity backfill (existing bundle order lines only)
+# Writes productId, variantId, sku, productName, variantName, quantityPerBundle
+# from current product_bundles onto order_items.bundle_components.
+# Skips a line when any child product or variant cannot be identified.
+# Never overwrites an existing snapshot. Never writes cod_available.
+# Run the migration first: 1785998000000-add-return-replace-bundle-snapshot
+
+# Dry-run first
+npm run orders:backfill-bundle-components
+
+# Apply
+npm run orders:backfill-bundle-components -- --apply

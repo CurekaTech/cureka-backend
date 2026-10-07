@@ -48,6 +48,7 @@
     "product:sku-unique": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-unique-index.runner.ts",
     "product:strip-sku-from-variant-slugs": "ts-node -r tsconfig-paths/register apps/api/database/scripts/strip-sku-from-variant-slugs.runner.ts",
     "product:return-allowed": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed.runner.ts",
+    "orders:backfill-bundle-components": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bundle-component-identity-backfill.runner.ts",
     "product:return-allowed:unmatched": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed-unmatched.runner.ts",
     "product:no-return-no-cod": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-no-return-no-cod.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",

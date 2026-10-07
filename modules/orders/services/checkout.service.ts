@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { STOCK_VALIDATION_ENABLED, getSalableStockQuantity } from '@packages/common';
 import { DataSource, EntityManager, In } from 'typeorm';
+import { ProductBundleEntity } from '@modules/product/entities/product-bundle.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductType } from '@modules/product/enums/product-type.enum';
+import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -158,6 +161,35 @@ export class CheckoutService {
       },
     });
     const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const bundleProductIds = [
+      ...new Set(
+        variants
+          .filter((variant) => variant.product?.productType === ProductType.BUNDLE)
+          .map((variant) => variant.productId),
+      ),
+    ];
+    const bundleCod = new Map<string, boolean>();
+    if (bundleProductIds.length > 0) {
+      const rows = await manager.getRepository(ProductBundleEntity).find({
+        where: { parentProductId: In(bundleProductIds) },
+        relations: { childVariant: true },
+      });
+      const byParent = new Map<string, ProductBundleEntity[]>();
+      for (const row of rows) {
+        const list = byParent.get(row.parentProductId) ?? [];
+        list.push(row);
+        byParent.set(row.parentProductId, list);
+      }
+      for (const productId of bundleProductIds) {
+        const children = byParent.get(productId) ?? [];
+        bundleCod.set(
+          productId,
+          deriveBundleCodAvailable(
+            children.map((row) => row.childVariant ?? { codAvailable: false }),
+          ),
+        );
+      }
+    }
     const restrictedNames: string[] = [];
     const seen = new Set<string>();
 
@@ -166,7 +198,11 @@ export class CheckoutService {
       if (!variant || variant.productId !== line.productId) {
         continue;
       }
-      if (variant.codAvailable) {
+      const codAllowed =
+        variant.product?.productType === ProductType.BUNDLE
+          ? bundleCod.get(variant.productId) === true
+          : variant.codAvailable;
+      if (codAllowed) {
         continue;
       }
 
