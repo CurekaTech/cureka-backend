@@ -322,11 +322,9 @@ async function run(): Promise<void> {
   console.log(`${LOG} out=${outPath}`);
   console.log(`${LOG} report=${reportPath}`);
   console.log(`${LOG} apply=${options.apply} test=${options.test} limit=${options.limit ?? 'none'} skus=${options.skus.size}`);
-  if (options.test) {
-    console.log(`${LOG} Mode: TEST`);
-    console.log(`${LOG} Phase: DB RECOVERY ONLY`);
-    console.log(`${LOG} Orphan harvesting: DISABLED`);
-  }
+  console.log(`${LOG} Mode: ${runModeLabel(options.test)}`);
+  console.log(`${LOG} Phase: ${runPhaseLabel(options.test)}`);
+  console.log(`${LOG} Orphan harvesting: ${options.test ? 'DISABLED' : 'ENABLED'}`);
 
   if (!(await fileExists(legacyPath))) {
     throw new Error(`Legacy image sheet is missing (${legacyPath})`);
@@ -345,6 +343,7 @@ async function run(): Promise<void> {
   console.log(`${LOG} legacyRows=${legacyRows.length} pairs=${sheet.byPair.size} cacheUrls=${cache.size} mapRows=${mapRows.length}`);
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
+  let dbUpdates = 0;
   try {
     const dataSource = app.get<DataSource>(getDataSourceToken());
     console.log(`${LOG} database=${describeDatabaseTarget(dataSource)}`);
@@ -573,7 +572,7 @@ async function run(): Promise<void> {
     }
 
     const cacheTargets: Array<{ refId: string; slug?: string | null }> = [];
-    let dbUpdates = 0;
+    dbUpdates = 0;
     let downloads = 0;
     let uploads = 0;
     let reused = 0;
@@ -717,8 +716,20 @@ async function run(): Promise<void> {
     console.log(`${LOG} notInDbReused=${backupReused} notInDbCreated=${backupCreated} notInDbFailed=${backupFailed} notInDbNoImage=${backupNone}`);
     console.log(`${LOG} report=${reportPath}`);
   } finally {
-    await app.close();
+    await Promise.race([
+      app.close().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
   }
+
+  console.log(`${LOG} ----------------------------------------`);
+  console.log(`${LOG} COMPLETED`);
+  console.log(`${LOG} Mode: ${runModeLabel(options.test)}`);
+  console.log(`${LOG} Phase: ${runPhaseLabel(options.test)}`);
+  console.log(`${LOG} Orphan harvesting: ${options.test ? 'DISABLED' : 'ENABLED'}`);
+  console.log(`${LOG} Database updates: ${dbUpdates}`);
+  console.log(`${LOG} Report: ${reportPath}`);
+  console.log(`${LOG} Process stopped.`);
 }
 
 const jobReason = (
@@ -938,18 +949,22 @@ const downloadMissing = async (
   await flush();
 };
 
+const runModeLabel = (testMode: boolean): string => (testMode ? 'TEST' : 'LIVE');
+
+const runPhaseLabel = (testMode: boolean): string =>
+  testMode ? 'DB RECOVERY ONLY' : 'DB RECOVERY + ORPHAN HARVEST';
+
 const writeReport = async (reportPath: string, rows: ReportRow[], testMode: boolean): Promise<void> => {
   const workbook = new ExcelJS.Workbook();
-  if (testMode) {
-    const summary = workbook.addWorksheet('Summary');
-    summary.columns = [
-      { header: 'Field', key: 'field', width: 24 },
-      { header: 'Value', key: 'value', width: 24 },
-    ];
-    summary.addRow({ field: 'Mode', value: 'TEST' });
-    summary.addRow({ field: 'Phase', value: 'DB RECOVERY ONLY' });
-    summary.addRow({ field: 'Orphan harvesting', value: 'DISABLED' });
-  }
+  const summary = workbook.addWorksheet('Summary');
+  summary.columns = [
+    { header: 'Field', key: 'field', width: 24 },
+    { header: 'Value', key: 'value', width: 40 },
+  ];
+  summary.addRow({ field: 'Status', value: 'COMPLETED' });
+  summary.addRow({ field: 'Mode', value: runModeLabel(testMode) });
+  summary.addRow({ field: 'Phase', value: runPhaseLabel(testMode) });
+  summary.addRow({ field: 'Orphan harvesting', value: testMode ? 'DISABLED' : 'ENABLED' });
   const sheets = [
     'Valid backup',
     'Legacy recovery',
@@ -978,7 +993,13 @@ const writeReport = async (reportPath: string, rows: ReportRow[], testMode: bool
   await workbook.xlsx.writeFile(reportPath);
 };
 
-run().catch((error) => {
-  console.error(LOG, error);
-  process.exit(1);
-});
+run()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error(`${LOG} FAILED`);
+    console.error(`${LOG} Process stopped.`);
+    console.error(LOG, error);
+    process.exit(1);
+  });

@@ -414,6 +414,8 @@ npm run product:reconcile-legacy-images:test -- --apply
 # A stored GCS key is reused and is not downloaded again. --limit counts new downloads only.
 # DB writes require SKU and product ID together. Orphan rows never create products or media.
 # Report: docs/Master-Data-Sheets/legacy-image-recover-report.xlsx
+# A finished run prints COMPLETED and Process stopped, then returns to the shell.
+# Mode TEST skips orphan backup. Mode LIVE runs database recovery and orphan backup.
 
 npm run product:recover-legacy-images
 npm run product:recover-legacy-images -- --apply
