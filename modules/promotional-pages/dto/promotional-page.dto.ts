@@ -2,6 +2,7 @@ import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -11,6 +12,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -264,6 +266,25 @@ export class ReplacePromotionalSectionsDto {
   @ValidateNested({ each: true })
   @Type(() => PromotionalSectionDto)
   sections!: PromotionalSectionDto[];
+}
+
+export class PromotionalSectionSequenceItemDto {
+  @IsUUID()
+  sectionId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder!: number;
+}
+
+export class UpdatePromotionalSectionSequenceDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => PromotionalSectionSequenceItemDto)
+  sections!: PromotionalSectionSequenceItemDto[];
 }
 
 export class PromotionalPageQueryDto extends PaginationQueryDto {
