@@ -421,3 +421,32 @@ npm run orders:backfill-bundle-components
 
 # Apply
 npm run orders:backfill-bundle-components -- --apply
+# Recover images for variants that have none, and store legacy images for
+# SKU + product ID pairs that are not in the database yet.
+# Dry-run does not download, write GCS, or change the DB or cache.
+# --apply backs up the cache JSON and GCS map once, then flushes them every 25 uploads.
+# A stored GCS key is reused and is not downloaded again. --limit counts new downloads only.
+# DB writes require SKU and product ID together. Orphan rows never create products or media.
+# Report: docs/Master-Data-Sheets/legacy-image-recover-report.xlsx
+# A finished run prints COMPLETED and Process stopped, then returns to the shell.
+# Mode TEST skips orphan backup. Mode LIVE runs database recovery and orphan backup.
+
+npm run product:recover-legacy-images
+npm run product:recover-legacy-images -- --apply
+npm run product:recover-legacy-images -- --apply --limit=500
+
+# TechBV test. Same DB recovery rules, but only variants that already exist.
+# Does not harvest legacy rows that are missing from the database.
+# Report Summary sheet: Mode TEST, Phase DB RECOVERY ONLY, Orphan harvesting DISABLED.
+
+npm run product:recover-legacy-images -- --test
+npm run product:recover-legacy-images -- --test --apply --limit=50
+
+# Back up only these SKUs from the legacy image sheet.
+# Does not check the database. Dry-run writes nothing.
+# --apply merges them into the existing cache JSON and GCS map.
+# Bulk upload reads docs/wp-image-harvest-cache.json and docs/wp-product-image-gcs-map.xlsx.
+npm run product:backup-legacy-skus -- --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
+npm run product:backup-legacy-skus -- --apply --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
+
+npm run product:legacy-image-sheet-matches

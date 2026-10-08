@@ -2,6 +2,7 @@ import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -11,6 +12,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -24,7 +26,12 @@ import { REF_ID_PATTERN } from '@packages/common';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
 import { PromotionalSectionType } from '../enums/promotional-section-type.enum';
 import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
-import { MAX_COLLECTION_LIMIT } from '../utils/promotional-page-content.util';
+import {
+  MAX_COLLECTION_LIMIT,
+  SECTION_HEADING_MAX,
+  SECTION_SUBTITLE_MAX,
+  SECTION_TITLE_MAX,
+} from '../utils/promotional-page-content.util';
 
 export class PromotionalStorageRefDto {
   @IsString()
@@ -41,7 +48,7 @@ export class PromotionalStorageRefDto {
 export class PromotionalSectionConfigDto {
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(SECTION_HEADING_MAX)
   heading?: string;
 
   @IsOptional()
@@ -123,12 +130,12 @@ export class PromotionalSectionDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(SECTION_TITLE_MAX)
   title?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(SECTION_SUBTITLE_MAX)
   subtitle?: string | null;
 
   @IsOptional()
@@ -259,6 +266,25 @@ export class ReplacePromotionalSectionsDto {
   @ValidateNested({ each: true })
   @Type(() => PromotionalSectionDto)
   sections!: PromotionalSectionDto[];
+}
+
+export class PromotionalSectionSequenceItemDto {
+  @IsUUID()
+  sectionId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder!: number;
+}
+
+export class UpdatePromotionalSectionSequenceDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => PromotionalSectionSequenceItemDto)
+  sections!: PromotionalSectionSequenceItemDto[];
 }
 
 export class PromotionalPageQueryDto extends PaginationQueryDto {

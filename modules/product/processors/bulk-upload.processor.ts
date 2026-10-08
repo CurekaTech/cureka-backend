@@ -1260,6 +1260,8 @@ export class BulkUploadProcessor extends WorkerHost {
                 created = 1;
               }
 
+              await this.applySheetVariantFlags(group);
+
               let unicommerceOk: boolean | null = null;
               if (publishFromSheet && savedProductRefId) {
                 const currentStatus =
@@ -1513,6 +1515,54 @@ export class BulkUploadProcessor extends WorkerHost {
           `${released ? 'Released' : 'Did not release'} owned bulk upload lock for job ${uploadRefId}`,
         );
       }
+    }
+  }
+
+  /**
+   * Product save ignores a stock-coupled Out Of Stock value on flag-only variants.
+   * Apply explicit sheet Yes/No through the same SKU updates the admin APIs use.
+   * Inventory is applied first so a following Out Of Stock uses the new mode.
+   * An empty cell is omitted and does not change the stored flag.
+   */
+  private async applySheetVariantFlags(group: IParsedProductGroup): Promise<void> {
+    const inventoryYes: string[] = [];
+    const inventoryNo: string[] = [];
+    const oosYes: string[] = [];
+    const oosNo: string[] = [];
+
+    for (const variant of group.variants) {
+      const sku = variant.sku?.trim();
+      if (!sku) continue;
+      if (variant.inCurekaInventory === true) inventoryYes.push(sku);
+      else if (variant.inCurekaInventory === false) inventoryNo.push(sku);
+      if (variant.outOfStock === true) oosYes.push(sku);
+      else if (variant.outOfStock === false) oosNo.push(sku);
+    }
+
+    const missing: string[] = [];
+    const applyInventory = async (skus: string[], inCurekaInventory: boolean) => {
+      if (!skus.length) return;
+      const result = await this.productsService.bulkUpdateCurekaInventory({
+        skus,
+        inCurekaInventory,
+      });
+      missing.push(...result.notFound);
+    };
+    const applyOos = async (skus: string[], outOfStock: boolean) => {
+      if (!skus.length) return;
+      const result = await this.productsService.bulkUpdateVariantOos({ skus, outOfStock });
+      missing.push(...result.notFound);
+    };
+
+    await applyInventory(inventoryYes, true);
+    await applyInventory(inventoryNo, false);
+    await applyOos(oosYes, true);
+    await applyOos(oosNo, false);
+
+    if (missing.length) {
+      throw new Error(
+        `Could not update Out Of Stock / In Cureka Inventory for SKU(s): ${[...new Set(missing)].join(', ')}`,
+      );
     }
   }
 

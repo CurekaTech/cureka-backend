@@ -288,6 +288,7 @@ const applyVariantFields = (
   if (discount !== null) values.set('Discount Percentage', discount);
   values.set('Quantity / Stock', variant.stock ?? 0);
   values.set('Out Of Stock', yesNo(variant.outOfStock));
+  values.set('In Cureka Inventory', yesNo(variant.inCurekaInventory));
   if (variant.estimatedDeliveryTime) {
     values.set('Estimated Delivery Time', variant.estimatedDeliveryTime);
   }

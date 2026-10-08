@@ -18,6 +18,7 @@ import {
   ReplacePromotionalSectionsDto,
   UpdatePromotionalPageDto,
   UpdatePromotionalPageStatusDto,
+  UpdatePromotionalSectionSequenceDto,
 } from '../dto/promotional-page.dto';
 import { PromotionalPageEntity } from '../entities/promotional-page.entity';
 import { PromotionalPageSectionEntity } from '../entities/promotional-page-section.entity';
@@ -35,11 +36,15 @@ import { PromotionalPageReferenceService } from './promotional-page-reference.se
 import {
   NormalizedSection,
   NormalizedTarget,
+  NormalizeSectionsOptions,
   assertCanPublish,
   assertScheduleWindow,
   collectCatalogRefs,
+  compareSortOrder,
   isSectionVisible,
+  isStrictPromotionalStatus,
   normalizeSections,
+  normalizeStoredSections,
   normalizeTargets,
   parseOptionalDate,
   publicUnavailableReason,
@@ -63,9 +68,13 @@ export class PromotionalPagesService {
     const slug = dto.slug.trim();
     const startAt = parseOptionalDate(dto.startAt, 'Start date');
     const endAt = parseOptionalDate(dto.endAt, 'End date');
-    const sections = normalizeSections(dto.sections);
-    const targets = normalizeTargets(dto.targets);
+    this.assertCampaignDates(startAt, endAt);
     const status = resolveRequestedStatus(dto.status, startAt, endAt, now);
+    const sections = normalizeSections(
+      dto.sections,
+      this.sectionOptions(status, startAt, endAt),
+    );
+    const targets = normalizeTargets(dto.targets);
 
     if (await this.pagesRepository.existsBySlug(slug)) {
       throw new ConflictException(`A promotional page with slug "${slug}" already exists`);
@@ -140,13 +149,31 @@ export class PromotionalPagesService {
     const startAt =
       dto.startAt !== undefined ? parseOptionalDate(dto.startAt, 'Start date') : current.startAt;
     const endAt = dto.endAt !== undefined ? parseOptionalDate(dto.endAt, 'End date') : current.endAt;
-    const sections = dto.sections !== undefined ? normalizeSections(dto.sections) : null;
-    const targets = dto.targets !== undefined ? normalizeTargets(dto.targets) : null;
-    assertScheduleWindow(startAt, endAt);
+    if (dto.startAt === null || dto.endAt === null) {
+      throw new BadRequestException(
+        dto.startAt === null
+          ? 'Campaign start date is required.'
+          : 'Campaign end date is required.',
+      );
+    }
+    const datesTouched = dto.startAt !== undefined || dto.endAt !== undefined;
+    if (datesTouched || dto.sections !== undefined) {
+      this.assertCampaignDates(startAt, endAt);
+    } else if (startAt && endAt) {
+      assertScheduleWindow(startAt, endAt);
+    }
     const status =
       dto.status !== undefined
         ? resolveRequestedStatus(dto.status, startAt, endAt, now)
         : current.status;
+    const sectionOptions = this.sectionOptions(status, startAt, endAt);
+    const sections =
+      dto.sections !== undefined ? normalizeSections(dto.sections, sectionOptions) : null;
+    const targets = dto.targets !== undefined ? normalizeTargets(dto.targets) : null;
+    const scheduleChanged = dto.startAt !== undefined || dto.endAt !== undefined;
+    if (sections === null && (scheduleChanged || sectionOptions.mode === 'publish')) {
+      normalizeStoredSections(this.sectionsFromEntity(current), sectionOptions);
+    }
 
     if (slug !== current.slug && (await this.pagesRepository.existsBySlug(slug, refId))) {
       throw new ConflictException(`A promotional page with slug "${slug}" already exists`);
@@ -211,7 +238,11 @@ export class PromotionalPagesService {
     actor: string,
   ): Promise<IAdminPromotionalPage> {
     const current = await this.requireByRefId(refId);
-    const sections = normalizeSections(dto.sections);
+    this.assertCampaignDates(current.startAt, current.endAt);
+    const sections = normalizeSections(
+      dto.sections,
+      this.sectionOptions(current.status, current.startAt, current.endAt),
+    );
     const targets = this.targetsFromEntity(current);
     await this.references.assertCatalogRefs(collectCatalogRefs(sections, [], null));
     await this.pagesRepository.replaceChildren(current.id, sections, targets);
@@ -221,6 +252,45 @@ export class PromotionalPagesService {
       sortOrder: sections.map((section) => section.sortOrder),
       visibility: sections.map((section) => section.isActive),
       ...this.mappingDetails(sections, [], null),
+    });
+    return this.toAdmin(page, new Date());
+  }
+
+  async reorderSections(
+    refId: string,
+    dto: UpdatePromotionalSectionSequenceDto,
+    actor: string,
+  ): Promise<IAdminPromotionalPage> {
+    const current = await this.requireByRefId(refId);
+    const existing = current.sections ?? [];
+    const ids = dto.sections.map((section) => section.sectionId);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException(
+        'Invalid section sequence for this campaign. Duplicate section id.',
+      );
+    }
+    const orders = dto.sections.map((section) => section.sortOrder);
+    if (new Set(orders).size !== orders.length) {
+      throw new BadRequestException(
+        'Invalid section sequence for this campaign. Duplicate sort order.',
+      );
+    }
+    const existingIds = new Set(existing.map((section) => section.id));
+    if (ids.some((id) => !existingIds.has(id)) || ids.length !== existing.length) {
+      throw new BadRequestException(
+        'Invalid section sequence for this campaign. Every section on this page must be included once.',
+      );
+    }
+
+    await this.pagesRepository.updateSectionSortOrders(
+      current.id,
+      dto.sections.map((section) => ({ id: section.sectionId, sortOrder: section.sortOrder })),
+    );
+    const page = await this.requireByRefId(refId);
+    await this.audit(page, 'sections_sequence', actor, {
+      sortOrder: [...(page.sections ?? [])]
+        .sort(compareSortOrder)
+        .map((section) => ({ id: section.id, sortOrder: section.sortOrder })),
     });
     return this.toAdmin(page, new Date());
   }
@@ -247,6 +317,14 @@ export class PromotionalPagesService {
       dto.status === PromotionalPageStatus.PUBLISHED
         ? assertCanPublish(current.startAt, current.endAt, now)
         : resolveRequestedStatus(dto.status, current.startAt, current.endAt, now);
+
+    if (isStrictPromotionalStatus(status)) {
+      this.assertCampaignDates(current.startAt, current.endAt);
+      normalizeStoredSections(
+        this.sectionsFromEntity(current),
+        this.sectionOptions(status, current.startAt, current.endAt),
+      );
+    }
 
     await this.pagesRepository.updateByRefId(refId, { status, updatedBy: actor });
     const page = await this.requireByRefId(refId);
@@ -298,9 +376,7 @@ export class PromotionalPagesService {
     now: Date,
     options: { preview: boolean },
   ): Promise<IPublicPromotionalPage> {
-    const sections = options.preview
-      ? [...(page.sections ?? [])]
-      : (page.sections ?? []).filter((section) => isSectionVisible(section, now));
+    const sections = [...(page.sections ?? [])].sort(compareSortOrder);
     const hydrated = await this.references.hydrate({
       sections,
       targets: page.targets ?? [],
@@ -340,9 +416,7 @@ export class PromotionalPagesService {
   }
 
   private toAdmin(page: PromotionalPageEntity, now: Date): IAdminPromotionalPage {
-    const sections = [...(page.sections ?? [])]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((section) => this.toAdminSection(section));
+    const sections = [...(page.sections ?? [])].sort(compareSortOrder).map((section) => this.toAdminSection(section));
     const targets = [...(page.targets ?? [])]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((target) => ({
@@ -418,10 +492,31 @@ export class PromotionalPagesService {
     };
   }
 
+  private sectionOptions(
+    status: PromotionalPageStatus,
+    startAt: Date | null,
+    endAt: Date | null,
+  ): NormalizeSectionsOptions {
+    return {
+      mode: isStrictPromotionalStatus(status) ? 'publish' : 'draft',
+      pageStartAt: startAt,
+      pageEndAt: endAt,
+      requireSectionDates: true,
+    };
+  }
+
+  private assertCampaignDates(startAt: Date | null, endAt: Date | null): void {
+    if (!startAt) {
+      throw new BadRequestException('Campaign start date is required.');
+    }
+    if (!endAt) {
+      throw new BadRequestException('Campaign end date is required.');
+    }
+    assertScheduleWindow(startAt, endAt);
+  }
+
   private sectionsFromEntity(page: PromotionalPageEntity): NormalizedSection[] {
-    return [...(page.sections ?? [])]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((section) => ({
+    return [...(page.sections ?? [])].sort(compareSortOrder).map((section) => ({
         type: section.type,
         title: section.title,
         subtitle: section.subtitle,
