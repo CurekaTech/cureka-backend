@@ -20,6 +20,8 @@ export interface NormalizeSectionsOptions {
   mode?: SectionValidationMode;
   pageStartAt?: Date | null;
   pageEndAt?: Date | null;
+  /** User-submitted sections must include both dates. Stored rows may still be null. */
+  requireSectionDates?: boolean;
 }
 
 export const isStrictPromotionalStatus = (status: PromotionalPageStatus): boolean =>
@@ -123,14 +125,35 @@ export const parseOptionalDate = (value: string | null | undefined, label: strin
   return date;
 };
 
+export const formatCampaignDate = (value: Date): string =>
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(value);
+
+export const formatCampaignRange = (startAt: Date, endAt: Date): string =>
+  `${formatCampaignDate(startAt)} - ${formatCampaignDate(endAt)}`;
+
 export const assertScheduleWindow = (
   startAt: Date | null | undefined,
   endAt: Date | null | undefined,
-  label = 'Schedule',
+  _label = 'Schedule',
 ): void => {
   if (startAt && endAt && endAt < startAt) {
-    throw new BadRequestException(`${label} end must be on or after the start`);
+    throw new BadRequestException(
+      'Campaign start date must be before or equal to campaign end date.',
+    );
   }
+};
+
+export const compareSortOrder = (
+  left: { sortOrder: number; id?: string },
+  right: { sortOrder: number; id?: string },
+): number => {
+  if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+  return (left.id ?? '').localeCompare(right.id ?? '');
 };
 
 export const resolveEffectiveStatus = (
@@ -304,6 +327,9 @@ const assertYouTubeUrl = (value: string, label: string): string => {
   return safe;
 };
 
+const campaignRangeSuffix = (pageStartAt?: Date | null, pageEndAt?: Date | null): string =>
+  pageStartAt && pageEndAt ? ` (${formatCampaignRange(pageStartAt, pageEndAt)})` : '';
+
 const assertSectionInsidePage = (
   errors: string[],
   startAt: Date | null,
@@ -312,17 +338,18 @@ const assertSectionInsidePage = (
   pageStartAt?: Date | null,
   pageEndAt?: Date | null,
 ): void => {
+  const range = campaignRangeSuffix(pageStartAt, pageEndAt);
   if (startAt && pageStartAt && startAt < pageStartAt) {
-    errors.push(`${label} start must be on or after the page start`);
+    errors.push(`${label} start date cannot be before the campaign start date${range}.`);
+  }
+  if (endAt && pageStartAt && endAt < pageStartAt) {
+    errors.push(`${label} end date cannot be before the campaign start date${range}.`);
+  }
+  if (startAt && pageEndAt && startAt > pageEndAt) {
+    errors.push(`${label} start date cannot be after the campaign end date${range}.`);
   }
   if (endAt && pageEndAt && endAt > pageEndAt) {
-    errors.push(`${label} end must be on or before the page end`);
-  }
-  if (startAt && pageEndAt && startAt >= pageEndAt) {
-    errors.push(`${label} start must be before the page end`);
-  }
-  if (endAt && pageStartAt && endAt <= pageStartAt) {
-    errors.push(`${label} end must be after the page start`);
+    errors.push(`${label} end date cannot be after the campaign end date${range}.`);
   }
 };
 
@@ -650,11 +677,18 @@ export const normalizeSections = (
   const errors: string[] = [];
   const strict = options.mode === 'publish';
   const sections = (inputs ?? []).map((input, index) => {
-    const label = `Section ${index + 1}`;
+    const sectionName = typeof input.title === 'string' ? stripHtml(input.title) : '';
+    const label = sectionName ? `Section ${index + 1} (${sectionName})` : `Section ${index + 1}`;
     const startAt = capture(errors, () => parseOptionalDate(input.startAt, `${label} start`), null);
     const endAt = capture(errors, () => parseOptionalDate(input.endAt, `${label} end`), null);
-    if (startAt && endAt && endAt <= startAt) {
-      errors.push(`${label} end must be after the start`);
+    if (options.requireSectionDates && !startAt) {
+      errors.push(`${label} start date is required.`);
+    }
+    if (options.requireSectionDates && !endAt) {
+      errors.push(`${label} end date is required.`);
+    }
+    if (startAt && endAt && endAt < startAt) {
+      errors.push(`${label} start date must be before or equal to section end date.`);
     }
     assertSectionInsidePage(errors, startAt, endAt, label, options.pageStartAt, options.pageEndAt);
     const config = normalizeConfig(input.type, input.config, label, errors, strict);
@@ -688,7 +722,8 @@ export const normalizeSections = (
 export const normalizeStoredSections = (
   sections: NormalizedSection[],
   options?: NormalizeSectionsOptions,
-): NormalizedSection[] => normalizeSections(sections.map(toSectionInput), options);
+): NormalizedSection[] =>
+  normalizeSections(sections.map(toSectionInput), { ...options, requireSectionDates: false });
 
 export const normalizeTargets = (inputs: TargetInput[] | undefined): NormalizedTarget[] =>
   (inputs ?? []).map((input, index) => {

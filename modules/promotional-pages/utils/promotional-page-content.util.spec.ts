@@ -97,7 +97,7 @@ describe('promotional page schedule', () => {
         new Date('2026-07-01T00:00:00.000Z'),
         NOW,
       ),
-    ).toThrow(/end must be on or after the start/);
+    ).toThrow(/Campaign start date must be before or equal to campaign end date/);
   });
 
   it('hides inactive and out-of-window sections', () => {
@@ -192,7 +192,7 @@ describe('promotional page content', () => {
           config: { videoUrl: 'https://www.youtube.com/watch?v=abc123' },
         },
       ]),
-    ).toThrow(/end must be after the start/);
+    ).toThrow(/start date must be before or equal to section end date/);
   });
 });
 
@@ -267,11 +267,12 @@ describe('promotional section validation', () => {
           {
             type: PromotionalSectionType.HERO_BANNER,
             startAt: '2026-11-01T00:00:00.000Z',
+            endAt: '2026-11-05T00:00:00.000Z',
           },
         ],
         { pageEndAt: new Date('2026-10-31T00:00:00.000Z') },
       ),
-    ).toThrow(/start must be before the page end/);
+    ).toThrow(/end date cannot be after the campaign end date/);
   });
 
   it('rejects a video URL that is not YouTube, and requires one to publish', () => {
@@ -420,5 +421,55 @@ describe('promotional section validation', () => {
     expect(() =>
       normalizeSections([{ ...publishHero, isActive: false }], { mode: 'publish' }),
     ).toThrow(/At least one active section is required to publish/);
+  });
+
+  it('keeps a section that matches the campaign dates and rejects one outside them', () => {
+    const window = {
+      pageStartAt: new Date('2026-10-01T00:00:00.000Z'),
+      pageEndAt: new Date('2026-10-31T00:00:00.000Z'),
+    };
+    expect(
+      normalizeSections(
+        [
+          {
+            type: PromotionalSectionType.HERO_BANNER,
+            startAt: '2026-10-01T00:00:00.000Z',
+            endAt: '2026-10-31T00:00:00.000Z',
+          },
+        ],
+        { ...window, requireSectionDates: true },
+      ),
+    ).toHaveLength(1);
+
+    expect(() =>
+      normalizeSections(
+        [
+          {
+            type: PromotionalSectionType.HERO_BANNER,
+            title: 'Featured',
+            startAt: '2026-09-15T00:00:00.000Z',
+            endAt: '2026-10-10T00:00:00.000Z',
+          },
+        ],
+        window,
+      ),
+    ).toThrow(/start date cannot be before the campaign start date/);
+
+    expect(
+      normalizeSections(
+        [
+          {
+            type: PromotionalSectionType.HERO_BANNER,
+            startAt: '2026-10-10T00:00:00.000Z',
+            endAt: '2026-10-10T00:00:00.000Z',
+          },
+        ],
+        { ...window, requireSectionDates: true },
+      ),
+    ).toHaveLength(1);
+
+    expect(() =>
+      normalizeSections([{ type: PromotionalSectionType.HERO_BANNER }], { requireSectionDates: true }),
+    ).toThrow(/start date is required/);
   });
 });

@@ -64,6 +64,7 @@ describe('PromotionalPagesService', () => {
     softDeleteByRefId: jest.Mock;
     findAllPaginated: jest.Mock;
     replaceChildren: jest.Mock;
+    updateSectionSortOrders: jest.Mock;
   };
   let references: { assertCatalogRefs: jest.Mock; hydrate: jest.Mock };
   let auditService: { log: jest.Mock };
@@ -90,6 +91,7 @@ describe('PromotionalPagesService', () => {
       softDeleteByRefId: jest.fn(async () => undefined),
       findAllPaginated: jest.fn(async () => ({ data: [stored], total: 1 })),
       replaceChildren: jest.fn(async () => undefined),
+      updateSectionSortOrders: jest.fn(async () => undefined),
     };
     references = {
       assertCatalogRefs: jest.fn(async () => ({ couponId: 'coupon-id' })),
@@ -129,6 +131,8 @@ describe('PromotionalPagesService', () => {
     name: 'Himalaya Buy More Save More',
     slug: 'himalaya-buy-more-save-more',
     title: 'Buy More. Save More.',
+    startAt: '2026-06-01T00:00:00.000Z',
+    endAt: '2026-08-01T00:00:00.000Z',
   };
 
   it('creates a draft page', async () => {
@@ -255,6 +259,8 @@ describe('PromotionalPagesService', () => {
   it('rejects an empty hero when replacing sections on a published page', async () => {
     stored = basePage({
       status: PromotionalPageStatus.PUBLISHED,
+      startAt: new Date('2026-05-01T00:00:00.000Z'),
+      endAt: new Date('2026-07-01T00:00:00.000Z'),
       sections: [heroSection()],
     });
 
@@ -270,17 +276,61 @@ describe('PromotionalPagesService', () => {
 
   it('rejects a page schedule that leaves a stored section outside the window', async () => {
     stored = basePage({
-      sections: [heroSection({ startAt: new Date('2026-11-01T00:00:00.000Z') })],
+      startAt: new Date('2026-10-01T00:00:00.000Z'),
+      endAt: new Date('2026-10-31T00:00:00.000Z'),
+      sections: [
+        heroSection({
+          title: 'Featured',
+          startAt: new Date('2026-10-15T00:00:00.000Z'),
+          endAt: new Date('2026-10-25T00:00:00.000Z'),
+        }),
+      ],
     });
 
     await expect(
       service.update(
         'HIM2026000001',
-        { endAt: '2026-10-31T00:00:00.000Z' },
+        { endAt: '2026-10-20T00:00:00.000Z' },
         'admin@cureka.com',
       ),
-    ).rejects.toThrow(/start must be before the page end/);
+    ).rejects.toThrow(/end date cannot be after the campaign end date/);
     expect(pagesRepository.updateByRefId).not.toHaveBeenCalled();
+  });
+
+  it('keeps existing sections when the campaign end date is extended', async () => {
+    stored = basePage({
+      startAt: new Date('2026-10-01T00:00:00.000Z'),
+      endAt: new Date('2026-10-31T00:00:00.000Z'),
+      sections: [
+        heroSection({
+          startAt: new Date('2026-10-15T00:00:00.000Z'),
+          endAt: new Date('2026-10-25T00:00:00.000Z'),
+        }),
+      ],
+    });
+
+    await service.update(
+      'HIM2026000001',
+      { endAt: '2026-11-30T00:00:00.000Z' },
+      'admin@cureka.com',
+    );
+
+    expect(pagesRepository.updateByRefId).toHaveBeenCalled();
+    expect(pagesRepository.replaceChildren).not.toHaveBeenCalled();
+  });
+
+  it('rejects a campaign whose start date is after the end date', async () => {
+    await expect(
+      service.create(
+        {
+          ...createDto,
+          startAt: '2026-08-01T00:00:00.000Z',
+          endAt: '2026-07-01T00:00:00.000Z',
+        },
+        'admin@cureka.com',
+      ),
+    ).rejects.toThrow(/Campaign start date must be before or equal to campaign end date/);
+    expect(pagesRepository.create).not.toHaveBeenCalled();
   });
 
   it('rejects publishing a page that has already ended', async () => {
@@ -357,6 +407,10 @@ describe('PromotionalPagesService', () => {
   });
 
   it('replaces sections and records order and visibility', async () => {
+    stored = basePage({
+      startAt: new Date('2026-06-01T00:00:00.000Z'),
+      endAt: new Date('2026-08-01T00:00:00.000Z'),
+    });
     await service.replaceSections(
       'HIM2026000001',
       {
@@ -366,12 +420,16 @@ describe('PromotionalPagesService', () => {
             title: 'Hero',
             sortOrder: 1,
             isActive: true,
+            startAt: '2026-06-01T00:00:00.000Z',
+            endAt: '2026-07-01T00:00:00.000Z',
           },
           {
             type: PromotionalSectionType.PRODUCT_COLLECTION,
             title: 'Kits',
             sortOrder: 0,
             isActive: false,
+            startAt: '2026-06-15T00:00:00.000Z',
+            endAt: '2026-07-15T00:00:00.000Z',
             items: [
               { targetType: PromotionalTargetType.PRODUCT, targetRefId: 'PRO2026000001' },
             ],
@@ -413,6 +471,8 @@ describe('PromotionalPagesService', () => {
           sections: [
             {
               type: PromotionalSectionType.PRODUCT_COLLECTION,
+              startAt: '2026-06-01T00:00:00.000Z',
+              endAt: '2026-07-01T00:00:00.000Z',
               items: [{ targetType: PromotionalTargetType.PRODUCT, targetRefId: 'PRO2026000001' }],
             },
           ],
@@ -432,5 +492,84 @@ describe('PromotionalPagesService', () => {
     const preview = await service.preview('HIM2026000001');
     expect(preview.preview).toBe(true);
     expect(preview.status).toBe(PromotionalPageStatus.DRAFT);
+  });
+
+  it('returns public sections in sort order', async () => {
+    stored = basePage({
+      status: PromotionalPageStatus.PUBLISHED,
+      sections: [
+        heroSection({ id: 'later', sortOrder: 2, title: 'Brands' }),
+        heroSection({ id: 'earlier', sortOrder: 0, title: 'Hero' }),
+      ],
+    });
+    pagesRepository.findBySlug.mockResolvedValue(stored);
+
+    await service.findPublicBySlug('himalaya-buy-more-save-more');
+
+    expect(references.hydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sections: [
+          expect.objectContaining({ id: 'earlier', sortOrder: 0 }),
+          expect.objectContaining({ id: 'later', sortOrder: 2 }),
+        ],
+      }),
+    );
+  });
+
+  it('reorders sections and rejects a duplicate sort order', async () => {
+    const first = heroSection({ id: 'section-1', sortOrder: 0, title: 'Hero' });
+    const second = heroSection({ id: 'section-2', sortOrder: 1, title: 'Brands' });
+    stored = basePage({ sections: [first, second] });
+    pagesRepository.updateSectionSortOrders.mockImplementation(
+      async (_pageId: string, updates: Array<{ id: string; sortOrder: number }>) => {
+        stored = basePage({
+          ...stored,
+          sections: (stored.sections ?? []).map((section) => {
+            const next = updates.find((item) => item.id === section.id);
+            return next ? { ...section, sortOrder: next.sortOrder } : section;
+          }),
+        });
+      },
+    );
+
+    const updated = await service.reorderSections(
+      'HIM2026000001',
+      {
+        sections: [
+          { sectionId: 'section-2', sortOrder: 0 },
+          { sectionId: 'section-1', sortOrder: 1 },
+        ],
+      },
+      'admin@cureka.com',
+    );
+
+    expect(pagesRepository.replaceChildren).not.toHaveBeenCalled();
+    expect(updated.sections.map((section) => section.id)).toEqual(['section-2', 'section-1']);
+
+    await expect(
+      service.reorderSections(
+        'HIM2026000001',
+        {
+          sections: [
+            { sectionId: 'section-1', sortOrder: 1 },
+            { sectionId: 'section-2', sortOrder: 1 },
+          ],
+        },
+        'admin@cureka.com',
+      ),
+    ).rejects.toThrow(/Invalid section sequence for this campaign/);
+
+    await expect(
+      service.reorderSections(
+        'HIM2026000001',
+        {
+          sections: [
+            { sectionId: 'other-page-section', sortOrder: 0 },
+            { sectionId: 'section-2', sortOrder: 1 },
+          ],
+        },
+        'admin@cureka.com',
+      ),
+    ).rejects.toThrow(/Invalid section sequence for this campaign/);
   });
 });

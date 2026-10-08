@@ -25,6 +25,7 @@ import {
   ReplacePromotionalSectionsDto,
   UpdatePromotionalPageDto,
   UpdatePromotionalPageStatusDto,
+  UpdatePromotionalSectionSequenceDto,
 } from '../dto/promotional-page.dto';
 import { PromotionalPagesService } from '../services/promotional-pages.service';
 
@@ -91,6 +92,18 @@ export class AdminPromotionalPagesController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.promotionalPagesService.replaceSections(refId, dto, user.email);
+  }
+
+  @ApiOperation({ summary: 'Reorder promotional page sections' })
+  @ResponseMessage('Promotional page section order updated successfully')
+  @RequirePermissions(PROMOTIONAL_PAGE_PERMISSIONS.UPDATE)
+  @Patch(':refId/sections/sequence')
+  reorderSections(
+    @Param('refId', RefIdPipe) refId: string,
+    @Body() dto: UpdatePromotionalSectionSequenceDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    return this.promotionalPagesService.reorderSections(refId, dto, user.email);
   }
 
   @ApiOperation({ summary: 'Update promotional page details, SEO, schedule, or mappings' })
