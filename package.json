@@ -56,6 +56,7 @@
     "product:legacy-image-sheet-matches": "ts-node -r tsconfig-paths/register apps/api/database/scripts/legacy-image-sheet-db-match.runner.ts",
     "product:backup-legacy-skus": "ts-node -r tsconfig-paths/register apps/api/database/scripts/legacy-sku-image-backup.runner.ts",
     "product:reconcile-legacy-images": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-legacy-image-reconcile.runner.ts",
+    "product:recover-legacy-images": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-legacy-image-recover.runner.ts",
     "product:reconcile-legacy-images:test": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-legacy-image-reconcile-test.runner.ts",
     "product:dedupe-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-dedupe.runner.ts",
     "bulk-upload:diagnose": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bulk-upload-diagnose.runner.ts",
