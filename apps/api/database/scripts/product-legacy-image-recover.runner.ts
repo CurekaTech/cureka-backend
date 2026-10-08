@@ -67,6 +67,7 @@ import { invalidateProductCache } from './product-cleanup.redis';
 const DEFAULT_LEGACY_FILE = 'docs/Master-Data-Sheets/legacy-image-urls-10-09.xlsx';
 const DEFAULT_REPORT_FILE = 'docs/Master-Data-Sheets/legacy-image-recover-report.xlsx';
 const DEFAULT_CONCURRENCY = 3;
+const EXISTS_CHECK_CONCURRENCY = 20;
 const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 30_000;
 const CACHE_FLUSH_EVERY = 25;
@@ -354,7 +355,21 @@ async function run(): Promise<void> {
     );
     const variantsByPair = indexVariantsByPair(variants);
     const mediaByVariant = await loadImageMedia(dataSource, variants.map((variant) => variant.id));
+    const presentKeys = new Map<string, boolean>();
     const validatedKeys = new Map<string, boolean>();
+
+    const keyIsPresent = async (key: string): Promise<boolean> => {
+      const known = presentKeys.get(key);
+      if (known !== undefined) return known;
+      let present = false;
+      try {
+        present = await storage.exists(key);
+      } catch {
+        present = false;
+      }
+      presentKeys.set(key, present);
+      return present;
+    };
 
     const keyIsValid = async (key: string): Promise<boolean> => {
       const known = validatedKeys.get(key);
@@ -379,12 +394,14 @@ async function run(): Promise<void> {
         if (key) mediaKeys.add(key);
       }
     }
-    console.log(`${LOG} validating ${mediaKeys.size} existing image keys`);
-    let validated = 0;
-    await mapPool([...mediaKeys], options.concurrency, async (key) => {
-      await keyIsValid(key);
-      validated += 1;
-      if (validated % 200 === 0) console.log(`${LOG} existing images ${validated}/${mediaKeys.size}`);
+    console.log(`${LOG} checking presence of ${mediaKeys.size} existing image keys`);
+    let checkedPresence = 0;
+    await mapPool([...mediaKeys], EXISTS_CHECK_CONCURRENCY, async (key) => {
+      await keyIsPresent(key);
+      checkedPresence += 1;
+      if (checkedPresence % 1000 === 0) {
+        console.log(`${LOG} existing images ${checkedPresence}/${mediaKeys.size}`);
+      }
     });
 
     const skuAllowed = (sku: string): boolean => options.skus.size === 0 || options.skus.has(sku);
@@ -418,7 +435,7 @@ async function run(): Promise<void> {
           checked.push({ key: '', valid: false });
           continue;
         }
-        checked.push({ key, valid: await keyIsValid(key) });
+        checked.push({ key, valid: presentKeys.get(key) === true });
       }
       if (!variantNeedsImageRecovery(checked)) continue;
       missingOrInvalid += 1;
