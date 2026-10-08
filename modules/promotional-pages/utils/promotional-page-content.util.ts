@@ -7,6 +7,23 @@ import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
 
 export const DEFAULT_COLLECTION_LIMIT = 12;
 export const MAX_COLLECTION_LIMIT = 50;
+export const SECTION_TITLE_MAX = 100;
+export const SECTION_SUBTITLE_MAX = 200;
+export const SECTION_HEADING_MAX = 100;
+export const MAX_CATEGORY_ITEMS = 20;
+export const MAX_BRAND_ITEMS = 20;
+export const MAX_BLOG_ITEMS = 12;
+
+export type SectionValidationMode = 'draft' | 'publish';
+
+export interface NormalizeSectionsOptions {
+  mode?: SectionValidationMode;
+  pageStartAt?: Date | null;
+  pageEndAt?: Date | null;
+}
+
+export const isStrictPromotionalStatus = (status: PromotionalPageStatus): boolean =>
+  status === PromotionalPageStatus.PUBLISHED || status === PromotionalPageStatus.SCHEDULED;
 
 export interface PromotionalSectionConfig {
   heading?: string | null;
@@ -238,6 +255,77 @@ export const assertSafeUrl = (value: string, label: string): string => {
   return trimmed;
 };
 
+const YOUTUBE_HOST = /^(?:(?:www|m)\.)?(?:youtube\.com|youtube-nocookie\.com|youtu\.be)$/i;
+
+const exceptionMessages = (error: BadRequestException): string[] => {
+  const response = error.getResponse();
+  if (typeof response === 'string') return [response];
+  if (typeof response === 'object' && response !== null && 'message' in response) {
+    const message = (response as { message?: unknown }).message;
+    if (Array.isArray(message)) return message.map(String);
+    if (typeof message === 'string') return [message];
+  }
+  return [error.message];
+};
+
+const capture = <T>(errors: string[], run: () => T, fallback: T): T => {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      errors.push(...exceptionMessages(error));
+      return fallback;
+    }
+    throw error;
+  }
+};
+
+const throwSectionErrors = (errors: string[]): void => {
+  if (errors.length === 0) return;
+  const exception = new BadRequestException(errors);
+  exception.message = errors.join('\n');
+  throw exception;
+};
+
+const assertYouTubeUrl = (value: string, label: string): string => {
+  const safe = assertSafeUrl(value, label);
+  if (safe.startsWith('/')) {
+    throw new BadRequestException(`${label} must be a YouTube URL`);
+  }
+  let host = '';
+  try {
+    host = new URL(safe).hostname;
+  } catch {
+    throw new BadRequestException(`${label} must be a YouTube URL`);
+  }
+  if (!YOUTUBE_HOST.test(host)) {
+    throw new BadRequestException(`${label} must be a YouTube URL`);
+  }
+  return safe;
+};
+
+const assertSectionInsidePage = (
+  errors: string[],
+  startAt: Date | null,
+  endAt: Date | null,
+  label: string,
+  pageStartAt?: Date | null,
+  pageEndAt?: Date | null,
+): void => {
+  if (startAt && pageStartAt && startAt < pageStartAt) {
+    errors.push(`${label} start must be on or after the page start`);
+  }
+  if (endAt && pageEndAt && endAt > pageEndAt) {
+    errors.push(`${label} end must be on or before the page end`);
+  }
+  if (startAt && pageEndAt && startAt >= pageEndAt) {
+    errors.push(`${label} start must be before the page end`);
+  }
+  if (endAt && pageStartAt && endAt <= pageStartAt) {
+    errors.push(`${label} end must be after the page start`);
+  }
+};
+
 const optionalText = (value: unknown, label: string, max: number): string | null => {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string') {
@@ -276,136 +364,331 @@ const assertRefId = (value: string, label: string): string => {
   return refId;
 };
 
+const isSelectionMode = (value: unknown): value is 'manual' | 'brand' | 'category' =>
+  value === 'manual' || value === 'brand' || value === 'category';
+
+const isLayout = (value: unknown): value is 'carousel' | 'grid' =>
+  value === 'carousel' || value === 'grid';
+
+const isBlogMode = (value: unknown): value is 'selected' | 'featured' | 'trending' =>
+  value === 'selected' || value === 'featured' || value === 'trending';
+
 const normalizeItems = (
   items: SectionInput['items'],
   allowed: PromotionalTargetType[],
   label: string,
+  errors: string[],
 ): NormalizedItem[] => {
   const rows = items ?? [];
   if (!allowed.length && rows.length) {
-    throw new BadRequestException(`${label} does not accept catalog items`);
+    errors.push(`${label} does not accept catalog items`);
+    return [];
   }
-  return rows.map((item, index) => {
+  const normalized: NormalizedItem[] = [];
+  rows.forEach((item, index) => {
     if (!allowed.includes(item.targetType)) {
-      throw new BadRequestException(`${label} does not accept ${item.targetType} items`);
+      errors.push(`${label} does not accept ${item.targetType} items`);
+      return;
     }
-    return {
+    const targetRefId = capture(
+      errors,
+      () => assertRefId(item.targetRefId, `${label} item`),
+      null,
+    );
+    if (!targetRefId) return;
+    normalized.push({
       targetType: item.targetType,
-      targetRefId: assertRefId(item.targetRefId, `${label} item`),
+      targetRefId,
       sortOrder: item.sortOrder ?? index,
-    };
+    });
   });
+  return normalized;
+};
+
+const applyCta = (
+  config: PromotionalSectionConfig,
+  source: PromotionalSectionConfig,
+  label: string,
+  errors: string[],
+  strict: boolean,
+  withHeading: boolean,
+): void => {
+  if (withHeading) {
+    config.heading = capture(
+      errors,
+      () => optionalText(source.heading, `${label} heading`, SECTION_HEADING_MAX),
+      null,
+    );
+  }
+  config.ctaText = capture(errors, () => optionalText(source.ctaText, `${label} CTA text`, 120), null);
+  const ctaUrlProvided = typeof source.ctaUrl === 'string' && source.ctaUrl.trim().length > 0;
+  config.ctaUrl = ctaUrlProvided
+    ? capture(errors, () => assertSafeUrl(source.ctaUrl as string, `${label} CTA URL`), null)
+    : null;
+  const textSet = Boolean(config.ctaText);
+  const urlSet = Boolean(config.ctaUrl);
+  if (strict && textSet !== urlSet && !(ctaUrlProvided && !urlSet)) {
+    errors.push(`${label} CTA text and CTA URL must both be set or both be empty`);
+  }
+};
+
+const applyLayout = (
+  config: PromotionalSectionConfig,
+  source: PromotionalSectionConfig,
+  label: string,
+  errors: string[],
+  required: boolean,
+): void => {
+  const provided = source.layout !== undefined && source.layout !== null;
+  if (provided && !isLayout(source.layout)) {
+    errors.push(`${label} layout must be carousel or grid`);
+    return;
+  }
+  if (!provided && required) {
+    errors.push(`${label} layout is required`);
+    return;
+  }
+  config.layout = provided ? source.layout : 'carousel';
 };
 
 const normalizeConfig = (
   type: PromotionalSectionType,
   raw: PromotionalSectionConfig | null | undefined,
   label: string,
+  errors: string[],
+  strict: boolean,
 ): PromotionalSectionConfig => {
   const source = raw ?? {};
   const config: PromotionalSectionConfig = {};
-
-  if (type === PromotionalSectionType.HERO_BANNER || type === PromotionalSectionType.PRODUCT_COLLECTION) {
-    config.heading = optionalText(source.heading, `${label} heading`, 255);
-    config.ctaText = optionalText(source.ctaText, `${label} CTA text`, 120);
-    config.ctaUrl = source.ctaUrl ? assertSafeUrl(source.ctaUrl, `${label} CTA URL`) : null;
+  const withCta =
+    type === PromotionalSectionType.HERO_BANNER ||
+    type === PromotionalSectionType.PRODUCT_COLLECTION ||
+    type === PromotionalSectionType.VIDEO;
+  if (withCta) {
+    applyCta(
+      config,
+      source,
+      label,
+      errors,
+      strict,
+      type === PromotionalSectionType.HERO_BANNER || type === PromotionalSectionType.PRODUCT_COLLECTION,
+    );
   }
 
   if (type === PromotionalSectionType.HERO_BANNER) {
-    config.desktopImage = storageRef(source.desktopImage, `${label} desktop image`);
-    config.mobileImage = storageRef(source.mobileImage, `${label} mobile image`);
+    const desktopProvided = source.desktopImage !== undefined && source.desktopImage !== null;
+    const mobileProvided = source.mobileImage !== undefined && source.mobileImage !== null;
+    config.desktopImage = capture(
+      errors,
+      () => storageRef(source.desktopImage, `${label} desktop image`),
+      null,
+    );
+    config.mobileImage = capture(
+      errors,
+      () => storageRef(source.mobileImage, `${label} mobile image`),
+      null,
+    );
+    if (strict && !desktopProvided) {
+      errors.push(`${label} desktop image is required`);
+    }
+    if (strict && !mobileProvided) {
+      errors.push(`${label} mobile image is required`);
+    }
   }
 
   if (type === PromotionalSectionType.PRODUCT_COLLECTION) {
-    const mode = source.selectionMode ?? 'manual';
-    if (mode !== 'manual' && mode !== 'brand' && mode !== 'category') {
-      throw new BadRequestException(`${label} selection mode is invalid`);
+    const modeProvided = source.selectionMode !== undefined && source.selectionMode !== null;
+    if (modeProvided && !isSelectionMode(source.selectionMode)) {
+      errors.push(`${label} selection mode is invalid`);
+    } else if (!modeProvided && strict) {
+      errors.push(`${label} selection mode is required`);
+    } else {
+      config.selectionMode = isSelectionMode(source.selectionMode) ? source.selectionMode : 'manual';
     }
-    config.selectionMode = mode;
-    config.brandRefId = source.brandRefId ? assertRefId(source.brandRefId, `${label} brand`) : null;
-    config.categoryRefId = source.categoryRefId
-      ? assertRefId(source.categoryRefId, `${label} category`)
+    config.brandRefId = source.brandRefId
+      ? capture(errors, () => assertRefId(source.brandRefId as string, `${label} brand`), null)
       : null;
-    if (mode === 'brand' && !config.brandRefId) {
-      throw new BadRequestException(`${label} brand selection requires a brand reference`);
+    config.categoryRefId = source.categoryRefId
+      ? capture(errors, () => assertRefId(source.categoryRefId as string, `${label} category`), null)
+      : null;
+    if (strict && config.selectionMode === 'brand' && !source.brandRefId) {
+      errors.push(`${label} brand selection requires a brand reference`);
     }
-    if (mode === 'category' && !config.categoryRefId) {
-      throw new BadRequestException(`${label} category selection requires a category reference`);
+    if (strict && config.selectionMode === 'category' && !source.categoryRefId) {
+      errors.push(`${label} category selection requires a category reference`);
     }
     if (source.maxItems !== undefined && source.maxItems !== null) {
-      if (!Number.isInteger(source.maxItems) || source.maxItems < 1 || source.maxItems > MAX_COLLECTION_LIMIT) {
-        throw new BadRequestException(
-          `${label} max items must be between 1 and ${MAX_COLLECTION_LIMIT}`,
-        );
+      if (
+        !Number.isInteger(source.maxItems) ||
+        source.maxItems < 1 ||
+        source.maxItems > MAX_COLLECTION_LIMIT
+      ) {
+        errors.push(`${label} max items must be between 1 and ${MAX_COLLECTION_LIMIT}`);
+      } else {
+        config.maxItems = source.maxItems;
       }
-      config.maxItems = source.maxItems;
     } else {
       config.maxItems = null;
     }
-    if (source.layout !== undefined && source.layout !== null && source.layout !== 'carousel' && source.layout !== 'grid') {
-      throw new BadRequestException(`${label} layout must be carousel or grid`);
-    }
-    config.layout = source.layout ?? 'carousel';
+    applyLayout(config, source, label, errors, strict);
   }
 
   if (type === PromotionalSectionType.CATEGORY || type === PromotionalSectionType.BRAND) {
-    if (source.layout !== undefined && source.layout !== null && source.layout !== 'carousel' && source.layout !== 'grid') {
-      throw new BadRequestException(`${label} layout must be carousel or grid`);
-    }
-    config.layout = source.layout ?? 'carousel';
+    applyLayout(config, source, label, errors, false);
   }
 
   if (type === PromotionalSectionType.VIDEO) {
-    config.videoUrl = source.videoUrl ? assertSafeUrl(source.videoUrl, `${label} video URL`) : null;
-    config.thumbnail = storageRef(source.thumbnail, `${label} thumbnail`);
+    const videoProvided = typeof source.videoUrl === 'string' && source.videoUrl.trim().length > 0;
+    config.videoUrl = videoProvided
+      ? capture(errors, () => assertYouTubeUrl(source.videoUrl as string, `${label} video URL`), null)
+      : null;
+    if (strict && !videoProvided) {
+      errors.push(`${label} video URL is required`);
+    }
+    config.thumbnail = capture(errors, () => storageRef(source.thumbnail, `${label} thumbnail`), null);
   }
 
   if (type === PromotionalSectionType.BLOG) {
-    const mode = source.blogMode ?? 'selected';
-    if (mode !== 'selected' && mode !== 'featured' && mode !== 'trending') {
-      throw new BadRequestException(`${label} blog mode is invalid`);
+    const modeProvided = source.blogMode !== undefined && source.blogMode !== null;
+    if (modeProvided && !isBlogMode(source.blogMode)) {
+      errors.push(`${label} blog mode is invalid`);
+    } else if (!modeProvided && strict) {
+      errors.push(`${label} blog mode is required`);
+    } else {
+      config.blogMode = isBlogMode(source.blogMode) ? source.blogMode : 'selected';
     }
-    config.blogMode = mode;
   }
 
   return config;
 };
 
-export const normalizeSections = (inputs: SectionInput[] | undefined): NormalizedSection[] =>
-  (inputs ?? []).map((input, index) => {
-    const label = `Section ${index + 1}`;
-    assertScheduleWindow(
-      input.startAt ? parseOptionalDate(input.startAt, `${label} start`) : null,
-      input.endAt ? parseOptionalDate(input.endAt, `${label} end`) : null,
-      label,
-    );
-    const allowed =
-      input.type === PromotionalSectionType.PRODUCT_COLLECTION
-        ? input.config?.selectionMode && input.config.selectionMode !== 'manual'
-          ? []
-          : [PromotionalTargetType.PRODUCT]
-        : input.type === PromotionalSectionType.CATEGORY
-          ? [PromotionalTargetType.CATEGORY]
-          : input.type === PromotionalSectionType.BRAND
-            ? [PromotionalTargetType.BRAND]
-            : input.type === PromotionalSectionType.BLOG
-              ? input.config?.blogMode && input.config.blogMode !== 'selected'
-                ? []
-                : [PromotionalTargetType.BLOG]
-              : [];
+const allowedItemTypes = (
+  type: PromotionalSectionType,
+  config: PromotionalSectionConfig,
+): PromotionalTargetType[] => {
+  if (type === PromotionalSectionType.PRODUCT_COLLECTION) {
+    return !config.selectionMode || config.selectionMode === 'manual'
+      ? [PromotionalTargetType.PRODUCT]
+      : [];
+  }
+  if (type === PromotionalSectionType.CATEGORY) return [PromotionalTargetType.CATEGORY];
+  if (type === PromotionalSectionType.BRAND) return [PromotionalTargetType.BRAND];
+  if (type === PromotionalSectionType.BLOG) {
+    return !config.blogMode || config.blogMode === 'selected' ? [PromotionalTargetType.BLOG] : [];
+  }
+  return [];
+};
 
-    return {
+const assertItemLimits = (
+  errors: string[],
+  section: NormalizedSection,
+  label: string,
+  strict: boolean,
+): void => {
+  if (
+    section.type === PromotionalSectionType.PRODUCT_COLLECTION &&
+    section.config.selectionMode === 'manual'
+  ) {
+    if (section.items.length > MAX_COLLECTION_LIMIT) {
+      errors.push(`${label} accepts at most ${MAX_COLLECTION_LIMIT} products`);
+    }
+    if (
+      section.config.maxItems != null &&
+      section.items.length > section.config.maxItems
+    ) {
+      errors.push(`${label} max items cannot be lower than the number of selected products`);
+    }
+    if (strict && section.items.length < 1) {
+      errors.push(`${label} needs at least 1 product`);
+    }
+  }
+
+  if (section.type === PromotionalSectionType.CATEGORY) {
+    if (section.items.length > MAX_CATEGORY_ITEMS) {
+      errors.push(`${label} accepts at most ${MAX_CATEGORY_ITEMS} categories`);
+    }
+    if (strict && section.items.length < 1) {
+      errors.push(`${label} needs at least 1 category`);
+    }
+  }
+
+  if (section.type === PromotionalSectionType.BRAND) {
+    if (section.items.length > MAX_BRAND_ITEMS) {
+      errors.push(`${label} accepts at most ${MAX_BRAND_ITEMS} brands`);
+    }
+    if (strict && section.items.length < 1) {
+      errors.push(`${label} needs at least 1 brand`);
+    }
+  }
+
+  if (section.type === PromotionalSectionType.BLOG && section.config.blogMode === 'selected') {
+    if (section.items.length > MAX_BLOG_ITEMS) {
+      errors.push(`${label} accepts at most ${MAX_BLOG_ITEMS} blog posts`);
+    }
+    if (strict && section.items.length < 1) {
+      errors.push(`${label} needs at least 1 blog post`);
+    }
+  }
+};
+
+const toSectionInput = (section: NormalizedSection): SectionInput => ({
+  type: section.type,
+  title: section.title,
+  subtitle: section.subtitle,
+  config: section.config,
+  sortOrder: section.sortOrder,
+  isActive: section.isActive,
+  startAt: section.startAt ? section.startAt.toISOString() : null,
+  endAt: section.endAt ? section.endAt.toISOString() : null,
+  items: section.items,
+});
+
+export const normalizeSections = (
+  inputs: SectionInput[] | undefined,
+  options: NormalizeSectionsOptions = {},
+): NormalizedSection[] => {
+  const errors: string[] = [];
+  const strict = options.mode === 'publish';
+  const sections = (inputs ?? []).map((input, index) => {
+    const label = `Section ${index + 1}`;
+    const startAt = capture(errors, () => parseOptionalDate(input.startAt, `${label} start`), null);
+    const endAt = capture(errors, () => parseOptionalDate(input.endAt, `${label} end`), null);
+    if (startAt && endAt && endAt <= startAt) {
+      errors.push(`${label} end must be after the start`);
+    }
+    assertSectionInsidePage(errors, startAt, endAt, label, options.pageStartAt, options.pageEndAt);
+    const config = normalizeConfig(input.type, input.config, label, errors, strict);
+    const section: NormalizedSection = {
       type: input.type,
-      title: optionalText(input.title, `${label} title`, 255),
-      subtitle: optionalText(input.subtitle, `${label} subtitle`, 500),
-      config: normalizeConfig(input.type, input.config, label),
+      title: capture(errors, () => optionalText(input.title, `${label} title`, SECTION_TITLE_MAX), null),
+      subtitle: capture(
+        errors,
+        () => optionalText(input.subtitle, `${label} subtitle`, SECTION_SUBTITLE_MAX),
+        null,
+      ),
+      config,
       sortOrder: input.sortOrder ?? index,
       isActive: input.isActive ?? true,
-      startAt: parseOptionalDate(input.startAt, `${label} start`),
-      endAt: parseOptionalDate(input.endAt, `${label} end`),
-      items: normalizeItems(input.items, allowed, label),
+      startAt,
+      endAt,
+      items: normalizeItems(input.items, allowedItemTypes(input.type, config), label, errors),
     };
+    assertItemLimits(errors, section, label, strict);
+    return section;
   });
+
+  if (strict && !sections.some((section) => section.isActive)) {
+    errors.push('At least one active section is required to publish');
+  }
+
+  throwSectionErrors(errors);
+  return sections;
+};
+
+export const normalizeStoredSections = (
+  sections: NormalizedSection[],
+  options?: NormalizeSectionsOptions,
+): NormalizedSection[] => normalizeSections(sections.map(toSectionInput), options);
 
 export const normalizeTargets = (inputs: TargetInput[] | undefined): NormalizedTarget[] =>
   (inputs ?? []).map((input, index) => {

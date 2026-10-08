@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { AuditService } from '@modules/master/services/audit.service';
 import { PromotionalPageEntity } from '../entities/promotional-page.entity';
+import { PromotionalPageSectionEntity } from '../entities/promotional-page-section.entity';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
 import { PromotionalSectionType } from '../enums/promotional-section-type.enum';
 import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
@@ -32,6 +33,23 @@ const basePage = (overrides: Partial<PromotionalPageEntity> = {}): PromotionalPa
     updatedAt: NOW,
     ...overrides,
   }) as PromotionalPageEntity;
+
+const heroSection = (overrides: Record<string, unknown> = {}) =>
+  ({
+    type: PromotionalSectionType.HERO_BANNER,
+    title: null,
+    subtitle: null,
+    config: {
+      desktopImage: { key: 'banners/desktop.png', name: 'desktop.png' },
+      mobileImage: { key: 'banners/mobile.png', name: 'mobile.png' },
+    },
+    sortOrder: 0,
+    isActive: true,
+    startAt: null,
+    endAt: null,
+    items: [],
+    ...overrides,
+  }) as unknown as PromotionalPageSectionEntity;
 
 describe('PromotionalPagesService', () => {
   let stored: PromotionalPageEntity;
@@ -186,6 +204,7 @@ describe('PromotionalPagesService', () => {
     stored = basePage({
       startAt: new Date('2026-07-01T00:00:00.000Z'),
       endAt: new Date('2026-08-01T00:00:00.000Z'),
+      sections: [heroSection()],
     });
 
     const updated = await service.updateStatus(
@@ -202,6 +221,7 @@ describe('PromotionalPagesService', () => {
     stored = basePage({
       startAt: new Date('2026-05-01T00:00:00.000Z'),
       endAt: new Date('2026-07-01T00:00:00.000Z'),
+      sections: [heroSection()],
     });
 
     const updated = await service.updateStatus(
@@ -213,6 +233,54 @@ describe('PromotionalPagesService', () => {
     expect(updated.storedStatus).toBe(PromotionalPageStatus.PUBLISHED);
     expect(updated.status).toBe(PromotionalPageStatus.PUBLISHED);
     expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'publish' }));
+  });
+
+  it('rejects publishing a page with no active section', async () => {
+    stored = basePage({
+      startAt: new Date('2026-05-01T00:00:00.000Z'),
+      endAt: new Date('2026-07-01T00:00:00.000Z'),
+      sections: [],
+    });
+
+    await expect(
+      service.updateStatus(
+        'HIM2026000001',
+        { status: PromotionalPageStatus.PUBLISHED },
+        'admin@cureka.com',
+      ),
+    ).rejects.toThrow(/At least one active section is required to publish/);
+    expect(pagesRepository.updateByRefId).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty hero when replacing sections on a published page', async () => {
+    stored = basePage({
+      status: PromotionalPageStatus.PUBLISHED,
+      sections: [heroSection()],
+    });
+
+    await expect(
+      service.replaceSections(
+        'HIM2026000001',
+        { sections: [{ type: PromotionalSectionType.HERO_BANNER, title: 'Hero' }] },
+        'admin@cureka.com',
+      ),
+    ).rejects.toThrow(/desktop image is required/);
+    expect(pagesRepository.replaceChildren).not.toHaveBeenCalled();
+  });
+
+  it('rejects a page schedule that leaves a stored section outside the window', async () => {
+    stored = basePage({
+      sections: [heroSection({ startAt: new Date('2026-11-01T00:00:00.000Z') })],
+    });
+
+    await expect(
+      service.update(
+        'HIM2026000001',
+        { endAt: '2026-10-31T00:00:00.000Z' },
+        'admin@cureka.com',
+      ),
+    ).rejects.toThrow(/start must be before the page end/);
+    expect(pagesRepository.updateByRefId).not.toHaveBeenCalled();
   });
 
   it('rejects publishing a page that has already ended', async () => {
