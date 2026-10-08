@@ -35,11 +35,14 @@ import { PromotionalPageReferenceService } from './promotional-page-reference.se
 import {
   NormalizedSection,
   NormalizedTarget,
+  NormalizeSectionsOptions,
   assertCanPublish,
   assertScheduleWindow,
   collectCatalogRefs,
   isSectionVisible,
+  isStrictPromotionalStatus,
   normalizeSections,
+  normalizeStoredSections,
   normalizeTargets,
   parseOptionalDate,
   publicUnavailableReason,
@@ -63,9 +66,12 @@ export class PromotionalPagesService {
     const slug = dto.slug.trim();
     const startAt = parseOptionalDate(dto.startAt, 'Start date');
     const endAt = parseOptionalDate(dto.endAt, 'End date');
-    const sections = normalizeSections(dto.sections);
-    const targets = normalizeTargets(dto.targets);
     const status = resolveRequestedStatus(dto.status, startAt, endAt, now);
+    const sections = normalizeSections(
+      dto.sections,
+      this.sectionOptions(status, startAt, endAt),
+    );
+    const targets = normalizeTargets(dto.targets);
 
     if (await this.pagesRepository.existsBySlug(slug)) {
       throw new ConflictException(`A promotional page with slug "${slug}" already exists`);
@@ -140,13 +146,19 @@ export class PromotionalPagesService {
     const startAt =
       dto.startAt !== undefined ? parseOptionalDate(dto.startAt, 'Start date') : current.startAt;
     const endAt = dto.endAt !== undefined ? parseOptionalDate(dto.endAt, 'End date') : current.endAt;
-    const sections = dto.sections !== undefined ? normalizeSections(dto.sections) : null;
-    const targets = dto.targets !== undefined ? normalizeTargets(dto.targets) : null;
     assertScheduleWindow(startAt, endAt);
     const status =
       dto.status !== undefined
         ? resolveRequestedStatus(dto.status, startAt, endAt, now)
         : current.status;
+    const sectionOptions = this.sectionOptions(status, startAt, endAt);
+    const sections =
+      dto.sections !== undefined ? normalizeSections(dto.sections, sectionOptions) : null;
+    const targets = dto.targets !== undefined ? normalizeTargets(dto.targets) : null;
+    const scheduleChanged = dto.startAt !== undefined || dto.endAt !== undefined;
+    if (sections === null && (scheduleChanged || sectionOptions.mode === 'publish')) {
+      normalizeStoredSections(this.sectionsFromEntity(current), sectionOptions);
+    }
 
     if (slug !== current.slug && (await this.pagesRepository.existsBySlug(slug, refId))) {
       throw new ConflictException(`A promotional page with slug "${slug}" already exists`);
@@ -211,7 +223,10 @@ export class PromotionalPagesService {
     actor: string,
   ): Promise<IAdminPromotionalPage> {
     const current = await this.requireByRefId(refId);
-    const sections = normalizeSections(dto.sections);
+    const sections = normalizeSections(
+      dto.sections,
+      this.sectionOptions(current.status, current.startAt, current.endAt),
+    );
     const targets = this.targetsFromEntity(current);
     await this.references.assertCatalogRefs(collectCatalogRefs(sections, [], null));
     await this.pagesRepository.replaceChildren(current.id, sections, targets);
@@ -247,6 +262,13 @@ export class PromotionalPagesService {
       dto.status === PromotionalPageStatus.PUBLISHED
         ? assertCanPublish(current.startAt, current.endAt, now)
         : resolveRequestedStatus(dto.status, current.startAt, current.endAt, now);
+
+    if (isStrictPromotionalStatus(status)) {
+      normalizeStoredSections(
+        this.sectionsFromEntity(current),
+        this.sectionOptions(status, current.startAt, current.endAt),
+      );
+    }
 
     await this.pagesRepository.updateByRefId(refId, { status, updatedBy: actor });
     const page = await this.requireByRefId(refId);
@@ -415,6 +437,18 @@ export class PromotionalPagesService {
       couponRefId: page.coupon?.refId ?? null,
       createdAt: page.createdAt,
       updatedAt: page.updatedAt,
+    };
+  }
+
+  private sectionOptions(
+    status: PromotionalPageStatus,
+    startAt: Date | null,
+    endAt: Date | null,
+  ): NormalizeSectionsOptions {
+    return {
+      mode: isStrictPromotionalStatus(status) ? 'publish' : 'draft',
+      pageStartAt: startAt,
+      pageEndAt: endAt,
     };
   }
 
