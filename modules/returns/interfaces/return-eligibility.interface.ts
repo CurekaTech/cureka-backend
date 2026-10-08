@@ -1,3 +1,4 @@
+import { IOrderItemBundleComponent } from '@modules/orders/interfaces/order-item-bundle-component.interface';
 import { IOrderItemReturnPolicySnapshot } from '@modules/orders/interfaces/order-item-return-policy.interface';
 import { ReturnResolution } from '../enums/return-resolution.enum';
 
@@ -25,6 +26,11 @@ export interface IReturnItemEligibility {
   committedQuantity: number;
   availableQuantity: number;
   unitPrice: string;
+
+  /** True when this order line is a bundle. Actions still belong to the line, not the children. */
+  isBundle: boolean;
+  /** Identity only. Null for a simple line or when the bundle snapshot was not stored. */
+  components: IOrderItemBundleComponent[] | null;
 
   canReturn: boolean;
   canReplace: boolean;

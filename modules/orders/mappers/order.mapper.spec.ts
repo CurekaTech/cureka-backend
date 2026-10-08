@@ -126,6 +126,22 @@ describe('resolveOrderItemReturnReplace', () => {
     expect(flags.withinReplaceWindow).toBe(false);
   });
 
+  it('uses a 2 day window when the snapshot window is missing', () => {
+    const flags = resolveOrderItemReturnReplace(
+      snapshot({
+        returnWindow: null,
+        replacementWindow: 0,
+      }),
+      deliveredAt,
+      true,
+      new Date('2026-10-02T00:00:00.000Z'),
+    );
+    expect(flags.returnWindowDays).toBe(2);
+    expect(flags.replaceWindowDays).toBe(2);
+    expect(flags.withinReturnWindow).toBe(true);
+    expect(flags.withinReplaceWindow).toBe(true);
+  });
+
   it('hides both actions when the order has no policy snapshot', () => {
     expect(resolveOrderItemReturnReplace(null, deliveredAt, true)).toEqual({
       returnAllowed: false,

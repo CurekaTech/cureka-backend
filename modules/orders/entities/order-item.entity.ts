@@ -3,6 +3,7 @@ import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import { IOrderItemBundleComponent } from '../interfaces/order-item-bundle-component.interface';
 import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
 import { OrderEntity } from './order.entity';
 
@@ -60,6 +61,21 @@ export class OrderItemEntity extends BaseEntity {
    */
   @Column({ name: 'return_policy_snapshot', type: 'jsonb', nullable: true })
   returnPolicySnapshot!: IOrderItemReturnPolicySnapshot | null;
+
+  /**
+   * Bundle component identity frozen at placement, or by the one-time backfill.
+   * Null for a non-bundle, and for a bundle whose composition could not be resolved.
+   */
+  @Column({ name: 'bundle_components', type: 'jsonb', nullable: true })
+  bundleComponents!: IOrderItemBundleComponent[] | null;
+
+  /**
+   * COD decision frozen at placement. For a bundle this is true only when every
+   * component variant allowed COD. Null on orders placed before the column.
+   * Not part of return_policy_snapshot and not recomputed from the live catalogue.
+   */
+  @Column({ name: 'cod_available', type: 'boolean', nullable: true })
+  codAvailable!: boolean | null;
 
   @ManyToOne(() => OrderEntity, (order) => order.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'order_id' })

@@ -18,7 +18,16 @@ import { parseMoney } from '../utils/money.util';
 import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
-import { isWithinWindow, resolveWindowExpiry } from '@modules/returns/utils/return-window.util';
+import {
+  DEFAULT_REPLACE_WINDOW_DAYS,
+  DEFAULT_RETURN_WINDOW_DAYS,
+} from '@modules/returns/constants/return.constants';
+import {
+  isWithinWindow,
+  resolveConfiguredWindow,
+  resolveWindowExpiry,
+} from '@modules/returns/utils/return-window.util';
+import { IOrderItemBundleComponent } from '../interfaces/order-item-bundle-component.interface';
 import { resolvePrimaryProductImageRef } from '../utils/resolve-primary-product-image.util';
 
 export type OrderItemReturnReplaceResponse = {
@@ -56,6 +65,10 @@ export type OrderItemResponse = {
   /** Resolved browser URL for list/detail thumbnails. */
   imageUrl: string | null;
   returnReplace: OrderItemReturnReplaceResponse;
+  /** Identity snapshot for a bundle line. Null for a non-bundle or an unresolved bundle. */
+  bundleComponents: IOrderItemBundleComponent[] | null;
+  /** COD frozen at placement. Null means the order predates the column. */
+  codAvailable: boolean | null;
 };
 
 /** Per-status times on the order row (set once when that status is first reached). */
@@ -161,22 +174,32 @@ export function resolveOrderItemReturnReplace(
 
   const returnAllowed = snapshot.returnable === true;
   const replaceAllowed = snapshot.replaceable === true;
-  const returnWindowExpiresAt = resolveWindowExpiry(
-    deliveredAt,
+  const returnWindow = effectivePolicyWindow(
     snapshot.returnWindow,
     snapshot.returnWindowUnit,
+    DEFAULT_RETURN_WINDOW_DAYS,
+  );
+  const replaceWindow = effectivePolicyWindow(
+    snapshot.replacementWindow,
+    snapshot.replacementWindowUnit,
+    DEFAULT_REPLACE_WINDOW_DAYS,
+  );
+  const returnWindowExpiresAt = resolveWindowExpiry(
+    deliveredAt,
+    returnWindow.window,
+    returnWindow.unit,
   );
   const replaceWindowExpiresAt = resolveWindowExpiry(
     deliveredAt,
-    snapshot.replacementWindow,
-    snapshot.replacementWindowUnit,
+    replaceWindow.window,
+    replaceWindow.unit,
   );
 
   return {
     returnAllowed,
     replaceAllowed,
-    returnWindowDays: windowDays(snapshot.returnWindow, snapshot.returnWindowUnit),
-    replaceWindowDays: windowDays(snapshot.replacementWindow, snapshot.replacementWindowUnit),
+    returnWindowDays: windowDays(returnWindow.window, returnWindow.unit),
+    replaceWindowDays: windowDays(replaceWindow.window, replaceWindow.unit),
     withinReturnWindow:
       isDelivered && returnAllowed && isWithinWindow(returnWindowExpiresAt, now),
     withinReplaceWindow:
@@ -217,6 +240,20 @@ async function mapOrderItemToResponse(
       deliveredAt,
       isDelivered,
     ),
+    bundleComponents: item.bundleComponents ?? null,
+    codAvailable: item.codAvailable ?? null,
+  };
+}
+
+function effectivePolicyWindow(
+  window: number | null | undefined,
+  unit: PolicyWindowUnit | null | undefined,
+  fallbackDays: number,
+): { window: number; unit: PolicyWindowUnit } {
+  const missing = window === null || window === undefined || window <= 0;
+  return {
+    window: resolveConfiguredWindow(window, fallbackDays),
+    unit: missing ? PolicyWindowUnit.DAYS : (unit ?? PolicyWindowUnit.DAYS),
   };
 }
 

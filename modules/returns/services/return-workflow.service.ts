@@ -4,6 +4,9 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { parseMoney, roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
+import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
+import { PaymentRequestsService } from '@modules/payment-requests/services/payment-requests.service';
+import { RefundReason } from '@modules/refund-requests/enums/refund-reason.enum';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
 import { RefundRequestsRepository } from '@modules/refund-requests/repositories/refund-requests.repository';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
@@ -11,9 +14,11 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -30,8 +35,10 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import {
   INVALID_STATUS_TRANSITION,
+  BANK_DETAILS_REQUIRED,
   RETURN_ALREADY_REPLACED,
   RETURN_NO_PICKUP_NOT_ALLOWED,
+  RETURN_ITEM_NOT_FOUND,
   RETURN_PICKUP_NOT_FOUND,
   RETURN_PICKUP_NOT_REQUIRED,
   RETURN_QC_NOT_ALLOWED,
@@ -45,6 +52,7 @@ import {
   ApproveNoPickupDto,
   ApproveReturnRequestDto,
   AssignReturnRequestDto,
+  ConfirmReplacementSelectionDto,
   LinkReplacementOrderDto,
   ReceiveAtWarehouseDto,
   RejectReturnRequestDto,
@@ -73,6 +81,7 @@ import { ReturnEvidencesRepository } from '../repositories/return-evidences.repo
 import { ReturnPickupsRepository } from '../repositories/return-pickups.repository';
 import { ReturnQcRecordsRepository } from '../repositories/return-qc-records.repository';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
+import { calculateReplacementPriceDifference } from '../utils/replacement-price-difference.util';
 import { canTransitionReturnStatus } from '../utils/return-status-transition.util';
 import { ReturnPickupService } from './return-pickup.service';
 import { mapShipwayStatusToReturnPickupStatus } from '../utils/shipway-return-pickup-status.util';
@@ -88,6 +97,8 @@ export class ReturnWorkflowService {
     private readonly pickupsRepository: ReturnPickupsRepository,
     private readonly qcRecordsRepository: ReturnQcRecordsRepository,
     private readonly pickupService: ReturnPickupService,
+    @Inject(forwardRef(() => PaymentRequestsService))
+    private readonly paymentRequestsService: PaymentRequestsService,
     private readonly refundRequestsService: RefundRequestsService,
     private readonly refundRequestsRepository: RefundRequestsRepository,
     private readonly auditService: AuditService,
@@ -134,11 +145,15 @@ export class ReturnWorkflowService {
       this.pickupsRepository.findByReturnRequestId(request.id),
       this.qcRecordsRepository.findByReturnRequestId(request.id),
     ]);
+    const payment = request.replacementPaymentRequestId
+      ? await this.paymentRequestsService.findById(request.replacementPaymentRequestId)
+      : null;
     const detail = mapReturnToDetail(request, {
       evidence,
       pickups,
       qcRecords,
       refund: await this.buildRefundLink(request),
+      replacementPaymentStatus: payment?.status ?? null,
     });
     return this.storageUrlEnricher.enrichDeep(detail);
   }
@@ -950,6 +965,134 @@ export class ReturnWorkflowService {
     return this.getDetail(request.id);
   }
 
+  async confirmReplacementSelection(
+    identifier: string,
+    dto: ConfirmReplacementSelectionDto,
+    actor: ReturnActor,
+  ) {
+    const request = await this.requireReturn(identifier);
+    this.assertReplacementQuoteEditable(request);
+    const variant = await this.variantsRepository.findOne({
+      where: { id: dto.replacementVariantId },
+    });
+    if (!variant) {
+      throw new NotFoundException({
+        code: RETURN_REQUEST_NOT_FOUND,
+        message: 'Replacement variant not found',
+      });
+    }
+    const items = request.items ?? [];
+    const quantity = items.reduce((total, item) => total + item.quantity, 0);
+    const original = items.reduce(
+      (total, item) => total + parseMoney(item.unitPrice) * item.quantity,
+      0,
+    );
+    const quote = calculateReplacementPriceDifference(
+      original,
+      parseMoney(variant.sellingPrice) * quantity,
+    );
+    await this.returnRequestsRepository.updateById(request.id, {
+      replacementOriginalAmount: quote.originalAmount,
+      replacementQuoteAmount: quote.replacementAmount,
+      replacementDifferenceAmount: quote.differenceAmount,
+      replacementSettlement: quote.settlement,
+      updatedBy: actor.email ?? actor.id,
+    });
+    for (const item of items) {
+      await this.returnRequestsRepository.updateItemById(item.id, {
+        replacementVariantId: variant.id,
+        replacementSku: variant.sku,
+      });
+    }
+    return this.getDetail(request.id);
+  }
+
+  async createReplacementDifferencePaymentLink(identifier: string, actor: ReturnActor) {
+    const request = await this.requireReturn(identifier);
+    this.assertSettlement(request, 'COLLECT');
+    if (!request.customerId) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'This return has no customer to collect a payment from',
+      });
+    }
+    if (request.replacementPaymentRequestId) {
+      const existing = await this.paymentRequestsService.findById(
+        request.replacementPaymentRequestId,
+      );
+      if (existing?.paymentLink) {
+        return this.getDetail(request.id);
+      }
+    }
+    const line = request.items?.[0];
+    if (!line) {
+      throw new BadRequestException({
+        code: RETURN_ITEM_NOT_FOUND,
+        message: 'This return has no items',
+      });
+    }
+    const payment = await this.paymentRequestsService.createReplacementDifferenceLink({
+      customerId: request.customerId,
+      amount: request.replacementDifferenceAmount!,
+      productId: line.productId,
+      variantId: line.replacementVariantId ?? line.variantId,
+      returnNumber: request.returnNumber,
+      updatedBy: actor.email ?? actor.id,
+    });
+    await this.returnRequestsRepository.updateById(request.id, {
+      replacementPaymentRequestId: payment.id,
+      replacementPaymentLink: payment.paymentLink,
+      updatedBy: actor.email ?? actor.id,
+    });
+    return this.getDetail(request.id);
+  }
+
+  async createReplacementDifferenceRefund(identifier: string, dto: ReturnCommentDto, actor: ReturnActor) {
+    const request = await this.requireReturn(identifier);
+    this.assertSettlement(request, 'REFUND');
+    if (request.refundRequestId) {
+      return this.getDetail(request.id);
+    }
+    if (!request.bankAccountNumberEncrypted || !request.bankIfsc || !request.bankAccountHolderName) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_REQUIRED,
+        message: 'Bank details are required before the price difference can be refunded',
+      });
+    }
+    const order = await this.ordersRepository.findOne({
+      where: { id: request.orderId },
+      relations: { items: true },
+    });
+    if (!order) {
+      throw new NotFoundException({
+        code: RETURN_REQUEST_NOT_FOUND,
+        message: 'Order not found for this return',
+      });
+    }
+    const refund = await this.refundRequestsService.createFromReturn({
+      order,
+      returnRequestId: request.id,
+      returnNumber: request.returnNumber,
+      amount: request.replacementDifferenceAmount!,
+      reason: RefundReason.REPLACEMENT_PRICE_DIFFERENCE,
+      reasonDetails: dto.comment?.trim()
+        ? dto.comment.trim()
+        : `Replacement price difference for ${request.returnNumber}`,
+      actor: {
+        id: actor.id,
+        email: actor.email,
+        role: actor.role,
+        type: RefundRequestedByType.ADMIN,
+      },
+    });
+    await this.returnRequestsRepository.updateById(request.id, {
+      refundRequestId: refund.id,
+      refundLinkedAt: new Date(),
+      updatedBy: actor.email ?? actor.id,
+    });
+    return this.getDetail(request.id);
+  }
+
   async linkReplacementOrder(
     identifier: string,
     dto: LinkReplacementOrderDto,
@@ -968,6 +1111,7 @@ export class ReturnWorkflowService {
         message: 'A replacement order is already linked to this return',
       });
     }
+    await this.assertReplacementSettlementSatisfied(request);
     const replacement = await this.ordersRepository.findOne({
       where: { id: dto.replacementOrderId },
     });
@@ -1327,6 +1471,79 @@ export class ReturnWorkflowService {
       performedBy: actor.email ?? actor.id,
       details: { returnNumber: request.returnNumber, ...details },
     });
+  }
+
+  private assertReplacementQuoteEditable(request: ReturnRequestEntity): void {
+    if (request.resolution !== ReturnResolution.REPLACEMENT) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'This return is being resolved as a refund',
+      });
+    }
+    if (request.status !== ReturnStatus.REPLACEMENT_PENDING) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'Confirm the replacement when the return is waiting for a replacement',
+      });
+    }
+    if (request.replacementPaymentRequestId || request.refundRequestId) {
+      throw new ConflictException({
+        code: RETURN_ALREADY_REPLACED,
+        message: 'The replacement quote can no longer be changed',
+      });
+    }
+  }
+
+  private assertSettlement(request: ReturnRequestEntity, expected: 'COLLECT' | 'REFUND'): void {
+    if (request.resolution !== ReturnResolution.REPLACEMENT) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'This return is being resolved as a refund',
+      });
+    }
+    if (request.status !== ReturnStatus.REPLACEMENT_PENDING) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'The return must be waiting for a replacement',
+      });
+    }
+    if (request.replacementSettlement !== expected || !request.replacementDifferenceAmount) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'The stored replacement settlement does not allow this action',
+      });
+    }
+  }
+
+  private async assertReplacementSettlementSatisfied(request: ReturnRequestEntity): Promise<void> {
+    if (!request.replacementSettlement) {
+      return;
+    }
+    if (request.replacementSettlement === 'NONE') {
+      return;
+    }
+    if (request.replacementSettlement === 'REFUND') {
+      if (!request.refundRequestId) {
+        throw new BadRequestException({
+          code: INVALID_STATUS_TRANSITION,
+          message: 'Create the bank refund for the price difference before linking a replacement order',
+        });
+      }
+      return;
+    }
+    if (!request.replacementPaymentRequestId) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'Collect the price difference before linking a replacement order',
+      });
+    }
+    const payment = await this.paymentRequestsService.findById(request.replacementPaymentRequestId);
+    if (payment?.status !== PaymentRequestStatus.PAID) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'The price difference payment is not complete',
+      });
+    }
   }
 
   private async requireReturn(identifier: string): Promise<ReturnRequestEntity> {
