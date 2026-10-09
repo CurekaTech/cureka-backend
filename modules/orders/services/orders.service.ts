@@ -199,6 +199,8 @@ export class OrdersService {
       throw new BadRequestException('addressId is required for this checkout path');
     }
 
+    await this.checkoutService.assertCartDeliverableToAddress(userId, dto.addressId);
+
     const summary = await this.checkoutService.validateCheckout(userId, dto);
     if (dto.orderSource) {
       await this.cartService.setPreferredOrderSource(userId, dto.orderSource);
