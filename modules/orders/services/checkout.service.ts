@@ -84,7 +84,7 @@ export class CheckoutService {
     throw new BadRequestException({
       error: 'Bad Request',
       code: PRODUCTS_NOT_DELIVERABLE_TO_PINCODE,
-      message: `Some products in your cart are not deliverable to pincode ${pincode}.`,
+      message: this.buildUndeliverablePincodeMessage(pincode, unavailableProducts),
       pincode,
       unavailableProducts,
     });
@@ -303,7 +303,7 @@ export class CheckoutService {
     const manager = this.dataSource.manager;
     const variants = await manager.getRepository(ProductVariantEntity).find({
       where: { id: In(variantIds) },
-      relations: { product: true },
+      relations: { product: true, attributeValues: true },
     });
     const variantById = new Map(variants.map((variant) => [variant.id, variant]));
     const bundleProductIds = [
@@ -371,7 +371,7 @@ export class CheckoutService {
       unavailable.push({
         productId: product.id,
         variantId: variant.id,
-        productName: product.name ?? '',
+        productName: this.buildDeliverableProductLabel(variant),
         sku: variant.sku,
         pincode,
         ...(unavailableComponents.length ? { unavailableComponents } : {}),
@@ -403,11 +403,59 @@ export class CheckoutService {
       components.push({
         productId: child.id,
         variantId: row.childVariantId,
-        productName: child.name ?? '',
+        productName: this.buildComponentProductLabel(row, child.name),
         sku: row.childVariant?.sku ?? '',
       });
     }
     return components;
+  }
+
+  private buildUndeliverablePincodeMessage(
+    pincode: string,
+    products: UnavailableCheckoutProduct[],
+  ): string {
+    const names = [
+      ...new Set(
+        products.flatMap((product) => {
+          const componentNames = (product.unavailableComponents ?? [])
+            .map((component) => component.productName.trim())
+            .filter(Boolean);
+          const lineName = product.productName.trim();
+          return componentNames.length ? [lineName, ...componentNames].filter(Boolean) : [lineName];
+        }),
+      ),
+    ].filter(Boolean);
+
+    const listed = names.join(', ');
+    return listed
+      ? `Some products in your cart are not deliverable to pincode ${pincode}: ${listed}.`
+      : `Some products in your cart are not deliverable to pincode ${pincode}.`;
+  }
+
+  private buildDeliverableProductLabel(variant: ProductVariantEntity): string {
+    const displayName = variant.displayName?.trim();
+    if (displayName) {
+      return displayName;
+    }
+
+    const productName = variant.product?.name?.trim() || 'Product';
+    const attributeLabel = (variant.attributeValues ?? [])
+      .map((item) => item.value?.trim())
+      .filter(Boolean)
+      .join(' / ');
+    if (attributeLabel) {
+      return `${productName} - ${attributeLabel}`;
+    }
+
+    return productName || variant.sku || 'Product';
+  }
+
+  private buildComponentProductLabel(row: ProductBundleEntity, childName: string | null | undefined): string {
+    const displayName = row.childVariant?.displayName?.trim();
+    if (displayName) {
+      return displayName;
+    }
+    return childName?.trim() || row.childVariant?.sku || 'Product';
   }
 
   private buildCodRestrictedProductLabel(

@@ -105,13 +105,16 @@ describe('CheckoutService pincode availability', () => {
       items: [cartLine('prod-1', 'var-1')],
     });
     variantRepo.find.mockResolvedValue([
-      variantFixture({
-        id: 'var-1',
-        productId: 'prod-1',
-        sku: 'SKU-1',
-        name: 'City cream',
-        isPincodeManaged: true,
-      }),
+      {
+        ...variantFixture({
+          id: 'var-1',
+          productId: 'prod-1',
+          sku: 'SKU-1',
+          name: 'City cream',
+          isPincodeManaged: true,
+        }),
+        displayName: 'City cream 50ml',
+      },
     ]);
     pincodesService.findMappedCodesByProductIds.mockResolvedValue(
       new Map([['prod-1', ['560001']]]),
@@ -123,12 +126,13 @@ describe('CheckoutService pincode availability', () => {
       response: {
         code: PRODUCTS_NOT_DELIVERABLE_TO_PINCODE,
         pincode: '380001',
-        message: 'Some products in your cart are not deliverable to pincode 380001.',
+        message:
+          'Some products in your cart are not deliverable to pincode 380001: City cream 50ml.',
         unavailableProducts: [
           {
             productId: 'prod-1',
             variantId: 'var-1',
-            productName: 'City cream',
+            productName: 'City cream 50ml',
             sku: 'SKU-1',
             pincode: '380001',
           },
@@ -165,8 +169,12 @@ describe('CheckoutService pincode availability', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(BadRequestException);
       const body = (error as BadRequestException).getResponse() as {
+        message: string;
         unavailableProducts: Array<{ sku: string }>;
       };
+      expect(body.message).toBe(
+        'Some products in your cart are not deliverable to pincode 380001: Cream A, Cream B.',
+      );
       expect(body.unavailableProducts.map((item) => item.sku)).toEqual(['SKU-1', 'SKU-2']);
     }
   });
@@ -274,6 +282,8 @@ describe('CheckoutService pincode availability', () => {
       service.assertCartDeliverableToAddress('user-1', 'address-1'),
     ).rejects.toMatchObject({
       response: {
+        message:
+          'Some products in your cart are not deliverable to pincode 380001: Care kit, Restricted serum.',
         unavailableProducts: [
           {
             productId: 'bundle-1',
