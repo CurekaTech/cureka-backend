@@ -48,6 +48,7 @@
     "product:sku-unique": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-unique-index.runner.ts",
     "product:strip-sku-from-variant-slugs": "ts-node -r tsconfig-paths/register apps/api/database/scripts/strip-sku-from-variant-slugs.runner.ts",
     "product:return-allowed": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed.runner.ts",
+    "product:cod-blocking": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cod-blocking.runner.ts",
     "product:return-allowed:unmatched": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed-unmatched.runner.ts",
     "product:cleanup": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cleanup.runner.ts",
     "product:backfill-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-backfill.runner.ts",

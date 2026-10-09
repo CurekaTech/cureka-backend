@@ -126,6 +126,34 @@ npm run product:return-allowed:unmatched
 
 ---------------------------
 
+# COD blocking SKUs — exact, case-sensitive match on sku_ids
+# File: docs/Master-Data-Sheets/CODBLOCKINGSKUS-09-10.xlsx
+# Excel cells are trimmed. The database SKU is not trimmed or lowercased.
+# HER/ZIN/08945 matches only HER/ZIN/08945.
+# Matched variants only:
+#   codAvailable=false, returnAllowed=false, returnPolicy=null, returnWindowDays=null
+#
+# Env (from .env, same as other runners):
+#   DATABASE_URL
+#   REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_USERNAME, REDIS_TLS
+#
+# Dry-run first (no database writes, no cache changes)
+npm run product:cod-blocking
+#
+# Apply
+npm run product:cod-blocking -- --apply
+#
+# Optional file override
+npm run product:cod-blocking -- --file="docs/Master-Data-Sheets/CODBLOCKINGSKUS-09-10.xlsx" --apply
+#
+# After a successful update, product list, PDP, variant-search, recommendation,
+# and homepage-section Redis keys are invalidated. Redis is not flushed.
+# If the database update succeeds and cache invalidation fails, the script
+# prints the affected product ref ids and variant ids. Recover with:
+npm run cache:invalidate-products
+
+---------------------------
+
 # Sitemap — exclude empty listing groups / regenerate products
 npm run sitemap:generate -- --group=categories
 npm run sitemap:generate -- --group=brands
