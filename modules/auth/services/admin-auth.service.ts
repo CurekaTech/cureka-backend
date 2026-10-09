@@ -448,6 +448,20 @@ export const MENU_HIERARCHY: MenuItem[] = [
             href: '/products/bulk-price-update/history',
             requiredPermissions: ['products.update'],
           },
+          {
+            name: 'COD Update',
+            key: 'products-bulk-cod-update',
+            icon: '',
+            href: '/products/bulk-cod-update/history',
+            requiredPermissions: ['products.update'],
+          },
+          {
+            name: 'Return & Replacement Update',
+            key: 'products-bulk-return-update',
+            icon: '',
+            href: '/products/bulk-return-update/history',
+            requiredPermissions: ['products.update'],
+          },
         ],
       },
       {

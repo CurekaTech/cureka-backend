@@ -96,6 +96,8 @@ import { ProductInformationLabelsController } from './controllers/product-inform
 import { ProductWizardController } from './controllers/product-wizard.controller';
 import { BulkUploadController } from './controllers/bulk-upload.controller';
 import { BulkPriceUpdateController } from './controllers/bulk-price-update.controller';
+import { BulkCodUpdateController } from './controllers/bulk-cod-update.controller';
+import { BulkReturnUpdateController } from './controllers/bulk-return-update.controller';
 
 // ── Wishlist controller (route unchanged: wishlist/*) ────────────────────────
 import { WishlistController } from './controllers/wishlist.controller';
@@ -113,12 +115,24 @@ import { BulkUploadProcessor } from './processors/bulk-upload.processor';
 import { BulkPriceUpdateProcessor } from './processors/bulk-price-update.processor';
 import { BulkPriceUpdateService } from './services/bulk-price-update.service';
 import { BulkPriceUpdateParserService } from './services/bulk-price-update-parser.service';
+import { BulkCodUpdateProcessor } from './processors/bulk-cod-update.processor';
+import { BulkReturnUpdateProcessor } from './processors/bulk-return-update.processor';
+import { BulkCodUpdateService } from './services/bulk-cod-update.service';
+import { BulkReturnUpdateService } from './services/bulk-return-update.service';
+import { BulkCodUpdateParserService } from './services/bulk-cod-update-parser.service';
+import { BulkReturnUpdateParserService } from './services/bulk-return-update-parser.service';
 
 const BULK_UPLOAD_PROCESSOR_ENABLED =
   (process.env.BULK_UPLOAD_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
 
 const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
   (process.env.BULK_PRICE_UPDATE_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
+
+const BULK_COD_UPDATE_PROCESSOR_ENABLED =
+  (process.env.BULK_COD_UPDATE_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
+
+const BULK_RETURN_UPDATE_PROCESSOR_ENABLED =
+  (process.env.BULK_RETURN_UPDATE_PROCESSOR_ENABLED ?? 'true').toLowerCase() === 'true';
 
 @Module({
   imports: [
@@ -134,6 +148,8 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     PincodesModule,
     QueueModule.registerQueue('bulk-upload'),
     QueueModule.registerQueue('bulk-price-update'),
+    QueueModule.registerQueue('bulk-cod-update'),
+    QueueModule.registerQueue('bulk-return-update'),
     QueueModule.registerQueue(QUEUE_NAMES.UNICOMMERCE_PRODUCTS),
     TypeOrmModule.forFeature([
       // ── Product ──────────────────────────────────────────────────────────
@@ -163,6 +179,8 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
   controllers: [
     BulkUploadController,
     BulkPriceUpdateController,
+    BulkCodUpdateController,
+    BulkReturnUpdateController,
     ProductsController,
     BundleProductsController,
     BestSellersIndexingController,
@@ -213,6 +231,12 @@ const BULK_PRICE_UPDATE_PROCESSOR_ENABLED =
     BulkPriceUpdateService,
     BulkPriceUpdateParserService,
     ...(BULK_PRICE_UPDATE_PROCESSOR_ENABLED ? [BulkPriceUpdateProcessor] : []),
+    BulkCodUpdateService,
+    BulkReturnUpdateService,
+    BulkCodUpdateParserService,
+    BulkReturnUpdateParserService,
+    ...(BULK_COD_UPDATE_PROCESSOR_ENABLED ? [BulkCodUpdateProcessor] : []),
+    ...(BULK_RETURN_UPDATE_PROCESSOR_ENABLED ? [BulkReturnUpdateProcessor] : []),
     // ── Wishlist ────────────────────────────────────────────────────────────
     WishlistItemsRepository,
     WishlistService,
