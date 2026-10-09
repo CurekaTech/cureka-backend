@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { ApiErrorResponse } from '@packages/common';
+import { ApiErrorResponse, UnavailableCheckoutProduct } from '@packages/common';
 import { QueryFailedError } from 'typeorm';
 import { UploadSizeLimitExceededError } from '@packages/storage';
 
@@ -82,6 +82,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       ...(normalized.maximumOrderAmount !== undefined
         ? { maximumOrderAmount: normalized.maximumOrderAmount }
         : {}),
+      ...(normalized.pincode ? { pincode: normalized.pincode } : {}),
+      ...(normalized.unavailableProducts
+        ? { unavailableProducts: normalized.unavailableProducts }
+        : {}),
     };
 
     try {
@@ -101,6 +105,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     code?: string;
     minimumOrderAmount?: number;
     maximumOrderAmount?: number;
+    pincode?: string;
+    unavailableProducts?: UnavailableCheckoutProduct[];
   } {
     if (exception instanceof UploadSizeLimitExceededError) {
       return {
@@ -129,6 +135,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
           code?: string;
           minimumOrderAmount?: number;
           maximumOrderAmount?: number;
+          pincode?: string;
+          unavailableProducts?: UnavailableCheckoutProduct[];
         };
         return {
           statusCode,
@@ -137,6 +145,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
           code: payload.code,
           minimumOrderAmount: payload.minimumOrderAmount,
           maximumOrderAmount: payload.maximumOrderAmount,
+          pincode: typeof payload.pincode === 'string' ? payload.pincode : undefined,
+          unavailableProducts: Array.isArray(payload.unavailableProducts)
+            ? payload.unavailableProducts
+            : undefined,
         };
       }
     }
