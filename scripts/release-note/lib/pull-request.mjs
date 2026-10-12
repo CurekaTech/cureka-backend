@@ -282,9 +282,15 @@ async function isAncestor(runGit, checkout, baseline, target) {
 
 export async function resolvePullRequestRange({ runGit, checkout, event }) {
   const mergeCommitSha = String(event.mergeCommitSha || '').toLowerCase();
+  if (!FULL_SHA.test(mergeCommitSha)) {
+    throw new ReleaseNoteError('BASELINE_BLOCKED', 'Merge commit SHA is missing. Refusing to use the branch tip.');
+  }
   let parentOutput = '';
   try {
-    parentOutput = await runGit(checkout, ['rev-parse', '--verify', '--end-of-options', `${mergeCommitSha}^@`]);
+    await runGit(checkout, ['rev-parse', '--verify', '--end-of-options', `${mergeCommitSha}^{commit}`]);
+    // A merge commit has two parents. --verify rejects that list with
+    // "Needed a single revision", and --end-of-options is echoed back.
+    parentOutput = await runGit(checkout, ['rev-parse', `${mergeCommitSha}^@`]);
   } catch (error) {
     throw new ReleaseNoteError('BASELINE_BLOCKED', `Merge commit parents could not be read. ${error.message}`);
   }
