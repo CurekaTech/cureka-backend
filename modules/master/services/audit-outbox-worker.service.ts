@@ -59,10 +59,10 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
          WHERE (
            status = 'pending'
            AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-           AND (locked_at IS NULL OR locked_at < now() - ($2::double precision * interval '1 millisecond'))
+           AND (locked_at IS NULL OR locked_at < now() - (CAST($2 AS double precision) * interval '1 millisecond'))
          ) OR (
            status = 'publishing'
-           AND locked_at < now() - ($2::double precision * interval '1 millisecond')
+           AND locked_at < now() - (CAST($2 AS double precision) * interval '1 millisecond')
          )
          ORDER BY created_at
          FOR UPDATE SKIP LOCKED
