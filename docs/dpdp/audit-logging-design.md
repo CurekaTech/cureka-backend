@@ -14,7 +14,7 @@ The publisher claims due `pending` rows, and `publishing` rows whose 2-minute cl
 
 Pending and failed rows are never deleted. Published outbox rows older than 30 days may be deleted. Pending or failed rows older than 15 minutes, and `publishing` rows whose lock is older than 15 minutes, are logged with their ids. To recover a failed row, set `status` back to `pending` and clear `locked_at`, `claim_token`, and `next_attempt_at`.
 
-Critical events: admin login success and failure, admin cookie logout (no server session exists to revoke), customer OTP success and failure, customer logout, logout-all, and session revoke only when a session row actually changes, role create/update/status/delete, admin role assignment, refund approve and reject, COD payout create, mutation, and bank-detail reveal.
+Critical events: admin login success and failure, admin cookie logout, customer OTP success and failure, customer logout, logout-all, and session revoke only when a session row actually changes, role create/update/status/delete, admin role assignment, refund approve and reject, COD payout create, mutation, and bank-detail reveal. Admin logout still clears the cookie first. For `superadmin@cureka.com` it also revokes that JWT's `admin_sessions` row when one is active, and the audit detail `serverSessionRevoked` is true only when a row changed. Other admin logouts do not revoke a server session.
 
 ## Ordinary events
 
