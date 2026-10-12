@@ -39,6 +39,7 @@ export class AdminUsersController {
       dto,
       user.email,
       user.role as AdminUserRole,
+      user.sub,
     );
   }
 
@@ -61,7 +62,7 @@ export class AdminUsersController {
     @Body() dto: UpdateAdminUserDto,
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
-    return this.adminUsersService.update(refIdOrId, dto, user.role as AdminUserRole);
+    return this.adminUsersService.update(refIdOrId, dto, user.role as AdminUserRole, user.sub);
   }
 
   @RequirePermissions('admin_users.delete')

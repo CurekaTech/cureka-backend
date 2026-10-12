@@ -19,13 +19,15 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
 
   onModuleInit(): void {
     if ((process.env.AUDIT_OUTBOX_PUBLISHER_ENABLED ?? 'true').toLowerCase() === 'false') return;
-    this.timer = setInterval(() => {
+    const publish = () => {
       void runAsSystem('audit-outbox-publisher', () => this.publishOnce()).catch((error) => {
         this.logger.error(
           `Audit outbox publish failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       });
-    }, 5000);
+    };
+    publish();
+    this.timer = setInterval(publish, 5000);
     this.timer.unref?.();
   }
 
@@ -57,10 +59,10 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
          WHERE (
            status = 'pending'
            AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-           AND (locked_at IS NULL OR locked_at < now() - ($2::int * interval '1 millisecond'))
+           AND (locked_at IS NULL OR locked_at < now() - ($2::double precision * interval '1 millisecond'))
          ) OR (
            status = 'publishing'
-           AND locked_at < now() - ($2::int * interval '1 millisecond')
+           AND locked_at < now() - ($2::double precision * interval '1 millisecond')
          )
          ORDER BY created_at
          FOR UPDATE SKIP LOCKED

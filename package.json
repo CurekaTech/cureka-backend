@@ -28,6 +28,7 @@
     "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert -d apps/api/database/data-source.ts",
     "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create",
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
+    "admin:reset-superadmin-password": "ts-node -r tsconfig-paths/register apps/api/database/scripts/reset-superadmin-password.runner.ts",
     "product:oos-update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-oos-update.runner.ts",
     "product:stock-oos-sync": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-stock-oos-sync.runner.ts",
     "product:estimate-delivery": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-estimate-delivery.runner.ts",
