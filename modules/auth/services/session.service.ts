@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import { UserSessionsRepository } from '../repositories/user-sessions.repository';
@@ -155,28 +156,37 @@ export class SessionService {
     return this.userSessionsRepository.findById(sessionId);
   }
 
-  async logoutCurrentSession(sessionId: string): Promise<void> {
-    await this.sessionCacheService.invalidateBySessionId(sessionId);
-    await this.userSessionsRepository.revokeById(sessionId);
+  async logoutCurrentSession(sessionId: string, manager?: EntityManager): Promise<boolean> {
+    const revoked = await this.userSessionsRepository.revokeById(sessionId, manager);
+    if (revoked && !manager) {
+      await this.sessionCacheService.invalidateBySessionId(sessionId);
+    }
+    return revoked;
   }
 
   /**
    * Idempotent revoke by opaque session token. Returns false when token is unknown or already revoked.
    */
-  async revokeSessionByToken(sessionToken: string): Promise<boolean> {
+  async revokeSessionByToken(sessionToken: string, manager?: EntityManager): Promise<boolean> {
     const refreshTokenHash = hashRefreshToken(sessionToken);
     const session = await this.userSessionsRepository.findByRefreshTokenHash(refreshTokenHash);
     if (!session || session.isRevoked) {
       return false;
     }
 
-    await this.logoutCurrentSession(session.id);
-    return true;
+    const revoked = await this.userSessionsRepository.revokeById(session.id, manager);
+    if (revoked && !manager) {
+      await this.sessionCacheService.invalidateBySessionId(session.id);
+    }
+    return revoked;
   }
 
-  async logoutAllSessions(userId: string, exceptSessionId?: string): Promise<void> {
-    await this.sessionCacheService.invalidateAllForUser(userId, exceptSessionId);
-    await this.userSessionsRepository.revokeAllByUserId(userId, exceptSessionId);
+  async logoutAllSessions(userId: string, exceptSessionId?: string, manager?: EntityManager): Promise<number> {
+    const revoked = await this.userSessionsRepository.revokeAllByUserId(userId, exceptSessionId, manager);
+    if (revoked > 0 && !manager) {
+      await this.sessionCacheService.invalidateAllForUser(userId, exceptSessionId);
+    }
+    return revoked;
   }
 
   async revokeAllSessionsForUser(userId: string): Promise<void> {

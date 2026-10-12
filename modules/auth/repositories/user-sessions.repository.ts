@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { EntityManager, MoreThan, Repository } from 'typeorm';
 import { UserSessionEntity } from '../entities/user-session.entity';
 
 @Injectable()
@@ -50,15 +50,18 @@ export class UserSessionsRepository {
     return this.findById(id);
   }
 
-  async revokeById(id: string): Promise<void> {
-    await this.repo.update(
-      { id },
+  async revokeById(id: string, manager?: EntityManager): Promise<boolean> {
+    const repo = manager ? manager.getRepository(UserSessionEntity) : this.repo;
+    const result = await repo.update(
+      { id, isRevoked: false },
       { isRevoked: true, revokedAt: new Date() },
     );
+    return (result.affected ?? 0) > 0;
   }
 
-  async revokeAllByUserId(userId: string, exceptSessionId?: string): Promise<void> {
-    const qb = this.repo
+  async revokeAllByUserId(userId: string, exceptSessionId?: string, manager?: EntityManager): Promise<number> {
+    const repo = manager ? manager.getRepository(UserSessionEntity) : this.repo;
+    const qb = repo
       .createQueryBuilder()
       .update(UserSessionEntity)
       .set({ isRevoked: true, revokedAt: new Date() })
@@ -69,7 +72,8 @@ export class UserSessionsRepository {
       qb.andWhere('id != :exceptSessionId', { exceptSessionId });
     }
 
-    await qb.execute();
+    const result = await qb.execute();
+    return result.affected ?? 0;
   }
 
   async touchLastActivity(id: string): Promise<void> {

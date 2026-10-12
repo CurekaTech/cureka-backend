@@ -1,0 +1,17 @@
+---
+description: Integrate new module writes with centralized audit logging
+globs: modules/**/*.service.ts
+alwaysApply: false
+---
+
+# Audit logging for new modules
+
+Import `MasterModule` and inject `AuditService`. Do not insert into `audit_logs` or `audit_outbox` directly. Follow `docs/dpdp/audit-logging-design.md`.
+
+- Account security, RBAC, refund approval or rejection, and money movement use `enqueueCritical(manager, input)` in the same transaction as the business write. Auth failures with no business row use `persistCritical` and return 503 if it cannot commit.
+- Ordinary create, update, and delete events use `log` after commit. Log the failure and do not fail the request.
+- One logical action, one event. Keep existing action strings and `performedBy` (email, user id, `anonymous`, or `system:{jobName}`).
+- Pass a real entity UUID. `entityId: null` only when no business row exists; put the investigation id in `entityRefId`. Never use a nil UUID.
+- Set `idempotencyKey` with `auditIdempotency`. Job and webhook retries reuse the same key. A real repeat uses a new request id, status, or timestamp.
+- Jobs call `runAsSystem(jobName)`. Do not inherit the HTTP actor.
+- Do not store raw bodies, passwords, OTPs, tokens, cookies, authorization headers, or full bank details. Do not audit `entityType` `audit_log`.

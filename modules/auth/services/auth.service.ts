@@ -6,7 +6,13 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { DataSource } from 'typeorm';
 import { FastifyRequest } from 'fastify';
+import { AuditService } from '@modules/master/services/audit.service';
+import { getAuditActor } from '@modules/master/utils/audit-actor.context';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
+import { maskAuditMobile } from '@modules/master/utils/audit-redact.util';
 import { OtpService } from './otp.service';
 import { SessionService } from './session.service';
 import { SessionCacheService } from './session-cache.service';
@@ -25,6 +31,8 @@ import { IUser } from '@modules/users/interfaces/user.interface';
 import { IDeviceContext } from '../interfaces/session.interface';
 import { extractDeviceContext } from '../utils/device-context.util';
 import { parseIndianMobileNumber } from '../utils/mobile-number.util';
+import { hashRefreshToken } from '../utils/refresh-token.util';
+import { UserSessionsRepository } from '../repositories/user-sessions.repository';
 import { OtpRateLimitService } from './otp-rate-limit.service';
 import { maskMobile } from '@packages/logger';
 
@@ -41,6 +49,9 @@ export class AuthService {
     private readonly otpRateLimitService: OtpRateLimitService,
     @Inject(forwardRef(() => CartService))
     private readonly cartService: CartService,
+    private readonly dataSource: DataSource,
+    private readonly auditService: AuditService,
+    private readonly userSessionsRepository: UserSessionsRepository,
   ) {}
 
   // ── Unified login (UI: email or mobile) ─────────────────────────────────────
@@ -77,10 +88,31 @@ export class AuthService {
     guestUserId?: string | null,
   ): Promise<IUserAuthTokensResult> {
     const normalized = parseIndianMobileNumber(mobileNumber);
-    await this.otpService.verifyOtp(normalized, otp, OtpPurpose.LOGIN);
+    try {
+      await this.otpService.verifyOtp(normalized, otp, OtpPurpose.LOGIN);
+    } catch (error) {
+      await this.persistAuthFailure('otp', maskAuditMobile(normalized));
+      throw error;
+    }
 
     const guestSessionUserId = await this.resolveGuestUserId(guestUserId);
-    return this.loginWithVerifiedMobile(normalized, device, guestSessionUserId);
+    const result = await this.loginWithVerifiedMobile(normalized, device, guestSessionUserId);
+    await this.auditService.persistCritical({
+      entityType: 'user_auth',
+      entityId: result.user.id,
+      entityRefId: result.sessionId,
+      action: 'otp_verified',
+      performedBy: result.user.id,
+      actorType: 'USER',
+      actorId: result.user.id,
+      idempotencyKey: auditIdempotency.authSuccess(
+        'otp_verified',
+        result.sessionId,
+        this.requestId(),
+      ),
+      details: { outcome: 'success', mobile: maskAuditMobile(normalized) },
+    });
+    return result;
   }
 
   async loginWithVerifiedMobile(
@@ -169,23 +201,98 @@ export class AuthService {
       throw new ForbiddenException('You can only revoke your own sessions');
     }
 
-    await this.sessionService.logoutCurrentSession(sessionId);
+    const revoked = await this.dataSource.transaction(async (manager) => {
+      const didRevoke = await this.sessionService.logoutCurrentSession(sessionId, manager);
+      if (!didRevoke) return false;
+      await this.auditService.enqueueCritical(manager, {
+        entityType: 'user_auth',
+        entityId: userId,
+        entityRefId: sessionId,
+        action: 'session_revoke',
+        performedBy: userId,
+        actorType: 'USER',
+        actorId: userId,
+        idempotencyKey: auditIdempotency.authSuccess('session_revoke', sessionId, this.requestId()),
+        details: { sessionId },
+      });
+      return true;
+    });
+    if (revoked) await this.sessionCacheService.invalidateBySessionId(sessionId);
   }
 
   async logout(sessionId: string): Promise<void> {
-    await this.sessionService.logoutCurrentSession(sessionId);
+    const session = await this.sessionService.findSessionById(sessionId);
+    if (!session) return;
+    await this.revokeSessionById(session.userId, sessionId);
   }
 
   /** Idempotent logout using the opaque session token (cookie or Bearer). */
-  async logoutByToken(sessionToken?: string): Promise<void> {
-    if (!sessionToken) {
-      return;
-    }
-    await this.sessionService.revokeSessionByToken(sessionToken);
+  async logoutByToken(sessionToken?: string): Promise<boolean> {
+    if (!sessionToken) return false;
+    const existing = await this.userSessionsRepository.findByRefreshTokenHash(
+      hashRefreshToken(sessionToken),
+    );
+    if (!existing || existing.isRevoked) return false;
+
+    const revoked = await this.dataSource.transaction(async (manager) => {
+      const didRevoke = await this.sessionService.revokeSessionByToken(sessionToken, manager);
+      if (!didRevoke) return false;
+      await this.auditService.enqueueCritical(manager, {
+        entityType: 'user_auth',
+        entityId: existing.userId,
+        entityRefId: existing.id,
+        action: 'logout',
+        performedBy: existing.userId,
+        actorType: 'USER',
+        actorId: existing.userId,
+        idempotencyKey: auditIdempotency.authSuccess('logout', existing.id, this.requestId()),
+        details: { sessionId: existing.id },
+      });
+      return true;
+    });
+    if (revoked) await this.sessionCacheService.invalidateBySessionId(existing.id);
+    return revoked;
   }
 
-  async logoutAllDevices(userId: string, currentSessionId?: string): Promise<void> {
-    await this.sessionService.logoutAllSessions(userId, currentSessionId);
+  async logoutAllDevices(userId: string, currentSessionId?: string): Promise<number> {
+    const revoked = await this.dataSource.transaction(async (manager) => {
+      const count = await this.sessionService.logoutAllSessions(userId, currentSessionId, manager);
+      if (count === 0) return 0;
+      await this.auditService.enqueueCritical(manager, {
+        entityType: 'user_auth',
+        entityId: userId,
+        action: 'logout_all',
+        performedBy: userId,
+        actorType: 'USER',
+        actorId: userId,
+        idempotencyKey: auditIdempotency.authSuccess('logout_all', userId, this.requestId()),
+        details: { revokedSessions: count },
+      });
+      return count;
+    });
+    if (revoked > 0) {
+      await this.sessionCacheService.invalidateAllForUser(userId, currentSessionId);
+    }
+    return revoked;
+  }
+
+  private requestId(): string {
+    return getAuditActor()?.requestId ?? randomUUID();
+  }
+
+  private async persistAuthFailure(channel: string, maskedSubject: string): Promise<void> {
+    const requestId = this.requestId();
+    await this.auditService.persistCritical({
+      entityType: 'user_auth',
+      entityId: null,
+      entityRefId: requestId,
+      action: 'otp_failed',
+      performedBy: 'anonymous',
+      actorType: 'ANONYMOUS',
+      actorId: null,
+      idempotencyKey: auditIdempotency.authFailure(channel, maskedSubject, requestId),
+      details: { outcome: 'failure', mobile: maskedSubject },
+    });
   }
 
   async getActiveSessions(userId: string, currentSessionId?: string) {

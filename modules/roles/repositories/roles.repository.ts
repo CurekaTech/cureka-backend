@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -17,9 +17,10 @@ export class RolesRepository {
     private readonly repo: Repository<RoleEntity>,
   ) {}
 
-  async create(data: Partial<RoleEntity>): Promise<RoleEntity> {
-    const entity = this.repo.create(data);
-    return this.repo.save(entity);
+  async create(data: Partial<RoleEntity>, manager?: EntityManager): Promise<RoleEntity> {
+    const repo = manager ? manager.getRepository(RoleEntity) : this.repo;
+    const entity = repo.create(data);
+    return repo.save(entity);
   }
 
   async existsByRefId(refId: string): Promise<boolean> {
@@ -39,8 +40,9 @@ export class RolesRepository {
     return (await qb.getCount()) > 0;
   }
 
-  async findByRefId(refId: string): Promise<RoleEntity | null> {
-    return this.repo.findOne({
+  async findByRefId(refId: string, manager?: EntityManager): Promise<RoleEntity | null> {
+    const repo = manager ? manager.getRepository(RoleEntity) : this.repo;
+    return repo.findOne({
       where: { refId },
       relations: { permissions: true },
       order: { permissions: { module: 'ASC', action: 'ASC', name: 'ASC' } },
@@ -51,18 +53,24 @@ export class RolesRepository {
     return this.repo.findOne({ where: { slug } });
   }
 
-  async updateByRefId(refId: string, data: Partial<RoleEntity>): Promise<RoleEntity | null> {
-    const existing = await this.findByRefId(refId);
+  async updateByRefId(
+    refId: string,
+    data: Partial<RoleEntity>,
+    manager?: EntityManager,
+  ): Promise<RoleEntity | null> {
+    const repo = manager ? manager.getRepository(RoleEntity) : this.repo;
+    const existing = await this.findByRefId(refId, manager);
     if (!existing) {
       return null;
     }
 
-    await this.repo.save({ ...existing, ...data });
-    return this.findByRefId(refId);
+    await repo.save({ ...existing, ...data });
+    return this.findByRefId(refId, manager);
   }
 
-  async softDeleteByRefId(refId: string): Promise<void> {
-    await this.repo.softDelete({ refId });
+  async softDeleteByRefId(refId: string, manager?: EntityManager): Promise<void> {
+    const repo = manager ? manager.getRepository(RoleEntity) : this.repo;
+    await repo.softDelete({ refId });
   }
 
   async findAllPaginated(

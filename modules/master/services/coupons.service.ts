@@ -8,16 +8,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { CouponApplicabilityScope } from '../enums/coupon-applicability-scope.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CouponDiscountType } from '../enums/coupon-discount-type.enum';
 import { CreateCouponDto, UpdateCouponDto, UpdateCouponStatusDto } from '../dto/coupon.dto';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 import { BrandEntity } from '../entities/brand.entity';
 import { CategoryEntity } from '../entities/category.entity';
 import { CouponEntity } from '../entities/coupon.entity';
@@ -25,6 +24,7 @@ import { ICoupon } from '../interfaces/coupon.interface';
 import { mapCouponEntitiesToResponse, mapCouponEntityToResponse } from '../mappers/coupon.mapper';
 import { CouponApplicabilityRepository } from '../repositories/coupon-applicability.repository';
 import { CouponsRepository } from '../repositories/coupons.repository';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
 export class CouponsService {
@@ -90,8 +90,8 @@ export class CouponsService {
     });
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<ICoupon>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<ICoupon>> {
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.couponsRepository.findAllPaginated(paginationOptions);
     return buildPaginatedResult(mapCouponEntitiesToResponse(data), total, paginationOptions);
   }
