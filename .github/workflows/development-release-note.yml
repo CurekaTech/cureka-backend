@@ -1,8 +1,8 @@
 name: Development release note
 
-# Runs the workflow file from the development branch, then reads the merged
-# commits. It does not execute a script named by the pull request, and it
-# does not deploy or migrate.
+# Runs the workflow file and generator already on development, then reads the
+# merged commits by SHA. It does not checkout the pull request head, does not
+# execute a script named by the pull request, and does not deploy or migrate.
 
 on:
   pull_request_target:
@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout the development commit this pull request merged into
+      - name: Checkout the development branch that contains this workflow
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: development
           fetch-depth: 0
           persist-credentials: true
 

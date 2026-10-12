@@ -8,6 +8,7 @@ import {
   AuditOutboxRow,
   AuditOutboxStore,
   publishClaimedBatch,
+  rowsFromPostgresQuery,
 } from './audit-outbox.publisher';
 
 @Injectable()
@@ -52,7 +53,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
 
   async claim(limit: number, leaseMs = AUDIT_OUTBOX_LEASE_MS): Promise<AuditOutboxRow[]> {
     const claimToken = randomUUID();
-    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
+    const rows = rowsFromPostgresQuery<Record<string, unknown>>(await this.dataSource.query(
       `WITH claimed AS (
          SELECT id
          FROM audit_outbox
@@ -114,7 +115,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
   }
 
   async markPublished(id: string, claimToken: string): Promise<boolean> {
-    const updated: Array<{ id: string }> = await this.dataSource.query(
+    const updated = rowsFromPostgresQuery<{ id: string }>(await this.dataSource.query(
       `UPDATE audit_outbox
        SET status = 'published', published_at = now(), locked_at = NULL, claim_token = NULL, last_error = NULL
        WHERE id = $1 AND claim_token = $2
@@ -157,7 +158,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
   }
 
   async deletePublishedBefore(before: Date): Promise<number> {
-    const rows: Array<{ id: string }> = await this.dataSource.query(
+    const rows = rowsFromPostgresQuery<{ id: string }>(await this.dataSource.query(
       `DELETE FROM audit_outbox
        WHERE status = 'published' AND published_at IS NOT NULL AND published_at < $1
        RETURNING id`,

@@ -355,6 +355,8 @@ describe('development pull request release notes', () => {
     expect(workflow).toContain('github.event.pull_request.merged == true');
     expect(workflow).toContain('github.event.pull_request.merge_commit_sha');
     expect(workflow).toContain('github.event.pull_request.base.sha');
+    expect(workflow).toContain('ref: development');
+    expect(workflow).not.toContain('ref: ${{ github.event.pull_request.base.sha }}');
     expect(workflow).not.toContain('migration:run');
     expect(workflow).not.toContain('deploy-beta');
     expect(workflow).not.toContain('id-token:');
