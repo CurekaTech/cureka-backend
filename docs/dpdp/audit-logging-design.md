@@ -24,7 +24,15 @@ Blog, support, returns, subscriptions, promotional pages, and non-critical refun
 
 An HTTP interceptor sets the actor after authentication. Customer sessions (`sessionId`) are `USER`. Admin JWTs (`super_admin`, `admin`, `moderator` plus email) are `ADMIN`. Everyone else on the request is `ANONYMOUS`. Background work must call `runAsSystem(jobName)`. That scope does not keep the previous request actor.
 
-`TRUST_PROXY` trusts only loopback when unset, so a reverse proxy on this machine can pass the client address in `X-Forwarded-For`. `false` trusts nobody. `true` is refused in production. A comma-separated IP, CIDR, or proxy-addr name (`loopback`, `uniquelocal`) is the trusted hop list. Audit IP is Fastify `request.ip` after that decision, with IPv4-mapped IPv6 normalized. Raw `X-Forwarded-For` is not read directly.
+Audit IP is Fastify `request.ip` after `TRUST_PROXY`, with IPv4-mapped IPv6 normalized. Application code does not read `X-Forwarded-For` or `X-Real-IP`. The backend cannot recover a client address the proxy never forwarded. Rows already stored are not rewritten.
+
+`TRUST_PROXY` unset trusts only loopback (`127.0.0.0/8` and `::1`). `false` trusts nobody. A comma-separated IP, CIDR, or proxy-addr name (`loopback`, `linklocal`, `uniquelocal`) is the allowlist. `true`, `0.0.0.0/0`, and `::/0` are rejected in every environment, including development. An invalid token fails startup.
+
+Same server: leave `TRUST_PROXY` unset when the admin or website proxy calls the API on loopback. Loopback trust does not identify which local process connected, so the API port must still be reachable only by the intended proxy. That proxy, and the ingress in front of it, must overwrite any client-supplied forwarding header with the socket address they accepted.
+
+Different servers: set `TRUST_PROXY` to that proxy's IP or CIDR. Restrict the API port to that proxy or trusted network. Do not use `TRUST_PROXY=true` or an unrestricted CIDR.
+
+Admin forwarding: [admin-frontend-client-ip-forwarding.md](../admin-frontend-client-ip-forwarding.md). Website forwarding: [website-client-ip-forwarding.md](../website-client-ip-forwarding.md).
 
 ## Redaction and API
 
