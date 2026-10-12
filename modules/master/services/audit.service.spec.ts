@@ -1,5 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { AuditService } from './audit.service';
+import { runWithActor } from '../utils/audit-actor.context';
 
 describe('AuditService critical persistence', () => {
   const input = {
@@ -34,5 +35,38 @@ describe('AuditService critical persistence', () => {
     expect(query.mock.calls[0][0]).toContain('ON CONFLICT ("idempotency_key") WHERE "idempotency_key" IS NOT NULL DO NOTHING');
     expect(query.mock.calls[1][0]).toContain('INSERT INTO "audit_outbox"');
     expect(query.mock.calls[1][0]).toContain('ON CONFLICT ("idempotency_key") DO NOTHING');
+  });
+
+  it('keeps an authenticated admin off the anonymous actor', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'row-1' });
+    const service = new AuditService({ create } as never, {} as never);
+    await runWithActor(
+      {
+        type: 'ADMIN',
+        id: 'admin-1',
+        performedBy: 'sahil.admin@cureka.com',
+        ipAddress: '127.0.0.1',
+        requestId: 'req-1',
+      },
+      () =>
+        service.recordWrite({
+          entityType: 'product',
+          entityId: 'product-1',
+          entityRefId: 'PRO1',
+          action: 'published',
+          performedBy: 'sahil.admin@cureka.com',
+          details: { from: 'inactive', to: 'published' },
+        }),
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'product',
+        action: 'published',
+        performedBy: 'sahil.admin@cureka.com',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+      }),
+    );
+    expect(create.mock.calls[0][0].performedBy).not.toBe('anonymous');
   });
 });

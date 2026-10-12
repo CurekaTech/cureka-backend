@@ -43,7 +43,7 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter({
       logger: false,
       maxParamLength: APP_CONSTANTS.FASTIFY_MAX_PARAM_LENGTH,
-      // Honor forwarding headers only from the hops named in TRUST_PROXY.
+      // Honor forwarding headers from TRUST_PROXY. Unset trusts loopback only.
       trustProxy: resolveTrustProxy(process.env['TRUST_PROXY'], nodeEnv),
       // Align Fastify request.id with pino-http by stamping IncomingMessage.id.
       genReqId: (req: IncomingMessage | Http2ServerRequest) => assignIncomingRequestId(req),

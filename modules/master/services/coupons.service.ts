@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   buildPaginatedResult,
@@ -38,6 +40,7 @@ export class CouponsService {
     private readonly brandRepo: Repository<BrandEntity>,
     @InjectRepository(ProductEntity)
     private readonly productRepo: Repository<ProductEntity>,
+    private readonly auditService: AuditService,
   ) {}
 
   async create(dto: CreateCouponDto, createdBy: string): Promise<ICoupon> {
@@ -57,7 +60,7 @@ export class CouponsService {
       throw new ConflictException(`Coupon code "${code}" already exists`);
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const entity = await this.couponsRepository.create({
         couponType: dto.couponType.trim(),
         title: dto.title.trim(),
@@ -88,6 +91,8 @@ export class CouponsService {
       }
       return mapCouponEntityToResponse(refreshed);
     });
+    await this.auditCoupon(created, 'created', createdBy, { status: created.status });
+    return created;
   }
 
   async findAll(query: MasterListQueryDto): Promise<PaginatedResult<ICoupon>> {
@@ -182,7 +187,9 @@ export class CouponsService {
       if (!refreshed) {
         throw new NotFoundException(`Coupon with refId ${refId} not found after update`);
       }
-      return mapCouponEntityToResponse(refreshed);
+      const coupon = mapCouponEntityToResponse(refreshed);
+      await this.auditCoupon(coupon, 'updated', updatedBy, { fields: Object.keys(dto) });
+      return coupon;
     });
   }
 
@@ -205,7 +212,12 @@ export class CouponsService {
       throw new NotFoundException(`Coupon with refId ${refId} not found after status update`);
     }
 
-    return mapCouponEntityToResponse(updated);
+    const coupon = mapCouponEntityToResponse(updated);
+    await this.auditCoupon(coupon, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
+    return coupon;
   }
 
   async remove(refId: string): Promise<void> {
@@ -214,6 +226,23 @@ export class CouponsService {
       throw new NotFoundException(`Coupon with refId ${refId} not found`);
     }
     await this.couponsRepository.softDeleteByRefId(refId);
+    await this.auditCoupon(existing, 'deleted');
+  }
+
+  private auditCoupon(
+    entity: { id: string; refId: string },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.COUPON,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      details,
+    });
   }
 
   private normalizeCode(code: string): string {

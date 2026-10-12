@@ -24,7 +24,7 @@ Blog, support, returns, subscriptions, promotional pages, and non-critical refun
 
 An HTTP interceptor sets the actor after authentication. Customer sessions (`sessionId`) are `USER`. Admin JWTs (`super_admin`, `admin`, `moderator` plus email) are `ADMIN`. Everyone else on the request is `ANONYMOUS`. Background work must call `runAsSystem(jobName)`. That scope does not keep the previous request actor.
 
-`TRUST_PROXY` is `false` when unset. `true` is refused in production. A comma-separated IP or CIDR list is the trusted hop list. Audit IP is Fastify `request.ip` after that decision, with IPv4-mapped IPv6 normalized. Raw `X-Forwarded-For` is not read directly.
+`TRUST_PROXY` trusts only loopback when unset, so a reverse proxy on this machine can pass the client address in `X-Forwarded-For`. `false` trusts nobody. `true` is refused in production. A comma-separated IP, CIDR, or proxy-addr name (`loopback`, `uniquelocal`) is the trusted hop list. Audit IP is Fastify `request.ip` after that decision, with IPv4-mapped IPv6 normalized. Raw `X-Forwarded-For` is not read directly.
 
 ## Redaction and API
 
@@ -38,7 +38,11 @@ Implemented and kept: blog posts, support tickets, return requests, return polic
 
 New critical coverage is listed above.
 
-Not implemented in this change: profile, address, order, catalog, inventory, settings, and payment-status audits. Consent and DSAR flows do not exist. Public reads, sitemap audit, and webhook bodies are excluded.
+Ordinary writes call `AuditService.recordWrite` after the business change commits. The actor is taken from the request context. `anonymous` is used only when neither the caller nor the request has an identity.
+
+Covered writes include product create, update, publish, unpublish, review, and delete; order placement, cancellation, and admin completion; customer profile, registration, and addresses; admin customer create, status, and delete; brand, category, coupon, and banner create, update, status, and delete; admin setting value and status; COD blocklist create, update, and delete; permission create, update, status, and delete; and report export.
+
+Not yet audited: inventory and price bulk jobs, variant-level stock edits, payment status webhooks, most remaining master dictionaries (states, units, manufacturers, packers, CMS, home sections, expert talk), and routine public catalog reads. Consent and DSAR flows do not exist. Public reads, sitemap audit, and webhook bodies are excluded.
 
 ## Integrating a new module
 
@@ -52,7 +56,7 @@ Choose the writer from the reliability of the action:
 
 - Account security, role or permission changes, refund approval or rejection, and payout or other money-movement state changes call `enqueueCritical(manager, input)` inside the same transaction as the business write. The call requires `idempotencyKey`. A database error must propagate so the business change rolls back. A duplicate key is a no-op.
 - Authentication failures that have no business row call `persistCritical` before the error response. If that write cannot commit, return 503 `Audit log unavailable`.
-- Ordinary create, update, and delete events call `log` after the business write commits. A failure is logged and does not fail the request.
+- Ordinary create, update, and delete events call `recordWrite` or `log` after the business write commits. A failure is logged and does not fail the request.
 
 Build the idempotency key with `auditIdempotency`:
 
@@ -94,5 +98,5 @@ await this.dataSource.transaction(async (manager) => {
 - Admin login success updates `last_login_at` before the critical outbox insert. If that insert fails the API returns 503 and no token is issued, but the timestamp may already be saved.
 - Admin cookie logout clears the cookie before the audit insert. A failed insert returns 503 after the cookie is cleared and does not store the event.
 - Customer OTP success creates the session before the critical audit insert. A failed insert returns 503 and the session may already exist.
-- Profile, address, order, catalog, inventory, settings, and payment status changes are not audited yet.
+- Inventory quantity edits, price bulk jobs, and payment-status webhooks are not audited yet. Profile, address, order placement, and admin settings are.
 - Consent and DSAR are not implemented.

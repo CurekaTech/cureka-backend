@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MasterModule } from '@modules/master/master.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { AdminSettingEntity } from './entities/admin-setting.entity';
@@ -17,6 +18,7 @@ import { AdminNotificationEmailsController } from './controllers/admin-notificat
       AdminNotificationEmailEntity,
       AdminUserEntity,
     ]),
+    MasterModule,
   ],
   providers: [
     AdminSettingsRepository,

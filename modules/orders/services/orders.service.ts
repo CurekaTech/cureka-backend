@@ -85,6 +85,8 @@ import {
   mapFulfillmentEvent,
   resolveOrderActions,
 } from '../mappers/order-cancellation.mapper';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
 import { VariantOosTransition } from '@modules/product/repositories/product-variants.repository';
 import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
@@ -122,6 +124,7 @@ export class OrdersService {
     private readonly returnRequestsService: ReturnRequestsService,
     private readonly returnEligibilityService: ReturnEligibilityService,
     private readonly oosEmailQueueService: OosEmailQueueService,
+    private readonly auditService: AuditService,
   ) {}
 
   private async decrementVariantStock(
@@ -448,6 +451,18 @@ export class OrdersService {
 
     this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
     await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.ORDER,
+      entityId: order.id,
+      entityRefId: order.refId,
+      action: 'created',
+      performedBy: userId,
+      details: {
+        orderNumber: order.orderNumber,
+        paymentMethod: order.paymentMethod,
+        status: order.orderStatus,
+      },
+    });
     await this.notifyOrderPlacedSafely(order, 'place-order');
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     await this.activateSubscriptionsForConfirmedOrder(order, dto.addressId, 'place-order');
@@ -1536,6 +1551,13 @@ export class OrdersService {
       ownerUserId: userId,
       actorType: 'CUSTOMER',
     });
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.ORDER,
+      entityId: id,
+      action: result.confirmedImmediately ? 'cancelled' : 'cancel_requested',
+      performedBy: userId,
+      details: { confirmed: result.confirmedImmediately },
+    });
 
     if (result.confirmedImmediately) {
       await this.createRefundRequestAfterCancel(id, {
@@ -1571,6 +1593,14 @@ export class OrdersService {
       reason,
       updatedBy: adminUserId,
       actorType: 'ADMIN',
+    });
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.ORDER,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: result.confirmedImmediately ? 'cancelled' : 'cancel_requested',
+      performedBy: adminUserId,
+      details: { confirmed: result.confirmedImmediately },
     });
 
     if (result.confirmedImmediately) {
@@ -1705,6 +1735,14 @@ export class OrdersService {
       '[AdminComplete] Order marked DELIVERED',
     );
 
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.ORDER,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: 'status_changed',
+      performedBy: adminUserId,
+      details: { to: OrderStatus.DELIVERED },
+    });
     const order = await this.findOneForAdmin(existing.id);
     return {
       ...order,

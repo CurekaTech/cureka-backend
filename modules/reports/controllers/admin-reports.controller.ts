@@ -9,6 +9,8 @@ import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { ReportQueryDto } from '../dto/report-query.dto';
 import { ReportExportService } from '../services/report-export.service';
 import { ReportsService } from '../services/reports.service';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 
 @ApiTags('Admin Reports')
 @ApiBearerAuth()
@@ -19,6 +21,7 @@ export class AdminReportsController {
   constructor(
     private readonly reportsService: ReportsService,
     private readonly reportExportService: ReportExportService,
+    private readonly auditService: AuditService,
   ) {}
 
   @ApiOperation({ summary: 'Sales & revenue report (summary + daily rows)' })
@@ -223,7 +226,14 @@ export class AdminReportsController {
     return this.sendWorkbook(reply, fileName, fileBuffer);
   }
 
-  private sendWorkbook(reply: FastifyReply, fileName: string, fileBuffer: Buffer) {
+  private async sendWorkbook(reply: FastifyReply, fileName: string, fileBuffer: Buffer) {
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.REPORT,
+      entityId: null,
+      entityRefId: fileName.replace(/\.xlsx$/i, '').slice(0, 64),
+      action: 'exported',
+      details: { fileName },
+    });
     return reply
       .code(200)
       .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
