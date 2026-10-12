@@ -125,10 +125,31 @@ describe('development pull request release notes', () => {
     })).toThrow(/Expected 1 pull-request commits/);
   });
 
+  it('reads every parent of a merge commit', async () => {
+    const calls = [];
+    const runGit = async (_cwd, args) => {
+      calls.push(args.slice());
+      assertAllowedGitInvocation(args, { allowFetch: false });
+      const revision = String(args.at(-1));
+      if (revision.endsWith('^{commit}')) return `${MERGE}\n`;
+      if (revision.endsWith('^@')) return `${PARENT}\n${FEATURE}\n`;
+      throw new Error(args.join(' '));
+    };
+    await expect(resolvePullRequestRange({
+      runGit,
+      checkout: CHECKOUT,
+      event: event({ baseSha: 'e'.repeat(40) }),
+    })).resolves.toEqual({ baselineSha: PARENT, targetSha: MERGE, strategy: 'merge' });
+    const parentLookup = calls.find((args) => String(args.at(-1)).endsWith('^@'));
+    expect(parentLookup).not.toContain('--verify');
+  });
+
   it('refuses a base SHA that is not an ancestor of the merge commit', async () => {
     const runGit = async (_cwd, args) => {
       assertAllowedGitInvocation(args, { allowFetch: false });
-      if (String(args.at(-1)).endsWith('^@')) return `${FEATURE}\n`;
+      const revision = String(args.at(-1));
+      if (revision.endsWith('^{commit}')) return `${MERGE}\n`;
+      if (revision.endsWith('^@')) return `${FEATURE}\n`;
       if (args[0] === 'merge-base') throw new Error('not an ancestor');
       throw new Error(args.join(' '));
     };
