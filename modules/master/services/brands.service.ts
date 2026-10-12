@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '../repositories/brands.repository';
@@ -64,6 +66,7 @@ export class BrandsService {
     private readonly catalogueCodes: CatalogueCodeService,
     private readonly eventEmitter: EventEmitter2,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly auditService: AuditService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBrand> {
@@ -163,6 +166,7 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(entity));
     await this.emitBrandUpdated(brand.refId, 'created');
+    await this.auditCatalogue(brand, 'created', createdBy, { status: brand.status });
     return brand;
   }
 
@@ -254,6 +258,7 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(result));
     await this.emitBrandUpdated(refId, 'updated');
+    await this.auditCatalogue(brand, 'updated', updatedBy, { fields: Object.keys(dto) });
     return brand;
   }
 
@@ -278,6 +283,10 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(updated));
     await this.emitBrandUpdated(refId, 'status_updated');
+    await this.auditCatalogue(brand, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
     return brand;
   }
 
@@ -289,6 +298,23 @@ export class BrandsService {
     await this.deletionGuard.assertBrandDeletable(existing.id, existing.name);
     await this.brandsRepository.softDeleteByRefId(refId);
     await this.emitBrandUpdated(refId, 'deleted');
+    await this.auditCatalogue(existing, 'deleted');
+  }
+
+  private auditCatalogue(
+    entity: { id: string; refId: string },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.BRAND,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      details,
+    });
   }
 
   private persistBrandHighlights(

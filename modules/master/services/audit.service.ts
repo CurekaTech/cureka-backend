@@ -6,6 +6,7 @@ import {
   CreateAuditLogInput,
 } from '../repositories/audit-logs.repository';
 import { getAuditActor } from '../utils/audit-actor.context';
+import { auditIdempotency } from '../utils/audit-idempotency.util';
 import { redactAuditDetails } from '../utils/audit-redact.util';
 
 const FORBIDDEN_ENTITY = new Set(['audit_log']);
@@ -100,6 +101,40 @@ export class AuditService {
       );
       throw new ServiceUnavailableException('Audit log unavailable');
     }
+  }
+
+  /**
+   * Best-effort record of a committed write. The actor comes from the verified
+   * request context when one exists. `anonymous` is used only when no identity
+   * was supplied and no request actor is present.
+   */
+  async recordWrite(input: {
+    entityType: string;
+    entityId?: string | null;
+    entityRefId?: string | null;
+    action: string;
+    performedBy?: string | null;
+    details?: Record<string, unknown> | null;
+  }): Promise<void> {
+    const actor = getAuditActor();
+    const performedBy = input.performedBy?.trim() || actor?.performedBy || 'anonymous';
+    const subjectId = input.entityId ?? input.entityRefId ?? 'none';
+    await this.log({
+      entityType: input.entityType,
+      entityId: input.entityId ?? null,
+      entityRefId: input.entityRefId ?? null,
+      action: input.action,
+      performedBy,
+      actorType: actor?.type ?? null,
+      actorId: actor?.id ?? null,
+      idempotencyKey: auditIdempotency.write(
+        input.entityType,
+        subjectId,
+        input.action,
+        actor?.requestId ?? `${Date.now()}`,
+      ),
+      details: input.details ?? null,
+    });
   }
 
   async findByEntity(

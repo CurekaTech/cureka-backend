@@ -59,6 +59,7 @@ export const envValidationSchema = Joi.object({
   APP_ENV: Joi.string().allow('').optional(),
   CORS_ORIGINS: Joi.string().allow('').optional(),
   COOKIE_SECURE: Joi.string().valid('true', 'false').optional(),
+  TRUST_PROXY: Joi.string().allow('').optional(),
   DATABASE_LOGGING: Joi.string().valid('true', 'false').optional(),
   STORAGE_DRIVER: Joi.string().valid('local', 'gcs').default('local'),
   UPLOAD_DIR: Joi.string().allow('').optional(),

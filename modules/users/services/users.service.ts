@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { UserEntity } from '../entities/user.entity';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { UsersRepository } from '../repositories/users.repository';
 import {
   CreateAdminCustomerDto,
@@ -55,6 +57,7 @@ export class UsersService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly rolesRepository: RolesRepository,
     private readonly userAddressesService: UserAddressesService,
+    private readonly auditService: AuditService,
   ) {}
 
   private mapProfileDtoToEntity(dto: UpdateUserProfileDto): Partial<UserEntity> {
@@ -152,6 +155,13 @@ export class UsersService {
       await this.userAddressesService.createMany(entity.id, dto.addresses);
     }
 
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.USER,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action: 'created',
+      performedBy: createdBy,
+    });
     return this.enrichUser(mapUserEntityToResponse(entity));
   }
 
@@ -425,6 +435,14 @@ export class UsersService {
     }
 
     await this.sessionCacheService.invalidateAllForUser(userId);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.USER,
+      entityId: updated.id,
+      entityRefId: updated.refId,
+      action: 'updated',
+      performedBy: userId,
+      details: { fields: Object.keys(dto) },
+    });
 
     return this.enrichUser(mapUserEntityToResponse(updated));
   }
@@ -493,6 +511,14 @@ export class UsersService {
     }
 
     await this.sessionCacheService.invalidateAllForUser(userId);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.USER,
+      entityId: updated.id,
+      entityRefId: updated.refId,
+      action: sessionUser.isRegistered ? 'updated' : 'registered',
+      performedBy: userId,
+      details: { fields: Object.keys(dto).filter((field) => field !== 'addresses') },
+    });
 
     return {
       ...(await this.enrichUser(mapUserEntityToResponse(updated))),
@@ -605,6 +631,13 @@ export class UsersService {
     }
 
     await this.sessionCacheService.invalidateAllForUser(existing.id);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.USER,
+      entityId: existing.id,
+      entityRefId: updated.refId,
+      action: 'status_changed',
+      details: { from: existing.status, to: updated.status },
+    });
 
     return { refId: updated.refId, status: updated.status };
   }
@@ -704,6 +737,12 @@ export class UsersService {
       throw new NotFoundException(`User with refId ${refId} not found`);
     }
     await this.usersRepository.softDeleteByRefId(refId);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.USER,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: 'deleted',
+    });
   }
 
   private enrichUser(user: IUser): Promise<IUser> {

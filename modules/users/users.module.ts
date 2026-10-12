@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { RolesModule } from '@modules/roles/roles.module';
 import { UserEntity } from './entities/user.entity';
@@ -15,7 +16,7 @@ import { StaffUsersController } from './controllers/staff-users.controller';
 import { AdminCustomersController } from './controllers/admin-customers.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([UserEntity, UserAddressEntity]), UploadsModule, RolesModule],
+  imports: [TypeOrmModule.forFeature([UserEntity, UserAddressEntity]), UploadsModule, RolesModule, MasterModule],
   controllers: [UsersController, UserAddressesController, StaffUsersController, AdminCustomersController],
   providers: [UsersService, UsersRepository, UserAddressesService, UserAddressesRepository, StaffUsersService],
   // Export UsersRepository so PaymentRequestsModule can inject it directly for entity-level queries.

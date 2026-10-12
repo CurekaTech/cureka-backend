@@ -7,15 +7,17 @@ export class TrustProxyConfigurationError extends Error {
 
 /**
  * `TRUST_PROXY` matches the proxy hops in front of this process.
- * `false` or unset trusts nobody. A comma-separated IP or CIDR list trusts those hops.
+ * Unset trusts only loopback, so nginx on this machine can pass the client IP.
+ * `false` trusts nobody. A comma-separated IP, CIDR, or proxy-addr name trusts those hops.
  * `true` trusts every hop and is refused in production.
  */
 export function resolveTrustProxy(
   raw: string | undefined,
   nodeEnv: string | undefined,
-): boolean | string[] {
+): boolean | string | string[] {
   const value = raw?.trim() ?? '';
-  if (!value || value.toLowerCase() === 'false') return false;
+  if (!value) return 'loopback';
+  if (value.toLowerCase() === 'false') return false;
   if (value.toLowerCase() === 'true') {
     if ((nodeEnv ?? 'development') === 'production') {
       throw new TrustProxyConfigurationError(

@@ -4,7 +4,7 @@ import { resolveTrustProxy, TrustProxyConfigurationError } from './trust-proxy.u
 
 describe('TRUST_PROXY', () => {
   it('parses false, a hop list, and refuses true in production', () => {
-    expect(resolveTrustProxy(undefined, 'production')).toBe(false);
+    expect(resolveTrustProxy(undefined, 'production')).toBe('loopback');
     expect(resolveTrustProxy('false', 'production')).toBe(false);
     expect(resolveTrustProxy('10.0.0.1, 10.0.0.2', 'production')).toEqual(['10.0.0.1', '10.0.0.2']);
     expect(resolveTrustProxy('true', 'development')).toBe(true);
@@ -32,7 +32,7 @@ describe('TRUST_PROXY', () => {
     expect(JSON.parse(spoofed.body).ip).not.toBe('203.0.113.8');
     await untrusted.close();
 
-    const trusted = fastify({ trustProxy: ['127.0.0.1'] });
+    const trusted = fastify({ trustProxy: 'loopback' });
     trusted.get('/ip', (request) => ({ ip: normalizeIpAddress(request.ip) }));
     const forwarded = await trusted.inject({
       method: 'GET',
