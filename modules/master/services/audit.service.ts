@@ -10,6 +10,11 @@ import { redactAuditDetails } from '../utils/audit-redact.util';
 
 const FORBIDDEN_ENTITY = new Set(['audit_log']);
 
+function clip(value: string | null | undefined, max: number): string | null {
+  if (value == null || value === '') return null;
+  return value.length <= max ? value : value.slice(0, max);
+}
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -39,13 +44,39 @@ export class AuditService {
   }
 
   /**
-   * Inserts a critical outbox row on the caller's transaction.
+   * Inserts the audit row and a critical outbox row on the caller's transaction.
    * A database error propagates so the business change rolls back.
    * A duplicate idempotency key is a no-op.
    */
   async enqueueCritical(manager: EntityManager, input: CreateAuditLogInput): Promise<void> {
     this.assertAuditable(input);
     const payload = this.decorate(input, 'critical');
+    // The list API reads audit_logs. Write the row in this transaction so login,
+    // logout, and other critical events are visible as soon as the transaction
+    // commits, and disappear with it if the business change rolls back.
+    await manager.query(
+      `INSERT INTO "audit_logs" (
+         entity_type, entity_id, entity_ref_id, action, performed_by, details,
+         actor_type, actor_id, ip_address, request_id, idempotency_key, reliability
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12
+       )
+       ON CONFLICT ("idempotency_key") WHERE "idempotency_key" IS NOT NULL DO NOTHING`,
+      [
+        payload.entityType,
+        payload.entityId ?? null,
+        payload.entityRefId ?? null,
+        payload.action,
+        payload.performedBy,
+        JSON.stringify(payload.details ?? null),
+        payload.actorType ?? null,
+        payload.actorId ?? null,
+        payload.ipAddress ?? null,
+        payload.requestId ?? null,
+        payload.idempotencyKey,
+        'critical',
+      ],
+    );
     await manager.query(
       `INSERT INTO "audit_outbox" ("idempotency_key", "payload", "status", "attempts")
        VALUES ($1, $2::jsonb, 'pending', 0)
@@ -81,14 +112,17 @@ export class AuditService {
 
   private decorate(input: CreateAuditLogInput, reliability: 'best_effort' | 'critical'): CreateAuditLogInput {
     const actor = getAuditActor();
+    const requestId = clip(input.requestId ?? actor?.requestId ?? null, 64);
     return {
       ...input,
       entityId: input.entityId ?? null,
-      performedBy: input.performedBy,
+      entityRefId: clip(input.entityRefId ?? null, 64),
+      performedBy: clip(input.performedBy, 255) ?? input.performedBy,
       actorType: input.actorType ?? actor?.type ?? null,
-      actorId: input.actorId ?? actor?.id ?? null,
-      ipAddress: input.ipAddress ?? actor?.ipAddress ?? null,
-      requestId: input.requestId ?? actor?.requestId ?? null,
+      actorId: clip(input.actorId ?? actor?.id ?? null, 255),
+      ipAddress: clip(input.ipAddress ?? actor?.ipAddress ?? null, 64),
+      requestId,
+      idempotencyKey: clip(input.idempotencyKey ?? null, 255),
       reliability,
       details: redactAuditDetails(input.details ?? null),
     };

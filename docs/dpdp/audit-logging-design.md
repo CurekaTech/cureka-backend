@@ -10,7 +10,7 @@ New nullable columns: `actor_type` (`ADMIN`, `USER`, `SYSTEM`, `ANONYMOUS`), `ac
 
 Critical events are inserted into `audit_outbox` in the same database transaction as the business change. If that insert fails, the business change rolls back. Authentication failures have no business row; they use their own committed outbox transaction and the API returns 503 when that write cannot commit.
 
-The publisher claims due `pending` rows, and `publishing` rows whose 2-minute claim lease has expired, with `FOR UPDATE SKIP LOCKED`. It retries with exponential backoff and stops at 8 attempts. A `failed` row stays in the table. Inserting the audit row uses `ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`. If that insert succeeds and marking the outbox row published fails, the outbox row is put back to `pending` (or `failed` after 8 attempts) and is not deleted. The next claim sees the existing audit row and only retries the status update.
+The same transaction also inserts the `audit_logs` row, so the admin list can show the event as soon as the transaction commits. The publisher still claims due `pending` rows, and `publishing` rows whose 2-minute claim lease has expired, with `FOR UPDATE SKIP LOCKED`. If the audit row is already stored, that insert is a no-op. The publisher retries with exponential backoff and stops at 8 attempts. A `failed` row stays in the table. Inserting the audit row uses `ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`. If that insert succeeds and marking the outbox row published fails, the outbox row is put back to `pending` (or `failed` after 8 attempts) and is not deleted. The next claim sees the existing audit row and only retries the status update.
 
 Pending and failed rows are never deleted. Published outbox rows older than 30 days may be deleted. Pending or failed rows older than 15 minutes, and `publishing` rows whose lock is older than 15 minutes, are logged with their ids. To recover a failed row, set `status` back to `pending` and clear `locked_at`, `claim_token`, and `next_attempt_at`.
 
@@ -30,7 +30,7 @@ An HTTP interceptor sets the actor after authentication. Customer sessions (`ses
 
 Details are redacted recursively, including arrays and case or separator variants of password, OTP, token, cookie, authorization, card, and bank-account keys. Raw request and response bodies are not stored.
 
-`GET /api/v1/admin/audit-logs` and `GET /api/v1/admin/audit-logs/:id` both require `audit_logs.read`. Responses are redacted again. Listing or opening a log writes one `audit_log_access` event for the administrator and does not audit that write.
+`GET /api/v1/admin/audit-logs` and `GET /api/v1/admin/audit-logs/:id` both require `audit_logs.read`. Responses are redacted again. Opening the list or a row does not write another audit event. Older `audit_log_access` rows stay in the table and are omitted from the default list. Pass `entityType=audit_log_access` to see them.
 
 ## Coverage
 

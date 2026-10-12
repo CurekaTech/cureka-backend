@@ -58,7 +58,13 @@ export class AuditLogsRepository {
     to?: Date;
   }): Promise<{ data: AuditLogEntity[]; total: number }> {
     const qb = this.repo.createQueryBuilder('audit').orderBy('audit.createdAt', 'DESC');
-    if (options.entityType) qb.andWhere('audit.entityType = :entityType', { entityType: options.entityType });
+    // Page views of this screen used to write a row per request and bury real events.
+    // Hide those rows unless the caller asks for them by entity type.
+    if (options.entityType) {
+      qb.andWhere('audit.entityType = :entityType', { entityType: options.entityType });
+    } else {
+      qb.andWhere('audit.entityType <> :auditAccess', { auditAccess: 'audit_log_access' });
+    }
     if (options.actorType) qb.andWhere('audit.actorType = :actorType', { actorType: options.actorType });
     if (options.actorId) qb.andWhere('audit.actorId = :actorId', { actorId: options.actorId });
     if (options.action) qb.andWhere('audit.action = :action', { action: options.action });

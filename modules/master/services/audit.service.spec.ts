@@ -26,10 +26,13 @@ describe('AuditService critical persistence', () => {
     await expect(service.persistCritical(input)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('treats a duplicate idempotency key as a no-op', async () => {
+  it('writes the audit row in the same transaction as the outbox and treats a duplicate key as a no-op', async () => {
     const query = jest.fn().mockResolvedValue([]);
     const service = new AuditService({ create: jest.fn() } as never, {} as never);
     await expect(service.enqueueCritical({ query } as never, input)).resolves.toBeUndefined();
-    expect(query.mock.calls[0][0]).toContain('ON CONFLICT ("idempotency_key") DO NOTHING');
+    expect(query.mock.calls[0][0]).toContain('INSERT INTO "audit_logs"');
+    expect(query.mock.calls[0][0]).toContain('ON CONFLICT ("idempotency_key") WHERE "idempotency_key" IS NOT NULL DO NOTHING');
+    expect(query.mock.calls[1][0]).toContain('INSERT INTO "audit_outbox"');
+    expect(query.mock.calls[1][0]).toContain('ON CONFLICT ("idempotency_key") DO NOTHING');
   });
 });

@@ -6,19 +6,13 @@ import { RequirePermissions } from '@modules/roles/decorators/permissions.decora
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { AuditLogQueryDto } from '../dto/audit-log-query.dto';
 import { AuditLogsRepository } from '../repositories/audit-logs.repository';
-import { AuditService } from '../services/audit.service';
-import { getAuditActor } from '../utils/audit-actor.context';
 import { redactAuditDetails } from '../utils/audit-redact.util';
-import { auditIdempotency } from '../utils/audit-idempotency.util';
 import { AuditLogEntity } from '../entities/audit-log.entity';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('admin/audit-logs')
 export class AdminAuditLogsController {
-  constructor(
-    private readonly auditLogsRepository: AuditLogsRepository,
-    private readonly auditService: AuditService,
-  ) {}
+  constructor(private readonly auditLogsRepository: AuditLogsRepository) {}
 
   @ResponseMessage('Audit logs retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
@@ -37,7 +31,6 @@ export class AdminAuditLogsController {
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
     });
-    await this.recordAccess('list', null);
     return buildPaginatedResult(
       data.map(toAuditView),
       total,
@@ -52,29 +45,7 @@ export class AdminAuditLogsController {
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const row = await this.auditLogsRepository.findById(id);
     if (!row) throw new NotFoundException(`Audit log ${id} not found`);
-    await this.recordAccess('detail', id);
     return toAuditView(row);
-  }
-
-  private async recordAccess(action: 'list' | 'detail', auditLogId: string | null): Promise<void> {
-    const actor = getAuditActor();
-    if (!actor || actor.type !== 'ADMIN' || !actor.id) return;
-    await this.auditService.log({
-      entityType: 'audit_log_access',
-      entityId: null,
-      entityRefId: auditLogId,
-      action,
-      performedBy: actor.performedBy,
-      actorType: 'ADMIN',
-      actorId: actor.id,
-      idempotencyKey: auditIdempotency.write(
-        'audit_log_access',
-        actor.id,
-        action,
-        actor.requestId ?? `${Date.now()}`,
-      ),
-      details: { auditLogId },
-    });
   }
 }
 
