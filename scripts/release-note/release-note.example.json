@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "example-backend-only",
+  "releaseName": "Example backend release",
+  "example": true,
+  "plannedDeploymentAt": "2026-10-20T18:30:00+05:30",
+  "targetEnvironment": "production",
+  "devLead": {
+    "name": "TBD",
+    "email": "dev.budtech@gmail.com"
+  },
+  "qaOwner": {
+    "name": "TBD",
+    "email": "TBD"
+  },
+  "approvers": [
+    {
+      "role": "Dev lead",
+      "name": "TBD",
+      "email": "dev.budtech@gmail.com",
+      "status": "pending",
+      "signedAt": "",
+      "notes": ""
+    }
+  ],
+  "constraints": [
+    "Example fixture only. Do not deploy from this file."
+  ],
+  "knownIssues": [],
+  "stakeholderDecisions": [
+    {
+      "id": "decision-window",
+      "question": "Confirm the customer-facing release window.",
+      "decision": "TBD",
+      "replyBy": "TBD",
+      "owner": "TBD"
+    }
+  ],
+  "repositories": [
+    {
+      "id": "cureka-backend",
+      "selected": true,
+      "localCheckoutPath": "TBD",
+      "sourceBranch": "TBD",
+      "productionBranch": "TBD",
+      "baseline": "1111111111111111111111111111111111111111",
+      "target": "2222222222222222222222222222222222222222",
+      "baselineResolution": "explicit",
+      "baselineSha": "1111111111111111111111111111111111111111",
+      "targetSha": "2222222222222222222222222222222222222222",
+      "accessible": true,
+      "commits": [
+        {
+          "sha": "2222222222222222222222222222222222222222",
+          "subject": "Example catalog detail and configuration name"
+        }
+      ],
+      "uncommittedChanges": [],
+      "changes": [
+        {
+          "id": "cureka-backend:example-catalog",
+          "repositoryId": "cureka-backend",
+          "sha": "2222222222222222222222222222222222222222",
+          "summary": "Example catalog response adds an optional display detail.",
+          "categories": [
+            "customer-facing",
+            "api-integration",
+            "database-migration",
+            "environment-config"
+          ],
+          "categorySource": "manifest",
+          "needsHumanReview": true,
+          "files": [
+            {
+              "status": "A",
+              "path": "apps/api/database/migrations/1785999999999-ExampleNullableCatalogField.ts"
+            },
+            {
+              "status": "M",
+              "path": ".env.example"
+            }
+          ],
+          "migrations": [
+            "1785999999999-ExampleNullableCatalogField.ts"
+          ],
+          "environmentVariableNames": [
+            "EXAMPLE_CATALOG_CACHE_TTL_SECONDS"
+          ],
+          "destructive": false,
+          "destructiveSignals": []
+        }
+      ]
+    },
+    {
+      "id": "cureka-frontend",
+      "selected": false
+    },
+    {
+      "id": "cureka-admin",
+      "selected": false
+    }
+  ],
+  "businessSummary": {
+    "subject": "Example release for review: optional catalog detail",
+    "introduction": "This is an example draft for stakeholders. It has not been sent, and it is not a request to deploy.",
+    "releaseWindow": "20 October 2026, 6:30 pm IST. This time is sample data until the dev lead confirms a real window.",
+    "customerImpact": "Shoppers may see one extra optional catalog detail. No customer downtime is confirmed for this example.",
+    "operationsImpact": "Support does not have a new process in this example. The production deployment steps are still unconfirmed.",
+    "behindTheScenes": "The sample prepares a small addition to stored catalog information and records one new setting name. The setting value is not included.",
+    "decisions": "Please confirm whether a release like this should wait for a named window. Reply by: TBD.",
+    "excludedChanges": "The customer website and the admin panel are not part of this example.",
+    "knownCustomerImpact": "No customer-facing downtime is confirmed for this example.",
+    "contacts": "Dev lead contact supplied for this workflow: dev.budtech@gmail.com. QA owner: TBD. Approvers: TBD.",
+    "sender": "dev.budtech@gmail.com",
+    "notificationTiming": "TBD",
+    "manuallyEditedFields": []
+  }
+}

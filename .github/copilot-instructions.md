@@ -8,6 +8,7 @@ Cureka Backend is a **production-grade modular monolith** built with NestJS, Typ
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`@develop`** | End-to-End Feature Implementation | `apps/`, `modules/`, `packages/` | `.github/prompts/develop.prompt.md` | `.github/skills/develop/` | **Enabled** |
 | **`@code-review`** | Code Quality & Architecture Audit | `apps/`, `modules/`, `packages/` | `.github/prompts/code-review.prompt.md` | `.github/skills/code-review/` | **Disabled** (Read-Only) |
+| **`@release-note`** | Release playbook and business email draft | Selected repositories, read-only | `.github/prompts/release-note.prompt.md` | `.github/skills/release-note/` | **Reports only** (`reports/releases/`) |
 
 ## Central Governance Principles
 

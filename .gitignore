@@ -41,6 +41,11 @@ yarn-error.log*
 # Sitemap audit exports (local CLI output)
 /reports/sitemap-audit/
 
+# Generated release playbooks and email drafts
+/reports/releases/**
+!/reports/releases/.gitkeep
+/.release-note-sent/
+
 # Product media backfill / harvest run reports
 /reports/product-media-backfill/
 /reports/product-image-harvest/
