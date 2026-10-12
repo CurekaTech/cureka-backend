@@ -387,7 +387,7 @@ export class RefundRequestsService {
         assignedRoleId: dto.assignedRoleId ?? null,
       },
     });
-    await this.audit(entity, 'ASSIGNED', actor, { assignedToUserId: dto.assignedToUserId });
+    await this.logAudit(entity, 'ASSIGNED', actor, { assignedToUserId: dto.assignedToUserId });
     return this.getAdminDetail(entity.id, actor);
   }
 
@@ -410,7 +410,7 @@ export class RefundRequestsService {
       performedByRole: actor.role ?? null,
       metadata: null,
     });
-    await this.audit(entity, 'COMMENT_ADDED', actor);
+    await this.logAudit(entity, 'COMMENT_ADDED', actor);
     return this.getAdminDetail(entity.id, actor);
   }
 
@@ -774,7 +774,7 @@ export class RefundRequestsService {
       return entity;
     });
 
-    await this.audit(created, 'CREATED', params.actor);
+    await this.logAudit(created, 'CREATED', params.actor);
     this.logger.log(
       {
         refundRequestId: created.id,
@@ -806,7 +806,7 @@ export class RefundRequestsService {
       const previousStatus = locked.status;
       await this.applyStatusChange(manager, locked, params.toStatus, params.patch(locked));
       await this.writeHistory(manager, { ...locked, status: previousStatus }, params.toStatus, params.action, params.actor, params.comment);
-      await this.audit(locked, params.action, params.actor);
+      await this.audit(manager, locked, params.action, params.actor, params.toStatus);
       const reloaded = await this.refundRequestsRepository.findById(locked.id, manager);
       return this.toDetail(reloaded ?? locked, params.actor);
     });
@@ -1010,7 +1010,7 @@ export class RefundRequestsService {
     });
   }
 
-  private async audit(
+  private async logAudit(
     entity: RefundRequestEntity,
     action: string,
     actor: RefundActor,
@@ -1024,6 +1024,30 @@ export class RefundRequestsService {
       performedBy: actor.email ?? actor.id,
       details: details ?? { status: entity.status },
     });
+  }
+
+  private async audit(
+    manager: EntityManager,
+    entity: RefundRequestEntity,
+    action: string,
+    actor: RefundActor,
+    toStatus: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    const payload = {
+      entityType: 'refund_request',
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy: actor.email ?? actor.id,
+      idempotencyKey: `refund:${action}:${entity.id}:${toStatus}`,
+      details: details ?? { status: toStatus },
+    };
+    if (action === 'APPROVED' || action === 'REJECTED') {
+      await this.auditService.enqueueCritical(manager, payload);
+      return;
+    }
+    await this.auditService.log(payload);
   }
 
   private isDuplicateActive(error: unknown): boolean {

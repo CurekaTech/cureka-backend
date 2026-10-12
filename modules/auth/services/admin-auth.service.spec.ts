@@ -16,7 +16,9 @@ describe('AdminAuthService - Menu Filtering', () => {
 
     jwtService = {} as unknown as jest.Mocked<JwtService>;
 
-    service = new AdminAuthService(adminUsersService, jwtService);
+    service = new AdminAuthService(adminUsersService, jwtService, {
+      persistCritical: jest.fn(),
+    } as never);
   });
 
   describe('getMenuForUser', () => {

@@ -28,6 +28,10 @@ import { UserEntity } from '@modules/users/entities/user.entity';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import { IUser } from '@modules/users/interfaces/user.interface';
 import { mapUserEntityToResponse } from '@modules/users/mappers/user.mapper';
+import { DataSource } from 'typeorm';
+import { AuditService } from '@modules/master/services/audit.service';
+import { getAuditActor } from '@modules/master/utils/audit-actor.context';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
 
 @Injectable()
 export class AdminUsersService {
@@ -35,6 +39,8 @@ export class AdminUsersService {
     private readonly adminUsersRepository: AdminUsersRepository,
     private readonly rolesRepository: RolesRepository,
     private readonly usersRepository: UsersRepository,
+    private readonly dataSource: DataSource,
+    private readonly auditService: AuditService,
   ) {}
 
   async create(
@@ -152,10 +158,31 @@ export class AdminUsersService {
     }
 
     const { roleRefId: _roleRefId, status: _status, ...updateData } = dto;
-    const updated = await this.adminUsersRepository.updateByRefId(refId, {
-      ...updateData,
-      role: nextLegacyRole as AdminUserRole,
-      roleId: roleRecord?.id,
+    const roleChanged =
+      (nextLegacyRole !== undefined && nextLegacyRole !== existing.role) ||
+      (roleRecord != null && roleRecord.id !== existing.roleId);
+    const updated = await this.dataSource.transaction(async (manager) => {
+      const saved = await this.adminUsersRepository.updateByRefId(refId, {
+        ...updateData,
+        role: nextLegacyRole as AdminUserRole,
+        roleId: roleRecord?.id,
+      }, manager);
+      if (saved && roleChanged) {
+        await this.auditService.enqueueCritical(manager, {
+          entityType: 'admin_rbac',
+          entityId: saved.id,
+          entityRefId: saved.refId,
+          action: 'assign_role',
+          performedBy: getAuditActor()?.performedBy ?? 'anonymous',
+          idempotencyKey: auditIdempotency.rbac(
+            'assign_role',
+            saved.id,
+            saved.updatedAt?.toISOString() ?? saved.roleId ?? 'role',
+          ),
+          details: { role: saved.role, roleId: saved.roleId ?? null },
+        });
+      }
+      return saved;
     });
     if (!updated) {
       throw new NotFoundException(`Admin user with refId ${refId} not found after update`);

@@ -37,6 +37,7 @@ describe('SessionService — logout', () => {
       id: sessionId,
       isRevoked: false,
     });
+    userSessionsRepository.revokeById.mockResolvedValue(true);
 
     const revoked = await sessionService.revokeSessionByToken(token);
 
@@ -45,7 +46,7 @@ describe('SessionService — logout', () => {
       hashRefreshToken(token),
     );
     expect(sessionCacheService.invalidateBySessionId).toHaveBeenCalledWith(sessionId);
-    expect(userSessionsRepository.revokeById).toHaveBeenCalledWith(sessionId);
+    expect(userSessionsRepository.revokeById).toHaveBeenCalledWith(sessionId, undefined);
   });
 
   it('returns false when token is unknown or already revoked', async () => {

@@ -1,5 +1,6 @@
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { AuditService } from '@modules/master/services/audit.service';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
 import { parseMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { ReturnRequestEntity } from '@modules/returns/entities/return-request.entity';
 import {
@@ -196,12 +197,13 @@ export class CodRefundPayoutService {
       'COD payout record created; no money moved',
     );
 
-    await this.auditService.log({
+    const createdAudit = {
       entityType: AuditEntityType.COD_PAYOUT,
       entityId: created.id,
       entityRefId: created.refId,
       action: 'CREATED',
       performedBy: params.actor.email ?? params.actor.id,
+      idempotencyKey: auditIdempotency.refund('CREATED', created.id, created.status),
       details: {
         refundRequestId: params.refund.id,
         returnRequestId: params.refund.returnRequestId,
@@ -209,7 +211,12 @@ export class CodRefundPayoutService {
         status: created.status,
         accountNumberLast4: created.accountNumberLast4,
       },
-    });
+    };
+    if (params.manager) {
+      await this.auditService.enqueueCritical(params.manager, createdAudit);
+    } else {
+      await this.auditService.persistCritical(createdAudit);
+    }
 
     return created;
   }
@@ -315,12 +322,13 @@ export class CodRefundPayoutService {
       });
     }
 
-    await this.auditService.log({
+    await this.auditService.persistCritical({
       entityType: AuditEntityType.COD_PAYOUT,
       entityId: payout.id,
       entityRefId: payout.refId,
       action: 'BANK_DETAILS_REVEALED',
       performedBy: actor.email ?? actor.id,
+      idempotencyKey: `refund:BANK_DETAILS_REVEALED:${payout.id}:${actor.id}:${new Date().toISOString()}`,
       details: { accountNumberLast4: payout.accountNumberLast4 },
     });
 
@@ -683,20 +691,21 @@ export class CodRefundPayoutService {
         });
       }
       await apply(locked, manager);
-      return (await this.payoutsRepository.findById(locked.id, manager)) ?? locked;
-    });
-
-    await this.auditService.log({
-      entityType: AuditEntityType.COD_PAYOUT,
-      entityId: result.id,
-      entityRefId: result.refId,
-      action,
-      performedBy: actor.email ?? actor.id,
-      details: {
-        status: result.status,
-        accountNumberLast4: result.accountNumberLast4,
-        utrPresent: Boolean(result.utr),
-      },
+      const result = (await this.payoutsRepository.findById(locked.id, manager)) ?? locked;
+      await this.auditService.enqueueCritical(manager, {
+        entityType: AuditEntityType.COD_PAYOUT,
+        entityId: result.id,
+        entityRefId: result.refId,
+        action,
+        performedBy: actor.email ?? actor.id,
+        idempotencyKey: auditIdempotency.refund(action, result.id, result.status),
+        details: {
+          status: result.status,
+          accountNumberLast4: result.accountNumberLast4,
+          utrPresent: Boolean(result.utr),
+        },
+      });
+      return result;
     });
     return this.toAdminView(result);
   }

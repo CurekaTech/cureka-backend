@@ -1,5 +1,10 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
+import { AuditService } from '@modules/master/services/audit.service';
+import { getAuditActor } from '@modules/master/utils/audit-actor.context';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
+import { maskAuditEmail } from '@modules/master/utils/audit-redact.util';
 import { AdminUsersService } from '@modules/admin-users/services/admin-users.service';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -17,23 +22,27 @@ export class AdminAuthService {
   constructor(
     private readonly adminUsersService: AdminUsersService,
     private readonly jwtService: JwtService,
+    private readonly auditService: AuditService,
   ) { }
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
     const entity = await this.adminUsersService.findByEmailWithPassword(dto.email);
     if (!entity) {
-      this.logger.warn({ email: dto.email }, 'Admin login failed: user not found');
+      this.logger.warn('Admin login failed: user not found');
+      await this.auditLoginFailure(dto.email);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const passwordMatches = await comparePasswords(dto.password, entity.password);
     if (!passwordMatches) {
-      this.logger.warn({ email: dto.email }, 'Admin login failed: invalid password');
+      this.logger.warn('Admin login failed: invalid password');
+      await this.auditLoginFailure(dto.email);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (!entity.isActive) {
-      this.logger.warn({ email: dto.email }, 'Admin login failed: account inactive');
+      this.logger.warn('Admin login failed: account inactive');
+      await this.auditLoginFailure(dto.email);
       throw new UnauthorizedException('Account is inactive');
     }
 
@@ -42,11 +51,23 @@ export class AdminAuthService {
       entity.roleRecord &&
       entity.roleRecord.status !== MasterStatus.ACTIVE
     ) {
-      this.logger.warn({ email: dto.email }, 'Admin login failed: assigned role inactive');
+      this.logger.warn('Admin login failed: assigned role inactive');
+      await this.auditLoginFailure(dto.email);
       throw new UnauthorizedException('Assigned role is inactive');
     }
 
     await this.adminUsersService.recordLogin(entity.id);
+    await this.auditService.persistCritical({
+      entityType: 'admin_auth',
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action: 'login_success',
+      performedBy: entity.email,
+      actorType: 'ADMIN',
+      actorId: entity.id,
+      idempotencyKey: auditIdempotency.authSuccess('login', entity.id, this.requestId()),
+      details: { outcome: 'success' },
+    });
 
     const payload: IJwtPayload = {
       sub: entity.id,
@@ -57,7 +78,7 @@ export class AdminAuthService {
 
     const accessToken = this.jwtService.sign(payload);
 
-    this.logger.log({ email: entity.email, role: entity.role }, 'Admin login success');
+    this.logger.log({ role: entity.role }, 'Admin login success');
 
     return {
       accessToken,
@@ -66,6 +87,39 @@ export class AdminAuthService {
       permissions: this.resolvePermissionCodes(entity),
       menu: await this.getMenuForUser(entity.id),
     };
+  }
+
+  /** Admin JWT logout only clears the cookie. There is no server-side session to revoke. */
+  async recordCookieLogout(user: { sub: string; email?: string }): Promise<void> {
+    await this.auditService.persistCritical({
+      entityType: 'admin_auth',
+      entityId: user.sub,
+      action: 'logout',
+      performedBy: user.email ?? user.sub,
+      actorType: 'ADMIN',
+      actorId: user.sub,
+      idempotencyKey: auditIdempotency.authSuccess('logout', user.sub, this.requestId()),
+      details: { cookieCleared: true, serverSessionRevoked: false },
+    });
+  }
+
+  private async auditLoginFailure(email: string): Promise<void> {
+    const requestId = this.requestId();
+    await this.auditService.persistCritical({
+      entityType: 'admin_auth',
+      entityId: null,
+      entityRefId: requestId,
+      action: 'login_failed',
+      performedBy: 'anonymous',
+      actorType: 'ANONYMOUS',
+      actorId: null,
+      idempotencyKey: auditIdempotency.authFailure('admin', maskAuditEmail(email), requestId),
+      details: { email: maskAuditEmail(email), outcome: 'failure' },
+    });
+  }
+
+  private requestId(): string {
+    return getAuditActor()?.requestId ?? randomUUID();
   }
 
   async me(adminUserId: string): Promise<Omit<IAdminAuthResponse, 'accessToken'>> {
@@ -1012,7 +1066,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
         name: 'Activity Logs',
         key: 'activity-logs-list',
         icon: 'History',
-        href: '#activity-logs',
+        href: '/admin/audit-logs',
         requiredPermissions: ['audit_logs.read'],
       },
     ],

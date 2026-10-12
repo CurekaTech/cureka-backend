@@ -1,4 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
+import { getAuditActor } from '@modules/master/utils/audit-actor.context';
+import { AuditService } from '@modules/master/services/audit.service';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -26,6 +30,8 @@ export class RolesService {
   constructor(
     private readonly rolesRepository: RolesRepository,
     private readonly permissionsRepository: PermissionsRepository,
+    private readonly dataSource: DataSource,
+    private readonly auditService: AuditService,
   ) {}
 
   async create(dto: CreateRoleDto, createdBy: string): Promise<IRole> {
@@ -39,16 +45,20 @@ export class RolesService {
     }
 
     const permissions = await this.resolvePermissions(dto.permissionRefIds ?? []);
-    const entity = await this.rolesRepository.create({
-      name: dto.name,
-      slug,
-      description: dto.description,
-      status: dto.status ?? MasterStatus.ACTIVE,
-      permissions,
-      refId: await generateUniqueRefId(dto.name, (refId) =>
-        this.rolesRepository.existsByRefId(refId),
-      ),
-      createdBy,
+    const entity = await this.dataSource.transaction(async (manager) => {
+      const created = await this.rolesRepository.create({
+        name: dto.name,
+        slug,
+        description: dto.description,
+        status: dto.status ?? MasterStatus.ACTIVE,
+        permissions,
+        refId: await generateUniqueRefId(dto.name, (refId) =>
+          this.rolesRepository.existsByRefId(refId),
+        ),
+        createdBy,
+      }, manager);
+      await this.auditRole(manager, created.id, created.refId, 'create', createdBy, created.updatedAt);
+      return created;
     });
 
     return mapRoleEntityToResponse(entity);
@@ -92,13 +102,20 @@ export class RolesService {
       ? await this.resolvePermissions(dto.permissionRefIds)
       : existing.permissions;
 
-    const updated = await this.rolesRepository.updateByRefId(refId, {
-      name: dto.name ?? existing.name,
-      slug: nextSlug ?? existing.slug,
-      description: dto.description ?? existing.description,
-      status: dto.status ?? existing.status,
-      permissions,
-      updatedBy,
+    const updated = await this.dataSource.transaction(async (manager) => {
+      const saved = await this.rolesRepository.updateByRefId(refId, {
+        name: dto.name ?? existing.name,
+        slug: nextSlug ?? existing.slug,
+        description: dto.description ?? existing.description,
+        status: dto.status ?? existing.status,
+        permissions,
+        updatedBy,
+      }, manager);
+      if (!saved) return null;
+      await this.auditRole(manager, saved.id, saved.refId, 'update', updatedBy, saved.updatedAt, {
+        permissionCount: saved.permissions?.length ?? 0,
+      });
+      return saved;
     });
 
     if (!updated) {
@@ -114,9 +131,16 @@ export class RolesService {
       throw new NotFoundException(`Role with refId ${refId} not found`);
     }
 
-    const updated = await this.rolesRepository.updateByRefId(refId, {
-      status: dto.status,
-      updatedBy,
+    const updated = await this.dataSource.transaction(async (manager) => {
+      const saved = await this.rolesRepository.updateByRefId(refId, {
+        status: dto.status,
+        updatedBy,
+      }, manager);
+      if (!saved) return null;
+      await this.auditRole(manager, saved.id, saved.refId, 'status', updatedBy, saved.updatedAt, {
+        status: saved.status,
+      });
+      return saved;
     });
 
     if (!updated) {
@@ -136,7 +160,37 @@ export class RolesService {
       throw new ConflictException('System roles cannot be deleted');
     }
 
-    await this.rolesRepository.softDeleteByRefId(refId);
+    await this.dataSource.transaction(async (manager) => {
+      await this.rolesRepository.softDeleteByRefId(refId, manager);
+      await this.auditRole(
+        manager,
+        existing.id,
+        existing.refId,
+        'delete',
+        getAuditActor()?.performedBy ?? 'anonymous',
+        new Date(),
+      );
+    });
+  }
+
+  private async auditRole(
+    manager: EntityManager,
+    entityId: string,
+    entityRefId: string,
+    action: string,
+    performedBy: string,
+    version: Date,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.auditService.enqueueCritical(manager, {
+      entityType: 'admin_rbac',
+      entityId,
+      entityRefId,
+      action,
+      performedBy,
+      idempotencyKey: auditIdempotency.rbac(action, entityId, version.toISOString()),
+      details: details ?? null,
+    });
   }
 
   private async resolvePermissions(permissionRefIds: string[]) {

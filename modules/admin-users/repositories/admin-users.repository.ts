@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AdminUserEntity } from '../entities/admin-user.entity';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
@@ -35,8 +35,19 @@ export class AdminUsersRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
-  async updateByRefId(refId: string, data: Partial<AdminUserEntity>): Promise<AdminUserEntity | null> {
-    await this.repo.update({ refId }, data);
+  async updateByRefId(
+    refId: string,
+    data: Partial<AdminUserEntity>,
+    manager?: EntityManager,
+  ): Promise<AdminUserEntity | null> {
+    const repo = manager ? manager.getRepository(AdminUserEntity) : this.repo;
+    await repo.update({ refId }, data);
+    if (manager) {
+      return manager.getRepository(AdminUserEntity).findOne({
+        where: { refId },
+        relations: { roleRecord: { permissions: true } },
+      });
+    }
     return this.findByRefId(refId);
   }
 

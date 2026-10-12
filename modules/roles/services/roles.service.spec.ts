@@ -19,7 +19,12 @@ describe('RolesService', () => {
 
     permissionsRepository = {} as unknown as jest.Mocked<PermissionsRepository>;
 
-    service = new RolesService(rolesRepository, permissionsRepository);
+    service = new RolesService(
+      rolesRepository,
+      permissionsRepository,
+      { transaction: jest.fn() } as never,
+      { enqueueCritical: jest.fn() } as never,
+    );
   });
 
   describe('findAll', () => {

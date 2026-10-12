@@ -26,6 +26,7 @@ import { OtpRepository } from './repositories/otp.repository';
 import { VerifiedUserGuard } from './guards/verified-user.guard';
 import { KwikpassService } from './services/kwikpass.service';
 import { GokwikCheckoutTokenService } from './services/gokwik-checkout-token.service';
+import { MasterModule } from '@modules/master/master.module';
 
 @Global()
 @Module({
@@ -39,6 +40,7 @@ import { GokwikCheckoutTokenService } from './services/gokwik-checkout-token.ser
     forwardRef(() => OrdersModule),
     UploadsModule,
     TypeOrmModule.forFeature([OtpEntity, UserSessionEntity]),
+    MasterModule,
   ],
   controllers: [AdminAuthController, UserAuthController, AuthController],
   providers: [
