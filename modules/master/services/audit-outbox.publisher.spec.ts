@@ -3,6 +3,7 @@ import {
   AuditOutboxRow,
   AuditOutboxStore,
   publishClaimedBatch,
+  rowsFromPostgresQuery,
 } from './audit-outbox.publisher';
 
 class MemoryOutbox implements AuditOutboxStore {
@@ -58,6 +59,13 @@ const row = (id: string): AuditOutboxRow & { status: string } => ({
 });
 
 describe('audit outbox publisher', () => {
+  it('reads rows from a TypeORM Postgres update result', () => {
+    const claimed = [{ id: 'row-1', idempotency_key: 'key-1', payload: { entityType: 'order' }, attempts: 0, claim_token: 'token-1' }];
+    expect(rowsFromPostgresQuery(claimed)).toEqual(claimed);
+    expect(rowsFromPostgresQuery([claimed, 1])).toEqual(claimed);
+    expect(rowsFromPostgresQuery([[], 0])).toEqual([]);
+  });
+
   it('publishes once and removes only published rows', async () => {
     const store = new MemoryOutbox();
     store.rows = [row('1'), { ...row('2'), status: 'failed' }];

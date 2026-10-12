@@ -32,6 +32,22 @@ export function auditBackoffMs(attempts: number): number {
 }
 
 /**
+ * TypeORM returns `[rows, affectedCount]` for a Postgres UPDATE or DELETE.
+ * SELECT and INSERT return the rows directly.
+ */
+export function rowsFromPostgresQuery<T>(result: unknown): T[] {
+  if (
+    Array.isArray(result) &&
+    result.length === 2 &&
+    Array.isArray(result[0]) &&
+    typeof result[1] === 'number'
+  ) {
+    return result[0] as T[];
+  }
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
+/**
  * Publishes claimed outbox rows. A successful audit insert followed by a failed
  * status update leaves the row claimable again. The next pass sees the existing
  * audit row and only retries the published mark. Pending and failed rows are never deleted.
