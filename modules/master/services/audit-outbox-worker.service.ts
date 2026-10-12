@@ -8,6 +8,7 @@ import {
   AuditOutboxRow,
   AuditOutboxStore,
   publishClaimedBatch,
+  rowsFromPostgresQuery,
 } from './audit-outbox.publisher';
 
 @Injectable()
@@ -74,11 +75,9 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       'WHERE outbox.id = claimed.id',
       'RETURNING outbox.id, outbox.idempotency_key, outbox.payload, outbox.attempts, outbox.claim_token',
     ].join(' ');
-    const rows: Array<Record<string, unknown>> = await this.dataSource.query(claimSql, [
-      claimToken,
-      leaseMs,
-      limit,
-    ]);
+    const rows = rowsFromPostgresQuery<Record<string, unknown>>(
+      await this.dataSource.query(claimSql, [claimToken, leaseMs, limit]),
+    );
     return rows.map((row) => ({
       id: String(row.id),
       idempotencyKey: String(row.idempotency_key),
@@ -100,7 +99,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       'ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING',
       'RETURNING id',
     ].join(' ');
-    const inserted: Array<{ id: string }> = await this.dataSource.query(insertSql, [
+    const inserted = rowsFromPostgresQuery<{ id: string }>(await this.dataSource.query(insertSql, [
       payload.entityType,
       payload.entityId ?? null,
       payload.entityRefId ?? null,
@@ -113,7 +112,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       payload.requestId ?? null,
       payload.idempotencyKey ?? row.idempotencyKey,
       payload.reliability ?? 'critical',
-    ]);
+    ]));
     return inserted.length ? 'inserted' : 'exists';
   }
 
@@ -124,7 +123,9 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       'WHERE id = $1 AND claim_token = $2',
       'RETURNING id',
     ].join(' ');
-    const updated: Array<{ id: string }> = await this.dataSource.query(publishSql, [id, claimToken]);
+    const updated = rowsFromPostgresQuery<{ id: string }>(
+      await this.dataSource.query(publishSql, [id, claimToken]),
+    );
     return updated.length > 0;
   }
 
@@ -158,7 +159,9 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       "OR (status = 'publishing' AND locked_at IS NOT NULL AND locked_at < $1)",
       'ORDER BY created_at LIMIT 50',
     ].join(' ');
-    const rows: Array<{ id: string; status: string }> = await this.dataSource.query(staleSql, [olderThan]);
+    const rows = rowsFromPostgresQuery<{ id: string; status: string }>(
+      await this.dataSource.query(staleSql, [olderThan]),
+    );
     return rows;
   }
 
@@ -168,7 +171,9 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       "WHERE status = 'published' AND published_at IS NOT NULL AND published_at < $1",
       'RETURNING id',
     ].join(' ');
-    const rows: Array<{ id: string }> = await this.dataSource.query(deleteSql, [before]);
+    const rows = rowsFromPostgresQuery<{ id: string }>(
+      await this.dataSource.query(deleteSql, [before]),
+    );
     return rows.length;
   }
 }
