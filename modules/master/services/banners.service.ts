@@ -262,7 +262,7 @@ export class BannersService {
   }
 
   private auditCatalogue(
-    entity: { id: string; refId: string },
+    entity: { id: string; refId: string; title?: string | null },
     action: string,
     performedBy?: string,
     details?: Record<string, unknown>,
@@ -273,6 +273,7 @@ export class BannersService {
       entityRefId: entity.refId,
       action,
       performedBy,
+      name: entity.title,
       details,
     });
   }

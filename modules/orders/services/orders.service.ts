@@ -457,6 +457,7 @@ export class OrdersService {
       entityRefId: order.refId,
       action: 'created',
       performedBy: userId,
+      name: order.orderNumber,
       details: {
         orderNumber: order.orderNumber,
         paymentMethod: order.paymentMethod,
@@ -1600,6 +1601,7 @@ export class OrdersService {
       entityRefId: existing.refId,
       action: result.confirmedImmediately ? 'cancelled' : 'cancel_requested',
       performedBy: adminUserId,
+      name: existing.orderNumber,
       details: { confirmed: result.confirmedImmediately },
     });
 
@@ -1741,6 +1743,7 @@ export class OrdersService {
       entityRefId: existing.refId,
       action: 'status_changed',
       performedBy: adminUserId,
+      name: existing.orderNumber,
       details: { to: OrderStatus.DELIVERED },
     });
     const order = await this.findOneForAdmin(existing.id);

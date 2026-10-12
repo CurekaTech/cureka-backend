@@ -161,6 +161,7 @@ export class UsersService {
       entityRefId: entity.refId,
       action: 'created',
       performedBy: createdBy,
+      name: personName(entity),
     });
     return this.enrichUser(mapUserEntityToResponse(entity));
   }
@@ -441,6 +442,7 @@ export class UsersService {
       entityRefId: updated.refId,
       action: 'updated',
       performedBy: userId,
+      name: personName(updated),
       details: { fields: Object.keys(dto) },
     });
 
@@ -517,6 +519,7 @@ export class UsersService {
       entityRefId: updated.refId,
       action: sessionUser.isRegistered ? 'updated' : 'registered',
       performedBy: userId,
+      name: personName(updated),
       details: { fields: Object.keys(dto).filter((field) => field !== 'addresses') },
     });
 
@@ -636,6 +639,7 @@ export class UsersService {
       entityId: existing.id,
       entityRefId: updated.refId,
       action: 'status_changed',
+      name: personName(existing),
       details: { from: existing.status, to: updated.status },
     });
 
@@ -742,6 +746,7 @@ export class UsersService {
       entityId: existing.id,
       entityRefId: existing.refId,
       action: 'deleted',
+      name: personName(existing),
     });
   }
 
@@ -752,4 +757,9 @@ export class UsersService {
   private resolveRoleRecord(role: UserRole): Promise<RoleEntity | null> {
     return this.rolesRepository.findBySlug(role);
   }
+}
+
+function personName(user: { firstName?: string | null; lastName?: string | null }): string | null {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  return name || null;
 }
