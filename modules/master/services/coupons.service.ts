@@ -230,7 +230,7 @@ export class CouponsService {
   }
 
   private auditCoupon(
-    entity: { id: string; refId: string },
+    entity: { id: string; refId: string; title?: string | null },
     action: string,
     performedBy?: string,
     details?: Record<string, unknown>,
@@ -241,6 +241,7 @@ export class CouponsService {
       entityRefId: entity.refId,
       action,
       performedBy,
+      name: entity.title,
       details,
     });
   }

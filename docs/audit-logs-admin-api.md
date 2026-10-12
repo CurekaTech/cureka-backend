@@ -7,6 +7,8 @@ Run: `npm run migration:run`
 
 The admin React app is not in this repo. The menu item below is already returned by the admin menu API.
 
+UI binding for names, ids, and the Reliability field: [audit-logs-admin-integration.md](./audit-logs-admin-integration.md). Do not display `reliability` on the admin screen.
+
 ---
 
 ## Menu / nav
@@ -145,16 +147,20 @@ A missing id returns 404 with message `Audit log {id} not found`. An id that is 
 |-------|--------|
 | `id` | Detail route param |
 | `entityType` | What was changed |
-| `entityId` | Business row UUID. `null` means there is no business row, usually an anonymous login or OTP failure. Do not treat null as "all entities" |
-| `entityRefId` | Human reference, such as a refund ref id or the request id for an anonymous failure |
+| `entityId` | Business row UUID. Keep this for filters and links. `null` means there is no business row, usually an anonymous login or OTP failure |
+| `entityRefId` | Business ref id, such as `TES2026380319` |
+| `entityName` | Readable name looked up or stored with the event, such as the product name. `null` when the row has no name |
+| `subjectLabel` | Name and ref id together, such as `Test Serum · TES2026380319`. Show this instead of the raw UUID |
 | `action` | What happened. Keep the string as stored |
-| `performedBy` | Display name: admin email, user id, `anonymous`, or `system:{jobName}` |
+| `performedBy` | Admin email, user id, `anonymous`, or `system:{jobName}` |
 | `actorType` | `ADMIN`, `USER`, `SYSTEM`, `ANONYMOUS`, or `null` on older rows |
-| `actorId` | Admin or user id when known. `null` for anonymous and for older rows |
+| `actorId` | Admin or user UUID when known. Keep this for filters |
+| `actorName` | Admin full name or customer first and last name. `null` when it cannot be resolved |
+| `actorLabel` | Name and email together, such as `Sahil Admin · sahil.admin@cureka.com`. Show this beside `actorId` |
 | `ipAddress` | Client IP after the trusted proxy decision. `null` on older rows and on system jobs |
 | `requestId` | Request id for that action. `null` on older rows |
-| `reliability` | `critical` or `best_effort`. `null` on older rows |
-| `details` | JSON object or `null`. Already redacted. Render as key/value pairs. Sensitive values appear as `[redacted]` |
+| `reliability` | Returned as `critical`, `best_effort`, or `null`. Do not display this field on the admin UI |
+| `details` | JSON object or `null`. Already redacted. Render as key/value pairs. Sensitive values appear as `[redacted]`. Includes `subjectName`, `subjectId`, `subjectRefId`, `subjectLabel`, and when known `actorName` and `actorEmail` |
 | `createdAt` | When the audit row was stored |
 
 Older rows can omit `actorType`, `actorId`, `ipAddress`, `requestId`, and `reliability`. Show those cells as empty.

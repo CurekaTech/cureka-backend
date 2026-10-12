@@ -302,7 +302,7 @@ export class BrandsService {
   }
 
   private auditCatalogue(
-    entity: { id: string; refId: string },
+    entity: { id: string; refId: string; name?: string | null },
     action: string,
     performedBy?: string,
     details?: Record<string, unknown>,
@@ -313,6 +313,7 @@ export class BrandsService {
       entityRefId: entity.refId,
       action,
       performedBy,
+      name: entity.name,
       details,
     });
   }

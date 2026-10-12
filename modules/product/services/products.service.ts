@@ -74,6 +74,7 @@ import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierar
 import { AuditService } from '@modules/master/services/audit.service';
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
+import { mergeAuditSubject } from '@modules/master/utils/audit-subject.util';
 import { getAuditActor } from '@modules/master/utils/audit-actor.context';
 import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
 import { VariantOosTransition } from '../repositories/product-variants.repository';
@@ -679,6 +680,7 @@ export class ProductsService {
       entityRefId: product.refId,
       action: 'created',
       performedBy: createdBy,
+      name: product.name,
       details: { status: ProductStatus.PENDING_REVIEW },
     });
 
@@ -1314,6 +1316,7 @@ export class ProductsService {
       entityRefId: existing.refId,
       action: 'updated',
       performedBy: updatedBy,
+      name: existing.name,
       details: {
         fields: Object.keys(dto).slice(0, 40),
         fromStatus: existing.status,
@@ -1732,7 +1735,7 @@ export class ProductsService {
   }
 
   private async auditProductStatus(
-    product: { id: string; refId: string; status: ProductStatus },
+    product: { id: string; refId: string; name?: string | null; status: ProductStatus },
     to: ProductStatus,
     performedBy: string,
   ): Promise<void> {
@@ -1744,7 +1747,7 @@ export class ProductsService {
   }
 
   private async auditProductChange(
-    product: { id: string; refId: string },
+    product: { id: string; refId: string; name?: string | null },
     action: string,
     performedBy: string,
     details: Record<string, unknown>,
@@ -1757,7 +1760,11 @@ export class ProductsService {
       action,
       performedBy,
       idempotencyKey: auditIdempotency.write('product', product.id, action, version),
-      details,
+      details: mergeAuditSubject(details, {
+        name: product.name,
+        id: product.id,
+        refId: product.refId,
+      }),
     });
   }
 

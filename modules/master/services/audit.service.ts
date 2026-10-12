@@ -6,6 +6,7 @@ import {
   CreateAuditLogInput,
 } from '../repositories/audit-logs.repository';
 import { getAuditActor } from '../utils/audit-actor.context';
+import { mergeAuditSubject } from '../utils/audit-subject.util';
 import { auditIdempotency } from '../utils/audit-idempotency.util';
 import { redactAuditDetails } from '../utils/audit-redact.util';
 
@@ -114,6 +115,8 @@ export class AuditService {
     entityRefId?: string | null;
     action: string;
     performedBy?: string | null;
+    /** Readable name stored beside the id. Not a full entity dump. */
+    name?: string | null;
     details?: Record<string, unknown> | null;
   }): Promise<void> {
     const actor = getAuditActor();
@@ -133,7 +136,11 @@ export class AuditService {
         input.action,
         actor?.requestId ?? `${Date.now()}`,
       ),
-      details: input.details ?? null,
+      details: mergeAuditSubject(input.details, {
+        name: input.name,
+        id: input.entityId,
+        refId: input.entityRefId,
+      }),
     });
   }
 
