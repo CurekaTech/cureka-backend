@@ -1,4 +1,5 @@
 import { Global, Module, forwardRef } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppCacheModule } from '@packages/cache';
 import { AuthModule as CoreAuthModule } from '@packages/auth';
@@ -10,7 +11,10 @@ import { UploadsModule } from '@modules/uploads/uploads.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { OtpEntity } from './entities/otp.entity';
 import { UserSessionEntity } from './entities/user-session.entity';
+import { AdminSessionEntity } from './entities/admin-session.entity';
 import { UserSessionsRepository } from './repositories/user-sessions.repository';
+import { AdminSessionsRepository } from './repositories/admin-sessions.repository';
+import { AdminSuperadminSessionInterceptor } from './interceptors/admin-superadmin-session.interceptor';
 import { SessionService } from './services/session.service';
 import { SessionCacheService } from './services/session-cache.service';
 import { SessionCookieGuard } from './guards/session-cookie.guard';
@@ -39,7 +43,7 @@ import { MasterModule } from '@modules/master/master.module';
     UsersModule,
     forwardRef(() => OrdersModule),
     UploadsModule,
-    TypeOrmModule.forFeature([OtpEntity, UserSessionEntity]),
+    TypeOrmModule.forFeature([OtpEntity, UserSessionEntity, AdminSessionEntity]),
     MasterModule,
   ],
   controllers: [AdminAuthController, UserAuthController, AuthController],
@@ -50,6 +54,8 @@ import { MasterModule } from '@modules/master/master.module';
     OtpRateLimitService,
     OtpRepository,
     UserSessionsRepository,
+    AdminSessionsRepository,
+    { provide: APP_INTERCEPTOR, useClass: AdminSuperadminSessionInterceptor },
     SessionService,
     SessionCacheService,
     GokwikCheckoutTokenService,

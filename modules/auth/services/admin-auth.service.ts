@@ -1,5 +1,6 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AuditService } from '@modules/master/services/audit.service';
 import { getAuditActor } from '@modules/master/utils/audit-actor.context';
@@ -14,6 +15,11 @@ import { IJwtPayload } from '@packages/auth';
 import { comparePasswords } from '@packages/common';
 import { mapAdminUserEntityToResponse } from '@modules/admin-users/mappers/admin-user.mapper';
 import { mapRoleEntityToResponse } from '@modules/roles/mappers/role.mapper';
+import { AdminSessionsRepository } from '../repositories/admin-sessions.repository';
+import {
+  isSuperAdminSessionAccount,
+  parseJwtExpiresInToMilliseconds,
+} from '../utils/super-admin-session.util';
 
 @Injectable()
 export class AdminAuthService {
@@ -23,10 +29,14 @@ export class AdminAuthService {
     private readonly adminUsersService: AdminUsersService,
     private readonly jwtService: JwtService,
     private readonly auditService: AuditService,
+    private readonly configService: ConfigService,
+    private readonly adminSessionsRepository: AdminSessionsRepository,
   ) { }
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
-    const entity = await this.adminUsersService.findByEmailWithPassword(dto.email);
+    const entity = isSuperAdminSessionAccount(dto.email)
+      ? await this.adminUsersService.findByNormalizedEmailWithPassword(dto.email)
+      : await this.adminUsersService.findByEmailWithPassword(dto.email);
     if (!entity) {
       this.logger.warn('Admin login failed: user not found');
       await this.auditLoginFailure(dto.email);
@@ -56,6 +66,33 @@ export class AdminAuthService {
       throw new UnauthorizedException('Assigned role is inactive');
     }
 
+    const sessionId = isSuperAdminSessionAccount(entity.email)
+      ? await this.adminSessionsRepository.allocate(entity.id, this.accessTokenExpiresAt())
+      : undefined;
+
+    let accessToken: string;
+    try {
+      const payload: IJwtPayload = {
+        sub: entity.id,
+        email: entity.email,
+        role: entity.role,
+        roleId: entity.roleId,
+        ...(sessionId ? { sessionId } : {}),
+      };
+      accessToken = this.jwtService.sign(payload);
+    } catch (error) {
+      if (sessionId) {
+        await this.adminSessionsRepository.revoke(sessionId, entity.id).catch((revokeError) => {
+          this.logger.error(
+            `Failed to revoke super admin session after JWT sign failure: ${
+              revokeError instanceof Error ? revokeError.message : String(revokeError)
+            }`,
+          );
+        });
+      }
+      throw error;
+    }
+
     await this.adminUsersService.recordLogin(entity.id);
     await this.auditService.persistCritical({
       entityType: 'admin_auth',
@@ -69,15 +106,6 @@ export class AdminAuthService {
       details: { outcome: 'success' },
     });
 
-    const payload: IJwtPayload = {
-      sub: entity.id,
-      email: entity.email,
-      role: entity.role,
-      roleId: entity.roleId,
-    };
-
-    const accessToken = this.jwtService.sign(payload);
-
     this.logger.log({ role: entity.role }, 'Admin login success');
 
     return {
@@ -89,8 +117,15 @@ export class AdminAuthService {
     };
   }
 
-  /** Admin JWT logout only clears the cookie. There is no server-side session to revoke. */
-  async recordCookieLogout(user: { sub: string; email?: string }): Promise<void> {
+  /**
+   * Cookie clearing stays in the controller. This account also revokes its server session.
+   * A second logout revokes nothing and still writes the audit.
+   */
+  async recordCookieLogout(user: { sub: string; email?: string; sessionId?: string }): Promise<void> {
+    let serverSessionRevoked = false;
+    if (isSuperAdminSessionAccount(user.email) && user.sessionId) {
+      serverSessionRevoked = await this.adminSessionsRepository.revoke(user.sessionId, user.sub);
+    }
     await this.auditService.persistCritical({
       entityType: 'admin_auth',
       entityId: user.sub,
@@ -99,8 +134,17 @@ export class AdminAuthService {
       actorType: 'ADMIN',
       actorId: user.sub,
       idempotencyKey: auditIdempotency.authSuccess('logout', user.sub, this.requestId()),
-      details: { cookieCleared: true, serverSessionRevoked: false },
+      details: { cookieCleared: true, serverSessionRevoked },
     });
+  }
+
+  private accessTokenExpiresAt(): Date {
+    const configured = this.configService.get<string>('jwt.expiresIn', '7d');
+    const lifetimeMs = parseJwtExpiresInToMilliseconds(configured);
+    if (lifetimeMs === undefined || lifetimeMs <= 0) {
+      throw new BadRequestException('Admin login is unavailable');
+    }
+    return new Date(Date.now() + lifetimeMs);
   }
 
   private async auditLoginFailure(email: string): Promise<void> {

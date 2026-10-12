@@ -46,7 +46,7 @@ cureka-backend/
 
 | Module | Prefix | Status |
 |--------|--------|--------|
-| **Auth** | `/api/v1/auth/admin`, `/api/v1/auth/users` | Active — login/logout, JWT cookie + Bearer |
+| **Auth** | `/api/v1/auth/admin`, `/api/v1/auth/users` | Active — login/logout, JWT cookie + Bearer. `superadmin@cureka.com` is limited to 3 active `admin_sessions` |
 | **Admin Users** | `/api/v1/admin-users` | Active — CRUD, role-based |
 | **Users** | `/api/v1/users` | Active — CRUD |
 | **Master** | `/api/v1/master/attributes`, `/api/v1/master/categories` | Active — attributes + category tree |
@@ -129,6 +129,8 @@ modules/<name>/
 | `REDIS_HOST/PORT/PASSWORD` | Cache + queue |
 
 **Seed admin:** `SEED_ADMIN_PASSWORD=<your-strong-password> npm run seed:run` → `superadmin@cureka.com`
+
+That account can hold at most 3 active admin sessions (`admin_sessions`, migration `1786002000000`). A session counts while `revoked_at` is null and `expires_at` is still in the future. The expiry matches `JWT_EXPIRES_IN`. Logout revokes the session from the JWT `sessionId` and clears the `admin_token` cookie. Other admin accounts stay on the existing stateless JWT. Run `npm run migration:run` before relying on the cap.
 
 ---
 

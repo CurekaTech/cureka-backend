@@ -259,6 +259,10 @@ export class AdminUsersService {
     return this.adminUsersRepository.findByEmailWithPassword(email);
   }
 
+  async findByNormalizedEmailWithPassword(email: string) {
+    return this.adminUsersRepository.findByNormalizedEmailWithPassword(email);
+  }
+
   /** Used by auth module to build the current user's RBAC context. */
   async findEntityById(id: string) {
     return this.adminUsersRepository.findById(id);

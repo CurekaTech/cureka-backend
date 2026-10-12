@@ -60,13 +60,21 @@ export class AdminUsersRepository {
   }
 
   async findByEmailWithPassword(email: string): Promise<AdminUserEntity | null> {
+    return this.passwordQuery().where('admin_user.email = :email', { email }).getOne();
+  }
+
+  async findByNormalizedEmailWithPassword(email: string): Promise<AdminUserEntity | null> {
+    return this.passwordQuery()
+      .where('LOWER(TRIM(admin_user.email)) = :email', { email: email.trim().toLowerCase() })
+      .getOne();
+  }
+
+  private passwordQuery() {
     return this.repo
       .createQueryBuilder('admin_user')
       .leftJoinAndSelect('admin_user.roleRecord', 'roleRecord')
       .leftJoinAndSelect('roleRecord.permissions', 'permission')
-      .addSelect('admin_user.password')
-      .where('admin_user.email = :email', { email })
-      .getOne();
+      .addSelect('admin_user.password');
   }
 
   async update(id: string, data: Partial<AdminUserEntity>): Promise<AdminUserEntity | null> {
