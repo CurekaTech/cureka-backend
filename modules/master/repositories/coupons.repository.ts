@@ -80,6 +80,18 @@ export class CouponsRepository {
     await this.repo.softDelete({ refId });
   }
 
+  /** Marks every still-active coupon whose expiry is already past as inactive. */
+  async deactivateExpired(now = new Date()): Promise<void> {
+    await this.repo
+      .createQueryBuilder()
+      .update(CouponEntity)
+      .set({ status: MasterStatus.INACTIVE })
+      .where('status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('expiry_date < :now', { now })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+  }
+
   async findAllPaginated(
     options: MasterListOptions,
   ): Promise<{ data: CouponEntity[]; total: number }> {
