@@ -78,7 +78,9 @@ export class BobCatalogService {
     const products = ids.length
       ? await this.bobProductResolver.findPublishedByBobIds(ids)
       : this.onlyCatalogueProducts(
-          await this.loadPublishedByRefIds(await this.productsRepository.findAllPublishedRefIds()),
+          await this.loadPublishedByRefIds(
+            await this.productsRepository.findPublishedRefIdsForBobCatalog(),
+          ),
           'GET /products',
         );
 

@@ -2529,6 +2529,31 @@ export class ProductsRepository {
     return rows.map((row) => row.refId);
   }
 
+  /**
+   * BOB full catalog. Same published + active-variant rule as category product lists.
+   * Does not require publishedAt. Unicommerce keeps findAllPublishedRefIds.
+   */
+  async findPublishedRefIdsForBobCatalog(): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .select('product.refId', 'refId')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('product.refId', 'ASC')
+      .getRawMany<{ refId: string }>();
+
+    return rows.map((row) => row.refId);
+  }
+
   /** Only live marketplace catalog: published products with active variants (not draft/inactive/archived). */
   async findPublishedProductsForUnicommerce(options: {
     page: number;

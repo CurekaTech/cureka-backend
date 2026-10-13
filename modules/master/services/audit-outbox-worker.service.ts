@@ -73,7 +73,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
        WHERE outbox.id = claimed.id
        RETURNING outbox.id, outbox.idempotency_key, outbox.payload, outbox.attempts, outbox.claim_token`,
       [claimToken, leaseMs, limit],
-    );
+    ));
     return rows.map((row) => ({
       id: String(row.id),
       idempotencyKey: String(row.idempotency_key),
@@ -119,7 +119,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
        WHERE id = $1 AND claim_token = $2
        RETURNING id`,
       [id, claimToken],
-    );
+    ));
     return updated.length > 0;
   }
 
@@ -161,7 +161,7 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
        WHERE status = 'published' AND published_at IS NOT NULL AND published_at < $1
        RETURNING id`,
       [before],
-    );
+    ));
     return rows.length;
   }
 }

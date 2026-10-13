@@ -57,7 +57,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     findPublishedByIds: jest.Mock;
     findPublishedById: jest.Mock;
     findWithTagsById: jest.Mock;
-    findAllPublishedRefIds: jest.Mock;
+    findPublishedRefIdsForBobCatalog: jest.Mock;
   };
   let productVariantsRepository: { findById: jest.Mock };
   let productsService: { replaceTags: jest.Mock };
@@ -84,7 +84,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       findPublishedByIds: jest.fn().mockResolvedValue([]),
       findPublishedById: jest.fn(),
       findWithTagsById: jest.fn(),
-      findAllPublishedRefIds: jest.fn().mockResolvedValue([]),
+      findPublishedRefIdsForBobCatalog: jest.fn().mockResolvedValue([]),
     };
     productVariantsRepository = { findById: jest.fn() };
     productsService = { replaceTags: jest.fn().mockResolvedValue(undefined) };
@@ -158,6 +158,17 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(1, PRODUCT_UUID);
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(2, REF_ID);
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(3, CATALOGUE_ID);
+  });
+
+  it('loads the full catalog without the Unicommerce publishedAt ref-id query', async () => {
+    productsRepository.findPublishedRefIdsForBobCatalog.mockResolvedValue([REF_ID]);
+    productsRepository.findPublishedByRefIds.mockResolvedValue([{ id: PRODUCT_UUID, refId: REF_ID }]);
+    productsRepository.findPublishedByIds.mockResolvedValue([product()]);
+
+    const result = await service.listProducts();
+
+    expect(productsRepository.findPublishedRefIdsForBobCatalog).toHaveBeenCalledTimes(1);
+    expect(result.map((item) => item.id)).toEqual([217301]);
   });
 
   it('lists products by mixed catalogue ids without exposing internal UUIDs', async () => {
