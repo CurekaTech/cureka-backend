@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import {
   buildQueryCacheHash,
   CacheKeys,
@@ -62,6 +64,7 @@ export class CategoriesService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
     private readonly catalogueCodes: CatalogueCodeService,
+    private readonly auditService: AuditService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
@@ -175,6 +178,7 @@ export class CategoriesService {
     ));
 
     await this.emitCategoryUpdated(entity.refId, 'created');
+    await this.auditCatalogue(entity, 'created', createdBy, { status: entity.status });
     return this.enrichCategory(mapCategoryEntityToResponse(entity));
   }
 
@@ -368,6 +372,7 @@ export class CategoriesService {
     }
 
     await this.emitCategoryUpdated(refId, 'updated');
+    await this.auditCatalogue(updated, 'updated', updatedBy, { fields: Object.keys(dto) });
     return this.enrichCategory(mapCategoryEntityToResponse(updated));
   }
 
@@ -392,6 +397,10 @@ export class CategoriesService {
     }
 
     await this.emitCategoryUpdated(refId, 'status_updated');
+    await this.auditCatalogue(updated, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
     return this.enrichCategory(mapCategoryEntityToResponse(updated));
   }
 
@@ -405,6 +414,24 @@ export class CategoriesService {
 
     await this.categoriesRepository.softDeleteByRefId(refId);
     await this.emitCategoryUpdated(refId, 'deleted');
+    await this.auditCatalogue(existing, 'deleted');
+  }
+
+  private auditCatalogue(
+    entity: { id: string; refId: string; name?: string | null },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.CATEGORY,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.name,
+      details,
+    });
   }
 
   async findHeaderCategoriesForIndexing(

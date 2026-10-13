@@ -20,6 +20,7 @@ import {
 } from '@packages/common';
 import { PaginationQueryDto } from '@packages/common';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { assertCanAssignAdminUserRole, assertCanAssignStaffUserRole } from '@modules/users/constants/role-permissions.constants';
 import { RolesRepository } from '@modules/roles/repositories/roles.repository';
 import { RoleEntity } from '@modules/roles/entities/role.entity';
@@ -47,13 +48,18 @@ export class AdminUsersService {
     dto: CreateAdminUserDto,
     createdBy: string,
     creatorRole: AdminUserRole,
+    creatorId?: string,
   ): Promise<IAdminUser> {
     const { roleRefId: _roleRefId, ...createData } = dto;
     const roleRecord = dto.roleRefId
       ? await this.findRoleRecordByRefId(dto.roleRefId)
       : await this.findRoleRecordBySlug(dto.role ?? AdminUserRole.ADMIN);
     const targetRole = this.resolveLegacyAdminRole(roleRecord, dto.role ?? AdminUserRole.ADMIN);
-    assertCanAssignAdminUserRole(creatorRole, targetRole);
+    assertCanAssignAdminUserRole(
+      creatorRole,
+      targetRole,
+      await this.creatorPermissionCodes(creatorId, creatorRole),
+    );
     const exists = await this.adminUsersRepository.existsByEmail(dto.email);
     if (exists) {
       throw new ConflictException('An admin user with this email already exists');
@@ -100,10 +106,11 @@ export class AdminUsersService {
     refIdOrId: string,
     dto: UpdateAdminUserDto,
     creatorRole: AdminUserRole,
+    creatorId?: string,
   ): Promise<IAdminUser | IUser> {
     const existingAdmin = await this.findAdminByRefIdOrId(refIdOrId);
     if (existingAdmin) {
-      return this.updateAdminUser(refIdOrId, dto, existingAdmin, creatorRole);
+      return this.updateAdminUser(refIdOrId, dto, existingAdmin, creatorRole, creatorId);
     }
 
     return this.updateAnyUser(refIdOrId, dto, creatorRole);
@@ -128,13 +135,15 @@ export class AdminUsersService {
     dto: UpdateAdminUserDto,
     existing: IAdminUser,
     creatorRole: AdminUserRole,
+    creatorId?: string,
   ): Promise<IAdminUser> {
     if (dto.role && !Object.values(AdminUserRole).includes(dto.role as AdminUserRole)) {
       throw new BadRequestException(`Invalid admin user role "${dto.role}"`);
     }
 
+    const permissionCodes = await this.creatorPermissionCodes(creatorId, creatorRole);
     if (dto.role) {
-      assertCanAssignAdminUserRole(creatorRole, dto.role as AdminUserRole);
+      assertCanAssignAdminUserRole(creatorRole, dto.role as AdminUserRole, permissionCodes);
     }
 
     const roleRecord = dto.roleRefId
@@ -154,7 +163,7 @@ export class AdminUsersService {
     }
 
     if (nextLegacyRole) {
-      assertCanAssignAdminUserRole(creatorRole, nextLegacyRole as AdminUserRole);
+      assertCanAssignAdminUserRole(creatorRole, nextLegacyRole as AdminUserRole, permissionCodes);
     }
 
     const { roleRefId: _roleRefId, status: _status, ...updateData } = dto;
@@ -270,6 +279,18 @@ export class AdminUsersService {
 
   async recordLogin(id: string): Promise<void> {
     await this.adminUsersRepository.updateLastLoginAt(id);
+  }
+
+  private async creatorPermissionCodes(
+    creatorId: string | undefined,
+    creatorRole: AdminUserRole,
+  ): Promise<string[]> {
+    if (creatorRole === AdminUserRole.SUPER_ADMIN) return ['*'];
+    if (!creatorId) return [];
+    const creator = await this.adminUsersRepository.findById(creatorId);
+    return (creator?.roleRecord?.permissions ?? [])
+      .filter((permission) => permission.status === MasterStatus.ACTIVE)
+      .map((permission) => permission.code);
   }
 
   private async findRoleRecordByRefId(refId: string): Promise<RoleEntity> {

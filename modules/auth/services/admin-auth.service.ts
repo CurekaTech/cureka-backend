@@ -1110,7 +1110,7 @@ export const MENU_HIERARCHY: MenuItem[] = [
         name: 'Activity Logs',
         key: 'activity-logs-list',
         icon: 'History',
-        href: '/admin/audit-logs',
+        href: '/audit-logs',
         requiredPermissions: ['audit_logs.read'],
       },
     ],

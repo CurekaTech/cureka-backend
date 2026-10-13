@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MasterModule } from '@modules/master/master.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { UserEntity } from '@modules/users/entities/user.entity';
@@ -28,6 +29,7 @@ const COD_BLOCKLIST_BULK_PROCESSOR_ENABLED =
       BulkUploadEntity,
     ]),
     UsersModule,
+    MasterModule,
     UploadsModule,
     QueueModule.registerQueue('cod-blocklist-bulk-upload'),
   ],

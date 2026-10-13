@@ -18,6 +18,8 @@ import {
   mapPermissionEntityToResponse,
 } from '../mappers/permission.mapper';
 import { PermissionsRepository } from '../repositories/permissions.repository';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 
 export interface IPermissionsByModule {
   module: string;
@@ -26,7 +28,10 @@ export interface IPermissionsByModule {
 
 @Injectable()
 export class PermissionsService {
-  constructor(private readonly permissionsRepository: PermissionsRepository) {}
+  constructor(
+    private readonly permissionsRepository: PermissionsRepository,
+    private readonly auditService: AuditService,
+  ) {}
 
   async create(dto: CreatePermissionDto, createdBy: string): Promise<IPermission> {
     if (await this.permissionsRepository.existsByCode(dto.code)) {
@@ -46,7 +51,16 @@ export class PermissionsService {
       createdBy,
     });
 
-    return mapPermissionEntityToResponse(entity);
+    const permission = mapPermissionEntityToResponse(entity);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.PERMISSION,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action: 'created',
+      performedBy: createdBy,
+      details: { code: entity.code },
+    });
+    return permission;
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IPermission>> {
@@ -736,7 +750,16 @@ export class PermissionsService {
       throw new NotFoundException(`Permission with refId ${refId} not found after update`);
     }
 
-    return mapPermissionEntityToResponse(updated);
+    const permission = mapPermissionEntityToResponse(updated);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.PERMISSION,
+      entityId: updated.id,
+      entityRefId: updated.refId,
+      action: 'updated',
+      performedBy: updatedBy,
+      details: { fields: Object.keys(dto) },
+    });
+    return permission;
   }
 
   async updateStatus(
@@ -758,7 +781,16 @@ export class PermissionsService {
       throw new NotFoundException(`Permission with refId ${refId} not found after status update`);
     }
 
-    return mapPermissionEntityToResponse(updated);
+    const permission = mapPermissionEntityToResponse(updated);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.PERMISSION,
+      entityId: updated.id,
+      entityRefId: updated.refId,
+      action: 'status_changed',
+      performedBy: updatedBy,
+      details: { from: existing.status, to: dto.status },
+    });
+    return permission;
   }
 
   async remove(refId: string): Promise<void> {
@@ -767,5 +799,11 @@ export class PermissionsService {
       throw new NotFoundException(`Permission with refId ${refId} not found`);
     }
     await this.permissionsRepository.softDeleteByRefId(refId);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.PERMISSION,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: 'deleted',
+    });
   }
 }

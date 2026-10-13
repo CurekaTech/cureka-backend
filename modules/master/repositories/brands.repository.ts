@@ -11,6 +11,7 @@ import {
 import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
+import { sqlWithCompactWordBreaks } from '@modules/search/utils/search-tolerance.util';
 
 @Injectable()
 export class BrandsRepository {
@@ -177,10 +178,12 @@ export class BrandsRepository {
       .take(take);
 
     if (options.search) {
-      qb.andWhere(
+      const { sql, params } = sqlWithCompactWordBreaks(
+        options.search,
         '(brand.name ILIKE :search OR brand.slug ILIKE :search OR brand.refId ILIKE :search)',
-        { search: `%${options.search}%` },
+        ['brand.name', 'brand.slug'],
       );
+      qb.andWhere(sql, params);
     }
 
     const [data, total] = await qb.getManyAndCount();

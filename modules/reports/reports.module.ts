@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MasterModule } from '@modules/master/master.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { RolesModule } from '@modules/roles/roles.module';
@@ -8,7 +9,7 @@ import { ReportExportService } from './services/report-export.service';
 import { ReportsService } from './services/reports.service';
 
 @Module({
-  imports: [RolesModule, TypeOrmModule.forFeature([AdminUserEntity])],
+  imports: [RolesModule, MasterModule, TypeOrmModule.forFeature([AdminUserEntity])],
   controllers: [AdminReportsController],
   providers: [ReportsRepository, ReportsService, ReportExportService],
 })

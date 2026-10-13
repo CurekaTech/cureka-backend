@@ -43,7 +43,9 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter({
       logger: false,
       maxParamLength: APP_CONSTANTS.FASTIFY_MAX_PARAM_LENGTH,
-      // Honor forwarding headers only from the hops named in TRUST_PROXY.
+      // Honor forwarding headers from TRUST_PROXY. Unset trusts loopback only.
+      // true and unrestricted CIDRs are rejected. Do not bind this process to localhost:
+      // a separate admin server must still be able to connect, with access limited by the firewall.
       trustProxy: resolveTrustProxy(process.env['TRUST_PROXY'], nodeEnv),
       // Align Fastify request.id with pino-http by stamping IncomingMessage.id.
       genReqId: (req: IncomingMessage | Http2ServerRequest) => assignIncomingRequestId(req),

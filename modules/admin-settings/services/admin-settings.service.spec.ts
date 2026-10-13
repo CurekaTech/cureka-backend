@@ -18,7 +18,7 @@ describe('AdminSettingsService', () => {
       transaction: jest.fn().mockImplementation((cb) => cb({} as any)),
     } as unknown as jest.Mocked<AdminSettingsRepository>;
 
-    service = new AdminSettingsService(repository);
+    service = new AdminSettingsService(repository, { recordWrite: jest.fn() } as never);
   });
 
   describe('findAll', () => {
@@ -124,6 +124,10 @@ describe('AdminSettingsService', () => {
 
       repository.findByKeys
         .mockResolvedValueOnce(mockEntities) // checking existing
+        .mockResolvedValueOnce([
+          { key: 'razor_pay', status: AdminSettingStatus.ACTIVE },
+          { key: 'cash_free', status: AdminSettingStatus.ACTIVE },
+        ] as AdminSettingEntity[]) // native gateway constraint
         .mockResolvedValueOnce([
           { key: 'razor_pay', status: AdminSettingStatus.ACTIVE },
           { key: 'cash_free', status: AdminSettingStatus.INACTIVE },
@@ -282,6 +286,10 @@ describe('AdminSettingsService', () => {
       repository.findByKey
         .mockResolvedValueOnce(mockEntity)
         .mockResolvedValueOnce(mockUpdatedEntity);
+      repository.findByKeys.mockResolvedValue([
+        { key: 'razor_pay', status: AdminSettingStatus.ACTIVE },
+        { key: 'cash_free', status: AdminSettingStatus.ACTIVE },
+      ] as AdminSettingEntity[]);
 
       const result = await service.toggleStatus(
         'cash_free',

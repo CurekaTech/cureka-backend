@@ -14,6 +14,7 @@ import {
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
+import { sqlWithCompactWordBreaks } from '@modules/search/utils/search-tolerance.util';
 
 interface CategoryFindOptions extends PaginationOptions {
   hierarchyLevel?: CategoryHierarchyLevel;
@@ -414,10 +415,12 @@ export class CategoriesRepository {
       .take(take);
 
     if (options.search) {
-      qb.andWhere(
+      const { sql, params } = sqlWithCompactWordBreaks(
+        options.search,
         '(category.name ILIKE :search OR category.slug ILIKE :search OR category.refId ILIKE :search OR parent.name ILIKE :search OR parent.slug ILIKE :search)',
-        { search: `%${options.search}%` },
+        ['category.name', 'category.slug', 'parent.name', 'parent.slug'],
       );
+      qb.andWhere(sql, params);
     }
     if (options.hierarchyLevel !== undefined) {
       qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {

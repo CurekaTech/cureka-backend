@@ -6,19 +6,15 @@ import { RequirePermissions } from '@modules/roles/decorators/permissions.decora
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { AuditLogQueryDto } from '../dto/audit-log-query.dto';
 import { AuditLogsRepository } from '../repositories/audit-logs.repository';
-import { AuditService } from '../services/audit.service';
-import { getAuditActor } from '../utils/audit-actor.context';
 import { redactAuditDetails } from '../utils/audit-redact.util';
-import { auditIdempotency } from '../utils/audit-idempotency.util';
 import { AuditLogEntity } from '../entities/audit-log.entity';
+
+type AuditDisplayLabel = { entityName: string | null; actorName: string | null };
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('admin/audit-logs')
 export class AdminAuditLogsController {
-  constructor(
-    private readonly auditLogsRepository: AuditLogsRepository,
-    private readonly auditService: AuditService,
-  ) {}
+  constructor(private readonly auditLogsRepository: AuditLogsRepository) {}
 
   @ResponseMessage('Audit logs retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
@@ -37,9 +33,9 @@ export class AdminAuditLogsController {
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
     });
-    await this.recordAccess('list', null);
+    const labels = await this.auditLogsRepository.loadDisplayLabels(data);
     return buildPaginatedResult(
-      data.map(toAuditView),
+      data.map((row) => toAuditView(row, labels.get(row.id))),
       total,
       buildPaginationOptions({ page, limit, sortOrder: 'DESC' }),
     );
@@ -52,46 +48,48 @@ export class AdminAuditLogsController {
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const row = await this.auditLogsRepository.findById(id);
     if (!row) throw new NotFoundException(`Audit log ${id} not found`);
-    await this.recordAccess('detail', id);
-    return toAuditView(row);
-  }
-
-  private async recordAccess(action: 'list' | 'detail', auditLogId: string | null): Promise<void> {
-    const actor = getAuditActor();
-    if (!actor || actor.type !== 'ADMIN' || !actor.id) return;
-    await this.auditService.log({
-      entityType: 'audit_log_access',
-      entityId: null,
-      entityRefId: auditLogId,
-      action,
-      performedBy: actor.performedBy,
-      actorType: 'ADMIN',
-      actorId: actor.id,
-      idempotencyKey: auditIdempotency.write(
-        'audit_log_access',
-        actor.id,
-        action,
-        actor.requestId ?? `${Date.now()}`,
-      ),
-      details: { auditLogId },
-    });
+    const labels = await this.auditLogsRepository.loadDisplayLabels([row]);
+    return toAuditView(row, labels.get(row.id));
   }
 }
 
-function toAuditView(row: AuditLogEntity) {
+function toAuditView(row: AuditLogEntity, lookedUp?: AuditDisplayLabel) {
+  const stored = redactAuditDetails(row.details) ?? {};
+  const entityName = text(stored.subjectName) ?? lookedUp?.entityName ?? null;
+  const actorName = lookedUp?.actorName ?? null;
+  const subjectLabel =
+    text(stored.subjectLabel) ?? ([entityName, row.entityRefId].filter(Boolean).join(' · ') || null);
+  const actorLabel = actorName && row.performedBy ? `${actorName} · ${row.performedBy}` : (actorName ?? row.performedBy);
   return {
     id: row.id,
     entityType: row.entityType,
     entityId: row.entityId,
     entityRefId: row.entityRefId,
+    entityName,
+    subjectLabel,
     action: row.action,
     performedBy: row.performedBy,
     actorType: row.actorType,
     actorId: row.actorId,
+    actorName,
+    actorLabel,
     ipAddress: row.ipAddress,
     requestId: row.requestId,
     reliability: row.reliability,
-    details: redactAuditDetails(row.details),
+    details: {
+      ...stored,
+      ...(entityName ? { subjectName: entityName } : {}),
+      ...(row.entityId ? { subjectId: row.entityId } : {}),
+      ...(row.entityRefId ? { subjectRefId: row.entityRefId } : {}),
+      ...(subjectLabel ? { subjectLabel } : {}),
+      ...(actorName ? { actorName } : {}),
+      ...(row.actorId ? { actorId: row.actorId } : {}),
+      ...(row.performedBy ? { actorEmail: row.performedBy } : {}),
+    },
     createdAt: row.createdAt,
   };
+}
+
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
