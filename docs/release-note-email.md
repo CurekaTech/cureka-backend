@@ -26,6 +26,8 @@ Set these on the GitHub repository: Settings → Secrets and variables → Actio
 
 For Gmail, use host `smtp.gmail.com`, port `587`, and a Google app password as `RELEASE_EMAIL_PASSWORD`. `RELEASE_EMAIL_FROM` must be the same Gmail address as `RELEASE_EMAIL_USER`.
 
+If a value is stored as a Secret under `RELEASE_EMAIL_HOST`, `RELEASE_EMAIL_PORT`, `RELEASE_EMAIL_USER`, `RELEASE_EMAIL_FROM`, or `RELEASE_EMAIL_TO`, the workflow uses that Secret when the Variable with the same name is empty. The password is always read from a Secret.
+
 If a GitHub Variable or Secret is already stored under the local name (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_FROM`, or Secret `SMTP_PASS`), the workflow uses that when the `RELEASE_EMAIL_*` name is empty.
 
 Set Variable `RELEASE_EMAIL_ENABLED` to the string `false` to stop sending without deleting the other settings. Any other value, including leaving it unset, allows sending when the table above is complete.

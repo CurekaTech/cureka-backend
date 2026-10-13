@@ -82,11 +82,11 @@ jobs:
           RELEASE_NOTE_MERGED_AT: ${{ github.event.pull_request.merged_at }}
           RELEASE_NOTE_COMMIT_COUNT: ${{ github.event.pull_request.commits }}
           RELEASE_NOTE_SENT_RECORD: .release-note-sent/record.json
-          RELEASE_EMAIL_HOST: ${{ vars.RELEASE_EMAIL_HOST || vars.SMTP_HOST || secrets.SMTP_HOST }}
-          RELEASE_EMAIL_PORT: ${{ vars.RELEASE_EMAIL_PORT || vars.SMTP_PORT || secrets.SMTP_PORT }}
-          RELEASE_EMAIL_USER: ${{ vars.RELEASE_EMAIL_USER || vars.SMTP_USER || secrets.SMTP_USER }}
-          RELEASE_EMAIL_FROM: ${{ vars.RELEASE_EMAIL_FROM || vars.SMTP_FROM || secrets.SMTP_FROM }}
-          RELEASE_EMAIL_TO: ${{ vars.RELEASE_EMAIL_TO || vars.RELEASE_NOTE_EMAIL_TO }}
+          RELEASE_EMAIL_HOST: ${{ vars.RELEASE_EMAIL_HOST || secrets.RELEASE_EMAIL_HOST || vars.SMTP_HOST || secrets.SMTP_HOST }}
+          RELEASE_EMAIL_PORT: ${{ vars.RELEASE_EMAIL_PORT || secrets.RELEASE_EMAIL_PORT || vars.SMTP_PORT || secrets.SMTP_PORT }}
+          RELEASE_EMAIL_USER: ${{ vars.RELEASE_EMAIL_USER || secrets.RELEASE_EMAIL_USER || vars.SMTP_USER || secrets.SMTP_USER }}
+          RELEASE_EMAIL_FROM: ${{ vars.RELEASE_EMAIL_FROM || secrets.RELEASE_EMAIL_FROM || vars.SMTP_FROM || secrets.SMTP_FROM }}
+          RELEASE_EMAIL_TO: ${{ vars.RELEASE_EMAIL_TO || secrets.RELEASE_EMAIL_TO || vars.RELEASE_NOTE_EMAIL_TO }}
           RELEASE_EMAIL_PASSWORD: ${{ secrets.RELEASE_EMAIL_PASSWORD || secrets.SMTP_PASS }}
           SMTP_SECURE: ${{ vars.SMTP_SECURE || secrets.SMTP_SECURE }}
         run: node scripts/release-note/on-merged-pull-request.mjs
