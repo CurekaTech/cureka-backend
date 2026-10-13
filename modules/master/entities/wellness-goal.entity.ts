@@ -12,6 +12,10 @@ export class WellnessGoalEntity extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  /** Rich-text product-list H1. Null means the website uses `name`. */
+  @Column({ name: 'listing_heading', type: 'text', nullable: true })
+  listingHeading!: string | null;
+
   @Column(storageFileReferenceColumn())
   image!: IStorageFileReference | null;
 

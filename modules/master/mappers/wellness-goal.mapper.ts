@@ -8,6 +8,7 @@ export const mapWellnessGoalEntityToResponse = (entity: WellnessGoalEntity): IWe
   refId: entity.refId,
   name: entity.name,
   description: entity.description,
+  listingHeading: entity.listingHeading ?? null,
   image: entity.image,
   faqBanner: entity.faqBanner,
   status: entity.status,

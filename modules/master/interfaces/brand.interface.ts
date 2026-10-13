@@ -35,6 +35,7 @@ export interface IBrand {
   brandHighlights: IBrandHighlight[] | null;
   showBrandHighlights: boolean;
   description: string | null;
+  listingHeading: string | null;
   showDescription: boolean;
   status: MasterStatus;
   inHomePage: boolean;

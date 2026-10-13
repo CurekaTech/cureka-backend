@@ -20,6 +20,8 @@ export interface IPublicWellnessGoalListItem {
 export interface IPublicWellnessGoalProductListingContext {
   refId: string;
   name: string;
+  /** HTML H1. Null means render `name` as plain text. */
+  listingHeading: string | null;
   description: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
   faqs: Array<{ question: string; answer: string; sequence: number }>;

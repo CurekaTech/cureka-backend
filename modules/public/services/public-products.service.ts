@@ -845,6 +845,7 @@ export class PublicProductsService {
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
       name: rootCategory.name,
+      listingHeading: rootCategory.listingHeading ?? null,
       slug: rootCategory.slug,
       slugPath: rootSlugPath,
       permalink: buildCategoryPermalink(rootSlugPath),
@@ -874,6 +875,7 @@ export class PublicProductsService {
       selectedCategory: {
         refId: matchedCategory.refId,
         name: matchedCategory.name,
+        listingHeading: matchedCategory.listingHeading ?? null,
         slug: matchedCategory.slug,
         slugPath: selectedPath,
         permalink: buildCategoryPermalink(selectedPath),

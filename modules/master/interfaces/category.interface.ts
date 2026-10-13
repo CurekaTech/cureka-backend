@@ -27,6 +27,7 @@ export interface ICategory {
   faqBanner: IStorageFileReferenceResponse | null;
   slug: string;
   description: string | null;
+  listingHeading: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
   metaKeywords: string[] | null;

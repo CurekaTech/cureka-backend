@@ -9,6 +9,7 @@ export interface IHealthConcern {
   icon: IStorageFileReferenceResponse | null;
   slug: string;
   description: string | null;
+  listingHeading: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
   medicalConditionName: string | null;

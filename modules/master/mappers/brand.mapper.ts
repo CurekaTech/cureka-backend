@@ -33,6 +33,7 @@ export const mapBrandEntityToResponse = (entity: BrandEntity): IBrand =>
     brandHighlights: entity.brandHighlights ?? null,
     showBrandHighlights: entity.showBrandHighlights ?? true,
     description: entity.description,
+    listingHeading: entity.listingHeading ?? null,
     showDescription: entity.showDescription ?? true,
     status: entity.status,
     inHomePage: entity.inHomePage,

@@ -26,6 +26,7 @@ import { generateSlug } from '@packages/common/pagination.util';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { BrandEntity } from '../entities/brand.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
@@ -151,6 +152,7 @@ export class BrandsService {
       showOfferBanner: dto.showOfferBanner ?? true,
       showBrandHighlights: dto.showBrandHighlights ?? true,
       description: dto.description ?? null,
+      listingHeading: normalizeListingHeading(dto.listingHeading),
       showDescription: dto.showDescription ?? true,
       faqs: normalizeMasterFaqs(dto.faqs),
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -216,6 +218,9 @@ export class BrandsService {
 
     const { brandHighlights, faqs, ...dtoFields } = dto;
     const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
+    if (dto.listingHeading !== undefined) {
+      payload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
     if (media.banner !== undefined) {
