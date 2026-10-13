@@ -326,6 +326,60 @@ describe('PublicSearchService native fallback', () => {
     return perform;
   }
 
+  it('joins spaced catalog words when the query leaves the space out', async () => {
+    const perform = enableTypesense();
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasNameCompact: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name,brand',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: jest.fn() }) }),
+    });
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
+      {
+        displayName: 'Health etc Women Health Gummy',
+        slug: 'health-etc-women-health-gummy',
+        productPageUrl: '/shop/health-etc-women-health-gummy/',
+        product: {
+          refId: 'PRD-ETC',
+          name: 'Health etc Women Health Gummy',
+          slug: 'health-etc-women-health-gummy',
+        },
+      },
+    ]);
+
+    const results = await service.search('healthetc', 10);
+
+    const searches = perform.mock.calls[0][0].searches as Array<{
+      filter_by?: string;
+      split_join_tokens?: string;
+      query_by?: string;
+    }>;
+    const productSearch = searches.find((search) => search.filter_by === 'entityType:=Product');
+    expect(productSearch?.split_join_tokens).toBe('always');
+    expect(productSearch?.query_by).toContain('nameCompact');
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+          title: 'Health etc Women Health Gummy',
+          refId: 'PRD-ETC',
+        }),
+      ]),
+    );
+  });
+
   it('does not run tolerance search when the existing match already hits', async () => {
     const perform = enableTypesense(
       jest.fn().mockResolvedValue({

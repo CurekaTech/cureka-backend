@@ -36,6 +36,7 @@ import {
   compactSearchText,
   isGibberishSearchQuery,
   searchQueryNeedsCompactRetry,
+  searchQueryOmitsWordBreaks,
   searchTypoBudget,
   significantSearchTokens,
 } from '../utils/search-tolerance.util';
@@ -321,6 +322,10 @@ export class PublicSearchService {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
     const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
+    const joinWords = searchQueryOmitsWordBreaks(trimmed);
+    const searchParams = joinWords
+      ? { ...TYPESENSE_FAST_SEARCH_PARAMS, split_join_tokens: 'always' as const, search_cutoff_ms: 250 }
+      : TYPESENSE_FAST_SEARCH_PARAMS;
     const searches = DROPDOWN_ENTITY_ORDER.flatMap((entityType) => {
       if (!config.hasEntityType && entityType !== SEARCH_ENTITY_TYPES.PRODUCT) {
         return [];
@@ -339,9 +344,13 @@ export class PublicSearchService {
         {
           collection: collectionName,
           q: trimmed,
-          query_by: isProduct ? config.productQueryBy : config.entityQueryBy,
+          query_by: isProduct
+            ? this.productQueryBy(config, joinWords)
+            : joinWords
+              ? this.entityQueryBy(config)
+              : config.entityQueryBy,
           per_page: isProduct ? Math.min(perPage * 3, 30) : entityLimit,
-          ...TYPESENSE_FAST_SEARCH_PARAMS,
+          ...searchParams,
           ...(filterBy ? { filter_by: filterBy } : {}),
           ...(isProduct && config.hasInStock
             ? { sort_by: 'inStock:desc,_text_match:desc' }
@@ -363,6 +372,9 @@ export class PublicSearchService {
       : [];
     if (!productHits.length) {
       productHits = await this.loadPublishedProductHits(trimmed, perPage, pincodeId);
+    } else if (joinWords && productHits.length < perPage) {
+      const nativeHits = await this.loadPublishedProductHits(trimmed, perPage, pincodeId);
+      productHits = this.mergeProductHits(productHits, nativeHits);
     }
     if (!productHits.length) {
       productHits = await this.recoverTolerantProductHits(
@@ -778,6 +790,20 @@ export class PublicSearchService {
     });
 
     return grouped;
+  }
+
+  private mergeProductHits(
+    primary: IPublicSearchResult[],
+    extra: IPublicSearchResult[],
+  ): IPublicSearchResult[] {
+    const seen = new Set(primary.map((hit) => hit.refId));
+    const merged = [...primary];
+    for (const hit of extra) {
+      if (!hit.refId || seen.has(hit.refId)) continue;
+      seen.add(hit.refId);
+      merged.push(hit);
+    }
+    return merged;
   }
 
   private mergeSearchResults(

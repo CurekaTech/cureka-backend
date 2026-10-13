@@ -35,9 +35,11 @@ import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import { hasCategoryFilterAllSentinel } from '../utils/category-filter-all.util';
 import {
+  compactColumnContainsSql,
   compactSearchText,
   isGibberishSearchQuery,
   SEARCH_TYPO_SIMILARITY_FLOOR,
+  searchQueryOmitsWordBreaks,
 } from '@modules/search/utils/search-tolerance.util';
 
 export interface ProductCategoryFilterCriterion {
@@ -1573,13 +1575,18 @@ export class ProductsRepository {
     options: PublicProductListOptions,
   ): void {
     if (options.search) {
-      qb.andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR EXISTS (
+      const literal = `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR EXISTS (
           SELECT 1 FROM variant_attribute_values vav
           WHERE vav.variant_id = variant.id AND vav.value ILIKE :search
-        ))`,
-        { search: `%${options.search}%` },
-      );
+        ))`;
+      const { sql, params } = this.withCompactWordBreakMatch(options.search, literal, [
+        'product.name',
+        'product.slug',
+        'variant.slug',
+        'variant.sku',
+        'variant.display_name',
+      ]);
+      qb.andWhere(sql, params);
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -2224,8 +2231,7 @@ export class ProductsRepository {
     omit: PublicFacetOmit[] = [],
   ): void {
     if (options.search) {
-      qb.andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
+      const literal = `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
             AND pv.deleted_at IS NULL
@@ -2234,9 +2240,20 @@ export class ProductsRepository {
               OR pv.sku ILIKE :search
               OR pv.display_name ILIKE :search
             )
-        ))`,
-        { search: `%${options.search}%` },
-      );
+        ))`;
+      const { sql, params } = this.withCompactWordBreakMatch(options.search, literal, [
+        'product.name',
+        'product.slug',
+      ]);
+      const compactVariants = searchQueryOmitsWordBreaks(options.search)
+        ? ` OR EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND (${compactColumnContainsSql('pv.slug')} OR ${compactColumnContainsSql('pv.sku')} OR ${compactColumnContainsSql('pv.display_name')})
+        )`
+        : '';
+      qb.andWhere(`(${sql}${compactVariants})`, params);
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -2710,7 +2727,11 @@ export class ProductsRepository {
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('category.deletedAt IS NULL')
       .andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search
+        searchQueryOmitsWordBreaks(term)
+          ? `(product.name ILIKE :search OR product.slug ILIKE :search
+          OR variant.slug ILIKE :search OR variant.sku ILIKE :search
+          OR variant.displayName ILIKE :search OR ${this.variantSearchCompactPredicate('brand')})`
+          : `(product.name ILIKE :search OR product.slug ILIKE :search
           OR variant.slug ILIKE :search OR variant.sku ILIKE :search
           OR variant.displayName ILIKE :search)`,
         { search: containsSearch },
@@ -2739,6 +2760,9 @@ export class ProductsRepository {
       .setParameters({
         prefixSearch,
         search: containsSearch,
+        ...(searchQueryOmitsWordBreaks(term)
+          ? { compactQuery: compactSearchText(term) }
+          : {}),
         ...(pincodeId ? { pincodeAvailabilityId: pincodeId } : {}),
       })
       .take(limit)
@@ -2887,6 +2911,24 @@ export class ProductsRepository {
     qb.orderBy('search_similarity', 'DESC');
     qb.addOrderBy('variant_stock_rank', 'ASC');
     qb.addOrderBy('product.name', 'ASC');
+  }
+
+  /**
+   * "healthetc" also matches "Health etc". Runs with the literal search so one
+   * exact row cannot hide the rest of the spaced catalog.
+   */
+  private withCompactWordBreakMatch(
+    search: string,
+    literalSql: string,
+    expressions: string[],
+  ): { sql: string; params: Record<string, string> } {
+    const params: Record<string, string> = { search: `%${search}%` };
+    if (!searchQueryOmitsWordBreaks(search)) {
+      return { sql: literalSql, params };
+    }
+    params.compactQuery = compactSearchText(search);
+    const compactSql = expressions.map((expression) => compactColumnContainsSql(expression)).join(' OR ');
+    return { sql: `(${literalSql} OR ${compactSql})`, params };
   }
 
   private variantSearchCompactPredicate(brandAlias: string): string {

@@ -43,6 +43,36 @@ export function searchQueryNeedsCompactRetry(query: string): boolean {
 }
 
 /**
+ * One typed word may be several catalog words with the spaces left out.
+ * "healthetc" should match "Health etc". A spaced query already matches literally.
+ */
+export function searchQueryOmitsWordBreaks(query: string): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length < 4) return false;
+  return !/\s/.test(trimmed);
+}
+
+/** Space-insensitive contains match. Bind `:compactQuery` to `compactSearchText`. */
+export function compactColumnContainsSql(expression: string): string {
+  return `regexp_replace(lower(COALESCE(${expression}, '')), '[^a-z0-9]+', '', 'g') LIKE '%' || :compactQuery || '%'`;
+}
+
+/** Adds a space-stripped match beside a literal ILIKE when the query is one word. */
+export function sqlWithCompactWordBreaks(
+  search: string,
+  literalSql: string,
+  expressions: string[],
+): { sql: string; params: { search: string; compactQuery?: string } } {
+  const params: { search: string; compactQuery?: string } = { search: `%${search}%` };
+  if (!searchQueryOmitsWordBreaks(search)) {
+    return { sql: literalSql, params };
+  }
+  params.compactQuery = compactSearchText(search);
+  const compactSql = expressions.map((expression) => compactColumnContainsSql(expression)).join(' OR ');
+  return { sql: `(${literalSql} OR ${compactSql})`, params };
+}
+
+/**
  * Keyboard-mash and vowel-less strings. A real word we do not sell (for example
  * "iphone") is not gibberish. Short prefixes are left to the existing search.
  */
