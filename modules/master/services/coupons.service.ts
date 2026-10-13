@@ -54,6 +54,10 @@ export class CouponsService {
       startDate: dto.startDate,
       expiryDate: dto.expiryDate,
     });
+    const status = dto.status ?? MasterStatus.ACTIVE;
+    if (status === MasterStatus.ACTIVE) {
+      this.assertCouponCanBeActivated(dto.expiryDate);
+    }
     this.validateApplicabilityRefIds(applicabilityScope, dto);
 
     if (await this.couponsRepository.existsByCode(code)) {
@@ -76,7 +80,7 @@ export class CouponsService {
         startDate: dto.startDate,
         expiryDate: dto.expiryDate,
         applicabilityScope,
-        status: dto.status ?? MasterStatus.ACTIVE,
+        status,
         refId: await generateUniqueRefId(dto.title, (refId) =>
           this.couponsRepository.existsByRefId(refId),
         ),
@@ -96,12 +100,14 @@ export class CouponsService {
   }
 
   async findAll(query: MasterListQueryDto): Promise<PaginatedResult<ICoupon>> {
+    await this.couponsRepository.deactivateExpired();
     const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.couponsRepository.findAllPaginated(paginationOptions);
     return buildPaginatedResult(mapCouponEntitiesToResponse(data), total, paginationOptions);
   }
 
   async findOne(refId: string): Promise<ICoupon> {
+    await this.couponsRepository.deactivateExpired();
     const entity = await this.couponsRepository.findByRefId(refId);
     if (!entity) {
       throw new NotFoundException(`Coupon with refId ${refId} not found`);
@@ -133,6 +139,10 @@ export class CouponsService {
       startDate,
       expiryDate,
     });
+    const nextStatus = dto.status ?? existing.status;
+    if (nextStatus === MasterStatus.ACTIVE && dto.status === MasterStatus.ACTIVE) {
+      this.assertCouponCanBeActivated(expiryDate);
+    }
 
     let code: string | undefined;
     if (dto.code !== undefined) {
@@ -203,6 +213,10 @@ export class CouponsService {
       throw new NotFoundException(`Coupon with refId ${refId} not found`);
     }
 
+    if (dto.status === MasterStatus.ACTIVE) {
+      this.assertCouponCanBeActivated(existing.expiryDate);
+    }
+
     const updated = await this.couponsRepository.updateByRefId(refId, {
       status: dto.status,
       updatedBy,
@@ -248,6 +262,12 @@ export class CouponsService {
 
   private normalizeCode(code: string): string {
     return code.trim().toUpperCase();
+  }
+
+  private assertCouponCanBeActivated(expiryDate: Date, now = new Date()): void {
+    if (expiryDate.getTime() < now.getTime()) {
+      throw new BadRequestException('Coupon is expired');
+    }
   }
 
   private validateCouponPayload(payload: {
