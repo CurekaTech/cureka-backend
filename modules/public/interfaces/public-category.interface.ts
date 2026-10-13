@@ -15,6 +15,8 @@ export interface IPublicCategoryFilterFacet {
 export interface IPublicCategoryProductListingContext {
   refId: string;
   name: string;
+  /** HTML H1 for the root category. Null means render `name` as plain text. */
+  listingHeading: string | null;
   slug: string;
   /** Ordered category slugs from root → current listing category (usually root). */
   slugPath: string[];
@@ -33,6 +35,8 @@ export interface IPublicCategoryProductListingContext {
   selectedCategory?: {
     refId: string;
     name: string;
+    /** This category's own HTML H1. No parent fallback. */
+    listingHeading: string | null;
     slug: string;
     slugPath: string[];
     permalink: string;

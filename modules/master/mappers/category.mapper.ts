@@ -32,6 +32,7 @@ export const mapCategoryEntityToResponse = (entity: CategoryEntity): ICategory =
   faqBanner: entity.faqBanner,
   slug: entity.slug,
   description: entity.description,
+  listingHeading: entity.listingHeading ?? null,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,

@@ -6,6 +6,7 @@ export interface IWellnessGoal {
   refId: string;
   name: string;
   description: string | null;
+  listingHeading: string | null;
   image: IStorageFileReferenceResponse | null;
   faqBanner: IStorageFileReferenceResponse | null;
   status: MasterStatus;

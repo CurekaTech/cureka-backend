@@ -8,6 +8,7 @@ export const mapHealthConcernEntityToListingContext = (
 ): IPublicHealthConcernProductListingContext => ({
   refId: entity.refId,
   name: entity.name,
+  listingHeading: entity.listingHeading ?? null,
   slug: entity.slug,
   description: entity.description,
   icon: entity.icon,

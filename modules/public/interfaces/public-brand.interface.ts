@@ -18,6 +18,8 @@ export interface IPublicBrandHighlight {
 export interface IPublicBrandProductListingContext {
   refId: string;
   name: string;
+  /** HTML H1. Null means render `name` as plain text. */
+  listingHeading: string | null;
   slug: string;
   logo: IStorageFileReference | IStorageFileReferenceResponse | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;

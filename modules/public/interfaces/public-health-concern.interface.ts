@@ -41,6 +41,8 @@ export type IPublicHealthConcernListItem = IPublicHomePageHealthConcern;
 export interface IPublicHealthConcernProductListingContext {
   refId: string;
   name: string;
+  /** HTML H1. Null means render `name` as plain text. */
+  listingHeading: string | null;
   slug: string;
   description: string | null;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;

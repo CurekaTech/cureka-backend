@@ -24,6 +24,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { WellnessGoalUpdatedEvent, EVENTS } from '@packages/events';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
@@ -93,6 +94,7 @@ export class WellnessGoalsService {
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
       description: dto.description ?? null,
+      listingHeading: normalizeListingHeading(dto.listingHeading),
       image: this.storageUrlEnricher.persist(media.image),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -149,6 +151,9 @@ export class WellnessGoalsService {
     const payload: Partial<WellnessGoalEntity> = { updatedBy };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.description !== undefined) payload.description = dto.description;
+    if (dto.listingHeading !== undefined) {
+      payload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.inHomePage !== undefined) payload.inHomePage = dto.inHomePage;
     if (dto.faqs !== undefined) payload.faqs = normalizeMasterFaqs(dto.faqs);

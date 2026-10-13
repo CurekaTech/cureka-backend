@@ -27,6 +27,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { resolveMasterListStatus } from '../utils/master-list-query.util';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryEntity } from '../entities/category.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import {
   mapCategoryEntityToResponse,
@@ -158,6 +159,7 @@ export class CategoriesService {
         faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
         slug,
         description: dto.description ?? null,
+        listingHeading: normalizeListingHeading(dto.listingHeading),
         metaTitle: dto.metaTitle ?? null,
         metaDescription: dto.metaDescription ?? null,
         metaKeywords: dto.metaKeywords ?? null,
@@ -343,6 +345,9 @@ export class CategoriesService {
     };
     if (dto.name !== undefined) updatePayload.name = dto.name;
     if (dto.description !== undefined) updatePayload.description = dto.description ?? null;
+    if (dto.listingHeading !== undefined) {
+      updatePayload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.parentCategoryRefId !== undefined) updatePayload.parentCategoryId = parentCategoryId;
     if (dto.position !== undefined) updatePayload.position = dto.position;
     if (media.image !== undefined) updatePayload.image = this.storageUrlEnricher.persist(media.image);

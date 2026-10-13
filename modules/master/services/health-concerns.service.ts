@@ -30,6 +30,7 @@ import { generateSlug } from '@packages/common/pagination.util';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { HealthConcernEntity } from '../entities/health-concern.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { MasterStatus } from '../enums/master-status.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
@@ -110,6 +111,7 @@ export class HealthConcernsService {
       banner: this.storageUrlEnricher.persist(media.banner),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
       description: dto.description ?? null,
+      listingHeading: normalizeListingHeading(dto.listingHeading),
       metaTitle: dto.metaTitle ?? null,
       metaDescription: dto.metaDescription ?? null,
       medicalConditionName: dto.medicalConditionName ?? null,
@@ -208,6 +210,9 @@ export class HealthConcernsService {
 
     const { faqs, ...dtoFields } = dto;
     const payload: Partial<HealthConcernEntity> = { ...dtoFields, updatedBy };
+    if (dto.listingHeading !== undefined) {
+      payload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.icon !== undefined) payload.icon = this.storageUrlEnricher.persist(media.icon);
     if (media.banner !== undefined) payload.banner = this.storageUrlEnricher.persist(media.banner);

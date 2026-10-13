@@ -20,6 +20,7 @@ export const mapBrandEntityToListingContext = (
 ): IPublicBrandProductListingContext => ({
   refId: entity.refId,
   name: entity.name,
+  listingHeading: entity.listingHeading ?? null,
   slug: entity.slug,
   logo: entity.logo,
   banner: entity.showBanner === false ? null : resolveBrandBannerForResponse(entity),

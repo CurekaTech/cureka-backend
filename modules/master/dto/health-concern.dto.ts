@@ -59,6 +59,14 @@ export class CreateHealthConcernDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({
+    description: 'HTML product-list H1. Null or empty clears it and the website uses name.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  listingHeading?: string | null;
+
   @IsOptional()
   @IsString()
   @MaxLength(255)
