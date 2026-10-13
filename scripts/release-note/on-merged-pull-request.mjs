@@ -3,7 +3,7 @@ import path from 'node:path';
 import { runGit } from './lib/git.mjs';
 import { REPO_ROOT } from './lib/build.mjs';
 import { ReleaseNoteError } from './lib/errors.mjs';
-import { runMergedPullRequest } from './lib/pull-request.mjs';
+import { describeEmailSettings, runMergedPullRequest } from './lib/pull-request.mjs';
 
 function required(name) {
   const value = process.env[name];
@@ -33,14 +33,13 @@ async function main() {
     async sendMail(payload) {
       const nodemailer = await import('nodemailer');
       const createTransport = nodemailer.createTransport || nodemailer.default.createTransport;
-      const port = Number(process.env.SMTP_PORT || 587);
-      const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+      const settings = describeEmailSettings(process.env);
       return createTransport({
-        host: process.env.SMTP_HOST,
-        port,
-        secure,
-        auth: process.env.SMTP_USER
-          ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+        host: settings.host,
+        port: settings.port,
+        secure: settings.secure,
+        auth: settings.user
+          ? { user: settings.user, pass: settings.password }
           : undefined,
       }).sendMail(payload);
     },

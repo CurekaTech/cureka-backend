@@ -139,21 +139,44 @@ export function parseRecipients(value) {
   return parts;
 }
 
+function readSetting(env, keys) {
+  for (const key of keys) {
+    const value = String(env[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
 export function describeEmailSettings(env) {
+  const disabled = env.RELEASE_EMAIL_ENABLED === 'false' || env.RELEASE_NOTE_EMAIL_ENABLED === 'false';
+  const to = readSetting(env, ['RELEASE_EMAIL_TO', 'RELEASE_NOTE_EMAIL_TO']);
+  const from = readSetting(env, ['RELEASE_EMAIL_FROM', 'SMTP_FROM']);
+  const host = readSetting(env, ['RELEASE_EMAIL_HOST', 'SMTP_HOST']);
+  const user = readSetting(env, ['RELEASE_EMAIL_USER', 'SMTP_USER']);
+  const password = readSetting(env, ['RELEASE_EMAIL_PASSWORD', 'SMTP_PASS']);
+  const port = readSetting(env, ['RELEASE_EMAIL_PORT', 'SMTP_PORT']) || '587';
   const missing = [];
-  if (env.RELEASE_NOTE_EMAIL_ENABLED !== 'true') missing.push('RELEASE_NOTE_EMAIL_ENABLED');
-  for (const name of ['RELEASE_NOTE_EMAIL_TO', 'SMTP_FROM', 'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) {
-    if (!String(env[name] || '').trim()) missing.push(name);
-  }
+  if (disabled) missing.push('RELEASE_EMAIL_ENABLED');
+  if (!to) missing.push('RELEASE_EMAIL_TO');
+  if (!from) missing.push('RELEASE_EMAIL_FROM');
+  if (!host) missing.push('RELEASE_EMAIL_HOST');
+  if (!user) missing.push('RELEASE_EMAIL_USER');
+  if (!password) missing.push('RELEASE_EMAIL_PASSWORD');
   let recipients = [];
-  if (env.RELEASE_NOTE_EMAIL_ENABLED === 'true' && !missing.includes('RELEASE_NOTE_EMAIL_TO')) {
-    recipients = parseRecipients(env.RELEASE_NOTE_EMAIL_TO);
+  if (!missing.includes('RELEASE_EMAIL_TO') && !disabled) {
+    recipients = parseRecipients(to);
   }
+  const portNumber = Number(port);
   return {
     ready: missing.length === 0,
     missing,
     recipients,
-    from: String(env.SMTP_FROM || '').trim(),
+    from,
+    host,
+    port: Number.isInteger(portNumber) && portNumber > 0 ? portNumber : 587,
+    user,
+    password,
+    secure: env.SMTP_SECURE === 'true' || portNumber === 465,
   };
 }
 
