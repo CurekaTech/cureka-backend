@@ -12,7 +12,6 @@ import {
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from '@packages/logger';
 import { QueueModule } from '@packages/queue';
-import { UploadsModule } from '@modules/uploads/uploads.module';
 import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.module';
 
 @Module({
@@ -34,7 +33,6 @@ import { ImagePipelineModule } from '@modules/image-pipeline/image-pipeline.modu
     LoggerModule,
     QueueModule.forRoot(),
     DatabaseModule,
-    UploadsModule,
     ImagePipelineModule,
   ],
 })

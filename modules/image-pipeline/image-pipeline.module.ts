@@ -2,8 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
-import { STORAGE_UPLOAD_HOOK } from '@packages/storage';
-import { UploadsModule } from '@modules/uploads/uploads.module';
+import { STORAGE_UPLOAD_HOOK, StorageModule } from '@packages/storage';
 import { ImageAssetEntity } from './entities/image-asset.entity';
 import { ImagePipelineCheckpointEntity } from './entities/image-pipeline-checkpoint.entity';
 import { ImageAssetRepository } from './repositories/image-asset.repository';
@@ -20,7 +19,7 @@ const IMAGE_WORKER_ENABLED =
 @Global()
 @Module({
   imports: [
-    UploadsModule,
+    StorageModule.forRoot(),
     QueueModule.registerQueue(QUEUE_NAMES.IMAGE_PIPELINE),
     TypeOrmModule.forFeature([ImageAssetEntity, ImagePipelineCheckpointEntity]),
   ],
