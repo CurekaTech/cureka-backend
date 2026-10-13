@@ -83,6 +83,7 @@ describe('CodBlocklistService', () => {
     repository as never,
     usersRepository as never,
     checkoutResolver as never,
+    { recordWrite: jest.fn() } as never,
   );
 
   beforeEach(() => {

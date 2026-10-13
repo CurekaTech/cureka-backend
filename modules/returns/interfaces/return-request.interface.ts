@@ -37,6 +37,9 @@ export interface IReturnRequestItemView {
   qcRejectionReason: string | null;
   replacementVariantId: string | null;
   replacementSku: string | null;
+  affectedComponentVariantId: string | null;
+  affectedComponentSku: string | null;
+  affectedComponentName: string | null;
   policySnapshot: IOrderItemReturnPolicySnapshot | null;
 }
 
@@ -180,9 +183,23 @@ export interface IReturnRequestDetail extends IReturnRequestListItem {
   pickups: IReturnPickupView[];
   qcRecords: IReturnQcView[];
   refund: IReturnRefundLinkView;
+  replacementOriginalAmount: string | null;
+  replacementQuoteAmount: string | null;
+  replacementDifferenceAmount: string | null;
+  replacementSettlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+  replacementPaymentRequestId: string | null;
+  replacementPaymentLink: string | null;
+  replacementPaymentStatus: string | null;
   replacement: {
     replacementOrderId: string | null;
     linkedAt: Date | null;
+    originalAmount: string | null;
+    quoteAmount: string | null;
+    differenceAmount: string | null;
+    settlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+    paymentRequestId: string | null;
+    paymentLink: string | null;
+    paymentStatus: string | null;
   };
   codRefund: {
     method: string | null;
@@ -268,6 +285,9 @@ export interface ICustomerReturnDetail {
       | 'refundableAmount'
       | 'acceptedQuantity'
       | 'rejectedQuantity'
+      | 'affectedComponentVariantId'
+      | 'affectedComponentSku'
+      | 'affectedComponentName'
     > & {
       /** Signed product thumbnail URL when available. */
       imageUrl: string | null;
@@ -287,6 +307,11 @@ export interface ICustomerReturnDetail {
     amount: string | null;
     message: string | null;
   };
+  replacementOriginalAmount: string | null;
+  replacementQuoteAmount: string | null;
+  replacementDifferenceAmount: string | null;
+  replacementSettlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+  replacementPaymentLink: string | null;
   codRefund: {
     method: string | null;
     payoutStatus: string | null;

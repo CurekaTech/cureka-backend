@@ -28,6 +28,7 @@ import {
 import {
   MAX_GENERATED_VARIANTS,
   buildSkuPrefix,
+  buildSkuPrefixFromCodes,
   findDuplicateCombinationLabels,
   findMaxSkuSequenceForPrefix,
   flattenAttributeDetailNames,
@@ -76,6 +77,8 @@ export class BulkUploadValidatorService {
   private natureMap = new Map<string, string>(); // name (lowercase) -> refId
   private brandMap = new Map<string, string>(); // name (lowercase) -> refId
   private categoryMap = new Map<string, string>(); // name (lowercase) -> refId
+  private brandCodeByName = new Map<string, string>();
+  private categoryCodeByName = new Map<string, string>();
   private subCategoryMap = new Map<string, string>(); // name (lowercase) -> refId
   private subSubCategoryMap = new Map<string, string>(); // name (lowercase) -> refId
   private subSubSubCategoryMap = new Map<string, string>(); // name (lowercase) -> refId
@@ -136,11 +139,11 @@ export class BulkUploadValidatorService {
         where: ACTIVE_MASTER_WHERE,
       }),
       this.dataSource.getRepository(CategoryEntity).find({
-        select: ['id', 'name', 'refId'],
+        select: ['id', 'name', 'refId', 'skuCode'],
         where: ACTIVE_MASTER_WHERE,
       }),
       this.dataSource.getRepository(BrandEntity).find({
-        select: ['name', 'refId'],
+        select: ['name', 'refId', 'skuCode'],
         where: ACTIVE_MASTER_WHERE,
       }),
       this.dataSource.getRepository(HealthConcernEntity).find({
@@ -220,7 +223,17 @@ export class BulkUploadValidatorService {
 
     this.natureMap = new Map(natures.map((n: any) => [n.name.toLowerCase().trim(), n.refId]));
     this.brandMap = new Map(brands.map((b: any) => [b.name.toLowerCase().trim(), b.refId]));
+    this.brandCodeByName = new Map(
+      brands
+        .filter((b: any) => b.skuCode)
+        .map((b: any) => [b.name.toLowerCase().trim(), b.skuCode as string]),
+    );
     this.categoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
+    this.categoryCodeByName = new Map(
+      categories
+        .filter((c: any) => c.skuCode)
+        .map((c: any) => [c.name.toLowerCase().trim(), c.skuCode as string]),
+    );
     this.categoryIdByName = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.id]));
     this.subCategoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
     this.subSubCategoryMap = new Map(categories.map((c: any) => [c.name.toLowerCase().trim(), c.refId]));
@@ -1326,7 +1339,17 @@ export class BulkUploadValidatorService {
     let relatedSkuIndex = 0;
 
     const canGenerate = Boolean(group.category?.trim() && group.brand?.trim());
-    const prefix = canGenerate ? buildSkuPrefix(group.category!, group.brand!) : '';
+    const categoryCode = group.category
+      ? this.categoryCodeByName.get(group.category.toLowerCase().trim())
+      : undefined;
+    const brandCode = group.brand
+      ? this.brandCodeByName.get(group.brand.toLowerCase().trim())
+      : undefined;
+    const prefix = canGenerate
+      ? categoryCode && brandCode
+        ? buildSkuPrefixFromCodes(categoryCode, brandCode)
+        : buildSkuPrefix(group.category!, group.brand!)
+      : '';
     const existingSkus = [...this.dbSkus, ...sheetSkus, ...reservedInGroup];
     let sequence = canGenerate ? findMaxSkuSequenceForPrefix(prefix, existingSkus) : 0;
 

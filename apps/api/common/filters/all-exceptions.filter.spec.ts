@@ -1,4 +1,10 @@
-import { HttpException, HttpStatus, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 
 describe('AllExceptionsFilter logging', () => {
@@ -92,6 +98,85 @@ describe('AllExceptionsFilter logging', () => {
       }),
     );
     expect(message).toBe('Request failed');
+  });
+
+  it('forwards checkout pincode fields on the standard error response', () => {
+    const { host, send } = makeHost();
+    jest.spyOn((filter as any).logger, 'warn').mockImplementation(() => undefined);
+
+    filter.catch(
+      new BadRequestException({
+        error: 'Bad Request',
+        code: 'PRODUCTS_NOT_DELIVERABLE_TO_PINCODE',
+        message: 'Some products in your cart are not deliverable to pincode 380001.',
+        pincode: '380001',
+        unavailableProducts: [
+          {
+            productId: 'prod-1',
+            variantId: 'var-1',
+            productName: 'Serum',
+            sku: 'SKU-1',
+            pincode: '380001',
+          },
+        ],
+      }),
+      host,
+    );
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        code: 'PRODUCTS_NOT_DELIVERABLE_TO_PINCODE',
+        pincode: '380001',
+        unavailableProducts: [expect.objectContaining({ sku: 'SKU-1' })],
+      }),
+    );
+  });
+
+  it('keeps GoKwik and BOB error bodies unchanged', () => {
+    const warnSpy = jest.spyOn((filter as any).logger, 'warn').mockImplementation(() => undefined);
+    const exception = new BadRequestException({
+      error: 'Bad Request',
+      code: 'PRODUCTS_NOT_DELIVERABLE_TO_PINCODE',
+      message: 'Some products in your cart are not deliverable to pincode 380001.',
+      pincode: '380001',
+      unavailableProducts: [{ sku: 'SKU-1' }],
+    });
+
+    const gokwikSend = jest.fn();
+    filter.catch(exception, {
+      switchToHttp: () => ({
+        getResponse: () => ({ status: jest.fn().mockReturnValue({ send: gokwikSend }) }),
+        getRequest: () => ({
+          id: 'req-1',
+          method: 'POST',
+          url: '/api/v1/gokwik/checkout',
+        }),
+      }),
+    } as never);
+    expect(gokwikSend).toHaveBeenCalledWith({
+      data: { error: 'Some products in your cart are not deliverable to pincode 380001.' },
+    });
+
+    const bobSend = jest.fn();
+    filter.catch(exception, {
+      switchToHttp: () => ({
+        getResponse: () => ({ status: jest.fn().mockReturnValue({ send: bobSend }) }),
+        getRequest: () => ({
+          id: 'req-2',
+          method: 'POST',
+          url: '/api/v1/bob/order',
+        }),
+      }),
+    } as never);
+    expect(bobSend).toHaveBeenCalledWith({
+      status: 'failure',
+      statusCode: HttpStatus.BAD_REQUEST,
+      error: 'Some products in your cart are not deliverable to pincode 380001.',
+    });
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it('logs 400 as warn', () => {

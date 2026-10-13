@@ -35,18 +35,21 @@ import {
   BobProductSummary,
   BobVariantDetail,
 } from '../interfaces/bob.interface';
-import { requireBobCatalogueProductId } from '../utils/bob-product-id.util';
+import {
+  requireBobCatalogueCategoryId,
+  requireBobCatalogueProductId,
+} from '../utils/bob-product-id.util';
 import { toBobE164Phone, toBobOrderAlias } from '../utils/bob.util';
 
 export function mapBobCategory(
   category: CategoryEntity,
-  parentTitle: string | null = null,
+  parent: Pick<CategoryEntity, 'hierarchyId' | 'name'> | null = null,
 ): BobCategory {
   return {
-    id: category.id,
+    id: requireBobCatalogueCategoryId(category),
     title: category.name,
-    parentId: category.parentCategoryId,
-    parentTitle: parentTitle ?? category.parent?.name ?? null,
+    parentId: parent ? requireBobCatalogueCategoryId(parent) : null,
+    parentTitle: parent?.name ?? null,
   };
 }
 

@@ -46,7 +46,11 @@ function product(overrides: Partial<ProductEntity> = {}): ProductEntity {
 }
 
 describe('GET /api/v1/bob/categories/:categoryId/products', () => {
-  let categoriesRepository: { findById: jest.Mock; findByRefId: jest.Mock };
+  let categoriesRepository: {
+    findById: jest.Mock;
+    findByRefId: jest.Mock;
+    findActiveByHierarchyId: jest.Mock;
+  };
   let productsRepository: {
     findPublishedRefIdsByCategoryId: jest.Mock;
     findPublishedByRefIds: jest.Mock;
@@ -68,6 +72,11 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     categoriesRepository = {
       findById: jest.fn().mockResolvedValue({ id: CATEGORY_ID, name: 'Anti dandruff shampoo' }),
       findByRefId: jest.fn(),
+      findActiveByHierarchyId: jest.fn().mockResolvedValue({
+        id: CATEGORY_ID,
+        hierarchyId: 1042,
+        name: 'Preterm Formula',
+      }),
     };
     productsRepository = {
       findPublishedRefIdsByCategoryId: jest.fn().mockResolvedValue([]),
@@ -125,6 +134,16 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     ]);
     expect(result.map((item) => item.id)).not.toContain(PRODUCT_UUID);
     expect(listed.id).toBe(PRODUCT_UUID);
+  });
+
+  it('loads the same category products by numeric hierarchy id', async () => {
+    productsRepository.findPublishedRefIdsByCategoryId.mockResolvedValue([]);
+
+    await service.listProductsByCategory('1042');
+
+    expect(categoriesRepository.findActiveByHierarchyId).toHaveBeenCalledWith(1042);
+    expect(categoriesRepository.findById).not.toHaveBeenCalled();
+    expect(productsRepository.findPublishedRefIdsByCategoryId).toHaveBeenCalledWith(CATEGORY_ID);
   });
 
   it('loads product detail by UUID, refId, and catalogue id', async () => {

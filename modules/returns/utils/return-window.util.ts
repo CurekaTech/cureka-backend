@@ -10,6 +10,15 @@ const DAY_MS = 24 * HOUR_MS;
  * the order date and not the shipping date. Returns `null` when the item has no
  * reliable delivery timestamp or no configured window.
  */
+/**
+ * A missing or non-positive window uses the caller-supplied default (2 days
+ * for return and replace). A configured window is left unchanged.
+ */
+export const resolveConfiguredWindow = (
+  window: number | null | undefined,
+  fallbackDays: number,
+): number => (window === null || window === undefined || window <= 0 ? fallbackDays : window);
+
 export const resolveWindowExpiry = (
   deliveredAt: Date | null | undefined,
   window: number | null | undefined,

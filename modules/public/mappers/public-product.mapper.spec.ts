@@ -159,7 +159,9 @@ describe('toPublicStorefrontProductDetail', () => {
           stock: 10,
           inStock: true,
           outOfStock: false,
-          gtinNumber: '8901234567890',
+          gtinNumber: '00012345',
+          hsnCode: '30049099',
+          batchNumber: 'BATCH-2026-001',
           estimatedDeliveryTime: '3-5 Days',
           subscriptionEnabled: true,
           returnAllowed: true,
@@ -178,6 +180,41 @@ describe('toPublicStorefrontProductDetail', () => {
           expiryDate: '01-01-2027',
           attributes: [{ attributeRefId: 'ATTR1', attributeName: 'Pack', value: 'Pack of 1' }],
         },
+        {
+          id: 'var-uuid-2',
+          sku: 'SKU2',
+          slug: 'omega-3-1000',
+          productPageUrl: '/shop/omega-3-1000/',
+          displayName: '1000mg',
+          status: 'active',
+          images: [],
+          mrp: 1299,
+          sellingPrice: 999,
+          discountPercentage: 23,
+          stock: 4,
+          inStock: true,
+          outOfStock: false,
+          gtinNumber: null,
+          hsnCode: null,
+          batchNumber: null,
+          estimatedDeliveryTime: null,
+          subscriptionEnabled: true,
+          returnAllowed: true,
+          returnPolicy: '7 days',
+          returnWindowDays: 7,
+          replaceAllowed: true,
+          replaceWindowDays: 7,
+          weight: null,
+          weightUnit: null,
+          length: null,
+          lengthUnit: null,
+          width: null,
+          widthUnit: null,
+          height: null,
+          heightUnit: null,
+          expiryDate: null,
+          attributes: [{ attributeRefId: 'ATTR1', attributeName: 'Pack', value: 'Pack of 2' }],
+        },
       ],
       media: [],
       healthConcerns: [{ refId: 'HC1', name: 'Heart', slug: 'heart' }],
@@ -194,7 +231,15 @@ describe('toPublicStorefrontProductDetail', () => {
     expect(slim.refId).toBe('PRD1');
     expect(slim.selectedVariantId).toBe('var-uuid');
     expect(slim.variants[0]?.sku).toBe('SKU1');
-    expect(slim.variants[0]?.gtinNumber).toBe('8901234567890');
+    expect(slim.variants[0]?.gtinNumber).toBe('00012345');
+    expect(slim.variants[0]?.hsnCode).toBe('30049099');
+    expect(slim.variants[0]?.batchNumber).toBe('BATCH-2026-001');
+    expect(slim.variants[1]).toMatchObject({
+      sku: 'SKU2',
+      gtinNumber: null,
+      hsnCode: null,
+      batchNumber: null,
+    });
     expect(slim.variants[0]?.attributes[0]).toEqual({
       attributeRefId: 'ATTR1',
       attributeName: 'Pack',

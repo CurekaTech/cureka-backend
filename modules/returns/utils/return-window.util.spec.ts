@@ -1,5 +1,5 @@
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
-import { isWithinWindow, resolveWindowExpiry } from './return-window.util';
+import { isWithinWindow, resolveConfiguredWindow, resolveWindowExpiry } from './return-window.util';
 
 describe('return window', () => {
   const deliveredAt = new Date('2026-01-10T00:00:00.000Z');
@@ -18,6 +18,14 @@ describe('return window', () => {
 
   it('returns null when the item has no delivery timestamp', () => {
     expect(resolveWindowExpiry(null, 7, PolicyWindowUnit.DAYS)).toBeNull();
+  });
+
+  it('uses the fallback when the configured window is missing or not positive', () => {
+    expect(resolveConfiguredWindow(null, 2)).toBe(2);
+    expect(resolveConfiguredWindow(undefined, 2)).toBe(2);
+    expect(resolveConfiguredWindow(0, 2)).toBe(2);
+    expect(resolveConfiguredWindow(-1, 2)).toBe(2);
+    expect(resolveConfiguredWindow(7, 2)).toBe(7);
   });
 
   it('returns null for a zero or missing window', () => {

@@ -4,6 +4,7 @@ import {
   IVariantAttributeInput,
 } from './variant-combination-key.util';
 import { BULK_UPLOAD_VARIANT_IMAGE_COUNT } from './bulk-upload-image.util';
+import { primaryCatalogueCode } from '@modules/master/utils/catalogue-code.util';
 
 export const MAX_GENERATED_VARIANTS = 100;
 export const VARIABLE_TEMPLATE_ATTRIBUTE_COUNT = 5;
@@ -203,11 +204,8 @@ export const buildAttributeDetailsHeaders = (
 ): string[] =>
   Array.from({ length: count }, (_, index) => `Attribute Details ${index + 1}`);
 
-const extractPrefix = (name: string, fallback: string): string => {
-  const letters = (name.match(/[a-zA-Z]/g) ?? []).join('').toUpperCase();
-  if (!letters) return fallback;
-  return letters.slice(0, 3).padEnd(3, 'X');
-};
+const extractPrefix = (name: string, fallback: string): string =>
+  primaryCatalogueCode(name, fallback);
 
 /** Auto-generated SKU numeric width: CAT/BRA/NNNNN (e.g. HER/ZIN/08945). */
 export const SKU_SEQUENCE_DIGITS = 5;
@@ -218,6 +216,18 @@ export const buildSkuPrefix = (categoryName: string, brandName: string): string 
   const brandPrefix = extractPrefix(brandName, 'GEN');
   return `${categoryPrefix}/${brandPrefix}/`;
 };
+
+/** SKU prefix from the stored brand and category codes. */
+export const buildSkuPrefixFromCodes = (categoryCode: string, brandCode: string): string =>
+  `${categoryCode}/${brandCode}/`;
+
+export const resolveCatalogueCodes = (
+  category: { name: string; skuCode?: string | null },
+  brand: { name: string; skuCode?: string | null },
+): { categoryCode: string; brandCode: string } => ({
+  categoryCode: category.skuCode?.trim() || extractPrefix(category.name, 'CAT'),
+  brandCode: brand.skuCode?.trim() || extractPrefix(brand.name, 'GEN'),
+});
 
 /**
  * Formats an auto-generated SKU as `{prefix}{NNNNN}` with leading zeros.

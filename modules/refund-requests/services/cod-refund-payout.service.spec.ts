@@ -17,10 +17,12 @@ describe('CodRefundPayoutService.markPaid', () => {
   };
   const walletService = { credit: jest.fn() };
   const manualProvider = { code: 'MANUAL', submit: jest.fn() };
-  const auditService = { log: jest.fn() };
+  const auditService = { log: jest.fn(), enqueueCritical: jest.fn(), persistCritical: jest.fn() };
   const eventEmitter = { emitAsync: jest.fn() };
   const dataSource = {
-    transaction: jest.fn(async (fn: (manager: unknown) => Promise<unknown>) => fn({})),
+    transaction: jest.fn(async (fn: (manager: unknown) => Promise<unknown>) =>
+      fn({ query: jest.fn() }),
+    ),
     getRepository: jest.fn(),
   };
 

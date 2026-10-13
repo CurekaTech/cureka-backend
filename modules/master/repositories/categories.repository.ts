@@ -1,7 +1,7 @@
 import { applyMasterListOrdering } from '../utils/master-list-query.util';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { CategoryEntity } from '../entities/category.entity';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
@@ -14,6 +14,7 @@ import {
   MasterCursorStatusOptions,
 } from '../utils/master-cursor-query.util';
 import { buildSkipTake } from '@packages/database';
+import { sqlWithCompactWordBreaks } from '@modules/search/utils/search-tolerance.util';
 
 interface CategoryFindOptions extends PaginationOptions {
   hierarchyLevel?: CategoryHierarchyLevel;
@@ -34,9 +35,11 @@ export class CategoriesRepository {
     data: Partial<CategoryEntity>,
     attributes: AttributeEntity[],
     categoryFilters: CategoryFilterEntity[] = [],
+    manager?: EntityManager,
   ): Promise<CategoryEntity> {
-    const entity = this.repo.create({ ...data, attributes, categoryFilters });
-    return this.repo.save(entity);
+    const repo = manager ? manager.getRepository(CategoryEntity) : this.repo;
+    const entity = repo.create({ ...data, attributes, categoryFilters });
+    return repo.save(entity);
   }
 
   async findById(id: string): Promise<CategoryEntity | null> {
@@ -47,6 +50,13 @@ export class CategoriesRepository {
       .leftJoinAndSelect('category.categoryFilters', 'categoryFilter')
       .where('category.id = :id', { id })
       .getOne();
+  }
+
+  async findActiveByHierarchyId(hierarchyId: number): Promise<CategoryEntity | null> {
+    if (!Number.isSafeInteger(hierarchyId) || hierarchyId <= 0) return null;
+    return this.repo.findOne({
+      where: { hierarchyId, status: MasterStatus.ACTIVE },
+    });
   }
 
   async findByRefId(refId: string): Promise<CategoryEntity | null> {
@@ -405,10 +415,12 @@ export class CategoriesRepository {
       .take(take);
 
     if (options.search) {
-      qb.andWhere(
+      const { sql, params } = sqlWithCompactWordBreaks(
+        options.search,
         '(category.name ILIKE :search OR category.slug ILIKE :search OR category.refId ILIKE :search OR parent.name ILIKE :search OR parent.slug ILIKE :search)',
-        { search: `%${options.search}%` },
+        ['category.name', 'category.slug', 'parent.name', 'parent.slug'],
       );
+      qb.andWhere(sql, params);
     }
     if (options.hierarchyLevel !== undefined) {
       qb.andWhere('category.hierarchyLevel = :hierarchyLevel', {

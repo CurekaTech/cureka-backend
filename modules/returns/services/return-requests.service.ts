@@ -6,6 +6,8 @@ import { ReasonWorkflow } from '@modules/master/enums/reason-workflow.enum';
 import { ReasonMastersRepository } from '@modules/master/repositories/reason-masters.repository';
 import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
+import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
+import { IOrderItemBundleComponent } from '@modules/orders/interfaces/order-item-bundle-component.interface';
 import { toMoneyString } from '@modules/orders/utils/money.util';
 import { resolvePrimaryProductImageRef } from '@modules/orders/utils/resolve-primary-product-image.util';
 import {
@@ -47,6 +49,7 @@ import {
   RETURN_CONDITIONS_NOT_CONFIRMED,
   RETURN_CURRENCY,
   RETURN_EVIDENCE_LIMIT_EXCEEDED,
+  BUNDLE_COMPONENT_NOT_FOUND,
   RETURN_ITEM_NOT_FOUND,
   RETURN_MAX_EVIDENCE_FILES,
   RETURN_NOT_ALLOWED,
@@ -295,6 +298,8 @@ export class ReturnRequestsService {
         }
       }
 
+      this.resolveAffectedComponent(orderItem, line.affectedComponentVariantId);
+
       if (line.quantity > itemEligibility.availableQuantity) {
         throw new BadRequestException({
           code:
@@ -398,6 +403,10 @@ export class ReturnRequestsService {
           dto.items.map(async (line) => {
             const orderItem = orderItemsById.get(line.orderItemId)!;
             const itemEligibility = eligibilityByItemId.get(line.orderItemId)!;
+            const affected = this.resolveAffectedComponent(
+              orderItem,
+              line.affectedComponentVariantId,
+            );
             return {
               refId: await generateUniqueRefId('returnitem', (candidate) =>
                 this.returnRequestsRepository.existsByItemRefId(candidate),
@@ -415,6 +424,9 @@ export class ReturnRequestsService {
               policySnapshot: itemEligibility.policy,
               deliveredAt: itemEligibility.deliveredAt,
               replacementVariantId: line.replacementVariantId ?? null,
+              affectedComponentVariantId: affected?.variantId ?? null,
+              affectedComponentSku: affected?.sku ?? null,
+              affectedComponentName: affected?.productName ?? null,
               createdBy: actor.email ?? actor.id,
               updatedBy: actor.email ?? actor.id,
             };
@@ -1062,6 +1074,25 @@ export class ReturnRequestsService {
       bankDetailsSubmittedAt: encrypted?.bankDetailsSubmittedAt ?? (method === CodRefundMethod.WALLET ? new Date() : null),
       bankDetailsLocked: false,
     };
+  }
+
+  private resolveAffectedComponent(
+    orderItem: OrderItemEntity,
+    variantId: string | undefined,
+  ): IOrderItemBundleComponent | null {
+    if (!variantId) {
+      return null;
+    }
+    const match = (orderItem.bundleComponents ?? []).find(
+      (component) => component.variantId === variantId,
+    );
+    if (!match) {
+      throw new BadRequestException({
+        code: BUNDLE_COMPONENT_NOT_FOUND,
+        message: 'That component is not part of this bundle order line',
+      });
+    }
+    return match;
   }
 
   private async lockOrder(manager: EntityManager, orderId: string): Promise<void> {

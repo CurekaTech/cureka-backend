@@ -222,6 +222,13 @@ if ! npm run migration:run; then
 fi
 DID_MIGRATIONS=1
 
+# One-time COD / return sheet. TechBV STOREFRONT_URL uses the test sheet;
+# live uses the full sheet. A later deploy sees the DB marker and skips.
+log_step "npm run product:no-return-no-cod -- --once"
+if ! npm run product:no-return-no-cod -- --once; then
+  fail_deploy "npm run product:no-return-no-cod --once failed"
+fi
+
 # ---------------------------------------------------------------------------
 # PM2 reload — never restart on success path
 # ---------------------------------------------------------------------------

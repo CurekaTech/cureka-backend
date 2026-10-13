@@ -11,13 +11,14 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { RefIdPipe, PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { RefIdPipe, ResponseMessage } from '@packages/common';
 import { JwtAuthGuard, RolesGuard, Roles, CurrentAdminUser, IAdminJwtPayload } from '@packages/auth';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { CouponsService } from '../services/coupons.service';
 import { CreateCouponDto, UpdateCouponDto, UpdateCouponStatusDto } from '../dto/coupon.dto';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('master/coupons')
@@ -37,7 +38,7 @@ export class CouponsController {
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN)
   @RequirePermissions('coupon_codes.read')
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: MasterListQueryDto) {
     return this.couponsService.findAll(query);
   }
 

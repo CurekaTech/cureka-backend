@@ -11,6 +11,7 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { AppModule } from './app.module';
 import { resolveUploadDir } from './config/storage.config';
+import { resolveTrustProxy } from './config/trust-proxy.util';
 import { APP_CONSTANTS } from '@packages/common';
 import { assignIncomingRequestId, REQUEST_ID_HEADER } from '@packages/logger';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -42,9 +43,10 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter({
       logger: false,
       maxParamLength: APP_CONSTANTS.FASTIFY_MAX_PARAM_LENGTH,
-      // Honor X-Forwarded-For / X-Real-IP from nginx so OTP IP rate limits
-      // are per client, not per load-balancer hop.
-      trustProxy: true,
+      // Honor forwarding headers from TRUST_PROXY. Unset trusts loopback only.
+      // true and unrestricted CIDRs are rejected. Do not bind this process to localhost:
+      // a separate admin server must still be able to connect, with access limited by the firewall.
+      trustProxy: resolveTrustProxy(process.env['TRUST_PROXY'], nodeEnv),
       // Align Fastify request.id with pino-http by stamping IncomingMessage.id.
       genReqId: (req: IncomingMessage | Http2ServerRequest) => assignIncomingRequestId(req),
     }),

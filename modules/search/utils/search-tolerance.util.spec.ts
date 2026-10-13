@@ -3,6 +3,7 @@ import {
   isCloseSearchMatch,
   isGibberishSearchQuery,
   searchQueryNeedsCompactRetry,
+  searchQueryOmitsWordBreaks,
   searchTypoBudget,
 } from './search-tolerance.util';
 
@@ -12,6 +13,12 @@ describe('search tolerance', () => {
     expect(compactSearchText('ceta  phil')).toBe('cetaphil');
     expect(compactSearchText('cetaphil ')).toBe('cetaphil');
     expect(compactSearchText('Cetaphil')).toBe('cetaphil');
+  });
+
+  it('treats a single word as a possible run of catalog words', () => {
+    expect(searchQueryOmitsWordBreaks('healthetc')).toBe(true);
+    expect(searchQueryOmitsWordBreaks('health etc')).toBe(false);
+    expect(searchQueryOmitsWordBreaks('etc')).toBe(false);
   });
 
   it('retries a compact search only when the query is spaced or punctuated', () => {

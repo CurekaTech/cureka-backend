@@ -42,9 +42,10 @@ import {
   resolveBundleChildItems,
 } from '../utils/bundle-product.util';
 import {
-  buildSkuPrefix,
+  buildSkuPrefixFromCodes,
   findMaxSkuSequenceForPrefix,
   formatGeneratedSku,
+  resolveCatalogueCodes,
 } from '../utils/bulk-upload-variable.util';
 import { resolveSimpleVariantDisplayName } from '../utils/simple-product-display-name.util';
 import { pickVariableProductInformationCascade } from '../utils/variable-product-information-cascade.util';
@@ -58,6 +59,7 @@ import { mapProductEntityToDetailResponse, mapProductEntityToResponse, mapProduc
 import { IProductDetail } from '../interfaces/product-detail.interface';
 import { generateProductSlug, assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
+import { resolveProductAuditAction } from '../utils/product-audit-action.util';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
@@ -69,6 +71,11 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
 import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
+import { mergeAuditSubject } from '@modules/master/utils/audit-subject.util';
+import { getAuditActor } from '@modules/master/utils/audit-actor.context';
 import { OosEmailQueueService } from '@modules/oos-email/services/oos-email-queue.service';
 import { VariantOosTransition } from '../repositories/product-variants.repository';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
@@ -110,6 +117,7 @@ export class ProductsService {
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly oosEmailQueueService: OosEmailQueueService,
     private readonly pincodesService: PincodesService,
+    private readonly auditService: AuditService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -381,7 +389,8 @@ export class ProductsService {
       );
     }
 
-    return this.variantsRepository.generateNextSku(category.name, brand.name);
+    const { categoryCode, brandCode } = resolveCatalogueCodes(category, brand);
+    return this.variantsRepository.generateNextSku(categoryCode, brandCode);
   }
 
   private allowDuplicateSkuForBundles(): boolean {
@@ -447,7 +456,8 @@ export class ProductsService {
       );
     }
 
-    const prefix = buildSkuPrefix(category.name, brand.name);
+    const { categoryCode, brandCode } = resolveCatalogueCodes(category, brand);
+    const prefix = buildSkuPrefixFromCodes(categoryCode, brandCode);
     const existingPrefixSkus = await this.variantsRepository.findSkusByPrefix(prefix);
     const reservedSkus = new Set(
       inputVariants
@@ -664,6 +674,15 @@ export class ProductsService {
     loaded.rejectionReason = null;
 
     await this.emitProductUpdated(product.refId, 'created');
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.PRODUCT,
+      entityId: product.id,
+      entityRefId: product.refId,
+      action: 'created',
+      performedBy: createdBy,
+      name: product.name,
+      details: { status: ProductStatus.PENDING_REVIEW },
+    });
 
     await this.syncSubscriptionConfig(product.id, normalizedDto, createdBy);
 
@@ -1291,6 +1310,19 @@ export class ProductsService {
     updated.rejectionReason = null;
 
     await this.emitProductUpdated(refId, 'updated');
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.PRODUCT,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: 'updated',
+      performedBy: updatedBy,
+      name: existing.name,
+      details: {
+        fields: Object.keys(dto).slice(0, 40),
+        fromStatus: existing.status,
+        toStatus: ProductStatus.PENDING_REVIEW,
+      },
+    });
     await this.syncSubscriptionConfig(updated.id, dto, updatedBy);
     if (options?.skipDetailEnrichment) {
       return mapProductEntityToResponse(updated);
@@ -1310,6 +1342,7 @@ export class ProductsService {
       updatedBy,
     });
     await this.emitProductUpdated(refId, 'status_updated');
+    await this.auditProductStatus(existing, ProductStatus.PENDING_REVIEW, updatedBy);
     return this.findOne(refId);
   }
 
@@ -1327,6 +1360,7 @@ export class ProductsService {
       updatedBy,
     });
     await this.emitProductUpdated(refId, 'status_updated');
+    await this.auditProductStatus(existing, ProductStatus.PUBLISHED, updatedBy);
     return this.findOne(refId);
   }
 
@@ -1343,6 +1377,7 @@ export class ProductsService {
       updatedBy,
     });
     await this.emitProductUpdated(refId, 'status_updated');
+    await this.auditProductStatus(existing, ProductStatus.REJECTED, updatedBy);
     return this.findOne(refId);
   }
 
@@ -1372,6 +1407,7 @@ export class ProductsService {
       updatedBy,
     });
     await this.emitProductUpdated(refId, 'updated');
+    await this.auditProductStatus(existing, ProductStatus.PUBLISHED, updatedBy);
     if (options?.skipDetailEnrichment) {
       existing.status = ProductStatus.PUBLISHED;
       return mapProductEntityToResponse(existing);
@@ -1380,8 +1416,11 @@ export class ProductsService {
   }
 
   async updateStatus(refId: string, dto: UpdateProductStatusDto, updatedBy: string): Promise<IProduct> {
+    const existing = await this.productsRepository.findByRefId(refId);
+    if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
     await this.productsRepository.updateByRefId(refId, { status: dto.status, updatedBy });
     await this.emitProductUpdated(refId, 'status_updated');
+    await this.auditProductStatus(existing, dto.status, updatedBy);
     return this.findOne(refId);
   }
 
@@ -1661,6 +1700,7 @@ export class ProductsService {
       updatedBy,
     });
     await this.emitProductUpdated(refId, 'status_updated');
+    await this.auditProductStatus(existing, ProductStatus.INACTIVE, updatedBy);
     return this.findOne(refId);
   }
 
@@ -1687,6 +1727,45 @@ export class ProductsService {
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
     await this.productsRepository.softDeleteByRefId(refId);
     await this.emitProductUpdated(refId, 'deleted');
+    await this.auditProductChange(existing, 'deleted', this.productActor(), { from: existing.status });
+  }
+
+  private productActor(): string {
+    return getAuditActor()?.performedBy ?? 'system';
+  }
+
+  private async auditProductStatus(
+    product: { id: string; refId: string; name?: string | null; status: ProductStatus },
+    to: ProductStatus,
+    performedBy: string,
+  ): Promise<void> {
+    if (product.status === to) return;
+    await this.auditProductChange(product, resolveProductAuditAction(product.status, to), performedBy, {
+      from: product.status,
+      to,
+    });
+  }
+
+  private async auditProductChange(
+    product: { id: string; refId: string; name?: string | null },
+    action: string,
+    performedBy: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    const version = getAuditActor()?.requestId ?? `${action}:${Date.now()}`;
+    await this.auditService.log({
+      entityType: AuditEntityType.PRODUCT,
+      entityId: product.id,
+      entityRefId: product.refId,
+      action,
+      performedBy,
+      idempotencyKey: auditIdempotency.write('product', product.id, action, version),
+      details: mergeAuditSubject(details, {
+        name: product.name,
+        id: product.id,
+        refId: product.refId,
+      }),
+    });
   }
 
   /**

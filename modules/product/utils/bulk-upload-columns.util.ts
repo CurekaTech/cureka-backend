@@ -97,6 +97,7 @@ export const BULK_UPLOAD_FIXED_COLUMN_HEADERS = [
   'Tax Class',
   'Quantity / Stock',
   'Out Of Stock',
+  'In Cureka Inventory',
   'Estimated Delivery Time',
   'Weight (kg)',
   'Weight Unit',
@@ -255,7 +256,7 @@ export const resolveProductInformationLabelName = (
  * migration it is accepted as an alias of "Search Tags".
  */
 export const LEGACY_FIXED_BULK_UPLOAD_COLUMN_ALIASES = new Set(
-  ['Tags'].map(normalizeBulkUploadHeader),
+  ['Tags', 'GTN Number', 'Batch No'].map(normalizeBulkUploadHeader),
 );
 
 /**

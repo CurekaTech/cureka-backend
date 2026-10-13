@@ -2237,5 +2237,67 @@ export class PaymentRequestsService {
       discount: discountAmount,
     };
   }
+
+  /**
+   * Payment for a replacement price difference only. Does not change the original
+   * order and does not go through GoKwik checkout.
+   */
+  findById(id: string): Promise<PaymentRequestEntity | null> {
+    return this.paymentRequestsRepository.findById(id);
+  }
+
+  async createReplacementDifferenceLink(params: {
+    customerId: string;
+    amount: string;
+    productId: string;
+    variantId: string;
+    returnNumber: string;
+    updatedBy: string;
+  }): Promise<PaymentRequestEntity> {
+    const refId = await generateUniqueRefId('pay-request', (candidate) =>
+      this.paymentRequestsRepository.existsByRefId(candidate),
+    );
+    const created = await this.paymentRequestsRepository.create({
+      refId,
+      customerId: params.customerId,
+      status: PaymentRequestStatus.PAYMENT_PENDING,
+      subtotal: params.amount,
+      discount: '0.00',
+      tax: '0.00',
+      shipping: '0.00',
+      handling: '0.00',
+      platformFee: '0.00',
+      codCharge: '0.00',
+      prepaidDiscount: '0.00',
+      couponDiscount: '0.00',
+      totalAmount: params.amount,
+      currency: 'INR',
+      notes: `Replacement difference for ${params.returnNumber}`,
+      orderSource: OrderSource.WEBSITE,
+      paymentProvider: 'RAZORPAY',
+      createdBy: params.updatedBy,
+      updatedBy: params.updatedBy,
+    });
+    const itemRefId = await generateUniqueRefId('pay-item', (candidate) =>
+      this.paymentRequestItemsRepository.existsByRefId(candidate),
+    );
+    await this.paymentRequestItemsRepository.createMany([
+      {
+        refId: itemRefId,
+        paymentRequestId: created.id,
+        productId: params.productId,
+        variantId: params.variantId,
+        quantity: 1,
+        unitPrice: params.amount,
+        discount: '0.00',
+        tax: '0.00',
+        total: params.amount,
+        isSubscription: false,
+        createdBy: params.updatedBy,
+        updatedBy: params.updatedBy,
+      },
+    ]);
+    return this.generateLink(created.id, params.updatedBy);
+  }
 }
 

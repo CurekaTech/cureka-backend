@@ -7,5 +7,7 @@ export enum RefundReason {
   DAMAGED_PRODUCT = 'DAMAGED_PRODUCT',
   /** Refund raised by an approved, received and QC-passed return. */
   PRODUCT_RETURN = 'PRODUCT_RETURN',
+  /** Bank refund of a replacement that costs less than the historical order price. */
+  REPLACEMENT_PRICE_DIFFERENCE = 'REPLACEMENT_PRICE_DIFFERENCE',
   OTHER = 'OTHER',
 }

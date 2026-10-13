@@ -35,6 +35,15 @@ export const RETURN_EVIDENCE_LIMIT_EXCEEDED = 'RETURN_EVIDENCE_LIMIT_EXCEEDED';
 
 export const RETURN_CURRENCY = 'INR';
 
+/** Used when a product or variant has no return window configured. */
+export const DEFAULT_RETURN_WINDOW_DAYS = 2;
+
+/** Used when a product or variant has no replacement window configured. */
+export const DEFAULT_REPLACE_WINDOW_DAYS = 2;
+
+export const BUNDLE_COMPONENT_NOT_FOUND = 'BUNDLE_COMPONENT_NOT_FOUND';
+export const BANK_DETAILS_REQUIRED = 'BANK_DETAILS_REQUIRED';
+
 export const RETURN_SUBMITTED_CUSTOMER_MESSAGE =
   'Your return request has been submitted and is under review.';
 

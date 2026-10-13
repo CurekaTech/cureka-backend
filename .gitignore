@@ -41,6 +41,11 @@ yarn-error.log*
 # Sitemap audit exports (local CLI output)
 /reports/sitemap-audit/
 
+# Generated release playbooks and email drafts
+/reports/releases/**
+!/reports/releases/.gitkeep
+/.release-note-sent/
+
 # Product media backfill / harvest run reports
 /reports/product-media-backfill/
 /reports/product-image-harvest/
@@ -59,4 +64,6 @@ docs/wp-image-harvest-cache.json.tmp
 
 # Google Merchant client export sheets (regenerate via npm run google-merchant:export-sheet)
 docs/Master-Data-Sheets/exports/*.xlsx
+docs/Master-Data-Sheets/exports/*.csv
+docs/Master-Data-Sheets/exports/*.log
 !docs/Master-Data-Sheets/exports/.gitkeep

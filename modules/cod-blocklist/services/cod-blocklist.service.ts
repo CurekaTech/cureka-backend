@@ -12,6 +12,8 @@ import {
 } from '@modules/auth/utils/mobile-number.util';
 import { CodEligibility } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import {
   buildPaginatedResult,
@@ -63,6 +65,7 @@ export class CodBlocklistService {
     private readonly repository: CodBlocklistRepository,
     private readonly usersRepository: UsersRepository,
     private readonly checkoutResolver: CheckoutResolverService,
+    private readonly auditService: AuditService,
   ) {}
 
   async evaluateCodBlock(params: EvaluateCodBlockParams): Promise<CodBlockEvaluation> {
@@ -180,7 +183,16 @@ export class CodBlocklistService {
       { refId: entity.refId, type: entity.type, isActive: entity.isActive },
       'COD blocklist entry created',
     );
-    return mapCodBlocklistToListItem(entity);
+    const item = mapCodBlocklistToListItem(entity);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.COD_BLOCKLIST,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action: 'created',
+      performedBy: actorEmail,
+      details: { type: entity.type, isActive: entity.isActive },
+    });
+    return item;
   }
 
   async list(query: CodBlocklistListQueryDto): Promise<PaginatedResult<ICodBlocklistListItem>> {
@@ -223,12 +235,27 @@ export class CodBlocklistService {
       ...payload,
       updatedBy: actorEmail,
     });
-    return this.findOne(existing.id);
+    const item = await this.findOne(existing.id);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.COD_BLOCKLIST,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: 'updated',
+      performedBy: actorEmail,
+      details: { type: item.type, isActive: item.isActive },
+    });
+    return item;
   }
 
   async remove(idOrRefId: string): Promise<void> {
     const existing = await this.requireEntry(idOrRefId);
     await this.repository.softDeleteById(existing.id);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.COD_BLOCKLIST,
+      entityId: existing.id,
+      entityRefId: existing.refId,
+      action: 'deleted',
+    });
     this.logger.log({ refId: existing.refId }, 'COD blocklist entry deleted');
   }
 

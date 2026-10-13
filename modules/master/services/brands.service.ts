@@ -1,8 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '../repositories/brands.repository';
+import { CatalogueCodeService } from './catalogue-code.service';
 import {
   BrandHighlightDto,
   CreateBrandDto,
@@ -60,8 +63,10 @@ export class BrandsService {
     private readonly multipartFormService: MultipartFormService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
+    private readonly catalogueCodes: CatalogueCodeService,
     private readonly eventEmitter: EventEmitter2,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly auditService: AuditService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBrand> {
@@ -122,8 +127,10 @@ export class BrandsService {
       throw new ConflictException(`A brand with slug "${slug}" already exists`);
     }
 
-    const entity = await this.brandsRepository.create({
+    const entity = await this.catalogueCodes.createWithCode(dto.name, 'GEN', async (skuCode, manager) =>
+      this.brandsRepository.create({
       name: dto.name,
+      skuCode,
       slug,
       logo: this.storageUrlEnricher.persist(media.logo),
       banner: this.storageUrlEnricher.persist(media.banner),
@@ -155,10 +162,11 @@ export class BrandsService {
         this.brandsRepository.existsByRefId(refId),
       ),
       createdBy,
-    });
+    }, manager));
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(entity));
     await this.emitBrandUpdated(brand.refId, 'created');
+    await this.auditCatalogue(brand, 'created', createdBy, { status: brand.status });
     return brand;
   }
 
@@ -250,6 +258,7 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(result));
     await this.emitBrandUpdated(refId, 'updated');
+    await this.auditCatalogue(brand, 'updated', updatedBy, { fields: Object.keys(dto) });
     return brand;
   }
 
@@ -274,6 +283,10 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(updated));
     await this.emitBrandUpdated(refId, 'status_updated');
+    await this.auditCatalogue(brand, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
     return brand;
   }
 
@@ -285,6 +298,24 @@ export class BrandsService {
     await this.deletionGuard.assertBrandDeletable(existing.id, existing.name);
     await this.brandsRepository.softDeleteByRefId(refId);
     await this.emitBrandUpdated(refId, 'deleted');
+    await this.auditCatalogue(existing, 'deleted');
+  }
+
+  private auditCatalogue(
+    entity: { id: string; refId: string; name?: string | null },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.BRAND,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.name,
+      details,
+    });
   }
 
   private persistBrandHighlights(

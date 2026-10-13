@@ -149,6 +149,15 @@ export class CreateReturnRequestItemDto {
   @IsOptional()
   @IsUUID()
   replacementVariantId?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Optional damaged bundle component. Audit only. It does not change the returned line.',
+  })
+  @IsOptional()
+  @IsUUID()
+  affectedComponentVariantId?: string;
 }
 
 export class CreateReturnRequestDto {
@@ -511,6 +520,19 @@ export class SubmitQcDto {
   @ValidateNested({ each: true })
   @Type(() => QcItemResultDto)
   items!: QcItemResultDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  comment?: string;
+}
+
+export class ConfirmReplacementSelectionDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  replacementVariantId!: string;
 
   @ApiPropertyOptional()
   @IsOptional()

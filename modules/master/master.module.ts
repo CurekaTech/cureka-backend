@@ -33,6 +33,7 @@ import { UnitEntity } from './entities/unit.entity';
 
 // ── Audit entities ───────────────────────────────────────────────────────────
 import { AuditLogEntity } from './entities/audit-log.entity';
+import { AuditOutboxEntity } from './entities/audit-outbox.entity';
 
 // ── Blog entities ────────────────────────────────────────────────────────────
 import { BlogCategoryEntity } from './entities/blog-category.entity';
@@ -117,6 +118,7 @@ import { SupportNotificationsRepository } from './repositories/support-notificat
 // ── Master services ──────────────────────────────────────────────────────────
 import { AttributesService } from './services/attributes.service';
 import { BrandsService } from './services/brands.service';
+import { CatalogueCodeService } from './services/catalogue-code.service';
 import { CategoriesService } from './services/categories.service';
 import { CountriesService } from './services/countries.service';
 import { StatesService } from './services/states.service';
@@ -148,6 +150,7 @@ import { MasterDeletionGuardService } from './services/master-deletion-guard.ser
 
 // ── Audit service ────────────────────────────────────────────────────────────
 import { AuditService } from './services/audit.service';
+import { AuditOutboxWorkerService } from './services/audit-outbox-worker.service';
 
 // ── Blog services ────────────────────────────────────────────────────────────
 import { BlogCategoriesService } from './services/blog-categories.service';
@@ -202,6 +205,7 @@ import { AdminSupportFaqsController } from './controllers/admin-support-faqs.con
 import { AdminSupportTicketsController } from './controllers/admin-support-tickets.controller';
 import { PublicSupportController } from './controllers/public-support.controller';
 import { UserSupportTicketsController } from './controllers/user-support-tickets.controller';
+import { AdminAuditLogsController } from './controllers/admin-audit-logs.controller';
 
 // ── Listeners ────────────────────────────────────────────────────────────────
 import { AttributeCacheListener } from './listeners/attribute-cache.listener';
@@ -262,6 +266,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
       ProductCategoryHierarchyEntity,
       // ── Audit ────────────────────────────────────────────────────────────
       AuditLogEntity,
+      AuditOutboxEntity,
       // ── Blog ─────────────────────────────────────────────────────────────
       BlogCategoryEntity,
       BlogPostEntity,
@@ -319,12 +324,14 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     AdminSupportTicketsController,
     PublicSupportController,
     UserSupportTicketsController,
+    AdminAuditLogsController,
   ],
   providers: [
     // ── Master ──────────────────────────────────────────────────────────────
     AttributesService,
     AttributesRepository,
     BrandsService,
+    CatalogueCodeService,
     BrandsRepository,
     CategoriesService,
     CategoriesRepository,
@@ -392,6 +399,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     // ── Audit ────────────────────────────────────────────────────────────────
     AuditLogsRepository,
     AuditService,
+    AuditOutboxWorkerService,
     // ── Blog ─────────────────────────────────────────────────────────────────
     BlogCategoriesRepository,
     BlogPostsRepository,

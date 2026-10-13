@@ -73,6 +73,16 @@ export class ReturnRequestItemEntity extends BaseEntity {
   @Column({ name: 'replacement_variant_id', type: 'uuid', nullable: true })
   replacementVariantId!: string | null;
 
+  /** Optional audit of which bundle component the customer said was damaged. */
+  @Column({ name: 'affected_component_variant_id', type: 'uuid', nullable: true })
+  affectedComponentVariantId!: string | null;
+
+  @Column({ name: 'affected_component_sku', type: 'varchar', length: 100, nullable: true })
+  affectedComponentSku!: string | null;
+
+  @Column({ name: 'affected_component_name', type: 'varchar', length: 500, nullable: true })
+  affectedComponentName!: string | null;
+
   @Column({ name: 'replacement_sku', type: 'varchar', length: 100, nullable: true })
   replacementSku!: string | null;
 }

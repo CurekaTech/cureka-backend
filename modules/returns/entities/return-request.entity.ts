@@ -255,6 +255,42 @@ export class ReturnRequestEntity extends BaseEntity {
   @Column({ name: 'refund_linked_at', type: 'timestamptz', nullable: true })
   refundLinkedAt!: Date | null;
 
+  @Column({
+    name: 'replacement_original_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  replacementOriginalAmount!: string | null;
+
+  @Column({
+    name: 'replacement_quote_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  replacementQuoteAmount!: string | null;
+
+  @Column({
+    name: 'replacement_difference_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  replacementDifferenceAmount!: string | null;
+
+  @Column({ name: 'replacement_settlement', type: 'varchar', length: 20, nullable: true })
+  replacementSettlement!: 'NONE' | 'COLLECT' | 'REFUND' | null;
+
+  @Column({ name: 'replacement_payment_request_id', type: 'uuid', nullable: true })
+  replacementPaymentRequestId!: string | null;
+
+  @Column({ name: 'replacement_payment_link', type: 'varchar', length: 500, nullable: true })
+  replacementPaymentLink!: string | null;
+
   @Index('UQ_return_requests_replacement_order_id', { unique: true })
   @Column({ name: 'replacement_order_id', type: 'uuid', nullable: true })
   replacementOrderId!: string | null;

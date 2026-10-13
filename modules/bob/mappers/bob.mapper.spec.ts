@@ -49,14 +49,15 @@ describe('mapBobCategory', () => {
   it('keeps BOB spec fields id + title and adds parent linkage', () => {
     const child = {
       id: 'child-uuid',
+      hierarchyId: 220184,
       name: 'Medical Equipments',
       parentCategoryId: 'parent-uuid',
     } as CategoryEntity;
 
-    expect(mapBobCategory(child, 'Healthcare Devices')).toEqual({
-      id: 'child-uuid',
+    expect(mapBobCategory(child, { hierarchyId: 1031, name: 'Healthcare Devices' })).toEqual({
+      id: 220184,
       title: 'Medical Equipments',
-      parentId: 'parent-uuid',
+      parentId: 1031,
       parentTitle: 'Healthcare Devices',
     });
   });
@@ -64,12 +65,13 @@ describe('mapBobCategory', () => {
   it('returns null parent fields for root categories', () => {
     const root = {
       id: 'root-uuid',
+      hierarchyId: 123456,
       name: 'Healthcare Devices',
       parentCategoryId: null,
     } as CategoryEntity;
 
     expect(mapBobCategory(root)).toEqual({
-      id: 'root-uuid',
+      id: 123456,
       title: 'Healthcare Devices',
       parentId: null,
       parentTitle: null,

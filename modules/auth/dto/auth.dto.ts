@@ -24,6 +24,7 @@ const normalizeMobileField = ({ value }: { value: unknown }): unknown =>
 // ── Admin Auth ───────────────────────────────────────────────────────────────
 
 export class AdminLoginDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsNotEmpty()
   @IsEmail()
   email!: string;

@@ -1,7 +1,22 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { STOCK_VALIDATION_ENABLED, getSalableStockQuantity } from '@packages/common';
+import {
+  STOCK_VALIDATION_ENABLED,
+  UnavailableCheckoutComponent,
+  UnavailableCheckoutProduct,
+  getSalableStockQuantity,
+} from '@packages/common';
 import { DataSource, EntityManager, In } from 'typeorm';
+import {
+  INDIAN_PINCODE_VALIDATION_MESSAGE,
+  isValidIndianPincode,
+  normalizePincode,
+} from '@modules/cod-blocklist/utils/pincode.util';
+import { ProductBundleEntity } from '@modules/product/entities/product-bundle.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductType } from '@modules/product/enums/product-type.enum';
+import { isProductVisibleForPincode } from '@modules/product/utils/pincode-availability.util';
+import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util';
+import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -24,6 +39,8 @@ import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings
 import { CartPricingService } from './cart-pricing.service';
 import { CartService } from './cart.service';
 
+export const PRODUCTS_NOT_DELIVERABLE_TO_PINCODE = 'PRODUCTS_NOT_DELIVERABLE_TO_PINCODE';
+
 @Injectable()
 export class CheckoutService {
   constructor(
@@ -36,7 +53,42 @@ export class CheckoutService {
     private readonly productSubscriptionPricingService: ProductSubscriptionPricingService,
     private readonly membershipBenefits: MembershipBenefitsApplicationService,
     private readonly codBlocklistService: CodBlocklistService,
+    private readonly pincodesService: PincodesService,
   ) {}
+
+  /**
+   * Storefront checkout only. Confirms every cart line is deliverable to the
+   * pincode stored on the selected address. Skipped when no address is sent.
+   */
+  async assertCartDeliverableToAddress(userId: string, addressId?: string): Promise<void> {
+    if (!addressId) {
+      return;
+    }
+
+    const address = await this.userAddressesService.findOne(userId, addressId);
+    const pincode = normalizePincode(address.pincode ?? '');
+    if (!isValidIndianPincode(pincode)) {
+      throw new BadRequestException(INDIAN_PINCODE_VALIDATION_MESSAGE);
+    }
+
+    const cart = await this.cartService.getActiveCartEntity(userId);
+    if (!cart?.items?.length) {
+      return;
+    }
+
+    const unavailableProducts = await this.findUndeliverableCartLines(cart.items, pincode);
+    if (!unavailableProducts.length) {
+      return;
+    }
+
+    throw new BadRequestException({
+      error: 'Bad Request',
+      code: PRODUCTS_NOT_DELIVERABLE_TO_PINCODE,
+      message: this.buildUndeliverablePincodeMessage(pincode, unavailableProducts),
+      pincode,
+      unavailableProducts,
+    });
+  }
 
   async validateCheckout(
     userId: string,
@@ -158,6 +210,35 @@ export class CheckoutService {
       },
     });
     const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const bundleProductIds = [
+      ...new Set(
+        variants
+          .filter((variant) => variant.product?.productType === ProductType.BUNDLE)
+          .map((variant) => variant.productId),
+      ),
+    ];
+    const bundleCod = new Map<string, boolean>();
+    if (bundleProductIds.length > 0) {
+      const rows = await manager.getRepository(ProductBundleEntity).find({
+        where: { parentProductId: In(bundleProductIds) },
+        relations: { childVariant: true },
+      });
+      const byParent = new Map<string, ProductBundleEntity[]>();
+      for (const row of rows) {
+        const list = byParent.get(row.parentProductId) ?? [];
+        list.push(row);
+        byParent.set(row.parentProductId, list);
+      }
+      for (const productId of bundleProductIds) {
+        const children = byParent.get(productId) ?? [];
+        bundleCod.set(
+          productId,
+          deriveBundleCodAvailable(
+            children.map((row) => row.childVariant ?? { codAvailable: false }),
+          ),
+        );
+      }
+    }
     const restrictedNames: string[] = [];
     const seen = new Set<string>();
 
@@ -166,7 +247,11 @@ export class CheckoutService {
       if (!variant || variant.productId !== line.productId) {
         continue;
       }
-      if (variant.codAvailable) {
+      const codAllowed =
+        variant.product?.productType === ProductType.BUNDLE
+          ? bundleCod.get(variant.productId) === true
+          : variant.codAvailable;
+      if (codAllowed) {
         continue;
       }
 
@@ -204,6 +289,173 @@ export class CheckoutService {
       subscriptionPricingService: this.productSubscriptionPricingService,
       membershipBenefits: this.membershipBenefits,
     });
+  }
+
+  private async findUndeliverableCartLines(
+    cartItems: CartItemEntity[],
+    pincode: string,
+  ): Promise<UnavailableCheckoutProduct[]> {
+    const variantIds = [...new Set(cartItems.map((item) => item.variantId).filter(Boolean))];
+    if (!variantIds.length) {
+      return [];
+    }
+
+    const manager = this.dataSource.manager;
+    const variants = await manager.getRepository(ProductVariantEntity).find({
+      where: { id: In(variantIds) },
+      relations: { product: true, attributeValues: true },
+    });
+    const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const bundleProductIds = [
+      ...new Set(
+        variants
+          .filter((variant) => variant.product?.productType === ProductType.BUNDLE)
+          .map((variant) => variant.productId),
+      ),
+    ];
+    const bundlesByParent = new Map<string, ProductBundleEntity[]>();
+    if (bundleProductIds.length) {
+      const rows = await manager.getRepository(ProductBundleEntity).find({
+        where: { parentProductId: In(bundleProductIds) },
+        relations: { childProduct: true, childVariant: true },
+      });
+      for (const row of rows) {
+        const list = bundlesByParent.get(row.parentProductId) ?? [];
+        list.push(row);
+        bundlesByParent.set(row.parentProductId, list);
+      }
+    }
+
+    const productIds = new Set<string>();
+    for (const variant of variants) {
+      if (variant.productId) {
+        productIds.add(variant.productId);
+      }
+    }
+    for (const rows of bundlesByParent.values()) {
+      for (const row of rows) {
+        if (row.childProductId) {
+          productIds.add(row.childProductId);
+        }
+      }
+    }
+
+    const mappedCodes = await this.pincodesService.findMappedCodesByProductIds([...productIds]);
+    const unavailable: UnavailableCheckoutProduct[] = [];
+
+    for (const item of cartItems) {
+      const variant = variantById.get(item.variantId);
+      const product = variant?.product;
+      if (!variant || !product || variant.productId !== item.productId) {
+        continue;
+      }
+
+      const productUnavailable = !isProductVisibleForPincode(
+        { isPincodeManaged: Boolean(product.isPincodeManaged) },
+        mappedCodes.get(product.id) ?? [],
+        pincode,
+      );
+      const unavailableComponents =
+        product.productType === ProductType.BUNDLE
+          ? this.findUndeliverableBundleComponents(
+              bundlesByParent.get(product.id) ?? [],
+              mappedCodes,
+              pincode,
+            )
+          : [];
+
+      if (!productUnavailable && !unavailableComponents.length) {
+        continue;
+      }
+
+      unavailable.push({
+        productId: product.id,
+        variantId: variant.id,
+        productName: this.buildDeliverableProductLabel(variant),
+        sku: variant.sku,
+        pincode,
+        ...(unavailableComponents.length ? { unavailableComponents } : {}),
+      });
+    }
+
+    return unavailable;
+  }
+
+  private findUndeliverableBundleComponents(
+    rows: ProductBundleEntity[],
+    mappedCodes: Map<string, string[]>,
+    pincode: string,
+  ): UnavailableCheckoutComponent[] {
+    const components: UnavailableCheckoutComponent[] = [];
+    for (const row of rows) {
+      const child = row.childProduct;
+      if (!child) {
+        continue;
+      }
+      const visible = isProductVisibleForPincode(
+        { isPincodeManaged: Boolean(child.isPincodeManaged) },
+        mappedCodes.get(child.id) ?? [],
+        pincode,
+      );
+      if (visible) {
+        continue;
+      }
+      components.push({
+        productId: child.id,
+        variantId: row.childVariantId,
+        productName: this.buildComponentProductLabel(row, child.name),
+        sku: row.childVariant?.sku ?? '',
+      });
+    }
+    return components;
+  }
+
+  private buildUndeliverablePincodeMessage(
+    pincode: string,
+    products: UnavailableCheckoutProduct[],
+  ): string {
+    const names = [
+      ...new Set(
+        products.flatMap((product) => {
+          const componentNames = (product.unavailableComponents ?? [])
+            .map((component) => component.productName.trim())
+            .filter(Boolean);
+          const lineName = product.productName.trim();
+          return componentNames.length ? [lineName, ...componentNames].filter(Boolean) : [lineName];
+        }),
+      ),
+    ].filter(Boolean);
+
+    const listed = names.join(', ');
+    return listed
+      ? `Some products in your cart are not deliverable to pincode ${pincode}: ${listed}.`
+      : `Some products in your cart are not deliverable to pincode ${pincode}.`;
+  }
+
+  private buildDeliverableProductLabel(variant: ProductVariantEntity): string {
+    const displayName = variant.displayName?.trim();
+    if (displayName) {
+      return displayName;
+    }
+
+    const productName = variant.product?.name?.trim() || 'Product';
+    const attributeLabel = (variant.attributeValues ?? [])
+      .map((item) => item.value?.trim())
+      .filter(Boolean)
+      .join(' / ');
+    if (attributeLabel) {
+      return `${productName} - ${attributeLabel}`;
+    }
+
+    return productName || variant.sku || 'Product';
+  }
+
+  private buildComponentProductLabel(row: ProductBundleEntity, childName: string | null | undefined): string {
+    const displayName = row.childVariant?.displayName?.trim();
+    if (displayName) {
+      return displayName;
+    }
+    return childName?.trim() || row.childVariant?.sku || 'Product';
   }
 
   private buildCodRestrictedProductLabel(

@@ -10,10 +10,11 @@ import { RolesRepository } from './repositories/roles.repository';
 import { PermissionsService } from './services/permissions.service';
 import { RolesService } from './services/roles.service';
 import { PermissionsGuard } from './guards/permissions.guard';
+import { MasterModule } from '@modules/master/master.module';
 
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([RoleEntity, PermissionEntity, AdminUserEntity])],
+  imports: [TypeOrmModule.forFeature([RoleEntity, PermissionEntity, AdminUserEntity]), MasterModule],
   controllers: [RolesController, PermissionsController],
   providers: [
     RolesService,

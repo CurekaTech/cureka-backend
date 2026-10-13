@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, EntityManager } from 'typeorm';
 import { BrandEntity } from '../entities/brand.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CursorPaginatedResult, PaginationOptions } from '@packages/common';
@@ -11,6 +11,7 @@ import {
 import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 import { buildSkipTake } from '@packages/database';
 import { existsActiveMasterByName } from '../utils/master-name-uniqueness.util';
+import { sqlWithCompactWordBreaks } from '@modules/search/utils/search-tolerance.util';
 
 @Injectable()
 export class BrandsRepository {
@@ -19,9 +20,10 @@ export class BrandsRepository {
     private readonly repo: Repository<BrandEntity>,
   ) {}
 
-  async create(data: Partial<BrandEntity>): Promise<BrandEntity> {
-    const entity = this.repo.create(data);
-    return this.repo.save(entity);
+  async create(data: Partial<BrandEntity>, manager?: EntityManager): Promise<BrandEntity> {
+    const repo = manager ? manager.getRepository(BrandEntity) : this.repo;
+    const entity = repo.create(data);
+    return repo.save(entity);
   }
 
   async findById(id: string): Promise<BrandEntity | null> {
@@ -176,10 +178,12 @@ export class BrandsRepository {
       .take(take);
 
     if (options.search) {
-      qb.andWhere(
+      const { sql, params } = sqlWithCompactWordBreaks(
+        options.search,
         '(brand.name ILIKE :search OR brand.slug ILIKE :search OR brand.refId ILIKE :search)',
-        { search: `%${options.search}%` },
+        ['brand.name', 'brand.slug'],
       );
+      qb.andWhere(sql, params);
     }
 
     const [data, total] = await qb.getManyAndCount();

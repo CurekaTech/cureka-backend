@@ -6,6 +6,8 @@ import { mapAdminSettingEntitiesToResponse, mapAdminSettingEntityToResponse } fr
 import { IAdminSetting } from '../interfaces/admin-setting.interface';
 import { AdminSettingStatus } from '../enums/admin-setting-status.enum';
 import { AdminSettingEntity } from '../entities/admin-setting.entity';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 
 const SHIPROCKET_CHECKOUT_ENABLED_KEY = 'shiprocketCheckoutEnabled';
 const GOKWIK_CHECKOUT_ENABLED_KEY = 'gokwikCheckoutEnabled';
@@ -31,7 +33,10 @@ const STORE_CONFIGURATION_KEYS = [ALLOW_GUEST_LOGIN_KEY, ENABLE_TYPESENSE_KEY];
 
 @Injectable()
 export class AdminSettingsService {
-  constructor(private readonly adminSettingsRepository: AdminSettingsRepository) {}
+  constructor(
+    private readonly adminSettingsRepository: AdminSettingsRepository,
+    private readonly auditService: AuditService,
+  ) {}
 
   async findAll(type?: string): Promise<IAdminSetting[]> {
     const entities = await this.adminSettingsRepository.findAll();
@@ -260,6 +265,14 @@ export class AdminSettingsService {
     await this.adminSettingsRepository.updateByKey(key, updateData);
 
     const updated = await this.adminSettingsRepository.findByKey(key);
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.ADMIN_SETTING,
+      entityId: updated!.id,
+      entityRefId: key,
+      action: 'updated',
+      performedBy: updatedBy,
+      details: { key },
+    });
     return mapAdminSettingEntityToResponse(updated!);
   }
 
@@ -308,6 +321,14 @@ export class AdminSettingsService {
       return updated!;
     });
 
+    await this.auditService.recordWrite({
+      entityType: AuditEntityType.ADMIN_SETTING,
+      entityId: updatedEntity.id,
+      entityRefId: key,
+      action: 'status_changed',
+      performedBy: updatedBy,
+      details: { key, status: dto.status },
+    });
     return mapAdminSettingEntityToResponse(updatedEntity);
   }
 

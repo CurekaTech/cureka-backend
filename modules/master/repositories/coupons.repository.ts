@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CouponEntity } from '../entities/coupon.entity';
+import { MasterListOptions, applyMasterListOrdering } from '../utils/master-list-query.util';
 
 @Injectable()
 export class CouponsRepository {
@@ -80,8 +80,20 @@ export class CouponsRepository {
     await this.repo.softDelete({ refId });
   }
 
+  /** Marks every still-active coupon whose expiry is already past as inactive. */
+  async deactivateExpired(now = new Date()): Promise<void> {
+    await this.repo
+      .createQueryBuilder()
+      .update(CouponEntity)
+      .set({ status: MasterStatus.INACTIVE })
+      .where('status = :status', { status: MasterStatus.ACTIVE })
+      .andWhere('expiry_date < :now', { now })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+  }
+
   async findAllPaginated(
-    options: PaginationOptions,
+    options: MasterListOptions,
   ): Promise<{ data: CouponEntity[]; total: number }> {
     const { skip, take } = buildSkipTake(options.page, options.limit);
 
@@ -97,17 +109,19 @@ export class CouponsRepository {
     const sortColumn = (options.sortBy && SORTABLE_COLUMNS[options.sortBy]) ?? 'coupon.createdAt';
     const sortOrder = options.sortOrder ?? 'DESC';
 
-    const qb = this.repo
-      .createQueryBuilder('coupon')
-      .orderBy(sortColumn, sortOrder)
-      .skip(skip)
-      .take(take);
+    const qb = this.repo.createQueryBuilder('coupon').skip(skip).take(take);
+
+    applyMasterListOrdering(qb, 'coupon', options.status, sortColumn, sortOrder);
 
     if (options.search) {
       qb.andWhere(
         '(coupon.title ILIKE :search OR coupon.code ILIKE :search OR coupon.couponType ILIKE :search)',
         { search: `%${options.search}%` },
       );
+    }
+
+    if (options.status) {
+      qb.andWhere('coupon.status = :status', { status: options.status });
     }
 
     const [data, total] = await qb.getManyAndCount();

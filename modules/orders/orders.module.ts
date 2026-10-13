@@ -12,6 +12,7 @@ import { UsersModule } from '@modules/users/users.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
 import { ReturnsModule } from '@modules/returns/returns.module';
+import { PincodesModule } from '@modules/pincodes/pincodes.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
@@ -68,6 +69,7 @@ import { OrdersService } from './services/orders.service';
     forwardRef(() => PaymentRequestsModule),
     forwardRef(() => RefundRequestsModule),
     forwardRef(() => ReturnsModule),
+    PincodesModule,
     CodBlocklistModule,
     OosEmailModule,
   ],
