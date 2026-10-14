@@ -33,6 +33,7 @@ import {
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import {
   INVALID_STATUS_TRANSITION,
   BANK_DETAILS_REQUIRED,
@@ -47,6 +48,8 @@ import {
   RETURN_REFUND_NOT_APPLICABLE,
   RETURN_REPLACEMENT_NOT_CONFIGURED,
   RETURN_REQUEST_NOT_FOUND,
+  RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
+  RETURN_REPLACEMENT_VARIANT_UNAVAILABLE,
 } from '../constants/return.constants';
 import {
   ApproveNoPickupDto,
@@ -82,6 +85,7 @@ import { ReturnPickupsRepository } from '../repositories/return-pickups.reposito
 import { ReturnQcRecordsRepository } from '../repositories/return-qc-records.repository';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
 import { calculateReplacementPriceDifference } from '../utils/replacement-price-difference.util';
+import { assessReplacementVariant } from '../utils/replacement-variant-availability.util';
 import { canTransitionReturnStatus } from '../utils/return-status-transition.util';
 import { ReturnPickupService } from './return-pickup.service';
 import { mapShipwayStatusToReturnPickupStatus } from '../utils/shipway-return-pickup-status.util';
@@ -976,10 +980,19 @@ export class ReturnWorkflowService {
       where: { id: dto.replacementVariantId },
       relations: { product: true },
     });
-    if (!variant) {
+    const availability = assessReplacementVariant(variant, {
+      requireBundle: await this.replacementRequiresBundle(request),
+    });
+    if (!variant || availability === 'NOT_FOUND') {
       throw new NotFoundException({
-        code: RETURN_REQUEST_NOT_FOUND,
+        code: RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
         message: 'Replacement variant not found',
+      });
+    }
+    if (availability === 'UNAVAILABLE') {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_VARIANT_UNAVAILABLE,
+        message: 'This replacement is not available. Choose a published, in-stock variant.',
       });
     }
     const items = request.items ?? [];
@@ -1563,6 +1576,19 @@ export class ReturnWorkflowService {
       performedBy: actor.email ?? actor.id,
       details: { returnNumber: request.returnNumber, ...details },
     });
+  }
+
+  private async replacementRequiresBundle(request: ReturnRequestEntity): Promise<boolean> {
+    const order = await this.ordersRepository.findOne({
+      where: { id: request.orderId },
+      relations: { items: { product: true } },
+    });
+    const selected = new Set((request.items ?? []).map((item) => item.orderItemId));
+    return (order?.items ?? []).some(
+      (item) =>
+        selected.has(item.id) &&
+        (item.bundleComponents != null || item.product?.productType === ProductType.BUNDLE),
+    );
   }
 
   private assertReplacementQuoteEditable(request: ReturnRequestEntity): void {

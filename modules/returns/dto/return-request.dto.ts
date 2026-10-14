@@ -555,6 +555,13 @@ export class LinkReplacementOrderDto {
   comment?: string;
 }
 
+export class CustomerReturnListQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  orderId?: string;
+}
+
 export class ReturnListQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: ReturnStatus })
   @IsOptional()

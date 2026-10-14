@@ -243,6 +243,9 @@ export interface ICustomerReturnListItem {
   canCancel: boolean;
   createdAt: Date;
   updatedAt: Date;
+  replacementDifferenceAmount: string | null;
+  replacementSettlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+  replacementPaymentLink: string | null;
   items: Array<{
     id: string;
     orderItemId: string;
@@ -251,6 +254,14 @@ export interface ICustomerReturnListItem {
     quantity: number;
     unitPrice: string;
     imageUrl: string | null;
+    preferredReplacementVariantId: string | null;
+    preferredReplacementSku: string | null;
+    preferredReplacementProductName: string | null;
+    preferredReplacementVariantName: string | null;
+    replacementVariantId: string | null;
+    replacementSku: string | null;
+    replacementProductName: string | null;
+    replacementVariantName: string | null;
   }>;
 }
 

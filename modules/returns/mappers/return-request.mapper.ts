@@ -270,6 +270,9 @@ export const mapCustomerReturnListItem = (
     canCancel: isCustomerCancellable(entity.status),
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
+    replacementDifferenceAmount: entity.replacementDifferenceAmount ?? null,
+    replacementSettlement: entity.replacementSettlement ?? null,
+    replacementPaymentLink: entity.replacementPaymentLink ?? null,
     items: items.map((item) => ({
       id: item.id,
       orderItemId: item.orderItemId,
@@ -278,6 +281,7 @@ export const mapCustomerReturnListItem = (
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       imageUrl: null,
+      ...customerReplacementSelection(item, entity.replacementSettlement != null),
     })),
   };
 };

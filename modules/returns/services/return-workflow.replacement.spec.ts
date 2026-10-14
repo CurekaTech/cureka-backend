@@ -97,7 +97,11 @@ describe('ReturnWorkflowService replacement confirmation', () => {
         sku: 'A-60',
         displayName: '60 tablets',
         sellingPrice: '150.00',
-        product: { name: 'Product A' },
+        status: 'active',
+        outOfStock: false,
+        stock: 3,
+        inCurekaInventory: false,
+        product: { name: 'Product A', status: 'published', productType: 'simple' },
       }),
     };
     paymentRequestsService = {
@@ -122,7 +126,11 @@ describe('ReturnWorkflowService replacement confirmation', () => {
       { enrichDeep: jest.fn(async (value) => value) } as unknown as StorageUrlEnricher,
       { get: jest.fn() } as unknown as ConfigService,
       { emitAsync: jest.fn() } as unknown as EventEmitter2,
-      {} as Repository<OrderEntity>,
+      {
+        findOne: jest.fn().mockResolvedValue({
+          items: [{ id: 'item-1', bundleComponents: null, product: { productType: 'simple' } }],
+        }),
+      } as unknown as Repository<OrderEntity>,
       variantsRepository as unknown as Repository<ProductVariantEntity>,
     );
   });
@@ -176,7 +184,11 @@ describe('ReturnWorkflowService replacement confirmation', () => {
       sku: 'A-15',
       displayName: '15 tablets',
       sellingPrice: '80.00',
-      product: { name: 'Product A' },
+      status: 'active',
+      outOfStock: false,
+      stock: 3,
+      inCurekaInventory: false,
+      product: { name: 'Product A', status: 'published', productType: 'simple' },
     });
 
     await service.confirmReplacementSelection('return-1', { replacementVariantId: 'variant-15' }, actor);
@@ -197,7 +209,11 @@ describe('ReturnWorkflowService replacement confirmation', () => {
       sku: 'A-30',
       displayName: '30 tablets',
       sellingPrice: '100.00',
-      product: { name: 'Product A' },
+      status: 'active',
+      outOfStock: false,
+      stock: 3,
+      inCurekaInventory: false,
+      product: { name: 'Product A', status: 'published', productType: 'simple' },
     });
 
     await service.confirmReplacementSelection('return-1', { replacementVariantId: 'variant-30' }, actor);
