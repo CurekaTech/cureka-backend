@@ -70,18 +70,32 @@ export class OosEmailQueueService {
         .sort()
         .join('|');
       const digest = createHash('sha1').update(componentKey).digest('hex').slice(0, 16);
-      const jobId = `bundle-oos-${notification.bundleRefId}-${digest}`;
-      await this.queue.add(OOS_EMAIL_JOB_NAMES.SEND_BUNDLE_OOS, notification, {
-        jobId,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 3000 },
-        removeOnComplete: 100,
-        removeOnFail: 200,
-      });
-      this.logger.log(
-        { bundleRefId: notification.bundleRefId, bundleSku: notification.bundleSku, jobId },
-        'Enqueued bundle OOS email job',
-      );
+      // SKU jobs include the transition time. A stable bundle id stays in Redis
+      // after complete/fail (removeOnComplete / removeOnFail) and BullMQ then
+      // refuses the next identical component set, so the bundle email never sends again.
+      const jobId = `bundle-oos-${notification.bundleRefId}-${digest}-${Date.now()}`;
+      try {
+        await this.queue.add(OOS_EMAIL_JOB_NAMES.SEND_BUNDLE_OOS, notification, {
+          jobId,
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 3000 },
+          removeOnComplete: 100,
+          removeOnFail: 200,
+        });
+        this.logger.log(
+          { bundleRefId: notification.bundleRefId, bundleSku: notification.bundleSku, jobId },
+          'Enqueued bundle OOS email job',
+        );
+      } catch (error: unknown) {
+        this.logger.error(
+          {
+            err: error instanceof Error ? error.message : String(error),
+            bundleRefId: notification.bundleRefId,
+            jobId,
+          },
+          'Failed to enqueue bundle OOS email job',
+        );
+      }
     }
   }
 

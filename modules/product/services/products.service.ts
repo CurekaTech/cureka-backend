@@ -1466,8 +1466,10 @@ export class ProductsService {
       }
     }
 
-    await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
+    // Queue before the product event. Bundle recalculation runs on that event
+    // and must not be able to skip this email if it throws.
     this.enqueueOosEmails(oosTransitions);
+    await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
 
     return {
       requested: uniqueRefIds.length,
@@ -1517,14 +1519,14 @@ export class ProductsService {
       else notFound.push(sku);
     }
 
+    this.enqueueOosEmails(oosTransitions);
+
     if (updatedProductIds.size > 0) {
       const affectedRefIds = await this.productsRepository.findRefIdsByIds([
         ...updatedProductIds,
       ]);
       await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
     }
-
-    this.enqueueOosEmails(oosTransitions);
 
     return {
       requested: uniqueSkus.length,
@@ -1631,8 +1633,8 @@ export class ProductsService {
       .map((item) => item.refId);
     const variantsUpdated = [...counts.values()].reduce((sum, n) => sum + n, 0);
 
-    await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
     this.enqueueOosEmails(oosTransitions);
+    await Promise.all(updated.map((refId) => this.emitProductUpdated(refId, 'updated')));
 
     return {
       requested: uniqueRefIds.length,
@@ -1669,14 +1671,14 @@ export class ProductsService {
       else notFound.push(sku);
     }
 
+    this.enqueueOosEmails(oosTransitions);
+
     if (updatedProductIds.size > 0) {
       const affectedRefIds = await this.productsRepository.findRefIdsByIds([
         ...updatedProductIds,
       ]);
       await Promise.all(affectedRefIds.map((refId) => this.emitProductUpdated(refId, 'updated')));
     }
-
-    this.enqueueOosEmails(oosTransitions);
 
     return {
       requested: bySkuResult.size,
