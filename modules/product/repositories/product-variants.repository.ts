@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
+import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
 import { ProductMediaEntity } from '../entities/product-media.entity';
@@ -579,7 +580,7 @@ export class ProductVariantsRepository {
       }
     }
 
-    return oosTransitions;
+    return this.fillProductNames(oosTransitions, manager);
   }
 
   async existsBySlug(slug: string, excludeId?: string): Promise<boolean> {
@@ -877,14 +878,17 @@ export class ProductVariantsRepository {
     );
 
     if (!next.becameOos) return null;
-    return {
-      variantId: variant.id,
-      productId: variant.productId,
-      sku: variant.sku,
-      stock: next.stock,
-      variantDisplayName: variant.displayName,
-      occurredAt: new Date(),
-    };
+    const [transition] = await this.fillProductNames([
+      {
+        variantId: variant.id,
+        productId: variant.productId,
+        sku: variant.sku,
+        stock: next.stock,
+        variantDisplayName: variant.displayName,
+        occurredAt: new Date(),
+      },
+    ]);
+    return transition ?? null;
   }
 
   /**
@@ -920,14 +924,20 @@ export class ProductVariantsRepository {
     );
 
     if (!next.becameOos) return null;
-    return {
-      variantId: variant.id,
-      productId: variant.productId,
-      sku: variant.sku,
-      stock: next.stock,
-      variantDisplayName: variant.displayName,
-      occurredAt: new Date(),
-    };
+    const [transition] = await this.fillProductNames(
+      [
+        {
+          variantId: variant.id,
+          productId: variant.productId,
+          sku: variant.sku,
+          stock: next.stock,
+          variantDisplayName: variant.displayName,
+          occurredAt: new Date(),
+        },
+      ],
+      manager,
+    );
+    return transition ?? null;
   }
 
   /**
@@ -974,7 +984,7 @@ export class ProductVariantsRepository {
       }
     }
 
-    return { counts, oosTransitions };
+    return { counts, oosTransitions: await this.fillProductNames(oosTransitions) };
   }
 
   /**
@@ -1032,7 +1042,7 @@ export class ProductVariantsRepository {
       statsByProductId.set(variant.productId, stats);
     }
 
-    return { statsByProductId, oosTransitions };
+    return { statsByProductId, oosTransitions: await this.fillProductNames(oosTransitions) };
   }
 
   /**
@@ -1089,6 +1099,7 @@ export class ProductVariantsRepository {
             productId: variant.productId,
             sku: variant.sku,
             stock: next.stock,
+            productName: variant.product?.name ?? null,
             variantDisplayName: variant.displayName,
             occurredAt: now,
           });
@@ -1117,7 +1128,11 @@ export class ProductVariantsRepository {
       updatedProductIds.add(variant.productId);
     }
 
-    return { bySkuResult, updatedProductIds, oosTransitions };
+    return {
+      bySkuResult,
+      updatedProductIds,
+      oosTransitions: await this.fillProductNames(oosTransitions),
+    };
   }
 
   /**
@@ -1178,13 +1193,42 @@ export class ProductVariantsRepository {
           productId: variant.productId,
           sku: variant.sku,
           stock: next.stock,
+          productName: variant.product?.name ?? null,
           variantDisplayName: variant.displayName,
           occurredAt: now,
         });
       }
     }
 
-    return { bySkuResult, updatedProductIds, oosTransitions };
+    return {
+      bySkuResult,
+      updatedProductIds,
+      oosTransitions: await this.fillProductNames(oosTransitions),
+    };
+  }
+
+  /** Catalogue title for the OOS email. Display name is often the SKU, so it is not used as the product name. */
+  private async fillProductNames(
+    transitions: VariantOosTransition[],
+    manager?: EntityManager,
+  ): Promise<VariantOosTransition[]> {
+    if (!transitions.length) return transitions;
+    const missingIds = [
+      ...new Set(
+        transitions.filter((item) => !item.productName?.trim()).map((item) => item.productId),
+      ),
+    ];
+    if (!missingIds.length) return transitions;
+
+    const rows = await (manager ?? this.repo.manager).getRepository(ProductEntity).find({
+      where: { id: In(missingIds) },
+      select: ['id', 'name'],
+    });
+    const names = new Map(rows.map((row) => [row.id, row.name?.trim() || '']));
+    return transitions.map((item) => ({
+      ...item,
+      productName: item.productName?.trim() || names.get(item.productId) || null,
+    }));
   }
 
   private findVariantsBySkus(skus: string[]): Promise<ProductVariantEntity[]> {
@@ -1201,6 +1245,7 @@ export class ProductVariantsRepository {
         'variant.inCurekaInventory',
         'variant.displayName',
         'product.id',
+        'product.name',
         'product.productType',
       ])
       .getMany();
