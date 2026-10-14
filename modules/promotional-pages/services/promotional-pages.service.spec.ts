@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { AuditService } from '@modules/master/services/audit.service';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PromotionalPageEntity } from '../entities/promotional-page.entity';
 import { PromotionalPageSectionEntity } from '../entities/promotional-page-section.entity';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
@@ -68,6 +69,7 @@ describe('PromotionalPagesService', () => {
   };
   let references: { assertCatalogRefs: jest.Mock; hydrate: jest.Mock };
   let auditService: { log: jest.Mock };
+  let storageUrlEnricher: { enrichDeep: jest.Mock };
   let service: PromotionalPagesService;
 
   beforeEach(() => {
@@ -116,10 +118,12 @@ describe('PromotionalPagesService', () => {
       })),
     };
     auditService = { log: jest.fn(async () => ({})) };
+    storageUrlEnricher = { enrichDeep: jest.fn(async (value) => value) };
     service = new PromotionalPagesService(
       pagesRepository as unknown as PromotionalPagesRepository,
       references as unknown as PromotionalPageReferenceService,
       auditService as unknown as AuditService,
+      storageUrlEnricher as unknown as StorageUrlEnricher,
     );
   });
 
@@ -367,6 +371,41 @@ describe('PromotionalPagesService', () => {
     expect(result.slug).toBe('himalaya-buy-more-save-more');
     expect(result.status).toBe(PromotionalPageStatus.PUBLISHED);
     expect(result.preview).toBeUndefined();
+    expect(storageUrlEnricher.enrichDeep).toHaveBeenCalled();
+  });
+
+  it('adds a public url on hero banner images', async () => {
+    stored = basePage({
+      status: PromotionalPageStatus.PUBLISHED,
+      sections: [heroSection({ id: 'hero' })],
+    });
+    pagesRepository.findBySlug.mockResolvedValue(stored);
+    storageUrlEnricher.enrichDeep.mockImplementation(async (page) => ({
+      ...page,
+      sections: page.sections.map((section: { config: Record<string, { key: string; name: string }> }) => ({
+        ...section,
+        config: {
+          ...section.config,
+          mobileImage: {
+            ...section.config.mobileImage,
+            url: 'https://cdn.example/banners/mobile.png',
+          },
+          desktopImage: {
+            ...section.config.desktopImage,
+            url: 'https://cdn.example/banners/desktop.png',
+          },
+        },
+      })),
+    }));
+
+    const result = await service.findPublicBySlug('himalaya-buy-more-save-more');
+    const config = result.sections[0].config as unknown as {
+      mobileImage: { url: string };
+      desktopImage: { url: string };
+    };
+
+    expect(config.mobileImage.url).toBe('https://cdn.example/banners/mobile.png');
+    expect(config.desktopImage.url).toBe('https://cdn.example/banners/desktop.png');
   });
 
   it('returns not found for an unknown slug', async () => {
