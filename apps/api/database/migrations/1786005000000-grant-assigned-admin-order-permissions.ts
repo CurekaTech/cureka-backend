@@ -1,25 +1,50 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-const ORDER_PERMISSIONS = ['orders.read', 'orders.create', 'orders.update', 'orders.status'];
-
 /**
- * 1786004000000 only updated the role whose slug is `admin`.
- * Staff accounts keep permissions on admin_users.role_id, which may be a different role.
+ * Strings the admin panel matches in login and /auth/admin/me `data.permissions`.
+ * Returns and refunds were already on the role slug `admin`. A staff account uses
+ * whatever role is stored on admin_users.role_id, so this copies the same strings there.
  */
+const ADMIN_PANEL_PERMISSIONS = [
+  'returns.read',
+  'returns.create',
+  'returns.update',
+  'returns.approve',
+  'returns.reject',
+  'returns.status',
+  'refund_requests.read',
+  'refund_requests.update',
+  'refund_requests.approve',
+  'refund_requests.reject',
+  'refund_requests.status',
+  'orders.read',
+  'orders.update',
+];
+
+const permissionList = ADMIN_PANEL_PERMISSIONS.map((code) => `'${code}'`).join(', ');
+
 export class GrantAssignedAdminOrderPermissions1786005000000 implements MigrationInterface {
   name = 'GrantAssignedAdminOrderPermissions1786005000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       INSERT INTO "role_permissions" ("role_id", "permission_id")
-      SELECT DISTINCT au."role_id", p."id"
-      FROM "admin_users" au
+      SELECT r."id", p."id"
+      FROM "roles" r
       JOIN "permissions" p
-        ON p."code" IN (${ORDER_PERMISSIONS.map((code) => `'${code}'`).join(', ')})
+        ON p."code" IN (${permissionList})
         AND p."deleted_at" IS NULL
-      WHERE au."role" = 'admin'
-        AND au."deleted_at" IS NULL
-        AND au."role_id" IS NOT NULL
+      WHERE r."deleted_at" IS NULL
+        AND (
+          r."slug" = 'admin'
+          OR r."id" IN (
+            SELECT au."role_id"
+            FROM "admin_users" au
+            WHERE au."role" = 'admin'
+              AND au."deleted_at" IS NULL
+              AND au."role_id" IS NOT NULL
+          )
+        )
       ON CONFLICT DO NOTHING
     `);
   }
@@ -27,14 +52,18 @@ export class GrantAssignedAdminOrderPermissions1786005000000 implements Migratio
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       DELETE FROM "role_permissions" rp
-      USING "admin_users" au, "permissions" p, "roles" r
-      WHERE rp."role_id" = au."role_id"
+      USING "roles" r, "permissions" p
+      WHERE rp."role_id" = r."id"
         AND rp."permission_id" = p."id"
-        AND r."id" = au."role_id"
         AND r."slug" <> 'admin'
-        AND au."role" = 'admin'
-        AND au."deleted_at" IS NULL
-        AND p."code" IN (${ORDER_PERMISSIONS.map((code) => `'${code}'`).join(', ')})
+        AND r."id" IN (
+          SELECT au."role_id"
+          FROM "admin_users" au
+          WHERE au."role" = 'admin'
+            AND au."deleted_at" IS NULL
+            AND au."role_id" IS NOT NULL
+        )
+        AND p."code" IN (${permissionList})
     `);
   }
 }
