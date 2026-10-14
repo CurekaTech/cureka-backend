@@ -19,11 +19,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { ResponseMessage } from '@packages/common';
 import { FastifyRequest } from 'fastify';
 import {
   CancelReturnRequestDto,
   CreateReturnRequestDto,
+  CustomerReturnListQueryDto,
   ReturnEligibilityQueryDto,
   SubmitAdditionalInformationDto,
   SubmitReturnBankDetailsDto,
@@ -117,7 +118,7 @@ export class ReturnsController {
   @ApiOperation({ summary: 'List my return requests' })
   @ResponseMessage('Return requests retrieved successfully')
   @Get()
-  list(@CurrentSessionUser() user: IUserSessionContext, @Query() query: PaginationQueryDto) {
+  list(@CurrentSessionUser() user: IUserSessionContext, @Query() query: CustomerReturnListQueryDto) {
     return this.returnRequestsService.listForCustomer(user.sub, query);
   }
 

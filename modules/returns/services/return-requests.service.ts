@@ -6,7 +6,9 @@ import { ReasonWorkflow } from '@modules/master/enums/reason-workflow.enum';
 import { ReasonMastersRepository } from '@modules/master/repositories/reason-masters.repository';
 import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
+import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { IOrderItemBundleComponent } from '@modules/orders/interfaces/order-item-bundle-component.interface';
 import { toMoneyString } from '@modules/orders/utils/money.util';
@@ -58,6 +60,7 @@ import {
   RETURN_OVERRIDE_JUSTIFICATION_REQUIRED,
   RETURN_QUANTITY_EXCEEDED,
   RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
+  RETURN_REPLACEMENT_VARIANT_UNAVAILABLE,
   RETURN_REQUEST_NOT_FOUND,
   RETURN_RESOLUTION_NOT_ALLOWED,
   RETURN_SUBMITTED_CUSTOMER_MESSAGE,
@@ -92,10 +95,12 @@ import {
 import { ReturnEvidencesRepository } from '../repositories/return-evidences.repository';
 import { ReturnPickupsRepository } from '../repositories/return-pickups.repository';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
+import { RefundRequestsRepository } from '@modules/refund-requests/repositories/refund-requests.repository';
 import { ReturnAmountService } from './return-amount.service';
 import { ReturnEligibilityService } from './return-eligibility.service';
 import { ReturnPickupService } from './return-pickup.service';
 import { describeCodRefundDestination, orderHasCodRefundPortion } from '../utils/cod-refund-destination.util';
+import { assessReplacementVariant } from '../utils/replacement-variant-availability.util';
 import { InMemoryRateLimiter } from '../utils/in-memory-rate-limiter.util';
 import { requireBankDetailsForMethod } from '../utils/return-bank-details.util';
 
@@ -151,6 +156,7 @@ export class ReturnRequestsService {
     private readonly variantsRepository: Repository<ProductVariantEntity>,
     private readonly configService: ConfigService,
     private readonly pickupService: ReturnPickupService,
+    private readonly refundRequestsRepository: RefundRequestsRepository,
   ) {}
 
   private readonly bankDetailsLimiter = new InMemoryRateLimiter(10, 60_000);
@@ -340,7 +346,12 @@ export class ReturnRequestsService {
       .sort((left, right) => left.getTime() - right.getTime())[0] ?? null;
 
     const replacementPreferences = await Promise.all(
-      dto.items.map((line) => this.resolveReplacementPreference(line.replacementVariantId)),
+      dto.items.map((line) =>
+        this.resolveReplacementPreference(
+          line.replacementVariantId,
+          orderItemsById.get(line.orderItemId)!,
+        ),
+      ),
     );
 
     const created = await this.dataSource.transaction(async (manager) => {
@@ -561,13 +572,14 @@ export class ReturnRequestsService {
 
   async listForCustomer(
     customerId: string,
-    query: { page?: number; limit?: number; search?: string },
+    query: { page?: number; limit?: number; search?: string; orderId?: string },
   ): Promise<PaginatedResult<ICustomerReturnListItem>> {
     const pagination = buildPaginationOptions(query);
     const { data, total } = await this.returnRequestsRepository.findAllPaginated({
       ...pagination,
       customerId,
       search: query.search,
+      orderId: query.orderId,
     });
 
     const list = data.map((item) => mapCustomerReturnListItem(item));
@@ -615,13 +627,19 @@ export class ReturnRequestsService {
     const evidence = await this.evidencesRepository.findByReturnRequestId(request.id);
     const pickup = await this.pickupsRepository.findActiveByReturnRequestId(request.id);
 
+    const linkedRefund = request.refundRequestId
+      ? await this.refundRequestsRepository.findById(request.refundRequestId)
+      : null;
     const detail = mapCustomerReturnDetail(request, {
       evidence,
       pickup,
       refund: {
-        status: request.refundRequestId ? 'LINKED' : null,
-        amount: request.approvedRefundAmount,
-        message: request.refundRequestId
+        status: linkedRefund?.status ?? null,
+        amount:
+          linkedRefund?.approvedAmount ??
+          linkedRefund?.requestedAmount ??
+          request.approvedRefundAmount,
+        message: linkedRefund
           ? 'A refund has been created for this return and is tracked separately.'
           : null,
       },
@@ -1093,7 +1111,10 @@ export class ReturnRequestsService {
    * The variant must exist. A variant of a different product is allowed;
    * that restriction is not decided.
    */
-  private async resolveReplacementPreference(variantId?: string | null): Promise<{
+  private async resolveReplacementPreference(
+    variantId: string | undefined,
+    orderItem: OrderItemEntity,
+  ): Promise<{
     variantId: string;
     sku: string | null;
     productName: string | null;
@@ -1106,18 +1127,38 @@ export class ReturnRequestsService {
       where: { id: variantId },
       relations: { product: true },
     });
-    if (!variant) {
+    const availability = assessReplacementVariant(variant, {
+      requireBundle: await this.orderLineIsBundle(orderItem),
+    });
+    if (availability === 'NOT_FOUND') {
       throw new BadRequestException({
         code: RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
         message: 'Replacement variant not found',
       });
     }
+    if (availability === 'UNAVAILABLE') {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_VARIANT_UNAVAILABLE,
+        message: 'This replacement is not available. Choose a published, in-stock variant.',
+      });
+    }
     return {
-      variantId: variant.id,
-      sku: variant.sku,
-      productName: variant.product?.name ?? null,
-      variantName: variant.displayName ?? null,
+      variantId: variant!.id,
+      sku: variant!.sku,
+      productName: variant!.product?.name ?? null,
+      variantName: variant!.displayName ?? null,
     };
+  }
+
+  private async orderLineIsBundle(orderItem: OrderItemEntity): Promise<boolean> {
+    if (orderItem.bundleComponents != null) {
+      return true;
+    }
+    const product = await this.variantsRepository.manager.getRepository(ProductEntity).findOne({
+      where: { id: orderItem.productId },
+      select: { id: true, productType: true },
+    });
+    return product?.productType === ProductType.BUNDLE;
   }
 
   private resolveAffectedComponent(

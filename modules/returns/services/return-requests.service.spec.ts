@@ -132,7 +132,10 @@ describe('ReturnRequestsService.createForCustomer', () => {
   let auditService: jest.Mocked<Record<string, jest.Mock>>;
   let eventEmitter: jest.Mocked<Record<string, jest.Mock>>;
   let ordersRepository: jest.Mocked<Record<string, jest.Mock>>;
-  let variantsRepository: jest.Mocked<Record<string, jest.Mock>>;
+  let variantsRepository: {
+    findOne: jest.Mock;
+    manager: { getRepository: jest.Mock };
+  };
   let committedQuantities: Map<string, number>;
 
   beforeEach(() => {
@@ -162,7 +165,14 @@ describe('ReturnRequestsService.createForCustomer', () => {
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
     eventEmitter = { emitAsync: jest.fn().mockResolvedValue([]) };
     ordersRepository = { findOne: jest.fn(async () => order()) };
-    variantsRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    variantsRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      manager: {
+        getRepository: jest.fn().mockReturnValue({
+          findOne: jest.fn().mockResolvedValue({ productType: 'simple' }),
+        }),
+      },
+    };
 
     const lockQueryBuilder = {
       setLock: jest.fn().mockReturnThis(),
@@ -196,6 +206,7 @@ describe('ReturnRequestsService.createForCustomer', () => {
       variantsRepository as never,
       { get: jest.fn().mockReturnValue(true) } as never,
       { cancel: jest.fn().mockResolvedValue(undefined) } as never,
+      { findById: jest.fn().mockResolvedValue(null) } as never,
     );
   });
 
@@ -362,8 +373,12 @@ describe('ReturnRequestsService.createForCustomer', () => {
       id: 'variant-60',
       sku: 'PROD-A-60',
       displayName: '60 tablets',
+      status: 'active',
+      outOfStock: false,
+      stock: 4,
+      inCurekaInventory: false,
       productId: 'other-product',
-      product: { name: 'Product A' },
+      product: { name: 'Product A', status: 'published', productType: 'simple' },
     });
 
     await service.createForCustomer(
@@ -419,6 +434,47 @@ describe('ReturnRequestsService.createForCustomer', () => {
       ),
     ).rejects.toMatchObject({
       response: { code: 'RETURN_REPLACEMENT_VARIANT_NOT_FOUND' },
+    });
+    expect(returnRequestsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unpublished or out-of-stock replacement variant', async () => {
+    reasonMastersRepository.findByIdOrRefId.mockResolvedValue(
+      reason({ workflows: [ReasonWorkflow.REPLACEMENT] }),
+    );
+    eligibilityService.evaluateOrder.mockResolvedValue(
+      eligibility({
+        canReplace: true,
+        allowedResolutions: [ReturnResolution.REPLACEMENT],
+      }),
+    );
+    variantsRepository.findOne.mockResolvedValue({
+      id: 'variant-60',
+      sku: 'PROD-A-60',
+      displayName: '60 tablets',
+      status: 'active',
+      outOfStock: true,
+      stock: 4,
+      inCurekaInventory: false,
+      product: { name: 'Product A', status: 'published', productType: 'simple' },
+    });
+
+    await expect(
+      service.createForCustomer(
+        dto({
+          resolution: ReturnResolution.REPLACEMENT,
+          items: [
+            {
+              orderItemId: 'item-1',
+              quantity: 1,
+              replacementVariantId: '22222222-2222-4222-8222-222222222222',
+            },
+          ],
+        }),
+        actor,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'RETURN_REPLACEMENT_VARIANT_UNAVAILABLE' },
     });
     expect(returnRequestsRepository.create).not.toHaveBeenCalled();
   });
