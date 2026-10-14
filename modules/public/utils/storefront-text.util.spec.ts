@@ -18,13 +18,18 @@ describe('repairUtf8Mojibake', () => {
 });
 
 describe('rewriteLegacyStorefrontUrl', () => {
-  it('keeps path, search, and hash from the old hosts', () => {
+  it('keeps a techbv promotional URL absolute, the same as production', () => {
     expect(
-      rewriteLegacyStorefrontUrl('https://cureka.techbv.in/shop/serum?sort=price#reviews'),
-    ).toBe('/shop/serum?sort=price#reviews');
-    expect(rewriteLegacyStorefrontUrl('https://www.cureka.techbv.com/')).toBe('/');
+      rewriteLegacyStorefrontUrl('https://cureka.techbv.in/promotional/himalay-buy'),
+    ).toBe('https://cureka.techbv.in/promotional/himalay-buy');
+    expect(
+      rewriteLegacyStorefrontUrl('https://www.cureka.techbv.com/shop/serum?sort=price#reviews'),
+    ).toBe('https://www.cureka.techbv.com/shop/serum?sort=price#reviews');
     expect(rewriteLegacyStorefrontUrl('https://www.cureka.com/shop/serum')).toBe(
       'https://www.cureka.com/shop/serum',
+    );
+    expect(rewriteLegacyStorefrontUrl('/promotional/himalay-buy')).toBe(
+      '/promotional/himalay-buy',
     );
   });
 });
