@@ -19,7 +19,13 @@ export type UnicommerceReversePickupParams = {
   orderNumber: string;
   reversePickupCode: string;
   reason: string;
-  items: Array<{ sku: string; quantity: number }>;
+  items: Array<{
+    sku: string;
+    quantity: number;
+    replacementSku?: string | null;
+    /** Unit price of the replacement. Uniware rejects the alternate when this is missing. */
+    replacementUnitPrice?: number | null;
+  }>;
   originalOrderItems: Array<{ sku: string; quantity: number }>;
   pickupAddress: {
     recipientName: string;
@@ -249,21 +255,31 @@ export class UnicommerceOrderService implements OnModuleInit {
     const reason = params.reason.slice(0, 500);
     const facilityCode = this.configService.get<string>('unicommerceOrder.facilityCode') ?? '';
 
+    const returnedUnits = expandReversePickupUnits(params.items);
     const response = await this.apiService.createReversePickup({
       saleOrderCode: params.orderNumber,
       reversePickupCode: params.reversePickupCode,
       actionCode: 'WAC',
-      reversePickItems: saleOrderItemCodes.map((saleOrderItemCode) => ({
-        saleOrderItemCode,
-        reason,
-        ...(params.replacementSku
-          ? {
-              reversePickupAlternate: {
-                itemSku: params.replacementSku,
-              },
-            }
-          : {}),
-      })),
+      reversePickItems: saleOrderItemCodes.map((saleOrderItemCode, index) => {
+        const unit = returnedUnits[index];
+        const replacementSku = unit?.replacementSku?.trim() || params.replacementSku?.trim() || '';
+        return {
+          saleOrderItemCode,
+          reason,
+          ...(replacementSku
+            ? {
+                reversePickupAlternate: {
+                  itemSku: replacementSku,
+                  sellingPrice: replacementUnitPrice(unit?.replacementUnitPrice),
+                  totalPrice: replacementUnitPrice(unit?.replacementUnitPrice),
+                  discount: 0,
+                  shippingCharges: 0,
+                  prepaidAmount: 0,
+                },
+              }
+            : {}),
+        };
+      }),
       ...(pickupAddress
         ? { pickupAddress, shippingAddress: pickupAddress }
         : {}),
@@ -390,3 +406,23 @@ export class UnicommerceOrderService implements OnModuleInit {
     };
   }
 }
+
+const expandReversePickupUnits = (
+  items: UnicommerceReversePickupParams['items'],
+): UnicommerceReversePickupParams['items'] => {
+  const units: UnicommerceReversePickupParams['items'] = [];
+  for (const item of items) {
+    const quantity = Math.max(1, Math.floor(item.quantity) || 1);
+    for (let index = 0; index < quantity; index += 1) {
+      units.push(item);
+    }
+  }
+  return units;
+};
+
+/** Uniware treats a missing alternate price as empty. 0 is a real price for a free item. */
+const replacementUnitPrice = (value: number | null | undefined): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.round((parsed + Number.EPSILON) * 100) / 100;
+};

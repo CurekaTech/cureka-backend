@@ -371,13 +371,7 @@ export class ReturnWorkflowService {
       resolution: request.resolution,
       pickupAddress: request.pickupAddress,
       customerEmail: order?.user?.email ?? request.customer?.email ?? null,
-      items: (request.items ?? []).map((item) => ({
-        sku: item.sku,
-        quantity: item.quantity,
-        productName: item.productName,
-        unitPrice: item.unitPrice,
-        replacementSku: item.replacementSku,
-      })),
+      items: await this.pickupItemsForSchedule(request),
       originalOrderItems: (order?.items ?? []).map((item) => ({
         sku: item.sku,
         quantity: item.quantity,
@@ -1576,6 +1570,76 @@ export class ReturnWorkflowService {
       performedBy: actor.email ?? actor.id,
       details: { returnNumber: request.returnNumber, ...details },
     });
+  }
+
+  private async pickupItemsForSchedule(request: ReturnRequestEntity) {
+    const prices = await this.replacementUnitPriceByItem(request);
+    return (request.items ?? []).map((item) => ({
+      sku: item.sku,
+      quantity: item.quantity,
+      productName: item.productName,
+      unitPrice: item.unitPrice,
+      replacementSku: item.replacementSku,
+      replacementUnitPrice: prices.get(item.id) ?? null,
+    }));
+  }
+
+  /**
+   * Uniware requires sellingPrice and totalPrice on a replacement alternate.
+   * After admin confirmation the frozen quote is the unit price. Before that,
+   * use the replacement variant's selling price, then the returned line price.
+   */
+  private async replacementUnitPriceByItem(request: ReturnRequestEntity): Promise<Map<string, number>> {
+    const prices = new Map<string, number>();
+    if (request.resolution !== ReturnResolution.REPLACEMENT) return prices;
+
+    const items = request.items ?? [];
+    const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+    if (request.replacementQuoteAmount != null && totalQty > 0) {
+      const unit = roundMoney(parseMoney(request.replacementQuoteAmount) / totalQty);
+      for (const item of items) prices.set(item.id, unit);
+      return prices;
+    }
+
+    const ids = [
+      ...new Set(
+        items
+          .map((item) => item.replacementVariantId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const skus = [
+      ...new Set(
+        items
+          .map((item) => item.replacementSku?.trim())
+          .filter((sku): sku is string => Boolean(sku)),
+      ),
+    ];
+    const variants =
+      ids.length || skus.length
+        ? await this.variantsRepository.find({
+            where: [
+              ...(ids.length ? [{ id: In(ids) }] : []),
+              ...(skus.length ? [{ sku: In(skus) }] : []),
+            ],
+            select: ['id', 'sku', 'sellingPrice'],
+          })
+        : [];
+    const byId = new Map(variants.map((variant) => [variant.id, parseMoney(variant.sellingPrice)]));
+    const bySku = new Map<string, number>();
+    for (const variant of variants) {
+      if (!bySku.has(variant.sku)) bySku.set(variant.sku, parseMoney(variant.sellingPrice));
+    }
+
+    for (const item of items) {
+      const sku = item.replacementSku?.trim();
+      const price =
+        (item.replacementVariantId ? byId.get(item.replacementVariantId) : undefined) ??
+        (sku ? bySku.get(sku) : undefined) ??
+        parseMoney(item.unitPrice);
+      prices.set(item.id, roundMoney(price));
+    }
+    return prices;
   }
 
   private async replacementRequiresBundle(request: ReturnRequestEntity): Promise<boolean> {

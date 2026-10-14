@@ -6,10 +6,12 @@ Client contracts:
 
 - Public API reference: [return-replace-website-api-integration.md](./return-replace-website-api-integration.md)
 - Website screen changes: [return-replace-website-current-changes.md](./return-replace-website-current-changes.md)
+- Website request status UI: [return-replace-website-UI-highlights-integration.md](./return-replace-website-UI-highlights-integration.md)
 - Order-page buttons: [return-replace-public-orders-integration.md](./return-replace-public-orders-integration.md)
 - Customer replacement choice: [return-replace-customer-replacement-selection.md](./return-replace-customer-replacement-selection.md)
 - Admin API: [return-replace-admin-api-integration.md](./return-replace-admin-api-integration.md)
 - Admin screen changes: [return-replace-admin-current-changes.md](./return-replace-admin-current-changes.md)
+- Admin request status UI: [return-replace-admin-UI-highlights-integration.md](./return-replace-admin-UI-highlights-integration.md)
 
 The backend is the source of truth. Website and admin call the API and display the response. They do not calculate Return eligibility, Replace eligibility, window expiry, bundle COD, replacement price difference, or settlement direction.
 
@@ -372,7 +374,7 @@ A bundle replacement is the whole bundle. The customer and admin select a replac
 
 - Eligibility items include `orderItemId`, `canReturn`, `canReplace`, `isBundle`, and `components`.
 - `POST /api/v1/returns` requires `items[].orderItemId` and accepts optional `items[].replacementVariantId`.
-- That id is stored on `preferred_replacement_variant_id`, with the variant's SKU and names. An unknown id is rejected with `RETURN_REPLACEMENT_VARIANT_NOT_FOUND`. A variant from another product is accepted.
+- That id is stored on `preferred_replacement_variant_id`, with the variant's SKU and names. An unknown id is rejected with `RETURN_REPLACEMENT_VARIANT_NOT_FOUND`. The variant must be an active variant of a published product and in stock under the storefront stock rule. A bundle line must be replaced by a bundle. A variant from another published product is accepted. The same check runs when admin confirms.
 - Admin confirmation writes the confirmed variant onto `replacement_variant_id` and does not overwrite the preference columns. It stores the quote from the historical line amount and the confirmed variant's selling price at that moment.
 - The confirm `comment` is stored on an internal history entry (`INTERNAL_NOTE_ADDED`, not customer-visible), with metadata that records whether the confirmed variant differs from the preference.
 - `GET /api/v1/returns/:id` returns the preference fields always, and the confirmed variant fields only after `replacementSettlement` is set. Settlement amounts stay null until then. `replacementPaymentLink` is present only after admin creates a collect link.

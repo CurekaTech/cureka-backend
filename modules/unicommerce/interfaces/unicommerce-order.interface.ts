@@ -136,8 +136,10 @@ export interface IUnicommerceReversePickItem {
   customerImageUrl?: string;
   reversePickupAlternate?: {
     itemSku: string;
-    totalPrice?: number;
-    sellingPrice?: number;
+    /** Unit total. Required by Uniware whenever an alternate item is sent. */
+    totalPrice: number;
+    /** Unit selling price. Required by Uniware whenever an alternate item is sent. */
+    sellingPrice: number;
     discount?: number;
     shippingCharges?: number;
     prepaidAmount?: number;
