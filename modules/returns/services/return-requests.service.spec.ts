@@ -132,6 +132,7 @@ describe('ReturnRequestsService.createForCustomer', () => {
   let auditService: jest.Mocked<Record<string, jest.Mock>>;
   let eventEmitter: jest.Mocked<Record<string, jest.Mock>>;
   let ordersRepository: jest.Mocked<Record<string, jest.Mock>>;
+  let variantsRepository: jest.Mocked<Record<string, jest.Mock>>;
   let committedQuantities: Map<string, number>;
 
   beforeEach(() => {
@@ -161,6 +162,7 @@ describe('ReturnRequestsService.createForCustomer', () => {
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
     eventEmitter = { emitAsync: jest.fn().mockResolvedValue([]) };
     ordersRepository = { findOne: jest.fn(async () => order()) };
+    variantsRepository = { findOne: jest.fn().mockResolvedValue(null) };
 
     const lockQueryBuilder = {
       setLock: jest.fn().mockReturnThis(),
@@ -191,6 +193,7 @@ describe('ReturnRequestsService.createForCustomer', () => {
       { persist: jest.fn((path: string) => ({ key: path, name: path })) } as unknown as StorageUrlEnricher,
       eventEmitter as unknown as EventEmitter2,
       ordersRepository as unknown as Repository<OrderEntity>,
+      variantsRepository as never,
       { get: jest.fn().mockReturnValue(true) } as never,
       { cancel: jest.fn().mockResolvedValue(undefined) } as never,
     );
@@ -341,6 +344,81 @@ describe('ReturnRequestsService.createForCustomer', () => {
       ),
     ).rejects.toMatchObject({
       response: { code: 'BANK_ACCOUNT_MISMATCH' },
+    });
+    expect(returnRequestsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('stores a replacement preference without quoting a price or creating an order', async () => {
+    reasonMastersRepository.findByIdOrRefId.mockResolvedValue(
+      reason({ workflows: [ReasonWorkflow.RETURN, ReasonWorkflow.REPLACEMENT] }),
+    );
+    eligibilityService.evaluateOrder.mockResolvedValue(
+      eligibility({
+        canReplace: true,
+        allowedResolutions: [ReturnResolution.REFUND, ReturnResolution.REPLACEMENT],
+      }),
+    );
+    variantsRepository.findOne.mockResolvedValue({
+      id: 'variant-60',
+      sku: 'PROD-A-60',
+      displayName: '60 tablets',
+      productId: 'other-product',
+      product: { name: 'Product A' },
+    });
+
+    await service.createForCustomer(
+      dto({
+        resolution: ReturnResolution.REPLACEMENT,
+        items: [{ orderItemId: 'item-1', quantity: 1, replacementVariantId: 'variant-60' }],
+      }),
+      actor,
+    );
+
+    const created = returnRequestsRepository.create.mock.calls[0][0];
+    expect(created.replacementSettlement).toBeUndefined();
+    expect(created.replacementOrderId).toBeUndefined();
+    expect(created.replacementOriginalAmount).toBeUndefined();
+    expect(returnRequestsRepository.createItems).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          replacementVariantId: 'variant-60',
+          preferredReplacementVariantId: 'variant-60',
+          preferredReplacementSku: 'PROD-A-60',
+          preferredReplacementProductName: 'Product A',
+          preferredReplacementVariantName: '60 tablets',
+        }),
+      ],
+      expect.anything(),
+    );
+  });
+
+  it('rejects a replacement variant that does not exist', async () => {
+    reasonMastersRepository.findByIdOrRefId.mockResolvedValue(
+      reason({ workflows: [ReasonWorkflow.REPLACEMENT] }),
+    );
+    eligibilityService.evaluateOrder.mockResolvedValue(
+      eligibility({
+        canReplace: true,
+        allowedResolutions: [ReturnResolution.REPLACEMENT],
+      }),
+    );
+
+    await expect(
+      service.createForCustomer(
+        dto({
+          resolution: ReturnResolution.REPLACEMENT,
+          items: [
+            {
+              orderItemId: 'item-1',
+              quantity: 1,
+              replacementVariantId: '11111111-1111-4111-8111-111111111111',
+            },
+          ],
+        }),
+        actor,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'RETURN_REPLACEMENT_VARIANT_NOT_FOUND' },
     });
     expect(returnRequestsRepository.create).not.toHaveBeenCalled();
   });

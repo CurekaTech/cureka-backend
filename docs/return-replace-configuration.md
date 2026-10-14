@@ -1,6 +1,15 @@
 # Return & Replace Configuration-Based Flow
 
-This document is the agreed backend contract for Return, Replace, bundle handling, bundle COD, and replacement price difference. It does not change application code by itself. Website and admin clients must follow [return-replace-website-api-integration.md](./return-replace-website-api-integration.md) and [return-replace-admin-api-integration.md](./return-replace-admin-api-integration.md).
+This document is the agreed backend contract for Return, Replace, bundle handling, bundle COD, and replacement price difference. It does not change application code by itself.
+
+Client contracts:
+
+- Public API reference: [return-replace-website-api-integration.md](./return-replace-website-api-integration.md)
+- Website screen changes: [return-replace-website-current-changes.md](./return-replace-website-current-changes.md)
+- Order-page buttons: [return-replace-public-orders-integration.md](./return-replace-public-orders-integration.md)
+- Customer replacement choice: [return-replace-customer-replacement-selection.md](./return-replace-customer-replacement-selection.md)
+- Admin API: [return-replace-admin-api-integration.md](./return-replace-admin-api-integration.md)
+- Admin screen changes: [return-replace-admin-current-changes.md](./return-replace-admin-current-changes.md)
 
 The backend is the source of truth. Website and admin call the API and display the response. They do not calculate Return eligibility, Replace eligibility, window expiry, bundle COD, replacement price difference, or settlement direction.
 
@@ -346,3 +355,38 @@ Bundle
 ### Open point
 
 GoKwik checkouts already skip Cureka's variant COD gate. Native checkout uses the all-children rule. Whether a GoKwik bundle order must also be blocked when a child has COD off is not decided here. It does not change Return/Replace, the COD snapshot on new orders, or replacement settlement.
+
+## 21. Item-level actions and the customer's replacement choice
+
+Return and Replace on the public order page are actions on one order item, keyed by `orderItemId`. Two lines in the same order can differ. The website uses `GET /api/v1/returns/eligibility/:orderId` and reads `items[].canReturn` and `items[].canReplace`. Order-level `returnAllowed` and `replaceAllowed` on the order payload stay as they are. They are not the button source.
+
+A replacement request may include `items[].replacementVariantId`. That value is the customer's preferred replacement. Submitting it does not create a replacement order and does not calculate the price difference.
+
+Admin confirms the final product or bundle with `POST /api/v1/admin/returns/:id/replacement-selection`. That call is the one that reads the current selling price and stores the settlement. Later payment, bank refund, and fulfillment use the stored amounts.
+
+The customer cannot change the preferred replacement after submit. There is no public change-selection endpoint. A change before admin confirmation is a cancellation of the request, when the existing cancel rules allow it, and a new request. A change after confirmation is a support or admin workflow, not a storefront action.
+
+A bundle replacement is the whole bundle. The customer and admin select a replacement bundle. A named child is supporting information only. Settlement compares the historical bundle line amount with the confirmed replacement bundle price.
+
+### What is implemented
+
+- Eligibility items include `orderItemId`, `canReturn`, `canReplace`, `isBundle`, and `components`.
+- `POST /api/v1/returns` requires `items[].orderItemId` and accepts optional `items[].replacementVariantId`.
+- That id is stored on `preferred_replacement_variant_id`, with the variant's SKU and names. An unknown id is rejected with `RETURN_REPLACEMENT_VARIANT_NOT_FOUND`. A variant from another product is accepted.
+- Admin confirmation writes the confirmed variant onto `replacement_variant_id` and does not overwrite the preference columns. It stores the quote from the historical line amount and the confirmed variant's selling price at that moment.
+- The confirm `comment` is stored on an internal history entry (`INTERNAL_NOTE_ADDED`, not customer-visible), with metadata that records whether the confirmed variant differs from the preference.
+- `GET /api/v1/returns/:id` returns the preference fields always, and the confirmed variant fields only after `replacementSettlement` is set. Settlement amounts stay null until then. `replacementPaymentLink` is present only after admin creates a collect link.
+- There is no public endpoint to change the selected replacement.
+- Linking a replacement order still links an order that already exists. Auto-create stays off.
+- The public website and admin UI are not in this repository. They still have to render item-level buttons and the two replacement values from these APIs.
+
+### Not decided
+
+Do not reject a replacement because it is a different product. The options are:
+
+1. Current behavior: an unknown variant id is rejected. Any existing variant is accepted, including a variant of another product.
+2. Allow only another variant of the same product, or only another bundle when the line is a bundle.
+
+Option 2 is not implemented.
+
+A change after a difference payment or refund exists is already rejected. A later change is a support process and is not specified here. A request confirmed before the preference columns existed cannot have its original choice reconstructed.
