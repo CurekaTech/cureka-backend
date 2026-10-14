@@ -197,6 +197,64 @@ describe('UnicommerceOrderService', () => {
     ]);
   });
 
+  it('sends replacement selling and total price on the Uniware alternate', async () => {
+    (apiService.getSaleOrder as jest.Mock).mockResolvedValue({
+      successful: true,
+      saleOrderDTO: {
+        code: 'ORD123456780001',
+        saleOrderItems: [
+          { code: 'ORD123456780001-1', itemSku: 'SKU-A', statusCode: 'DELIVERED' },
+          { code: 'ORD123456780001-2', itemSku: 'SKU-A', statusCode: 'DELIVERED' },
+        ],
+      },
+    });
+    (apiService.createReversePickup as jest.Mock).mockResolvedValue({ successful: true });
+
+    await service.createReversePickup({
+      orderNumber: 'ORD123456780001',
+      reversePickupCode: 'RET0000001',
+      reason: 'Damaged on arrival',
+      items: [
+        {
+          sku: 'SKU-A',
+          quantity: 2,
+          replacementSku: 'SKU-B',
+          replacementUnitPrice: 150,
+        },
+      ],
+      originalOrderItems: [{ sku: 'SKU-A', quantity: 2 }],
+      pickupAddress: null,
+    });
+
+    const payload = (apiService.createReversePickup as jest.Mock).mock.calls[0][0];
+    expect(payload.reversePickItems).toEqual([
+      {
+        saleOrderItemCode: 'ORD123456780001-1',
+        reason: 'Damaged on arrival',
+        reversePickupAlternate: {
+          itemSku: 'SKU-B',
+          sellingPrice: 150,
+          totalPrice: 150,
+          discount: 0,
+          shippingCharges: 0,
+          prepaidAmount: 0,
+        },
+      },
+      {
+        saleOrderItemCode: 'ORD123456780001-2',
+        reason: 'Damaged on arrival',
+        reversePickupAlternate: {
+          itemSku: 'SKU-B',
+          sellingPrice: 150,
+          totalPrice: 150,
+          discount: 0,
+          shippingCharges: 0,
+          prepaidAmount: 0,
+        },
+      },
+    ]);
+  });
+
   it('cancels a full sale order on Unicommerce', async () => {
     (apiService.cancelSaleOrder as jest.Mock).mockResolvedValue({ successful: true });
 

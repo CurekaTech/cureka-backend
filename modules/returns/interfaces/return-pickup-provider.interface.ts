@@ -17,6 +17,8 @@ export interface IReturnPickupScheduleRequest {
     productName: string;
     unitPrice?: string;
     replacementSku?: string | null;
+    /** Unit selling price of the replacement SKU. */
+    replacementUnitPrice?: number | null;
   }>;
   /** Original order lines, used to reconstruct Uniware item codes if get-sale-order fails. */
   originalOrderItems: Array<{ sku: string; quantity: number }>;
