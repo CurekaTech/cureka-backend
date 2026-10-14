@@ -98,7 +98,7 @@ export class AdminOrdersController {
       'Emits shipment.updated so GoKwik receives AWB status DELIVERED when AWB exists. ' +
       'UniCommerce delivered sync is skipped for now. ' +
       'Rejected for CANCELLED / RTO. Idempotent if already DELIVERED. ' +
-      'Requires `orders.update`.',
+      'Requires `orders.update`. Super admin always has it. The system Admin role has it too.',
   })
   @ResponseMessage('Order marked completed successfully')
   @RequirePermissions('orders.update')
