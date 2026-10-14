@@ -974,6 +974,7 @@ export class ReturnWorkflowService {
     this.assertReplacementQuoteEditable(request);
     const variant = await this.variantsRepository.findOne({
       where: { id: dto.replacementVariantId },
+      relations: { product: true },
     });
     if (!variant) {
       throw new NotFoundException({
@@ -991,19 +992,78 @@ export class ReturnWorkflowService {
       original,
       parseMoney(variant.sellingPrice) * quantity,
     );
-    await this.returnRequestsRepository.updateById(request.id, {
-      replacementOriginalAmount: quote.originalAmount,
-      replacementQuoteAmount: quote.replacementAmount,
-      replacementDifferenceAmount: quote.differenceAmount,
-      replacementSettlement: quote.settlement,
-      updatedBy: actor.email ?? actor.id,
+    const selectionChanged = items.some((item) => {
+      const preferenceId = item.preferredReplacementVariantId ?? item.replacementVariantId;
+      return preferenceId != null && preferenceId !== variant.id;
     });
-    for (const item of items) {
-      await this.returnRequestsRepository.updateItemById(item.id, {
-        replacementVariantId: variant.id,
-        replacementSku: variant.sku,
-      });
-    }
+    const comment =
+      dto.comment?.trim() ||
+      (selectionChanged
+        ? 'Admin confirmed a different replacement than the customer requested.'
+        : 'Replacement selection confirmed.');
+
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+      if (!locked) {
+        throw new NotFoundException({
+          code: RETURN_REQUEST_NOT_FOUND,
+          message: 'Return request not found',
+        });
+      }
+      this.assertReplacementQuoteEditable({ ...request, ...locked, items });
+      await this.returnRequestsRepository.updateById(
+        request.id,
+        {
+          replacementOriginalAmount: quote.originalAmount,
+          replacementQuoteAmount: quote.replacementAmount,
+          replacementDifferenceAmount: quote.differenceAmount,
+          replacementSettlement: quote.settlement,
+          updatedBy: actor.email ?? actor.id,
+        },
+        manager,
+      );
+      for (const item of items) {
+        const preferenceId = item.preferredReplacementVariantId ?? item.replacementVariantId;
+        await this.returnRequestsRepository.updateItemById(
+          item.id,
+          {
+            replacementVariantId: variant.id,
+            replacementSku: variant.sku,
+            replacementProductName: variant.product?.name ?? null,
+            replacementVariantName: variant.displayName ?? null,
+            ...(item.preferredReplacementVariantId
+              ? {}
+              : {
+                  preferredReplacementVariantId: preferenceId,
+                  preferredReplacementSku: item.preferredReplacementSku ?? item.replacementSku ?? null,
+                  preferredReplacementProductName: item.preferredReplacementProductName ?? null,
+                  preferredReplacementVariantName: item.preferredReplacementVariantName ?? null,
+                }),
+          },
+          manager,
+        );
+      }
+      await this.returnRequestsRepository.addHistory(
+        {
+          returnRequestId: request.id,
+          fromStatus: locked.status,
+          toStatus: locked.status,
+          action: ReturnHistoryAction.INTERNAL_NOTE_ADDED,
+          comment,
+          isCustomerVisible: false,
+          performedBy: actor.email ?? actor.id,
+          performedByRole: actor.role ?? null,
+          metadata: {
+            preferredReplacementVariantIds: items.map(
+              (item) => item.preferredReplacementVariantId ?? item.replacementVariantId,
+            ),
+            confirmedReplacementVariantId: variant.id,
+            selectionChanged,
+          },
+        },
+        manager,
+      );
+    });
     return this.getDetail(request.id);
   }
 
@@ -1031,18 +1091,34 @@ export class ReturnWorkflowService {
         message: 'This return has no items',
       });
     }
-    const payment = await this.paymentRequestsService.createReplacementDifferenceLink({
-      customerId: request.customerId,
-      amount: request.replacementDifferenceAmount!,
-      productId: line.productId,
-      variantId: line.replacementVariantId ?? line.variantId,
-      returnNumber: request.returnNumber,
-      updatedBy: actor.email ?? actor.id,
-    });
-    await this.returnRequestsRepository.updateById(request.id, {
-      replacementPaymentRequestId: payment.id,
-      replacementPaymentLink: payment.paymentLink,
-      updatedBy: actor.email ?? actor.id,
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+      if (!locked) {
+        throw new NotFoundException({
+          code: RETURN_REQUEST_NOT_FOUND,
+          message: 'Return request not found',
+        });
+      }
+      if (locked.replacementPaymentRequestId) {
+        return;
+      }
+      const payment = await this.paymentRequestsService.createReplacementDifferenceLink({
+        customerId: request.customerId!,
+        amount: locked.replacementDifferenceAmount ?? request.replacementDifferenceAmount!,
+        productId: line.productId,
+        variantId: line.replacementVariantId ?? line.variantId,
+        returnNumber: request.returnNumber,
+        updatedBy: actor.email ?? actor.id,
+      });
+      await this.returnRequestsRepository.updateById(
+        request.id,
+        {
+          replacementPaymentRequestId: payment.id,
+          replacementPaymentLink: payment.paymentLink,
+          updatedBy: actor.email ?? actor.id,
+        },
+        manager,
+      );
     });
     return this.getDetail(request.id);
   }
@@ -1069,26 +1145,42 @@ export class ReturnWorkflowService {
         message: 'Order not found for this return',
       });
     }
-    const refund = await this.refundRequestsService.createFromReturn({
-      order,
-      returnRequestId: request.id,
-      returnNumber: request.returnNumber,
-      amount: request.replacementDifferenceAmount!,
-      reason: RefundReason.REPLACEMENT_PRICE_DIFFERENCE,
-      reasonDetails: dto.comment?.trim()
-        ? dto.comment.trim()
-        : `Replacement price difference for ${request.returnNumber}`,
-      actor: {
-        id: actor.id,
-        email: actor.email,
-        role: actor.role,
-        type: RefundRequestedByType.ADMIN,
-      },
-    });
-    await this.returnRequestsRepository.updateById(request.id, {
-      refundRequestId: refund.id,
-      refundLinkedAt: new Date(),
-      updatedBy: actor.email ?? actor.id,
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+      if (!locked) {
+        throw new NotFoundException({
+          code: RETURN_REQUEST_NOT_FOUND,
+          message: 'Return request not found',
+        });
+      }
+      if (locked.refundRequestId) {
+        return;
+      }
+      const refund = await this.refundRequestsService.createFromReturn({
+        order,
+        returnRequestId: request.id,
+        returnNumber: request.returnNumber,
+        amount: locked.replacementDifferenceAmount ?? request.replacementDifferenceAmount!,
+        reason: RefundReason.REPLACEMENT_PRICE_DIFFERENCE,
+        reasonDetails: dto.comment?.trim()
+          ? dto.comment.trim()
+          : `Replacement price difference for ${request.returnNumber}`,
+        actor: {
+          id: actor.id,
+          email: actor.email,
+          role: actor.role,
+          type: RefundRequestedByType.ADMIN,
+        },
+      });
+      await this.returnRequestsRepository.updateById(
+        request.id,
+        {
+          refundRequestId: refund.id,
+          refundLinkedAt: new Date(),
+          updatedBy: actor.email ?? actor.id,
+        },
+        manager,
+      );
     });
     return this.getDetail(request.id);
   }

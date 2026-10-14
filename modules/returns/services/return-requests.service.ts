@@ -6,6 +6,7 @@ import { ReasonWorkflow } from '@modules/master/enums/reason-workflow.enum';
 import { ReasonMastersRepository } from '@modules/master/repositories/reason-masters.repository';
 import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { IOrderItemBundleComponent } from '@modules/orders/interfaces/order-item-bundle-component.interface';
 import { toMoneyString } from '@modules/orders/utils/money.util';
@@ -56,6 +57,7 @@ import {
   RETURN_ORDER_NOT_FOUND,
   RETURN_OVERRIDE_JUSTIFICATION_REQUIRED,
   RETURN_QUANTITY_EXCEEDED,
+  RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
   RETURN_REQUEST_NOT_FOUND,
   RETURN_RESOLUTION_NOT_ALLOWED,
   RETURN_SUBMITTED_CUSTOMER_MESSAGE,
@@ -145,6 +147,8 @@ export class ReturnRequestsService {
     private readonly eventEmitter: EventEmitter2,
     @InjectRepository(OrderEntity)
     private readonly ordersRepository: Repository<OrderEntity>,
+    @InjectRepository(ProductVariantEntity)
+    private readonly variantsRepository: Repository<ProductVariantEntity>,
     private readonly configService: ConfigService,
     private readonly pickupService: ReturnPickupService,
   ) {}
@@ -335,6 +339,10 @@ export class ReturnRequestsService {
       .filter((value): value is Date => value !== null)
       .sort((left, right) => left.getTime() - right.getTime())[0] ?? null;
 
+    const replacementPreferences = await Promise.all(
+      dto.items.map((line) => this.resolveReplacementPreference(line.replacementVariantId)),
+    );
+
     const created = await this.dataSource.transaction(async (manager) => {
       // Serialise concurrent submissions for the same order so the quantity
       // ledger cannot be read stale between the check above and the insert.
@@ -400,13 +408,14 @@ export class ReturnRequestsService {
 
       await this.returnRequestsRepository.createItems(
         await Promise.all(
-          dto.items.map(async (line) => {
+          dto.items.map(async (line, index) => {
             const orderItem = orderItemsById.get(line.orderItemId)!;
             const itemEligibility = eligibilityByItemId.get(line.orderItemId)!;
             const affected = this.resolveAffectedComponent(
               orderItem,
               line.affectedComponentVariantId,
             );
+            const preference = replacementPreferences[index];
             return {
               refId: await generateUniqueRefId('returnitem', (candidate) =>
                 this.returnRequestsRepository.existsByItemRefId(candidate),
@@ -424,6 +433,10 @@ export class ReturnRequestsService {
               policySnapshot: itemEligibility.policy,
               deliveredAt: itemEligibility.deliveredAt,
               replacementVariantId: line.replacementVariantId ?? null,
+              preferredReplacementVariantId: preference?.variantId ?? null,
+              preferredReplacementSku: preference?.sku ?? null,
+              preferredReplacementProductName: preference?.productName ?? null,
+              preferredReplacementVariantName: preference?.variantName ?? null,
               affectedComponentVariantId: affected?.variantId ?? null,
               affectedComponentSku: affected?.sku ?? null,
               affectedComponentName: affected?.productName ?? null,
@@ -1073,6 +1086,37 @@ export class ReturnRequestsService {
       bankAccountType: encrypted?.bankAccountType ?? null,
       bankDetailsSubmittedAt: encrypted?.bankDetailsSubmittedAt ?? (method === CodRefundMethod.WALLET ? new Date() : null),
       bankDetailsLocked: false,
+    };
+  }
+
+  /**
+   * The variant must exist. A variant of a different product is allowed;
+   * that restriction is not decided.
+   */
+  private async resolveReplacementPreference(variantId?: string | null): Promise<{
+    variantId: string;
+    sku: string | null;
+    productName: string | null;
+    variantName: string | null;
+  } | null> {
+    if (!variantId) {
+      return null;
+    }
+    const variant = await this.variantsRepository.findOne({
+      where: { id: variantId },
+      relations: { product: true },
+    });
+    if (!variant) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
+        message: 'Replacement variant not found',
+      });
+    }
+    return {
+      variantId: variant.id,
+      sku: variant.sku,
+      productName: variant.product?.name ?? null,
+      variantName: variant.displayName ?? null,
     };
   }
 

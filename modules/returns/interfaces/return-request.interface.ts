@@ -35,8 +35,14 @@ export interface IReturnRequestItemView {
   acceptedQuantity: number | null;
   rejectedQuantity: number | null;
   qcRejectionReason: string | null;
+  preferredReplacementVariantId: string | null;
+  preferredReplacementSku: string | null;
+  preferredReplacementProductName: string | null;
+  preferredReplacementVariantName: string | null;
   replacementVariantId: string | null;
   replacementSku: string | null;
+  replacementProductName: string | null;
+  replacementVariantName: string | null;
   affectedComponentVariantId: string | null;
   affectedComponentSku: string | null;
   affectedComponentName: string | null;
@@ -288,6 +294,14 @@ export interface ICustomerReturnDetail {
       | 'affectedComponentVariantId'
       | 'affectedComponentSku'
       | 'affectedComponentName'
+      | 'preferredReplacementVariantId'
+      | 'preferredReplacementSku'
+      | 'preferredReplacementProductName'
+      | 'preferredReplacementVariantName'
+      | 'replacementVariantId'
+      | 'replacementSku'
+      | 'replacementProductName'
+      | 'replacementVariantName'
     > & {
       /** Signed product thumbnail URL when available. */
       imageUrl: string | null;

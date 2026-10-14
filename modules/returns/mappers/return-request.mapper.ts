@@ -12,6 +12,7 @@ import { ReturnPickupEntity } from '../entities/return-pickup.entity';
 import { ReturnQcRecordEntity } from '../entities/return-qc-record.entity';
 import { ReturnRequestItemEntity } from '../entities/return-request-item.entity';
 import { ReturnRequestEntity } from '../entities/return-request.entity';
+import { customerReplacementSelection } from '../utils/replacement-selection-view.util';
 import { ReturnStatusHistoryEntity } from '../entities/return-status-history.entity';
 import {
   ICustomerReturnDetail,
@@ -112,8 +113,14 @@ export const mapReturnItem = (entity: ReturnRequestItemEntity): IReturnRequestIt
   acceptedQuantity: entity.acceptedQuantity,
   rejectedQuantity: entity.rejectedQuantity,
   qcRejectionReason: entity.qcRejectionReason,
+  preferredReplacementVariantId: entity.preferredReplacementVariantId ?? null,
+  preferredReplacementSku: entity.preferredReplacementSku ?? null,
+  preferredReplacementProductName: entity.preferredReplacementProductName ?? null,
+  preferredReplacementVariantName: entity.preferredReplacementVariantName ?? null,
   replacementVariantId: entity.replacementVariantId,
   replacementSku: entity.replacementSku,
+  replacementProductName: entity.replacementProductName ?? null,
+  replacementVariantName: entity.replacementVariantName ?? null,
   affectedComponentVariantId: entity.affectedComponentVariantId ?? null,
   affectedComponentSku: entity.affectedComponentSku ?? null,
   affectedComponentName: entity.affectedComponentName ?? null,
@@ -409,6 +416,7 @@ export const mapCustomerReturnDetail = (
       affectedComponentSku: item.affectedComponentSku ?? null,
       affectedComponentName: item.affectedComponentName ?? null,
       imageUrl: null,
+      ...customerReplacementSelection(item, entity.replacementSettlement != null),
     })),
     evidence: extras.evidence.map(mapReturnEvidence),
     tracking: extras.pickup
