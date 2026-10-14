@@ -11,6 +11,7 @@ import {
   generateUniqueRefId,
 } from '@packages/common';
 import { AuditService } from '@modules/master/services/audit.service';
+import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PROMOTIONAL_PAGE_AUDIT_ENTITY } from '../constants/promotional-page-permissions.constants';
 import {
   CreatePromotionalPageDto,
@@ -59,6 +60,7 @@ export class PromotionalPagesService {
     private readonly pagesRepository: PromotionalPagesRepository,
     private readonly references: PromotionalPageReferenceService,
     private readonly auditService: AuditService,
+    private readonly storageUrlEnricher: StorageUrlEnricher,
   ) {}
 
   async create(dto: CreatePromotionalPageDto, actor: string): Promise<IAdminPromotionalPage> {
@@ -389,7 +391,7 @@ export class PromotionalPagesService {
         .map((section) => section.id),
     );
 
-    return {
+    return this.storageUrlEnricher.enrichDeep({
       id: page.id,
       refId: page.refId,
       name: page.name,
@@ -412,7 +414,7 @@ export class PromotionalPagesService {
         metaDescription: page.metaDescription,
       },
       ...(options.preview ? { preview: true } : {}),
-    };
+    });
   }
 
   private toAdmin(page: PromotionalPageEntity, now: Date): IAdminPromotionalPage {
