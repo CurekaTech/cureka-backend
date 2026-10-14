@@ -4,6 +4,7 @@ import {
   coerceDbBoolean,
   isCurekaInventoryManaged,
 } from '@packages/common/stock-validation.config';
+import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantOosTransition } from '../repositories/product-variants.repository';
 import {
@@ -106,7 +107,8 @@ export async function applyStockDeltaInManager(
   );
 
   if (!next.becameOos) return null;
-  return toTransition(variant, next.stock, options?.productName);
+  const productName = options?.productName?.trim() || (await catalogueProductName(manager, variant.productId));
+  return toTransition(variant, next.stock, productName);
 }
 
 /**
@@ -136,7 +138,7 @@ export async function applyAbsoluteStockInManager(
   );
 
   if (!next.becameOos) return null;
-  return toTransition(variant, next.stock);
+  return toTransition(variant, next.stock, await catalogueProductName(manager, variant.productId));
 }
 
 export async function applyManualOutOfStockInManager(
@@ -159,8 +161,19 @@ export async function applyManualOutOfStockInManager(
   );
 
   if (!next.becameOos) return null;
-  return toTransition(variant, next.stock);
+  return toTransition(variant, next.stock, await catalogueProductName(manager, variant.productId));
 }
+
+const catalogueProductName = async (
+  manager: EntityManager,
+  productId: string,
+): Promise<string | null> => {
+  const product = await manager.getRepository(ProductEntity).findOne({
+    where: { id: productId },
+    select: ['id', 'name'],
+  });
+  return product?.name?.trim() || null;
+};
 
 export {
   resolveAvailabilityFromDelta,
