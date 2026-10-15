@@ -59,24 +59,6 @@ export function mapBobProductStatus(status: ProductStatus): 'ACTIVE' | 'inactive
   return status === ProductStatus.PUBLISHED ? 'ACTIVE' : 'inactive';
 }
 
-export function mapBobVariantInventory(
-  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory'>,
-): Pick<BobVariant, 'inventoryQuantity' | 'inventoryPolicy' | 'inventoryManaged'> {
-  const stock = Number.isFinite(variant.stock) ? Math.trunc(variant.stock) : 0;
-  const managed = isCurekaInventoryManaged(variant);
-  const unavailable = variant.outOfStock || (managed && stock <= 0);
-
-  if (unavailable) {
-    return { inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true };
-  }
-
-  return {
-    inventoryQuantity: managed ? stock : Math.max(1, stock),
-    inventoryPolicy: managed ? 'deny' : 'continue',
-    inventoryManaged: true,
-  };
-}
-
 export function mapBobProductTags(product: ProductEntity): string[] {
   return (product.tagMappings ?? [])
     .map((mapping) => mapping.tag?.name)
@@ -96,13 +78,13 @@ function mapBobInventory(
   variant: ProductVariantEntity,
   product: ProductEntity,
 ): { inventoryQuantity: number; inventoryPolicy: 'deny' | 'continue' } {
-  const managed = STOCK_VALIDATION_ENABLED(variant);
-  const inventoryPolicy = managed ? 'deny' : 'continue';
+  const managed = isCurekaInventoryManaged(variant);
   const sellable =
     isPublicVariantSellable(variant) && !Boolean(product.bundleComponentOos);
   if (!sellable) {
-    return { inventoryQuantity: 0, inventoryPolicy };
+    return { inventoryQuantity: 0, inventoryPolicy: 'deny' };
   }
+  const inventoryPolicy = managed ? 'deny' : 'continue';
   const stored = storedVariantStock(variant);
   if (managed) {
     return { inventoryQuantity: stored > 0 ? stored : 0, inventoryPolicy };
