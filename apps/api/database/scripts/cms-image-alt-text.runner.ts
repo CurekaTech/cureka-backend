@@ -1,9 +1,9 @@
 /**
- * Fill blank CMS and storefront image alt text from the stored name or title.
+ * Fill blank CMS and storefront image/video alt text from stored names or titles.
  *
  * A null alt is filled. An empty string is decorative and is skipped.
  * Existing text is kept unless --overwrite is passed.
- * Each image on a row is one slot. A failed slot is logged and the run continues.
+ * Each media item on a row is one slot. A failed slot is logged and the run continues.
  *
  * SAFE BY DEFAULT — dry-run unless --apply is passed.
  * Does not call product:media-alt-text and does not change product_media.
@@ -11,6 +11,10 @@
  * Usage:
  *   npm run cms:image-alt-text
  *   npm run cms:image-alt-text -- --module=banners --limit=20
+ *   npm run cms:image-alt-text -- --module=brand-videos --limit=20
+ *   npm run cms:image-alt-text -- --module=blog-videos --limit=20
+ *   npm run cms:image-alt-text -- --module=expert-talk-videos --limit=20
+ *   npm run cms:image-alt-text -- --module=watch-and-shop-videos --limit=20
  *   npm run cms:image-alt-text -- --apply --batch=200
  *   npm run cms:image-alt-text -- --apply --after-id=<last-success-id>
  *
@@ -41,6 +45,7 @@ interface CliOptions {
 interface SlotDef {
   fileColumn: string;
   altColumn: string;
+  fallbackFileColumn?: string;
 }
 
 interface ColumnModule {
@@ -94,8 +99,13 @@ const MODULES: CmsModule[] = [
     ['offer_banner', 'offer_banner_alt_text'],
     ['faq_banner', 'faq_banner_alt_text'],
   ])),
+  columnModule('brand-videos', 'brands', 'name', imageSlots([
+    ['video', 'video_alt_text'],
+    ['secondary_video', 'secondary_video_alt_text'],
+  ])),
   columnModule('banners', 'banners', 'title', imageSlots([['image_url', 'image_alt_text']])),
   columnModule('blog-posts', 'blog_posts', 'title', imageSlots([['featured_image', 'featured_image_alt_text']])),
+  { kind: 'json', key: 'blog-videos' },
   columnModule('blog-categories', 'blog_categories', 'name', imageSlots([['icon', 'icon_alt_text']])),
   columnModule('support-articles', 'support_articles', 'title', imageSlots([['featured_image', 'featured_image_alt_text']])),
   columnModule('health-concerns', 'health_concerns', 'name', imageSlots([
@@ -109,6 +119,22 @@ const MODULES: CmsModule[] = [
   ])),
   columnModule('testimonials', 'testimonials', 'name', imageSlots([['image', 'image_alt_text']])),
   columnModule('expert-talk', 'expert_talk_items', 'title', imageSlots([['thumbnail', 'thumbnail_alt_text']])),
+  columnModule(
+    'expert-talk-videos',
+    'expert_talk_items',
+    'title',
+    imageSlots([['video_url', 'video_alt_text']]),
+  ),
+  columnModule(
+    'watch-and-shop-videos',
+    'watch_and_shop_items',
+    'title',
+    [{ fileColumn: 'media_url', fallbackFileColumn: 'video_url', altColumn: 'video_alt_text' }],
+    {
+      fromSql: 'watch_and_shop_items t LEFT JOIN products p ON p.ref_id = t.product_ref_id',
+      labelSql: `COALESCE(NULLIF(BTRIM(t.title), ''), p.name)`,
+    },
+  ),
   columnModule('manufacturers', 'manufacturers', 'name', imageSlots([['logo', 'logo_alt_text']])),
   columnModule('packers', 'packers', 'name', imageSlots([['logo', 'logo_alt_text']])),
   columnModule('importers', 'importers', 'name', imageSlots([['logo', 'logo_alt_text']])),
@@ -135,13 +161,13 @@ const MODULES: CmsModule[] = [
 
 const printUsage = (): void => {
   console.log(`
-cms:image-alt-text — Fill blank CMS image alt text from stored names and titles
+cms:image-alt-text — Fill blank CMS image and video alt text from stored names and titles
 
 Options:
   --apply              Write alt text (default: dry-run)
   --overwrite          Replace non-null alt text, including decorative empty strings
   --batch <n>          Rows per query (default: ${DEFAULT_BATCH})
-  --limit <n>          Stop after scanning this many image slots
+  --limit <n>          Stop after scanning this many media slots
   --after-id <uuid>    Resume after this row id inside the selected module
   --module <name>      One of: ${MODULES.map((item) => item.key).join(', ')}
 `);
@@ -231,6 +257,9 @@ const selectColumnRows = async (
 ): Promise<SelectedColumnRow[]> => {
   const columns = module.slots.flatMap((slot) => [
     `t.${quoteIdent(slot.fileColumn)} AS ${quoteIdent(slot.fileColumn)}`,
+    ...(slot.fallbackFileColumn
+      ? [`t.${quoteIdent(slot.fallbackFileColumn)} AS ${quoteIdent(slot.fallbackFileColumn)}`]
+      : []),
     `t.${quoteIdent(slot.altColumn)} AS ${quoteIdent(slot.altColumn)}`,
   ]);
   const params: unknown[] = [take];
@@ -253,7 +282,11 @@ const columnSlots = (module: ColumnModule, rows: SelectedColumnRow[]): CmsAltBac
   const slots: CmsAltBackfillSlot[] = [];
   for (const row of rows) {
     for (const slot of module.slots) {
-      if (!fileStorageKey(row[slot.fileColumn])) continue;
+      const primaryFile = row[slot.fileColumn];
+      const file = fileStorageKey(primaryFile)
+        ? primaryFile
+        : row[slot.fallbackFileColumn ?? ''];
+      if (!fileStorageKey(file)) continue;
       const alt = row[slot.altColumn];
       slots.push({
         id: `${row.id}|${slot.altColumn}`,
@@ -447,6 +480,79 @@ const runBrandHighlights = async (
   return totals;
 };
 
+const runBlogVideos = async (
+  options: CliOptions,
+  budget: { left: number },
+): Promise<CmsAltBackfillCounts> => {
+  const totals = emptyCounts();
+  let afterId = options.afterId;
+  while (budget.left > 0) {
+    const take = Math.min(options.batch, budget.left);
+    const params: unknown[] = [take];
+    let cursor = '';
+    if (afterId) {
+      params.push(afterId);
+      cursor = ` AND id > $${params.length}::uuid`;
+    }
+    const rows = (await AppDataSource.query(
+      `SELECT id::text AS id, title, videos
+       FROM blog_posts
+       WHERE deleted_at IS NULL AND videos IS NOT NULL${cursor}
+       ORDER BY id
+       LIMIT $1`,
+      params,
+    )) as Array<{
+      id: string;
+      title: string | null;
+      videos: Array<Record<string, unknown>> | null;
+    }>;
+    if (rows.length === 0) break;
+    afterId = rows[rows.length - 1]?.id;
+    const drafts = new Map(
+      rows.map((row) => [row.id, Array.isArray(row.videos) ? row.videos : []]),
+    );
+    const slots: CmsAltBackfillSlot[] = [];
+    for (const row of rows) {
+      const videos = drafts.get(row.id) ?? [];
+      videos.forEach((video, index) => {
+        const label = [video.title, video.subtitle, row.title]
+          .map((part) => (typeof part === 'string' ? part.trim() : ''))
+          .filter(Boolean)
+          .join(' ');
+        const slot = jsonImageSlot(video.file ?? video.url, video.altText, 'altText', label || null);
+        if (!slot) return;
+        slots.push({
+          id: `${row.id}|${index}|altText`,
+          altText: slot.altText,
+          label: slot.label,
+        });
+      });
+    }
+    const counts = await applyCmsAltBackfillBatch(
+      slots.slice(0, budget.left),
+      options,
+      async (id, altText) => {
+        const [rowId, indexRaw, altKey] = id.split('|');
+        const videos = drafts.get(rowId ?? '');
+        const video = videos?.[Number(indexRaw)];
+        if (!videos || !video || altKey !== 'altText') {
+          throw new Error(`Unexpected blog video slot ${id}`);
+        }
+        video.altText = altText;
+        await AppDataSource.query(
+          `UPDATE blog_posts SET videos = $1::jsonb WHERE id = $2::uuid`,
+          [JSON.stringify(videos), rowId],
+        );
+      },
+    );
+    budget.left -= counts.scanned;
+    addCounts(totals, counts);
+    console.log(`${LOG_PREFIX} blog-videos last-id=${afterId}`, counts);
+    if (rows.length < take) break;
+  }
+  return totals;
+};
+
 const runPromotionalPages = async (
   options: CliOptions,
   budget: { left: number },
@@ -489,6 +595,7 @@ const runPromotionalPages = async (
         ['desktopImage', 'desktopImageAltText'],
         ['mobileImage', 'mobileImageAltText'],
         ['thumbnail', 'thumbnailAltText'],
+        ['videoUrl', 'videoAltText'],
       ];
       for (const [fileKey, altKey] of pairs) {
         const slot = jsonImageSlot(config[fileKey], config[altKey], altKey, label || null);
@@ -501,7 +608,10 @@ const runPromotionalPages = async (
       const config = drafts.get(rowId ?? '');
       if (
         !config ||
-        (altKey !== 'desktopImageAltText' && altKey !== 'mobileImageAltText' && altKey !== 'thumbnailAltText')
+        (altKey !== 'desktopImageAltText' &&
+          altKey !== 'mobileImageAltText' &&
+          altKey !== 'thumbnailAltText' &&
+          altKey !== 'videoAltText')
       ) {
         throw new Error(`Unexpected promotional slot ${id}`);
       }
@@ -527,6 +637,7 @@ const runModule = async (
   if (module.kind === 'column') return runColumnModule(module, options, budget);
   if (module.key === 'home-sections') return runHomeSections(options, budget);
   if (module.key === 'brand-highlights') return runBrandHighlights(options, budget);
+  if (module.key === 'blog-videos') return runBlogVideos(options, budget);
   return runPromotionalPages(options, budget);
 };
 
