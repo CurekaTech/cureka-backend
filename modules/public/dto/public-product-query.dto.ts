@@ -14,6 +14,7 @@ import {
 import { IsRefId } from '@packages/common';
 import { ProductType } from '@modules/product/enums/product-type.enum';
 import { ProductCategoryFilterQueryDto } from '@modules/product/dto/product-category-filter.dto';
+import { PUBLIC_PRODUCT_LIST_SORT_FIELDS } from '@modules/product/utils/public-product-list-sort.util';
 
 const parseBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -41,7 +42,7 @@ export class PublicProductQueryDto extends ProductCategoryFilterQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(['name', 'publishedAt', 'price', 'variantSlug', 'bestsellerIndex'])
+  @IsIn([...PUBLIC_PRODUCT_LIST_SORT_FIELDS])
   sortBy?: string;
 
   @IsOptional()
