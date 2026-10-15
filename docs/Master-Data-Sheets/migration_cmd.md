@@ -145,6 +145,11 @@ npm run product:cod-blocking -- --apply
 #
 # Optional file override
 npm run product:cod-blocking -- --file="docs/Master-Data-Sheets/CODBLOCKINGSKUS-09-10.xlsx" --apply
+
+# Parent product flags only; dry-run first. Products with an unlisted
+# non-deleted variant remain unchanged to avoid blocking sibling variants.
+npm run product:cod-blocking:products
+npm run product:cod-blocking:products -- --apply
 #
 # After a successful update, product list, PDP, variant-search, recommendation,
 # and homepage-section Redis keys are invalidated. Redis is not flushed.
