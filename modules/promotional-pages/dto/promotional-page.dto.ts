@@ -120,6 +120,11 @@ export class PromotionalSectionConfigDto {
   videoUrl?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  videoAltText?: string | null;
+
+  @IsOptional()
   @IsIn(['selected', 'featured', 'trending'])
   blogMode?: 'selected' | 'featured' | 'trending';
 }

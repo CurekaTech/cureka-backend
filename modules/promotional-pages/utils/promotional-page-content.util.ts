@@ -46,6 +46,7 @@ export interface PromotionalSectionConfig {
   maxItems?: number | null;
   layout?: 'carousel' | 'grid' | null;
   videoUrl?: string | null;
+  videoAltText?: string | null;
   blogMode?: 'selected' | 'featured' | 'trending';
 }
 
@@ -593,6 +594,12 @@ const normalizeConfig = (
     config.videoUrl = videoProvided
       ? capture(errors, () => assertYouTubeUrl(source.videoUrl as string, `${label} video URL`), null)
       : null;
+    config.videoAltText = mergeJsonImageAlt({
+      incoming: source.videoAltText,
+      previousAlt: previous?.videoAltText,
+      previousFile: previous?.videoUrl,
+      nextFile: config.videoUrl,
+    });
     if (strict && !videoProvided) {
       errors.push(`${label} video URL is required`);
     }

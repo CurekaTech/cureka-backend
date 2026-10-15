@@ -1,7 +1,7 @@
 /**
  * Fill blank product_media.alt_text from stored product, brand, variant, and pack names.
  *
- * Selects image and common rows only. Video and size-chart rows are left alone.
+ * Selects image, common, and video rows. Size-chart rows are left alone.
  * A null alt_text is filled. An empty string is decorative and is skipped.
  * Existing text is kept unless --overwrite is passed.
  *
@@ -43,7 +43,7 @@ interface SelectedRow extends AltTextBackfillSourceRow {
 
 const printUsage = (): void => {
   console.log(`
-product:media-alt-text — Fill blank product image alt text from stored names
+product:media-alt-text — Fill blank product media alt text from stored names
 
 Options:
   --apply              Write alt_text (default: dry-run)
@@ -151,7 +151,7 @@ const selectRows = async (
         a.name
       LIMIT 1
     ) pack ON TRUE
-    WHERE m.type IN ('image', 'common')
+    WHERE m.type IN ('image', 'common', 'video')
       AND ($1::boolean OR m.alt_text IS NULL)
       AND ($2::uuid IS NULL OR m.id > $2::uuid)
     ORDER BY m.id

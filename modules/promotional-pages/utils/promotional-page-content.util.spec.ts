@@ -358,6 +358,48 @@ describe('promotional section validation', () => {
     ).toThrow(/video URL is required/);
   });
 
+  it('keeps omitted video alt text when the video URL is unchanged', () => {
+    const [section] = normalizeSections(
+      [
+        {
+          type: PromotionalSectionType.VIDEO,
+          config: { videoUrl: 'https://youtu.be/abc123' },
+        },
+      ],
+      {
+        previousConfigs: [
+          {
+            videoUrl: 'https://youtu.be/abc123',
+            videoAltText: 'How the product is used',
+          },
+        ],
+      },
+    );
+
+    expect(section?.config.videoAltText).toBe('How the product is used');
+  });
+
+  it('clears video alt text when the video URL changes and no new text is sent', () => {
+    const [section] = normalizeSections(
+      [
+        {
+          type: PromotionalSectionType.VIDEO,
+          config: { videoUrl: 'https://youtu.be/def456' },
+        },
+      ],
+      {
+        previousConfigs: [
+          {
+            videoUrl: 'https://youtu.be/abc123',
+            videoAltText: 'How the product is used',
+          },
+        ],
+      },
+    );
+
+    expect(section?.config.videoAltText).toBeNull();
+  });
+
   it('caps manual products and rejects max items below the selection', () => {
     expect(() =>
       normalizeSections([
