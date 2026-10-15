@@ -14,7 +14,6 @@ import {
   mapBobOrder,
   mapBobProductDetail,
   mapBobProductSummary,
-  mapBobVariantInventory,
   mapBobVariantDetail,
 } from './bob.mapper';
 
@@ -151,12 +150,12 @@ describe('BOB catalogue product id', () => {
         policy: 'deny',
       },
       {
-        label: 'explicitly unavailable even when a display quantity would be 1',
+        label: 'explicitly unavailable denies orders even when inventory is unmanaged',
         stock: 0,
         inCurekaInventory: false,
         outOfStock: true,
         quantity: 0,
-        policy: 'continue',
+        policy: 'deny',
       },
       {
         label: 'managed stock is hidden when the website marks the variant unavailable',
@@ -180,10 +179,12 @@ describe('BOB catalogue product id', () => {
         label: item.label,
         inventoryQuantity: detail.variants[0]?.inventoryQuantity,
         inventoryPolicy: detail.variants[0]?.inventoryPolicy,
+        inventoryManaged: detail.variants[0]?.inventoryManaged,
       }).toEqual({
         label: item.label,
         inventoryQuantity: item.quantity,
         inventoryPolicy: item.policy,
+        inventoryManaged: true,
       });
       expect(variant.stock).toBe(item.stock);
     }
@@ -204,7 +205,8 @@ describe('BOB catalogue product id', () => {
     const detail = mapBobVariantDetail(variant, product, new Map());
 
     expect(detail.inventoryQuantity).toBe(0);
-    expect(detail.inventoryPolicy).toBe('continue');
+    expect(detail.inventoryPolicy).toBe('deny');
+    expect(detail.inventoryManaged).toBe(true);
     expect(variant.stock).toBe(4);
     if (previous === undefined) delete process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED;
     else process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = previous;
@@ -273,34 +275,6 @@ describe('BOB inventory normalization', () => {
     } else {
       process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = previousManagementSetting;
     }
-  });
-
-  it.each([
-    [0, 1],
-    [-4, 1],
-    [7, 7],
-  ])('keeps unmanaged available stock %i orderable with quantity %i', (stock, quantity) => {
-    expect(
-      mapBobVariantInventory({ stock, outOfStock: false, inCurekaInventory: false } as ProductVariantEntity),
-    ).toEqual({ inventoryQuantity: quantity, inventoryPolicy: 'continue', inventoryManaged: true });
-  });
-
-  it('denies an explicitly out-of-stock unmanaged variant', () => {
-    expect(
-      mapBobVariantInventory({ stock: 8, outOfStock: true, inCurekaInventory: false } as ProductVariantEntity),
-    ).toEqual({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true });
-  });
-
-  it('returns actual positive stock for a Cureka-managed variant', () => {
-    expect(
-      mapBobVariantInventory({ stock: 6, outOfStock: false, inCurekaInventory: true } as ProductVariantEntity),
-    ).toEqual({ inventoryQuantity: 6, inventoryPolicy: 'deny', inventoryManaged: true });
-  });
-
-  it.each([0, -4])('denies a Cureka-managed variant with stock %i', (stock) => {
-    expect(
-      mapBobVariantInventory({ stock, outOfStock: false, inCurekaInventory: true } as ProductVariantEntity),
-    ).toEqual({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true });
   });
 
   it('returns identical inventory from product detail and variant detail', () => {
