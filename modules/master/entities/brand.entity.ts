@@ -39,6 +39,9 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   video!: IStorageFileReference | null;
 
+  @Column({ name: 'video_alt_text', type: 'varchar', length: 250, nullable: true })
+  videoAltText!: string | null;
+
   @Column({ name: 'show_video', type: 'boolean', default: true })
   showVideo!: boolean;
 
@@ -71,6 +74,9 @@ export class BrandEntity extends BaseEntity {
 
   @Column(storageFileReferenceColumn({ name: 'secondary_video' }))
   secondaryVideo!: IStorageFileReference | null;
+
+  @Column({ name: 'secondary_video_alt_text', type: 'varchar', length: 250, nullable: true })
+  secondaryVideoAltText!: string | null;
 
   @Column({ name: 'show_secondary_video', type: 'boolean', default: true })
   showSecondaryVideo!: boolean;

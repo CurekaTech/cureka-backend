@@ -37,6 +37,16 @@ describe('product media alt text DTOs', () => {
     expect(errors.some((error) => error.property === 'altText')).toBe(true);
   });
 
+  it('accepts an accessible label for video media', async () => {
+    const dto = plainToInstance(CreateProductMediaDto, {
+      type: ProductMediaType.VIDEO,
+      url: 'videos/products/demo.mp4',
+      altText: 'How to use the product pump',
+    });
+
+    expect(await validate(dto)).toEqual([]);
+  });
+
   it('trims variant image alt text and accepts an empty string', async () => {
     const dto = plainToInstance(VariantImageDto, {
       url: 'images/cleanser.webp',
@@ -139,6 +149,23 @@ describe('bulk upload alt columns', () => {
 
     const common = parseCommonMediaColumns(getVal, headerMap);
     expect(common[0]?.altText).toBe('Shared bottle');
+  });
+
+  it('reads the dedicated video alt column', () => {
+    const values: Record<string, string> = {
+      gallery_image_2_video: 'How-to demo.mp4',
+      gallery_image_2_video_url: 'https://cdn.example/how-to-demo.mp4',
+      gallery_image_2_video_alt: 'Demonstration of how to use the pump',
+    };
+    const getVal = (name: string) => values[name] ?? '';
+    const videos = parsePrimaryAndGalleryImages(getVal, (names) => {
+      for (const name of names) {
+        if (values[name]) return values[name];
+      }
+      return '';
+    });
+
+    expect(videos[0]?.altText).toBe('Demonstration of how to use the pump');
   });
 });
 

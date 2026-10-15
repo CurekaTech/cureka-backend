@@ -23,7 +23,12 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { IStorageFileReference } from '@packages/storage';
 import { mapProductEntitiesToPublicCards } from '@modules/public/mappers/public-product.mapper';
 import { normalizeMasterFaqs } from '../utils/master-faq.util';
-import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
+import {
+  assignStoredAltText,
+  fileStorageKey,
+  mergeJsonImageAlt,
+  storedAltForCreate,
+} from '../utils/image-alt-text.util';
 import {
   BlogPostQueryDto,
   BlogVideoDto,
@@ -512,7 +517,9 @@ export class BlogPostsService {
     const postPayload: Partial<BlogPostEntity> = {
       ...postDto,
       ...(faqs !== undefined ? { faqs: this.normalizeFaqs(faqs) } : {}),
-      ...(videos !== undefined ? { videos: this.normalizeVideos(videos) } : {}),
+      ...(videos !== undefined
+        ? { videos: this.normalizeVideos(videos, existing.videos) }
+        : {}),
     };
     assignStoredAltText(postPayload, 'featuredImageAltText', {
       incoming: featuredImageAltText,
@@ -663,12 +670,35 @@ export class BlogPostsService {
     });
   }
 
-  private normalizeVideos(videos?: BlogVideoDto[]): BlogPostVideo[] {
+  private normalizeVideos(
+    videos?: BlogVideoDto[],
+    previousVideos: BlogPostVideo[] = [],
+  ): BlogPostVideo[] {
     if (!videos?.length) return [];
 
     return videos.map((video, index) => {
       const title = video.title?.trim() || null;
       const subtitle = video.subtitle?.trim() || null;
+      const source =
+        video.type === BlogVideoType.URL
+          ? video.url?.trim() ?? ''
+          : (video.file as string | IStorageFileReference | undefined);
+      const previousVideo = previousVideos.find((previous) => {
+        if (previous.type !== video.type) return false;
+        const previousSource = previous.type === BlogVideoType.URL ? previous.url : previous.file;
+        return fileStorageKey(previousSource) === fileStorageKey(source);
+      });
+      const previousSource = previousVideo
+        ? previousVideo.type === BlogVideoType.URL
+          ? previousVideo.url
+          : previousVideo.file
+        : null;
+      const altText = mergeJsonImageAlt({
+        incoming: video.altText,
+        previousAlt: previousVideo?.altText,
+        previousFile: previousSource,
+        nextFile: source,
+      });
 
       if (video.type === BlogVideoType.URL) {
         const url = video.url?.trim() ?? '';
@@ -680,6 +710,7 @@ export class BlogPostsService {
           url,
           ...(title ? { title } : {}),
           ...(subtitle ? { subtitle } : {}),
+          altText,
         };
       }
 
@@ -694,6 +725,7 @@ export class BlogPostsService {
         file,
         ...(title ? { title } : {}),
         ...(subtitle ? { subtitle } : {}),
+        altText,
       };
     });
   }

@@ -33,6 +33,11 @@ export class CreateExpertTalkItemDto {
   videoUrl!: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  videoAltText?: string;
+
+  @IsOptional()
   @IsEnum(ExpertTalkContentType)
   contentType?: ExpertTalkContentType;
 

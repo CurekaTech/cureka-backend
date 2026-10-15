@@ -117,6 +117,13 @@ export class BlogVideoDto {
   @MaxLength(500)
   subtitle?: string;
 
+  @ApiPropertyOptional({ maxLength: 250, description: 'Accessible label for this video.' })
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(250)
+  altText?: string;
+
   @ApiPropertyOptional({
     description:
       'Required after upload merge when type is file. Accepts a storage path, { key, name }, or omit when sending videoFile_N.',

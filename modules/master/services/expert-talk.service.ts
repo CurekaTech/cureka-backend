@@ -108,6 +108,7 @@ export class ExpertTalkService {
       title: normalized.title,
       description: normalized.description,
       videoUrl: normalized.videoUrl,
+      videoAltText: storedAltForCreate(dto.videoAltText),
       thumbnail: normalized.thumbnail,
       thumbnailAltText: storedAltForCreate(dto.thumbnailAltText),
       contentType: normalized.contentType,
@@ -181,6 +182,12 @@ export class ExpertTalkService {
       status: normalized.status,
       updatedBy,
     };
+    assignStoredAltText(expertPayload, 'videoAltText', {
+      incoming: dto.videoAltText,
+      previousAlt: existing.videoAltText,
+      previousFile: existing.videoUrl,
+      nextFile: normalized.videoUrl,
+    });
     assignStoredAltText(expertPayload, 'thumbnailAltText', {
       incoming: dto.thumbnailAltText,
       previousAlt: existing.thumbnailAltText,
@@ -313,6 +320,7 @@ export class ExpertTalkService {
       title: item.title,
       description: item.description,
       videoUrl: item.videoUrl,
+      videoAltText: item.videoAltText,
       thumbnail: item.thumbnail,
       thumbnailAltText: item.thumbnailAltText,
       contentType: item.contentType,

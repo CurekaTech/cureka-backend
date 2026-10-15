@@ -25,6 +25,9 @@ export class WatchAndShopItemEntity extends BaseEntity {
   @Column({ name: 'video_url', type: 'varchar', length: 2000, nullable: true })
   videoUrl!: string | null;
 
+  @Column({ name: 'video_alt_text', type: 'varchar', length: 250, nullable: true })
+  videoAltText!: string | null;
+
   @Index()
   @Column({ name: 'product_ref_id', type: 'varchar', length: 16 })
   productRefId!: string;

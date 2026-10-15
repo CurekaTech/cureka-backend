@@ -80,6 +80,7 @@ export class PublicWatchAndShopService {
             refId: item.refId,
             title: item.title,
             videoUrl: item.videoUrl,
+            videoAltText: item.videoAltText,
             mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
             sortOrder: item.sortOrder,
             product: mapProductEntitiesToPublicStorefrontCards([product])[0]!,

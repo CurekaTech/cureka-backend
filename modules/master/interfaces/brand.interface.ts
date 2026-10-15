@@ -23,6 +23,7 @@ export interface IBrand {
   bannerAltText: string | null;
   showBanner: boolean;
   video: IStorageFileReferenceResponse | null;
+  videoAltText: string | null;
   showVideo: boolean;
   featuredBanner: IStorageFileReferenceResponse | null;
   featuredBannerAltText: string | null;
@@ -34,6 +35,7 @@ export interface IBrand {
   secondaryBannerAltText: string | null;
   showSecondaryBanner: boolean;
   secondaryVideo: IStorageFileReferenceResponse | null;
+  secondaryVideoAltText: string | null;
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReferenceResponse | null;
   offerBannerAltText: string | null;

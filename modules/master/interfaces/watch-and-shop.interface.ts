@@ -9,6 +9,7 @@ export interface IWatchAndShopItem {
   mediaType: WatchAndShopMediaType;
   mediaUrl: IStorageFileReferenceResponse | null;
   videoUrl: string | null;
+  videoAltText: string | null;
   productRefId: string;
   sortOrder: number;
   status: MasterStatus;
@@ -27,6 +28,7 @@ export interface IStorefrontWatchAndShopItem {
   mediaType: WatchAndShopMediaType;
   mediaUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
   videoUrl: string | null;
+  videoAltText: string | null;
   productRefId: string;
   sortOrder: number;
 }

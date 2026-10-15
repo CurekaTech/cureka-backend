@@ -11,12 +11,14 @@ export type BlogPostVideo =
       file: IStorageFileReference;
       title?: string | null;
       subtitle?: string | null;
+      altText?: string | null;
     }
   | {
       type: BlogVideoType.URL;
       url: string;
       title?: string | null;
       subtitle?: string | null;
+      altText?: string | null;
     };
 
 @Entity('blog_posts')
