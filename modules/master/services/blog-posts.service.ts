@@ -500,7 +500,15 @@ export class BlogPostsService {
           )
         : existing.publishedAt;
 
-    const { productRefIds, faqs, videos, featuredImageAltText, ...postDto } = dto;
+    const {
+      productRefIds,
+      faqs,
+      videos,
+      featuredImageAltText,
+      publishedAt: _publishedAt,
+      scheduledAt: _scheduledAt,
+      ...postDto
+    } = dto;
     const postPayload: Partial<BlogPostEntity> = {
       ...postDto,
       ...(faqs !== undefined ? { faqs: this.normalizeFaqs(faqs) } : {}),

@@ -314,6 +314,7 @@ export class ExpertTalkService {
       description: item.description,
       videoUrl: item.videoUrl,
       thumbnail: item.thumbnail,
+      thumbnailAltText: item.thumbnailAltText,
       contentType: item.contentType,
       sortOrder: item.sortOrder,
     }));
