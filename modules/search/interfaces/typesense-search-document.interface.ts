@@ -5,6 +5,8 @@ export interface ITypesenseSearchDocument {
   name: string;
   /** Lowercase alphanumeric name/brand. Optional until the collection is reindexed. */
   nameCompact?: string;
+  /** Concatenated product metadata for infix substring fallback search. */
+  searchText?: string;
   slug: string;
   brand?: string;
   category?: string;

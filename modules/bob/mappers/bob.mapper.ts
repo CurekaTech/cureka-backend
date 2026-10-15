@@ -1,4 +1,4 @@
-import { STOCK_VALIDATION_ENABLED } from '@packages/common';
+import { isCurekaInventoryManaged } from '@packages/common';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
@@ -30,6 +30,7 @@ import {
   BobLineItem,
   BobOrderPayload,
   BobPersonalDetails,
+  BobVariant,
   BobProductDetail,
   BobProductOption,
   BobProductSummary,
@@ -55,6 +56,24 @@ export function mapBobCategory(
 
 export function mapBobProductStatus(status: ProductStatus): 'ACTIVE' | 'inactive' {
   return status === ProductStatus.PUBLISHED ? 'ACTIVE' : 'inactive';
+}
+
+export function mapBobVariantInventory(
+  variant: Pick<ProductVariantEntity, 'stock' | 'outOfStock' | 'inCurekaInventory'>,
+): Pick<BobVariant, 'inventoryQuantity' | 'inventoryPolicy' | 'inventoryManaged'> {
+  const stock = Number.isFinite(variant.stock) ? Math.trunc(variant.stock) : 0;
+  const managed = isCurekaInventoryManaged(variant);
+  const unavailable = variant.outOfStock || (managed && stock <= 0);
+
+  if (unavailable) {
+    return { inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true };
+  }
+
+  return {
+    inventoryQuantity: managed ? stock : Math.max(1, stock),
+    inventoryPolicy: managed ? 'deny' : 'continue',
+    inventoryManaged: true,
+  };
 }
 
 export function mapBobProductTags(product: ProductEntity): string[] {
@@ -93,9 +112,7 @@ export function mapBobProductDetail(
       id: variant.id,
       title: variantTitle(product, variant),
       price: String(variant.sellingPrice),
-      inventoryQuantity: variant.stock,
-      inventoryPolicy: STOCK_VALIDATION_ENABLED(variant) ? 'deny' : 'continue',
-      inventoryManaged: true,
+      ...mapBobVariantInventory(variant),
       image: resolveProductImageUrl(product, variant.id, imageByKey) || image,
       description: product.description ?? '',
       selectedOptions: (variant.attributeValues ?? []).map((value) => ({
@@ -116,9 +133,7 @@ export function mapBobVariantDetail(
     id: variant.id,
     title: variantTitle(product, variant),
     price: String(variant.sellingPrice),
-    inventoryQuantity: variant.stock,
-    inventoryPolicy: STOCK_VALIDATION_ENABLED(variant) ? 'deny' : 'continue',
-    inventoryManaged: true,
+    ...mapBobVariantInventory(variant),
     image: resolveProductImageUrl(product, variant.id, imageByKey) || productImage,
     product: {
       id: requireBobCatalogueProductId(product),

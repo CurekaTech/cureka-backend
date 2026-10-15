@@ -14,6 +14,7 @@ import {
   mapBobOrder,
   mapBobProductDetail,
   mapBobProductSummary,
+  mapBobVariantInventory,
   mapBobVariantDetail,
 } from './bob.mapper';
 
@@ -156,6 +157,67 @@ describe('BOB catalogue product id', () => {
 
     expect(payload.lineItems[0]?.product.id).toBe(PRODUCT_UUID);
     expect(payload.lineItems[0]?.variant.id).toBe(VARIANT_UUID);
+  });
+});
+
+describe('BOB inventory normalization', () => {
+  const previousManagementSetting = process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'];
+
+  beforeAll(() => {
+    process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = 'true';
+  });
+
+  afterAll(() => {
+    if (previousManagementSetting === undefined) {
+      delete process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'];
+    } else {
+      process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = previousManagementSetting;
+    }
+  });
+
+  it.each([
+    [0, 1],
+    [-4, 1],
+    [7, 7],
+  ])('keeps unmanaged available stock %i orderable with quantity %i', (stock, quantity) => {
+    expect(
+      mapBobVariantInventory({ stock, outOfStock: false, inCurekaInventory: false } as ProductVariantEntity),
+    ).toEqual({ inventoryQuantity: quantity, inventoryPolicy: 'continue', inventoryManaged: true });
+  });
+
+  it('denies an explicitly out-of-stock unmanaged variant', () => {
+    expect(
+      mapBobVariantInventory({ stock: 8, outOfStock: true, inCurekaInventory: false } as ProductVariantEntity),
+    ).toEqual({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true });
+  });
+
+  it('returns actual positive stock for a Cureka-managed variant', () => {
+    expect(
+      mapBobVariantInventory({ stock: 6, outOfStock: false, inCurekaInventory: true } as ProductVariantEntity),
+    ).toEqual({ inventoryQuantity: 6, inventoryPolicy: 'deny', inventoryManaged: true });
+  });
+
+  it.each([0, -4])('denies a Cureka-managed variant with stock %i', (stock) => {
+    expect(
+      mapBobVariantInventory({ stock, outOfStock: false, inCurekaInventory: true } as ProductVariantEntity),
+    ).toEqual({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true });
+  });
+
+  it('returns identical inventory from product detail and variant detail', () => {
+    const product = catalogueProduct();
+    const variant = product.variants[0] as ProductVariantEntity;
+    variant.stock = -4;
+    variant.inCurekaInventory = true;
+
+    const productVariant = mapBobProductDetail(product, new Map(), '').variants[0];
+    const variantDetail = mapBobVariantDetail(variant, product, new Map());
+
+    expect(productVariant).toEqual(
+      expect.objectContaining({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true }),
+    );
+    expect(variantDetail).toEqual(
+      expect.objectContaining({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true }),
+    );
   });
 });
 

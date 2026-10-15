@@ -127,8 +127,8 @@ export class BobCatalogService {
   }
 
   /**
-   * BOB has no catalogue id contract for products without externalProductId.
-   * Omit them instead of returning id null or a generated id.
+  * BOB requires a numeric safe-integer externalProductId. Omit products that
+  * cannot be represented instead of returning a null, generated, or invalid id.
    */
   private onlyCatalogueProducts(products: ProductEntity[], context: string): ProductEntity[] {
     const ready: ProductEntity[] = [];
@@ -143,7 +143,7 @@ export class BobCatalogService {
     if (skipped.length) {
       this.logger.warn(
         { context, refIds: skipped },
-        '[BOB catalog] omitted products without externalProductId',
+        '[BOB catalog] omitted products without a valid numeric externalProductId',
       );
     }
     return ready;

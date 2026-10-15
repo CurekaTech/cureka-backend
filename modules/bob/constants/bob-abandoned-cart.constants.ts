@@ -1,7 +1,7 @@
 export const BOB_ABANDONED_CART_NOTIFY_KIND = 'abandoned-cart';
 
-/** Tenant-confirmed BOB path. `/abandoned-cart` returns path-not-found. */
-export const BOB_ABANDONED_CART_PATH = '/abancart';
+/** BOB external abandoned-cart endpoint. */
+export const BOB_ABANDONED_CART_PATH = '/abancart-external';
 
 export const BOB_ABANDONED_CART_JOB = {
   SCAN: 'scan',

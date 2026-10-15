@@ -8,6 +8,8 @@ export interface ITypesenseSearchRuntimeConfig {
   hasIsPincodeManaged: boolean;
   /** True after `nameCompact` exists. Primary query_by stays unchanged either way. */
   hasNameCompact?: boolean;
+  /** True after the additive infix field is present on the collection. */
+  hasSearchText?: boolean;
   productQueryBy: string;
   entityQueryBy: string;
   entityTypeFilters: Partial<Record<SearchEntityType, string>>;

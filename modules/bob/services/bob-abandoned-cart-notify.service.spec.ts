@@ -257,7 +257,7 @@ describe('BobAbandonedCartNotifyService', () => {
     expect(second.status).toBe('skipped');
     expect(bobNotifyService.post).toHaveBeenCalledTimes(1);
     expect(bobNotifyService.post).toHaveBeenCalledWith(
-      '/abancart',
+      '/abancart-external',
       expect.objectContaining({ checkout_id: 'CAR20260001' }),
       expect.objectContaining({ idempotencyKey: 'key-1' }),
     );
