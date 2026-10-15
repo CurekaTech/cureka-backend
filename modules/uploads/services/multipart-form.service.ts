@@ -19,6 +19,7 @@ export type IndexedFileFieldRule = {
 
 export type ParseAndValidateOptions = {
   indexedFileFields?: IndexedFileFieldRule[];
+  maxFileSizeOverride?: number;
 };
 
 /** Uploaded object path, or `null` when the client explicitly cleared the media field. */
@@ -206,7 +207,11 @@ export class MultipartFormService {
     const rawFields: Record<string, string[]> = {};
     const uploadedUrls: MultipartUploadedUrls = {};
 
-    for await (const part of req.parts()) {
+    const parts = options?.maxFileSizeOverride === undefined
+      ? req.parts()
+      : req.parts({ limits: { fileSize: options.maxFileSizeOverride } });
+
+    for await (const part of parts) {
       if (part.type === 'file') {
         await this.handleFilePart(part, fileFields, uploadedUrls, options);
       } else {
@@ -262,6 +267,7 @@ export class MultipartFormService {
       mimetype: part.mimetype,
       originalFilename: part.filename,
       folder,
+      maxSizeOverride: options?.maxFileSizeOverride,
     });
 
     uploadedUrls[storageKey] = result.path;

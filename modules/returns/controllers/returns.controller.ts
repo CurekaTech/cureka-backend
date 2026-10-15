@@ -34,6 +34,8 @@ import { ReturnActor } from '../interfaces/return-request.interface';
 import { ReturnEvidenceService } from '../services/return-evidence.service';
 import { ReturnRequestsService } from '../services/return-requests.service';
 
+const RETURN_EVIDENCE_MAX_FILE_SIZE_BYTES = Number.MAX_SAFE_INTEGER;
+
 @ApiTags('Returns')
 @ApiBearerAuth()
 @UseGuards(SessionCookieGuard, VerifiedUserGuard)
@@ -106,7 +108,10 @@ export class ReturnsController {
       req,
       CreateReturnRequestDto,
       {},
-      { indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }] },
+      {
+        indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }],
+        maxFileSizeOverride: RETURN_EVIDENCE_MAX_FILE_SIZE_BYTES,
+      },
     );
     return this.returnRequestsService.createForCustomer(
       dto,
@@ -170,7 +175,10 @@ export class ReturnsController {
       req,
       SubmitAdditionalInformationDto,
       {},
-      { indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }] },
+      {
+        indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }],
+        maxFileSizeOverride: RETURN_EVIDENCE_MAX_FILE_SIZE_BYTES,
+      },
     );
     return this.returnRequestsService.submitAdditionalInformation(
       id,
