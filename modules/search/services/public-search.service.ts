@@ -40,6 +40,7 @@ import {
   searchTypoBudget,
   significantSearchTokens,
 } from '../utils/search-tolerance.util';
+import { normalizeSearchQuery, searchQueryTerms } from '../utils/search-query.util';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
 
@@ -79,7 +80,7 @@ export class PublicSearchService {
   ) {}
 
   async search(query: string, perPage = 10, pincode?: string): Promise<IPublicSearchResult[]> {
-    const trimmed = query.trim();
+    const trimmed = normalizeSearchQuery(query);
     if (!trimmed) {
       return [];
     }
@@ -359,17 +360,76 @@ export class PublicSearchService {
       ];
     });
 
+    const fullSearchCount = searches.length;
+    const productFilterBy = this.applyProductPincodeFilter(
+      config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT],
+      config,
+      pincode,
+    );
+    const terms = searchQueryTerms(trimmed);
+    for (const term of terms) {
+      if (term !== trimmed) {
+        searches.push({
+          collection: collectionName,
+          q: term,
+          query_by: config.productQueryBy,
+          per_page: Math.min(perPage * 2, 30),
+          ...TYPESENSE_FAST_SEARCH_PARAMS,
+          ...(productFilterBy ? { filter_by: productFilterBy } : {}),
+          ...(config.hasInStock ? { sort_by: 'inStock:desc,_text_match:desc' } : {}),
+        });
+      }
+    }
+
     const multiResult = (await this.typesenseClient
       .getSearchClient()
       .multiSearch.perform({ searches })) as MultiSearchResponse;
 
     const grouped = this.groupMultiSearchResults(multiResult, config.hasEntityType);
     const rawProducts = grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [];
-    const strictProducts = filterDistinctMatchingProductVariants(rawProducts, trimmed);
+    const extraProductHits = (multiResult.results ?? [])
+      .slice(fullSearchCount)
+      .flatMap((response) =>
+        mapTypesenseHitsToSearchResults(
+          (response.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+        ),
+      );
+    const allProductHits = [...rawProducts, ...extraProductHits];
+    const strictProducts = filterDistinctMatchingProductVariants(allProductHits);
     // Pincode can drop a real text match. Do not replace that with a fuzzy catalog.
     let productHits = strictProducts.length
       ? await this.retainProductsVisibleForPincode(strictProducts, pincodeId)
       : [];
+
+    if (config.hasSearchText && productHits.length < perPage) {
+      const infixSearches = terms.map((term) => ({
+        collection: collectionName,
+        q: term,
+        query_by: 'searchText',
+        per_page: Math.min(Math.max(perPage - productHits.length, 1) * 3, 30),
+        ...TYPESENSE_FAST_SEARCH_PARAMS,
+        num_typos: 0,
+        prefix: false,
+        infix: 'always',
+        search_cutoff_ms: 250,
+        ...(productFilterBy ? { filter_by: productFilterBy } : {}),
+        ...(config.hasInStock ? { sort_by: 'inStock:desc,_text_match:desc' } : {}),
+      }));
+      const infixResult = (await this.typesenseClient
+        .getSearchClient()
+        .multiSearch.perform({ searches: infixSearches as unknown as typeof searches })) as MultiSearchResponse;
+      const infixHits = (infixResult.results ?? []).flatMap((response) =>
+        mapTypesenseHitsToSearchResults(
+          (response.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+        ),
+      );
+      const infixProducts = await this.retainProductsVisibleForPincode(
+        filterDistinctMatchingProductVariants(infixHits),
+        pincodeId,
+      );
+      productHits = this.mergeProductHits(productHits, infixProducts);
+    }
+
     if (!productHits.length) {
       productHits = await this.loadPublishedProductHits(trimmed, perPage, pincodeId);
     } else if (joinWords && productHits.length < perPage) {
@@ -426,7 +486,6 @@ export class PublicSearchService {
       variants
         .map((variant) => mapVariantToSearchResult(variant))
         .filter((result): result is IPublicSearchResult => Boolean(result)),
-      trimmed,
     );
   }
 
@@ -712,7 +771,6 @@ export class PublicSearchService {
       variants
         .map((variant) => mapVariantToSearchResult(variant))
         .filter((result): result is IPublicSearchResult => Boolean(result)),
-      trimmed,
     );
 
     return this.mergeSearchResults(

@@ -46,6 +46,10 @@ import {
   SEARCH_TYPO_SIMILARITY_FLOOR,
   searchQueryOmitsWordBreaks,
 } from '@modules/search/utils/search-tolerance.util';
+import {
+  buildSearchSqlPlan,
+  normalizeSearchQuery,
+} from '@modules/search/utils/search-query.util';
 
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
@@ -846,7 +850,7 @@ export class ProductsRepository {
       .take(take);
 
     this.applyPublicVariantSearchFilters(qb, options);
-    this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
+    this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder, options.search);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
     qb.andWhere(pincodeAvailabilitySql('product', options.pincodeId ?? null));
     bindPincodeAvailability(qb, options.pincodeId ?? null);
@@ -1579,19 +1583,26 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     options: PublicProductListOptions,
   ): void {
-    if (options.search) {
-      const literal = `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR EXISTS (
+    if (options.search?.trim()) {
+      const plan = buildSearchSqlPlan(
+        options.search,
+        (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR variant.slug ILIKE ${pattern} ESCAPE '!' OR variant.sku ILIKE ${pattern} ESCAPE '!' OR variant.display_name ILIKE ${pattern} ESCAPE '!' OR EXISTS (
           SELECT 1 FROM variant_attribute_values vav
-          WHERE vav.variant_id = variant.id AND vav.value ILIKE :search
-        ))`;
-      const { sql, params } = this.withCompactWordBreakMatch(options.search, literal, [
-        'product.name',
-        'product.slug',
-        'variant.slug',
-        'variant.sku',
-        'variant.display_name',
-      ]);
-      qb.andWhere(sql, params);
+          WHERE vav.variant_id = variant.id AND vav.value ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM brands search_brand
+          WHERE search_brand.id = product.brand_id AND search_brand.deleted_at IS NULL
+            AND search_brand.name ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM categories search_category
+          WHERE search_category.id IN (product.category_id, product.sub_category_id, product.sub_sub_category_id, product.sub_sub_sub_category_id)
+            AND search_category.deleted_at IS NULL
+            AND search_category.name ILIKE ${pattern} ESCAPE '!'
+        ))`,
+        'publicVariantSearch',
+      );
+      qb.andWhere(plan.whereSql, plan.parameters);
+      qb.addSelect(plan.rankSql, 'search_rank');
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -1818,9 +1829,12 @@ export class ProductsRepository {
     sortOrder: 'ASC' | 'DESC',
     options?: Pick<
       PublicProductListOptions,
-      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts' | 'pincodeId'
+      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts' | 'pincodeId' | 'search'
     >,
   ): void {
+    if (options?.search?.trim()) {
+      qb.orderBy('search_rank', 'ASC');
+    }
     const bestsellerTagSlug = options?.prioritizeBestsellers
       ? 'bestsellers'
       : sortBy === 'bestsellerIndex'
@@ -1831,6 +1845,11 @@ export class ProductsRepository {
       bindPincodeAvailability(qb, options?.pincodeId ?? null);
       if (sortBy === 'popularity') {
         joinPopularitySales(qb, 'product.id');
+        if (options?.search?.trim()) {
+          qb.orderBy('search_rank', 'ASC')
+            .addOrderBy('popularity_units', 'DESC')
+            .addOrderBy('popularity_last_sale_at', 'DESC', 'NULLS LAST');
+        }
         qb.addOrderBy('product.id', 'ASC');
         return;
       }
@@ -1845,7 +1864,11 @@ export class ProductsRepository {
         ),
         'list_price',
       );
-      qb.orderBy('list_price', direction, 'NULLS LAST');
+      if (options?.search?.trim()) {
+        qb.addOrderBy('list_price', direction, 'NULLS LAST');
+      } else {
+        qb.orderBy('list_price', direction, 'NULLS LAST');
+      }
       qb.addOrderBy('product.id', 'ASC');
       return;
     }
@@ -1865,7 +1888,11 @@ export class ProductsRepository {
         ) AND ${bundleDependencyAvailableSql('product')} THEN 0 ELSE 1 END)`,
       'in_stock_rank',
     );
-    qb.orderBy('in_stock_rank', 'ASC');
+    if (options?.search?.trim()) {
+      qb.addOrderBy('in_stock_rank', 'ASC');
+    } else {
+      qb.orderBy('in_stock_rank', 'ASC');
+    }
 
     if (bestsellerTagSlug) {
       qb.setParameter('bestsellerSortTagSlug', bestsellerTagSlug);
@@ -1950,14 +1977,27 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
+    search?: string,
   ): void {
+    if (search?.trim()) {
+      qb.orderBy('search_rank', 'ASC');
+    }
     if (sortBy === 'popularity') {
       joinPopularitySales(qb, 'product.id');
+      if (search?.trim()) {
+        qb.orderBy('search_rank', 'ASC')
+          .addOrderBy('popularity_units', 'DESC')
+          .addOrderBy('popularity_last_sale_at', 'DESC', 'NULLS LAST');
+      }
       qb.addOrderBy('variant.id', 'ASC');
       return;
     }
     if (sortBy === 'price_asc' || sortBy === 'price_desc') {
-      qb.orderBy('variant.sellingPrice', sortBy === 'price_asc' ? 'ASC' : 'DESC', 'NULLS LAST');
+      if (search?.trim()) {
+        qb.addOrderBy('variant.sellingPrice', sortBy === 'price_asc' ? 'ASC' : 'DESC', 'NULLS LAST');
+      } else {
+        qb.orderBy('variant.sellingPrice', sortBy === 'price_asc' ? 'ASC' : 'DESC', 'NULLS LAST');
+      }
       qb.addOrderBy('variant.id', 'ASC');
       return;
     }
@@ -1970,7 +2010,11 @@ export class ProductsRepository {
     };
     const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
     qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'variant_stock_rank');
-    qb.orderBy('variant_stock_rank', 'ASC');
+    if (search?.trim()) {
+      qb.addOrderBy('variant_stock_rank', 'ASC');
+    } else {
+      qb.orderBy('variant_stock_rank', 'ASC');
+    }
     qb.addOrderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
 
@@ -2269,30 +2313,37 @@ export class ProductsRepository {
     options: PublicProductListOptions,
     omit: PublicFacetOmit[] = [],
   ): void {
-    if (options.search) {
-      const literal = `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
+    if (options.search?.trim()) {
+      const plan = buildSearchSqlPlan(
+        options.search,
+        (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
             AND pv.deleted_at IS NULL
-            AND (
-              pv.slug ILIKE :search
-              OR pv.sku ILIKE :search
-              OR pv.display_name ILIKE :search
-            )
-        ))`;
-      const { sql, params } = this.withCompactWordBreakMatch(options.search, literal, [
-        'product.name',
-        'product.slug',
-      ]);
-      const compactVariants = searchQueryOmitsWordBreaks(options.search)
-        ? ` OR EXISTS (
-          SELECT 1 FROM product_variants pv
-          WHERE pv.product_id = product.id
-            AND pv.deleted_at IS NULL
-            AND (${compactColumnContainsSql('pv.slug')} OR ${compactColumnContainsSql('pv.sku')} OR ${compactColumnContainsSql('pv.display_name')})
-        )`
-        : '';
-      qb.andWhere(`(${sql}${compactVariants})`, params);
+            AND (pv.slug ILIKE ${pattern} ESCAPE '!' OR pv.sku ILIKE ${pattern} ESCAPE '!' OR pv.display_name ILIKE ${pattern} ESCAPE '!')
+        ) OR EXISTS (
+          SELECT 1 FROM brands search_brand
+          WHERE search_brand.id = product.brand_id
+            AND search_brand.deleted_at IS NULL
+            AND search_brand.name ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM categories search_category
+          WHERE search_category.id IN (product.category_id, product.sub_category_id, product.sub_sub_category_id, product.sub_sub_sub_category_id)
+            AND search_category.deleted_at IS NULL
+            AND search_category.name ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM product_category_hierarchies pch
+          INNER JOIN categories search_hierarchy_category ON search_hierarchy_category.id IN (
+            pch.category_id, pch.sub_category_id, pch.sub_sub_category_id, pch.sub_sub_sub_category_id
+          )
+          WHERE pch.product_id = product.id
+            AND search_hierarchy_category.deleted_at IS NULL
+            AND search_hierarchy_category.name ILIKE ${pattern} ESCAPE '!'
+        ))`,
+        'publicListSearch',
+      );
+      qb.andWhere(plan.whereSql, plan.parameters);
+      qb.addSelect(plan.rankSql, 'search_rank');
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -2563,13 +2614,12 @@ export class ProductsRepository {
       .getCount();
   }
 
-  /** All refIds of published products with at least one active variant — used for bulk UC push. */
+  /** All refIds of published products with at least one active variant for BOB catalog sync. */
   async findAllPublishedRefIds(): Promise<string[]> {
     const rows = await this.repo
       .createQueryBuilder('product')
       .select('product.refId', 'refId')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.publishedAt IS NOT NULL')
       .andWhere(
         `EXISTS (
           SELECT 1 FROM product_variants pv
@@ -2579,7 +2629,8 @@ export class ProductsRepository {
         )`,
         { variantStatus: VariantStatus.ACTIVE },
       )
-      .orderBy('product.publishedAt', 'DESC')
+      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('product.createdAt', 'DESC')
       .getRawMany<{ refId: string }>();
 
     return rows.map((row) => row.refId);
@@ -2768,13 +2819,19 @@ export class ProductsRepository {
     limit: number,
     pincodeId: string | null = null,
   ): Promise<ProductVariantEntity[]> {
-    const term = search.trim();
+    const term = normalizeSearchQuery(search);
     if (!term || limit <= 0) {
       return [];
     }
 
-    const prefixSearch = `${term}%`;
-    const containsSearch = `%${term}%`;
+    const plan = buildSearchSqlPlan(
+      term,
+      (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR variant.slug ILIKE ${pattern} ESCAPE '!' OR variant.sku ILIKE ${pattern} ESCAPE '!' OR variant.display_name ILIKE ${pattern} ESCAPE '!' OR brand.name ILIKE ${pattern} ESCAPE '!' OR category.name ILIKE ${pattern} ESCAPE '!' OR EXISTS (
+        SELECT 1 FROM variant_attribute_values search_attr
+        WHERE search_attr.variant_id = variant.id AND search_attr.value ILIKE ${pattern} ESCAPE '!'
+      ))`,
+      'dropdownSearch',
+    );
 
     const primary = await this.repo.manager
       .getRepository(ProductVariantEntity)
@@ -2790,45 +2847,14 @@ export class ProductsRepository {
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('category.deletedAt IS NULL')
-      .andWhere(
-        searchQueryOmitsWordBreaks(term)
-          ? `(product.name ILIKE :search OR product.slug ILIKE :search
-          OR variant.slug ILIKE :search OR variant.sku ILIKE :search
-          OR variant.displayName ILIKE :search OR ${this.variantSearchCompactPredicate('brand')})`
-          : `(product.name ILIKE :search OR product.slug ILIKE :search
-          OR variant.slug ILIKE :search OR variant.sku ILIKE :search
-          OR variant.displayName ILIKE :search)`,
-        { search: containsSearch },
-      )
+      .andWhere(plan.whereSql, plan.parameters)
+      .addSelect(plan.rankSql, 'search_rank')
       .addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank')
-      .addSelect(
-        `CASE
-          WHEN variant.sku ILIKE :prefixSearch THEN 0
-          WHEN variant.displayName ILIKE :prefixSearch THEN 1
-          WHEN product.name ILIKE :prefixSearch THEN 2
-          WHEN variant.slug ILIKE :prefixSearch THEN 3
-          WHEN product.slug ILIKE :prefixSearch THEN 4
-          WHEN variant.sku ILIKE :search THEN 5
-          WHEN variant.displayName ILIKE :search THEN 6
-          WHEN product.name ILIKE :search THEN 7
-          WHEN variant.slug ILIKE :search THEN 8
-          WHEN product.slug ILIKE :search THEN 9
-          ELSE 10
-        END`,
-        'search_rank',
-      )
-      .orderBy('availability_rank', 'ASC')
-      .addOrderBy('search_rank', 'ASC')
+      .orderBy('search_rank', 'ASC')
+      .addOrderBy('availability_rank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
-      .setParameters({
-        prefixSearch,
-        search: containsSearch,
-        ...(searchQueryOmitsWordBreaks(term)
-          ? { compactQuery: compactSearchText(term) }
-          : {}),
-        ...(pincodeId ? { pincodeAvailabilityId: pincodeId } : {}),
-      })
+      .setParameters(pincodeId ? { pincodeAvailabilityId: pincodeId } : {})
       .take(limit)
       .getMany();
 
@@ -2836,10 +2862,6 @@ export class ProductsRepository {
     return this.findDropdownSuggestionsWithTolerance(term, limit, pincodeId);
   }
 
-  /**
-   * Used only when the existing ILIKE search returned no rows.
-   * Compact match, then pg_trgm typo match, then nearest catalog rows for a real word.
-   */
   private async findPublishedVariantsWithTolerance(
     options: PublicProductListOptions,
   ): Promise<{ data: ProductVariantEntity[]; total: number }> {

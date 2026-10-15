@@ -132,6 +132,7 @@ export class TypesenseCollectionService implements OnModuleInit {
       hasPopularSortField: fieldNames.has(PRODUCT_POPULAR_SORT_FIELD),
       hasIsPincodeManaged: fieldNames.has('isPincodeManaged'),
       hasNameCompact: fieldNames.has('nameCompact'),
+      hasSearchText: fieldNames.has('searchText'),
       productQueryBy,
       entityQueryBy,
       entityTypeFilters: hasEntityType
