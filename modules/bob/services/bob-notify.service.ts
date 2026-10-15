@@ -174,7 +174,7 @@ export class BobNotifyService implements OnModuleInit {
     return raw
       .replace(/\/+$/, '')
       .replace(
-        /\/(orders-create|orders-cancelled|fulfillments-create|fulfillments-events-create|abandoned-cart|abancart)$/i,
+        /\/(orders-create|orders-cancelled|fulfillments-create|fulfillments-events-create|abandoned-cart|abancart|abancart-external)$/i,
         '',
       );
   }

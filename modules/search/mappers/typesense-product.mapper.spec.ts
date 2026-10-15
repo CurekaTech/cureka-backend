@@ -48,6 +48,7 @@ describe('typesense-product.mapper', () => {
       brand: 'Micro Labs',
       category: 'Pain Relief',
       description: 'Pain relief tablet',
+      searchText: expect.stringContaining('DOLO-650'),
       inStock: true,
       minSellingPrice: 32.5,
     });

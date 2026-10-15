@@ -4,6 +4,9 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { parseMoney, roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { applyStockDeltaInManager } from '@modules/product/utils/variant-stock-tx.util';
+import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
+import { PaymentRequestsService } from '@modules/payment-requests/services/payment-requests.service';
+import { RefundReason } from '@modules/refund-requests/enums/refund-reason.enum';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
 import { RefundRequestsRepository } from '@modules/refund-requests/repositories/refund-requests.repository';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
@@ -11,9 +14,11 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -28,10 +33,13 @@ import {
 import { EVENTS, ProductUpdatedEvent } from '@packages/events';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import {
   INVALID_STATUS_TRANSITION,
+  BANK_DETAILS_REQUIRED,
   RETURN_ALREADY_REPLACED,
   RETURN_NO_PICKUP_NOT_ALLOWED,
+  RETURN_ITEM_NOT_FOUND,
   RETURN_PICKUP_NOT_FOUND,
   RETURN_PICKUP_NOT_REQUIRED,
   RETURN_QC_NOT_ALLOWED,
@@ -40,11 +48,14 @@ import {
   RETURN_REFUND_NOT_APPLICABLE,
   RETURN_REPLACEMENT_NOT_CONFIGURED,
   RETURN_REQUEST_NOT_FOUND,
+  RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
+  RETURN_REPLACEMENT_VARIANT_UNAVAILABLE,
 } from '../constants/return.constants';
 import {
   ApproveNoPickupDto,
   ApproveReturnRequestDto,
   AssignReturnRequestDto,
+  ConfirmReplacementSelectionDto,
   LinkReplacementOrderDto,
   ReceiveAtWarehouseDto,
   RejectReturnRequestDto,
@@ -73,6 +84,8 @@ import { ReturnEvidencesRepository } from '../repositories/return-evidences.repo
 import { ReturnPickupsRepository } from '../repositories/return-pickups.repository';
 import { ReturnQcRecordsRepository } from '../repositories/return-qc-records.repository';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
+import { calculateReplacementPriceDifference } from '../utils/replacement-price-difference.util';
+import { assessReplacementVariant } from '../utils/replacement-variant-availability.util';
 import { canTransitionReturnStatus } from '../utils/return-status-transition.util';
 import { ReturnPickupService } from './return-pickup.service';
 import { mapShipwayStatusToReturnPickupStatus } from '../utils/shipway-return-pickup-status.util';
@@ -88,6 +101,8 @@ export class ReturnWorkflowService {
     private readonly pickupsRepository: ReturnPickupsRepository,
     private readonly qcRecordsRepository: ReturnQcRecordsRepository,
     private readonly pickupService: ReturnPickupService,
+    @Inject(forwardRef(() => PaymentRequestsService))
+    private readonly paymentRequestsService: PaymentRequestsService,
     private readonly refundRequestsService: RefundRequestsService,
     private readonly refundRequestsRepository: RefundRequestsRepository,
     private readonly auditService: AuditService,
@@ -134,11 +149,15 @@ export class ReturnWorkflowService {
       this.pickupsRepository.findByReturnRequestId(request.id),
       this.qcRecordsRepository.findByReturnRequestId(request.id),
     ]);
+    const payment = request.replacementPaymentRequestId
+      ? await this.paymentRequestsService.findById(request.replacementPaymentRequestId)
+      : null;
     const detail = mapReturnToDetail(request, {
       evidence,
       pickups,
       qcRecords,
       refund: await this.buildRefundLink(request),
+      replacementPaymentStatus: payment?.status ?? null,
     });
     return this.storageUrlEnricher.enrichDeep(detail);
   }
@@ -352,13 +371,7 @@ export class ReturnWorkflowService {
       resolution: request.resolution,
       pickupAddress: request.pickupAddress,
       customerEmail: order?.user?.email ?? request.customer?.email ?? null,
-      items: (request.items ?? []).map((item) => ({
-        sku: item.sku,
-        quantity: item.quantity,
-        productName: item.productName,
-        unitPrice: item.unitPrice,
-        replacementSku: item.replacementSku,
-      })),
+      items: await this.pickupItemsForSchedule(request),
       originalOrderItems: (order?.items ?? []).map((item) => ({
         sku: item.sku,
         quantity: item.quantity,
@@ -950,6 +963,235 @@ export class ReturnWorkflowService {
     return this.getDetail(request.id);
   }
 
+  async confirmReplacementSelection(
+    identifier: string,
+    dto: ConfirmReplacementSelectionDto,
+    actor: ReturnActor,
+  ) {
+    const request = await this.requireReturn(identifier);
+    this.assertReplacementQuoteEditable(request);
+    const variant = await this.variantsRepository.findOne({
+      where: { id: dto.replacementVariantId },
+      relations: { product: true },
+    });
+    const availability = assessReplacementVariant(variant, {
+      requireBundle: await this.replacementRequiresBundle(request),
+    });
+    if (!variant || availability === 'NOT_FOUND') {
+      throw new NotFoundException({
+        code: RETURN_REPLACEMENT_VARIANT_NOT_FOUND,
+        message: 'Replacement variant not found',
+      });
+    }
+    if (availability === 'UNAVAILABLE') {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_VARIANT_UNAVAILABLE,
+        message: 'This replacement is not available. Choose a published, in-stock variant.',
+      });
+    }
+    const items = request.items ?? [];
+    const quantity = items.reduce((total, item) => total + item.quantity, 0);
+    const original = items.reduce(
+      (total, item) => total + parseMoney(item.unitPrice) * item.quantity,
+      0,
+    );
+    const quote = calculateReplacementPriceDifference(
+      original,
+      parseMoney(variant.sellingPrice) * quantity,
+    );
+    const selectionChanged = items.some((item) => {
+      const preferenceId = item.preferredReplacementVariantId ?? item.replacementVariantId;
+      return preferenceId != null && preferenceId !== variant.id;
+    });
+    const comment =
+      dto.comment?.trim() ||
+      (selectionChanged
+        ? 'Admin confirmed a different replacement than the customer requested.'
+        : 'Replacement selection confirmed.');
+
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+      if (!locked) {
+        throw new NotFoundException({
+          code: RETURN_REQUEST_NOT_FOUND,
+          message: 'Return request not found',
+        });
+      }
+      this.assertReplacementQuoteEditable({ ...request, ...locked, items });
+      await this.returnRequestsRepository.updateById(
+        request.id,
+        {
+          replacementOriginalAmount: quote.originalAmount,
+          replacementQuoteAmount: quote.replacementAmount,
+          replacementDifferenceAmount: quote.differenceAmount,
+          replacementSettlement: quote.settlement,
+          updatedBy: actor.email ?? actor.id,
+        },
+        manager,
+      );
+      for (const item of items) {
+        const preferenceId = item.preferredReplacementVariantId ?? item.replacementVariantId;
+        await this.returnRequestsRepository.updateItemById(
+          item.id,
+          {
+            replacementVariantId: variant.id,
+            replacementSku: variant.sku,
+            replacementProductName: variant.product?.name ?? null,
+            replacementVariantName: variant.displayName ?? null,
+            ...(item.preferredReplacementVariantId
+              ? {}
+              : {
+                  preferredReplacementVariantId: preferenceId,
+                  preferredReplacementSku: item.preferredReplacementSku ?? item.replacementSku ?? null,
+                  preferredReplacementProductName: item.preferredReplacementProductName ?? null,
+                  preferredReplacementVariantName: item.preferredReplacementVariantName ?? null,
+                }),
+          },
+          manager,
+        );
+      }
+      await this.returnRequestsRepository.addHistory(
+        {
+          returnRequestId: request.id,
+          fromStatus: locked.status,
+          toStatus: locked.status,
+          action: ReturnHistoryAction.INTERNAL_NOTE_ADDED,
+          comment,
+          isCustomerVisible: false,
+          performedBy: actor.email ?? actor.id,
+          performedByRole: actor.role ?? null,
+          metadata: {
+            preferredReplacementVariantIds: items.map(
+              (item) => item.preferredReplacementVariantId ?? item.replacementVariantId,
+            ),
+            confirmedReplacementVariantId: variant.id,
+            selectionChanged,
+          },
+        },
+        manager,
+      );
+    });
+    return this.getDetail(request.id);
+  }
+
+  async createReplacementDifferencePaymentLink(identifier: string, actor: ReturnActor) {
+    const request = await this.requireReturn(identifier);
+    this.assertSettlement(request, 'COLLECT');
+    if (!request.customerId) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'This return has no customer to collect a payment from',
+      });
+    }
+    if (request.replacementPaymentRequestId) {
+      const existing = await this.paymentRequestsService.findById(
+        request.replacementPaymentRequestId,
+      );
+      if (existing?.paymentLink) {
+        return this.getDetail(request.id);
+      }
+    }
+    const line = request.items?.[0];
+    if (!line) {
+      throw new BadRequestException({
+        code: RETURN_ITEM_NOT_FOUND,
+        message: 'This return has no items',
+      });
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+      if (!locked) {
+        throw new NotFoundException({
+          code: RETURN_REQUEST_NOT_FOUND,
+          message: 'Return request not found',
+        });
+      }
+      if (locked.replacementPaymentRequestId) {
+        return;
+      }
+      const payment = await this.paymentRequestsService.createReplacementDifferenceLink({
+        customerId: request.customerId!,
+        amount: locked.replacementDifferenceAmount ?? request.replacementDifferenceAmount!,
+        productId: line.productId,
+        variantId: line.replacementVariantId ?? line.variantId,
+        returnNumber: request.returnNumber,
+        updatedBy: actor.email ?? actor.id,
+      });
+      await this.returnRequestsRepository.updateById(
+        request.id,
+        {
+          replacementPaymentRequestId: payment.id,
+          replacementPaymentLink: payment.paymentLink,
+          updatedBy: actor.email ?? actor.id,
+        },
+        manager,
+      );
+    });
+    return this.getDetail(request.id);
+  }
+
+  async createReplacementDifferenceRefund(identifier: string, dto: ReturnCommentDto, actor: ReturnActor) {
+    const request = await this.requireReturn(identifier);
+    this.assertSettlement(request, 'REFUND');
+    if (request.refundRequestId) {
+      return this.getDetail(request.id);
+    }
+    if (!request.bankAccountNumberEncrypted || !request.bankIfsc || !request.bankAccountHolderName) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_REQUIRED,
+        message: 'Bank details are required before the price difference can be refunded',
+      });
+    }
+    const order = await this.ordersRepository.findOne({
+      where: { id: request.orderId },
+      relations: { items: true },
+    });
+    if (!order) {
+      throw new NotFoundException({
+        code: RETURN_REQUEST_NOT_FOUND,
+        message: 'Order not found for this return',
+      });
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await this.returnRequestsRepository.lockById(request.id, manager);
+      if (!locked) {
+        throw new NotFoundException({
+          code: RETURN_REQUEST_NOT_FOUND,
+          message: 'Return request not found',
+        });
+      }
+      if (locked.refundRequestId) {
+        return;
+      }
+      const refund = await this.refundRequestsService.createFromReturn({
+        order,
+        returnRequestId: request.id,
+        returnNumber: request.returnNumber,
+        amount: locked.replacementDifferenceAmount ?? request.replacementDifferenceAmount!,
+        reason: RefundReason.REPLACEMENT_PRICE_DIFFERENCE,
+        reasonDetails: dto.comment?.trim()
+          ? dto.comment.trim()
+          : `Replacement price difference for ${request.returnNumber}`,
+        actor: {
+          id: actor.id,
+          email: actor.email,
+          role: actor.role,
+          type: RefundRequestedByType.ADMIN,
+        },
+      });
+      await this.returnRequestsRepository.updateById(
+        request.id,
+        {
+          refundRequestId: refund.id,
+          refundLinkedAt: new Date(),
+          updatedBy: actor.email ?? actor.id,
+        },
+        manager,
+      );
+    });
+    return this.getDetail(request.id);
+  }
+
   async linkReplacementOrder(
     identifier: string,
     dto: LinkReplacementOrderDto,
@@ -968,6 +1210,7 @@ export class ReturnWorkflowService {
         message: 'A replacement order is already linked to this return',
       });
     }
+    await this.assertReplacementSettlementSatisfied(request);
     const replacement = await this.ordersRepository.findOne({
       where: { id: dto.replacementOrderId },
     });
@@ -1327,6 +1570,162 @@ export class ReturnWorkflowService {
       performedBy: actor.email ?? actor.id,
       details: { returnNumber: request.returnNumber, ...details },
     });
+  }
+
+  private async pickupItemsForSchedule(request: ReturnRequestEntity) {
+    const prices = await this.replacementUnitPriceByItem(request);
+    return (request.items ?? []).map((item) => ({
+      sku: item.sku,
+      quantity: item.quantity,
+      productName: item.productName,
+      unitPrice: item.unitPrice,
+      replacementSku: item.replacementSku,
+      replacementUnitPrice: prices.get(item.id) ?? null,
+    }));
+  }
+
+  /**
+   * Uniware requires sellingPrice and totalPrice on a replacement alternate.
+   * After admin confirmation the frozen quote is the unit price. Before that,
+   * use the replacement variant's selling price, then the returned line price.
+   */
+  private async replacementUnitPriceByItem(request: ReturnRequestEntity): Promise<Map<string, number>> {
+    const prices = new Map<string, number>();
+    if (request.resolution !== ReturnResolution.REPLACEMENT) return prices;
+
+    const items = request.items ?? [];
+    const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+    if (request.replacementQuoteAmount != null && totalQty > 0) {
+      const unit = roundMoney(parseMoney(request.replacementQuoteAmount) / totalQty);
+      for (const item of items) prices.set(item.id, unit);
+      return prices;
+    }
+
+    const ids = [
+      ...new Set(
+        items
+          .map((item) => item.replacementVariantId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const skus = [
+      ...new Set(
+        items
+          .map((item) => item.replacementSku?.trim())
+          .filter((sku): sku is string => Boolean(sku)),
+      ),
+    ];
+    const variants =
+      ids.length || skus.length
+        ? await this.variantsRepository.find({
+            where: [
+              ...(ids.length ? [{ id: In(ids) }] : []),
+              ...(skus.length ? [{ sku: In(skus) }] : []),
+            ],
+            select: ['id', 'sku', 'sellingPrice'],
+          })
+        : [];
+    const byId = new Map(variants.map((variant) => [variant.id, parseMoney(variant.sellingPrice)]));
+    const bySku = new Map<string, number>();
+    for (const variant of variants) {
+      if (!bySku.has(variant.sku)) bySku.set(variant.sku, parseMoney(variant.sellingPrice));
+    }
+
+    for (const item of items) {
+      const sku = item.replacementSku?.trim();
+      const price =
+        (item.replacementVariantId ? byId.get(item.replacementVariantId) : undefined) ??
+        (sku ? bySku.get(sku) : undefined) ??
+        parseMoney(item.unitPrice);
+      prices.set(item.id, roundMoney(price));
+    }
+    return prices;
+  }
+
+  private async replacementRequiresBundle(request: ReturnRequestEntity): Promise<boolean> {
+    const order = await this.ordersRepository.findOne({
+      where: { id: request.orderId },
+      relations: { items: { product: true } },
+    });
+    const selected = new Set((request.items ?? []).map((item) => item.orderItemId));
+    return (order?.items ?? []).some(
+      (item) =>
+        selected.has(item.id) &&
+        (item.bundleComponents != null || item.product?.productType === ProductType.BUNDLE),
+    );
+  }
+
+  private assertReplacementQuoteEditable(request: ReturnRequestEntity): void {
+    if (request.resolution !== ReturnResolution.REPLACEMENT) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'This return is being resolved as a refund',
+      });
+    }
+    if (request.status !== ReturnStatus.REPLACEMENT_PENDING) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'Confirm the replacement when the return is waiting for a replacement',
+      });
+    }
+    if (request.replacementPaymentRequestId || request.refundRequestId) {
+      throw new ConflictException({
+        code: RETURN_ALREADY_REPLACED,
+        message: 'The replacement quote can no longer be changed',
+      });
+    }
+  }
+
+  private assertSettlement(request: ReturnRequestEntity, expected: 'COLLECT' | 'REFUND'): void {
+    if (request.resolution !== ReturnResolution.REPLACEMENT) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'This return is being resolved as a refund',
+      });
+    }
+    if (request.status !== ReturnStatus.REPLACEMENT_PENDING) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'The return must be waiting for a replacement',
+      });
+    }
+    if (request.replacementSettlement !== expected || !request.replacementDifferenceAmount) {
+      throw new BadRequestException({
+        code: RETURN_REPLACEMENT_NOT_CONFIGURED,
+        message: 'The stored replacement settlement does not allow this action',
+      });
+    }
+  }
+
+  private async assertReplacementSettlementSatisfied(request: ReturnRequestEntity): Promise<void> {
+    if (!request.replacementSettlement) {
+      return;
+    }
+    if (request.replacementSettlement === 'NONE') {
+      return;
+    }
+    if (request.replacementSettlement === 'REFUND') {
+      if (!request.refundRequestId) {
+        throw new BadRequestException({
+          code: INVALID_STATUS_TRANSITION,
+          message: 'Create the bank refund for the price difference before linking a replacement order',
+        });
+      }
+      return;
+    }
+    if (!request.replacementPaymentRequestId) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'Collect the price difference before linking a replacement order',
+      });
+    }
+    const payment = await this.paymentRequestsService.findById(request.replacementPaymentRequestId);
+    if (payment?.status !== PaymentRequestStatus.PAID) {
+      throw new BadRequestException({
+        code: INVALID_STATUS_TRANSITION,
+        message: 'The price difference payment is not complete',
+      });
+    }
   }
 
   private async requireReturn(identifier: string): Promise<ReturnRequestEntity> {

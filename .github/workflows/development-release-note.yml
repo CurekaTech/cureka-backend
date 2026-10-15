@@ -1,0 +1,115 @@
+name: Development release note
+
+# Runs the workflow file and generator already on development, then reads the
+# merged commits by SHA. It does not checkout the pull request head, does not
+# execute a script named by the pull request, and does not deploy or migrate.
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [development]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: development-release-note-${{ github.event.pull_request.number }}-${{ github.event.pull_request.merge_commit_sha }}
+  cancel-in-progress: false
+
+jobs:
+  release-note:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the development branch that contains this workflow
+        uses: actions/checkout@v4
+        with:
+          ref: development
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch only the verified merge commit
+        env:
+          RELEASE_NOTE_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          case "$RELEASE_NOTE_MERGE_SHA" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
+              git fetch --no-tags origin "$RELEASE_NOTE_MERGE_SHA"
+              ;;
+            *)
+              echo "Merge commit SHA is missing or not a full SHA." >&2
+              exit 1
+              ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore the send record for this merge
+        uses: actions/cache/restore@v4
+        with:
+          path: .release-note-sent
+          key: release-note-email-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Note whether this merge was already emailed
+        id: prior-send
+        run: |
+          if [ -f .release-note-sent/record.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate the development release note
+        id: note
+        env:
+          RELEASE_NOTE_ACTION: closed
+          RELEASE_NOTE_MERGED: ${{ github.event.pull_request.merged }}
+          RELEASE_NOTE_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          RELEASE_NOTE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEASE_NOTE_PR_TITLE: ${{ github.event.pull_request.title }}
+          RELEASE_NOTE_PR_URL: ${{ github.event.pull_request.html_url }}
+          RELEASE_NOTE_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          RELEASE_NOTE_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_NOTE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          RELEASE_NOTE_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          RELEASE_NOTE_COMMIT_COUNT: ${{ github.event.pull_request.commits }}
+          RELEASE_NOTE_SENT_RECORD: .release-note-sent/record.json
+          RELEASE_EMAIL_HOST: ${{ vars.RELEASE_EMAIL_HOST || secrets.RELEASE_EMAIL_HOST || vars.SMTP_HOST || secrets.SMTP_HOST }}
+          RELEASE_EMAIL_PORT: ${{ vars.RELEASE_EMAIL_PORT || secrets.RELEASE_EMAIL_PORT || vars.SMTP_PORT || secrets.SMTP_PORT }}
+          RELEASE_EMAIL_USER: ${{ vars.RELEASE_EMAIL_USER || secrets.RELEASE_EMAIL_USER || vars.SMTP_USER || secrets.SMTP_USER }}
+          RELEASE_EMAIL_FROM: ${{ vars.RELEASE_EMAIL_FROM || secrets.RELEASE_EMAIL_FROM || vars.SMTP_FROM || secrets.SMTP_FROM }}
+          RELEASE_EMAIL_TO: ${{ vars.RELEASE_EMAIL_TO || secrets.RELEASE_EMAIL_TO || vars.RELEASE_NOTE_EMAIL_TO }}
+          RELEASE_EMAIL_PASSWORD: ${{ secrets.RELEASE_EMAIL_PASSWORD || secrets.SMTP_PASS }}
+          SMTP_SECURE: ${{ vars.SMTP_SECURE || secrets.SMTP_SECURE }}
+        run: node scripts/release-note/on-merged-pull-request.mjs
+
+      - name: Upload the playbook, manifest, and email draft
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-release-note-${{ github.event.pull_request.number }}-${{ github.event.pull_request.merge_commit_sha }}
+          path: |
+            reports/releases/**/release-note.docx
+            reports/releases/**/manifest.json
+            reports/releases/**/business-summary.txt
+            reports/releases/**/email-status.txt
+          if-no-files-found: ignore
+
+      - name: Fail the job when the note was not generated
+        if: steps.note.outcome == 'failure'
+        run: exit 1
+
+      - name: Remember a successful send
+        if: steps.prior-send.outputs.exists != 'true' && hashFiles('.release-note-sent/record.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .release-note-sent
+          key: release-note-email-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.merge_commit_sha }}

@@ -55,7 +55,7 @@ import { AdminLoginDto } from '../dto/auth.dto';
 import { JwtAuthGuard, CurrentUser, IJwtPayload } from '@packages/auth';
 import { IAdminAuthResponse } from '../interfaces/auth.interface';
 import { ResponseMessage } from '@packages/common';
-import { getAuthCookieOptions } from '../utils/auth-cookie.util';
+import { getAuthCookieOptions, getClearAuthCookieOptions } from '../utils/auth-cookie.util';
 
 // 7 days in seconds — must match JWT expiresIn
 const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -88,11 +88,13 @@ export class AdminAuthController {
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(
-    @CurrentUser() _user: IJwtPayload,
+  async logout(
+    @CurrentUser() user: IJwtPayload,
+    @Req() req: FastifyRequest,
     @Res({ passthrough: true }) res: FastifyReply,
-  ): null {
-    res.clearCookie(ADMIN_COOKIE_NAME, { path: '/' });
+  ): Promise<null> {
+    res.clearCookie(ADMIN_COOKIE_NAME, getClearAuthCookieOptions(req));
+    await this.adminAuthService.recordCookieLogout(user);
     return null;
   }
 

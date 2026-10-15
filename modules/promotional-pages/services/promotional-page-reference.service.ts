@@ -28,7 +28,7 @@ import {
   IPublicPromotionalSection,
   IPublicPromotionalTargets,
 } from '../interfaces/promotional-page.interface';
-import { CatalogRefSets, DEFAULT_COLLECTION_LIMIT } from '../utils/promotional-page-content.util';
+import { CatalogRefSets, DEFAULT_COLLECTION_LIMIT, compareSortOrder } from '../utils/promotional-page-content.util';
 
 @Injectable()
 export class PromotionalPageReferenceService {
@@ -78,7 +78,7 @@ export class PromotionalPageReferenceService {
     targets: PromotionalPageTargetEntity[];
     coupon: CouponEntity | null | undefined;
   }): Promise<{ sections: IPublicPromotionalSection[]; targets: IPublicPromotionalTargets }> {
-    const sections = [...input.sections].sort((a, b) => a.sortOrder - b.sortOrder);
+    const sections = [...input.sections].sort(compareSortOrder);
     const targets = [...input.targets].sort((a, b) => a.sortOrder - b.sortOrder);
 
     const manualProductIds = unique([
@@ -343,6 +343,7 @@ export class PromotionalPageReferenceService {
       slug: brand.slug,
       description: brand.description,
       logo: brand.logo,
+      logoAltText: brand.logoAltText ?? null,
       permalink: buildBrandLocPath(brand.slug),
     };
   }
@@ -354,6 +355,7 @@ export class PromotionalPageReferenceService {
       slug: blog.slug,
       excerpt: blog.excerpt,
       featuredImage: blog.featuredImage,
+      featuredImageAltText: blog.featuredImageAltText ?? null,
       permalink: buildBlogLocPath(blog.slug),
       isFeatured: blog.isFeatured,
       isTrending: blog.isTrending,

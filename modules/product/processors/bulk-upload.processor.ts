@@ -317,7 +317,7 @@ export class BulkUploadProcessor extends WorkerHost {
 
   /** Same shape as admin CRUD `media[]` entries with type=common. */
   private toCommonMediaDto(
-    resolved: { url: string; isPrimary: boolean; sortOrder: number },
+    resolved: { url: string; isPrimary: boolean; sortOrder: number; altText?: string },
     index: number,
   ): CreateProductMediaDto {
     return {
@@ -327,6 +327,7 @@ export class BulkUploadProcessor extends WorkerHost {
       sortOrder: resolved.sortOrder ?? index,
       // collectProductMedia / createMedia ignore variantSku for COMMON
       variantSku: undefined,
+      ...(resolved.altText ? { altText: resolved.altText } : {}),
     };
   }
 
@@ -857,11 +858,18 @@ export class BulkUploadProcessor extends WorkerHost {
 
               const processedVariants = group.variants ? await Promise.all(
                 group.variants.map(async (v) => {
-                  const processedImages = [];
+                  const processedImages: Array<{
+                    url: string;
+                    isPrimary: boolean;
+                    sortOrder: number;
+                    altText?: string;
+                  }> = [];
                   for (const img of v.images) {
                     const resolved = await this.resolveBulkUploadImage(img, galleryMap);
                     if (resolved) {
-                      processedImages.push(resolved);
+                      processedImages.push(
+                        img.altText ? { ...resolved, altText: img.altText } : resolved,
+                      );
                     }
                   }
 
@@ -908,11 +916,13 @@ export class BulkUploadProcessor extends WorkerHost {
                       url: item.url,
                       isPrimary: item.isPrimary,
                       sortOrder: item.sortOrder,
+                      ...(item.altText ? { altText: item.altText } : {}),
                     })),
                   ).map((item) => ({
                     url: item.url!,
                     isPrimary: item.isPrimary ?? false,
                     sortOrder: item.sortOrder,
+                    ...(item.altText ? { altText: item.altText } : {}),
                   }));
 
                   const processedAttributes = v.attributes
@@ -1038,7 +1048,10 @@ export class BulkUploadProcessor extends WorkerHost {
                   continue;
                 }
                 processedCommonMedia.push(
-                  this.toCommonMediaDto(resolved, processedCommonMedia.length),
+                  this.toCommonMediaDto(
+                    img.altText ? { ...resolved, altText: img.altText } : resolved,
+                    processedCommonMedia.length,
+                  ),
                 );
               }
               this.logger.debug?.(

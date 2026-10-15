@@ -70,9 +70,46 @@ export class ReturnRequestItemEntity extends BaseEntity {
 
   // ── Replacement selection ─────────────────────────────────────────────────
 
+  /**
+   * Customer's preferred replacement. Set at submit and never overwritten
+   * when admin confirms a different variant.
+   */
+  @Column({ name: 'preferred_replacement_variant_id', type: 'uuid', nullable: true })
+  preferredReplacementVariantId!: string | null;
+
+  @Column({ name: 'preferred_replacement_sku', type: 'varchar', length: 100, nullable: true })
+  preferredReplacementSku!: string | null;
+
+  @Column({ name: 'preferred_replacement_product_name', type: 'varchar', length: 500, nullable: true })
+  preferredReplacementProductName!: string | null;
+
+  @Column({ name: 'preferred_replacement_variant_name', type: 'varchar', length: 500, nullable: true })
+  preferredReplacementVariantName!: string | null;
+
+  /**
+   * Before admin confirmation this matches the preference when the customer sent one.
+   * After confirmation it is the variant admin confirmed. The preference columns stay.
+   */
   @Column({ name: 'replacement_variant_id', type: 'uuid', nullable: true })
   replacementVariantId!: string | null;
 
+  /** Optional audit of which bundle component the customer said was damaged. */
+  @Column({ name: 'affected_component_variant_id', type: 'uuid', nullable: true })
+  affectedComponentVariantId!: string | null;
+
+  @Column({ name: 'affected_component_sku', type: 'varchar', length: 100, nullable: true })
+  affectedComponentSku!: string | null;
+
+  @Column({ name: 'affected_component_name', type: 'varchar', length: 500, nullable: true })
+  affectedComponentName!: string | null;
+
   @Column({ name: 'replacement_sku', type: 'varchar', length: 100, nullable: true })
   replacementSku!: string | null;
+
+  /** Names snapshotted when admin confirms. Later catalogue renames do not change them. */
+  @Column({ name: 'replacement_product_name', type: 'varchar', length: 500, nullable: true })
+  replacementProductName!: string | null;
+
+  @Column({ name: 'replacement_variant_name', type: 'varchar', length: 500, nullable: true })
+  replacementVariantName!: string | null;
 }

@@ -44,6 +44,8 @@ export interface IParsedImage {
   url?: string;
   isPrimary: boolean;
   sortOrder: number;
+  /** Set when the optional alt column has text. Absent columns stay omitted. */
+  altText?: string;
   /** Set when remote URL download/store fails; used for clearer bulk-upload errors. */
   resolveError?: string;
 }

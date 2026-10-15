@@ -42,6 +42,10 @@ export class ProductMediaEntity {
   @Column({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary!: boolean;
 
+  /** Null when unset. Empty string marks a decorative image. */
+  @Column({ name: 'alt_text', type: 'varchar', length: 250, nullable: true })
+  altText!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

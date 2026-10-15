@@ -326,6 +326,7 @@ export class HomepageService {
           refId: item.refId,
           title: item.title,
           videoUrl: item.videoUrl,
+          videoAltText: item.videoAltText,
           mediaUrl: item.mediaUrl as IPublicWatchAndShopItem['mediaUrl'],
           sortOrder: item.sortOrder,
           product: mapProductEntitiesToPublicStorefrontCards([product])[0]!,
@@ -366,6 +367,7 @@ export class HomepageService {
         title: item.title,
         description: item.description,
         videoUrl: item.videoUrl,
+        videoAltText: item.videoAltText,
         thumbnail: item.thumbnail,
         contentType: item.contentType,
         sortOrder: item.sortOrder,
@@ -400,6 +402,7 @@ export class HomepageService {
       refId: goal.refId,
       name: goal.name,
       image: this.storageUrlEnricher.persist(goal.image),
+      imageAltText: goal.imageAltText ?? null,
     }));
   }
 
@@ -429,6 +432,7 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      iconAltText: concern.iconAltText ?? null,
     }));
   }
 
@@ -460,7 +464,9 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      iconAltText: concern.iconAltText ?? null,
       banner: this.storageUrlEnricher.persist(concern.banner),
+      bannerAltText: concern.bannerAltText ?? null,
       sortIndex: concern.sortIndex,
       metaTitle: concern.metaTitle,
       metaDescription: concern.metaDescription,
@@ -486,6 +492,7 @@ export class HomepageService {
       name: brand.name,
       slug: brand.slug,
       logo: this.storageUrlEnricher.persist(brand.logo),
+      logoAltText: brand.logoAltText ?? null,
     }));
   }
 
@@ -509,6 +516,7 @@ export class HomepageService {
       name: brand.name,
       slug: brand.slug,
       logo: this.storageUrlEnricher.persist(brand.logo),
+      logoAltText: brand.logoAltText ?? null,
     }));
     const enriched = await this.storageUrlEnricher.enrichDeep(cards);
     return buildPaginatedResult(enriched, total, options);
@@ -535,7 +543,9 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      iconAltText: concern.iconAltText ?? null,
       banner: this.storageUrlEnricher.persist(concern.banner),
+      bannerAltText: concern.bannerAltText ?? null,
       sortIndex: concern.sortIndex,
       metaTitle: concern.metaTitle,
       metaDescription: concern.metaDescription,
@@ -566,6 +576,7 @@ export class HomepageService {
       name: goal.name,
       description: goal.description,
       image: this.storageUrlEnricher.persist(goal.image),
+      imageAltText: goal.imageAltText ?? null,
     }));
     const enriched = await this.storageUrlEnricher.enrichDeep(cards);
     return buildPaginatedResult(enriched, total, options);

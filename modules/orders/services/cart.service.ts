@@ -1,13 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { generateUniqueRefId, getSalableStockQuantity, isVariantInStock, STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
+import { ProductBundleEntity } from '@modules/product/entities/product-bundle.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
+import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
@@ -565,7 +567,7 @@ export class CartService {
     cart: CartEntity,
     options?: { skipImages?: boolean },
   ): Promise<CartLineItem[]> {
-    return Promise.all(
+    const lines = await Promise.all(
       (cart.items ?? []).map(async (item): Promise<CartLineItem> => {
         const variant = item.variant ?? undefined;
         const product = item.product as ProductEntity | undefined;
@@ -628,6 +630,43 @@ export class CartService {
         };
       }),
     );
+    return this.applyBundleCod(cart, lines);
+  }
+
+  /** Bundle cart lines use every child variant. Simple lines keep variant.codAvailable. */
+  private async applyBundleCod(cart: CartEntity, lines: CartLineItem[]): Promise<CartLineItem[]> {
+    const bundleProductIds = [
+      ...new Set(
+        (cart.items ?? [])
+          .filter((item) => item.product?.productType === ProductType.BUNDLE)
+          .map((item) => item.productId),
+      ),
+    ];
+    if (bundleProductIds.length === 0) {
+      return lines;
+    }
+    const rows = await this.dataSource.getRepository(ProductBundleEntity).find({
+      where: { parentProductId: In(bundleProductIds) },
+      relations: { childVariant: true },
+    });
+    const byParent = new Map<string, ProductBundleEntity[]>();
+    for (const row of rows) {
+      const list = byParent.get(row.parentProductId) ?? [];
+      list.push(row);
+      byParent.set(row.parentProductId, list);
+    }
+    return lines.map((line) => {
+      if (!bundleProductIds.includes(line.productId)) {
+        return line;
+      }
+      const children = byParent.get(line.productId) ?? [];
+      return {
+        ...line,
+        codAvailable: deriveBundleCodAvailable(
+          children.map((row) => row.childVariant ?? { codAvailable: false }),
+        ),
+      };
+    });
   }
 
   private async addOrIncrementItem(

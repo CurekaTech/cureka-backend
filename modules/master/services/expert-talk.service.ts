@@ -17,6 +17,7 @@ import { buildQueryCacheHash, CacheKeys, CacheModuleName, CacheStrategyService }
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import { plainToInstance } from 'class-transformer';
 import { ClassConstructor } from 'class-transformer/types/interfaces';
 import { validate } from 'class-validator';
@@ -107,7 +108,9 @@ export class ExpertTalkService {
       title: normalized.title,
       description: normalized.description,
       videoUrl: normalized.videoUrl,
+      videoAltText: storedAltForCreate(dto.videoAltText),
       thumbnail: normalized.thumbnail,
+      thumbnailAltText: storedAltForCreate(dto.thumbnailAltText),
       contentType: normalized.contentType,
       sortOrder: normalized.sortOrder,
       status: normalized.status,
@@ -169,7 +172,7 @@ export class ExpertTalkService {
 
     const normalized = this.normalizeDto(merged, uploadedThumbnail, existing.thumbnail);
 
-    const result = await this.expertTalkRepository.updateByRefId(refId, {
+    const expertPayload = {
       title: normalized.title,
       description: normalized.description,
       videoUrl: normalized.videoUrl,
@@ -178,7 +181,20 @@ export class ExpertTalkService {
       sortOrder: normalized.sortOrder,
       status: normalized.status,
       updatedBy,
+    };
+    assignStoredAltText(expertPayload, 'videoAltText', {
+      incoming: dto.videoAltText,
+      previousAlt: existing.videoAltText,
+      previousFile: existing.videoUrl,
+      nextFile: normalized.videoUrl,
     });
+    assignStoredAltText(expertPayload, 'thumbnailAltText', {
+      incoming: dto.thumbnailAltText,
+      previousAlt: existing.thumbnailAltText,
+      previousFile: existing.thumbnail,
+      nextFile: normalized.thumbnail,
+    });
+    const result = await this.expertTalkRepository.updateByRefId(refId, expertPayload);
 
     if (!result) {
       throw new NotFoundException(`Expert talk item with refId ${refId} not found after update`);
@@ -304,7 +320,9 @@ export class ExpertTalkService {
       title: item.title,
       description: item.description,
       videoUrl: item.videoUrl,
+      videoAltText: item.videoAltText,
       thumbnail: item.thumbnail,
+      thumbnailAltText: item.thumbnailAltText,
       contentType: item.contentType,
       sortOrder: item.sortOrder,
     }));

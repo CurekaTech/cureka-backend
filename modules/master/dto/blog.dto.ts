@@ -117,6 +117,13 @@ export class BlogVideoDto {
   @MaxLength(500)
   subtitle?: string;
 
+  @ApiPropertyOptional({ maxLength: 250, description: 'Accessible label for this video.' })
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(250)
+  altText?: string;
+
   @ApiPropertyOptional({
     description:
       'Required after upload merge when type is file. Accepts a storage path, { key, name }, or omit when sending videoFile_N.',
@@ -200,6 +207,12 @@ export class CreateBlogCategoryDto {
   @IsOptional()
   @IsEnum(BlogCategoryStatus)
   status?: BlogCategoryStatus;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  iconAltText?: string;
 }
 
 export class UpdateBlogCategoryDto extends PartialType(CreateBlogCategoryDto) {
@@ -368,6 +381,12 @@ export class CreateBlogPostDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  featuredImageAltText?: string;
 }
 
 export class UpdateBlogPostDto extends PartialType(CreateBlogPostDto) {

@@ -845,6 +845,7 @@ export class PublicProductsService {
     const context: IPublicCategoryProductListingContext = {
       refId: rootCategory.refId,
       name: rootCategory.name,
+      listingHeading: rootCategory.listingHeading ?? null,
       slug: rootCategory.slug,
       slugPath: rootSlugPath,
       permalink: buildCategoryPermalink(rootSlugPath),
@@ -874,12 +875,16 @@ export class PublicProductsService {
       selectedCategory: {
         refId: matchedCategory.refId,
         name: matchedCategory.name,
+        listingHeading: matchedCategory.listingHeading ?? null,
         slug: matchedCategory.slug,
         slugPath: selectedPath,
         permalink: buildCategoryPermalink(selectedPath),
         image: matchedCategory.image,
+        imageAltText: matchedCategory.imageAltText ?? null,
         banner: matchedCategory.banner,
+        bannerAltText: matchedCategory.bannerAltText ?? null,
         faqBanner: selectedFaqBanner,
+        faqBannerAltText: matchedCategory.faqBannerAltText ?? null,
         aboveTheFold: selectedAboveTheFold,
         belowTheFold: selectedBelowTheFold,
         metaTitle: matchedCategory.metaTitle?.trim() || rootCategory.metaTitle,
@@ -1087,6 +1092,7 @@ export class PublicProductsService {
             refId: product.refId,
             title: product.name,
             imageUrl,
+            imageAltText: product.faqBannerAltText ?? null,
             ctaHref: null,
           },
         ];

@@ -7,6 +7,7 @@ export interface IPacker {
   name: string;
   code: string;
   logo: IStorageFileReferenceResponse | null;
+  logoAltText: string | null;
   description: string | null;
   contactPerson: string | null;
   email: string | null;

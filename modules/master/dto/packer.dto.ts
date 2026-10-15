@@ -63,6 +63,11 @@ export class CreatePackerDto {
   @IsOptional()
   @IsString()
   remarks?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  logoAltText?: string;
 }
 
 export class UpdatePackerDto extends PartialType(CreatePackerDto) {}

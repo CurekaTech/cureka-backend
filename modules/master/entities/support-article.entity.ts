@@ -22,6 +22,9 @@ export class SupportArticleEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'featured_image', nullable: true }))
   featuredImage!: IStorageFileReference | null;
 
+  @Column({ name: 'featured_image_alt_text', type: 'varchar', length: 250, nullable: true })
+  featuredImageAltText!: string | null;
+
   @Index()
   @Column({
     type: 'enum',

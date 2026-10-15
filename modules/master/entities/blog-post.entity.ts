@@ -11,12 +11,14 @@ export type BlogPostVideo =
       file: IStorageFileReference;
       title?: string | null;
       subtitle?: string | null;
+      altText?: string | null;
     }
   | {
       type: BlogVideoType.URL;
       url: string;
       title?: string | null;
       subtitle?: string | null;
+      altText?: string | null;
     };
 
 @Entity('blog_posts')
@@ -46,6 +48,9 @@ export class BlogPostEntity extends BaseEntity {
 
   @Column(storageFileReferenceColumn({ name: 'featured_image', nullable: true }))
   featuredImage!: IStorageFileReference | null;
+
+  @Column({ name: 'featured_image_alt_text', type: 'varchar', length: 250, nullable: true })
+  featuredImageAltText!: string | null;
 
   @Column({ type: 'jsonb', nullable: false, default: () => "'[]'" })
   videos!: BlogPostVideo[];

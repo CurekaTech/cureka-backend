@@ -9,6 +9,7 @@ export const mapBrandEntityToPublicListItem = (entity: BrandEntity): IPublicBran
   name: entity.name,
   slug: entity.slug,
   logo: entity.logo,
+  logoAltText: entity.logoAltText ?? null,
 });
 
 export const mapBrandEntitiesToPublicListItems = (
@@ -20,23 +21,37 @@ export const mapBrandEntityToListingContext = (
 ): IPublicBrandProductListingContext => ({
   refId: entity.refId,
   name: entity.name,
+  listingHeading: entity.listingHeading ?? null,
   slug: entity.slug,
   logo: entity.logo,
+  logoAltText: entity.logoAltText ?? null,
   banner: entity.showBanner === false ? null : resolveBrandBannerForResponse(entity),
+  bannerAltText:
+    entity.showBanner === false || entity.bannerDeletedAt ? null : (entity.bannerAltText ?? null),
   showBanner: entity.showBanner ?? true,
   video: entity.showVideo === false ? null : entity.video,
+  videoAltText: entity.showVideo === false ? null : (entity.videoAltText ?? null),
   showVideo: entity.showVideo ?? true,
   featuredBanner: entity.showFeaturedBanner === false ? null : entity.featuredBanner,
+  featuredBannerAltText: entity.showFeaturedBanner === false ? null : (entity.featuredBannerAltText ?? null),
   showFeaturedBanner: entity.showFeaturedBanner ?? true,
   promotionalBanner: entity.showPromotionalBanner === false ? null : entity.promotionalBanner,
+  promotionalBannerAltText:
+    entity.showPromotionalBanner === false ? null : (entity.promotionalBannerAltText ?? null),
   showPromotionalBanner: entity.showPromotionalBanner ?? true,
   secondaryBanner: entity.showSecondaryBanner === false ? null : (entity.secondaryBanner ?? null),
+  secondaryBannerAltText:
+    entity.showSecondaryBanner === false ? null : (entity.secondaryBannerAltText ?? null),
   showSecondaryBanner: entity.showSecondaryBanner ?? true,
   secondaryVideo: entity.showSecondaryVideo === false ? null : (entity.secondaryVideo ?? null),
+  secondaryVideoAltText:
+    entity.showSecondaryVideo === false ? null : (entity.secondaryVideoAltText ?? null),
   showSecondaryVideo: entity.showSecondaryVideo ?? true,
   offerBanner: entity.showOfferBanner === false ? null : (entity.offerBanner ?? null),
+  offerBannerAltText: entity.showOfferBanner === false ? null : (entity.offerBannerAltText ?? null),
   showOfferBanner: entity.showOfferBanner ?? true,
   faqBanner: entity.faqBanner ?? null,
+  faqBannerAltText: entity.faqBannerAltText ?? null,
   brandHighlights: entity.showBrandHighlights === false ? null : (entity.brandHighlights ?? null),
   showBrandHighlights: entity.showBrandHighlights ?? true,
   description: entity.showDescription === false ? null : entity.description,

@@ -9,6 +9,7 @@ import {
 } from '@packages/cache';
 import { EVENTS, PackerUpdatedEvent } from '@packages/events';
 import { PackersRepository } from '../repositories/packers.repository';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   CreatePackerDto,
   UpdatePackerDto,
@@ -75,6 +76,7 @@ export class PackersService {
       name: dto.name,
       code: dto.code,
       logo: this.storageUrlEnricher.persist(logo),
+      logoAltText: storedAltForCreate(dto.logoAltText),
       description: dto.description ?? null,
       contactPerson: dto.contactPerson ?? null,
       email: dto.email ?? null,
@@ -174,6 +176,12 @@ export class PackersService {
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.remarks !== undefined) payload.remarks = dto.remarks ?? null;
     if (logo !== undefined) payload.logo = this.storageUrlEnricher.persist(logo);
+    assignStoredAltText(payload, 'logoAltText', {
+      incoming: dto.logoAltText,
+      previousAlt: existing.logoAltText,
+      previousFile: existing.logo,
+      nextFile: payload.logo !== undefined ? payload.logo : existing.logo,
+    });
 
     const result = await this.packersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Packer with refId ${refId} not found after update`);

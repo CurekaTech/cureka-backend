@@ -1,4 +1,4 @@
-import { STOCK_VALIDATION_ENABLED } from '@packages/common';
+import { isCurekaInventoryManaged } from '@packages/common';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
@@ -11,6 +11,7 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { isPublicVariantSellable } from '@modules/product/utils/public-variant-availability.util';
 import {
   buildProductCategorySlugPathFromRelations,
   buildProductPermalink,
@@ -30,6 +31,7 @@ import {
   BobLineItem,
   BobOrderPayload,
   BobPersonalDetails,
+  BobVariant,
   BobProductDetail,
   BobProductOption,
   BobProductSummary,
@@ -63,6 +65,39 @@ export function mapBobProductTags(product: ProductEntity): string[] {
     .filter((name): name is string => Boolean(name));
 }
 
+/**
+ * BOB reads quantity alone. Match website sellability without copying the
+ * display-only stock lift, and without writing product_variants.stock.
+ *
+ * Website rule (isPublicVariantSellable + bundle component flag):
+ * explicit outOfStock or a bundle whose component is unavailable → not for sale;
+ * otherwise a Cureka-managed variant is for sale only when stored stock is above 0;
+ * a variant Cureka does not manage stays for sale.
+ */
+function mapBobInventory(
+  variant: ProductVariantEntity,
+  product: ProductEntity,
+): { inventoryQuantity: number; inventoryPolicy: 'deny' | 'continue' } {
+  const managed = isCurekaInventoryManaged(variant);
+  const sellable =
+    isPublicVariantSellable(variant) && !Boolean(product.bundleComponentOos);
+  if (!sellable) {
+    return { inventoryQuantity: 0, inventoryPolicy: 'deny' };
+  }
+  const inventoryPolicy = managed ? 'deny' : 'continue';
+  const stored = storedVariantStock(variant);
+  if (managed) {
+    return { inventoryQuantity: stored > 0 ? stored : 0, inventoryPolicy };
+  }
+  return { inventoryQuantity: Math.max(stored, 1), inventoryPolicy };
+}
+
+function storedVariantStock(variant: Pick<ProductVariantEntity, 'stock'>): number {
+  const stock = typeof variant.stock === 'number' ? variant.stock : Number(variant.stock);
+  if (!Number.isFinite(stock)) return 0;
+  return Math.trunc(stock);
+}
+
 export function mapBobProductSummary(product: ProductEntity): BobProductSummary {
   return {
     id: requireBobCatalogueProductId(product),
@@ -93,8 +128,7 @@ export function mapBobProductDetail(
       id: variant.id,
       title: variantTitle(product, variant),
       price: String(variant.sellingPrice),
-      inventoryQuantity: variant.stock,
-      inventoryPolicy: STOCK_VALIDATION_ENABLED(variant) ? 'deny' : 'continue',
+      ...mapBobInventory(variant, product),
       inventoryManaged: true,
       image: resolveProductImageUrl(product, variant.id, imageByKey) || image,
       description: product.description ?? '',
@@ -116,8 +150,7 @@ export function mapBobVariantDetail(
     id: variant.id,
     title: variantTitle(product, variant),
     price: String(variant.sellingPrice),
-    inventoryQuantity: variant.stock,
-    inventoryPolicy: STOCK_VALIDATION_ENABLED(variant) ? 'deny' : 'continue',
+    ...mapBobInventory(variant, product),
     inventoryManaged: true,
     image: resolveProductImageUrl(product, variant.id, imageByKey) || productImage,
     product: {

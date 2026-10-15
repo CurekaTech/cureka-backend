@@ -25,6 +25,7 @@ describe('CheckoutService native COD blocklist enforcement', () => {
     {} as never,
     {} as never,
     codBlocklistService as never,
+    {} as never,
   );
 
   beforeEach(() => {

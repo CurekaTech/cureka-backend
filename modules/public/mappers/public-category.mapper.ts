@@ -23,8 +23,11 @@ export const mapCategoryEntityToPublicTree = (
     slugPath,
     permalink: buildCategoryPermalink(slugPath),
     image: entity.image,
+    imageAltText: entity.imageAltText ?? null,
     banner: entity.banner,
+    bannerAltText: entity.bannerAltText ?? null,
     faqBanner: entity.faqBanner,
+    faqBannerAltText: entity.faqBannerAltText ?? null,
     position: entity.position,
     hierarchyLevel: entity.hierarchyLevel,
     isInHeader: entity.isInHeader,
@@ -45,6 +48,7 @@ export const mapCategoryEntityToShopByTile = (
     slugPath,
     permalink: buildCategoryPermalink(slugPath),
     image: entity.image,
+    imageAltText: entity.imageAltText ?? null,
     position: entity.position,
   };
 };
@@ -80,8 +84,11 @@ export const mapCategoryEntityToPublicListItem = (
     hierarchyLevel: entity.hierarchyLevel,
     parentCategoryRefId: entity.parent?.refId ?? null,
     image: entity.image,
+    imageAltText: entity.imageAltText ?? null,
     banner: entity.banner,
+    bannerAltText: entity.bannerAltText ?? null,
     faqBanner: entity.faqBanner,
+    faqBannerAltText: entity.faqBannerAltText ?? null,
   };
 };
 

@@ -16,6 +16,9 @@ export class ManufacturerEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   logo!: IStorageFileReference | null;
 
+  @Column({ name: 'logo_alt_text', type: 'varchar', length: 250, nullable: true })
+  logoAltText!: string | null;
+
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 

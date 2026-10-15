@@ -2,8 +2,8 @@
 export const TYPESENSE_FAST_SEARCH_PARAMS = {
   num_typos: 1,
   prefix: true,
-  exhaustive_search: false,
   drop_tokens_threshold: 0,
+  exhaustive_search: false,
   search_cutoff_ms: 80,
 } as const;
 

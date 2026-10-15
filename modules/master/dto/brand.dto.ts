@@ -94,6 +94,11 @@ export class BrandHighlightDto {
   @IsString()
   @MaxLength(500)
   subtitle!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  iconAltText?: string;
 }
 
 /** Multipart may send brandHighlights as a JSON string; null clears the field. */
@@ -131,6 +136,14 @@ export class CreateBrandDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    description: 'HTML product-list H1. Null or empty clears it and the website uses name.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  listingHeading?: string | null;
 
   @IsOptional()
   @IsEnum(MasterStatus)
@@ -210,6 +223,51 @@ export class CreateBrandDto {
   @Transform(parseBoolean)
   @IsBoolean()
   showDescription?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  logoAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  bannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  featuredBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  promotionalBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  secondaryBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  offerBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  videoAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  secondaryVideoAltText?: string;
 
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()

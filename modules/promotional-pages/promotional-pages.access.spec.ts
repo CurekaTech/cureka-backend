@@ -90,9 +90,12 @@ describe('Promotional landing page RBAC', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
-    const permissions = new PermissionsService({
-      findAll: async () => rows,
-    } as unknown as PermissionsRepository);
+    const permissions = new PermissionsService(
+      {
+        findAll: async () => rows,
+      } as unknown as PermissionsRepository,
+      { recordWrite: jest.fn() } as never,
+    );
 
     const tree = await permissions.findGroupedByModule();
     const marketing = tree.find((item: { key: string }) => item.key === 'marketing');

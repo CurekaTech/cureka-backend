@@ -4,6 +4,7 @@ import { BlogPostEntity } from '@modules/master/entities/blog-post.entity';
 import { MasterModule } from '@modules/master/master.module';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductModule } from '@modules/product/product.module';
+import { UploadsModule } from '@modules/uploads/uploads.module';
 import { AdminPromotionalPagesController } from './controllers/admin-promotional-pages.controller';
 import { PublicPromotionalPagesController } from './controllers/public-promotional-pages.controller';
 import { PromotionalPageSectionItemEntity } from './entities/promotional-page-section-item.entity';
@@ -26,6 +27,7 @@ import { PromotionalPagesService } from './services/promotional-pages.service';
     ]),
     MasterModule,
     ProductModule,
+    UploadsModule,
   ],
   controllers: [AdminPromotionalPagesController, PublicPromotionalPagesController],
   providers: [PromotionalPagesRepository, PromotionalPageReferenceService, PromotionalPagesService],

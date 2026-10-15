@@ -59,6 +59,14 @@ export class CreateHealthConcernDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({
+    description: 'HTML product-list H1. Null or empty clears it and the website uses name.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  listingHeading?: string | null;
+
   @IsOptional()
   @IsString()
   @MaxLength(255)
@@ -152,6 +160,21 @@ export class CreateHealthConcernDto {
   @Transform(parseBoolean)
   @IsBoolean()
   inHomePage?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  iconAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  bannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
 
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()

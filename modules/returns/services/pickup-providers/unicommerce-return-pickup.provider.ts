@@ -50,22 +50,20 @@ export class UnicommerceReturnPickupProvider implements IReturnPickupProviderAda
       };
     }
 
-    const replacementSku =
-      request.resolution === ReturnResolution.REPLACEMENT
-        ? request.items.find((item) => item.replacementSku)?.replacementSku ??
-          request.items[0]?.sku ??
-          null
-        : null;
-
+    const isReplacement = request.resolution === ReturnResolution.REPLACEMENT;
     const response = await this.unicommerceOrderService.createReversePickup({
       orderNumber: request.orderNumber,
       reversePickupCode: request.returnNumber,
       reason: request.reason,
-      items: request.items.map((item) => ({ sku: item.sku, quantity: item.quantity })),
+      items: request.items.map((item) => ({
+        sku: item.sku,
+        quantity: item.quantity,
+        replacementSku: isReplacement ? item.replacementSku ?? null : null,
+        replacementUnitPrice: isReplacement ? item.replacementUnitPrice ?? null : null,
+      })),
       originalOrderItems: request.originalOrderItems,
       pickupAddress: request.pickupAddress,
       customerEmail: request.customerEmail,
-      replacementSku,
     });
 
     if (!response.successful) {

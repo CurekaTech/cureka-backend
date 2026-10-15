@@ -12,12 +12,19 @@ export class HealthConcernEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   icon!: IStorageFileReference | null;
 
+  @Column({ name: 'icon_alt_text', type: 'varchar', length: 250, nullable: true })
+  iconAltText!: string | null;
+
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
+
+  /** Rich-text product-list H1. Null means the website uses `name`. */
+  @Column({ name: 'listing_heading', type: 'text', nullable: true })
+  listingHeading!: string | null;
 
   @Column({ name: 'meta_title', type: 'varchar', length: 255, nullable: true })
   metaTitle!: string | null;
@@ -55,8 +62,14 @@ export class HealthConcernEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  @Column({ name: 'banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  bannerAltText!: string | null;
+
   @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
   faqBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'faq_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  faqBannerAltText!: string | null;
 
   @Index()
   @Column({

@@ -8,6 +8,7 @@ export const mapPackerEntityToResponse = (entity: PackerEntity): IPacker =>
   name: entity.name,
   code: entity.code,
   logo: entity.logo,
+  logoAltText: entity.logoAltText ?? null,
   description: entity.description,
   contactPerson: entity.contactPerson,
   email: entity.email,

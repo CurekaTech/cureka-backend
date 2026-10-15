@@ -105,6 +105,35 @@ describe('OosEmailQueueService', () => {
     expect(queue.add).toHaveBeenCalledTimes(1);
     expect(queue.add.mock.calls[0][0]).toBe('send-bundle-oos');
     expect(queue.add.mock.calls[0][1].components).toHaveLength(2);
-    expect(queue.add.mock.calls[0][2].jobId).toMatch(/^bundle-oos-BNDA-/);
+    expect(queue.add.mock.calls[0][2].jobId).toMatch(/^bundle-oos-BNDA-[a-f0-9]+-\d+$/);
+  });
+
+  it('enqueues again when the same bundle component set goes OOS later', async () => {
+    mailService.isConfigured.mockReturnValue(true);
+    notificationEmailsService.countActiveByType.mockResolvedValue(1);
+    queue.add.mockResolvedValue({ id: 'job-3' });
+    const notification = {
+      bundleRefId: 'BNDA',
+      bundleName: 'Immunity Care Bundle',
+      bundleSku: 'BND-12345',
+      reason: 'component oos',
+      occurredAt: '2026-09-28T00:00:00.000Z',
+      components: [
+        {
+          refId: 'VITC',
+          name: 'Vitamin C 500mg',
+          variants: [{ sku: 'VIT-C-001', name: 'Vitamin C 500mg' }],
+        },
+      ],
+    };
+
+    await service.enqueueBundleNotifications([notification]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await service.enqueueBundleNotifications([notification]);
+
+    expect(queue.add).toHaveBeenCalledTimes(2);
+    const firstJobId = queue.add.mock.calls[0][2].jobId as string;
+    const secondJobId = queue.add.mock.calls[1][2].jobId as string;
+    expect(firstJobId).not.toBe(secondJobId);
   });
 });

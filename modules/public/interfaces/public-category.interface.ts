@@ -15,6 +15,8 @@ export interface IPublicCategoryFilterFacet {
 export interface IPublicCategoryProductListingContext {
   refId: string;
   name: string;
+  /** HTML H1 for the root category. Null means render `name` as plain text. */
+  listingHeading: string | null;
   slug: string;
   /** Ordered category slugs from root → current listing category (usually root). */
   slugPath: string[];
@@ -33,12 +35,17 @@ export interface IPublicCategoryProductListingContext {
   selectedCategory?: {
     refId: string;
     name: string;
+    /** This category's own HTML H1. No parent fallback. */
+    listingHeading: string | null;
     slug: string;
     slugPath: string[];
     permalink: string;
     image: IStorageFileReference | IStorageFileReferenceResponse | null;
+    imageAltText: string | null;
     banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    bannerAltText: string | null;
     faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    faqBannerAltText: string | null;
     aboveTheFold: string | null;
     belowTheFold: string | null;
     metaTitle: string | null;
@@ -56,8 +63,11 @@ export interface IPublicCategoryTree {
   /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda/herbal-oil/castor-oil */
   permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   isInHeader: boolean;
@@ -84,5 +94,6 @@ export interface IPublicShopByCategoryTile {
   slugPath: string[];
   permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   position: number;
 }

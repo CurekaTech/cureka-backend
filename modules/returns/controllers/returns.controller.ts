@@ -19,11 +19,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PaginationQueryDto, ResponseMessage } from '@packages/common';
+import { ResponseMessage } from '@packages/common';
 import { FastifyRequest } from 'fastify';
 import {
   CancelReturnRequestDto,
   CreateReturnRequestDto,
+  CustomerReturnListQueryDto,
   ReturnEligibilityQueryDto,
   SubmitAdditionalInformationDto,
   SubmitReturnBankDetailsDto,
@@ -32,6 +33,8 @@ import { ReturnRequestedByType } from '../enums/return-requested-by-type.enum';
 import { ReturnActor } from '../interfaces/return-request.interface';
 import { ReturnEvidenceService } from '../services/return-evidence.service';
 import { ReturnRequestsService } from '../services/return-requests.service';
+
+const RETURN_EVIDENCE_MAX_FILE_SIZE_BYTES = Number.MAX_SAFE_INTEGER;
 
 @ApiTags('Returns')
 @ApiBearerAuth()
@@ -105,7 +108,10 @@ export class ReturnsController {
       req,
       CreateReturnRequestDto,
       {},
-      { indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }] },
+      {
+        indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }],
+        maxFileSizeOverride: RETURN_EVIDENCE_MAX_FILE_SIZE_BYTES,
+      },
     );
     return this.returnRequestsService.createForCustomer(
       dto,
@@ -117,7 +123,7 @@ export class ReturnsController {
   @ApiOperation({ summary: 'List my return requests' })
   @ResponseMessage('Return requests retrieved successfully')
   @Get()
-  list(@CurrentSessionUser() user: IUserSessionContext, @Query() query: PaginationQueryDto) {
+  list(@CurrentSessionUser() user: IUserSessionContext, @Query() query: CustomerReturnListQueryDto) {
     return this.returnRequestsService.listForCustomer(user.sub, query);
   }
 
@@ -169,7 +175,10 @@ export class ReturnsController {
       req,
       SubmitAdditionalInformationDto,
       {},
-      { indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }] },
+      {
+        indexedFileFields: [{ prefix: 'evidenceFile', folder: UploadFolder.RETURN_EVIDENCE }],
+        maxFileSizeOverride: RETURN_EVIDENCE_MAX_FILE_SIZE_BYTES,
+      },
     );
     return this.returnRequestsService.submitAdditionalInformation(
       id,

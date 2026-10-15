@@ -64,6 +64,14 @@ export class CreateCategoryDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({
+    description: 'HTML product-list H1. Null or empty clears it and the website uses name.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  listingHeading?: string | null;
+
   @IsOptional()
   @IsString()
   metaDescription?: string;
@@ -108,6 +116,21 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  bannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
 
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()

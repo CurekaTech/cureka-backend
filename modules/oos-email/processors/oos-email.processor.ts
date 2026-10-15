@@ -60,13 +60,18 @@ export class OosEmailProcessor extends WorkerHost {
     }
 
     const data = job.data as OosEmailJobData;
-    const { sku, stock, productName, variantDisplayName, occurredAt } = data;
-    const title = productName || variantDisplayName || sku;
-    const subject = `[Cureka] Product out of stock: ${sku}`;
+    const { sku, stock, occurredAt } = data;
+    const labels = oosEmailLabels(data);
+    const subject = `[Cureka] Product out of stock: ${labels.product}`;
+    const variantText = labels.variant ? [`Variant: ${labels.variant}`] : [];
+    const variantHtml = labels.variant
+      ? `<li><strong>Variant:</strong> ${escapeHtml(labels.variant)}</li>`
+      : '';
     const text = [
       'A product variant transitioned from in-stock to out-of-stock.',
       '',
-      `Product: ${title}`,
+      `Product: ${labels.product}`,
+      ...variantText,
       `SKU: ${sku}`,
       `Stock: ${stock}`,
       `Occurred at: ${occurredAt}`,
@@ -77,7 +82,8 @@ export class OosEmailProcessor extends WorkerHost {
     const html = `
       <p>A product variant transitioned from <strong>in-stock</strong> to <strong>out-of-stock</strong>.</p>
       <ul>
-        <li><strong>Product:</strong> ${escapeHtml(title)}</li>
+        <li><strong>Product:</strong> ${escapeHtml(labels.product)}</li>
+        ${variantHtml}
         <li><strong>SKU:</strong> ${escapeHtml(sku)}</li>
         <li><strong>Stock:</strong> ${stock}</li>
         <li><strong>Occurred at:</strong> ${escapeHtml(occurredAt)}</li>
@@ -171,6 +177,22 @@ export class OosEmailProcessor extends WorkerHost {
     );
   }
 }
+
+/** Product line uses the catalogue name. A display name that is only the SKU is not shown as the product. */
+export const oosEmailLabels = (data: {
+  sku: string;
+  productName?: string | null;
+  variantDisplayName?: string | null;
+}): { product: string; variant: string } => {
+  const sku = data.sku.trim();
+  const productName = data.productName?.trim() ?? '';
+  const variantName = data.variantDisplayName?.trim() ?? '';
+  const product =
+    productName || (variantName && variantName !== sku ? variantName : '') || sku;
+  const variant =
+    variantName && variantName !== product && variantName !== sku ? variantName : '';
+  return { product, variant };
+};
 
 const escapeHtml = (value: string): string =>
   value

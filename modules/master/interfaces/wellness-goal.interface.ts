@@ -6,8 +6,11 @@ export interface IWellnessGoal {
   refId: string;
   name: string;
   description: string | null;
+  listingHeading: string | null;
   image: IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   faqBanner: IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   status: MasterStatus;
   inHomePage: boolean;
   faqs: Array<{ question: string; answer: string; sequence: number }>;

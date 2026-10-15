@@ -89,6 +89,11 @@ export class CreateManufacturerDto {
   @IsArray()
   @IsString({ each: true })
   categoryRefIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  logoAltText?: string;
 }
 
 export class UpdateManufacturerDto extends PartialType(CreateManufacturerDto) {}

@@ -36,9 +36,11 @@ import {
   compactSearchText,
   isGibberishSearchQuery,
   searchQueryNeedsCompactRetry,
+  searchQueryOmitsWordBreaks,
   searchTypoBudget,
   significantSearchTokens,
 } from '../utils/search-tolerance.util';
+import { normalizeSearchQuery, searchQueryTerms } from '../utils/search-query.util';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
 
@@ -78,7 +80,7 @@ export class PublicSearchService {
   ) {}
 
   async search(query: string, perPage = 10, pincode?: string): Promise<IPublicSearchResult[]> {
-    const trimmed = query.trim();
+    const trimmed = normalizeSearchQuery(query);
     if (!trimmed) {
       return [];
     }
@@ -321,6 +323,10 @@ export class PublicSearchService {
     const config = await this.collectionService.getSearchRuntimeConfig();
     const collectionName = this.typesenseClient.getCollectionName();
     const entityLimit = Math.min(perPage, SEARCH_ENTITY_FETCH_LIMIT);
+    const joinWords = searchQueryOmitsWordBreaks(trimmed);
+    const searchParams = joinWords
+      ? { ...TYPESENSE_FAST_SEARCH_PARAMS, split_join_tokens: 'always' as const, search_cutoff_ms: 250 }
+      : TYPESENSE_FAST_SEARCH_PARAMS;
     const searches = DROPDOWN_ENTITY_ORDER.flatMap((entityType) => {
       if (!config.hasEntityType && entityType !== SEARCH_ENTITY_TYPES.PRODUCT) {
         return [];
@@ -339,9 +345,13 @@ export class PublicSearchService {
         {
           collection: collectionName,
           q: trimmed,
-          query_by: isProduct ? config.productQueryBy : config.entityQueryBy,
+          query_by: isProduct
+            ? this.productQueryBy(config, joinWords)
+            : joinWords
+              ? this.entityQueryBy(config)
+              : config.entityQueryBy,
           per_page: isProduct ? Math.min(perPage * 3, 30) : entityLimit,
-          ...TYPESENSE_FAST_SEARCH_PARAMS,
+          ...searchParams,
           ...(filterBy ? { filter_by: filterBy } : {}),
           ...(isProduct && config.hasInStock
             ? { sort_by: 'inStock:desc,_text_match:desc' }
@@ -350,19 +360,81 @@ export class PublicSearchService {
       ];
     });
 
+    const fullSearchCount = searches.length;
+    const productFilterBy = this.applyProductPincodeFilter(
+      config.entityTypeFilters[SEARCH_ENTITY_TYPES.PRODUCT],
+      config,
+      pincode,
+    );
+    const terms = searchQueryTerms(trimmed);
+    for (const term of terms) {
+      if (term !== trimmed) {
+        searches.push({
+          collection: collectionName,
+          q: term,
+          query_by: config.productQueryBy,
+          per_page: Math.min(perPage * 2, 30),
+          ...TYPESENSE_FAST_SEARCH_PARAMS,
+          ...(productFilterBy ? { filter_by: productFilterBy } : {}),
+          ...(config.hasInStock ? { sort_by: 'inStock:desc,_text_match:desc' } : {}),
+        });
+      }
+    }
+
     const multiResult = (await this.typesenseClient
       .getSearchClient()
       .multiSearch.perform({ searches })) as MultiSearchResponse;
 
     const grouped = this.groupMultiSearchResults(multiResult, config.hasEntityType);
     const rawProducts = grouped[SEARCH_ENTITY_TYPES.PRODUCT] ?? [];
-    const strictProducts = filterDistinctMatchingProductVariants(rawProducts, trimmed);
+    const extraProductHits = (multiResult.results ?? [])
+      .slice(fullSearchCount)
+      .flatMap((response) =>
+        mapTypesenseHitsToSearchResults(
+          (response.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+        ),
+      );
+    const allProductHits = [...rawProducts, ...extraProductHits];
+    const strictProducts = filterDistinctMatchingProductVariants(allProductHits);
     // Pincode can drop a real text match. Do not replace that with a fuzzy catalog.
     let productHits = strictProducts.length
       ? await this.retainProductsVisibleForPincode(strictProducts, pincodeId)
       : [];
+
+    if (config.hasSearchText && productHits.length < perPage) {
+      const infixSearches = terms.map((term) => ({
+        collection: collectionName,
+        q: term,
+        query_by: 'searchText',
+        per_page: Math.min(Math.max(perPage - productHits.length, 1) * 3, 30),
+        ...TYPESENSE_FAST_SEARCH_PARAMS,
+        num_typos: 0,
+        prefix: false,
+        infix: 'always',
+        search_cutoff_ms: 250,
+        ...(productFilterBy ? { filter_by: productFilterBy } : {}),
+        ...(config.hasInStock ? { sort_by: 'inStock:desc,_text_match:desc' } : {}),
+      }));
+      const infixResult = (await this.typesenseClient
+        .getSearchClient()
+        .multiSearch.perform({ searches: infixSearches as unknown as typeof searches })) as MultiSearchResponse;
+      const infixHits = (infixResult.results ?? []).flatMap((response) =>
+        mapTypesenseHitsToSearchResults(
+          (response.hits ?? []) as Array<{ document?: Record<string, unknown> }>,
+        ),
+      );
+      const infixProducts = await this.retainProductsVisibleForPincode(
+        filterDistinctMatchingProductVariants(infixHits),
+        pincodeId,
+      );
+      productHits = this.mergeProductHits(productHits, infixProducts);
+    }
+
     if (!productHits.length) {
       productHits = await this.loadPublishedProductHits(trimmed, perPage, pincodeId);
+    } else if (joinWords && productHits.length < perPage) {
+      const nativeHits = await this.loadPublishedProductHits(trimmed, perPage, pincodeId);
+      productHits = this.mergeProductHits(productHits, nativeHits);
     }
     if (!productHits.length) {
       productHits = await this.recoverTolerantProductHits(
@@ -414,7 +486,6 @@ export class PublicSearchService {
       variants
         .map((variant) => mapVariantToSearchResult(variant))
         .filter((result): result is IPublicSearchResult => Boolean(result)),
-      trimmed,
     );
   }
 
@@ -700,7 +771,6 @@ export class PublicSearchService {
       variants
         .map((variant) => mapVariantToSearchResult(variant))
         .filter((result): result is IPublicSearchResult => Boolean(result)),
-      trimmed,
     );
 
     return this.mergeSearchResults(
@@ -778,6 +848,20 @@ export class PublicSearchService {
     });
 
     return grouped;
+  }
+
+  private mergeProductHits(
+    primary: IPublicSearchResult[],
+    extra: IPublicSearchResult[],
+  ): IPublicSearchResult[] {
+    const seen = new Set(primary.map((hit) => hit.refId));
+    const merged = [...primary];
+    for (const hit of extra) {
+      if (!hit.refId || seen.has(hit.refId)) continue;
+      seen.add(hit.refId);
+      merged.push(hit);
+    }
+    return merged;
   }
 
   private mergeSearchResults(

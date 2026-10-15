@@ -60,6 +60,11 @@ export class CreateImporterDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  logoAltText?: string;
 }
 
 export class UpdateImporterDto extends PartialType(CreateImporterDto) {}

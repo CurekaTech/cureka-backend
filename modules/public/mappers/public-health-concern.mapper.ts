@@ -8,10 +8,13 @@ export const mapHealthConcernEntityToListingContext = (
 ): IPublicHealthConcernProductListingContext => ({
   refId: entity.refId,
   name: entity.name,
+  listingHeading: entity.listingHeading ?? null,
   slug: entity.slug,
   description: entity.description,
   icon: entity.icon,
+  iconAltText: entity.iconAltText ?? null,
   banner: entity.banner,
+  bannerAltText: entity.bannerAltText ?? null,
   metaTitle: entity.metaTitle,
   metaDescription: entity.metaDescription,
   medicalConditionName: entity.medicalConditionName,
@@ -23,4 +26,5 @@ export const mapHealthConcernEntityToListingContext = (
   lastReviewed: formatDateOnly(entity.lastReviewed),
   faqs: mapMasterFaqs(entity.faqs),
   faqBanner: entity.faqBanner,
+  faqBannerAltText: entity.faqBannerAltText ?? null,
 });

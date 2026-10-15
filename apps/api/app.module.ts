@@ -1,5 +1,6 @@
 import { Module, Scope } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { AuditActorInterceptor } from '@modules/master/interceptors/audit-actor.interceptor';
 import { PathAwareLoggingValidationPipe } from '@packages/common';
 import { ConfigModule } from '@nestjs/config';
 import {
@@ -149,6 +150,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
   ],
   providers: [
     // Global response envelope — wraps all controller returns with { success, data, message, timestamp }
+    { provide: APP_INTERCEPTOR, useClass: AuditActorInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     {

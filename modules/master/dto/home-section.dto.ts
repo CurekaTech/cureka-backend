@@ -93,6 +93,21 @@ export class CreateHomeSectionDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  mobileImageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText2?: string;
 }
 
 export class UpdateHomeSectionDto {
@@ -145,6 +160,21 @@ export class UpdateHomeSectionDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  mobileImageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText2?: string;
 }
 
 export class UpdateHomeSectionStatusDto {

@@ -20,8 +20,14 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   logo!: IStorageFileReference | null;
 
+  @Column({ name: 'logo_alt_text', type: 'varchar', length: 250, nullable: true })
+  logoAltText!: string | null;
+
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
+
+  @Column({ name: 'banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  bannerAltText!: string | null;
 
   @Column({ name: 'show_banner', type: 'boolean', default: true })
   showBanner!: boolean;
@@ -33,11 +39,17 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   video!: IStorageFileReference | null;
 
+  @Column({ name: 'video_alt_text', type: 'varchar', length: 250, nullable: true })
+  videoAltText!: string | null;
+
   @Column({ name: 'show_video', type: 'boolean', default: true })
   showVideo!: boolean;
 
   @Column(storageFileReferenceColumn({ name: 'featured_banner' }))
   featuredBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'featured_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  featuredBannerAltText!: string | null;
 
   @Column({ name: 'show_featured_banner', type: 'boolean', default: true })
   showFeaturedBanner!: boolean;
@@ -45,11 +57,17 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'promotional_banner' }))
   promotionalBanner!: IStorageFileReference | null;
 
+  @Column({ name: 'promotional_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  promotionalBannerAltText!: string | null;
+
   @Column({ name: 'show_promotional_banner', type: 'boolean', default: true })
   showPromotionalBanner!: boolean;
 
   @Column(storageFileReferenceColumn({ name: 'secondary_banner' }))
   secondaryBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'secondary_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  secondaryBannerAltText!: string | null;
 
   @Column({ name: 'show_secondary_banner', type: 'boolean', default: true })
   showSecondaryBanner!: boolean;
@@ -57,11 +75,17 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'secondary_video' }))
   secondaryVideo!: IStorageFileReference | null;
 
+  @Column({ name: 'secondary_video_alt_text', type: 'varchar', length: 250, nullable: true })
+  secondaryVideoAltText!: string | null;
+
   @Column({ name: 'show_secondary_video', type: 'boolean', default: true })
   showSecondaryVideo!: boolean;
 
   @Column(storageFileReferenceColumn({ name: 'offer_banner' }))
   offerBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'offer_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  offerBannerAltText!: string | null;
 
   @Column({ name: 'show_offer_banner', type: 'boolean', default: true })
   showOfferBanner!: boolean;
@@ -69,9 +93,13 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
   faqBanner!: IStorageFileReference | null;
 
+  @Column({ name: 'faq_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  faqBannerAltText!: string | null;
+
   @Column({ name: 'brand_highlights', type: 'jsonb', nullable: true })
   brandHighlights!: Array<{
     icon: IStorageFileReference | null;
+    iconAltText?: string | null;
     title: string;
     subtitle: string;
   }> | null;
@@ -81,6 +109,10 @@ export class BrandEntity extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
+
+  /** Rich-text product-list H1. Null means the website uses `name`. */
+  @Column({ name: 'listing_heading', type: 'text', nullable: true })
+  listingHeading!: string | null;
 
   @Column({ name: 'show_description', type: 'boolean', default: true })
   showDescription!: boolean;

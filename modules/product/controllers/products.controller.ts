@@ -321,6 +321,14 @@ export class ProductsController {
     return this.productsService.publish(refId, user.email);
   }
 
+  @ApiOperation({ summary: 'Unpublish product' })
+  @ResponseMessage('Product unpublished successfully')
+  @RequirePermissions('products.status')
+  @Patch(':refId/unpublish')
+  unpublish(@Param('refId', RefIdPipe) refId: string, @CurrentAdminUser() user: IAdminJwtPayload) {
+    return this.productsService.unpublish(refId, user.email);
+  }
+
   @ApiOperation({ summary: 'Update product status' })
   @ResponseMessage('Product status updated successfully')
   @RequirePermissions('products.status')

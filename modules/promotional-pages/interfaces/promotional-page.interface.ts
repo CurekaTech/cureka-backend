@@ -108,6 +108,7 @@ export interface IPublicBrandCard {
   slug: string;
   description: string | null;
   logo: IStorageFileReference | null;
+  logoAltText: string | null;
   permalink: string | null;
 }
 
@@ -117,6 +118,7 @@ export interface IPublicBlogCard {
   slug: string;
   excerpt: string | null;
   featuredImage: IStorageFileReference | null;
+  featuredImageAltText: string | null;
   permalink: string | null;
   isFeatured: boolean;
   isTrending: boolean;

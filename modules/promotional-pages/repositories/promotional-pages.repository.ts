@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
@@ -70,11 +70,25 @@ export class PromotionalPagesRepository {
   }
 
   async findByRefId(refId: string): Promise<PromotionalPageEntity | null> {
-    return this.pages.findOne({ where: { refId }, relations: PAGE_RELATIONS });
+    return this.pages.findOne({
+      where: { refId },
+      relations: PAGE_RELATIONS,
+      order: {
+        sections: { sortOrder: 'ASC', id: 'ASC', items: { sortOrder: 'ASC', id: 'ASC' } },
+        targets: { sortOrder: 'ASC', id: 'ASC' },
+      },
+    });
   }
 
   async findBySlug(slug: string): Promise<PromotionalPageEntity | null> {
-    return this.pages.findOne({ where: { slug }, relations: PAGE_RELATIONS });
+    return this.pages.findOne({
+      where: { slug },
+      relations: PAGE_RELATIONS,
+      order: {
+        sections: { sortOrder: 'ASC', id: 'ASC', items: { sortOrder: 'ASC', id: 'ASC' } },
+        targets: { sortOrder: 'ASC', id: 'ASC' },
+      },
+    });
   }
 
   async findArchivedBySlug(slug: string): Promise<PromotionalPageEntity | null> {
@@ -147,6 +161,24 @@ export class PromotionalPagesRepository {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
+  }
+
+  async updateSectionSortOrders(
+    pageId: string,
+    updates: Array<{ id: string; sortOrder: number }>,
+  ): Promise<void> {
+    await this.pages.manager.transaction(async (manager) => {
+      for (const update of updates) {
+        const result = await manager.update(
+          PromotionalPageSectionEntity,
+          { id: update.id, promotionalPageId: pageId },
+          { sortOrder: update.sortOrder },
+        );
+        if (!result.affected) {
+          throw new BadRequestException('Invalid section sequence for this campaign.');
+        }
+      }
+    });
   }
 
   async replaceChildren(

@@ -109,6 +109,109 @@ describe('BOB catalogue product id', () => {
     expect(detail.product.id).toBe(217301);
   });
 
+  it('reports website sellability without copying stored stock or the display quantity', () => {
+    const previous = process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED;
+    process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = 'true';
+    const cases: Array<{
+      label: string;
+      stock: number;
+      inCurekaInventory: boolean;
+      outOfStock?: boolean;
+      bundleComponentOos?: boolean;
+      quantity: number;
+      policy: 'deny' | 'continue';
+    }> = [
+      {
+        label: 'non-managed stored zero still for sale',
+        stock: 0,
+        inCurekaInventory: false,
+        quantity: 1,
+        policy: 'continue',
+      },
+      {
+        label: 'non-managed negative stock still for sale',
+        stock: -3,
+        inCurekaInventory: false,
+        quantity: 1,
+        policy: 'continue',
+      },
+      {
+        label: 'Cureka-managed positive stock',
+        stock: 1,
+        inCurekaInventory: true,
+        quantity: 1,
+        policy: 'deny',
+      },
+      {
+        label: 'Cureka-managed zero stock',
+        stock: 0,
+        inCurekaInventory: true,
+        quantity: 0,
+        policy: 'deny',
+      },
+      {
+        label: 'explicitly unavailable denies orders even when inventory is unmanaged',
+        stock: 0,
+        inCurekaInventory: false,
+        outOfStock: true,
+        quantity: 0,
+        policy: 'deny',
+      },
+      {
+        label: 'managed stock is hidden when the website marks the variant unavailable',
+        stock: 5,
+        inCurekaInventory: true,
+        outOfStock: true,
+        quantity: 0,
+        policy: 'deny',
+      },
+    ];
+
+    for (const item of cases) {
+      const product = catalogueProduct();
+      product.bundleComponentOos = item.bundleComponentOos ?? false;
+      const variant = product.variants[0]!;
+      variant.stock = item.stock;
+      variant.inCurekaInventory = item.inCurekaInventory;
+      variant.outOfStock = item.outOfStock ?? false;
+      const detail = mapBobProductDetail(product, new Map(), '');
+      expect({
+        label: item.label,
+        inventoryQuantity: detail.variants[0]?.inventoryQuantity,
+        inventoryPolicy: detail.variants[0]?.inventoryPolicy,
+        inventoryManaged: detail.variants[0]?.inventoryManaged,
+      }).toEqual({
+        label: item.label,
+        inventoryQuantity: item.quantity,
+        inventoryPolicy: item.policy,
+        inventoryManaged: true,
+      });
+      expect(variant.stock).toBe(item.stock);
+    }
+    if (previous === undefined) delete process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED;
+    else process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = previous;
+  });
+
+  it('marks a bundle unavailable when a component is out of stock', () => {
+    const previous = process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED;
+    process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = 'true';
+    const product = catalogueProduct();
+    product.bundleComponentOos = true;
+    const variant = product.variants[0]!;
+    variant.stock = 4;
+    variant.inCurekaInventory = false;
+    variant.outOfStock = false;
+
+    const detail = mapBobVariantDetail(variant, product, new Map());
+
+    expect(detail.inventoryQuantity).toBe(0);
+    expect(detail.inventoryPolicy).toBe('deny');
+    expect(detail.inventoryManaged).toBe(true);
+    expect(variant.stock).toBe(4);
+    if (previous === undefined) delete process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED;
+    else process.env.STOCK_INVENTORY_MANAGEMENT_ENABLED = previous;
+  });
+
   it('does not invent a catalogue id when externalProductId is missing', () => {
     const product = catalogueProduct();
     product.externalProductId = null;
@@ -156,6 +259,39 @@ describe('BOB catalogue product id', () => {
 
     expect(payload.lineItems[0]?.product.id).toBe(PRODUCT_UUID);
     expect(payload.lineItems[0]?.variant.id).toBe(VARIANT_UUID);
+  });
+});
+
+describe('BOB inventory normalization', () => {
+  const previousManagementSetting = process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'];
+
+  beforeAll(() => {
+    process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = 'true';
+  });
+
+  afterAll(() => {
+    if (previousManagementSetting === undefined) {
+      delete process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'];
+    } else {
+      process.env['STOCK_INVENTORY_MANAGEMENT_ENABLED'] = previousManagementSetting;
+    }
+  });
+
+  it('returns identical inventory from product detail and variant detail', () => {
+    const product = catalogueProduct();
+    const variant = product.variants[0] as ProductVariantEntity;
+    variant.stock = -4;
+    variant.inCurekaInventory = true;
+
+    const productVariant = mapBobProductDetail(product, new Map(), '').variants[0];
+    const variantDetail = mapBobVariantDetail(variant, product, new Map());
+
+    expect(productVariant).toEqual(
+      expect.objectContaining({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true }),
+    );
+    expect(variantDetail).toEqual(
+      expect.objectContaining({ inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true }),
+    );
   });
 });
 

@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { FastifyRequest } from 'fastify';
+import { resolveTrustedClientIp } from '@modules/master/utils/audit-ip.util';
 import { IDeviceContext } from '../interfaces/session.interface';
 
 const DEVICE_ID_HEADER = 'x-device-id';
@@ -24,24 +25,9 @@ const parseUserAgent = (userAgent?: string): { browser?: string; os?: string } =
   return { browser, os };
 };
 
-/** Prefer real client IP when the API sits behind nginx / a load balancer. */
+/** Client IP after Fastify applies TRUST_PROXY. Spoofed forwarding headers are ignored. */
 export const resolveClientIp = (req: FastifyRequest): string | undefined => {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  if (Array.isArray(forwarded) && forwarded[0]) {
-    const first = forwarded[0].split(',')[0]?.trim();
-    if (first) return first;
-  }
-
-  const realIp = req.headers['x-real-ip'];
-  if (typeof realIp === 'string' && realIp.trim()) {
-    return realIp.trim();
-  }
-
-  return req.ip;
+  return resolveTrustedClientIp(req) ?? undefined;
 };
 
 export const extractDeviceContext = (req: FastifyRequest): IDeviceContext => {

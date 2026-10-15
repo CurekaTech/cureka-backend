@@ -3,6 +3,7 @@ import { FastifyRequest } from 'fastify';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { WellnessGoalsRepository } from '../repositories/wellness-goals.repository';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   CreateWellnessGoalDto,
   UpdateWellnessGoalDto,
@@ -24,6 +25,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { WellnessGoalEntity } from '../entities/wellness-goal.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { WellnessGoalUpdatedEvent, EVENTS } from '@packages/events';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
@@ -93,8 +95,11 @@ export class WellnessGoalsService {
     const entity = await this.wellnessGoalsRepository.create({
       name: dto.name,
       description: dto.description ?? null,
+      listingHeading: normalizeListingHeading(dto.listingHeading),
       image: this.storageUrlEnricher.persist(media.image),
+      imageAltText: storedAltForCreate(dto.imageAltText),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+      faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
       faqs: normalizeMasterFaqs(dto.faqs),
@@ -149,6 +154,9 @@ export class WellnessGoalsService {
     const payload: Partial<WellnessGoalEntity> = { updatedBy };
     if (dto.name !== undefined) payload.name = dto.name;
     if (dto.description !== undefined) payload.description = dto.description;
+    if (dto.listingHeading !== undefined) {
+      payload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.inHomePage !== undefined) payload.inHomePage = dto.inHomePage;
     if (dto.faqs !== undefined) payload.faqs = normalizeMasterFaqs(dto.faqs);
@@ -156,6 +164,18 @@ export class WellnessGoalsService {
     if (media.faqBanner !== undefined) {
       payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
+    assignStoredAltText(payload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.image,
+      nextFile: payload.image !== undefined ? payload.image : existing.image,
+    });
+    assignStoredAltText(payload, 'faqBannerAltText', {
+      incoming: dto.faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: payload.faqBanner !== undefined ? payload.faqBanner : existing.faqBanner,
+    });
 
     const updated = await this.wellnessGoalsRepository.updateByRefId(refId, payload);
     if (!updated) {

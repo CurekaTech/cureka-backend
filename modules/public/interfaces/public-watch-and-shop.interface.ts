@@ -4,6 +4,7 @@ export interface IPublicWatchAndShopItem {
   refId: string;
   title: string | null;
   videoUrl: string | null;
+  videoAltText: string | null;
   mediaUrl: string | { key: string; name: string; url: string } | null;
   sortOrder: number;
   product: IPublicStorefrontProductCard;

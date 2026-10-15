@@ -21,6 +21,9 @@ export class TestimonialEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'image', nullable: true }))
   image!: IStorageFileReference | null;
 
+  @Column({ name: 'image_alt_text', type: 'varchar', length: 250, nullable: true })
+  imageAltText!: string | null;
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number;
 

@@ -16,6 +16,7 @@ import {
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import { plainToInstance } from 'class-transformer';
 import { ClassConstructor } from 'class-transformer/types/interfaces';
 import { validate } from 'class-validator';
@@ -105,6 +106,7 @@ export class TestimonialService {
       rating: normalized.rating,
       description: normalized.description,
       image: normalized.image,
+      imageAltText: storedAltForCreate(dto.imageAltText),
       sortOrder: normalized.sortOrder,
       status: normalized.status,
       refId: await generateUniqueRefId(
@@ -164,7 +166,7 @@ export class TestimonialService {
 
     const normalized = this.normalizeDto(merged, uploadedImage, existing.image);
 
-    const result = await this.testimonialRepository.updateByRefId(refId, {
+    const testimonialPayload = {
       name: normalized.name,
       city: normalized.city,
       rating: normalized.rating,
@@ -173,7 +175,14 @@ export class TestimonialService {
       sortOrder: normalized.sortOrder,
       status: normalized.status,
       updatedBy,
+    };
+    assignStoredAltText(testimonialPayload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.image,
+      nextFile: normalized.image,
     });
+    const result = await this.testimonialRepository.updateByRefId(refId, testimonialPayload);
 
     if (!result) {
       throw new NotFoundException(`Testimonial with refId ${refId} not found after update`);
@@ -240,6 +249,7 @@ export class TestimonialService {
       rating: item.rating,
       description: item.description,
       image: item.image,
+      imageAltText: item.imageAltText,
       sortOrder: item.sortOrder,
     }));
 

@@ -57,7 +57,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     findPublishedByIds: jest.Mock;
     findPublishedById: jest.Mock;
     findWithTagsById: jest.Mock;
-    findAllPublishedRefIds: jest.Mock;
+    findPublishedRefIdsForBobCatalog: jest.Mock;
   };
   let productVariantsRepository: { findById: jest.Mock };
   let productsService: { replaceTags: jest.Mock };
@@ -84,7 +84,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       findPublishedByIds: jest.fn().mockResolvedValue([]),
       findPublishedById: jest.fn(),
       findWithTagsById: jest.fn(),
-      findAllPublishedRefIds: jest.fn().mockResolvedValue([]),
+      findPublishedRefIdsForBobCatalog: jest.fn().mockResolvedValue([]),
     };
     productVariantsRepository = { findById: jest.fn() };
     productsService = { replaceTags: jest.fn().mockResolvedValue(undefined) };
@@ -112,15 +112,22 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       externalProductId: null,
       name: 'Zeroharm Trans-Resveratrol 250 mg Capsules (60 NOS)',
     });
+    const malformed = product({
+      id: 'a23aa7d2-6f80-4314-91ec-2c3f823e8b27',
+      refId: 'BAD2026047034',
+      externalProductId: 'SKU-123',
+    });
     productsRepository.findPublishedRefIdsByCategoryId.mockResolvedValue([
       listed.refId,
       missing.refId,
+      malformed.refId,
     ]);
     productsRepository.findPublishedByRefIds.mockResolvedValue([
       { id: listed.id, refId: listed.refId },
       { id: missing.id, refId: missing.refId },
+      { id: malformed.id, refId: malformed.refId },
     ]);
-    productsRepository.findPublishedByIds.mockResolvedValue([listed, missing]);
+    productsRepository.findPublishedByIds.mockResolvedValue([listed, missing, malformed]);
 
     const result = await service.listProductsByCategory(CATEGORY_ID);
 
@@ -146,6 +153,30 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     expect(productsRepository.findPublishedRefIdsByCategoryId).toHaveBeenCalledWith(CATEGORY_ID);
   });
 
+  it('includes reported catalogue ids in both category and full product listings', async () => {
+    const rows = [
+      product({ id: '10000000-0000-4000-8000-000000000001', refId: 'LAC20260001', externalProductId: '16833', publishedAt: null }),
+      product({ id: '10000000-0000-4000-8000-000000000002', refId: 'LAC20260002', externalProductId: '17189', publishedAt: null }),
+      product({ id: '10000000-0000-4000-8000-000000000003', refId: 'LAC20260003', externalProductId: '17193', publishedAt: null }),
+    ];
+    const refIds = rows.map((row) => row.refId);
+    categoriesRepository.findById.mockResolvedValue({ id: CATEGORY_ID, name: 'Products' });
+    productsRepository.findPublishedRefIdsByCategoryId.mockResolvedValue(refIds);
+    productsRepository.findAllPublishedRefIds.mockResolvedValue(refIds);
+    productsRepository.findPublishedByRefIds.mockImplementation(async (requested: string[]) =>
+      rows.filter((row) => requested.includes(row.refId)).map(({ id, refId }) => ({ id, refId })),
+    );
+    productsRepository.findPublishedByIds.mockImplementation(async (ids: string[]) =>
+      rows.filter((row) => ids.includes(row.id)),
+    );
+
+    const categoryProducts = await service.listProductsByCategory(CATEGORY_ID);
+    const allProducts = await service.listProducts();
+
+    expect(categoryProducts.map((item) => item.id)).toEqual([16833, 17189, 17193]);
+    expect(allProducts.map((item) => item.id)).toEqual(categoryProducts.map((item) => item.id));
+  });
+
   it('loads product detail by UUID, refId, and catalogue id', async () => {
     const row = product();
     resolver.findPublishedByBobId.mockResolvedValue(row);
@@ -158,6 +189,17 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(1, PRODUCT_UUID);
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(2, REF_ID);
     expect(resolver.findPublishedByBobId).toHaveBeenNthCalledWith(3, CATALOGUE_ID);
+  });
+
+  it('loads the full catalog without the Unicommerce publishedAt ref-id query', async () => {
+    productsRepository.findPublishedRefIdsForBobCatalog.mockResolvedValue([REF_ID]);
+    productsRepository.findPublishedByRefIds.mockResolvedValue([{ id: PRODUCT_UUID, refId: REF_ID }]);
+    productsRepository.findPublishedByIds.mockResolvedValue([product()]);
+
+    const result = await service.listProducts();
+
+    expect(productsRepository.findPublishedRefIdsForBobCatalog).toHaveBeenCalledTimes(1);
+    expect(result.map((item) => item.id)).toEqual([217301]);
   });
 
   it('lists products by mixed catalogue ids without exposing internal UUIDs', async () => {
@@ -174,6 +216,37 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
 
     expect(resolver.findPublishedByBobIds).toHaveBeenCalledWith([CATALOGUE_ID, '217482']);
     expect(result.map((item) => item.id)).toEqual([217301, 217482]);
+  });
+
+  it('returns consistent inventory across full list, ids list, product detail, and variant detail', async () => {
+    const row = product();
+    const variant = row.variants[0] as ProductVariantEntity;
+    variant.stock = -4;
+    variant.outOfStock = true;
+    variant.inCurekaInventory = false;
+    categoriesRepository.findById.mockResolvedValue({ id: CATEGORY_ID, name: 'Products' });
+    productsRepository.findPublishedRefIdsByCategoryId.mockResolvedValue([row.refId]);
+    productsRepository.findAllPublishedRefIds.mockResolvedValue([row.refId]);
+    productsRepository.findPublishedByRefIds.mockResolvedValue([{ id: row.id, refId: row.refId }]);
+    productsRepository.findPublishedByIds.mockResolvedValue([row]);
+    productsRepository.findPublishedById.mockResolvedValue(row);
+    productVariantsRepository.findById.mockResolvedValue(variant);
+    resolver.findPublishedByBobId.mockResolvedValue(row);
+    resolver.findPublishedByBobIds.mockResolvedValue([row]);
+
+    const categoryItems = await service.listProductsByCategory(CATEGORY_ID);
+    const fullList = await service.listProducts();
+    const idsList = await service.listProducts(CATALOGUE_ID);
+    const productDetail = await service.getProduct(CATALOGUE_ID);
+    const variantDetail = await service.getVariant(VARIANT_UUID);
+    const inventory = { inventoryQuantity: 0, inventoryPolicy: 'deny', inventoryManaged: true };
+
+    expect(categoryItems.map((item) => item.id)).toEqual([217301]);
+    expect(categoryItems[0]).not.toHaveProperty('variants');
+    for (const detail of [fullList[0], idsList[0], productDetail]) {
+      expect(detail?.variants[0]).toEqual(expect.objectContaining(inventory));
+    }
+    expect(variantDetail).toEqual(expect.objectContaining(inventory));
   });
 
   it('updates tags through the internal UUID and returns the catalogue id', async () => {

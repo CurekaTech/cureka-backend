@@ -106,6 +106,44 @@ describe('PublicSearchService native fallback', () => {
     ]);
   });
 
+  it('returns native product matches for either normalized word in a multiword query', async () => {
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
+      {
+        displayName: 'Face Moisturizer',
+        slug: 'face-moisturizer',
+        product: { refId: 'MOIST', name: 'Face Moisturizer', slug: 'face-moisturizer' },
+      },
+      {
+        displayName: 'Cream Cleanser',
+        slug: 'cream-cleanser',
+        product: { refId: 'CREAM', name: 'Cream Cleanser', slug: 'cream-cleanser' },
+      },
+    ]);
+
+    const results = await service.search('  MOISTURIZER    cream  ');
+
+    expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith(
+      'moisturizer cream',
+      30,
+      null,
+    );
+    expect(results.map((result) => result.refId)).toEqual(['MOIST', 'CREAM']);
+  });
+
+  it('keeps a native product matched through its brand even when its title does not contain the query', async () => {
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
+      {
+        displayName: 'Gentle Shampoo',
+        slug: 'gentle-shampoo',
+        product: { refId: 'BRAND-MATCH', name: 'Gentle Shampoo', slug: 'gentle-shampoo' },
+      },
+    ]);
+
+    const results = await service.search('loreal');
+
+    expect(results.map((result) => result.refId)).toContain('BRAND-MATCH');
+  });
+
   it('passes the selected pincode into native product search', async () => {
     pincodesService.resolveForStorefront.mockResolvedValue({
       pincodeId: 'pin-other',
@@ -163,6 +201,161 @@ describe('PublicSearchService native fallback', () => {
     expect(productSearch?.filter_by).toBe('entityType:=Product');
     expect(productSearch?.filter_by).not.toContain('inStock:true');
     expect(productSearch?.sort_by).toBe('inStock:desc,_text_match:desc');
+  });
+
+  it('queries each meaningful Typesense term and keeps full-query matches first', async () => {
+    typesenseClient.isEnabled.mockReturnValue(true);
+    adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
+    const both = {
+      entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+      refId: 'BOTH',
+      name: 'Face Moisturizer Cream',
+      slug: 'face-moisturizer-cream',
+    };
+    const moisturizer = {
+      entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+      refId: 'MOIST',
+      name: 'Face Moisturizer',
+      slug: 'face-moisturizer',
+    };
+    const cream = {
+      entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+      refId: 'CREAM',
+      name: 'Cream Cleanser',
+      slug: 'cream-cleanser',
+    };
+    const products = [
+      { refId: 'BOTH', variants: [{ slug: 'face-moisturizer-cream', displayName: 'Face Moisturizer Cream' }] },
+      { refId: 'MOIST', variants: [{ slug: 'face-moisturizer', displayName: 'Face Moisturizer' }] },
+      { refId: 'CREAM', variants: [{ slug: 'cream-cleanser', displayName: 'Cream Cleanser' }] },
+    ];
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasSearchText: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name,brand,category',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    const perform = jest.fn().mockImplementation(async ({ searches }: { searches: Array<{ q: string; query_by: string; filter_by?: string }> }) => ({
+      results: searches.map(({ q, query_by }) => ({
+        hits:
+          q === 'moisturizer cream' && query_by !== 'name'
+            ? [{ document: both }]
+            : q === 'moisturizer'
+              ? [{ document: moisturizer }]
+              : q === 'cream' && query_by !== 'searchText'
+                ? [{ document: cream }]
+                : [],
+      })),
+    }));
+    typesenseClient.getSearchClient.mockReturnValue({ multiSearch: { perform } });
+    productsRepository.findPublishedByRefIds.mockResolvedValue(products);
+
+    const results = await service.search('Moisturizer    Cream');
+
+    const searches = perform.mock.calls[0]?.[0].searches as Array<{
+      q: string;
+      query_by: string;
+      infix?: string;
+    }>;
+    const infixSearches = perform.mock.calls[1]?.[0].searches as Array<{
+      q: string;
+      query_by: string;
+      infix?: string;
+    }>;
+    expect(searches.some((item) => item.q === 'moisturizer' && item.query_by !== 'searchText')).toBe(true);
+    expect(infixSearches.some((item) => item.q === 'cream' && item.query_by === 'searchText' && item.infix === 'always')).toBe(true);
+    expect(results.filter((item) => item.entityType === SEARCH_ENTITY_TYPES.PRODUCT).map((item) => item.refId)).toEqual([
+      'BOTH',
+      'MOIST',
+      'CREAM',
+    ]);
+  });
+
+  it('keeps Typesense matches on brand fields when the product title omits the query', async () => {
+    const perform = enableTypesense(
+      jest.fn().mockImplementation(async ({ searches }: { searches: Array<{ filter_by?: string }> }) => ({
+        results: searches.map((search) => ({
+          hits: search.filter_by === 'entityType:=Product'
+            ? [{ document: {
+                entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                refId: 'BRAND-MATCH',
+                name: 'Gentle Shampoo',
+                brand: "L'Oreal",
+                slug: 'gentle-shampoo',
+              } }]
+            : [],
+        })),
+      })),
+    );
+    typesenseClient.getSearchClient.mockReturnValue({ multiSearch: { perform } });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      {
+        refId: 'BRAND-MATCH',
+        variants: [{ slug: 'gentle-shampoo', displayName: 'Gentle Shampoo' }],
+      },
+    ]);
+
+    const results = await service.search('loreal');
+
+    expect(results.map((result) => result.refId)).toContain('BRAND-MATCH');
+  });
+
+  it('uses Typesense infix matching for a four-character substring inside a word', async () => {
+    const perform = enableTypesense(
+      jest.fn().mockImplementation(async ({ searches }: { searches: Array<{ query_by: string }> }) => ({
+        results: searches.map((search) => ({
+          hits:
+            search.query_by === 'searchText'
+              ? [
+                  {
+                    document: {
+                      entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+                      refId: 'MOIST',
+                      name: 'Moisturizer',
+                      slug: 'moisturizer',
+                    },
+                  },
+                ]
+              : [],
+        })),
+      })),
+    );
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasSearchText: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    typesenseClient.getSearchClient.mockReturnValue({ multiSearch: { perform } });
+    productsRepository.findPublishedByRefIds.mockResolvedValue([
+      { refId: 'MOIST', variants: [{ slug: 'moisturizer', displayName: 'Moisturizer' }] },
+    ]);
+
+    const results = await service.search('oist');
+    const searches = perform.mock.calls[1]?.[0].searches as Array<{
+      q: string;
+      query_by: string;
+      infix?: string;
+    }>;
+
+    expect(searches).toContainEqual(expect.objectContaining({ q: 'oist', query_by: 'searchText', infix: 'always' }));
+    expect(results.map((result) => result.refId)).toContain('MOIST');
   });
 
   it('drops a Typesense product that is not available for the selected pincode', async () => {
@@ -325,6 +518,60 @@ describe('PublicSearchService native fallback', () => {
     });
     return perform;
   }
+
+  it('joins spaced catalog words when the query leaves the space out', async () => {
+    const perform = enableTypesense();
+    collectionService.getSearchRuntimeConfig.mockResolvedValue({
+      hasEntityType: true,
+      hasInStock: true,
+      hasNameCompact: true,
+      hasPopularSortField: false,
+      productQueryBy: 'name,brand',
+      entityQueryBy: 'name',
+      entityTypeFilters: {
+        [SEARCH_ENTITY_TYPES.PRODUCT]: 'entityType:=Product',
+        [SEARCH_ENTITY_TYPES.CATEGORY]: 'entityType:=Category',
+        [SEARCH_ENTITY_TYPES.BRAND]: 'entityType:=Brand',
+        [SEARCH_ENTITY_TYPES.HEALTH_CONCERN]: 'entityType:=Health Concern',
+      },
+    });
+    typesenseClient.getSearchClient.mockReturnValue({
+      multiSearch: { perform },
+      collections: () => ({ documents: () => ({ search: jest.fn() }) }),
+    });
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
+      {
+        displayName: 'Health etc Women Health Gummy',
+        slug: 'health-etc-women-health-gummy',
+        productPageUrl: '/shop/health-etc-women-health-gummy/',
+        product: {
+          refId: 'PRD-ETC',
+          name: 'Health etc Women Health Gummy',
+          slug: 'health-etc-women-health-gummy',
+        },
+      },
+    ]);
+
+    const results = await service.search('healthetc', 10);
+
+    const searches = perform.mock.calls[0][0].searches as Array<{
+      filter_by?: string;
+      split_join_tokens?: string;
+      query_by?: string;
+    }>;
+    const productSearch = searches.find((search) => search.filter_by === 'entityType:=Product');
+    expect(productSearch?.split_join_tokens).toBe('always');
+    expect(productSearch?.query_by).toContain('nameCompact');
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityType: SEARCH_ENTITY_TYPES.PRODUCT,
+          title: 'Health etc Women Health Gummy',
+          refId: 'PRD-ETC',
+        }),
+      ]),
+    );
+  });
 
   it('does not run tolerance search when the existing match already hits', async () => {
     const perform = enableTypesense(

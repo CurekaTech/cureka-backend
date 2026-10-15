@@ -16,8 +16,14 @@ export class ExpertTalkItemEntity extends BaseEntity {
   @Column({ name: 'video_url', type: 'varchar', length: 2000 })
   videoUrl!: string;
 
+  @Column({ name: 'video_alt_text', type: 'varchar', length: 250, nullable: true })
+  videoAltText!: string | null;
+
   @Column(storageFileReferenceColumn({ name: 'thumbnail', nullable: true }))
   thumbnail!: IStorageFileReference | null;
+
+  @Column({ name: 'thumbnail_alt_text', type: 'varchar', length: 250, nullable: true })
+  thumbnailAltText!: string | null;
 
   @Column({
     name: 'content_type',

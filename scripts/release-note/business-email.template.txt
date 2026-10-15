@@ -1,0 +1,32 @@
+Subject: {{subject}}
+
+{{introduction}}
+
+Release window
+{{releaseWindow}}
+
+What customers will notice
+{{customerImpact}}
+
+What operations will notice
+{{operationsImpact}}
+
+Improvements behind the scenes
+{{behindTheScenes}}
+
+Decisions needed
+{{decisions}}
+
+Not included in this release
+{{excludedChanges}}
+
+Known customer impact or downtime
+{{knownCustomerImpact}}
+
+Who to contact
+{{contacts}}
+
+Sender: {{sender}}
+When to send: {{notificationTiming}}
+
+This draft was generated for review. It has not been sent.

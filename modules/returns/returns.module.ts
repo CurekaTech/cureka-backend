@@ -4,6 +4,7 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
 import { RolesModule } from '@modules/roles/roles.module';
 import { ShippingModule } from '@modules/shipping/shipping.module';
@@ -55,6 +56,7 @@ import { ReturnWorkflowService } from './services/return-workflow.service';
     ]),
     MasterModule,
     forwardRef(() => RefundRequestsModule),
+    forwardRef(() => PaymentRequestsModule),
     RolesModule,
     UploadsModule,
     forwardRef(() => UnicommerceOrderModule),

@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import { FastifyRequest } from 'fastify';
 import {
   CacheKeys,
@@ -11,6 +13,7 @@ import {
   CacheStrategyService,
 } from '@packages/cache';
 import { BannerUpdatedEvent, CacheDomainAction, EVENTS } from '@packages/events';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -59,6 +62,7 @@ export class BannersService {
     private readonly cacheStrategy: CacheStrategyService,
     private readonly eventEmitter: EventEmitter2,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly auditService: AuditService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBanner> {
@@ -102,6 +106,7 @@ export class BannersService {
       externalUrl: normalized.externalUrl,
       title: normalized.title,
       imageUrl: this.storageUrlEnricher.persist(imageUrl)!,
+      imageAltText: storedAltForCreate(dto.imageAltText),
       sortOrder: normalized.sortOrder ?? 0,
       status: normalized.status ?? MasterStatus.ACTIVE,
       startsAt: normalized.startsAt,
@@ -113,6 +118,7 @@ export class BannersService {
     });
 
     await this.emitBannerUpdated(entity.refId, 'created');
+    await this.auditCatalogue(entity, 'created', createdBy, { status: entity.status });
     return this.enrichBanner(mapBannerEntityToResponse(entity));
   }
 
@@ -183,6 +189,12 @@ export class BannersService {
     if (imageUrl !== undefined) {
       payload.imageUrl = this.storageUrlEnricher.persist(imageUrl)!;
     }
+    assignStoredAltText(payload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.imageUrl,
+      nextFile: payload.imageUrl !== undefined ? payload.imageUrl : existing.imageUrl,
+    });
 
     const result = await this.bannersRepository.updateByRefId(refId, payload);
     if (!result) {
@@ -190,6 +202,7 @@ export class BannersService {
     }
 
     await this.emitBannerUpdated(refId, 'updated');
+    await this.auditCatalogue(result, 'updated', updatedBy, { fields: Object.keys(dto) });
     return this.enrichBanner(mapBannerEntityToResponse(result));
   }
 
@@ -213,6 +226,10 @@ export class BannersService {
     }
 
     await this.emitBannerUpdated(refId, 'status_updated');
+    await this.auditCatalogue(updated, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
     return mapBannerEntityToResponse(updated);
   }
 
@@ -249,6 +266,24 @@ export class BannersService {
 
     await this.bannersRepository.softDeleteByRefId(refId);
     await this.emitBannerUpdated(refId, 'deleted');
+    await this.auditCatalogue(existing, 'deleted');
+  }
+
+  private auditCatalogue(
+    entity: { id: string; refId: string; title?: string | null },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.BANNER,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.title,
+      details,
+    });
   }
 
   /**

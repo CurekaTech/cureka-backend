@@ -35,8 +35,17 @@ export interface IReturnRequestItemView {
   acceptedQuantity: number | null;
   rejectedQuantity: number | null;
   qcRejectionReason: string | null;
+  preferredReplacementVariantId: string | null;
+  preferredReplacementSku: string | null;
+  preferredReplacementProductName: string | null;
+  preferredReplacementVariantName: string | null;
   replacementVariantId: string | null;
   replacementSku: string | null;
+  replacementProductName: string | null;
+  replacementVariantName: string | null;
+  affectedComponentVariantId: string | null;
+  affectedComponentSku: string | null;
+  affectedComponentName: string | null;
   policySnapshot: IOrderItemReturnPolicySnapshot | null;
 }
 
@@ -180,9 +189,23 @@ export interface IReturnRequestDetail extends IReturnRequestListItem {
   pickups: IReturnPickupView[];
   qcRecords: IReturnQcView[];
   refund: IReturnRefundLinkView;
+  replacementOriginalAmount: string | null;
+  replacementQuoteAmount: string | null;
+  replacementDifferenceAmount: string | null;
+  replacementSettlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+  replacementPaymentRequestId: string | null;
+  replacementPaymentLink: string | null;
+  replacementPaymentStatus: string | null;
   replacement: {
     replacementOrderId: string | null;
     linkedAt: Date | null;
+    originalAmount: string | null;
+    quoteAmount: string | null;
+    differenceAmount: string | null;
+    settlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+    paymentRequestId: string | null;
+    paymentLink: string | null;
+    paymentStatus: string | null;
   };
   codRefund: {
     method: string | null;
@@ -220,6 +243,9 @@ export interface ICustomerReturnListItem {
   canCancel: boolean;
   createdAt: Date;
   updatedAt: Date;
+  replacementDifferenceAmount: string | null;
+  replacementSettlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+  replacementPaymentLink: string | null;
   items: Array<{
     id: string;
     orderItemId: string;
@@ -228,6 +254,14 @@ export interface ICustomerReturnListItem {
     quantity: number;
     unitPrice: string;
     imageUrl: string | null;
+    preferredReplacementVariantId: string | null;
+    preferredReplacementSku: string | null;
+    preferredReplacementProductName: string | null;
+    preferredReplacementVariantName: string | null;
+    replacementVariantId: string | null;
+    replacementSku: string | null;
+    replacementProductName: string | null;
+    replacementVariantName: string | null;
   }>;
 }
 
@@ -268,6 +302,17 @@ export interface ICustomerReturnDetail {
       | 'refundableAmount'
       | 'acceptedQuantity'
       | 'rejectedQuantity'
+      | 'affectedComponentVariantId'
+      | 'affectedComponentSku'
+      | 'affectedComponentName'
+      | 'preferredReplacementVariantId'
+      | 'preferredReplacementSku'
+      | 'preferredReplacementProductName'
+      | 'preferredReplacementVariantName'
+      | 'replacementVariantId'
+      | 'replacementSku'
+      | 'replacementProductName'
+      | 'replacementVariantName'
     > & {
       /** Signed product thumbnail URL when available. */
       imageUrl: string | null;
@@ -287,6 +332,11 @@ export interface ICustomerReturnDetail {
     amount: string | null;
     message: string | null;
   };
+  replacementOriginalAmount: string | null;
+  replacementQuoteAmount: string | null;
+  replacementDifferenceAmount: string | null;
+  replacementSettlement: 'NONE' | 'COLLECT' | 'REFUND' | null;
+  replacementPaymentLink: string | null;
   codRefund: {
     method: string | null;
     payoutStatus: string | null;

@@ -6,6 +6,8 @@ import {
   buildLegacyFallbackSnapshot,
 } from '@modules/orders/utils/return-policy-snapshot.util';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
@@ -15,8 +17,16 @@ import {
   IReturnItemEligibility,
   ReturnIneligibilityCode,
 } from '../interfaces/return-eligibility.interface';
+import {
+  DEFAULT_REPLACE_WINDOW_DAYS,
+  DEFAULT_RETURN_WINDOW_DAYS,
+} from '../constants/return.constants';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
-import { isWithinWindow, resolveWindowExpiry } from '../utils/return-window.util';
+import {
+  isWithinWindow,
+  resolveConfiguredWindow,
+  resolveWindowExpiry,
+} from '../utils/return-window.util';
 
 const MESSAGES: Record<ReturnIneligibilityCode, string> = {
   ITEM_NOT_DELIVERED: 'Returns can be requested only after the order is delivered.',
@@ -32,8 +42,8 @@ const MESSAGES: Record<ReturnIneligibilityCode, string> = {
 
 export interface IEligibilityOptions {
   /**
-   * Expired-product claims bypass the window check. Quantity rules still apply.
-   * A product marked not returnable can still be requested; an admin approves it.
+   * Expired-product claims bypass the window check only.
+   * returnAllowed and replaceAllowed still apply. Quantity rules still apply.
    */
   isExpiredProductClaim?: boolean;
   manager?: EntityManager;
@@ -106,16 +116,32 @@ export class ReturnEligibilityService {
     const { item, policy, committedQuantity, deliveredAt, now } = params;
     const availableQuantity = Math.max(0, item.quantity - committedQuantity);
 
-    const returnWindowExpiresAt = resolveWindowExpiry(
-      deliveredAt,
+    const returnWindow = resolveConfiguredWindow(
       policy.returnWindow,
-      policy.returnWindowUnit,
+      DEFAULT_RETURN_WINDOW_DAYS,
     );
+    const replacementWindow = resolveConfiguredWindow(
+      policy.replacementWindow,
+      DEFAULT_REPLACE_WINDOW_DAYS,
+    );
+    const returnWindowUnit =
+      policy.returnWindow === null || policy.returnWindow === undefined || policy.returnWindow <= 0
+        ? PolicyWindowUnit.DAYS
+        : policy.returnWindowUnit;
+    const replacementWindowUnit =
+      policy.replacementWindow === null ||
+      policy.replacementWindow === undefined ||
+      policy.replacementWindow <= 0
+        ? PolicyWindowUnit.DAYS
+        : policy.replacementWindowUnit;
+    const returnWindowExpiresAt = resolveWindowExpiry(deliveredAt, returnWindow, returnWindowUnit);
     const replacementWindowExpiresAt = resolveWindowExpiry(
       deliveredAt,
-      policy.replacementWindow,
-      policy.replacementWindowUnit,
+      replacementWindow,
+      replacementWindowUnit,
     );
+    const components = item.bundleComponents ?? null;
+    const isBundle = item.product?.productType === ProductType.BUNDLE || components !== null;
 
     const base = {
       orderItemId: item.id,
@@ -129,6 +155,8 @@ export class ReturnEligibilityService {
       committedQuantity,
       availableQuantity,
       unitPrice: item.unitPrice,
+      isBundle,
+      components,
       deliveredAt,
       returnWindowExpiresAt,
       replacementWindowExpiresAt,
@@ -162,25 +190,23 @@ export class ReturnEligibilityService {
       );
     }
 
-    // The expired-product exception waives only the window.
-    // returnAllowed=false does not block the request; admin approval is the gate.
-    // A non-returnable product with no window configured is still requestable.
     const withinReturnWindow =
-      params.isExpiredProductClaim ||
-      isWithinWindow(returnWindowExpiresAt, now) ||
-      (!policy.returnable && returnWindowExpiresAt === null);
+      params.isExpiredProductClaim || isWithinWindow(returnWindowExpiresAt, now);
     const withinReplacementWindow =
       params.isExpiredProductClaim || isWithinWindow(replacementWindowExpiresAt, now);
 
-    const canReturn = withinReturnWindow;
+    const canReturn = policy.returnable && withinReturnWindow;
     const canReplace = policy.replaceable && withinReplacementWindow;
 
     if (!canReturn && !canReplace) {
-      return reject('RETURN_WINDOW_EXPIRED');
+      const windowClosed =
+        (policy.returnable && !withinReturnWindow) ||
+        (policy.replaceable && !withinReplacementWindow);
+      return reject(windowClosed ? 'RETURN_WINDOW_EXPIRED' : 'RETURN_NOT_ALLOWED');
     }
 
     const allowedResolutions: ReturnResolution[] = [];
-    const canRequestRefund = canReturn && (policy.refundable || !policy.returnable);
+    const canRequestRefund = canReturn && policy.refundable;
     if (canRequestRefund) {
       allowedResolutions.push(ReturnResolution.REFUND);
     }

@@ -53,7 +53,7 @@ describe('RefundRequestsService workflow', () => {
     initiate: jest.fn(),
     reconcile: jest.fn(),
   };
-  const auditService = { log: jest.fn() };
+  const auditService = { log: jest.fn(), enqueueCritical: jest.fn() };
   const eventEmitter = { emitAsync: jest.fn() };
   const payoutService = {
     createForReturnRefund: jest.fn().mockResolvedValue(null),
@@ -63,7 +63,9 @@ describe('RefundRequestsService workflow', () => {
     completeRefundIfSettled: jest.fn(),
   };
   const dataSource = {
-    transaction: jest.fn(async (fn: (manager: unknown) => Promise<unknown>) => fn({})),
+    transaction: jest.fn(async (fn: (manager: unknown) => Promise<unknown>) =>
+      fn({ query: jest.fn() }),
+    ),
     getRepository: jest.fn().mockReturnValue({
       findOne: jest.fn().mockResolvedValue(buildOrder()),
     }),

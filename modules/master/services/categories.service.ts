@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import {
   buildQueryCacheHash,
   CacheKeys,
@@ -13,6 +15,7 @@ import {
 } from '@packages/cache';
 import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { FastifyRequest } from 'fastify';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import { CategoriesRepository } from '../repositories/categories.repository';
 import { CatalogueCodeService } from './catalogue-code.service';
 import { AttributesRepository } from '../repositories/attributes.repository';
@@ -25,6 +28,7 @@ import { MasterStatus } from '../enums/master-status.enum';
 import { resolveMasterListStatus } from '../utils/master-list-query.util';
 import { AttributeEntity } from '../entities/attribute.entity';
 import { CategoryEntity } from '../entities/category.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { CategoryFilterEntity } from '../entities/category-filter.entity';
 import {
   mapCategoryEntityToResponse,
@@ -62,6 +66,7 @@ export class CategoriesService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly deletionGuard: MasterDeletionGuardService,
     private readonly catalogueCodes: CatalogueCodeService,
+    private readonly auditService: AuditService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<ICategory> {
@@ -151,10 +156,14 @@ export class CategoriesService {
         position,
         hierarchyLevel,
         image: this.storageUrlEnricher.persist(media.image),
+        imageAltText: storedAltForCreate(dto.imageAltText),
         banner: this.storageUrlEnricher.persist(media.banner),
+        bannerAltText: storedAltForCreate(dto.bannerAltText),
         faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+        faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
         slug,
         description: dto.description ?? null,
+        listingHeading: normalizeListingHeading(dto.listingHeading),
         metaTitle: dto.metaTitle ?? null,
         metaDescription: dto.metaDescription ?? null,
         metaKeywords: dto.metaKeywords ?? null,
@@ -175,6 +184,7 @@ export class CategoriesService {
     ));
 
     await this.emitCategoryUpdated(entity.refId, 'created');
+    await this.auditCatalogue(entity, 'created', createdBy, { status: entity.status });
     return this.enrichCategory(mapCategoryEntityToResponse(entity));
   }
 
@@ -339,6 +349,9 @@ export class CategoriesService {
     };
     if (dto.name !== undefined) updatePayload.name = dto.name;
     if (dto.description !== undefined) updatePayload.description = dto.description ?? null;
+    if (dto.listingHeading !== undefined) {
+      updatePayload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.parentCategoryRefId !== undefined) updatePayload.parentCategoryId = parentCategoryId;
     if (dto.position !== undefined) updatePayload.position = dto.position;
     if (media.image !== undefined) updatePayload.image = this.storageUrlEnricher.persist(media.image);
@@ -346,6 +359,24 @@ export class CategoriesService {
     if (media.faqBanner !== undefined) {
       updatePayload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
+    assignStoredAltText(updatePayload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.image,
+      nextFile: updatePayload.image !== undefined ? updatePayload.image : existing.image,
+    });
+    assignStoredAltText(updatePayload, 'bannerAltText', {
+      incoming: dto.bannerAltText,
+      previousAlt: existing.bannerAltText,
+      previousFile: existing.banner,
+      nextFile: updatePayload.banner !== undefined ? updatePayload.banner : existing.banner,
+    });
+    assignStoredAltText(updatePayload, 'faqBannerAltText', {
+      incoming: dto.faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: updatePayload.faqBanner !== undefined ? updatePayload.faqBanner : existing.faqBanner,
+    });
     if (dto.metaTitle !== undefined) updatePayload.metaTitle = dto.metaTitle ?? null;
     if (dto.metaDescription !== undefined)
       updatePayload.metaDescription = dto.metaDescription ?? null;
@@ -368,6 +399,7 @@ export class CategoriesService {
     }
 
     await this.emitCategoryUpdated(refId, 'updated');
+    await this.auditCatalogue(updated, 'updated', updatedBy, { fields: Object.keys(dto) });
     return this.enrichCategory(mapCategoryEntityToResponse(updated));
   }
 
@@ -392,6 +424,10 @@ export class CategoriesService {
     }
 
     await this.emitCategoryUpdated(refId, 'status_updated');
+    await this.auditCatalogue(updated, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
     return this.enrichCategory(mapCategoryEntityToResponse(updated));
   }
 
@@ -405,6 +441,24 @@ export class CategoriesService {
 
     await this.categoriesRepository.softDeleteByRefId(refId);
     await this.emitCategoryUpdated(refId, 'deleted');
+    await this.auditCatalogue(existing, 'deleted');
+  }
+
+  private auditCatalogue(
+    entity: { id: string; refId: string; name?: string | null },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.CATEGORY,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.name,
+      details,
+    });
   }
 
   async findHeaderCategoriesForIndexing(

@@ -1,4 +1,5 @@
 import { isAllowedPublicMediaKey, normalizeStorageKey } from '@packages/storage';
+import { normalizeOptionalBulkAltText } from './product-media-alt-text.util';
 
 export const BULK_UPLOAD_VARIANT_IMAGE_COUNT = 5;
 export const BULK_UPLOAD_GALLERY_IMAGE_COUNT = 6;
@@ -94,6 +95,8 @@ export interface IBulkUploadImageInput {
   url?: string;
   isPrimary: boolean;
   sortOrder: number;
+  /** Set only when the matching alt column has text. Blank cells are omitted. */
+  altText?: string;
 }
 
 export type BulkUploadImageGetVal = (columnName: string) => string;
@@ -137,14 +140,17 @@ const pushResolvedImage = (
   images: IBulkUploadImageInput[],
   filename?: string,
   url?: string,
+  altText?: string,
 ): void => {
   const resolved = resolveBulkUploadImageInput(filename, url);
   if (!resolved) return;
+  const normalizedAlt = normalizeOptionalBulkAltText(altText);
 
   images.push({
     ...resolved,
     isPrimary: false,
     sortOrder: images.length,
+    ...(normalizedAlt !== undefined ? { altText: normalizedAlt } : {}),
   });
 };
 
@@ -179,6 +185,7 @@ export const parsePrimaryAndGalleryImages = (
     images,
     getFirstAvailable(['primary image filename', 'primary_image_filename', 'primary image', 'primary image path']),
     getFirstAvailable(['primary image url', 'primary_image_url']),
+    getFirstAvailable(['primary image alt', 'primary_image_alt']),
   );
 
   for (let index = 2; index <= BULK_UPLOAD_GALLERY_IMAGE_COUNT; index += 1) {
@@ -196,7 +203,22 @@ export const parsePrimaryAndGalleryImages = (
           ]
         : [`gallery image ${index} url`, `gallery_image_${index}_url`];
 
-    pushResolvedImage(images, getFirstAvailable(nameColumns), getFirstAvailable(urlColumns));
+    const altColumns =
+      index === 2
+        ? [
+            'gallery image 2 (video) alt',
+            'gallery image 2 video alt',
+            'gallery_image_2_video_alt',
+            'gallery image 2 alt',
+            'gallery_image_2_alt',
+          ]
+        : [`gallery image ${index} alt`, `gallery_image_${index}_alt`];
+    pushResolvedImage(
+      images,
+      getFirstAvailable(nameColumns),
+      getFirstAvailable(urlColumns),
+      getFirstAvailable(altColumns),
+    );
   }
 
   void getVal;
@@ -223,6 +245,11 @@ export const parseVideoImages = (
       'gallery image 2 (video) url',
       'gallery_image_2_video_url',
       'gallery image 2 video url',
+    ]),
+    getFirstAvailable([
+      'gallery image 2 (video) alt',
+      'gallery image 2 video alt',
+      'gallery_image_2_video_alt',
     ]),
   );
 
@@ -286,6 +313,7 @@ export const parseCommonMediaColumns = (
       images,
       getVal(`common_media_${index}`),
       getVal(`common_media_${index}_url`),
+      getVal(`common_media_${index}_alt`),
     );
   }
 

@@ -4,6 +4,7 @@ import {
 } from '../constants/search-entity-type.constant';
 import { IPublicSearchResult } from '../interfaces/public-search-result.interface';
 import { compactSearchText, isCloseSearchMatch } from '../utils/search-tolerance.util';
+import { normalizeSearchQuery, searchQueryTerms } from '../utils/search-query.util';
 
 const SEARCH_ENTITY_TYPE_VALUES = new Set<string>(Object.values(SEARCH_ENTITY_TYPES));
 
@@ -71,7 +72,7 @@ function normalizeSearchText(value: string): string {
 /** Case-insensitive contains match (ILIKE '%query%'), ignoring spaces/punctuation. */
 export function titleMatchesSearchQuery(title: string, query: string): boolean {
   const normalizedTitle = normalizeSearchText(title);
-  const normalizedQuery = normalizeSearchText(query);
+  const normalizedQuery = normalizeSearchText(normalizeSearchQuery(query));
   if (!normalizedQuery) {
     return true;
   }
@@ -79,13 +80,9 @@ export function titleMatchesSearchQuery(title: string, query: string): boolean {
     return true;
   }
 
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((token) => token.replace(/[^a-z0-9]+/g, ''))
-    .filter((token) => token.length > 1);
+  const tokens = searchQueryTerms(query).map(normalizeSearchText);
 
-  return tokens.length > 0 && tokens.every((token) => normalizedTitle.includes(token));
+  return tokens.length > 0 && tokens.some((token) => normalizedTitle.includes(token));
 }
 
 /**

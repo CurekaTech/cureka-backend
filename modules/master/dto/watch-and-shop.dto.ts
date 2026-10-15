@@ -29,6 +29,11 @@ export class CreateWatchAndShopItemDto {
   @MaxLength(2000)
   videoUrl?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  videoAltText?: string;
+
   @IsNotEmpty()
   @IsRefId()
   productRefId!: string;

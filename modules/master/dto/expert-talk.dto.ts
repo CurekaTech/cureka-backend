@@ -33,6 +33,11 @@ export class CreateExpertTalkItemDto {
   videoUrl!: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  videoAltText?: string;
+
+  @IsOptional()
   @IsEnum(ExpertTalkContentType)
   contentType?: ExpertTalkContentType;
 
@@ -45,6 +50,11 @@ export class CreateExpertTalkItemDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  thumbnailAltText?: string;
 }
 
 export class UpdateExpertTalkItemDto extends PartialType(CreateExpertTalkItemDto) {}

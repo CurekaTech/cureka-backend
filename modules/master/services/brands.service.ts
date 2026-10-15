@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { BrandsRepository } from '../repositories/brands.repository';
@@ -24,10 +26,17 @@ import { generateSlug } from '@packages/common/pagination.util';
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { BrandEntity } from '../entities/brand.entity';
+import { normalizeListingHeading } from '../utils/listing-heading.util';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
+import {
+  assignStoredAltText,
+  fileStorageKey,
+  mergeJsonImageAlt,
+  storedAltForCreate,
+} from '../utils/image-alt-text.util';
 import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
 const BRAND_UPLOAD_FIELDS = {
@@ -64,6 +73,7 @@ export class BrandsService {
     private readonly catalogueCodes: CatalogueCodeService,
     private readonly eventEmitter: EventEmitter2,
     private readonly cacheStrategy: CacheStrategyService,
+    private readonly auditService: AuditService,
   ) {}
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IBrand> {
@@ -130,14 +140,23 @@ export class BrandsService {
       skuCode,
       slug,
       logo: this.storageUrlEnricher.persist(media.logo),
+      logoAltText: storedAltForCreate(dto.logoAltText),
       banner: this.storageUrlEnricher.persist(media.banner),
+      bannerAltText: storedAltForCreate(dto.bannerAltText),
       video: this.storageUrlEnricher.persist(media.video),
+      videoAltText: storedAltForCreate(dto.videoAltText),
       featuredBanner: this.storageUrlEnricher.persist(media.featuredBanner),
+      featuredBannerAltText: storedAltForCreate(dto.featuredBannerAltText),
       promotionalBanner: this.storageUrlEnricher.persist(media.promotionalBanner),
+      promotionalBannerAltText: storedAltForCreate(dto.promotionalBannerAltText),
       secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
+      secondaryBannerAltText: storedAltForCreate(dto.secondaryBannerAltText),
       secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
+      secondaryVideoAltText: storedAltForCreate(dto.secondaryVideoAltText),
       offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
+      offerBannerAltText: storedAltForCreate(dto.offerBannerAltText),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+      faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
       brandHighlights: this.persistBrandHighlights(dto.brandHighlights),
       showBanner: dto.showBanner ?? true,
       showVideo: dto.showVideo ?? true,
@@ -148,6 +167,7 @@ export class BrandsService {
       showOfferBanner: dto.showOfferBanner ?? true,
       showBrandHighlights: dto.showBrandHighlights ?? true,
       description: dto.description ?? null,
+      listingHeading: normalizeListingHeading(dto.listingHeading),
       showDescription: dto.showDescription ?? true,
       faqs: normalizeMasterFaqs(dto.faqs),
       status: dto.status ?? MasterStatus.ACTIVE,
@@ -163,6 +183,7 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(entity));
     await this.emitBrandUpdated(brand.refId, 'created');
+    await this.auditCatalogue(brand, 'created', createdBy, { status: brand.status });
     return brand;
   }
 
@@ -210,8 +231,24 @@ export class BrandsService {
       }
     }
 
-    const { brandHighlights, faqs, ...dtoFields } = dto;
+    const {
+      brandHighlights,
+      faqs,
+      logoAltText,
+      bannerAltText,
+      featuredBannerAltText,
+      promotionalBannerAltText,
+      secondaryBannerAltText,
+      videoAltText,
+      secondaryVideoAltText,
+      offerBannerAltText,
+      faqBannerAltText,
+      ...dtoFields
+    } = dto;
     const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
+    if (dto.listingHeading !== undefined) {
+      payload.listingHeading = normalizeListingHeading(dto.listingHeading);
+    }
     if (dto.slug !== undefined) payload.slug = slug;
     if (media.logo !== undefined) payload.logo = this.storageUrlEnricher.persist(media.logo);
     if (media.banner !== undefined) {
@@ -241,8 +278,63 @@ export class BrandsService {
       payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
     if (brandHighlights !== undefined) {
-      payload.brandHighlights = this.persistBrandHighlights(brandHighlights);
+      payload.brandHighlights = this.persistBrandHighlights(brandHighlights, existing.brandHighlights);
     }
+    assignStoredAltText(payload, 'logoAltText', {
+      incoming: logoAltText,
+      previousAlt: existing.logoAltText,
+      previousFile: existing.logo,
+      nextFile: payload.logo !== undefined ? payload.logo : existing.logo,
+    });
+    assignStoredAltText(payload, 'bannerAltText', {
+      incoming: bannerAltText,
+      previousAlt: existing.bannerAltText,
+      previousFile: existing.banner,
+      nextFile: payload.banner !== undefined ? payload.banner : existing.banner,
+    });
+    assignStoredAltText(payload, 'videoAltText', {
+      incoming: videoAltText,
+      previousAlt: existing.videoAltText,
+      previousFile: existing.video,
+      nextFile: payload.video !== undefined ? payload.video : existing.video,
+    });
+    assignStoredAltText(payload, 'featuredBannerAltText', {
+      incoming: featuredBannerAltText,
+      previousAlt: existing.featuredBannerAltText,
+      previousFile: existing.featuredBanner,
+      nextFile: payload.featuredBanner !== undefined ? payload.featuredBanner : existing.featuredBanner,
+    });
+    assignStoredAltText(payload, 'promotionalBannerAltText', {
+      incoming: promotionalBannerAltText,
+      previousAlt: existing.promotionalBannerAltText,
+      previousFile: existing.promotionalBanner,
+      nextFile:
+        payload.promotionalBanner !== undefined ? payload.promotionalBanner : existing.promotionalBanner,
+    });
+    assignStoredAltText(payload, 'secondaryBannerAltText', {
+      incoming: secondaryBannerAltText,
+      previousAlt: existing.secondaryBannerAltText,
+      previousFile: existing.secondaryBanner,
+      nextFile: payload.secondaryBanner !== undefined ? payload.secondaryBanner : existing.secondaryBanner,
+    });
+    assignStoredAltText(payload, 'secondaryVideoAltText', {
+      incoming: secondaryVideoAltText,
+      previousAlt: existing.secondaryVideoAltText,
+      previousFile: existing.secondaryVideo,
+      nextFile: payload.secondaryVideo !== undefined ? payload.secondaryVideo : existing.secondaryVideo,
+    });
+    assignStoredAltText(payload, 'offerBannerAltText', {
+      incoming: offerBannerAltText,
+      previousAlt: existing.offerBannerAltText,
+      previousFile: existing.offerBanner,
+      nextFile: payload.offerBanner !== undefined ? payload.offerBanner : existing.offerBanner,
+    });
+    assignStoredAltText(payload, 'faqBannerAltText', {
+      incoming: faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: payload.faqBanner !== undefined ? payload.faqBanner : existing.faqBanner,
+    });
     if (faqs !== undefined) {
       payload.faqs = normalizeMasterFaqs(faqs);
     }
@@ -254,6 +346,7 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(result));
     await this.emitBrandUpdated(refId, 'updated');
+    await this.auditCatalogue(brand, 'updated', updatedBy, { fields: Object.keys(dto) });
     return brand;
   }
 
@@ -278,6 +371,10 @@ export class BrandsService {
 
     const brand = await this.enrichBrand(mapBrandEntityToResponse(updated));
     await this.emitBrandUpdated(refId, 'status_updated');
+    await this.auditCatalogue(brand, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
     return brand;
   }
 
@@ -289,20 +386,51 @@ export class BrandsService {
     await this.deletionGuard.assertBrandDeletable(existing.id, existing.name);
     await this.brandsRepository.softDeleteByRefId(refId);
     await this.emitBrandUpdated(refId, 'deleted');
+    await this.auditCatalogue(existing, 'deleted');
+  }
+
+  private auditCatalogue(
+    entity: { id: string; refId: string; name?: string | null },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.BRAND,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.name,
+      details,
+    });
   }
 
   private persistBrandHighlights(
     highlights: BrandHighlightDto[] | null | undefined,
+    existing?: BrandEntity['brandHighlights'],
   ): BrandEntity['brandHighlights'] {
     if (highlights === undefined) return null;
     if (highlights === null) return null;
-    return highlights.map((item) => ({
-      icon: this.storageUrlEnricher.persist(
+    return highlights.map((item) => {
+      const icon = this.storageUrlEnricher.persist(
         item.icon as string | IStorageFileReference | null | undefined,
-      ),
-      title: String(item.title ?? '').trim(),
-      subtitle: String(item.subtitle ?? '').trim(),
-    }));
+      );
+      const previous = (existing ?? []).find(
+        (row) => fileStorageKey(row.icon) === fileStorageKey(icon),
+      );
+      return {
+        icon,
+        iconAltText: mergeJsonImageAlt({
+          incoming: item.iconAltText,
+          previousAlt: previous?.iconAltText,
+          previousFile: previous?.icon,
+          nextFile: icon,
+        }),
+        title: String(item.title ?? '').trim(),
+        subtitle: String(item.subtitle ?? '').trim(),
+      };
+    });
   }
 
   private async emitBrandUpdated(

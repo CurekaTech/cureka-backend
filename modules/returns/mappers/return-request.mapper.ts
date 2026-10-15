@@ -5,12 +5,14 @@ import {
   RETURN_SLA_ORANGE_AFTER_HOURS,
   RETURN_SLA_RED_AFTER_HOURS,
 } from '../constants/return.constants';
+import { ReturnResolution } from '../enums/return-resolution.enum';
 import { ReturnStatus } from '../enums/return-status.enum';
 import { ReturnEvidenceEntity } from '../entities/return-evidence.entity';
 import { ReturnPickupEntity } from '../entities/return-pickup.entity';
 import { ReturnQcRecordEntity } from '../entities/return-qc-record.entity';
 import { ReturnRequestItemEntity } from '../entities/return-request-item.entity';
 import { ReturnRequestEntity } from '../entities/return-request.entity';
+import { customerReplacementSelection } from '../utils/replacement-selection-view.util';
 import { ReturnStatusHistoryEntity } from '../entities/return-status-history.entity';
 import {
   ICustomerReturnDetail,
@@ -111,8 +113,17 @@ export const mapReturnItem = (entity: ReturnRequestItemEntity): IReturnRequestIt
   acceptedQuantity: entity.acceptedQuantity,
   rejectedQuantity: entity.rejectedQuantity,
   qcRejectionReason: entity.qcRejectionReason,
+  preferredReplacementVariantId: entity.preferredReplacementVariantId ?? null,
+  preferredReplacementSku: entity.preferredReplacementSku ?? null,
+  preferredReplacementProductName: entity.preferredReplacementProductName ?? null,
+  preferredReplacementVariantName: entity.preferredReplacementVariantName ?? null,
   replacementVariantId: entity.replacementVariantId,
   replacementSku: entity.replacementSku,
+  replacementProductName: entity.replacementProductName ?? null,
+  replacementVariantName: entity.replacementVariantName ?? null,
+  affectedComponentVariantId: entity.affectedComponentVariantId ?? null,
+  affectedComponentSku: entity.affectedComponentSku ?? null,
+  affectedComponentName: entity.affectedComponentName ?? null,
   policySnapshot: entity.policySnapshot,
 });
 
@@ -259,6 +270,9 @@ export const mapCustomerReturnListItem = (
     canCancel: isCustomerCancellable(entity.status),
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
+    replacementDifferenceAmount: entity.replacementDifferenceAmount ?? null,
+    replacementSettlement: entity.replacementSettlement ?? null,
+    replacementPaymentLink: entity.replacementPaymentLink ?? null,
     items: items.map((item) => ({
       id: item.id,
       orderItemId: item.orderItemId,
@@ -267,6 +281,7 @@ export const mapCustomerReturnListItem = (
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       imageUrl: null,
+      ...customerReplacementSelection(item, entity.replacementSettlement != null),
     })),
   };
 };
@@ -278,6 +293,7 @@ export const mapReturnToDetail = (
     pickups: ReturnPickupEntity[];
     qcRecords: ReturnQcRecordEntity[];
     refund: IReturnRefundLinkView;
+    replacementPaymentStatus?: string | null;
   },
 ): IReturnRequestDetail => {
   const history = [...(entity.history ?? [])].sort(
@@ -316,9 +332,23 @@ export const mapReturnToDetail = (
     pickups: extras.pickups.map(mapReturnPickup),
     qcRecords: extras.qcRecords.map(mapReturnQcRecord),
     refund: extras.refund,
+    replacementOriginalAmount: entity.replacementOriginalAmount ?? null,
+    replacementQuoteAmount: entity.replacementQuoteAmount ?? null,
+    replacementDifferenceAmount: entity.replacementDifferenceAmount ?? null,
+    replacementSettlement: entity.replacementSettlement ?? null,
+    replacementPaymentRequestId: entity.replacementPaymentRequestId ?? null,
+    replacementPaymentLink: entity.replacementPaymentLink ?? null,
+    replacementPaymentStatus: extras.replacementPaymentStatus ?? null,
     replacement: {
       replacementOrderId: entity.replacementOrderId,
       linkedAt: entity.replacementLinkedAt,
+      originalAmount: entity.replacementOriginalAmount ?? null,
+      quoteAmount: entity.replacementQuoteAmount ?? null,
+      differenceAmount: entity.replacementDifferenceAmount ?? null,
+      settlement: entity.replacementSettlement ?? null,
+      paymentRequestId: entity.replacementPaymentRequestId ?? null,
+      paymentLink: entity.replacementPaymentLink ?? null,
+      paymentStatus: extras.replacementPaymentStatus ?? null,
     },
     codRefund: entity.refundMethod
       ? {
@@ -386,7 +416,11 @@ export const mapCustomerReturnDetail = (
       refundableAmount: item.refundableAmount,
       acceptedQuantity: item.acceptedQuantity,
       rejectedQuantity: item.rejectedQuantity,
+      affectedComponentVariantId: item.affectedComponentVariantId ?? null,
+      affectedComponentSku: item.affectedComponentSku ?? null,
+      affectedComponentName: item.affectedComponentName ?? null,
       imageUrl: null,
+      ...customerReplacementSelection(item, entity.replacementSettlement != null),
     })),
     evidence: extras.evidence.map(mapReturnEvidence),
     tracking: extras.pickup
@@ -400,6 +434,11 @@ export const mapCustomerReturnDetail = (
         }
       : null,
     refund: extras.refund,
+    replacementOriginalAmount: entity.replacementOriginalAmount ?? null,
+    replacementQuoteAmount: entity.replacementQuoteAmount ?? null,
+    replacementDifferenceAmount: entity.replacementDifferenceAmount ?? null,
+    replacementSettlement: entity.replacementSettlement ?? null,
+    replacementPaymentLink: entity.replacementPaymentLink ?? null,
     timeline: history.map(mapCustomerTimelineEntry),
     codRefund: entity.refundMethod
       ? {
@@ -427,6 +466,16 @@ export const mapMaskedReturnBankDetails = (entity: ReturnRequestEntity) => ({
   bankName: entity.bankName,
   locked: entity.bankDetailsLocked,
 });
+
+const replacementSettlementReady = (entity: ReturnRequestEntity): boolean => {
+  if (!entity.replacementSettlement || entity.replacementSettlement === 'NONE') {
+    return true;
+  }
+  if (entity.replacementSettlement === 'REFUND') {
+    return Boolean(entity.refundRequestId);
+  }
+  return Boolean(entity.replacementPaymentRequestId);
+};
 
 export const buildAvailableActions = (entity: ReturnRequestEntity): IReturnAvailableAction[] => {
   const status = entity.status;
@@ -487,8 +536,36 @@ export const buildAvailableActions = (entity: ReturnRequestEntity): IReturnAvail
       requiredPermission: RETURN_PERMISSIONS.APPROVE,
     },
     {
+      action: 'confirmReplacementSelection',
+      allowed:
+        entity.resolution === ReturnResolution.REPLACEMENT &&
+        status === ReturnStatus.REPLACEMENT_PENDING &&
+        !entity.replacementPaymentRequestId &&
+        !entity.refundRequestId,
+      requiredPermission: RETURN_PERMISSIONS.STATUS,
+    },
+    {
+      action: 'collectReplacementDifference',
+      allowed:
+        status === ReturnStatus.REPLACEMENT_PENDING &&
+        entity.replacementSettlement === 'COLLECT' &&
+        !entity.replacementPaymentLink,
+      requiredPermission: RETURN_PERMISSIONS.APPROVE,
+    },
+    {
+      action: 'refundReplacementDifference',
+      allowed:
+        status === ReturnStatus.REPLACEMENT_PENDING &&
+        entity.replacementSettlement === 'REFUND' &&
+        !entity.refundRequestId,
+      requiredPermission: RETURN_PERMISSIONS.APPROVE,
+    },
+    {
       action: 'linkReplacement',
-      allowed: status === ReturnStatus.REPLACEMENT_PENDING && !entity.replacementOrderId,
+      allowed:
+        status === ReturnStatus.REPLACEMENT_PENDING &&
+        !entity.replacementOrderId &&
+        replacementSettlementReady(entity),
       requiredPermission: RETURN_PERMISSIONS.STATUS,
     },
     {

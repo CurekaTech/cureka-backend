@@ -25,6 +25,11 @@ import {
   sellableVariantAvailabilitySql,
 } from '../utils/public-variant-availability.util';
 import {
+  isExplicitPublicListSort,
+  joinPopularitySales,
+  sellableVariantPriceSql,
+} from '../utils/public-product-list-sort.util';
+import {
   bindPincodeAvailability,
   pincodeAvailabilityPositionalSql,
   pincodeAvailabilitySql,
@@ -35,10 +40,16 @@ import { buildSkipTake } from '@packages/database';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '../utils/product-category-hierarchies.util';
 import { hasCategoryFilterAllSentinel } from '../utils/category-filter-all.util';
 import {
+  compactColumnContainsSql,
   compactSearchText,
   isGibberishSearchQuery,
   SEARCH_TYPO_SIMILARITY_FLOOR,
+  searchQueryOmitsWordBreaks,
 } from '@modules/search/utils/search-tolerance.util';
+import {
+  buildSearchSqlPlan,
+  normalizeSearchQuery,
+} from '@modules/search/utils/search-query.util';
 
 export interface ProductCategoryFilterCriterion {
   categoryFilterId: string;
@@ -778,8 +789,8 @@ export class ProductsRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const sortOrder = options.sortOrder ?? 'DESC';
 
-    // Page ids with no joins so LIMIT/OFFSET follows in-stock rank, then the
-    // existing sort. Out-of-stock products stay in the result after in-stock ones.
+    // Page ids first so LIMIT/OFFSET follows the sort. Default sorts pin
+    // in-stock products. popularity, price_asc, and price_desc do not.
     const idQb = this.createEligibleProductsQb(options).select('product.id', 'id');
     this.applyPublicListSort(idQb, options.sortBy, sortOrder, options);
     idQb.offset(skip).limit(take);
@@ -839,7 +850,7 @@ export class ProductsRepository {
       .take(take);
 
     this.applyPublicVariantSearchFilters(qb, options);
-    this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder);
+    this.applyPublicVariantSearchSort(qb, options.sortBy, sortOrder, options.search);
     this.applyCategoryFilterCriteria(qb, options.categoryFilterCriteria);
     qb.andWhere(pincodeAvailabilitySql('product', options.pincodeId ?? null));
     bindPincodeAvailability(qb, options.pincodeId ?? null);
@@ -1572,14 +1583,26 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     options: PublicProductListOptions,
   ): void {
-    if (options.search) {
-      qb.andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search OR variant.slug ILIKE :search OR variant.sku ILIKE :search OR EXISTS (
+    if (options.search?.trim()) {
+      const plan = buildSearchSqlPlan(
+        options.search,
+        (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR variant.slug ILIKE ${pattern} ESCAPE '!' OR variant.sku ILIKE ${pattern} ESCAPE '!' OR variant.display_name ILIKE ${pattern} ESCAPE '!' OR EXISTS (
           SELECT 1 FROM variant_attribute_values vav
-          WHERE vav.variant_id = variant.id AND vav.value ILIKE :search
+          WHERE vav.variant_id = variant.id AND vav.value ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM brands search_brand
+          WHERE search_brand.id = product.brand_id AND search_brand.deleted_at IS NULL
+            AND search_brand.name ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM categories search_category
+          WHERE search_category.id IN (product.category_id, product.sub_category_id, product.sub_sub_category_id, product.sub_sub_sub_category_id)
+            AND search_category.deleted_at IS NULL
+            AND search_category.name ILIKE ${pattern} ESCAPE '!'
         ))`,
-        { search: `%${options.search}%` },
+        'publicVariantSearch',
       );
+      qb.andWhere(plan.whereSql, plan.parameters);
+      qb.addSelect(plan.rankSql, 'search_rank');
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -1806,14 +1829,49 @@ export class ProductsRepository {
     sortOrder: 'ASC' | 'DESC',
     options?: Pick<
       PublicProductListOptions,
-      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts' | 'pincodeId'
+      'tagSlug' | 'prioritizeBestsellers' | 'prioritizeTopProducts' | 'pincodeId' | 'search'
     >,
   ): void {
+    if (options?.search?.trim()) {
+      qb.orderBy('search_rank', 'ASC');
+    }
     const bestsellerTagSlug = options?.prioritizeBestsellers
       ? 'bestsellers'
       : sortBy === 'bestsellerIndex'
         ? options?.tagSlug
         : undefined;
+
+    if (isExplicitPublicListSort(sortBy)) {
+      bindPincodeAvailability(qb, options?.pincodeId ?? null);
+      if (sortBy === 'popularity') {
+        joinPopularitySales(qb, 'product.id');
+        if (options?.search?.trim()) {
+          qb.orderBy('search_rank', 'ASC')
+            .addOrderBy('popularity_units', 'DESC')
+            .addOrderBy('popularity_last_sale_at', 'DESC', 'NULLS LAST');
+        }
+        qb.addOrderBy('product.id', 'ASC');
+        return;
+      }
+      const aggregate = sortBy === 'price_asc' ? 'MIN' : 'MAX';
+      const direction = sortBy === 'price_asc' ? 'ASC' : 'DESC';
+      qb.setParameter('publicListPriceVariantStatus', VariantStatus.ACTIVE);
+      qb.addSelect(
+        sellableVariantPriceSql(
+          aggregate,
+          sellableVariantAvailabilitySql('pv'),
+          pincodeAvailabilitySql('product', options?.pincodeId ?? null),
+        ),
+        'list_price',
+      );
+      if (options?.search?.trim()) {
+        qb.addOrderBy('list_price', direction, 'NULLS LAST');
+      } else {
+        qb.orderBy('list_price', direction, 'NULLS LAST');
+      }
+      qb.addOrderBy('product.id', 'ASC');
+      return;
+    }
 
     // Primary availability rank, then the existing sort inside each INS / OOS group.
     qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
@@ -1830,7 +1888,11 @@ export class ProductsRepository {
         ) AND ${bundleDependencyAvailableSql('product')} THEN 0 ELSE 1 END)`,
       'in_stock_rank',
     );
-    qb.orderBy('in_stock_rank', 'ASC');
+    if (options?.search?.trim()) {
+      qb.addOrderBy('in_stock_rank', 'ASC');
+    } else {
+      qb.orderBy('in_stock_rank', 'ASC');
+    }
 
     if (bestsellerTagSlug) {
       qb.setParameter('bestsellerSortTagSlug', bestsellerTagSlug);
@@ -1915,7 +1977,31 @@ export class ProductsRepository {
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
+    search?: string,
   ): void {
+    if (search?.trim()) {
+      qb.orderBy('search_rank', 'ASC');
+    }
+    if (sortBy === 'popularity') {
+      joinPopularitySales(qb, 'product.id');
+      if (search?.trim()) {
+        qb.orderBy('search_rank', 'ASC')
+          .addOrderBy('popularity_units', 'DESC')
+          .addOrderBy('popularity_last_sale_at', 'DESC', 'NULLS LAST');
+      }
+      qb.addOrderBy('variant.id', 'ASC');
+      return;
+    }
+    if (sortBy === 'price_asc' || sortBy === 'price_desc') {
+      if (search?.trim()) {
+        qb.addOrderBy('variant.sellingPrice', sortBy === 'price_asc' ? 'ASC' : 'DESC', 'NULLS LAST');
+      } else {
+        qb.orderBy('variant.sellingPrice', sortBy === 'price_asc' ? 'ASC' : 'DESC', 'NULLS LAST');
+      }
+      qb.addOrderBy('variant.id', 'ASC');
+      return;
+    }
+
     const SORTABLE: Record<string, string> = {
       name: 'product.name',
       publishedAt: 'product.publishedAt',
@@ -1924,7 +2010,11 @@ export class ProductsRepository {
     };
     const sortColumn = (sortBy && SORTABLE[sortBy]) ?? 'product.publishedAt';
     qb.addSelect(publicAvailabilityRankSql('variant', 'product'), 'variant_stock_rank');
-    qb.orderBy('variant_stock_rank', 'ASC');
+    if (search?.trim()) {
+      qb.addOrderBy('variant_stock_rank', 'ASC');
+    } else {
+      qb.orderBy('variant_stock_rank', 'ASC');
+    }
     qb.addOrderBy(sortColumn, sortOrder, 'NULLS LAST');
   }
 
@@ -2223,20 +2313,37 @@ export class ProductsRepository {
     options: PublicProductListOptions,
     omit: PublicFacetOmit[] = [],
   ): void {
-    if (options.search) {
-      qb.andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search OR EXISTS (
+    if (options.search?.trim()) {
+      const plan = buildSearchSqlPlan(
+        options.search,
+        (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR EXISTS (
           SELECT 1 FROM product_variants pv
           WHERE pv.product_id = product.id
             AND pv.deleted_at IS NULL
-            AND (
-              pv.slug ILIKE :search
-              OR pv.sku ILIKE :search
-              OR pv.display_name ILIKE :search
-            )
+            AND (pv.slug ILIKE ${pattern} ESCAPE '!' OR pv.sku ILIKE ${pattern} ESCAPE '!' OR pv.display_name ILIKE ${pattern} ESCAPE '!')
+        ) OR EXISTS (
+          SELECT 1 FROM brands search_brand
+          WHERE search_brand.id = product.brand_id
+            AND search_brand.deleted_at IS NULL
+            AND search_brand.name ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM categories search_category
+          WHERE search_category.id IN (product.category_id, product.sub_category_id, product.sub_sub_category_id, product.sub_sub_sub_category_id)
+            AND search_category.deleted_at IS NULL
+            AND search_category.name ILIKE ${pattern} ESCAPE '!'
+        ) OR EXISTS (
+          SELECT 1 FROM product_category_hierarchies pch
+          INNER JOIN categories search_hierarchy_category ON search_hierarchy_category.id IN (
+            pch.category_id, pch.sub_category_id, pch.sub_sub_category_id, pch.sub_sub_sub_category_id
+          )
+          WHERE pch.product_id = product.id
+            AND search_hierarchy_category.deleted_at IS NULL
+            AND search_hierarchy_category.name ILIKE ${pattern} ESCAPE '!'
         ))`,
-        { search: `%${options.search}%` },
+        'publicListSearch',
       );
+      qb.andWhere(plan.whereSql, plan.parameters);
+      qb.addSelect(plan.rankSql, 'search_rank');
     }
     if (options.productType) {
       qb.andWhere('product.productType = :productType', { productType: options.productType });
@@ -2507,13 +2614,12 @@ export class ProductsRepository {
       .getCount();
   }
 
-  /** All refIds of published products with at least one active variant — used for bulk UC push. */
+  /** All refIds of published products with at least one active variant for BOB catalog sync. */
   async findAllPublishedRefIds(): Promise<string[]> {
     const rows = await this.repo
       .createQueryBuilder('product')
       .select('product.refId', 'refId')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
-      .andWhere('product.publishedAt IS NOT NULL')
       .andWhere(
         `EXISTS (
           SELECT 1 FROM product_variants pv
@@ -2523,7 +2629,33 @@ export class ProductsRepository {
         )`,
         { variantStatus: VariantStatus.ACTIVE },
       )
-      .orderBy('product.publishedAt', 'DESC')
+      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('product.createdAt', 'DESC')
+      .getRawMany<{ refId: string }>();
+
+    return rows.map((row) => row.refId);
+  }
+
+  /**
+   * BOB full catalog. Same published + active-variant rule as category product lists.
+   * Does not require publishedAt. Unicommerce keeps findAllPublishedRefIds.
+   */
+  async findPublishedRefIdsForBobCatalog(): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('product')
+      .select('product.refId', 'refId')
+      .where('product.status = :status', { status: ProductStatus.PUBLISHED })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = product.id
+            AND pv.deleted_at IS NULL
+            AND pv.status = :variantStatus
+        )`,
+        { variantStatus: VariantStatus.ACTIVE },
+      )
+      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('product.refId', 'ASC')
       .getRawMany<{ refId: string }>();
 
     return rows.map((row) => row.refId);
@@ -2687,13 +2819,19 @@ export class ProductsRepository {
     limit: number,
     pincodeId: string | null = null,
   ): Promise<ProductVariantEntity[]> {
-    const term = search.trim();
+    const term = normalizeSearchQuery(search);
     if (!term || limit <= 0) {
       return [];
     }
 
-    const prefixSearch = `${term}%`;
-    const containsSearch = `%${term}%`;
+    const plan = buildSearchSqlPlan(
+      term,
+      (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR variant.slug ILIKE ${pattern} ESCAPE '!' OR variant.sku ILIKE ${pattern} ESCAPE '!' OR variant.display_name ILIKE ${pattern} ESCAPE '!' OR brand.name ILIKE ${pattern} ESCAPE '!' OR category.name ILIKE ${pattern} ESCAPE '!' OR EXISTS (
+        SELECT 1 FROM variant_attribute_values search_attr
+        WHERE search_attr.variant_id = variant.id AND search_attr.value ILIKE ${pattern} ESCAPE '!'
+      ))`,
+      'dropdownSearch',
+    );
 
     const primary = await this.repo.manager
       .getRepository(ProductVariantEntity)
@@ -2709,38 +2847,14 @@ export class ProductsRepository {
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('category.deletedAt IS NULL')
-      .andWhere(
-        `(product.name ILIKE :search OR product.slug ILIKE :search
-          OR variant.slug ILIKE :search OR variant.sku ILIKE :search
-          OR variant.displayName ILIKE :search)`,
-        { search: containsSearch },
-      )
+      .andWhere(plan.whereSql, plan.parameters)
+      .addSelect(plan.rankSql, 'search_rank')
       .addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank')
-      .addSelect(
-        `CASE
-          WHEN variant.sku ILIKE :prefixSearch THEN 0
-          WHEN variant.displayName ILIKE :prefixSearch THEN 1
-          WHEN product.name ILIKE :prefixSearch THEN 2
-          WHEN variant.slug ILIKE :prefixSearch THEN 3
-          WHEN product.slug ILIKE :prefixSearch THEN 4
-          WHEN variant.sku ILIKE :search THEN 5
-          WHEN variant.displayName ILIKE :search THEN 6
-          WHEN product.name ILIKE :search THEN 7
-          WHEN variant.slug ILIKE :search THEN 8
-          WHEN product.slug ILIKE :search THEN 9
-          ELSE 10
-        END`,
-        'search_rank',
-      )
-      .orderBy('availability_rank', 'ASC')
-      .addOrderBy('search_rank', 'ASC')
+      .orderBy('search_rank', 'ASC')
+      .addOrderBy('availability_rank', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .addOrderBy('variant.displayName', 'ASC')
-      .setParameters({
-        prefixSearch,
-        search: containsSearch,
-        ...(pincodeId ? { pincodeAvailabilityId: pincodeId } : {}),
-      })
+      .setParameters(pincodeId ? { pincodeAvailabilityId: pincodeId } : {})
       .take(limit)
       .getMany();
 
@@ -2748,10 +2862,6 @@ export class ProductsRepository {
     return this.findDropdownSuggestionsWithTolerance(term, limit, pincodeId);
   }
 
-  /**
-   * Used only when the existing ILIKE search returned no rows.
-   * Compact match, then pg_trgm typo match, then nearest catalog rows for a real word.
-   */
   private async findPublishedVariantsWithTolerance(
     options: PublicProductListOptions,
   ): Promise<{ data: ProductVariantEntity[]; total: number }> {
@@ -2887,6 +2997,24 @@ export class ProductsRepository {
     qb.orderBy('search_similarity', 'DESC');
     qb.addOrderBy('variant_stock_rank', 'ASC');
     qb.addOrderBy('product.name', 'ASC');
+  }
+
+  /**
+   * "healthetc" also matches "Health etc". Runs with the literal search so one
+   * exact row cannot hide the rest of the spaced catalog.
+   */
+  private withCompactWordBreakMatch(
+    search: string,
+    literalSql: string,
+    expressions: string[],
+  ): { sql: string; params: Record<string, string> } {
+    const params: Record<string, string> = { search: `%${search}%` };
+    if (!searchQueryOmitsWordBreaks(search)) {
+      return { sql: literalSql, params };
+    }
+    params.compactQuery = compactSearchText(search);
+    const compactSql = expressions.map((expression) => compactColumnContainsSql(expression)).join(' OR ');
+    return { sql: `(${literalSql} OR ${compactSql})`, params };
   }
 
   private variantSearchCompactPredicate(brandAlias: string): string {

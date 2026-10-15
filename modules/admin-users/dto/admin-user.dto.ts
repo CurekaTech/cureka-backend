@@ -10,6 +10,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { AdminUserRole } from '../enums/admin-user-role.enum';
 import { UserRole } from '@modules/users/enums/user-role.enum';
@@ -70,4 +71,15 @@ export class UpdateAdminUserDto extends PartialType(
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  @IsOptional()
+  @ValidateIf((_, value) => typeof value === 'string' && value.trim().length > 0)
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
+    message:
+      'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+  })
+  password?: string;
 }

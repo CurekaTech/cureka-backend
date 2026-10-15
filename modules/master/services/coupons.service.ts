@@ -5,19 +5,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditService } from './audit.service';
+import { AuditEntityType } from '../constants/audit-entity-type.constant';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   buildPaginatedResult,
-  buildPaginationOptions,
   generateUniqueRefId,
   PaginatedResult,
-  PaginationQueryDto,
 } from '@packages/common';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { CouponApplicabilityScope } from '../enums/coupon-applicability-scope.enum';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CouponDiscountType } from '../enums/coupon-discount-type.enum';
 import { CreateCouponDto, UpdateCouponDto, UpdateCouponStatusDto } from '../dto/coupon.dto';
+import { MasterListQueryDto } from '../dto/master-list-query.dto';
 import { BrandEntity } from '../entities/brand.entity';
 import { CategoryEntity } from '../entities/category.entity';
 import { CouponEntity } from '../entities/coupon.entity';
@@ -25,6 +26,7 @@ import { ICoupon } from '../interfaces/coupon.interface';
 import { mapCouponEntitiesToResponse, mapCouponEntityToResponse } from '../mappers/coupon.mapper';
 import { CouponApplicabilityRepository } from '../repositories/coupon-applicability.repository';
 import { CouponsRepository } from '../repositories/coupons.repository';
+import { buildMasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
 export class CouponsService {
@@ -38,6 +40,7 @@ export class CouponsService {
     private readonly brandRepo: Repository<BrandEntity>,
     @InjectRepository(ProductEntity)
     private readonly productRepo: Repository<ProductEntity>,
+    private readonly auditService: AuditService,
   ) {}
 
   async create(dto: CreateCouponDto, createdBy: string): Promise<ICoupon> {
@@ -51,13 +54,17 @@ export class CouponsService {
       startDate: dto.startDate,
       expiryDate: dto.expiryDate,
     });
+    const status = dto.status ?? MasterStatus.ACTIVE;
+    if (status === MasterStatus.ACTIVE) {
+      this.assertCouponCanBeActivated(dto.expiryDate);
+    }
     this.validateApplicabilityRefIds(applicabilityScope, dto);
 
     if (await this.couponsRepository.existsByCode(code)) {
       throw new ConflictException(`Coupon code "${code}" already exists`);
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const entity = await this.couponsRepository.create({
         couponType: dto.couponType.trim(),
         title: dto.title.trim(),
@@ -73,7 +80,7 @@ export class CouponsService {
         startDate: dto.startDate,
         expiryDate: dto.expiryDate,
         applicabilityScope,
-        status: dto.status ?? MasterStatus.ACTIVE,
+        status,
         refId: await generateUniqueRefId(dto.title, (refId) =>
           this.couponsRepository.existsByRefId(refId),
         ),
@@ -88,15 +95,19 @@ export class CouponsService {
       }
       return mapCouponEntityToResponse(refreshed);
     });
+    await this.auditCoupon(created, 'created', createdBy, { status: created.status });
+    return created;
   }
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResult<ICoupon>> {
-    const paginationOptions = buildPaginationOptions(query);
+  async findAll(query: MasterListQueryDto): Promise<PaginatedResult<ICoupon>> {
+    await this.couponsRepository.deactivateExpired();
+    const paginationOptions = buildMasterListOptions(query);
     const { data, total } = await this.couponsRepository.findAllPaginated(paginationOptions);
     return buildPaginatedResult(mapCouponEntitiesToResponse(data), total, paginationOptions);
   }
 
   async findOne(refId: string): Promise<ICoupon> {
+    await this.couponsRepository.deactivateExpired();
     const entity = await this.couponsRepository.findByRefId(refId);
     if (!entity) {
       throw new NotFoundException(`Coupon with refId ${refId} not found`);
@@ -128,6 +139,10 @@ export class CouponsService {
       startDate,
       expiryDate,
     });
+    const nextStatus = dto.status ?? existing.status;
+    if (nextStatus === MasterStatus.ACTIVE && dto.status === MasterStatus.ACTIVE) {
+      this.assertCouponCanBeActivated(expiryDate);
+    }
 
     let code: string | undefined;
     if (dto.code !== undefined) {
@@ -182,7 +197,9 @@ export class CouponsService {
       if (!refreshed) {
         throw new NotFoundException(`Coupon with refId ${refId} not found after update`);
       }
-      return mapCouponEntityToResponse(refreshed);
+      const coupon = mapCouponEntityToResponse(refreshed);
+      await this.auditCoupon(coupon, 'updated', updatedBy, { fields: Object.keys(dto) });
+      return coupon;
     });
   }
 
@@ -196,6 +213,10 @@ export class CouponsService {
       throw new NotFoundException(`Coupon with refId ${refId} not found`);
     }
 
+    if (dto.status === MasterStatus.ACTIVE) {
+      this.assertCouponCanBeActivated(existing.expiryDate);
+    }
+
     const updated = await this.couponsRepository.updateByRefId(refId, {
       status: dto.status,
       updatedBy,
@@ -205,7 +226,12 @@ export class CouponsService {
       throw new NotFoundException(`Coupon with refId ${refId} not found after status update`);
     }
 
-    return mapCouponEntityToResponse(updated);
+    const coupon = mapCouponEntityToResponse(updated);
+    await this.auditCoupon(coupon, 'status_changed', updatedBy, {
+      from: existing.status,
+      to: dto.status,
+    });
+    return coupon;
   }
 
   async remove(refId: string): Promise<void> {
@@ -214,10 +240,34 @@ export class CouponsService {
       throw new NotFoundException(`Coupon with refId ${refId} not found`);
     }
     await this.couponsRepository.softDeleteByRefId(refId);
+    await this.auditCoupon(existing, 'deleted');
+  }
+
+  private auditCoupon(
+    entity: { id: string; refId: string; title?: string | null },
+    action: string,
+    performedBy?: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.COUPON,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.title,
+      details,
+    });
   }
 
   private normalizeCode(code: string): string {
     return code.trim().toUpperCase();
+  }
+
+  private assertCouponCanBeActivated(expiryDate: Date, now = new Date()): void {
+    if (expiryDate.getTime() < now.getTime()) {
+      throw new BadRequestException('Coupon is expired');
+    }
   }
 
   private validateCouponPayload(payload: {

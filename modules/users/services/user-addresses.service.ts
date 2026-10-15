@@ -9,6 +9,8 @@ import {
 import { UserAddressEntity } from '../entities/user-address.entity';
 import { IUserAddress } from '../interfaces/user-address.interface';
 import { mapUserAddressEntityToResponse } from '../mappers/user-address.mapper';
+import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { UserAddressesRepository } from '../repositories/user-addresses.repository';
 
 @Injectable()
@@ -16,10 +18,11 @@ export class UserAddressesService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly addressesRepository: UserAddressesRepository,
+    private readonly auditService: AuditService,
   ) {}
 
   async create(userId: string, dto: CreateUserAddressDto): Promise<IUserAddress> {
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const existingCount = await this.addressesRepository.countByUserId(userId, manager);
       const shouldBeDefault = dto.isDefault === true || existingCount === 0;
 
@@ -53,6 +56,8 @@ export class UserAddressesService {
 
       return mapUserAddressEntityToResponse(created);
     });
+    await this.auditAddress(created, 'created', userId, ['addressType', 'isDefault', 'city', 'state', 'pincode']);
+    return created;
   }
 
   async createMany(userId: string, dtos: CreateUserAddressDto[]): Promise<IUserAddress[]> {
@@ -255,7 +260,7 @@ export class UserAddressesService {
   }
 
   async update(userId: string, id: string, dto: UpdateUserAddressDto): Promise<IUserAddress> {
-    return this.dataSource.transaction(async (manager) => {
+    const updated = await this.dataSource.transaction(async (manager) => {
       await this.getOwnedAddressOrThrow(userId, id, manager);
 
       if (dto.isDefault === true) {
@@ -291,26 +296,44 @@ export class UserAddressesService {
 
       return mapUserAddressEntityToResponse(reloaded);
     });
+    await this.auditAddress(updated, 'updated', userId, Object.keys(dto));
+    return updated;
   }
 
   async remove(userId: string, id: string): Promise<void> {
-    await this.dataSource.transaction(async (manager) => {
+    const removed = await this.dataSource.transaction(async (manager) => {
       const existing = await this.getOwnedAddressOrThrow(userId, id, manager);
       await this.addressesRepository.softDeleteById(id, manager);
 
-      if (!existing.isDefault) {
-        return;
+      if (existing.isDefault) {
+        const fallback = await this.addressesRepository.findLatestByUserId(userId, manager);
+        if (fallback) {
+          await this.addressesRepository.updateById(fallback.id, { isDefault: true }, manager);
+        }
       }
+      return mapUserAddressEntityToResponse(existing);
+    });
+    await this.auditAddress(removed, 'deleted', userId);
+  }
 
-      const fallback = await this.addressesRepository.findLatestByUserId(userId, manager);
-      if (fallback) {
-        await this.addressesRepository.updateById(fallback.id, { isDefault: true }, manager);
-      }
+  private auditAddress(
+    address: IUserAddress,
+    action: string,
+    performedBy: string,
+    fields?: string[],
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.USER_ADDRESS,
+      entityId: address.id,
+      entityRefId: address.refId,
+      action,
+      performedBy,
+      details: fields ? { fields } : null,
     });
   }
 
   async setDefault(userId: string, id: string): Promise<IUserAddress> {
-    return this.dataSource.transaction(async (manager) => {
+    const updated = await this.dataSource.transaction(async (manager) => {
       await this.getOwnedAddressOrThrow(userId, id, manager);
       await this.addressesRepository.clearDefaultForUser(userId, id, manager);
       const updated = await this.addressesRepository.updateById(
@@ -323,6 +346,8 @@ export class UserAddressesService {
       }
       return mapUserAddressEntityToResponse(updated);
     });
+    await this.auditAddress(updated, 'updated', userId, ['isDefault']);
+    return updated;
   }
 
   private async getOwnedAddressOrThrow(

@@ -26,20 +26,37 @@ export interface IUserTypeOption {
 }
 
 const USER_TYPE_LABELS: Record<string, string> = {
+  [AdminUserRole.SUPER_ADMIN]: 'Super Admin',
   [AdminUserRole.ADMIN]: 'Admin',
   [AdminUserRole.MODERATOR]: 'Moderator',
   [UserRole.VENDOR]: 'Vendor',
   [UserRole.TELECALLER]: 'Telecaller',
 };
 
-export function getAssignableRoles(creatorAdminRole: AdminUserRole): IAssignableRoles {
+/** Same permission that shows the Audit Logs menu. */
+export const AUDIT_LOGS_ACCESS_PERMISSION = 'audit_logs.read';
+
+export function creatorHasAuditLogsAccess(
+  creatorAdminRole: AdminUserRole,
+  permissionCodes: readonly string[] = [],
+): boolean {
+  if (creatorAdminRole === AdminUserRole.SUPER_ADMIN) return true;
+  return (
+    permissionCodes.includes('*') || permissionCodes.includes(AUDIT_LOGS_ACCESS_PERMISSION)
+  );
+}
+
+export function getAssignableRoles(
+  creatorAdminRole: AdminUserRole,
+  permissionCodes: readonly string[] = [],
+): IAssignableRoles {
   const canManageStaff = [AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN].includes(creatorAdminRole);
+  const canCreateAdminUsers = creatorHasAuditLogsAccess(creatorAdminRole, permissionCodes);
 
   return {
-    adminUserRoles:
-      creatorAdminRole === AdminUserRole.SUPER_ADMIN
-        ? [...SUPER_ADMIN_ASSIGNABLE_ADMIN_ROLES]
-        : [],
+    adminUserRoles: canCreateAdminUsers
+      ? [AdminUserRole.SUPER_ADMIN, ...SUPER_ADMIN_ASSIGNABLE_ADMIN_ROLES]
+      : [],
     staffUserRoles: canManageStaff ? [...ADMIN_PANEL_ASSIGNABLE_STAFF_ROLES] : [],
   };
 }
@@ -64,18 +81,16 @@ export function getUserTypeOptions(creatorAdminRole: AdminUserRole): IUserTypeOp
 export function assertCanAssignAdminUserRole(
   creatorAdminRole: AdminUserRole,
   targetRole: AdminUserRole,
+  permissionCodes: readonly string[] = [],
 ): void {
-  if (creatorAdminRole !== AdminUserRole.SUPER_ADMIN) {
-    throw new ForbiddenException('Only super admins can create admin users');
+  if (!creatorHasAuditLogsAccess(creatorAdminRole, permissionCodes)) {
+    throw new ForbiddenException('Only admins with Audit Logs access can create admin users');
   }
 
-  if (targetRole === AdminUserRole.SUPER_ADMIN) {
-    throw new ForbiddenException('Cannot assign super_admin role via API');
-  }
-
-  if (!SUPER_ADMIN_ASSIGNABLE_ADMIN_ROLES.includes(targetRole)) {
+  const allowed = [AdminUserRole.SUPER_ADMIN, ...SUPER_ADMIN_ASSIGNABLE_ADMIN_ROLES];
+  if (!allowed.includes(targetRole)) {
     throw new ForbiddenException(
-      `Cannot assign admin role "${targetRole}". Allowed: ${SUPER_ADMIN_ASSIGNABLE_ADMIN_ROLES.join(', ')}`,
+      `Cannot assign admin role "${targetRole}". Allowed: ${allowed.join(', ')}`,
     );
   }
 }

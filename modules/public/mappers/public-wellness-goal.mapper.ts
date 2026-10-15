@@ -7,8 +7,11 @@ export const mapWellnessGoalEntityToListingContext = (
 ): IPublicWellnessGoalProductListingContext => ({
   refId: entity.refId,
   name: entity.name,
+  listingHeading: entity.listingHeading ?? null,
   description: entity.description,
   image: entity.image,
+  imageAltText: entity.imageAltText ?? null,
   faqs: mapMasterFaqs(entity.faqs),
   faqBanner: entity.faqBanner,
+  faqBannerAltText: entity.faqBannerAltText ?? null,
 });
