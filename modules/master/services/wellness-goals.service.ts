@@ -3,6 +3,7 @@ import { FastifyRequest } from 'fastify';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { WellnessGoalsRepository } from '../repositories/wellness-goals.repository';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   CreateWellnessGoalDto,
   UpdateWellnessGoalDto,
@@ -96,7 +97,9 @@ export class WellnessGoalsService {
       description: dto.description ?? null,
       listingHeading: normalizeListingHeading(dto.listingHeading),
       image: this.storageUrlEnricher.persist(media.image),
+      imageAltText: storedAltForCreate(dto.imageAltText),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+      faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
       status: dto.status ?? MasterStatus.ACTIVE,
       inHomePage: dto.inHomePage ?? false,
       faqs: normalizeMasterFaqs(dto.faqs),
@@ -161,6 +164,18 @@ export class WellnessGoalsService {
     if (media.faqBanner !== undefined) {
       payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
+    assignStoredAltText(payload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.image,
+      nextFile: payload.image !== undefined ? payload.image : existing.image,
+    });
+    assignStoredAltText(payload, 'faqBannerAltText', {
+      incoming: dto.faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: payload.faqBanner !== undefined ? payload.faqBanner : existing.faqBanner,
+    });
 
     const updated = await this.wellnessGoalsRepository.updateByRefId(refId, payload);
     if (!updated) {

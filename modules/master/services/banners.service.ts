@@ -13,6 +13,7 @@ import {
   CacheStrategyService,
 } from '@packages/cache';
 import { BannerUpdatedEvent, CacheDomainAction, EVENTS } from '@packages/events';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -105,6 +106,7 @@ export class BannersService {
       externalUrl: normalized.externalUrl,
       title: normalized.title,
       imageUrl: this.storageUrlEnricher.persist(imageUrl)!,
+      imageAltText: storedAltForCreate(dto.imageAltText),
       sortOrder: normalized.sortOrder ?? 0,
       status: normalized.status ?? MasterStatus.ACTIVE,
       startsAt: normalized.startsAt,
@@ -187,6 +189,12 @@ export class BannersService {
     if (imageUrl !== undefined) {
       payload.imageUrl = this.storageUrlEnricher.persist(imageUrl)!;
     }
+    assignStoredAltText(payload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.imageUrl,
+      nextFile: payload.imageUrl !== undefined ? payload.imageUrl : existing.imageUrl,
+    });
 
     const result = await this.bannersRepository.updateByRefId(refId, payload);
     if (!result) {

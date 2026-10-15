@@ -31,6 +31,12 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { MasterDeletionGuardService } from './master-deletion-guard.service';
 import { BrandUpdatedEvent, EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
+import {
+  assignStoredAltText,
+  fileStorageKey,
+  mergeJsonImageAlt,
+  storedAltForCreate,
+} from '../utils/image-alt-text.util';
 import { normalizeMasterFaqs } from '../utils/master-faq.util';
 
 const BRAND_UPLOAD_FIELDS = {
@@ -134,14 +140,21 @@ export class BrandsService {
       skuCode,
       slug,
       logo: this.storageUrlEnricher.persist(media.logo),
+      logoAltText: storedAltForCreate(dto.logoAltText),
       banner: this.storageUrlEnricher.persist(media.banner),
+      bannerAltText: storedAltForCreate(dto.bannerAltText),
       video: this.storageUrlEnricher.persist(media.video),
       featuredBanner: this.storageUrlEnricher.persist(media.featuredBanner),
+      featuredBannerAltText: storedAltForCreate(dto.featuredBannerAltText),
       promotionalBanner: this.storageUrlEnricher.persist(media.promotionalBanner),
+      promotionalBannerAltText: storedAltForCreate(dto.promotionalBannerAltText),
       secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
+      secondaryBannerAltText: storedAltForCreate(dto.secondaryBannerAltText),
       secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
       offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
+      offerBannerAltText: storedAltForCreate(dto.offerBannerAltText),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+      faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
       brandHighlights: this.persistBrandHighlights(dto.brandHighlights),
       showBanner: dto.showBanner ?? true,
       showVideo: dto.showVideo ?? true,
@@ -216,7 +229,18 @@ export class BrandsService {
       }
     }
 
-    const { brandHighlights, faqs, ...dtoFields } = dto;
+    const {
+      brandHighlights,
+      faqs,
+      logoAltText,
+      bannerAltText,
+      featuredBannerAltText,
+      promotionalBannerAltText,
+      secondaryBannerAltText,
+      offerBannerAltText,
+      faqBannerAltText,
+      ...dtoFields
+    } = dto;
     const payload: Partial<BrandEntity> = { ...dtoFields, updatedBy };
     if (dto.listingHeading !== undefined) {
       payload.listingHeading = normalizeListingHeading(dto.listingHeading);
@@ -250,8 +274,51 @@ export class BrandsService {
       payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
     if (brandHighlights !== undefined) {
-      payload.brandHighlights = this.persistBrandHighlights(brandHighlights);
+      payload.brandHighlights = this.persistBrandHighlights(brandHighlights, existing.brandHighlights);
     }
+    assignStoredAltText(payload, 'logoAltText', {
+      incoming: logoAltText,
+      previousAlt: existing.logoAltText,
+      previousFile: existing.logo,
+      nextFile: payload.logo !== undefined ? payload.logo : existing.logo,
+    });
+    assignStoredAltText(payload, 'bannerAltText', {
+      incoming: bannerAltText,
+      previousAlt: existing.bannerAltText,
+      previousFile: existing.banner,
+      nextFile: payload.banner !== undefined ? payload.banner : existing.banner,
+    });
+    assignStoredAltText(payload, 'featuredBannerAltText', {
+      incoming: featuredBannerAltText,
+      previousAlt: existing.featuredBannerAltText,
+      previousFile: existing.featuredBanner,
+      nextFile: payload.featuredBanner !== undefined ? payload.featuredBanner : existing.featuredBanner,
+    });
+    assignStoredAltText(payload, 'promotionalBannerAltText', {
+      incoming: promotionalBannerAltText,
+      previousAlt: existing.promotionalBannerAltText,
+      previousFile: existing.promotionalBanner,
+      nextFile:
+        payload.promotionalBanner !== undefined ? payload.promotionalBanner : existing.promotionalBanner,
+    });
+    assignStoredAltText(payload, 'secondaryBannerAltText', {
+      incoming: secondaryBannerAltText,
+      previousAlt: existing.secondaryBannerAltText,
+      previousFile: existing.secondaryBanner,
+      nextFile: payload.secondaryBanner !== undefined ? payload.secondaryBanner : existing.secondaryBanner,
+    });
+    assignStoredAltText(payload, 'offerBannerAltText', {
+      incoming: offerBannerAltText,
+      previousAlt: existing.offerBannerAltText,
+      previousFile: existing.offerBanner,
+      nextFile: payload.offerBanner !== undefined ? payload.offerBanner : existing.offerBanner,
+    });
+    assignStoredAltText(payload, 'faqBannerAltText', {
+      incoming: faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: payload.faqBanner !== undefined ? payload.faqBanner : existing.faqBanner,
+    });
     if (faqs !== undefined) {
       payload.faqs = normalizeMasterFaqs(faqs);
     }
@@ -325,16 +392,29 @@ export class BrandsService {
 
   private persistBrandHighlights(
     highlights: BrandHighlightDto[] | null | undefined,
+    existing?: BrandEntity['brandHighlights'],
   ): BrandEntity['brandHighlights'] {
     if (highlights === undefined) return null;
     if (highlights === null) return null;
-    return highlights.map((item) => ({
-      icon: this.storageUrlEnricher.persist(
+    return highlights.map((item) => {
+      const icon = this.storageUrlEnricher.persist(
         item.icon as string | IStorageFileReference | null | undefined,
-      ),
-      title: String(item.title ?? '').trim(),
-      subtitle: String(item.subtitle ?? '').trim(),
-    }));
+      );
+      const previous = (existing ?? []).find(
+        (row) => fileStorageKey(row.icon) === fileStorageKey(icon),
+      );
+      return {
+        icon,
+        iconAltText: mergeJsonImageAlt({
+          incoming: item.iconAltText,
+          previousAlt: previous?.iconAltText,
+          previousFile: previous?.icon,
+          nextFile: icon,
+        }),
+        title: String(item.title ?? '').trim(),
+        subtitle: String(item.subtitle ?? '').trim(),
+      };
+    });
   }
 
   private async emitBrandUpdated(

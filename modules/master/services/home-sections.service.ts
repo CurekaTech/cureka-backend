@@ -16,6 +16,7 @@ import {
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { rewriteLegacyStorefrontUrl } from '@modules/public/utils/rewrite-legacy-storefront-url';
+import { mergeJsonImageAlt } from '../utils/image-alt-text.util';
 import { HomeSectionUpdatedEvent, EVENTS } from '@packages/events';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { CategoriesRepository } from '../repositories/categories.repository';
@@ -358,7 +359,14 @@ export class HomeSectionsService implements OnModuleInit {
     type: HomeSectionType,
     dto: Pick<
       CreateHomeSectionDto,
-      'linkUrl' | 'linkUrl2' | 'bannerVariant' | 'productRefIds' | 'categoryRefIds'
+      | 'linkUrl'
+      | 'linkUrl2'
+      | 'bannerVariant'
+      | 'productRefIds'
+      | 'categoryRefIds'
+      | 'imageAltText'
+      | 'mobileImageAltText'
+      | 'imageAltText2'
     >,
     uploadedUrls: MultipartUploadedUrls,
     requireComplete: boolean,
@@ -398,7 +406,14 @@ export class HomeSectionsService implements OnModuleInit {
       const banners: HomeSectionBannerItem[] = [
         {
           imageUrl: firstImage,
+          imageAltText: mergeJsonImageAlt({
+            incoming: dto.imageAltText,
+            previousAlt: existingBanners[0]?.imageAltText,
+            previousFile: existingBanners[0]?.imageUrl,
+            nextFile: firstImage,
+          }),
           mobileImageUrl: null,
+          mobileImageAltText: null,
           linkUrl:
             rewriteLegacyStorefrontUrl(dto.linkUrl ?? existingBanners[0]?.linkUrl ?? '#') || '#',
           variant,
@@ -412,7 +427,14 @@ export class HomeSectionsService implements OnModuleInit {
         if (secondImage) {
           banners.push({
             imageUrl: secondImage,
+            imageAltText: mergeJsonImageAlt({
+              incoming: dto.imageAltText2,
+              previousAlt: existingBanners[1]?.imageAltText,
+              previousFile: existingBanners[1]?.imageUrl,
+              nextFile: secondImage,
+            }),
             mobileImageUrl: null,
+            mobileImageAltText: null,
             linkUrl:
               rewriteLegacyStorefrontUrl(
                 dto.linkUrl2 ?? existingBanners[1]?.linkUrl ?? dto.linkUrl ?? '#',
@@ -461,7 +483,7 @@ export class HomeSectionsService implements OnModuleInit {
    * Omit upload on update to keep the existing banner.
    */
   private resolveOptionalSectionBanner(
-    dto: Pick<CreateHomeSectionDto, 'linkUrl'>,
+    dto: Pick<CreateHomeSectionDto, 'linkUrl' | 'imageAltText' | 'mobileImageAltText'>,
     uploadedUrls: MultipartUploadedUrls,
     existing?: HomeSectionEntity,
   ): HomeSectionBannerItem[] | null {
@@ -478,12 +500,25 @@ export class HomeSectionsService implements OnModuleInit {
       return existingBanner ? [existingBanner] : null;
     }
 
+    const mobileImageUrl = this.storageUrlEnricher.persist(
+      mobile ?? existingBanner?.mobileImageUrl,
+    );
     return [
       {
         imageUrl,
-        mobileImageUrl: this.storageUrlEnricher.persist(
-          mobile ?? existingBanner?.mobileImageUrl,
-        ),
+        imageAltText: mergeJsonImageAlt({
+          incoming: dto.imageAltText,
+          previousAlt: existingBanner?.imageAltText,
+          previousFile: existingBanner?.imageUrl,
+          nextFile: imageUrl,
+        }),
+        mobileImageUrl,
+        mobileImageAltText: mergeJsonImageAlt({
+          incoming: dto.mobileImageAltText,
+          previousAlt: existingBanner?.mobileImageAltText,
+          previousFile: existingBanner?.mobileImageUrl,
+          nextFile: mobileImageUrl,
+        }),
         linkUrl:
           rewriteLegacyStorefrontUrl(dto.linkUrl ?? existingBanner?.linkUrl ?? '#') || '#',
       },

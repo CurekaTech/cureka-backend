@@ -21,6 +21,7 @@ export const mapSupportArticle = (entity: SupportArticleEntity) => ({
   categoryRefId: entity.categoryRefId,
   content: entity.content,
   featuredImage: entity.featuredImage,
+  featuredImageAltText: entity.featuredImageAltText ?? null,
   status: entity.status,
   views: entity.views,
   createdAt: entity.createdAt,
@@ -34,6 +35,7 @@ export const mapStorefrontArticle = (entity: SupportArticleEntity) => ({
   categoryRefId: entity.categoryRefId,
   content: entity.content,
   featuredImage: entity.featuredImage,
+  featuredImageAltText: entity.featuredImageAltText ?? null,
   views: entity.views,
   createdAt: entity.createdAt,
 });

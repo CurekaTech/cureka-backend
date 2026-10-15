@@ -1,4 +1,5 @@
 import { CreateProductDto } from '../dto/product.dto';
+import { assignStoredAltText } from '@modules/master/utils/image-alt-text.util';
 import { ProductEntity } from '../entities/product.entity';
 import { normalizeProductInformation, ProductInformationLabelSortOrders, ProductInformationLabelRefIdsByName } from './product-information.util';
 
@@ -20,7 +21,9 @@ type SpecificationFields = Pick<
   | 'metaDescription'
   | 'metaKeywords'
   | 'sizeChart'
+  | 'sizeChartAltText'
   | 'faqBanner'
+  | 'faqBannerAltText'
   | 'externalProductId'
   | 'singleProductUrl'
   | 'packMetadata'
@@ -30,6 +33,7 @@ type SpecificationFields = Pick<
   | 'curatedBy'
   | 'curatedFor'
   | 'bundleIcon'
+  | 'bundleIconAltText'
 >;
 
 export const mapSpecificationFields = (
@@ -74,6 +78,39 @@ export const mapSpecificationFields = (
   ...(dto.curatedFor !== undefined && { curatedFor: dto.curatedFor?.trim() || null }),
   ...(dto.bundleIcon !== undefined && { bundleIcon: dto.bundleIcon ?? null }),
 });
+
+export const applyProductImageAltText = (
+  payload: Partial<ProductEntity>,
+  dto: Partial<SpecificationFields>,
+  existing?: Pick<ProductEntity, 'sizeChart' | 'sizeChartAltText' | 'faqBanner' | 'faqBannerAltText' | 'bundleIcon' | 'bundleIconAltText'>,
+): void => {
+  const previous = existing ?? {
+    sizeChart: null,
+    sizeChartAltText: null,
+    faqBanner: null,
+    faqBannerAltText: null,
+    bundleIcon: null,
+    bundleIconAltText: null,
+  };
+  assignStoredAltText(payload, 'sizeChartAltText', {
+    incoming: dto.sizeChartAltText,
+    previousAlt: previous.sizeChartAltText,
+    previousFile: previous.sizeChart,
+    nextFile: payload.sizeChart !== undefined ? payload.sizeChart : previous.sizeChart,
+  });
+  assignStoredAltText(payload, 'faqBannerAltText', {
+    incoming: dto.faqBannerAltText,
+    previousAlt: previous.faqBannerAltText,
+    previousFile: previous.faqBanner,
+    nextFile: payload.faqBanner !== undefined ? payload.faqBanner : previous.faqBanner,
+  });
+  assignStoredAltText(payload, 'bundleIconAltText', {
+    incoming: dto.bundleIconAltText,
+    previousAlt: previous.bundleIconAltText,
+    previousFile: previous.bundleIcon,
+    nextFile: payload.bundleIcon !== undefined ? payload.bundleIcon : previous.bundleIcon,
+  });
+};
 
 /** Commerce flags / policy fields shared across product + all variants. */
 export type SharedCommerceFields = Pick<

@@ -6,6 +6,7 @@ export interface IPublicWellnessGoalCard {
   name: string;
   description?: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
 }
 
 /** Active wellness goal for public view-all listing. */
@@ -14,6 +15,7 @@ export interface IPublicWellnessGoalListItem {
   name: string;
   description: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
 }
 
 /** Wellness goal metadata when product list is scoped by wellnessGoalRefId. */
@@ -24,7 +26,9 @@ export interface IPublicWellnessGoalProductListingContext {
   listingHeading: string | null;
   description: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   faqs: Array<{ question: string; answer: string; sequence: number }>;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
 }
 

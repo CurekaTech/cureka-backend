@@ -15,6 +15,7 @@ export const mapTestimonialEntityToResponse = (
     rating: Number(entity.rating),
     description: entity.description,
     image: entity.image,
+    imageAltText: entity.imageAltText ?? null,
     sortOrder: entity.sortOrder,
     status: entity.status,
     createdBy: entity.createdBy,
@@ -38,5 +39,6 @@ export const mapTestimonialToStorefrontItem = (
     rating: Number(entity.rating),
     description: entity.description,
     image: entity.image,
+    imageAltText: entity.imageAltText ?? null,
     sortOrder: entity.sortOrder,
   }) as unknown as IStorefrontTestimonial;

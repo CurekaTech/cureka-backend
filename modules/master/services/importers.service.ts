@@ -9,6 +9,7 @@ import {
 } from '@packages/cache';
 import { EVENTS, ImporterUpdatedEvent } from '@packages/events';
 import { ImportersRepository } from '../repositories/importers.repository';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   CreateImporterDto,
   UpdateImporterDto,
@@ -76,6 +77,7 @@ export class ImportersService {
       code: dto.code,
       iec: dto.iec ?? null,
       logo: this.storageUrlEnricher.persist(logo),
+      logoAltText: storedAltForCreate(dto.logoAltText),
       contactPerson: dto.contactPerson ?? null,
       email: dto.email ?? null,
       mobileNumber: dto.mobileNumber ?? null,
@@ -172,6 +174,12 @@ export class ImportersService {
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
     if (logo !== undefined) payload.logo = this.storageUrlEnricher.persist(logo);
+    assignStoredAltText(payload, 'logoAltText', {
+      incoming: dto.logoAltText,
+      previousAlt: existing.logoAltText,
+      previousFile: existing.logo,
+      nextFile: payload.logo !== undefined ? payload.logo : existing.logo,
+    });
 
     const result = await this.importersRepository.updateByRefId(refId, payload);
     if (!result) throw new NotFoundException(`Importer with refId ${refId} not found after update`);

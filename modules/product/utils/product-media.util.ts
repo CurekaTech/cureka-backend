@@ -19,6 +19,7 @@ type ImageMeta = {
   url?: string | IStorageFileReference | { key?: string | null; name?: string; url?: string };
   isPrimary?: boolean;
   sortOrder?: number;
+  altText?: string;
 };
 
 /** Reduce upload keys, `{ key, name }`, or public/signed URLs to a storage key. */
@@ -94,13 +95,14 @@ const mergeImageMetaWithUploads = <T extends ImageMeta>(
 
 const toMediaItem = (
   url: string,
-  options: { variantSku?: string; isPrimary?: boolean; sortOrder?: number },
+  options: { variantSku?: string; isPrimary?: boolean; sortOrder?: number; altText?: string },
 ): CreateProductMediaDto => ({
   type: ProductMediaType.IMAGE,
   url,
   variantSku: options.variantSku,
   isPrimary: options.isPrimary ?? false,
   sortOrder: options.sortOrder ?? 0,
+  ...(options.altText !== undefined ? { altText: options.altText } : {}),
 });
 
 /** Ensure one primary per scope (product-level or per variantSku). */
@@ -170,6 +172,7 @@ const variantImagesToMedia = (variant: CreateVariantDto): CreateProductMediaDto[
           variantSku: variant.sku,
           isPrimary: image.isPrimary,
           sortOrder: image.sortOrder ?? index,
+          altText: image.altText,
         });
       });
   }
@@ -190,6 +193,7 @@ const toVariantImagesFromMerged = (
     url: item.url,
     sortOrder: item.sortOrder,
     isPrimary: item.isPrimary,
+    ...(item.altText !== undefined ? { altText: item.altText } : {}),
   }));
 
 /**
@@ -217,6 +221,9 @@ export const mergeUploadedProductMedia = (
       sortOrder: item.sortOrder ?? index,
       isPrimary: item.isPrimary ?? index === 0,
       variantSku: (item as CreateProductMediaDto).variantSku,
+      ...((item as CreateProductMediaDto).altText !== undefined
+        ? { altText: (item as CreateProductMediaDto).altText }
+        : {}),
     }));
   }
 

@@ -109,6 +109,12 @@ export class CreateSupportArticleDto {
   @IsOptional()
   @IsEnum(SupportContentStatus)
   status?: SupportContentStatus;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  featuredImageAltText?: string;
 }
 
 export class UpdateSupportArticleDto extends PartialType(CreateSupportArticleDto) {}

@@ -14,6 +14,7 @@ import {
 import { MultipartFormService } from '@modules/uploads/services/multipart-form.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   BlogCategoryQueryDto,
   CreateBlogCategoryDto,
@@ -85,6 +86,7 @@ export class BlogCategoriesService {
       slug: dto.slug,
       description: dto.description ?? null,
       icon: this.storageUrlEnricher.persist(media.icon),
+      iconAltText: storedAltForCreate(dto.iconAltText),
       sortOrder: dto.sortOrder ?? 0,
       status: dto.status ?? BlogCategoryStatus.ACTIVE,
       createdBy: actor,
@@ -150,7 +152,7 @@ export class BlogCategoriesService {
       }
     }
 
-    const { removeIcon, ...dtoPatch } = dto;
+    const { removeIcon, iconAltText, ...dtoPatch } = dto;
     const shouldClearIcon = removeIcon === true && media.icon === undefined;
 
     const patch: Partial<BlogCategoryEntity> = {
@@ -163,6 +165,12 @@ export class BlogCategoriesService {
     } else if (shouldClearIcon) {
       patch.icon = null;
     }
+    assignStoredAltText(patch, 'iconAltText', {
+      incoming: iconAltText,
+      previousAlt: existing.iconAltText,
+      previousFile: existing.icon,
+      nextFile: patch.icon !== undefined ? patch.icon : existing.icon,
+    });
 
     const updated = await this.categoriesRepo.updateByRefId(refId, patch);
 

@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { mergeJsonImageAlt } from '@modules/master/utils/image-alt-text.util';
 import { IStorageFileReference } from '@packages/storage';
 import { REF_ID_PATTERN } from '@packages/common';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
@@ -22,6 +23,8 @@ export interface NormalizeSectionsOptions {
   pageEndAt?: Date | null;
   /** User-submitted sections must include both dates. Stored rows may still be null. */
   requireSectionDates?: boolean;
+  /** Previous configs aligned by section index, used to keep omitted alt text. */
+  previousConfigs?: Array<PromotionalSectionConfig | null | undefined>;
 }
 
 export const isStrictPromotionalStatus = (status: PromotionalPageStatus): boolean =>
@@ -30,8 +33,11 @@ export const isStrictPromotionalStatus = (status: PromotionalPageStatus): boolea
 export interface PromotionalSectionConfig {
   heading?: string | null;
   desktopImage?: IStorageFileReference | null;
+  desktopImageAltText?: string | null;
   mobileImage?: IStorageFileReference | null;
+  mobileImageAltText?: string | null;
   thumbnail?: IStorageFileReference | null;
+  thumbnailAltText?: string | null;
   ctaText?: string | null;
   ctaUrl?: string | null;
   selectionMode?: 'manual' | 'brand' | 'category';
@@ -478,12 +484,28 @@ const applyLayout = (
   config.layout = provided ? source.layout : 'carousel';
 };
 
+const applyImageAlt = (
+  config: PromotionalSectionConfig,
+  source: PromotionalSectionConfig,
+  previous: PromotionalSectionConfig | null | undefined,
+  imageKey: 'desktopImage' | 'mobileImage' | 'thumbnail',
+  altKey: 'desktopImageAltText' | 'mobileImageAltText' | 'thumbnailAltText',
+): void => {
+  config[altKey] = mergeJsonImageAlt({
+    incoming: source[altKey],
+    previousAlt: previous?.[altKey],
+    previousFile: previous?.[imageKey],
+    nextFile: config[imageKey],
+  });
+};
+
 const normalizeConfig = (
   type: PromotionalSectionType,
   raw: PromotionalSectionConfig | null | undefined,
   label: string,
   errors: string[],
   strict: boolean,
+  previous?: PromotionalSectionConfig | null,
 ): PromotionalSectionConfig => {
   const source = raw ?? {};
   const config: PromotionalSectionConfig = {};
@@ -521,6 +543,8 @@ const normalizeConfig = (
     if (strict && !mobileProvided) {
       errors.push(`${label} mobile image is required`);
     }
+    applyImageAlt(config, source, previous, 'desktopImage', 'desktopImageAltText');
+    applyImageAlt(config, source, previous, 'mobileImage', 'mobileImageAltText');
   }
 
   if (type === PromotionalSectionType.PRODUCT_COLLECTION) {
@@ -573,6 +597,7 @@ const normalizeConfig = (
       errors.push(`${label} video URL is required`);
     }
     config.thumbnail = capture(errors, () => storageRef(source.thumbnail, `${label} thumbnail`), null);
+    applyImageAlt(config, source, previous, 'thumbnail', 'thumbnailAltText');
   }
 
   if (type === PromotionalSectionType.BLOG) {
@@ -691,7 +716,14 @@ export const normalizeSections = (
       errors.push(`${label} start date must be before or equal to section end date.`);
     }
     assertSectionInsidePage(errors, startAt, endAt, label, options.pageStartAt, options.pageEndAt);
-    const config = normalizeConfig(input.type, input.config, label, errors, strict);
+    const config = normalizeConfig(
+      input.type,
+      input.config,
+      label,
+      errors,
+      strict,
+      options.previousConfigs?.[index],
+    );
     const section: NormalizedSection = {
       type: input.type,
       title: capture(errors, () => optionalText(input.title, `${label} title`, SECTION_TITLE_MAX), null),

@@ -45,6 +45,11 @@ export class CreateTestimonialDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
 }
 
 export class UpdateTestimonialDto extends PartialType(CreateTestimonialDto) {}

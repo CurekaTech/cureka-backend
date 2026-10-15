@@ -8,7 +8,9 @@ export type HomeSectionBannerVariant = 'festive' | 'brand';
 
 export type HomeSectionBannerItem = {
   imageUrl: IStorageFileReference | null;
+  imageAltText?: string | null;
   mobileImageUrl: IStorageFileReference | null;
+  mobileImageAltText?: string | null;
   linkUrl: string;
   /** Storefront layout: full-width festive vs side-by-side brand. */
   variant?: HomeSectionBannerVariant;

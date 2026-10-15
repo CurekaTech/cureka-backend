@@ -435,6 +435,18 @@ export class CreateProductDto {
   @Type(() => ProductFileReferenceDto)
   faqBanner?: ProductFileReferenceDto | null;
 
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  sizeChartAltText?: string;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -525,6 +537,12 @@ export class CreateProductDto {
   @ValidateNested()
   @Type(() => ProductFileReferenceDto)
   bundleIcon?: ProductFileReferenceDto | null;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  bundleIconAltText?: string;
 
   @ApiPropertyOptional({
     example: 1999,

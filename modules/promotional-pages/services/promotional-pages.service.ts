@@ -170,7 +170,12 @@ export class PromotionalPagesService {
         : current.status;
     const sectionOptions = this.sectionOptions(status, startAt, endAt);
     const sections =
-      dto.sections !== undefined ? normalizeSections(dto.sections, sectionOptions) : null;
+      dto.sections !== undefined
+        ? normalizeSections(dto.sections, {
+            ...sectionOptions,
+            previousConfigs: this.sectionsFromEntity(current).map((section) => section.config),
+          })
+        : null;
     const targets = dto.targets !== undefined ? normalizeTargets(dto.targets) : null;
     const scheduleChanged = dto.startAt !== undefined || dto.endAt !== undefined;
     if (sections === null && (scheduleChanged || sectionOptions.mode === 'publish')) {
@@ -241,10 +246,10 @@ export class PromotionalPagesService {
   ): Promise<IAdminPromotionalPage> {
     const current = await this.requireByRefId(refId);
     this.assertCampaignDates(current.startAt, current.endAt);
-    const sections = normalizeSections(
-      dto.sections,
-      this.sectionOptions(current.status, current.startAt, current.endAt),
-    );
+    const sections = normalizeSections(dto.sections, {
+      ...this.sectionOptions(current.status, current.startAt, current.endAt),
+      previousConfigs: this.sectionsFromEntity(current).map((section) => section.config),
+    });
     const targets = this.targetsFromEntity(current);
     await this.references.assertCatalogRefs(collectCatalogRefs(sections, [], null));
     await this.pagesRepository.replaceChildren(current.id, sections, targets);

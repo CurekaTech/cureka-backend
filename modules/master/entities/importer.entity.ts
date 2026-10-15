@@ -19,6 +19,9 @@ export class ImporterEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   logo!: IStorageFileReference | null;
 
+  @Column({ name: 'logo_alt_text', type: 'varchar', length: 250, nullable: true })
+  logoAltText!: string | null;
+
   @Column({ name: 'contact_person', type: 'varchar', length: 255, nullable: true })
   contactPerson!: string | null;
 

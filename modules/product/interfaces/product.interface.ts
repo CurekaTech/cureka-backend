@@ -20,6 +20,7 @@ export interface IProductVariantImage {
   url: IStorageFileReferenceResponse | null;
   sortOrder: number;
   isPrimary: boolean;
+  altText: string | null;
 }
 
 export interface IProductVariant {
@@ -107,6 +108,7 @@ export interface IProductMedia {
   sortOrder: number;
   isPrimary: boolean;
   variantId: string | null;
+  altText: string | null;
 }
 
 export interface IProductBundleItemVariant {
@@ -223,10 +225,13 @@ export interface IProduct {
   metaDescription: string | null;
   metaKeywords: string[] | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  sizeChartAltText: string | null;
   /** Signed FAQ banner, or null when the product has none. No CMS fallback. */
   faqBanner: IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   /** Bundle-only icon. Null for non-bundle products. */
   bundleIcon: IStorageFileReferenceResponse | null;
+  bundleIconAltText: string | null;
   publishedAt: Date | null;
   /** Bundle-only: curated by (e.g. doctor names). Null for non-bundle products. */
   curatedBy: string | null;

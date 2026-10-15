@@ -397,16 +397,21 @@ const dedupeMediaByStorageKey = <T extends { url?: IStorageFileReference | strin
   );
 };
 
-const getPrimaryImageUrl = (entity: ProductEntity): IStorageFileReference | null => {
+const getPrimaryImage = (entity: ProductEntity) => {
   const media = dedupeMediaByStorageKey(
     (entity.media ?? []).filter(
       (item) =>
         item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON,
     ),
   );
-  const primary = media.find((item) => item.isPrimary) ?? media[0];
-  return primary?.url ?? null;
+  return media.find((item) => item.isPrimary) ?? media[0];
 };
+
+const getPrimaryImageUrl = (entity: ProductEntity): IStorageFileReference | null =>
+  getPrimaryImage(entity)?.url ?? null;
+
+const getPrimaryImageAltText = (entity: ProductEntity): string | null =>
+  getPrimaryImage(entity)?.altText ?? null;
 
 const mapCategorySummary = (category: CategoryEntity | null | undefined): IPublicCategorySummary | null => {
   if (!category) return null;
@@ -426,6 +431,7 @@ const mapManufacturerToPublic = (
     name: entity.name,
     code: entity.code,
     logo: entity.logo ?? null,
+    logoAltText: entity.logoAltText ?? null,
     description: entity.description,
     contactPerson: entity.contactPerson,
     email: entity.email,
@@ -443,6 +449,7 @@ const mapPackerToPublic = (entity: PackerEntity | null | undefined): IPublicPack
     name: entity.name,
     code: entity.code,
     logo: entity.logo ?? null,
+    logoAltText: entity.logoAltText ?? null,
     description: entity.description,
     contactPerson: entity.contactPerson,
     email: entity.email,
@@ -464,6 +471,7 @@ const mapImporterToPublic = (
     code: entity.code,
     iec: entity.iec,
     logo: entity.logo ?? null,
+    logoAltText: entity.logoAltText ?? null,
     contactPerson: entity.contactPerson,
     email: entity.email,
     mobileNumber: entity.mobileNumber,
@@ -473,10 +481,7 @@ const mapImporterToPublic = (
   };
 };
 
-const getVariantPrimaryImageUrl = (
-  product: ProductEntity,
-  variantId: string,
-): IStorageFileReference | null => {
+const getVariantPrimaryImage = (product: ProductEntity, variantId: string) => {
   const media = product.media ?? [];
   const variantMedia = media.filter(
     (item) => item.variantId === variantId && item.type !== ProductMediaType.COMMON,
@@ -484,7 +489,7 @@ const getVariantPrimaryImageUrl = (
   const variantPrimary =
     variantMedia.find((item) => item.isPrimary) ?? variantMedia[0];
   if (variantPrimary?.url) {
-    return variantPrimary.url;
+    return variantPrimary;
   }
 
   const productMedia = media.filter(
@@ -492,10 +497,16 @@ const getVariantPrimaryImageUrl = (
       !item.variantId &&
       (item.type === ProductMediaType.IMAGE || item.type === ProductMediaType.COMMON),
   );
-  const productPrimary =
-    productMedia.find((item) => item.isPrimary) ?? productMedia[0] ?? media[0];
-  return productPrimary?.url ?? null;
+  return productMedia.find((item) => item.isPrimary) ?? productMedia[0] ?? media[0];
 };
+
+const getVariantPrimaryImageUrl = (
+  product: ProductEntity,
+  variantId: string,
+): IStorageFileReference | null => getVariantPrimaryImage(product, variantId)?.url ?? null;
+
+const getVariantPrimaryImageAltText = (product: ProductEntity, variantId: string): string | null =>
+  getVariantPrimaryImage(product, variantId)?.altText ?? null;
 
 const mapPublicMediaItem = (
   item: NonNullable<ProductEntity['media']>[number],
@@ -507,6 +518,7 @@ const mapPublicMediaItem = (
     sortOrder: item.sortOrder,
     isPrimary: item.isPrimary,
     variantId: item.variantId,
+    altText: item.altText ?? null,
   }) as IPublicProductMedia;
 
 const getCommonPublicMedia = (entity: ProductEntity): IPublicProductMedia[] =>
@@ -556,6 +568,7 @@ export const mapVariantEntityToPublicSearchItem = (
     variantSlug: variant.slug,
     productPageUrl: sanitizePublicProductPageUrl(variant.productPageUrl),
     primaryImageUrl: getVariantPrimaryImageUrl(product, variant.id),
+    primaryImageAltText: getVariantPrimaryImageAltText(product, variant.id),
     category: mapCategorySummary(product.category),
     subCategory: mapCategorySummary(product.subCategory),
     subSubCategory: mapCategorySummary(product.subSubCategory),
@@ -633,6 +646,9 @@ export const mapProductEntityToPublicCard = (entity: ProductEntity): IPublicProd
   primaryImageUrl: listVariant
     ? getVariantPrimaryImageUrl(entity, listVariant.id)
     : getPrimaryImageUrl(entity),
+  primaryImageAltText: listVariant
+    ? getVariantPrimaryImageAltText(entity, listVariant.id)
+    : getPrimaryImageAltText(entity),
   pricing: {
     ...listPricing,
     inStock: !outOfStock && listPricing.inStock,
@@ -673,6 +689,7 @@ export const toPublicStorefrontProductCard = (
   variantId: card.variantId,
   sku: card.sku,
   primaryImageUrl: card.primaryImageUrl,
+  primaryImageAltText: card.primaryImageAltText,
   pricing: card.pricing,
   outOfStock: card.outOfStock,
   isBestSeller: card.isBestSeller,
@@ -772,6 +789,7 @@ export const toPublicStorefrontProductDetail = (
   metaTitle: detail.metaTitle,
   metaDescription: detail.metaDescription,
   sizeChart: detail.sizeChart,
+  sizeChartAltText: detail.sizeChartAltText ?? null,
   pricing: detail.pricing,
   isFreeDelivery: detail.isFreeDelivery,
   codMinOrderAmount: detail.codMinOrderAmount,
@@ -784,6 +802,7 @@ export const toPublicStorefrontProductDetail = (
     refId: banner.refId,
     title: banner.title,
     imageUrl: banner.imageUrl,
+    imageAltText: banner.imageAltText ?? null,
     ctaHref: banner.ctaHref,
   })),
 });
@@ -858,7 +877,9 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   metaKeywords: entity.metaKeywords,
   publishedAt: entity.publishedAt,
   sizeChart: entity.sizeChart,
+  sizeChartAltText: entity.sizeChartAltText ?? null,
   faqBanner: entity.faqBanner ?? null,
+  faqBannerAltText: entity.faqBannerAltText ?? null,
   pricing: buildPriceSummary(entity),
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
@@ -922,6 +943,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
     refId: mapping.wellnessGoal?.refId ?? '',
     name: mapping.wellnessGoal?.name ?? '',
     image: mapping.wellnessGoal?.image ?? null,
+    imageAltText: mapping.wellnessGoal?.imageAltText ?? null,
   })),
   categoryFilters: mapCategoryFilters(entity),
   tags: (entity.tagMappings ?? []).map((mapping) => ({
@@ -980,6 +1002,9 @@ export const applySelectedVariantDetailToPublicProduct = (
     metaDescription: selectedVariant.metaDescription ?? detail.metaDescription,
     metaKeywords: selectedVariant.metaKeywords ?? detail.metaKeywords,
     sizeChart: selectedVariant.sizeChart ?? detail.sizeChart,
+    sizeChartAltText: selectedVariant.sizeChart
+      ? (selectedVariant.sizeChartAltText ?? null)
+      : detail.sizeChartAltText,
     manufacturerRefId: selectedVariant.manufacturerRefId ?? detail.manufacturerRefId,
     manufacturerName: selectedVariant.manufacturerName ?? detail.manufacturerName,
     manufacturerAddress: selectedVariant.manufacturerAddress ?? detail.manufacturerAddress,

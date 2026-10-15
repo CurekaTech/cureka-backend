@@ -8,6 +8,7 @@ export interface IImporter {
   code: string;
   iec: string | null;
   logo: IStorageFileReferenceResponse | null;
+  logoAltText: string | null;
   contactPerson: string | null;
   email: string | null;
   mobileNumber: string | null;

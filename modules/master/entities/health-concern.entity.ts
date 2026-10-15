@@ -12,6 +12,9 @@ export class HealthConcernEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   icon!: IStorageFileReference | null;
 
+  @Column({ name: 'icon_alt_text', type: 'varchar', length: 250, nullable: true })
+  iconAltText!: string | null;
+
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 300 })
   slug!: string;
@@ -59,8 +62,14 @@ export class HealthConcernEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
 
+  @Column({ name: 'banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  bannerAltText!: string | null;
+
   @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
   faqBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'faq_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  faqBannerAltText!: string | null;
 
   @Index()
   @Column({

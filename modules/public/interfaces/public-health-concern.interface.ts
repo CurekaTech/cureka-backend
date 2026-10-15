@@ -12,6 +12,7 @@ export interface IPublicHealthConcernCard {
   slug: string;
   description: string | null;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  iconAltText: string | null;
 }
 
 /**
@@ -23,7 +24,9 @@ export interface IPublicHomePageHealthConcern {
   name: string;
   slug: string;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  iconAltText: string | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   description: string | null;
   /** Homepage display order. Lower = first; null = unordered (sorted after indexed items). */
   sortIndex: number | null;
@@ -46,7 +49,9 @@ export interface IPublicHealthConcernProductListingContext {
   slug: string;
   description: string | null;
   icon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  iconAltText: string | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
   medicalConditionName: string | null;
@@ -58,4 +63,5 @@ export interface IPublicHealthConcernProductListingContext {
   lastReviewed: string | null;
   faqs: Array<{ question: string; answer: string; sequence: number }>;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
 }

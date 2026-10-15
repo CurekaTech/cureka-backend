@@ -1,3 +1,4 @@
+import { assignStoredAltText } from '@modules/master/utils/image-alt-text.util';
 import { CreateVariantDto } from '../dto/variant.dto';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { normalizeVariantInlineFaqs } from '@modules/master/utils/master-faq.util';
@@ -30,6 +31,8 @@ export const mapVariantDetailDtoToEntityColumns = (
   options?: {
     labelSortOrders?: ProductInformationLabelSortOrders;
     labelRefIdsByName?: ProductInformationLabelRefIdsByName;
+    existingSizeChart?: ProductVariantEntity['sizeChart'];
+    existingSizeChartAltText?: string | null;
   },
 ): Partial<ProductVariantEntity> => {
   const normalizedProductInformation =
@@ -74,6 +77,18 @@ export const mapVariantDetailDtoToEntityColumns = (
     ...(dto.importerAddress !== undefined && { importerAddress: dto.importerAddress ?? null }),
     ...(dto.expiresInMonths !== undefined && { expiresInMonths: dto.expiresInMonths ?? null }),
     ...(dto.sizeChart !== undefined && { sizeChart: dto.sizeChart ?? null }),
+    ...(() => {
+      const partial: Partial<ProductVariantEntity> = {};
+      assignStoredAltText(partial, 'sizeChartAltText', {
+        incoming: dto.sizeChartAltText,
+        previousAlt: options?.existingSizeChartAltText,
+        previousFile: options?.existingSizeChart ?? null,
+        nextFile: dto.sizeChart !== undefined ? dto.sizeChart : options?.existingSizeChart ?? null,
+      });
+      return partial.sizeChartAltText !== undefined
+        ? { sizeChartAltText: partial.sizeChartAltText }
+        : {};
+    })(),
     ...(dto.singleProductUrl !== undefined && { singleProductUrl: dto.singleProductUrl ?? null }),
     ...(dto.productPageUrl !== undefined && { productPageUrl: dto.productPageUrl ?? null }),
     ...(dto.healthConcernRefIds !== undefined && {

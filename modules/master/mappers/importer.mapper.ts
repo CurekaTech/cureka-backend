@@ -9,6 +9,7 @@ export const mapImporterEntityToResponse = (entity: ImporterEntity): IImporter =
   code: entity.code,
   iec: entity.iec,
   logo: entity.logo,
+  logoAltText: entity.logoAltText ?? null,
   contactPerson: entity.contactPerson,
   email: entity.email,
   mobileNumber: entity.mobileNumber,

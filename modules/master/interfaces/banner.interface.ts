@@ -14,6 +14,7 @@ export interface IBanner {
   externalUrl: string | null;
   title: string;
   imageUrl: IStorageFileReferenceResponse;
+  imageAltText: string | null;
   sortOrder: number;
   status: MasterStatus;
   startsAt: Date | null;
@@ -29,6 +30,7 @@ export interface IStorefrontBannerItem {
   refId: string;
   title: string;
   imageUrl: IStorageFileReference | IStorageFileReferenceResponse;
+  imageAltText: string | null;
   ctaHref: string | null;
 }
 

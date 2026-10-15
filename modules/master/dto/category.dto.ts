@@ -117,6 +117,21 @@ export class CreateCategoryDto {
   @IsEnum(MasterStatus)
   status?: MasterStatus;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  bannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
+
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()
   @Transform(parseMasterFaqArray)

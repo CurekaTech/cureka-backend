@@ -8,6 +8,7 @@ export interface IPublicBrandListItem {
   name: string;
   slug: string;
   logo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  logoAltText: string | null;
 }
 
 export interface IPublicCategoryListItem {
@@ -22,8 +23,11 @@ export interface IPublicCategoryListItem {
   hierarchyLevel: CategoryHierarchyLevel;
   parentCategoryRefId: string | null;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   children?: IPublicCategoryListItem[];
 }
 

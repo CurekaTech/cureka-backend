@@ -237,6 +237,65 @@ describe('promotional section validation', () => {
     );
   });
 
+  it('keeps omitted image alt text and unrelated config when the file key is unchanged', () => {
+    const [section] = normalizeSections(
+      [
+        {
+          type: PromotionalSectionType.HERO_BANNER,
+          config: {
+            desktopImage: image('banners/desktop.png'),
+            mobileImage: image('banners/mobile.png'),
+            ctaText: 'Shop now',
+            ctaUrl: '/shop',
+          },
+        },
+      ],
+      {
+        previousConfigs: [
+          {
+            desktopImage: image('banners/desktop.png'),
+            desktopImageAltText: 'Summer sale',
+            mobileImage: image('banners/mobile.png'),
+            mobileImageAltText: 'Summer sale mobile',
+            ctaText: 'Old',
+          },
+        ],
+      },
+    );
+
+    expect(section?.config.desktopImageAltText).toBe('Summer sale');
+    expect(section?.config.mobileImageAltText).toBe('Summer sale mobile');
+    expect(section?.config.ctaText).toBe('Shop now');
+    expect(section?.config.ctaUrl).toBe('/shop');
+  });
+
+  it('clears image alt text when the file key changes and alt text is omitted', () => {
+    const [section] = normalizeSections(
+      [
+        {
+          type: PromotionalSectionType.HERO_BANNER,
+          config: {
+            desktopImage: image('banners/new-desktop.png'),
+            mobileImage: image('banners/mobile.png'),
+          },
+        },
+      ],
+      {
+        previousConfigs: [
+          {
+            desktopImage: image('banners/desktop.png'),
+            desktopImageAltText: 'Summer sale',
+            mobileImage: image('banners/mobile.png'),
+            mobileImageAltText: '',
+          },
+        ],
+      },
+    );
+
+    expect(section?.config.desktopImageAltText).toBeNull();
+    expect(section?.config.mobileImageAltText).toBe('');
+  });
+
   it('requires CTA text and URL together only when publishing', () => {
     expect(
       normalizeSections([

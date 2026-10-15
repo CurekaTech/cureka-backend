@@ -752,7 +752,7 @@ export class ProductVariantsRepository {
           searchTags: normalizeSearchTags(dto.searchTags),
           slug,
           combinationKey,
-          ...(await this.mapVariantDetailColumns(manager, dto)),
+          ...(await this.mapVariantDetailColumns(manager, dto, existing)),
         },
       );
     } catch (error) {
@@ -1590,9 +1590,13 @@ export class ProductVariantsRepository {
   private async mapVariantDetailColumns(
     manager: EntityManager,
     dto: CreateVariantDto,
+    existing?: Pick<ProductVariantEntity, 'sizeChart' | 'sizeChartAltText'>,
   ): Promise<Partial<ProductVariantEntity>> {
     const masterIds = await this.resolveVariantMasterIds(manager, dto);
-    return mapVariantDetailDtoToEntityColumns(dto, masterIds);
+    return mapVariantDetailDtoToEntityColumns(dto, masterIds, {
+      existingSizeChart: existing?.sizeChart,
+      existingSizeChartAltText: existing?.sizeChartAltText,
+    });
   }
 
   private async resolveVariantMasterIds(
