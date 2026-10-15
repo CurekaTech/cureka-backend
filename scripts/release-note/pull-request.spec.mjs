@@ -212,11 +212,45 @@ describe('development pull request release notes', () => {
     expect(result.generated).toBe(true);
     expect(result.email.sent).toBe(false);
     expect(result.email.missing).toEqual(expect.arrayContaining([
-      'RELEASE_NOTE_EMAIL_ENABLED',
-      'SMTP_HOST',
-      'SMTP_PASS',
+      'RELEASE_EMAIL_HOST',
+      'RELEASE_EMAIL_PASSWORD',
+      'RELEASE_EMAIL_TO',
     ]));
     expect(sends).toBe(0);
+  });
+
+  it('sends when the GitHub Actions release email settings are present', async () => {
+    const calls = [];
+    const transport = { sendMail: async (payload) => calls.push(payload) };
+    const docx = path.join(recordDir, 'release-note.docx');
+    fs.writeFileSync(docx, 'playbook');
+    const result = await runMergedPullRequest({
+      event: event(),
+      checkout: CHECKOUT,
+      repoRoot: REPO_ROOT,
+      range: { baselineSha: PARENT, targetSha: MERGE, strategy: 'squash' },
+      repository: 'Budventure-Technologies-Pvt-Ltd/Cureka-backend',
+      sentRecordPath: path.join(recordDir, 'github-settings.json'),
+      env: {
+        RELEASE_EMAIL_HOST: 'smtp.gmail.com',
+        RELEASE_EMAIL_PORT: '587',
+        RELEASE_EMAIL_USER: 'notes@example.com',
+        RELEASE_EMAIL_FROM: 'notes@example.com',
+        RELEASE_EMAIL_TO: 'reviewer@example.com',
+        RELEASE_EMAIL_PASSWORD: 'app-password',
+      },
+      transport,
+      now: '2026-10-12T12:00:00.000Z',
+      build: async () => ({
+        files: { directory: recordDir, docx, manifest: docx, businessSummary: docx },
+        manifest: { risk: { level: 'LOW' }, businessSummary: { introduction: 'Review only.' } },
+        email: 'Review only.',
+      }),
+    });
+    expect(result.email.sent).toBe(true);
+    expect(calls[0].from).toBe('notes@example.com');
+    expect(calls[0].to).toEqual(['reviewer@example.com']);
+    expect(JSON.stringify(calls[0])).not.toContain('app-password');
   });
 
   it('attaches the playbook and does not send a second time for the same merge', async () => {

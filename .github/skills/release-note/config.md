@@ -48,20 +48,7 @@ Template placeholders: `subject`, `introduction`, `releaseWindow`, `customerImpa
 
 ## Development notification email
 
-The workflow does not read addresses or passwords from source files. Set these in the repository under Settings → Secrets and variables → Actions. Leave `RELEASE_NOTE_EMAIL_ENABLED` unset until the sender, recipients, and SMTP credentials are confirmed.
-
-| Kind | Name | Purpose |
-| --- | --- | --- |
-| Variable | `RELEASE_NOTE_EMAIL_ENABLED` | Must be the string `true` before any email is sent. |
-| Variable | `RELEASE_NOTE_EMAIL_TO` | Comma-separated recipient addresses. |
-| Variable | `SMTP_FROM` | Sender address. |
-| Secret | `SMTP_HOST` | SMTP server hostname. |
-| Secret | `SMTP_PORT` | SMTP port. `587` is used when this secret is empty and sending is otherwise enabled. |
-| Secret | `SMTP_SECURE` | `true` for implicit TLS. Port `465` is also treated as secure. |
-| Secret | `SMTP_USER` | SMTP username. |
-| Secret | `SMTP_PASS` | SMTP password. |
-
-If any required value is missing, the workflow still uploads the Word playbook, manifest, and email draft, and it records which setting is missing. It does not open an SMTP connection.
+The settings and the reason a merge does not send mail are in `docs/release-note-email.md`. The workflow reads those GitHub Actions names. It does not read addresses or passwords from source files.
 
 ## cureka-backend
 
