@@ -166,13 +166,16 @@ export class AdminUsersService {
       assertCanAssignAdminUserRole(creatorRole, nextLegacyRole as AdminUserRole, permissionCodes);
     }
 
-    const { roleRefId: _roleRefId, status: _status, ...updateData } = dto;
+    const { roleRefId: _roleRefId, status: _status, password, ...updateData } = dto;
+    const nextPassword = typeof password === 'string' ? password.trim() : '';
+    const hashedPassword = nextPassword ? await hashPassword(nextPassword) : undefined;
     const roleChanged =
       (nextLegacyRole !== undefined && nextLegacyRole !== existing.role) ||
       (roleRecord != null && roleRecord.id !== existing.roleId);
     const updated = await this.dataSource.transaction(async (manager) => {
       const saved = await this.adminUsersRepository.updateByRefId(refId, {
         ...updateData,
+        ...(hashedPassword ? { password: hashedPassword } : {}),
         role: nextLegacyRole as AdminUserRole,
         roleId: roleRecord?.id,
       }, manager);

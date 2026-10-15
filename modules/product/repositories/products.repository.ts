@@ -25,6 +25,11 @@ import {
   sellableVariantAvailabilitySql,
 } from '../utils/public-variant-availability.util';
 import {
+  isExplicitPublicListSort,
+  joinPopularitySales,
+  sellableVariantPriceSql,
+} from '../utils/public-product-list-sort.util';
+import {
   bindPincodeAvailability,
   pincodeAvailabilityPositionalSql,
   pincodeAvailabilitySql,
@@ -780,8 +785,8 @@ export class ProductsRepository {
     const { skip, take } = buildSkipTake(options.page, options.limit);
     const sortOrder = options.sortOrder ?? 'DESC';
 
-    // Page ids with no joins so LIMIT/OFFSET follows in-stock rank, then the
-    // existing sort. Out-of-stock products stay in the result after in-stock ones.
+    // Page ids first so LIMIT/OFFSET follows the sort. Default sorts pin
+    // in-stock products. popularity, price_asc, and price_desc do not.
     const idQb = this.createEligibleProductsQb(options).select('product.id', 'id');
     this.applyPublicListSort(idQb, options.sortBy, sortOrder, options);
     idQb.offset(skip).limit(take);
@@ -1822,6 +1827,29 @@ export class ProductsRepository {
         ? options?.tagSlug
         : undefined;
 
+    if (isExplicitPublicListSort(sortBy)) {
+      bindPincodeAvailability(qb, options?.pincodeId ?? null);
+      if (sortBy === 'popularity') {
+        joinPopularitySales(qb, 'product.id');
+        qb.addOrderBy('product.id', 'ASC');
+        return;
+      }
+      const aggregate = sortBy === 'price_asc' ? 'MIN' : 'MAX';
+      const direction = sortBy === 'price_asc' ? 'ASC' : 'DESC';
+      qb.setParameter('publicListPriceVariantStatus', VariantStatus.ACTIVE);
+      qb.addSelect(
+        sellableVariantPriceSql(
+          aggregate,
+          sellableVariantAvailabilitySql('pv'),
+          pincodeAvailabilitySql('product', options?.pincodeId ?? null),
+        ),
+        'list_price',
+      );
+      qb.orderBy('list_price', direction, 'NULLS LAST');
+      qb.addOrderBy('product.id', 'ASC');
+      return;
+    }
+
     // Primary availability rank, then the existing sort inside each INS / OOS group.
     qb.setParameter('publicListStockVariantStatus', VariantStatus.ACTIVE);
     bindPincodeAvailability(qb, options?.pincodeId ?? null);
@@ -1923,6 +1951,17 @@ export class ProductsRepository {
     sortBy: string | undefined,
     sortOrder: 'ASC' | 'DESC',
   ): void {
+    if (sortBy === 'popularity') {
+      joinPopularitySales(qb, 'product.id');
+      qb.addOrderBy('variant.id', 'ASC');
+      return;
+    }
+    if (sortBy === 'price_asc' || sortBy === 'price_desc') {
+      qb.orderBy('variant.sellingPrice', sortBy === 'price_asc' ? 'ASC' : 'DESC', 'NULLS LAST');
+      qb.addOrderBy('variant.id', 'ASC');
+      return;
+    }
+
     const SORTABLE: Record<string, string> = {
       name: 'product.name',
       publishedAt: 'product.publishedAt',
