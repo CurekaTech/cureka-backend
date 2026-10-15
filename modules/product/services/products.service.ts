@@ -1979,6 +1979,7 @@ export class ProductsService {
         id: string;
         type: IProduct['media'][number]['type'];
         url: IProduct['media'][number]['url'];
+        altText: string | null;
         sortOrder: number;
         isPrimary: boolean;
       }>
@@ -1990,6 +1991,7 @@ export class ProductsService {
         id: item.id,
         type: item.type,
         url: item.url,
+        altText: item.altText,
         sortOrder: item.sortOrder,
         isPrimary: item.isPrimary,
       });

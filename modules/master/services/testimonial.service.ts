@@ -249,6 +249,7 @@ export class TestimonialService {
       rating: item.rating,
       description: item.description,
       image: item.image,
+      imageAltText: item.imageAltText,
       sortOrder: item.sortOrder,
     }));
 

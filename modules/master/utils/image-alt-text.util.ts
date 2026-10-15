@@ -54,9 +54,9 @@ export const resolveStoredAltText = (input: {
   return null;
 };
 
-export const assignStoredAltText = <T extends object>(
+export const assignStoredAltText = <T extends object, K extends string>(
   payload: T,
-  key: keyof T,
+  key: K,
   input: {
     incoming: unknown;
     previousAlt?: string | null;
@@ -66,7 +66,7 @@ export const assignStoredAltText = <T extends object>(
 ): void => {
   const resolved = resolveStoredAltText(input);
   if (resolved !== undefined) {
-    payload[key] = resolved as T[keyof T];
+    (payload as unknown as Record<K, string | null>)[key] = resolved;
   }
 };
 
