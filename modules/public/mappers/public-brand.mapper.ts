@@ -30,6 +30,7 @@ export const mapBrandEntityToListingContext = (
     entity.showBanner === false || entity.bannerDeletedAt ? null : (entity.bannerAltText ?? null),
   showBanner: entity.showBanner ?? true,
   video: entity.showVideo === false ? null : entity.video,
+  videoAltText: entity.showVideo === false ? null : (entity.videoAltText ?? null),
   showVideo: entity.showVideo ?? true,
   featuredBanner: entity.showFeaturedBanner === false ? null : entity.featuredBanner,
   featuredBannerAltText: entity.showFeaturedBanner === false ? null : (entity.featuredBannerAltText ?? null),
@@ -43,6 +44,8 @@ export const mapBrandEntityToListingContext = (
     entity.showSecondaryBanner === false ? null : (entity.secondaryBannerAltText ?? null),
   showSecondaryBanner: entity.showSecondaryBanner ?? true,
   secondaryVideo: entity.showSecondaryVideo === false ? null : (entity.secondaryVideo ?? null),
+  secondaryVideoAltText:
+    entity.showSecondaryVideo === false ? null : (entity.secondaryVideoAltText ?? null),
   showSecondaryVideo: entity.showSecondaryVideo ?? true,
   offerBanner: entity.showOfferBanner === false ? null : (entity.offerBanner ?? null),
   offerBannerAltText: entity.showOfferBanner === false ? null : (entity.offerBannerAltText ?? null),

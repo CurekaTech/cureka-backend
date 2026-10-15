@@ -14,6 +14,7 @@ export const mapWatchAndShopEntityToResponse = (
     mediaType: entity.mediaType,
     mediaUrl: entity.mediaUrl,
     videoUrl: entity.videoUrl,
+    videoAltText: entity.videoAltText ?? null,
     productRefId: entity.productRefId,
     sortOrder: entity.sortOrder,
     status: entity.status,
@@ -39,6 +40,7 @@ export const mapWatchAndShopToStorefrontItem = (
     mediaType: entity.mediaType,
     mediaUrl: entity.mediaUrl,
     videoUrl: entity.videoUrl,
+    videoAltText: entity.videoAltText ?? null,
     productRefId: entity.productRefId,
     sortOrder: entity.sortOrder,
   }) as unknown as IStorefrontWatchAndShopItem;

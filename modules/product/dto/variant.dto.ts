@@ -65,7 +65,7 @@ export class VariantImageDto {
   @ApiPropertyOptional({
     example: 'Cetaphil Gentle Skin Cleanser, 236 ml',
     description:
-      'Image alt text, max 250 characters. Omit to keep the stored value for this file. Send an empty string for a decorative image.',
+      'Accessible label for this image or video, max 250 characters. Omit to keep the stored value for this media file. Send an empty string when the media is decorative.',
     maxLength: 250,
   })
   @Transform(({ value }) => {
@@ -577,7 +577,7 @@ export class CreateProductMediaDto {
   @ApiPropertyOptional({
     example: 'Cetaphil Gentle Skin Cleanser, 236 ml',
     description:
-      'Image alt text, max 250 characters. Omit to keep the stored value for this file and variant. Send an empty string for a decorative image.',
+      'Accessible label for this image or video, max 250 characters. Omit to keep the stored value for this file and variant. Send an empty string when the media is decorative.',
     maxLength: 250,
   })
   @Transform(({ value }) => {

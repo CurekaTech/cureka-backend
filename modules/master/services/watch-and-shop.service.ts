@@ -74,6 +74,7 @@ import { WatchAndShopItemEntity } from '../entities/watch-and-shop-item.entity';
 import { MasterStatus } from '../enums/master-status.enum';
 
 import { WatchAndShopMediaType } from '../enums/watch-and-shop-media-type.enum';
+import { mergeJsonImageAlt, storedAltForCreate } from '../utils/image-alt-text.util';
 
 
 
@@ -190,6 +191,8 @@ export class WatchAndShopService {
       mediaUrl: normalized.mediaUrl,
 
       videoUrl: normalized.videoUrl,
+
+      videoAltText: storedAltForCreate(dto.videoAltText),
 
       productRefId: normalized.productRefId,
 
@@ -340,6 +343,13 @@ export class WatchAndShopService {
       mediaUrl: normalized.mediaUrl,
 
       videoUrl: normalized.videoUrl,
+
+      videoAltText: mergeJsonImageAlt({
+        incoming: dto.videoAltText,
+        previousAlt: existing.videoAltText,
+        previousFile: existing.mediaUrl ?? existing.videoUrl,
+        nextFile: normalized.mediaUrl ?? normalized.videoUrl,
+      }),
 
       productRefId: normalized.productRefId,
 

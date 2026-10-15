@@ -205,7 +205,13 @@ export const parsePrimaryAndGalleryImages = (
 
     const altColumns =
       index === 2
-        ? ['gallery image 2 alt', 'gallery_image_2_alt']
+        ? [
+            'gallery image 2 (video) alt',
+            'gallery image 2 video alt',
+            'gallery_image_2_video_alt',
+            'gallery image 2 alt',
+            'gallery_image_2_alt',
+          ]
         : [`gallery image ${index} alt`, `gallery_image_${index}_alt`];
     pushResolvedImage(
       images,
@@ -239,6 +245,11 @@ export const parseVideoImages = (
       'gallery image 2 (video) url',
       'gallery_image_2_video_url',
       'gallery image 2 video url',
+    ]),
+    getFirstAvailable([
+      'gallery image 2 (video) alt',
+      'gallery image 2 video alt',
+      'gallery_image_2_video_alt',
     ]),
   );
 

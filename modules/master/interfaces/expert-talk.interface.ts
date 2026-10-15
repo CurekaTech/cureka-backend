@@ -8,6 +8,7 @@ export interface IExpertTalkItem {
   title: string;
   description: string | null;
   videoUrl: string;
+  videoAltText: string | null;
   thumbnail: IStorageFileReferenceResponse | null;
   thumbnailAltText: string | null;
   contentType: ExpertTalkContentType;
@@ -25,6 +26,7 @@ export interface IStorefrontExpertTalkItem {
   title: string;
   description: string | null;
   videoUrl: string;
+  videoAltText: string | null;
   thumbnail: IStorageFileReferenceResponse | null;
   thumbnailAltText: string | null;
   contentType: ExpertTalkContentType;

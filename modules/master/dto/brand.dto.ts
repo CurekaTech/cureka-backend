@@ -259,6 +259,16 @@ export class CreateBrandDto {
   @MaxLength(250)
   faqBannerAltText?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  videoAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  secondaryVideoAltText?: string;
+
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()
   @Transform(parseMasterFaqArray)

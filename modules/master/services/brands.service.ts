@@ -144,6 +144,7 @@ export class BrandsService {
       banner: this.storageUrlEnricher.persist(media.banner),
       bannerAltText: storedAltForCreate(dto.bannerAltText),
       video: this.storageUrlEnricher.persist(media.video),
+      videoAltText: storedAltForCreate(dto.videoAltText),
       featuredBanner: this.storageUrlEnricher.persist(media.featuredBanner),
       featuredBannerAltText: storedAltForCreate(dto.featuredBannerAltText),
       promotionalBanner: this.storageUrlEnricher.persist(media.promotionalBanner),
@@ -151,6 +152,7 @@ export class BrandsService {
       secondaryBanner: this.storageUrlEnricher.persist(media.secondaryBanner),
       secondaryBannerAltText: storedAltForCreate(dto.secondaryBannerAltText),
       secondaryVideo: this.storageUrlEnricher.persist(media.secondaryVideo),
+      secondaryVideoAltText: storedAltForCreate(dto.secondaryVideoAltText),
       offerBanner: this.storageUrlEnricher.persist(media.offerBanner),
       offerBannerAltText: storedAltForCreate(dto.offerBannerAltText),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
@@ -237,6 +239,8 @@ export class BrandsService {
       featuredBannerAltText,
       promotionalBannerAltText,
       secondaryBannerAltText,
+      videoAltText,
+      secondaryVideoAltText,
       offerBannerAltText,
       faqBannerAltText,
       ...dtoFields
@@ -288,6 +292,12 @@ export class BrandsService {
       previousFile: existing.banner,
       nextFile: payload.banner !== undefined ? payload.banner : existing.banner,
     });
+    assignStoredAltText(payload, 'videoAltText', {
+      incoming: videoAltText,
+      previousAlt: existing.videoAltText,
+      previousFile: existing.video,
+      nextFile: payload.video !== undefined ? payload.video : existing.video,
+    });
     assignStoredAltText(payload, 'featuredBannerAltText', {
       incoming: featuredBannerAltText,
       previousAlt: existing.featuredBannerAltText,
@@ -306,6 +316,12 @@ export class BrandsService {
       previousAlt: existing.secondaryBannerAltText,
       previousFile: existing.secondaryBanner,
       nextFile: payload.secondaryBanner !== undefined ? payload.secondaryBanner : existing.secondaryBanner,
+    });
+    assignStoredAltText(payload, 'secondaryVideoAltText', {
+      incoming: secondaryVideoAltText,
+      previousAlt: existing.secondaryVideoAltText,
+      previousFile: existing.secondaryVideo,
+      nextFile: payload.secondaryVideo !== undefined ? payload.secondaryVideo : existing.secondaryVideo,
     });
     assignStoredAltText(payload, 'offerBannerAltText', {
       incoming: offerBannerAltText,

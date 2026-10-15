@@ -29,6 +29,7 @@ export interface IPublicBrandProductListingContext {
   bannerAltText: string | null;
   showBanner: boolean;
   video: IStorageFileReference | IStorageFileReferenceResponse | null;
+  videoAltText: string | null;
   showVideo: boolean;
   featuredBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   featuredBannerAltText: string | null;
@@ -40,6 +41,7 @@ export interface IPublicBrandProductListingContext {
   secondaryBannerAltText: string | null;
   showSecondaryBanner: boolean;
   secondaryVideo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  secondaryVideoAltText: string | null;
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
   offerBannerAltText: string | null;
