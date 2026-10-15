@@ -68,6 +68,21 @@ export class PromotionalSectionConfigDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(250)
+  desktopImageAltText?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  mobileImageAltText?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  thumbnailAltText?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   ctaText?: string | null;
 

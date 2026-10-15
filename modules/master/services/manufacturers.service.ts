@@ -8,6 +8,7 @@ import {
   UpdateManufacturerStatusDto,
 } from '../dto/manufacturer.dto';
 import { IManufacturer } from '../interfaces/manufacturer.interface';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   mapManufacturerEntityToResponse,
   mapManufacturerEntitiesToResponse,
@@ -73,6 +74,7 @@ export class ManufacturersService {
         name: dto.name,
         code: dto.code,
         logo: this.storageUrlEnricher.persist(logo),
+        logoAltText: storedAltForCreate(dto.logoAltText),
         description: dto.description ?? null,
         contactPerson: dto.contactPerson ?? null,
         email: dto.email ?? null,
@@ -158,6 +160,12 @@ export class ManufacturersService {
     if (dto.drugLicenseNumber !== undefined) payload.drugLicenseNumber = dto.drugLicenseNumber;
     if (dto.status !== undefined) payload.status = dto.status;
     if (logo !== undefined) payload.logo = this.storageUrlEnricher.persist(logo);
+    assignStoredAltText(payload, 'logoAltText', {
+      incoming: dto.logoAltText,
+      previousAlt: existing.logoAltText,
+      previousFile: existing.logo,
+      nextFile: payload.logo !== undefined ? payload.logo : existing.logo,
+    });
 
     let categories: CategoryEntity[] | undefined;
     if (dto.categoryRefIds !== undefined) {

@@ -41,8 +41,11 @@ export interface IPublicCategoryProductListingContext {
     slugPath: string[];
     permalink: string;
     image: IStorageFileReference | IStorageFileReferenceResponse | null;
+    imageAltText: string | null;
     banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    bannerAltText: string | null;
     faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+    faqBannerAltText: string | null;
     aboveTheFold: string | null;
     belowTheFold: string | null;
     metaTitle: string | null;
@@ -60,8 +63,11 @@ export interface IPublicCategoryTree {
   /** Legacy-compatible path, e.g. /product-category/herbal-ayurveda/herbal-oil/castor-oil */
   permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   banner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   faqBanner: IStorageFileReference | IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   isInHeader: boolean;
@@ -88,5 +94,6 @@ export interface IPublicShopByCategoryTile {
   slugPath: string[];
   permalink: string;
   image: IStorageFileReference | IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   position: number;
 }

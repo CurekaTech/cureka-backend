@@ -61,6 +61,22 @@ export class VariantImageDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({
+    example: 'Cetaphil Gentle Skin Cleanser, 236 ml',
+    description:
+      'Image alt text, max 250 characters. Omit to keep the stored value for this file. Send an empty string for a decorative image.',
+    maxLength: 250,
+  })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'string') return value;
+    return value.trim();
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  altText?: string;
 }
 
 export class CreateVariantDto {
@@ -472,6 +488,12 @@ export class CreateVariantDto {
   @IsOptional()
   sizeChart?: IStorageFileReference | null;
 
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  sizeChartAltText?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -551,6 +573,22 @@ export class CreateProductMediaDto {
   @IsOptional()
   @IsString()
   variantSku?: string;
+
+  @ApiPropertyOptional({
+    example: 'Cetaphil Gentle Skin Cleanser, 236 ml',
+    description:
+      'Image alt text, max 250 characters. Omit to keep the stored value for this file and variant. Send an empty string for a decorative image.',
+    maxLength: 250,
+  })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'string') return value;
+    return value.trim();
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  altText?: string;
 }
 
 export class CreateBundleItemDto {

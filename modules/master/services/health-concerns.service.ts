@@ -8,6 +8,7 @@ import { FastifyRequest } from 'fastify';
 import { CacheKeys, CacheStrategyService } from '@packages/cache';
 import { EVENTS, HealthConcernUpdatedEvent } from '@packages/events';
 import { HealthConcernsRepository } from '../repositories/health-concerns.repository';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   CreateHealthConcernDto,
   UpdateHealthConcernDto,
@@ -108,8 +109,11 @@ export class HealthConcernsService {
       name: dto.name,
       slug,
       icon: this.storageUrlEnricher.persist(media.icon),
+      iconAltText: storedAltForCreate(dto.iconAltText),
       banner: this.storageUrlEnricher.persist(media.banner),
+      bannerAltText: storedAltForCreate(dto.bannerAltText),
       faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+      faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
       description: dto.description ?? null,
       listingHeading: normalizeListingHeading(dto.listingHeading),
       metaTitle: dto.metaTitle ?? null,
@@ -208,7 +212,7 @@ export class HealthConcernsService {
       }
     }
 
-    const { faqs, ...dtoFields } = dto;
+    const { faqs, iconAltText, bannerAltText, faqBannerAltText, ...dtoFields } = dto;
     const payload: Partial<HealthConcernEntity> = { ...dtoFields, updatedBy };
     if (dto.listingHeading !== undefined) {
       payload.listingHeading = normalizeListingHeading(dto.listingHeading);
@@ -219,6 +223,24 @@ export class HealthConcernsService {
     if (media.faqBanner !== undefined) {
       payload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
+    assignStoredAltText(payload, 'iconAltText', {
+      incoming: iconAltText,
+      previousAlt: existing.iconAltText,
+      previousFile: existing.icon,
+      nextFile: payload.icon !== undefined ? payload.icon : existing.icon,
+    });
+    assignStoredAltText(payload, 'bannerAltText', {
+      incoming: bannerAltText,
+      previousAlt: existing.bannerAltText,
+      previousFile: existing.banner,
+      nextFile: payload.banner !== undefined ? payload.banner : existing.banner,
+    });
+    assignStoredAltText(payload, 'faqBannerAltText', {
+      incoming: faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: payload.faqBanner !== undefined ? payload.faqBanner : existing.faqBanner,
+    });
     if (faqs !== undefined) payload.faqs = normalizeMasterFaqs(faqs);
 
     const result = await this.healthConcernsRepository.updateByRefId(refId, payload);

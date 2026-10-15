@@ -18,6 +18,9 @@ export class BlogCategoryEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   icon!: IStorageFileReference | null;
 
+  @Column({ name: 'icon_alt_text', type: 'varchar', length: 250, nullable: true })
+  iconAltText!: string | null;
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number;
 

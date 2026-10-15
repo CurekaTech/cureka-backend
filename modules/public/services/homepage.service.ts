@@ -400,6 +400,7 @@ export class HomepageService {
       refId: goal.refId,
       name: goal.name,
       image: this.storageUrlEnricher.persist(goal.image),
+      imageAltText: goal.imageAltText ?? null,
     }));
   }
 
@@ -429,6 +430,7 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      iconAltText: concern.iconAltText ?? null,
     }));
   }
 
@@ -460,7 +462,9 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      iconAltText: concern.iconAltText ?? null,
       banner: this.storageUrlEnricher.persist(concern.banner),
+      bannerAltText: concern.bannerAltText ?? null,
       sortIndex: concern.sortIndex,
       metaTitle: concern.metaTitle,
       metaDescription: concern.metaDescription,
@@ -486,6 +490,7 @@ export class HomepageService {
       name: brand.name,
       slug: brand.slug,
       logo: this.storageUrlEnricher.persist(brand.logo),
+      logoAltText: brand.logoAltText ?? null,
     }));
   }
 
@@ -509,6 +514,7 @@ export class HomepageService {
       name: brand.name,
       slug: brand.slug,
       logo: this.storageUrlEnricher.persist(brand.logo),
+      logoAltText: brand.logoAltText ?? null,
     }));
     const enriched = await this.storageUrlEnricher.enrichDeep(cards);
     return buildPaginatedResult(enriched, total, options);
@@ -535,7 +541,9 @@ export class HomepageService {
       slug: concern.slug,
       description: concern.description,
       icon: this.storageUrlEnricher.persist(concern.icon),
+      iconAltText: concern.iconAltText ?? null,
       banner: this.storageUrlEnricher.persist(concern.banner),
+      bannerAltText: concern.bannerAltText ?? null,
       sortIndex: concern.sortIndex,
       metaTitle: concern.metaTitle,
       metaDescription: concern.metaDescription,
@@ -566,6 +574,7 @@ export class HomepageService {
       name: goal.name,
       description: goal.description,
       image: this.storageUrlEnricher.persist(goal.image),
+      imageAltText: goal.imageAltText ?? null,
     }));
     const enriched = await this.storageUrlEnricher.enrichDeep(cards);
     return buildPaginatedResult(enriched, total, options);

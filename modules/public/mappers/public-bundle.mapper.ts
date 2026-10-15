@@ -16,6 +16,7 @@ const mapBundleBrand = (entity: ProductEntity): IPublicBundleBrand | null => {
     name: entity.brand.name,
     slug: entity.brand.slug,
     logo: entity.brand.logo,
+    logoAltText: entity.brand.logoAltText ?? null,
     description: entity.brand.description,
   };
 };
@@ -32,7 +33,9 @@ export const mapProductEntityToPublicBundleCard = (entity: ProductEntity): IPubl
     slug: entity.slug,
     description: entity.description,
     bundleIcon: entity.bundleIcon ?? null,
+    bundleIconAltText: entity.bundleIconAltText ?? null,
     primaryImageUrl: card.primaryImageUrl,
+    primaryImageAltText: card.primaryImageAltText,
     brand: mapBundleBrand(entity),
     curatedBy: entity.curatedBy ?? null,
     curatedFor: entity.curatedFor ?? null,
@@ -74,6 +77,7 @@ export const mapProductEntityToPublicBundleDetail = (
       url: item.url,
       sortOrder: item.sortOrder,
       isPrimary: item.isPrimary,
+      altText: item.altText ?? null,
     })),
     variants: detail.variants.map((variant) => ({
       id: variant.id,

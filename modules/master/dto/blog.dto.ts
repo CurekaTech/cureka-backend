@@ -200,6 +200,12 @@ export class CreateBlogCategoryDto {
   @IsOptional()
   @IsEnum(BlogCategoryStatus)
   status?: BlogCategoryStatus;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  iconAltText?: string;
 }
 
 export class UpdateBlogCategoryDto extends PartialType(CreateBlogCategoryDto) {
@@ -368,6 +374,12 @@ export class CreateBlogPostDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+
+  @ApiPropertyOptional({ maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  featuredImageAltText?: string;
 }
 
 export class UpdateBlogPostDto extends PartialType(CreateBlogPostDto) {

@@ -6,6 +6,7 @@ import {
 
 export interface IBrandHighlight {
   icon: IStorageFileReferenceResponse | IStorageFileReference | null;
+  iconAltText?: string | null;
   title: string;
   subtitle: string;
 }
@@ -17,21 +18,28 @@ export interface IBrand {
   skuCode: string;
   slug: string;
   logo: IStorageFileReferenceResponse | null;
+  logoAltText: string | null;
   banner: IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   showBanner: boolean;
   video: IStorageFileReferenceResponse | null;
   showVideo: boolean;
   featuredBanner: IStorageFileReferenceResponse | null;
+  featuredBannerAltText: string | null;
   showFeaturedBanner: boolean;
   promotionalBanner: IStorageFileReferenceResponse | null;
+  promotionalBannerAltText: string | null;
   showPromotionalBanner: boolean;
   secondaryBanner: IStorageFileReferenceResponse | null;
+  secondaryBannerAltText: string | null;
   showSecondaryBanner: boolean;
   secondaryVideo: IStorageFileReferenceResponse | null;
   showSecondaryVideo: boolean;
   offerBanner: IStorageFileReferenceResponse | null;
+  offerBannerAltText: string | null;
   showOfferBanner: boolean;
   faqBanner: IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   brandHighlights: IBrandHighlight[] | null;
   showBrandHighlights: boolean;
   description: string | null;

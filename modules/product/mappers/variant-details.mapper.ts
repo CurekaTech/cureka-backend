@@ -35,6 +35,7 @@ export const mapVariantEntityToDetailFields = (
   countryOfOriginName: variant.countryOfOrigin?.name ?? null,
   expiresInMonths: variant.expiresInMonths,
   sizeChart: variant.sizeChart,
+  sizeChartAltText: variant.sizeChartAltText ?? null,
   singleProductUrl: variant.singleProductUrl,
   productPageUrl: variant.productPageUrl,
   healthConcernRefIds: variant.healthConcernRefIds ?? [],

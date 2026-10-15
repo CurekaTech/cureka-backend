@@ -1089,6 +1089,7 @@ export class PublicProductsService {
             refId: product.refId,
             title: product.name,
             imageUrl,
+            imageAltText: product.faqBannerAltText ?? null,
             ctaHref: null,
           },
         ];

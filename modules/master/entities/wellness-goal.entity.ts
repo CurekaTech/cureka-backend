@@ -19,8 +19,14 @@ export class WellnessGoalEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   image!: IStorageFileReference | null;
 
+  @Column({ name: 'image_alt_text', type: 'varchar', length: 250, nullable: true })
+  imageAltText!: string | null;
+
   @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
   faqBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'faq_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  faqBannerAltText!: string | null;
 
   @Index()
   @Column({

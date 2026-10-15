@@ -9,6 +9,7 @@ export interface ITestimonial {
   rating: number;
   description: string;
   image: IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   sortOrder: number;
   status: MasterStatus;
   createdBy?: string;
@@ -25,5 +26,6 @@ export interface IStorefrontTestimonial {
   rating: number;
   description: string;
   image: IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   sortOrder: number;
 }

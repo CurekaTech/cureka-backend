@@ -9,6 +9,7 @@ export interface IExpertTalkItem {
   description: string | null;
   videoUrl: string;
   thumbnail: IStorageFileReferenceResponse | null;
+  thumbnailAltText: string | null;
   contentType: ExpertTalkContentType;
   sortOrder: number;
   status: MasterStatus;
@@ -25,6 +26,7 @@ export interface IStorefrontExpertTalkItem {
   description: string | null;
   videoUrl: string;
   thumbnail: IStorageFileReferenceResponse | null;
+  thumbnailAltText: string | null;
   contentType: ExpertTalkContentType;
   sortOrder: number;
 }

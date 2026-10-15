@@ -94,6 +94,11 @@ export class BrandHighlightDto {
   @IsString()
   @MaxLength(500)
   subtitle!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  iconAltText?: string;
 }
 
 /** Multipart may send brandHighlights as a JSON string; null clears the field. */
@@ -218,6 +223,41 @@ export class CreateBrandDto {
   @Transform(parseBoolean)
   @IsBoolean()
   showDescription?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  logoAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  bannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  featuredBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  promotionalBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  secondaryBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  offerBannerAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
 
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()

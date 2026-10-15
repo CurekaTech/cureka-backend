@@ -44,6 +44,7 @@ export interface IVariantDetailFields {
   countryOfOriginName?: string | null;
   expiresInMonths?: number | null;
   sizeChart?: IStorageFileReference | null;
+  sizeChartAltText?: string | null;
   singleProductUrl?: string | null;
   productPageUrl?: string | null;
   healthConcernRefIds?: string[];

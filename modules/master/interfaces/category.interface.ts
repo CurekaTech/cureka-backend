@@ -23,8 +23,11 @@ export interface ICategory {
   position: number;
   hierarchyLevel: CategoryHierarchyLevel;
   image: IStorageFileReferenceResponse | null;
+  imageAltText: string | null;
   banner: IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   faqBanner: IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   slug: string;
   description: string | null;
   listingHeading: string | null;

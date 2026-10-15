@@ -12,6 +12,7 @@ export const mapBannerEntityToResponse = (entity: BannerEntity): IBanner =>
   externalUrl: entity.externalUrl,
   title: entity.title,
   imageUrl: entity.imageUrl,
+  imageAltText: entity.imageAltText ?? null,
   sortOrder: entity.sortOrder,
   status: entity.status,
   startsAt: entity.startsAt,
@@ -34,5 +35,6 @@ export const mapBannerToStorefrontItem = (
   refId: entity.refId,
   title: entity.title,
   imageUrl: entity.imageUrl,
+  imageAltText: entity.imageAltText ?? null,
   ctaHref,
   }) as unknown as IStorefrontBannerItem;

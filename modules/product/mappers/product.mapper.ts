@@ -133,8 +133,11 @@ export const mapProductEntityToResponse = (entity: ProductEntity): IProduct =>
   metaDescription: entity.metaDescription,
   metaKeywords: entity.metaKeywords,
   sizeChart: entity.sizeChart,
+  sizeChartAltText: entity.sizeChartAltText ?? null,
   faqBanner: entity.faqBanner ?? null,
+  faqBannerAltText: entity.faqBannerAltText ?? null,
   bundleIcon: entity.bundleIcon ?? null,
+  bundleIconAltText: entity.bundleIconAltText ?? null,
   publishedAt: entity.publishedAt,
   curatedBy: entity.curatedBy ?? null,
   curatedFor: entity.curatedFor ?? null,
@@ -277,6 +280,7 @@ const mapVariantImage = (media: ProductEntity['media'][number]): IProductVariant
     url: media.url,
     sortOrder: media.sortOrder,
     isPrimary: media.isPrimary,
+    altText: media.altText ?? null,
   }) as IProductVariantImage;
 
 const groupVariantImages = (media: ProductEntity['media']) => {
@@ -392,6 +396,7 @@ const mapMedia = (media: ProductEntity['media'][number]): IProductMedia =>
     sortOrder: media.sortOrder,
     isPrimary: media.isPrimary,
     variantId: media.variantId,
+    altText: media.altText ?? null,
   }) as IProductMedia;
 
 const mapWellnessGoal = (

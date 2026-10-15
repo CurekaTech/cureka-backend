@@ -260,6 +260,9 @@ export class ProductVariantEntity {
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;
 
+  @Column({ name: 'size_chart_alt_text', type: 'varchar', length: 250, nullable: true })
+  sizeChartAltText!: string | null;
+
   @Column({ name: 'single_product_url', type: 'varchar', length: 1000, nullable: true })
   singleProductUrl!: string | null;
 

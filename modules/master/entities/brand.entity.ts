@@ -20,8 +20,14 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn())
   logo!: IStorageFileReference | null;
 
+  @Column({ name: 'logo_alt_text', type: 'varchar', length: 250, nullable: true })
+  logoAltText!: string | null;
+
   @Column(storageFileReferenceColumn())
   banner!: IStorageFileReference | null;
+
+  @Column({ name: 'banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  bannerAltText!: string | null;
 
   @Column({ name: 'show_banner', type: 'boolean', default: true })
   showBanner!: boolean;
@@ -39,17 +45,26 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'featured_banner' }))
   featuredBanner!: IStorageFileReference | null;
 
+  @Column({ name: 'featured_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  featuredBannerAltText!: string | null;
+
   @Column({ name: 'show_featured_banner', type: 'boolean', default: true })
   showFeaturedBanner!: boolean;
 
   @Column(storageFileReferenceColumn({ name: 'promotional_banner' }))
   promotionalBanner!: IStorageFileReference | null;
 
+  @Column({ name: 'promotional_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  promotionalBannerAltText!: string | null;
+
   @Column({ name: 'show_promotional_banner', type: 'boolean', default: true })
   showPromotionalBanner!: boolean;
 
   @Column(storageFileReferenceColumn({ name: 'secondary_banner' }))
   secondaryBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'secondary_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  secondaryBannerAltText!: string | null;
 
   @Column({ name: 'show_secondary_banner', type: 'boolean', default: true })
   showSecondaryBanner!: boolean;
@@ -63,15 +78,22 @@ export class BrandEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'offer_banner' }))
   offerBanner!: IStorageFileReference | null;
 
+  @Column({ name: 'offer_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  offerBannerAltText!: string | null;
+
   @Column({ name: 'show_offer_banner', type: 'boolean', default: true })
   showOfferBanner!: boolean;
 
   @Column(storageFileReferenceColumn({ name: 'faq_banner' }))
   faqBanner!: IStorageFileReference | null;
 
+  @Column({ name: 'faq_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  faqBannerAltText!: string | null;
+
   @Column({ name: 'brand_highlights', type: 'jsonb', nullable: true })
   brandHighlights!: Array<{
     icon: IStorageFileReference | null;
+    iconAltText?: string | null;
     title: string;
     subtitle: string;
   }> | null;

@@ -1,6 +1,15 @@
 import { ProductType } from '@modules/product/enums/product-type.enum';
+import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
+import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { IPublicProductCard, IPublicProductDetail } from '../interfaces/public-product.interface';
-import { toPublicStorefrontProductCard, toPublicStorefrontProductDetail } from './public-product.mapper';
+import {
+  mapProductEntityToPublicDetail,
+  mapVariantEntityToPublicSearchItem,
+  toPublicStorefrontProductCard,
+  toPublicStorefrontProductDetail,
+} from './public-product.mapper';
 
 describe('toPublicStorefrontProductCard', () => {
   const fullCard: IPublicProductCard = {
@@ -23,6 +32,7 @@ describe('toPublicStorefrontProductCard', () => {
     productNatureRefId: 'NAT001',
     productNatureName: 'Capsule',
     primaryImageUrl: { key: 'products/omega.jpg', name: 'cureka-media' },
+    primaryImageAltText: null,
     pricing: { mrp: 999, sellingPrice: 799, inStock: true, discount: 20 },
     outOfStock: false,
     isBestSeller: true,
@@ -48,6 +58,7 @@ describe('toPublicStorefrontProductCard', () => {
       variantId: 'var-uuid',
       sku: 'OMEGA-001',
       primaryImageUrl: { key: 'products/omega.jpg', name: 'cureka-media' },
+    primaryImageAltText: null,
       pricing: { mrp: 999, sellingPrice: 799, inStock: true, discount: 20 },
       outOfStock: false,
       isBestSeller: true,
@@ -260,5 +271,72 @@ describe('toPublicStorefrontProductDetail', () => {
     expect(slim.variants[0]).not.toHaveProperty('status');
     expect(slim.variants[0]).not.toHaveProperty('images');
     expect(slim.banners[0]).not.toHaveProperty('placement');
+  });
+});
+
+describe('product image alt text', () => {
+  const product = {
+    id: 'prod-1',
+    refId: 'PRD1',
+    name: 'Gentle Skin Cleanser',
+    slug: 'gentle-skin-cleanser',
+    productType: ProductType.SIMPLE,
+    media: [
+      {
+        id: 'media-1',
+        type: ProductMediaType.IMAGE,
+        url: { key: 'images/cleanser.webp', name: 'cureka-media' },
+        sortOrder: 0,
+        isPrimary: true,
+        variantId: 'var-1',
+        altText: 'Cetaphil Gentle Skin Cleanser, 236 ml',
+      },
+      {
+        id: 'media-2',
+        type: ProductMediaType.IMAGE,
+        url: { key: 'images/lifestyle.webp', name: 'cureka-media' },
+        sortOrder: 1,
+        isPrimary: false,
+        variantId: 'var-1',
+        altText: '',
+      },
+    ],
+    variants: [],
+    attributeMappings: [],
+    healthConcernMappings: [],
+    wellnessGoalMappings: [],
+    tagMappings: [],
+    categoryMappings: [],
+  } as unknown as ProductEntity;
+
+  const variant = {
+    id: 'var-1',
+    sku: 'CET-236',
+    slug: 'gentle-skin-cleanser-236',
+    displayName: '236 ml',
+    status: VariantStatus.ACTIVE,
+    stock: 4,
+    outOfStock: false,
+    mrp: 500,
+    sellingPrice: 420,
+    product,
+    attributeValues: [],
+  } as unknown as ProductVariantEntity;
+
+  it('returns primaryImageAltText from the same row as primaryImageUrl', () => {
+    const item = mapVariantEntityToPublicSearchItem(variant);
+    expect(item.primaryImageUrl).toEqual({ key: 'images/cleanser.webp', name: 'cureka-media' });
+    expect(item.primaryImageAltText).toBe('Cetaphil Gentle Skin Cleanser, 236 ml');
+  });
+
+  it('keeps null and empty alt text on product media', () => {
+    const detail = mapProductEntityToPublicDetail({
+      ...product,
+      variants: [variant],
+    } as ProductEntity);
+    expect(detail.media.map((item) => item.altText)).toEqual([
+      'Cetaphil Gentle Skin Cleanser, 236 ml',
+      '',
+    ]);
   });
 });

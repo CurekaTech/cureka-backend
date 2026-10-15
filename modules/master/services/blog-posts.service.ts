@@ -23,6 +23,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { IStorageFileReference } from '@packages/storage';
 import { mapProductEntitiesToPublicCards } from '@modules/public/mappers/public-product.mapper';
 import { normalizeMasterFaqs } from '../utils/master-faq.util';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   BlogPostQueryDto,
   BlogVideoDto,
@@ -123,6 +124,7 @@ export class BlogPostsService {
       categoryRefId: dto.categoryRefId,
       author: dto.author ?? null,
       featuredImage: dto.featuredImage ?? null,
+      featuredImageAltText: storedAltForCreate(dto.featuredImageAltText),
       videos: this.normalizeVideos(dto.videos),
       tags: dto.tags ?? null,
       status,
@@ -498,12 +500,21 @@ export class BlogPostsService {
           )
         : existing.publishedAt;
 
-    const { productRefIds, faqs, videos, ...postDto } = dto;
-
-    const updated = await this.postsRepo.updateByRefId(refId, {
+    const { productRefIds, faqs, videos, featuredImageAltText, ...postDto } = dto;
+    const postPayload: Partial<BlogPostEntity> = {
       ...postDto,
       ...(faqs !== undefined ? { faqs: this.normalizeFaqs(faqs) } : {}),
       ...(videos !== undefined ? { videos: this.normalizeVideos(videos) } : {}),
+    };
+    assignStoredAltText(postPayload, 'featuredImageAltText', {
+      incoming: featuredImageAltText,
+      previousAlt: existing.featuredImageAltText,
+      previousFile: existing.featuredImage,
+      nextFile: postDto.featuredImage !== undefined ? postDto.featuredImage : existing.featuredImage,
+    });
+
+    const updated = await this.postsRepo.updateByRefId(refId, {
+      ...postPayload,
       publishedAt,
       scheduledAt:
         dto.scheduledAt !== undefined

@@ -48,6 +48,16 @@ export class CreateWellnessGoalDto {
   @IsBoolean()
   inHomePage?: boolean;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  faqBannerAltText?: string;
+
   @ApiPropertyOptional({ type: [MasterFaqDto] })
   @IsOptional()
   @Transform(parseMasterFaqArray)

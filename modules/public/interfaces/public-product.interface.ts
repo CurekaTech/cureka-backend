@@ -20,6 +20,7 @@ export interface IPublicPartySummary {
   name: string;
   code: string;
   logo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  logoAltText: string | null;
   description: string | null;
   contactPerson: string | null;
   email: string | null;
@@ -70,6 +71,8 @@ export interface IPublicProductVariantSearchItem {
   variantSlug: string;
   productPageUrl: string | null;
   primaryImageUrl: IStorageFileReferenceResponse | null;
+  /** Alt text of the same media row as `primaryImageUrl`. Null when that image has none. */
+  primaryImageAltText: string | null;
   category: IPublicCategorySummary | null;
   subCategory: IPublicCategorySummary | null;
   subSubCategory: IPublicCategorySummary | null;
@@ -122,6 +125,8 @@ export interface IPublicProductCard {
   productNatureRefId: string | null;
   productNatureName: string | null;
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
+  /** Alt text of the same media row as `primaryImageUrl`. Null when that image has none. */
+  primaryImageAltText: string | null;
   pricing: IPublicProductListPricing;
   /**
    * OOS flag for the displayed list variant (`variantId` / `defaultVariantId`).
@@ -160,6 +165,7 @@ export interface IPublicStorefrontProductCard {
   sku: string | null;
   /** Signed `{ url, imageDelivery? }` after enrich; unsigned `{ key, name }` while cached. */
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
+  primaryImageAltText: string | null;
   pricing: IPublicProductListPricing;
   outOfStock: boolean;
   isBestSeller: boolean;
@@ -255,6 +261,7 @@ export interface IPublicStorefrontProductDetail {
   metaTitle: string | null;
   metaDescription: string | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  sizeChartAltText: string | null;
   pricing: IPublicProductPriceSummary;
   isFreeDelivery: boolean;
   codMinOrderAmount: number;
@@ -299,6 +306,7 @@ export interface IPublicProductVariant {
   countryOfOriginName?: string | null;
   expiresInMonths?: number | null;
   sizeChart?: IStorageFileReferenceResponse | null;
+  sizeChartAltText?: string | null;
   singleProductUrl?: string | null;
   productPageUrl?: string | null;
   healthConcernRefIds?: string[];
@@ -346,6 +354,7 @@ export interface IPublicProductMedia {
   sortOrder: number;
   isPrimary: boolean;
   variantId: string | null;
+  altText: string | null;
 }
 
 export interface IPublicProductDetail {
@@ -416,8 +425,10 @@ export interface IPublicProductDetail {
   metaKeywords: string[] | null;
   publishedAt: Date | null;
   sizeChart: IStorageFileReferenceResponse | null;
+  sizeChartAltText: string | null;
   /** Product FAQ image used to fill `banners` when set. Not returned on the storefront payload. */
   faqBanner: IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   pricing: IPublicProductPriceSummary;
   /**
    * True when the displayed selling price is above `shipping_charge_threshold`
@@ -440,6 +451,7 @@ export interface IPublicProductDetail {
     refId: string;
     name: string;
     image: IStorageFileReferenceResponse | null;
+    imageAltText: string | null;
   }>;
   categoryFilters: IProductCategoryFilterBinding[];
   tags: Array<{ refId: string; name: string; slug: string }>;

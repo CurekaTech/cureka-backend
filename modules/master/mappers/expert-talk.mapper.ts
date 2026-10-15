@@ -14,6 +14,7 @@ export const mapExpertTalkEntityToResponse = (
     description: entity.description,
     videoUrl: entity.videoUrl,
     thumbnail: entity.thumbnail,
+    thumbnailAltText: entity.thumbnailAltText ?? null,
     contentType: entity.contentType,
     sortOrder: entity.sortOrder,
     status: entity.status,
@@ -37,6 +38,7 @@ export const mapExpertTalkToStorefrontItem = (
     description: entity.description,
     videoUrl: entity.videoUrl,
     thumbnail: entity.thumbnail,
+    thumbnailAltText: entity.thumbnailAltText ?? null,
     contentType: entity.contentType,
     sortOrder: entity.sortOrder,
   }) as unknown as IStorefrontExpertTalkItem;

@@ -25,6 +25,10 @@ import { IStorageFileReference, StorageService } from '@packages/storage';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { assertFaqLengths } from '@modules/master/utils/master-faq.util';
 import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
+import {
+  applyPreservedAltText,
+  normalizeIncomingAltText,
+} from '../utils/product-media-alt-text.util';
 
 /** Canonical slug for homepage / CMS Best Sellers membership. */
 export const BEST_SELLERS_TAG_SLUG = 'bestsellers';
@@ -363,6 +367,8 @@ export class ProductRelationsRepository {
     url: IStorageFileReference;
     sortOrder: number;
     isPrimary: boolean;
+    /** Undefined when the client omitted altText. */
+    altText?: string;
   }> {
     const rows: Array<{
       productId: string;
@@ -371,12 +377,14 @@ export class ProductRelationsRepository {
       url: IStorageFileReference;
       sortOrder: number;
       isPrimary: boolean;
+      altText?: string;
     }> = [];
 
     for (const item of media) {
       const persisted = this.resolvePersistableMediaUrl(item.url);
       if (!persisted) continue;
 
+      const altText = normalizeIncomingAltText(item.altText);
       rows.push({
         productId,
         variantId:
@@ -389,6 +397,7 @@ export class ProductRelationsRepository {
         url: persisted,
         sortOrder: item.sortOrder ?? 0,
         isPrimary: item.isPrimary ?? false,
+        ...(altText !== undefined ? { altText } : {}),
       });
     }
 
@@ -438,7 +447,9 @@ export class ProductRelationsRepository {
     const rows = this.buildMediaRows(productId, media, skuToVariantId);
     if (!rows.length) return;
     const repo = manager.getRepository(ProductMediaEntity);
-    await repo.save(rows.map((row) => repo.create(row)));
+    await repo.save(
+      rows.map((row) => repo.create({ ...row, altText: row.altText ?? null })),
+    );
   }
 
   async syncMedia(
@@ -460,7 +471,22 @@ export class ProductRelationsRepository {
     }
 
     const repo = manager.getRepository(ProductMediaEntity);
+    const existing = rows.length
+      ? await repo.find({ where: { productId } })
+      : [];
+    const resolved = applyPreservedAltText(
+      rows.map((row) => ({
+        ...row,
+        storageKey: row.url.key,
+      })),
+      existing.map((row) => ({
+        variantId: row.variantId,
+        storageKey: row.url?.key ?? '',
+        altText: row.altText ?? null,
+      })),
+    );
     // Hard-replace only after we know what we will insert (or intentional clear via []).
+    // Omitted altText is copied from the previous row for the same storage key and variant.
     await repo
       .createQueryBuilder()
       .delete()
@@ -468,8 +494,10 @@ export class ProductRelationsRepository {
       .where('product_id = :productId', { productId })
       .execute();
 
-    if (!rows.length) return;
-    await repo.save(rows.map((row) => repo.create(row)));
+    if (!resolved.length) return;
+    await repo.save(
+      resolved.map(({ storageKey: _storageKey, ...row }) => repo.create(row)),
+    );
   }
 
   async cleanupLegacyManualMediaKeys(

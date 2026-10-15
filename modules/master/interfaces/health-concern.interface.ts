@@ -7,6 +7,7 @@ export interface IHealthConcern {
   refId: string;
   name: string;
   icon: IStorageFileReferenceResponse | null;
+  iconAltText: string | null;
   slug: string;
   description: string | null;
   listingHeading: string | null;
@@ -20,7 +21,9 @@ export interface IHealthConcern {
   lastReviewed: string | null;
   patientAudience: PatientAudience | null;
   banner: IStorageFileReferenceResponse | null;
+  bannerAltText: string | null;
   faqBanner: IStorageFileReferenceResponse | null;
+  faqBannerAltText: string | null;
   status: MasterStatus;
   inHomePage: boolean;
   sortIndex: number | null;

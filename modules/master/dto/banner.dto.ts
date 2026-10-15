@@ -62,6 +62,11 @@ export class CreateBannerDto {
   title!: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  imageAltText?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)

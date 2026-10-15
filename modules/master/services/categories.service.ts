@@ -15,6 +15,7 @@ import {
 } from '@packages/cache';
 import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { FastifyRequest } from 'fastify';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import { CategoriesRepository } from '../repositories/categories.repository';
 import { CatalogueCodeService } from './catalogue-code.service';
 import { AttributesRepository } from '../repositories/attributes.repository';
@@ -155,8 +156,11 @@ export class CategoriesService {
         position,
         hierarchyLevel,
         image: this.storageUrlEnricher.persist(media.image),
+        imageAltText: storedAltForCreate(dto.imageAltText),
         banner: this.storageUrlEnricher.persist(media.banner),
+        bannerAltText: storedAltForCreate(dto.bannerAltText),
         faqBanner: this.storageUrlEnricher.persist(media.faqBanner),
+        faqBannerAltText: storedAltForCreate(dto.faqBannerAltText),
         slug,
         description: dto.description ?? null,
         listingHeading: normalizeListingHeading(dto.listingHeading),
@@ -355,6 +359,24 @@ export class CategoriesService {
     if (media.faqBanner !== undefined) {
       updatePayload.faqBanner = this.storageUrlEnricher.persist(media.faqBanner);
     }
+    assignStoredAltText(updatePayload, 'imageAltText', {
+      incoming: dto.imageAltText,
+      previousAlt: existing.imageAltText,
+      previousFile: existing.image,
+      nextFile: updatePayload.image !== undefined ? updatePayload.image : existing.image,
+    });
+    assignStoredAltText(updatePayload, 'bannerAltText', {
+      incoming: dto.bannerAltText,
+      previousAlt: existing.bannerAltText,
+      previousFile: existing.banner,
+      nextFile: updatePayload.banner !== undefined ? updatePayload.banner : existing.banner,
+    });
+    assignStoredAltText(updatePayload, 'faqBannerAltText', {
+      incoming: dto.faqBannerAltText,
+      previousAlt: existing.faqBannerAltText,
+      previousFile: existing.faqBanner,
+      nextFile: updatePayload.faqBanner !== undefined ? updatePayload.faqBanner : existing.faqBanner,
+    });
     if (dto.metaTitle !== undefined) updatePayload.metaTitle = dto.metaTitle ?? null;
     if (dto.metaDescription !== undefined)
       updatePayload.metaDescription = dto.metaDescription ?? null;

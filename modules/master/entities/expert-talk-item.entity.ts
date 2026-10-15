@@ -19,6 +19,9 @@ export class ExpertTalkItemEntity extends BaseEntity {
   @Column(storageFileReferenceColumn({ name: 'thumbnail', nullable: true }))
   thumbnail!: IStorageFileReference | null;
 
+  @Column({ name: 'thumbnail_alt_text', type: 'varchar', length: 250, nullable: true })
+  thumbnailAltText!: string | null;
+
   @Column({
     name: 'content_type',
     type: 'enum',

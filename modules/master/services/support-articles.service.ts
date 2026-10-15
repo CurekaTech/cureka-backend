@@ -16,6 +16,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SupportArticleUpdatedEvent, EVENTS } from '@packages/events';
 import { IStorageFileReference } from '@packages/storage';
+import { assignStoredAltText, storedAltForCreate } from '../utils/image-alt-text.util';
 import {
   CreateSupportArticleDto,
   SupportArticleQueryDto,
@@ -84,6 +85,7 @@ export class SupportArticlesService {
       categoryRefId: dto.categoryRefId,
       content: dto.content,
       featuredImage: dto.featuredImage ?? null,
+      featuredImageAltText: storedAltForCreate(dto.featuredImageAltText),
       status: dto.status ?? SupportContentStatus.ACTIVE,
       createdBy: actor,
       updatedBy: actor,
@@ -181,10 +183,18 @@ export class SupportArticlesService {
       }
     }
 
-    const updated = await this.articlesRepo.updateByRefId(refId, {
-      ...dto,
+    const { featuredImageAltText, ...articleFields } = dto;
+    const articlePayload = {
+      ...articleFields,
       updatedBy: actor,
+    };
+    assignStoredAltText(articlePayload, 'featuredImageAltText', {
+      incoming: featuredImageAltText,
+      previousAlt: existing.featuredImageAltText,
+      previousFile: existing.featuredImage,
+      nextFile: dto.featuredImage !== undefined ? dto.featuredImage : existing.featuredImage,
     });
+    const updated = await this.articlesRepo.updateByRefId(refId, articlePayload);
 
     await this.emitSupportArticleUpdated(refId, 'updated');
     return this.enrichArticle(mapSupportArticle(updated as SupportArticleEntity));

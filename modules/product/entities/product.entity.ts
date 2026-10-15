@@ -202,6 +202,9 @@ export class ProductEntity extends BaseEntity {
   @Column({ ...storageFileReferenceColumn({ name: 'bundle_icon', nullable: true }) })
   bundleIcon!: IStorageFileReference | null;
 
+  @Column({ name: 'bundle_icon_alt_text', type: 'varchar', length: 250, nullable: true })
+  bundleIconAltText!: string | null;
+
   /**
    * True when a bundle has at least one unavailable component product.
    * Independent of the pricing variant's admin outOfStock flag.
@@ -216,9 +219,15 @@ export class ProductEntity extends BaseEntity {
   @Column({ ...storageFileReferenceColumn({ name: 'size_chart', nullable: true }) })
   sizeChart!: IStorageFileReference | null;
 
+  @Column({ name: 'size_chart_alt_text', type: 'varchar', length: 250, nullable: true })
+  sizeChartAltText!: string | null;
+
   /** One optional FAQ section image, shared by every variant of this product. */
   @Column({ ...storageFileReferenceColumn({ name: 'faq_banner', nullable: true }) })
   faqBanner!: IStorageFileReference | null;
+
+  @Column({ name: 'faq_banner_alt_text', type: 'varchar', length: 250, nullable: true })
+  faqBannerAltText!: string | null;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;

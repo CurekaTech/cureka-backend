@@ -7,6 +7,7 @@ export interface IPublicBundleBrand {
   name: string;
   slug: string;
   logo: IStorageFileReference | IStorageFileReferenceResponse | null;
+  logoAltText: string | null;
   description: string | null;
 }
 
@@ -21,8 +22,11 @@ export interface IPublicBundleCard {
   slug: string;
   description: string | null;
   bundleIcon: IStorageFileReference | IStorageFileReferenceResponse | null;
+  bundleIconAltText: string | null;
   /** Primary product media image — used when `bundleIcon` is unset. */
   primaryImageUrl: IStorageFileReference | IStorageFileReferenceResponse | null;
+  /** Alt text of the same media row as `primaryImageUrl`. Null when that image has none. */
+  primaryImageAltText: string | null;
   brand: IPublicBundleBrand | null;
   curatedBy: string | null;
   curatedFor: string | null;
@@ -57,6 +61,7 @@ export interface IPublicBundleDetail extends IPublicBundleCard {
     url: IStorageFileReference | IStorageFileReferenceResponse | null;
     sortOrder: number;
     isPrimary: boolean;
+    altText: string | null;
   }>;
   variants: Array<{
     id: string;
@@ -80,6 +85,7 @@ export interface IPublicBundleDetail extends IPublicBundleCard {
     refId: string;
     name: string;
     image: IStorageFileReference | IStorageFileReferenceResponse | null;
+    imageAltText: string | null;
   }>;
   tags: Array<{ refId: string; name: string; slug: string }>;
 }

@@ -343,6 +343,7 @@ export class PromotionalPageReferenceService {
       slug: brand.slug,
       description: brand.description,
       logo: brand.logo,
+      logoAltText: brand.logoAltText ?? null,
       permalink: buildBrandLocPath(brand.slug),
     };
   }
@@ -354,6 +355,7 @@ export class PromotionalPageReferenceService {
       slug: blog.slug,
       excerpt: blog.excerpt,
       featuredImage: blog.featuredImage,
+      featuredImageAltText: blog.featuredImageAltText ?? null,
       permalink: buildBlogLocPath(blog.slug),
       isFeatured: blog.isFeatured,
       isTrending: blog.isTrending,

@@ -31,7 +31,7 @@ import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
 import { enrichProductInformation, ProductInformationLabelCatalog } from '../utils/product-information.util';
-import { mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
+import { applyProductImageAltText, mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
 import { collectProductMedia, hasVariantMediaInPayload } from '../utils/product-media.util';
 import { validateVariantAttributeScope } from '../validators/variant.validator';
 import {
@@ -585,7 +585,14 @@ export class ProductsService {
           countryOfOriginId: masters.countryOfOriginId,
           status: ProductStatus.DRAFT,
           rejectionReason: null,
-          ...mapSpecificationFields(normalizedDto, { labelSortOrders, labelRefIdsByName }),
+          ...(() => {
+            const specification = mapSpecificationFields(normalizedDto, {
+              labelSortOrders,
+              labelRefIdsByName,
+            });
+            applyProductImageAltText(specification, normalizedDto);
+            return specification;
+          })(),
           description: normalizedDto.description ?? null,
           refId,
           createdBy,
@@ -812,9 +819,11 @@ export class ProductsService {
 
     const labelSortOrders = await this.productInformationLabelsRepository.findActiveSortOrdersByName();
     const labelRefIdsByName = await this.productInformationLabelsRepository.findActiveRefIdsByName();
+    const specification = mapSpecificationFields(dto, { labelSortOrders, labelRefIdsByName });
+    applyProductImageAltText(specification, dto, existing);
     const payload: Partial<ProductEntity> = {
       updatedBy,
-      ...mapSpecificationFields(dto, { labelSortOrders, labelRefIdsByName }),
+      ...specification,
     };
     if (dto.name !== undefined) payload.name = dto.name;
     if (existing.productType === ProductType.BUNDLE && dto.name !== undefined) {

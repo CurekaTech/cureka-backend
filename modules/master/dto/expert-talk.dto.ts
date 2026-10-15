@@ -45,6 +45,11 @@ export class CreateExpertTalkItemDto {
   @IsOptional()
   @IsEnum(MasterStatus)
   status?: MasterStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  thumbnailAltText?: string;
 }
 
 export class UpdateExpertTalkItemDto extends PartialType(CreateExpertTalkItemDto) {}
