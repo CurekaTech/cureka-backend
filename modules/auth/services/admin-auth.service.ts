@@ -84,8 +84,7 @@ export class AdminAuthService {
       if (sessionId) {
         await this.adminSessionsRepository.revoke(sessionId, entity.id).catch((revokeError) => {
           this.logger.error(
-            `Failed to revoke super admin session after JWT sign failure: ${
-              revokeError instanceof Error ? revokeError.message : String(revokeError)
+            `Failed to revoke super admin session after JWT sign failure: ${revokeError instanceof Error ? revokeError.message : String(revokeError)
             }`,
           );
         });
@@ -896,9 +895,9 @@ export const MENU_HIERARCHY: MenuItem[] = [
         subItems: [
           {
             name: 'About Cureka',
-            key: 'cms-pages-about-cureka',
+            key: 'cms-pages-about-us',
             icon: 'FileText',
-            href: '/cms/pages/about-cureka',
+            href: '/cms/pages/about-us',
             requiredPermissions: ['cms_pages.read'],
           },
           {
