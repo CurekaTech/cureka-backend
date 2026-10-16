@@ -43,6 +43,16 @@ export class OrderEntity extends BaseEntity {
   @Column({ name: 'grand_total', type: 'decimal', precision: 12, scale: 2 })
   grandTotal!: string;
 
+  @Index('UQ_orders_payment_request_id', { unique: true })
+  @Column({ name: 'payment_request_id', type: 'uuid', nullable: true })
+  paymentRequestId!: string | null;
+
+  @Column({ name: 'wallet_amount_paise', type: 'bigint', default: 0 })
+  walletAmountPaise!: string;
+
+  @Column({ name: 'gateway_amount_paise', type: 'bigint', default: 0 })
+  gatewayAmountPaise!: string;
+
   @Index()
   @Column({ name: 'coupon_id', type: 'uuid', nullable: true })
   couponId!: string | null;

@@ -23,6 +23,7 @@ import {
   sitemapConfig,
   imagePipelineConfig,
   smtpConfig,
+  walletConfig,
   envValidationSchema,
 } from './config';
 
@@ -90,6 +91,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
         sitemapConfig,
         imagePipelineConfig,
         smtpConfig,
+        walletConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {

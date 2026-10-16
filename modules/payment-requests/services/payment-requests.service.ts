@@ -24,7 +24,7 @@ import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
-import { roundMoney } from '@modules/orders/utils/money.util';
+import { roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { resolveStorefrontOrderSource } from '@modules/orders/utils/storefront-order-source.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
@@ -55,6 +55,9 @@ import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
 import { canTransitionPaymentRequestStatus } from '../utils/payment-request-status-transition.util';
+import { RefundWalletService } from '@modules/refund-requests/services/refund-wallet.service';
+import { paiseToRupees, rupeesToPaise } from '@modules/refund-requests/utils/wallet-money.util';
+import { PlaceOrderDto } from '@modules/orders/dto/order.dto';
 
 @Injectable()
 export class PaymentRequestsService {
@@ -82,6 +85,8 @@ export class PaymentRequestsService {
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly gokwikCheckoutTokenService: GokwikCheckoutTokenService,
+    @Inject(forwardRef(() => RefundWalletService))
+    private readonly refundWalletService: RefundWalletService,
   ) { }
 
   async checkoutFromCart(
@@ -89,25 +94,34 @@ export class PaymentRequestsService {
     addressId?: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    useWallet = false,
   ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    if (useWallet) this.assertWalletCheckoutEnabled();
     if (checkoutProvider === 'gokwik') {
+      if (useWallet) throw new BadRequestException('Wallet redemption is not available through GoKwik');
       return this.createGokwikCheckoutSession(userId, addressId, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
+      if (useWallet) throw new BadRequestException('Wallet checkout is not supported by Shiprocket');
       this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource, paymentMethod);
     }
 
     this.assertAddressRequiredForCheckout(addressId, 'legacy');
+    if (useWallet) this.assertWalletCheckoutEnabled();
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
+    if (useWallet && !isPrepaidPaymentMethod(prepaidMethod)) throw new BadRequestException('Wallet cannot be combined with COD');
+    const walletChoice = useWallet ? await this.getWalletCheckoutAllocation(userId, addressId, prepaidMethod) : null;
+    if (walletChoice?.full) return this.ordersService.placeWalletOrder(userId, { addressId: addressId!, paymentMethod: OrderPaymentMethod.WALLET, orderSource });
     if (activeGateway === 'cashfree') {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
         orderSource,
         prepaidMethod,
+        walletChoice?.walletAmountPaise ?? 0,
       );
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
@@ -171,6 +185,9 @@ export class PaymentRequestsService {
           expiresAt: cashfreeOrder['order_expiry_time'] ? new Date(cashfreeOrder['order_expiry_time']) : null,
           amount: Number(totals.totalAmount),
           totalAmount: totals.totalAmount,
+          walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+          gatewayAmount: paymentRequest.totalAmount,
+          eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
           prepaidDiscount: totals.prepaidDiscount,
           paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
         },
@@ -183,6 +200,7 @@ export class PaymentRequestsService {
         addressId,
         orderSource,
         prepaidMethod,
+        walletChoice?.walletAmountPaise ?? 0,
       );
 
       this.assertChargeAmountForQr({
@@ -219,6 +237,9 @@ export class PaymentRequestsService {
       expiresAt: withLink.expiresAt,
           amount: Number(totals.totalAmount),
           totalAmount: totals.totalAmount,
+          walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+          gatewayAmount: paymentRequest.totalAmount,
+          eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
           prepaidDiscount: totals.prepaidDiscount,
         },
       };
@@ -231,6 +252,7 @@ export class PaymentRequestsService {
     addressId?: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    useWallet = false,
   ) {
     this.logger.log(
       {
@@ -250,10 +272,15 @@ export class PaymentRequestsService {
 
     // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
+      if (useWallet) {
+        this.assertWalletCheckoutEnabled();
+        throw new BadRequestException('Wallet redemption is not available through GoKwik');
+      }
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to GoKwik');
       return this.createGokwikCheckoutSession(userId, addressId, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
+      if (useWallet) throw new BadRequestException('Wallet checkout is not supported by Shiprocket');
       this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to Shiprocket');
       return this.createShiprocketCheckoutSession(
@@ -274,7 +301,8 @@ export class PaymentRequestsService {
       '[CHECKOUT-MODAL] routing to legacy native PG',
     );
     this.assertAddressRequiredForCheckout(addressId, 'legacy');
-    return this.createLegacyModalCheckout(userId, addressId, orderSource, paymentMethod);
+    if (useWallet && !isPrepaidPaymentMethod(this.resolveStorefrontPrepaidMethod(await this.gatewayResolver.getActiveGateway(), paymentMethod))) throw new BadRequestException('Wallet cannot be combined with COD');
+    return this.createLegacyModalCheckout(userId, addressId, orderSource, paymentMethod, useWallet);
   }
 
   private async createLegacyModalCheckout(
@@ -282,6 +310,7 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    useWallet = false,
   ) {
     this.logger.log(
       {
@@ -293,8 +322,12 @@ export class PaymentRequestsService {
       '[CHECKOUT-MODAL] legacy: resolving active gateway',
     );
 
+    if (useWallet) this.assertWalletCheckoutEnabled();
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
+    if (useWallet && !isPrepaidPaymentMethod(prepaidMethod)) throw new BadRequestException('Wallet cannot be combined with COD');
+    const walletChoice = useWallet ? await this.getWalletCheckoutAllocation(userId, addressId, prepaidMethod) : null;
+    if (walletChoice?.full) return this.ordersService.placeWalletOrder(userId, { addressId, paymentMethod: OrderPaymentMethod.WALLET, orderSource });
     this.logger.log(
       { userId, activeGateway, prepaidMethod },
       '[CHECKOUT-MODAL] legacy: active gateway selected',
@@ -315,6 +348,7 @@ export class PaymentRequestsService {
       addressId,
         orderSource,
         prepaidMethod,
+        walletChoice?.walletAmountPaise ?? 0,
       );
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
@@ -328,6 +362,9 @@ export class PaymentRequestsService {
           paymentRequestId: paymentRequest.id,
           refId: paymentRequest.refId,
           totalAmount: totals.totalAmount,
+          walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+          gatewayAmount: paymentRequest.totalAmount,
+          eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
           prepaidDiscount: totals.prepaidDiscount,
           returnUrl,
           credentials: this.cashfreeService.getCredentialDiagnostics(),
@@ -403,6 +440,9 @@ export class PaymentRequestsService {
           appId: this.cashfreeService.getAppId(),
           environment: this.cashfreeService.getEnv(),
           totalAmount: totals.totalAmount,
+          walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+          gatewayAmount: paymentRequest.totalAmount,
+          eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
           prepaidDiscount: totals.prepaidDiscount,
           customer: {
             name,
@@ -425,6 +465,7 @@ export class PaymentRequestsService {
       addressId,
       orderSource,
       prepaidMethod,
+      walletChoice?.walletAmountPaise ?? 0,
     );
 
     this.assertChargeAmountForQr({
@@ -605,6 +646,7 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    walletAmountPaise = 0,
   ) {
     // Native online checkout must price as prepaid so QR/PG charge includes 2% off.
     const pricingMethod =
@@ -719,6 +761,14 @@ export class PaymentRequestsService {
       '[CHECKOUT] payment request totals for QR/PG (must include prepaid discount)',
     );
 
+    const eligibleTotalPaise = rupeesToPaise(toMoneyString(chargeGrandTotal));
+    if (!Number.isSafeInteger(walletAmountPaise) || walletAmountPaise < 0 || walletAmountPaise >= eligibleTotalPaise) {
+      if (walletAmountPaise !== 0) throw new BadRequestException('Invalid wallet allocation for gateway checkout');
+    }
+    const gatewayAmountPaise = eligibleTotalPaise - walletAmountPaise;
+    const gatewayAmount = paiseToRupees(gatewayAmountPaise);
+    totals.totalAmount = gatewayAmount;
+
     const paymentRequest = await this.dataSource.transaction(async (manager) => {
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
         this.paymentRequestsRepository.existsByRefId(candidate),
@@ -737,7 +787,9 @@ export class PaymentRequestsService {
           platformFee: totals.platformFee,
           codCharge: totals.codCharge,
           prepaidDiscount: totals.prepaidDiscount,
-          totalAmount: totals.totalAmount,
+          totalAmount: gatewayAmount,
+          walletAmountPaise: String(walletAmountPaise),
+          eligibleTotalPaise: String(eligibleTotalPaise),
           couponCode: summary.coupon?.code ?? null,
           couponDiscount: totals.discount,
           currency: 'INR',
@@ -768,6 +820,14 @@ export class PaymentRequestsService {
         })),
         manager,
       );
+
+      if (walletAmountPaise > 0) {
+        const ttl = this.configService.get<number>('wallet.reservationTtlMinutes') ?? 60;
+        await this.refundWalletService.reserve({
+          customerId: userId, amountPaise: walletAmountPaise, paymentRequestId: created.id,
+          idempotencyKey: `wallet-checkout:${created.id}`, expiresAt: new Date(Date.now() + ttl * 60_000), actorId: userId,
+        }, manager);
+      }
 
       return (await this.paymentRequestsRepository.findById(created.id, manager)) as PaymentRequestEntity;
     });
@@ -850,6 +910,34 @@ export class PaymentRequestsService {
         ? 'addressId is required for Shiprocket checkout'
         : 'addressId is required for checkout',
     );
+  }
+
+  private assertWalletCheckoutEnabled(): void {
+    if (this.configService.get<boolean>('wallet.checkoutEnabled') !== true) {
+      throw new BadRequestException('Cureka Wallet checkout is not enabled');
+    }
+  }
+
+  private async getWalletCheckoutAllocation(
+    userId: string,
+    addressId: string,
+    paymentMethod: OrderPaymentMethod,
+  ): Promise<{ walletAmountPaise: number; eligibleTotalPaise: number; full: boolean }> {
+    if (!isPrepaidPaymentMethod(paymentMethod)) {
+      throw new BadRequestException('Wallet cannot be combined with COD');
+    }
+    const summary = await this.checkoutService.validateCheckout(userId, { addressId, paymentMethod });
+    if (!summary.items.length) throw new BadRequestException('Cart is empty');
+    const eligibleTotalPaise = rupeesToPaise(toMoneyString(summary.grandTotal));
+    const overview = await this.refundWalletService.getOverview(userId);
+    const availablePaise = rupeesToPaise(overview.available);
+    const walletAmountPaise = Math.min(eligibleTotalPaise, availablePaise);
+    if (walletAmountPaise <= 0) throw new BadRequestException('Insufficient wallet balance');
+    return {
+      walletAmountPaise,
+      eligibleTotalPaise,
+      full: walletAmountPaise === eligibleTotalPaise,
+    };
   }
 
   private async createShiprocketCheckoutSession(
@@ -1447,18 +1535,6 @@ export class PaymentRequestsService {
     providerPaymentId?: string,
     updatedBy = 'razorpay-webhook',
   ): Promise<void> {
-    if (existing.status === PaymentRequestStatus.PAID) {
-      this.logger.log(
-        {
-          paymentRequestId: existing.id,
-          paymentRequestRefId: existing.refId,
-          providerPaymentId,
-        },
-        'Ignoring duplicate payment-success notification',
-      );
-      return;
-    }
-
     // Persist the provider-authoritative payment state before attempting downstream
     // order creation. An address, stock, or fulfillment error must never roll a
     // successful payment back to LINK_GENERATED.
@@ -1472,7 +1548,7 @@ export class PaymentRequestsService {
       },
     );
 
-    if (!markedPaid) {
+    if (!markedPaid && existing.status !== PaymentRequestStatus.PAID) {
       this.logger.log(
         {
           paymentRequestId: existing.id,
@@ -1481,13 +1557,15 @@ export class PaymentRequestsService {
         },
         'Payment request was already marked as paid by another notification',
       );
-        return;
+      return;
       }
 
     this.logger.log(
       {
         paymentRequestId: existing.id,
         paymentRequestRefId: existing.refId,
+        walletAmountPaise: existing.walletAmountPaise ?? '0',
+        eligibleTotalPaise: existing.eligibleTotalPaise,
         providerPaymentId,
         previousStatus: existing.status,
         updatedBy,
@@ -1527,6 +1605,8 @@ export class PaymentRequestsService {
         addressId: existing.addressId,
         paymentRequestId: existing.id,
         paymentRequestRefId: existing.refId,
+        walletAmountPaise: existing.walletAmountPaise ?? '0',
+        eligibleTotalPaise: existing.eligibleTotalPaise,
         subtotal: existing.subtotal,
         discountAmount: existing.discount,
         shippingAmount: existing.shipping ?? '0.00',

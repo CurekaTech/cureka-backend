@@ -718,6 +718,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
             requiredPermissions: ['refund_requests.read'],
           },
           {
+            name: 'Wallets',
+            key: 'refunds-wallets',
+            icon: '',
+            href: '/refund-requests/wallets',
+            requiredPermissions: ['refund_requests.read'],
+          },
+          {
             name: 'COD Payouts',
             key: 'refunds-cod-payouts',
             icon: '',

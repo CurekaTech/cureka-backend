@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
@@ -64,6 +65,8 @@ import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unic
 import { OrderFulfillmentCancelService } from '@modules/unicommerce/services/order-fulfillment-cancel.service';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
+import { RefundWalletService } from '@modules/refund-requests/services/refund-wallet.service';
+import { paiseToRupees, rupeesToPaise } from '@modules/refund-requests/utils/wallet-money.util';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
 import { ReturnEligibilityService } from '@modules/returns/services/return-eligibility.service';
 import { ReturnRequestsService } from '@modules/returns/services/return-requests.service';
@@ -125,6 +128,9 @@ export class OrdersService {
     private readonly returnEligibilityService: ReturnEligibilityService,
     private readonly oosEmailQueueService: OosEmailQueueService,
     private readonly auditService: AuditService,
+    @Inject(forwardRef(() => RefundWalletService))
+    private readonly refundWalletService: RefundWalletService,
+    private readonly configService: ConfigService,
   ) {}
 
   private async decrementVariantStock(
@@ -211,7 +217,13 @@ export class OrdersService {
     return { ...summary, checkoutProvider, orderSource: dto.orderSource ?? null };
   }
 
-  async placeOrder(userId: string, dto: PlaceOrderDto) {
+  async placeOrder(userId: string, dto: PlaceOrderDto, walletCheckout = false) {
+    if (dto.paymentMethod === OrderPaymentMethod.WALLET && !walletCheckout) {
+      throw new BadRequestException('Wallet payment must be started through POST /payment-requests/checkout with useWallet=true');
+    }
+    if (walletCheckout && this.configService.get<boolean>('wallet.checkoutEnabled') !== true) {
+      throw new BadRequestException('Cureka Wallet checkout is not enabled');
+    }
     if (
       dto.paymentMethod === OrderPaymentMethod.RAZORPAY ||
       dto.paymentMethod === OrderPaymentMethod.CASHFREE
@@ -231,6 +243,7 @@ export class OrdersService {
     }
 
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
+    const isWalletOrder = walletCheckout && dto.paymentMethod === OrderPaymentMethod.WALLET;
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId: dto.addressId,
       paymentMethod: dto.paymentMethod,
@@ -298,10 +311,12 @@ export class OrdersService {
           couponTitle: appliedCoupon?.title ?? null,
           couponDiscountType: appliedCoupon?.discountType ?? null,
           paymentMethod: dto.paymentMethod,
-          paymentStatus: OrderPaymentStatus.PENDING,
-          // COD: order is accepted immediately; cash remains unpaid until delivery.
+          paymentStatus: isWalletOrder ? OrderPaymentStatus.PAID : OrderPaymentStatus.PENDING,
+          walletAmountPaise: isWalletOrder ? String(rupeesToPaise(toMoneyString(summary.grandTotal))) : '0',
+          gatewayAmountPaise: '0',
+          // COD and atomic full-wallet orders are confirmed immediately.
           orderStatus:
-            dto.paymentMethod === OrderPaymentMethod.COD
+            dto.paymentMethod === OrderPaymentMethod.COD || isWalletOrder
               ? OrderStatus.CONFIRMED
               : OrderStatus.PENDING,
           orderSource: resolvedOrderSource,
@@ -327,6 +342,16 @@ export class OrdersService {
         },
         manager,
       );
+
+      if (isWalletOrder) {
+        await this.refundWalletService.debitForOrder(
+          userId,
+          createdOrder.id,
+          rupeesToPaise(toMoneyString(summary.grandTotal)),
+          userId,
+          manager,
+        );
+      }
 
       const orderItemsPayload = [];
       for (const item of summary.items) {
@@ -468,6 +493,10 @@ export class OrdersService {
     await this.kickoffFulfillment(order.id, order.orderNumber, 'place-order');
     await this.activateSubscriptionsForConfirmedOrder(order, dto.addressId, 'place-order');
     return this.findOne(userId, order.id);
+  }
+
+  async placeWalletOrder(userId: string, dto: PlaceOrderDto) {
+    return this.placeOrder(userId, { ...dto, paymentMethod: OrderPaymentMethod.WALLET }, true);
   }
 
   /**
@@ -2092,6 +2121,8 @@ export class OrdersService {
     addressId?: string | null;
     paymentRequestId: string;
     paymentRequestRefId: string;
+    walletAmountPaise?: string;
+    eligibleTotalPaise?: string | null;
     subtotal: string;
     discountAmount: string;
     shippingAmount: string;
@@ -2121,7 +2152,18 @@ export class OrdersService {
   }) {
     const oosTransitions: VariantOosTransition[] = [];
     const stockAffectedProductIds = new Set<string>();
+    let newlyMaterialized = false;
     const order = await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(PaymentRequestEntity).createQueryBuilder('paymentRequest')
+        .setLock('pessimistic_write')
+        .where('paymentRequest.id = :id', { id: params.paymentRequestId })
+        .getOne();
+      const existingOrder = await manager.getRepository(OrderEntity).findOne({
+        where: { paymentRequestId: params.paymentRequestId },
+      });
+      if (existingOrder) return existingOrder;
+      newlyMaterialized = true;
+
       await this.checkoutService.assertProductPricesCurrent(
         params.customerId,
         params.items.map((item) => ({
@@ -2182,7 +2224,10 @@ export class OrdersService {
           platformFee: params.platformFee ?? '0.00',
           codCharge: params.codCharge ?? '0.00',
           prepaidDiscount: params.prepaidDiscount ?? '0.00',
-          grandTotal: params.grandTotal,
+          grandTotal: params.eligibleTotalPaise ? paiseToRupees(Number(params.eligibleTotalPaise)) : params.grandTotal,
+          paymentRequestId: params.paymentRequestId,
+          walletAmountPaise: params.walletAmountPaise ?? '0',
+          gatewayAmountPaise: String(rupeesToPaise(params.grandTotal)),
           couponId: params.couponId ?? null,
           couponCode: params.couponCode ?? null,
           couponTitle: params.couponTitle ?? null,
@@ -2211,6 +2256,21 @@ export class OrdersService {
         },
         manager,
       );
+
+      const eligibleTotalPaise = params.eligibleTotalPaise ? Number(params.eligibleTotalPaise) : rupeesToPaise(params.grandTotal);
+      const walletAmountPaise = Number(params.walletAmountPaise ?? 0);
+      const gatewayAmountPaise = rupeesToPaise(params.grandTotal);
+      if (walletAmountPaise + gatewayAmountPaise !== eligibleTotalPaise) {
+        throw new BadRequestException('Wallet and gateway allocations do not equal the eligible order total');
+      }
+      if (walletAmountPaise > 0) {
+        const debit = await this.refundWalletService.consumeReservationForPaymentRequest(
+          params.paymentRequestId, createdOrder.id, params.createdBy ?? 'payment-webhook', manager,
+        );
+        if (!debit || rupeesToPaise(debit.amount) !== walletAmountPaise) {
+          throw new ConflictException('Wallet reservation does not match the persisted order allocation');
+        }
+      }
 
       const orderItemsPayload = [];
       for (const item of params.items) {
@@ -2279,15 +2339,13 @@ export class OrdersService {
       return order;
     });
 
-    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
-    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
-    await this.notifyOrderPlacedSafely(order, 'payment-request-order');
-    await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
-    await this.activateSubscriptionsForConfirmedOrder(
-      order,
-      params.addressId ?? null,
-      'payment-request-order',
-    );
+    if (newlyMaterialized) {
+      this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+      await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
+      await this.notifyOrderPlacedSafely(order, 'payment-request-order');
+      await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
+      await this.activateSubscriptionsForConfirmedOrder(order, params.addressId ?? null, 'payment-request-order');
+    }
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -2301,6 +2359,8 @@ export class OrdersService {
     addressId?: string | null;
     paymentRequestId: string;
     paymentRequestRefId: string;
+    walletAmountPaise?: string;
+    eligibleTotalPaise?: string | null;
     subtotal: string;
     discountAmount: string;
     shippingAmount: string;

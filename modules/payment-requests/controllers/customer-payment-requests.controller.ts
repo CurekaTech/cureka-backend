@@ -54,6 +54,7 @@ export class CustomerPaymentRequestsController {
         dto.addressId,
         dto.orderSource,
         dto.paymentMethod,
+        dto.useWallet === true,
       ),
     );
   }
@@ -87,6 +88,7 @@ export class CustomerPaymentRequestsController {
         dto.addressId,
         dto.orderSource,
         dto.paymentMethod,
+        dto.useWallet === true,
       ),
     );
   }
