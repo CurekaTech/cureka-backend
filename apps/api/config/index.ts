@@ -19,3 +19,5 @@ export { sitemapConfig } from './sitemap.config';
 export { imagePipelineConfig } from './image-pipeline.config';
 export { smtpConfig } from './smtp.config';
 export { envValidationSchema } from './env.validation';
+
+export { walletConfig } from './wallet.config';

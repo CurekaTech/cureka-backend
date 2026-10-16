@@ -52,6 +52,14 @@ export class PaymentRequestEntity extends BaseEntity {
   @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2 })
   totalAmount!: string;
 
+  /** Wallet portion held in integer paise; totalAmount remains the gateway charge in INR. */
+  @Column({ name: 'wallet_amount_paise', type: 'bigint', default: 0 })
+  walletAmountPaise!: string;
+
+  /** Full eligible order total before wallet allocation, in integer paise. */
+  @Column({ name: 'eligible_total_paise', type: 'bigint', nullable: true })
+  eligibleTotalPaise!: string | null;
+
   @Column({ name: 'coupon_code', type: 'varchar', length: 100, nullable: true })
   couponCode!: string | null;
 

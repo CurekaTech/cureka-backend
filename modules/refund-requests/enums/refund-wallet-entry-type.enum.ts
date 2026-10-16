@@ -6,4 +6,5 @@ export enum RefundWalletEntryDirection {
 export enum RefundWalletEntryType {
   COD_REFUND = 'COD_REFUND',
   ORIGINAL_WALLET_REFUND = 'ORIGINAL_WALLET_REFUND',
+  CHECKOUT_DEBIT = 'CHECKOUT_DEBIT',
 }

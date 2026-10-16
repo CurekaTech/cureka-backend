@@ -134,7 +134,7 @@ export type AdminOrderCustomerResponse = {
 export type AdminOrderResponse = OrderResponse & {
   customer: AdminOrderCustomerResponse | null;
   /** Present when admin order detail is resolved from a payment request (`PAY…`). */
-  paymentRequestId?: string;
+  paymentRequestId?: string | null;
   paymentRequestRefId?: string;
   paymentRequestStatus?: PaymentRequestStatus;
   paymentLink?: string | null;
