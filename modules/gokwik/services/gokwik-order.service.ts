@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
@@ -44,6 +44,7 @@ export class GokwikOrderService {
 
   constructor(
     private readonly cartService: CartService,
+    @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
     private readonly userAddressesService: UserAddressesService,
     private readonly usersService: UsersService,

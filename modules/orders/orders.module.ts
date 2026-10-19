@@ -63,7 +63,7 @@ import { OrdersService } from './services/orders.service';
     UsersModule,
     UploadsModule,
     ShippingModule,
-    UnicommerceOrderModule,
+    forwardRef(() => UnicommerceOrderModule),
     NotificationsModule,
     forwardRef(() => SubscriptionModule),
     forwardRef(() => PaymentRequestsModule),
