@@ -113,6 +113,7 @@ export class OrdersService {
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    @Inject(forwardRef(() => OrderFulfillmentCancelService))
     private readonly orderFulfillmentCancelService: OrderFulfillmentCancelService,
     private readonly fulfillmentEventsRepository: OrderFulfillmentEventsRepository,
     private readonly orderNotificationsService: OrderNotificationsService,
