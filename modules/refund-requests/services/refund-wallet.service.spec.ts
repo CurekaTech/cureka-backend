@@ -25,10 +25,12 @@ describe('RefundWalletService', () => {
   };
   const dataSource = { transaction: jest.fn(async (fn: any) => fn({})) };
   const auditService = { enqueueCritical: jest.fn() };
+  const ordersRepository = { find: jest.fn().mockResolvedValue([]) };
   const service = new RefundWalletService(
     walletRepository as never,
     dataSource as never,
     auditService as never,
+    ordersRepository as never,
   );
   const manager = {} as never;
 

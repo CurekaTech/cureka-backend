@@ -35,6 +35,7 @@ import {
   ReturnListQueryDto,
   SchedulePickupDto,
   SubmitQcDto,
+  SubmitReturnBankDetailsDto,
   UpdatePickupStatusDto,
 } from '../dto/return-request.dto';
 import { ReturnRequestedByType } from '../enums/return-requested-by-type.enum';
@@ -298,6 +299,27 @@ export class AdminReturnsController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.workflowService.createRefund(id, dto, this.toActor(user));
+  }
+
+  @ApiOperation({
+    summary: 'Add or update COD bank / wallet destination on a return',
+    description:
+      'Optional when the customer has not submitted bank details. Response never includes the full account number — only masked last4.',
+  })
+  @ResponseMessage('Return refund destination updated')
+  @RequirePermissions(RETURN_PERMISSIONS.UPDATE)
+  @Post(':id/bank-details')
+  async updateBankDetails(
+    @Param('id') id: string,
+    @Body() dto: SubmitReturnBankDetailsDto,
+    @CurrentAdminUser() user: IAdminJwtPayload,
+  ) {
+    await this.returnRequestsService.adminUpdateBankDetails(
+      id,
+      dto,
+      this.toActor(user),
+    );
+    return this.workflowService.getDetail(id);
   }
 
   @ApiOperation({ summary: 'Confirm the replacement product and freeze the price difference' })

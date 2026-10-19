@@ -211,13 +211,13 @@ export class BulkPriceUpdateService {
       limit,
       BulkUploadType.PRICE_UPDATE,
     );
-    return {
-      data: records.map((record) => ({
+    const data = await Promise.all(
+      records.map(async (record) => ({
         refId: record.refId,
         status: record.status,
         uploadType: record.uploadType,
         fileUrl: record.fileUrl,
-        errorFileUrl: record.errorFileUrl,
+        errorFileUrl: await this.resolveErrorFileUrl(record.errorFileUrl),
         errorSummary: record.errorSummary,
         totalRows: record.totalRows,
         processedRows: record.processedRows,
@@ -226,6 +226,9 @@ export class BulkPriceUpdateService {
         createdAt: record.createdAt,
         completedAt: record.completedAt,
       })),
+    );
+    return {
+      data,
       pagination: {
         page,
         limit,
@@ -257,7 +260,7 @@ export class BulkPriceUpdateService {
             ? Math.round((record.processedRows / record.totalRows) * 100)
             : 0,
       },
-      errorFileUrl: record.errorFileUrl,
+      errorFileUrl: await this.resolveErrorFileUrl(record.errorFileUrl),
       errorSummary,
       createdAt: record.createdAt,
       completedAt: record.completedAt,
@@ -351,5 +354,15 @@ export class BulkPriceUpdateService {
       )
       .header('Content-Disposition', `attachment; filename="${fileName}"`)
       .send(fileBuffer);
+  }
+
+  /** Stored value is a storage key; browsers need a signed or /uploads URL. */
+  private async resolveErrorFileUrl(stored: string | null): Promise<string | null> {
+    if (!stored?.trim()) return null;
+    const trimmed = stored.trim();
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/uploads/')) {
+      return trimmed;
+    }
+    return (await this.storageService.resolveAccessibleUrl(trimmed)) ?? trimmed;
   }
 }

@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { AuditService } from '@modules/master/services/audit.service';
 import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
+import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { generateUniqueRefId } from '@packages/common';
-import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
+import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { COD_PAYOUT_DUPLICATE } from '../constants/cod-payout.constants';
 import { RefundWalletAccountEntity } from '../entities/refund-wallet-account.entity';
 import { RefundWalletLedgerEntity } from '../entities/refund-wallet-ledger.entity';
@@ -39,6 +41,8 @@ export class RefundWalletService {
     private readonly walletRepository: RefundWalletRepository,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    @InjectRepository(OrderEntity)
+    private readonly ordersRepository: Repository<OrderEntity>,
   ) {}
 
   async getOverview(customerId: string) {
@@ -59,7 +63,36 @@ export class RefundWalletService {
 
   async getCustomerTransactions(customerId: string, page = 1, limit = 20) {
     const [items, total] = await this.walletRepository.findCustomerLedgerPage(customerId, page, limit);
-    return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
+    const orderIds = [
+      ...new Set(
+        items
+          .map((row) => row.orderId?.trim())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const orderNumberById = new Map<string, string>();
+    if (orderIds.length > 0) {
+      const orders = await this.ordersRepository.find({
+        where: { id: In(orderIds) },
+        select: ['id', 'orderNumber'],
+      });
+      for (const order of orders) {
+        if (order.orderNumber?.trim()) {
+          orderNumberById.set(order.id, order.orderNumber.trim());
+        }
+      }
+    }
+
+    return {
+      items: items.map((row) => ({
+        ...row,
+        orderNumber: row.orderId ? orderNumberById.get(row.orderId) ?? null : null,
+      })),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async getAdminOverview(customerId: string) {

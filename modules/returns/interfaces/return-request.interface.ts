@@ -209,9 +209,15 @@ export interface IReturnRequestDetail extends IReturnRequestListItem {
   };
   codRefund: {
     method: string | null;
+    /** True when customer/admin has submitted wallet or bank destination. */
+    detailsSubmitted: boolean;
+    /** Admin may add/replace unlocked bank details (never returns full account). */
+    canAdminSetBankDetails: boolean;
     bankDetails: {
       accountHolderName: string | null;
       accountNumberMasked: string | null;
+      /** Last 4 digits only — for ops verification. */
+      accountNumberLast4: string | null;
       ifsc: string | null;
       bankName: string | null;
       locked: boolean;

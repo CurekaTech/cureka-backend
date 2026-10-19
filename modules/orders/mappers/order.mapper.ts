@@ -93,6 +93,10 @@ export type OrderPaymentSummaryResponse = {
   paidAmount: number;
   paymentMethod: string;
   paymentStatus: string;
+  /** Wallet tender in INR (from walletAmountPaise). */
+  walletAmount: number;
+  /** Gateway / COD remainder in INR (from gatewayAmountPaise). */
+  gatewayAmount: number;
 };
 
 export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
@@ -290,8 +294,12 @@ export function mapOrderPaymentSummary(
     | 'grandTotal'
     | 'paymentMethod'
     | 'paymentStatus'
+    | 'walletAmountPaise'
+    | 'gatewayAmountPaise'
   >,
 ): OrderPaymentSummaryResponse {
+  const walletPaise = Number(order.walletAmountPaise ?? 0);
+  const gatewayPaise = Number(order.gatewayAmountPaise ?? 0);
   return {
     itemTotal: parseMoney(order.subtotal),
     discount: parseMoney(order.discountAmount),
@@ -301,6 +309,8 @@ export function mapOrderPaymentSummary(
     paidAmount: resolvePaidAmount(order),
     paymentMethod: String(order.paymentMethod),
     paymentStatus: String(order.paymentStatus),
+    walletAmount: Number.isFinite(walletPaise) ? walletPaise / 100 : 0,
+    gatewayAmount: Number.isFinite(gatewayPaise) ? gatewayPaise / 100 : 0,
   };
 }
 
