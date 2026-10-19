@@ -13,6 +13,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
+import { CodRefundMethod } from '../enums/cod-refund-method.enum';
 import { RefundPaymentProvider } from '../enums/refund-payment-provider.enum';
 import { RefundReason } from '../enums/refund-reason.enum';
 import { RefundRequestStatus } from '../enums/refund-request-status.enum';
@@ -64,6 +65,20 @@ export class ApproveRefundRequestDto {
   @IsOptional()
   @IsNumberString()
   approvedAmount?: string;
+
+  /**
+   * Where Finance will settle on Initiate.
+   * Defaults to WALLET (merchant retains gateway funds; customer is credited in-wallet).
+   * BANK_ACCOUNT uses bank details the customer already submitted on the return.
+   */
+  @ApiPropertyOptional({
+    enum: CodRefundMethod,
+    default: CodRefundMethod.WALLET,
+    description: 'Settlement destination. Defaults to WALLET when omitted.',
+  })
+  @IsOptional()
+  @IsEnum(CodRefundMethod)
+  refundDestination?: CodRefundMethod;
 
   @ApiPropertyOptional()
   @IsOptional()

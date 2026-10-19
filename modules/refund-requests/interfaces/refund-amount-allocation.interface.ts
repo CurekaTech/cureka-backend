@@ -14,4 +14,10 @@ export interface IRefundAmountAllocation {
   onlineStatus: RefundComponentStatus;
   originalWalletStatus: RefundComponentStatus;
   codStatus: RefundComponentStatus;
+  /**
+   * Admin choice at approve time. `WALLET` (default) credits the customer wallet
+   * and does not call the payment gateway. `BANK_ACCOUNT` uses customer-submitted
+   * bank details on the linked return.
+   */
+  adminSettlementDestination?: CodRefundMethod | null;
 }

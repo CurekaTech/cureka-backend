@@ -3,5 +3,6 @@ export enum RefundPaymentProvider {
   RAZORPAY = 'RAZORPAY',
   CASHFREE = 'CASHFREE',
   COD = 'COD',
+  WALLET = 'WALLET',
   OTHER = 'OTHER',
 }

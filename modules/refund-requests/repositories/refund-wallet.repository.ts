@@ -44,6 +44,25 @@ export class RefundWalletRepository {
     });
   }
 
+  findStalePendingReservations(expiredBefore: Date, limit: number) {
+    return this.reservations
+      .createQueryBuilder('reservation')
+      .where('reservation.status = :status', { status: RefundWalletReservationStatus.PENDING })
+      .andWhere('reservation.expiresAt < :expiredBefore', { expiredBefore })
+      .orderBy('reservation.expiresAt', 'ASC')
+      .take(limit)
+      .getMany();
+  }
+
+  lockReservationByPaymentRequestId(paymentRequestId: string, manager: EntityManager) {
+    return manager
+      .getRepository(RefundWalletReservationEntity)
+      .createQueryBuilder('reservation')
+      .setLock('pessimistic_write')
+      .where('reservation.paymentRequestId = :paymentRequestId', { paymentRequestId })
+      .getOne();
+  }
+
   lockAccountByCustomerId(customerId: string, manager: EntityManager) {
     return manager
       .getRepository(RefundWalletAccountEntity)

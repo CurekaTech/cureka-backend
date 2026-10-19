@@ -1,7 +1,10 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
+import { ReturnRequestEntity } from '@modules/returns/entities/return-request.entity';
+import { BANK_DETAILS_REQUIRED } from '../constants/cod-payout.constants';
 import { REFUND_NOT_APPROVED } from '../constants/refund-request.constants';
+import { CodRefundMethod } from '../enums/cod-refund-method.enum';
 import { RefundRequestStatus } from '../enums/refund-request-status.enum';
 import { RefundRequestedByType } from '../enums/refund-requested-by-type.enum';
 import { RefundRequestsService } from './refund-request.service';
@@ -57,6 +60,7 @@ describe('RefundRequestsService workflow', () => {
   const eventEmitter = { emitAsync: jest.fn() };
   const payoutService = {
     createForReturnRefund: jest.fn().mockResolvedValue(null),
+    syncForAdminSettlement: jest.fn().mockResolvedValue(null),
     onRefundInitiated: jest.fn(),
     getByRefundRequestId: jest.fn().mockResolvedValue(null),
     toAdminView: jest.fn(),
@@ -242,6 +246,140 @@ describe('RefundRequestsService workflow', () => {
     expect(created.requestedAmount).toBe('150.00');
     expect(processor.initiate).not.toHaveBeenCalled();
     expect(payoutService.createForReturnRefund).toHaveBeenCalled();
+  });
+
+  it('approves with wallet destination by default and syncs payout', async () => {
+    const locked = {
+      id: 'rr-approve',
+      refId: 'RFNAPP1',
+      status: RefundRequestStatus.REQUESTED,
+      requestedAmount: '500.00',
+      approvedAmount: null,
+      currency: 'INR',
+      orderId: 'order-1',
+      returnRequestId: 'ret-1',
+      history: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    refundRequestsRepository.findByIdOrRefId.mockResolvedValue(locked);
+    refundRequestsRepository.lockById.mockResolvedValue({ ...locked });
+    refundRequestsRepository.findById.mockResolvedValue({
+      ...locked,
+      status: RefundRequestStatus.APPROVED,
+      approvedAmount: '500.00',
+      amountAllocation: {
+        totalAmount: '500.00',
+        onlineAmount: '0.00',
+        originalWalletAmount: '0.00',
+        codAmount: '500.00',
+        codRefundMethod: CodRefundMethod.WALLET,
+        adminSettlementDestination: CodRefundMethod.WALLET,
+      },
+      customer: null,
+    });
+
+    await service.approve('rr-approve', { comment: 'ok' }, actor);
+
+    expect(refundRequestsRepository.updateById).toHaveBeenCalledWith(
+      'rr-approve',
+      expect.objectContaining({
+        status: RefundRequestStatus.APPROVED,
+        approvedAmount: '500.00',
+        amountAllocation: expect.objectContaining({
+          onlineAmount: '0.00',
+          codAmount: '500.00',
+          codRefundMethod: CodRefundMethod.WALLET,
+          adminSettlementDestination: CodRefundMethod.WALLET,
+        }),
+      }),
+      expect.anything(),
+    );
+    expect(payoutService.syncForAdminSettlement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocation: expect.objectContaining({
+          adminSettlementDestination: CodRefundMethod.WALLET,
+        }),
+      }),
+    );
+  });
+
+  it('rejects bank settlement approve without customer bank details', async () => {
+    const locked = {
+      id: 'rr-bank',
+      status: RefundRequestStatus.REQUESTED,
+      requestedAmount: '100.00',
+      currency: 'INR',
+      orderId: 'order-1',
+      returnRequestId: 'ret-bank',
+    };
+    refundRequestsRepository.findByIdOrRefId.mockResolvedValue(locked);
+    dataSource.getRepository.mockImplementation((entity: unknown) => {
+      if (entity === ReturnRequestEntity) {
+        return {
+          findOne: jest.fn().mockResolvedValue({
+            id: 'ret-bank',
+            bankAccountNumberEncrypted: null,
+            bankIfsc: null,
+            bankAccountHolderName: null,
+          }),
+        };
+      }
+      return { findOne: jest.fn().mockResolvedValue(buildOrder()) };
+    });
+
+    await expect(
+      service.approve('rr-bank', { refundDestination: CodRefundMethod.BANK_ACCOUNT }, actor),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: BANK_DETAILS_REQUIRED }),
+    });
+    expect(payoutService.syncForAdminSettlement).not.toHaveBeenCalled();
+  });
+
+  it('initiates wallet settlement without calling the payment gateway', async () => {
+    const locked = {
+      id: 'rr-wallet',
+      refId: 'RFNW1',
+      status: RefundRequestStatus.APPROVED,
+      approvedAmount: '500.00',
+      requestedAmount: '500.00',
+      orderId: 'order-1',
+      paymentProvider: 'RAZORPAY',
+      amountAllocation: {
+        totalAmount: '500.00',
+        onlineAmount: '0.00',
+        originalWalletAmount: '0.00',
+        codAmount: '500.00',
+        onlineStatus: 'COMPLETED',
+        originalWalletStatus: 'COMPLETED',
+        codStatus: 'PENDING',
+        codRefundMethod: CodRefundMethod.WALLET,
+        adminSettlementDestination: CodRefundMethod.WALLET,
+      },
+    };
+    refundRequestsRepository.findByIdOrRefId.mockResolvedValue(locked);
+    refundRequestsRepository.lockById.mockResolvedValue(locked);
+    refundRequestsRepository.findById.mockResolvedValue({
+      ...locked,
+      status: RefundRequestStatus.PROCESSING,
+      history: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      customer: null,
+    });
+    providerResolver.resolve.mockResolvedValue({
+      paymentProvider: 'RAZORPAY',
+      identifiable: true,
+      capturedAmount: '500.00',
+      providerPaymentId: 'pay_1',
+      paymentRequestId: 'pr_1',
+    });
+    payoutService.getByRefundRequestId.mockResolvedValue({ status: 'PAID' });
+
+    await service.initiate('rr-wallet', {}, actor);
+
+    expect(processor.initiate).not.toHaveBeenCalled();
+    expect(payoutService.onRefundInitiated).toHaveBeenCalled();
   });
 
   it('does not complete a COD refund on finance initiate without a UTR', async () => {

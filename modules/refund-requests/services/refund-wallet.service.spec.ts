@@ -10,7 +10,9 @@ describe('RefundWalletService', () => {
     findLedgerByIdempotencyKey: jest.fn(),
     findLedgerByReservationId: jest.fn(),
     findReservationByIdempotencyKey: jest.fn(),
+    findReservationByPaymentRequestId: jest.fn(),
     lockReservationById: jest.fn(),
+    lockReservationByPaymentRequestId: jest.fn(),
     lockAccountByCustomerId: jest.fn(),
     saveAccount: jest.fn(),
     saveReservation: jest.fn(),
@@ -21,7 +23,13 @@ describe('RefundWalletService', () => {
     existsReservationRefId: jest.fn().mockResolvedValue(false),
     saveLedger: jest.fn(),
   };
-  const service = new RefundWalletService(walletRepository as never);
+  const dataSource = { transaction: jest.fn(async (fn: any) => fn({})) };
+  const auditService = { enqueueCritical: jest.fn() };
+  const service = new RefundWalletService(
+    walletRepository as never,
+    dataSource as never,
+    auditService as never,
+  );
   const manager = {} as never;
 
   beforeEach(() => jest.clearAllMocks());
@@ -136,5 +144,59 @@ describe('RefundWalletService', () => {
     });
     await expect(service.consumeReservation('reservation-id', 'order-id', 'webhook', manager))
       .rejects.toThrow('Wallet reservation is no longer pending');
+  });
+
+  it('releases a pending reservation and decrements reserved paise', async () => {
+    walletRepository.lockReservationById.mockResolvedValue({
+      id: 'reservation-id',
+      customerId: 'user-1',
+      amountPaise: '500',
+      status: RefundWalletReservationStatus.PENDING,
+    });
+    walletRepository.lockAccountByCustomerId.mockResolvedValue({
+      id: 'account-id', reservedBalancePaise: '500',
+    });
+
+    await service.releaseReservation('reservation-id', 'system', manager);
+
+    expect(walletRepository.updateAccount).toHaveBeenCalledWith(
+      'account-id', { reservedBalancePaise: '0', updatedBy: 'system' }, manager,
+    );
+    expect(walletRepository.updateReservation).toHaveBeenCalledWith(
+      'reservation-id',
+      expect.objectContaining({ status: RefundWalletReservationStatus.RELEASED }),
+      manager,
+    );
+  });
+
+  it('is idempotent when releasing an already consumed reservation', async () => {
+    const consumed = {
+      id: 'reservation-id', status: RefundWalletReservationStatus.CONSUMED,
+    };
+    walletRepository.lockReservationById.mockResolvedValue(consumed);
+    await expect(service.releaseReservation('reservation-id', 'system', manager))
+      .resolves.toBe(consumed);
+    expect(walletRepository.updateAccount).not.toHaveBeenCalled();
+  });
+
+  it('releases by payment request id when a pending reservation exists', async () => {
+    walletRepository.lockReservationByPaymentRequestId.mockResolvedValue({
+      id: 'reservation-id',
+      customerId: 'user-1',
+      amountPaise: '250',
+      status: RefundWalletReservationStatus.PENDING,
+    });
+    walletRepository.lockReservationById.mockResolvedValue({
+      id: 'reservation-id',
+      customerId: 'user-1',
+      amountPaise: '250',
+      status: RefundWalletReservationStatus.PENDING,
+    });
+    walletRepository.lockAccountByCustomerId.mockResolvedValue({
+      id: 'account-id', reservedBalancePaise: '250',
+    });
+
+    await service.releaseReservationForPaymentRequest('pr-1', 'webhook', manager);
+    expect(walletRepository.updateReservation).toHaveBeenCalled();
   });
 });

@@ -8,6 +8,7 @@ import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-re
 import { PaymentRequestsRepository } from '@modules/payment-requests/repositories/payment-requests.repository';
 import { RefundPaymentProvider } from '../enums/refund-payment-provider.enum';
 import { IRefundProviderResolution } from '../interfaces/refund-request.interface';
+import { paiseToRupees } from '../utils/wallet-money.util';
 
 const PAYMENT_REQUEST_REF_PATTERN = /Generated from payment request ([A-Z0-9]+)/i;
 
@@ -47,18 +48,35 @@ export class RefundProviderResolverService {
       };
     }
 
+    if (order.paymentMethod === OrderPaymentMethod.WALLET) {
+      const walletPaise = Number(order.walletAmountPaise ?? 0);
+      const captured =
+        Number.isFinite(walletPaise) && walletPaise > 0
+          ? paiseToRupees(walletPaise)
+          : toMoneyString(parseMoney(order.grandTotal));
+      return {
+        paymentProvider: RefundPaymentProvider.WALLET,
+        originalPaymentMethod: order.paymentMethod,
+        providerPaymentId: null,
+        paymentRequestId: order.paymentRequestId ?? null,
+        capturedAmount: captured,
+        identifiable: true,
+      };
+    }
+
     const paymentRequest = await this.findNativePaymentRequest(order);
     if (paymentRequest) {
       const provider = this.mapProvider(paymentRequest.paymentProvider, order.paymentMethod);
+      const gatewayCaptured =
+        paymentRequest.status === PaymentRequestStatus.PAID
+          ? paymentRequest.totalAmount
+          : '0.00';
       return {
         paymentProvider: provider,
         originalPaymentMethod: order.paymentMethod,
         providerPaymentId: paymentRequest.paymentReference,
         paymentRequestId: paymentRequest.id,
-        capturedAmount:
-          paymentRequest.status === PaymentRequestStatus.PAID
-            ? paymentRequest.totalAmount
-            : '0.00',
+        capturedAmount: gatewayCaptured,
         identifiable: provider !== RefundPaymentProvider.OTHER,
         unresolvedReason:
           provider === RefundPaymentProvider.OTHER
@@ -78,7 +96,7 @@ export class RefundProviderResolverService {
             : RefundPaymentProvider.RAZORPAY,
         originalPaymentMethod: order.paymentMethod,
         providerPaymentId: null,
-        paymentRequestId: null,
+        paymentRequestId: order.paymentRequestId ?? null,
         capturedAmount: this.isCaptured(order.paymentStatus) ? order.grandTotal : '0.00',
         identifiable: false,
         unresolvedReason:
@@ -90,7 +108,7 @@ export class RefundProviderResolverService {
       paymentProvider: RefundPaymentProvider.OTHER,
       originalPaymentMethod: order.paymentMethod,
       providerPaymentId: null,
-      paymentRequestId: null,
+      paymentRequestId: order.paymentRequestId ?? null,
       capturedAmount: '0.00',
       identifiable: false,
       unresolvedReason: 'Original successful payment source could not be identified',
@@ -98,6 +116,13 @@ export class RefundProviderResolverService {
   }
 
   private async findNativePaymentRequest(order: OrderEntity) {
+    if (order.paymentRequestId) {
+      const byId = await this.paymentRequestsRepository.findById(order.paymentRequestId);
+      if (byId && byId.status === PaymentRequestStatus.PAID) {
+        return byId;
+      }
+    }
+
     const fromNotes = order.notes?.match(PAYMENT_REQUEST_REF_PATTERN)?.[1];
     if (fromNotes) {
       const byRef = await this.paymentRequestsRepository.findPaidByRefId(fromNotes.toUpperCase());
@@ -113,9 +138,15 @@ export class RefundProviderResolverService {
       return byOrderNumber;
     }
 
+    const gatewayPaise = Number(order.gatewayAmountPaise ?? 0);
+    const lookupAmount =
+      Number.isFinite(gatewayPaise) && gatewayPaise > 0
+        ? paiseToRupees(gatewayPaise)
+        : order.grandTotal;
+
     return this.paymentRequestsRepository.findLatestPaidForCustomerAmount(
       order.userId,
-      order.grandTotal,
+      lookupAmount,
     );
   }
 
@@ -128,8 +159,10 @@ export class RefundProviderResolverService {
     if (normalized === 'RAZORPAY') return RefundPaymentProvider.RAZORPAY;
     if (normalized === 'CASHFREE') return RefundPaymentProvider.CASHFREE;
     if (normalized === 'COD') return RefundPaymentProvider.COD;
+    if (normalized === 'WALLET') return RefundPaymentProvider.WALLET;
     if (orderMethod === OrderPaymentMethod.CASHFREE) return RefundPaymentProvider.CASHFREE;
     if (orderMethod === OrderPaymentMethod.RAZORPAY) return RefundPaymentProvider.RAZORPAY;
+    if (orderMethod === OrderPaymentMethod.WALLET) return RefundPaymentProvider.WALLET;
     return RefundPaymentProvider.OTHER;
   }
 

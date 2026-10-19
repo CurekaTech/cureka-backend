@@ -121,9 +121,14 @@ export class PaymentsWebhookController {
           actor: 'cashfree-webhook',
         });
         if (!routed) {
+          const providerAmount = Number(
+            paymentData?.['payment_amount'] ?? orderData?.['order_amount'] ?? NaN,
+          );
           await this.paymentRequestsService.handleCashfreePaymentSuccess(
             orderId,
             cfPaymentId ? String(cfPaymentId) : undefined,
+            'cashfree-webhook',
+            Number.isFinite(providerAmount) ? providerAmount : null,
           );
         }
         this.logger.log(
@@ -136,11 +141,18 @@ export class PaymentsWebhookController {
           'Cashfree webhook missing orderId',
         );
       }
-    } else if (
-      (eventType === 'PAYMENT_FAILED_WEBHOOK' ||
-        eventType === 'PAYMENT_USER_DROPPED_WEBHOOK') &&
-      orderId
-    ) {
+    } else if (eventType === 'PAYMENT_USER_DROPPED_WEBHOOK' && orderId) {
+      // User-dropped is ambiguous — do not auto-fail or release wallet holds.
+      await this.paymentRequestsService.handlePaymentOutcomeUncertain(
+        String(orderId),
+        String(paymentData?.['payment_message'] ?? 'Cashfree payment user dropped'),
+        'cashfree-webhook',
+      );
+      this.logger.log(
+        { orderId, eventType, requestId: req.id },
+        'Cashfree webhook recorded uncertain user-dropped outcome',
+      );
+    } else if (eventType === 'PAYMENT_FAILED_WEBHOOK' && orderId) {
       await this.productSubscriptionsService.handlePaymentFailed({
         gatewayOrderId: String(orderId),
         reason: String(paymentData?.['payment_message'] ?? 'Cashfree payment failed'),
@@ -302,6 +314,11 @@ export class PaymentsWebhookController {
       return { received: true, event, requestId: req.id, duplicate: true };
     }
 
+    const razorpayAmountPaise = Number(paymentEntity?.entity?.amount);
+    const razorpayAmountRupees = Number.isFinite(razorpayAmountPaise)
+      ? razorpayAmountPaise / 100
+      : null;
+
     if (event === 'payment_link.paid' && linkId) {
       const routed = await this.routeSubscriptionPaid({
         paymentPurpose,
@@ -312,7 +329,12 @@ export class PaymentsWebhookController {
         actor: 'razorpay-webhook',
       });
       if (!routed) {
-        await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
+        await this.paymentRequestsService.handlePaymentLinkPaid(
+          linkId,
+          paymentEntity?.entity?.id,
+          'razorpay-webhook',
+          razorpayAmountRupees,
+        );
       }
     } else if (event === 'payment_link.cancelled' && linkId) {
       await this.paymentRequestsService.handlePaymentLinkCancelled(linkId);
@@ -329,11 +351,25 @@ export class PaymentsWebhookController {
       });
       if (!routed) {
         if (paymentRequestId) {
-          await this.paymentRequestsService.handlePaymentCaptured(paymentRequestId, paymentEntity?.entity?.id);
+          await this.paymentRequestsService.handlePaymentCaptured(
+            paymentRequestId,
+            paymentEntity?.entity?.id,
+            razorpayAmountRupees,
+          );
         } else if (orderId) {
-          await this.paymentRequestsService.handlePaymentLinkPaid(orderId, paymentEntity?.entity?.id);
+          await this.paymentRequestsService.handlePaymentLinkPaid(
+            orderId,
+            paymentEntity?.entity?.id,
+            'razorpay-webhook',
+            razorpayAmountRupees,
+          );
         } else if (linkId) {
-          await this.paymentRequestsService.handlePaymentLinkPaid(linkId, paymentEntity?.entity?.id);
+          await this.paymentRequestsService.handlePaymentLinkPaid(
+            linkId,
+            paymentEntity?.entity?.id,
+            'razorpay-webhook',
+            razorpayAmountRupees,
+          );
         }
       }
     } else if (event === 'payment.failed') {
