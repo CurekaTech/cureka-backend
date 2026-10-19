@@ -6,7 +6,11 @@ import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { IAdminJwtPayload } from '@packages/auth';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import {
+  PERMISSIONS_KEY,
+  PERMISSIONS_MODE_KEY,
+  type PermissionsMode,
+} from '../decorators/permissions.decorator';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -25,6 +29,12 @@ export class PermissionsGuard implements CanActivate {
     if (!requiredPermissions || requiredPermissions.length === 0) {
       return true;
     }
+
+    const mode =
+      this.reflector.getAllAndOverride<PermissionsMode>(PERMISSIONS_MODE_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? 'all';
 
     const request = context.switchToHttp().getRequest<{ user?: IAdminJwtPayload }>();
     const user = request.user;
@@ -51,13 +61,15 @@ export class PermissionsGuard implements CanActivate {
         .map((permission) => permission.code),
     );
 
-    const hasEveryPermission = requiredPermissions.every((permission) =>
-      permissionCodes.has(permission),
-    );
+    const hasAccess =
+      mode === 'any'
+        ? requiredPermissions.some((permission) => permissionCodes.has(permission))
+        : requiredPermissions.every((permission) => permissionCodes.has(permission));
 
-    if (!hasEveryPermission) {
+    if (!hasAccess) {
+      const joiner = mode === 'any' ? ' or ' : ', ';
       throw new ForbiddenException(
-        `Access denied. Required permission(s): ${requiredPermissions.join(', ')}`,
+        `Access denied. Required permission(s): ${requiredPermissions.join(joiner)}`,
       );
     }
 
