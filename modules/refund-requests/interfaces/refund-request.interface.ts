@@ -87,6 +87,15 @@ export interface IRefundAvailableAction {
   requiredPermission: string;
 }
 
+/** Masked bank destination from the linked return (no full account number). */
+export interface IRefundSettlementBankSummary {
+  hasDetails: boolean;
+  accountNumberLast4: string | null;
+  accountHolderName: string | null;
+  ifsc: string | null;
+  bankName: string | null;
+}
+
 export interface IRefundRequestDetail extends IRefundRequestListItem {
   reasonDetails: string | null;
   rejectionReason: string | null;
@@ -94,6 +103,10 @@ export interface IRefundRequestDetail extends IRefundRequestListItem {
   providerPaymentId: string | null;
   providerRefundStatus: string | null;
   paymentRequestId: string | null;
+  /** Linked return — bank details are stored here for BANK_ACCOUNT settlement. */
+  returnRequestId: string | null;
+  returnRefId: string | null;
+  settlementBank: IRefundSettlementBankSummary | null;
   reviewedBy: string | null;
   reviewedAt: Date | null;
   approvedBy: string | null;

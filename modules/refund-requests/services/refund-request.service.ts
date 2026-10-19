@@ -1072,8 +1072,43 @@ export class RefundRequestsService {
     const refundable = await this.amountService.calculateRefundableAmount(order, full.id);
     const payout = await this.payoutService.getByRefundRequestId(full.id);
     const detail = mapRefundRequestToDetail(full, refundable, buildAvailableActions(full.status));
+
+    let returnRefId: string | null = null;
+    let settlementBank: IRefundRequestDetail['settlementBank'] = null;
+    if (full.returnRequestId) {
+      const returnRequest = await this.dataSource.getRepository(ReturnRequestEntity).findOne({
+        where: { id: full.returnRequestId },
+        select: [
+          'id',
+          'refId',
+          'bankAccountNumberLast4',
+          'bankAccountHolderName',
+          'bankIfsc',
+          'bankName',
+        ],
+      });
+      if (returnRequest) {
+        returnRefId = returnRequest.refId ?? null;
+        const hasDetails = Boolean(
+          returnRequest.bankAccountNumberLast4 &&
+            returnRequest.bankIfsc &&
+            returnRequest.bankAccountHolderName,
+        );
+        settlementBank = {
+          hasDetails,
+          accountNumberLast4: returnRequest.bankAccountNumberLast4 ?? null,
+          accountHolderName: returnRequest.bankAccountHolderName ?? null,
+          ifsc: returnRequest.bankIfsc ?? null,
+          bankName: returnRequest.bankName ?? null,
+        };
+      }
+    }
+
     return {
       ...detail,
+      returnRequestId: full.returnRequestId ?? null,
+      returnRefId,
+      settlementBank,
       amountAllocation: full.amountAllocation,
       codPayout: payout ? this.payoutService.toAdminView(payout) : null,
     };
