@@ -1,4 +1,5 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ResponseMessage } from '@packages/common';
 import { CheckoutResolverService } from '../services/checkout-resolver.service';
@@ -6,7 +7,10 @@ import { CheckoutResolverService } from '../services/checkout-resolver.service';
 @ApiTags('Public Checkout')
 @Controller('public/checkout')
 export class PublicCheckoutController {
-  constructor(private readonly checkoutResolver: CheckoutResolverService) {}
+  constructor(
+    private readonly checkoutResolver: CheckoutResolverService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @ApiOperation({
     summary: 'Resolve active checkout provider by admin priority',
@@ -21,6 +25,9 @@ export class PublicCheckoutController {
     return {
       checkoutProvider,
       gateway: checkoutProvider,
+      /** UI-only hint for native useWallet; server still enforces WALLET_CHECKOUT_ENABLED. */
+      walletCheckoutEnabled:
+        this.configService.get<boolean>('wallet.checkoutEnabled') === true,
     };
   }
 }

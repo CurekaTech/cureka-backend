@@ -3,6 +3,7 @@ import { parseMoney, roundMoney, toMoneyString } from '@modules/orders/utils/mon
 import { CodRefundMethod } from '../enums/cod-refund-method.enum';
 import { RefundPaymentProvider } from '../enums/refund-payment-provider.enum';
 import { IRefundAmountAllocation } from '../interfaces/refund-amount-allocation.interface';
+import { paiseToRupees } from './wallet-money.util';
 
 export type AllocateReturnRefundFundsInput = {
   paymentMethod: OrderPaymentMethod;
@@ -12,6 +13,10 @@ export type AllocateReturnRefundFundsInput = {
   payableOnDelivery?: string | number;
   onlineProvider?: RefundPaymentProvider | null;
   codRefundMethod?: CodRefundMethod | null;
+  /** Posted wallet tender for the order, in paise. */
+  walletAmountPaise?: string | number | null;
+  /** Posted gateway tender for the order, in paise. */
+  gatewayAmountPaise?: string | number | null;
 };
 
 /**
@@ -19,8 +24,8 @@ export type AllocateReturnRefundFundsInput = {
  *
  * Prepaid / gateway money always returns to the original provider.
  * Cash-on-delivery money uses the customer-selected COD destination.
- * There is no wallet-paid column on orders, so original-wallet allocation is
- * only used when `paymentMethod` is WALLET.
+ * Wallet tender (full or hybrid) restores to the original wallet using
+ * persisted order wallet/gateway paise allocations.
  */
 export function allocateReturnRefundFunds(
   input: AllocateReturnRefundFundsInput,
@@ -31,6 +36,8 @@ export function allocateReturnRefundFunds(
   const payableOnDelivery = roundMoney(
     parseMoney(String(input.payableOnDelivery ?? 0)),
   );
+  const walletPaidPaise = toNonNegativeInt(input.walletAmountPaise);
+  const gatewayPaidPaise = toNonNegativeInt(input.gatewayAmountPaise);
 
   let onlineAmount = 0;
   let originalWalletAmount = 0;
@@ -41,13 +48,38 @@ export function allocateReturnRefundFunds(
     return emptyAllocation(input.codRefundMethod ?? null, onlineProvider);
   }
 
+  if (walletPaidPaise > 0 || input.paymentMethod === OrderPaymentMethod.WALLET) {
+    const split = splitWalletAndGatewayRefund({
+      refundAmount: total,
+      walletPaidPaise,
+      gatewayPaidPaise,
+      paymentMethod: input.paymentMethod,
+      grandTotal,
+    });
+    originalWalletAmount = split.walletAmount;
+    onlineAmount = split.onlineAmount;
+    if (onlineAmount > 0) {
+      onlineProvider = onlineProvider ?? mapOnlineProvider(input.paymentMethod);
+    } else {
+      onlineProvider = null;
+    }
+    return {
+      currency: 'INR',
+      totalAmount: toMoneyString(total),
+      onlineAmount: toMoneyString(onlineAmount),
+      originalWalletAmount: toMoneyString(originalWalletAmount),
+      codAmount: '0.00',
+      onlineProvider,
+      codRefundMethod: null,
+      onlineStatus: onlineAmount > 0 ? 'PENDING' : 'COMPLETED',
+      originalWalletStatus: originalWalletAmount > 0 ? 'PENDING' : 'COMPLETED',
+      codStatus: 'COMPLETED',
+    };
+  }
+
   switch (input.paymentMethod) {
     case OrderPaymentMethod.COD:
       codAmount = total;
-      onlineProvider = null;
-      break;
-    case OrderPaymentMethod.WALLET:
-      originalWalletAmount = total;
       onlineProvider = null;
       break;
     case OrderPaymentMethod.GOKWIK_PARTIAL_COD: {
@@ -69,14 +101,7 @@ export function allocateReturnRefundFunds(
     default:
       onlineAmount = total;
       if (!onlineProvider) {
-        onlineProvider =
-          input.paymentMethod === OrderPaymentMethod.CASHFREE
-            ? RefundPaymentProvider.CASHFREE
-            : input.paymentMethod === OrderPaymentMethod.RAZORPAY
-              ? RefundPaymentProvider.RAZORPAY
-              : input.paymentMethod === OrderPaymentMethod.GOKWIK_PREPAID
-                ? RefundPaymentProvider.GOKWIK
-                : RefundPaymentProvider.OTHER;
+        onlineProvider = mapOnlineProvider(input.paymentMethod);
       }
       break;
   }
@@ -101,6 +126,65 @@ export function allocationIsFullySettled(allocation: IRefundAmountAllocation): b
     allocation.originalWalletStatus === 'COMPLETED' &&
     allocation.codStatus === 'COMPLETED'
   );
+}
+
+function splitWalletAndGatewayRefund(params: {
+  refundAmount: number;
+  walletPaidPaise: number;
+  gatewayPaidPaise: number;
+  paymentMethod: OrderPaymentMethod;
+  grandTotal: number;
+}): { walletAmount: number; onlineAmount: number } {
+  let walletPaid = params.walletPaidPaise;
+  let gatewayPaid = params.gatewayPaidPaise;
+
+  if (params.paymentMethod === OrderPaymentMethod.WALLET && walletPaid <= 0) {
+    walletPaid = Math.round(params.grandTotal * 100);
+    gatewayPaid = 0;
+  }
+
+  const sourcePaise = walletPaid + gatewayPaid;
+  if (sourcePaise <= 0) {
+    if (params.paymentMethod === OrderPaymentMethod.WALLET) {
+      return { walletAmount: params.refundAmount, onlineAmount: 0 };
+    }
+    return { walletAmount: 0, onlineAmount: params.refundAmount };
+  }
+
+  const refundPaise = Math.round(params.refundAmount * 100);
+  const walletRefundPaise = Math.min(
+    walletPaid,
+    Math.round((refundPaise * walletPaid) / sourcePaise),
+  );
+  let onlineRefundPaise = Math.min(gatewayPaid, refundPaise - walletRefundPaise);
+  // Absorb rounding residue into wallet when gateway is fully allocated.
+  const allocated = walletRefundPaise + onlineRefundPaise;
+  const walletAdjusted =
+    allocated < refundPaise && walletRefundPaise < walletPaid
+      ? Math.min(walletPaid, walletRefundPaise + (refundPaise - allocated))
+      : walletRefundPaise;
+  onlineRefundPaise = Math.min(gatewayPaid, refundPaise - walletAdjusted);
+
+  return {
+    walletAmount: roundMoney(parseMoney(paiseToRupees(walletAdjusted))),
+    onlineAmount: roundMoney(parseMoney(paiseToRupees(onlineRefundPaise))),
+  };
+}
+
+function mapOnlineProvider(paymentMethod: OrderPaymentMethod): RefundPaymentProvider {
+  if (paymentMethod === OrderPaymentMethod.CASHFREE) return RefundPaymentProvider.CASHFREE;
+  if (paymentMethod === OrderPaymentMethod.RAZORPAY) return RefundPaymentProvider.RAZORPAY;
+  if (paymentMethod === OrderPaymentMethod.GOKWIK_PREPAID) return RefundPaymentProvider.GOKWIK;
+  if (paymentMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD) return RefundPaymentProvider.GOKWIK;
+  if (paymentMethod === OrderPaymentMethod.WALLET) return RefundPaymentProvider.WALLET;
+  return RefundPaymentProvider.OTHER;
+}
+
+function toNonNegativeInt(value: string | number | null | undefined): number {
+  if (value === null || value === undefined || value === '') return 0;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.trunc(n);
 }
 
 function emptyAllocation(

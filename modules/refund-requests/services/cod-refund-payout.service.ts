@@ -130,20 +130,141 @@ export class CodRefundPayoutService {
       return existing;
     }
 
+    return this.insertPayoutForAllocation(params, payoutAmount);
+  }
+
+  /**
+   * Aligns (or creates) the unpaid payout row with the admin settlement
+   * destination chosen at approve time. Paid rows are left unchanged.
+   */
+  async syncForAdminSettlement(params: {
+    refund: RefundRequestEntity;
+    allocation: IRefundAmountAllocation;
+    actor: RefundActor;
+    manager: EntityManager;
+  }): Promise<CodRefundPayoutEntity | null> {
+    const payoutAmount =
+      parseMoney(params.allocation.codAmount) + parseMoney(params.allocation.originalWalletAmount);
+    if (payoutAmount <= 0) {
+      return null;
+    }
+
+    const existing = await this.payoutsRepository.findByRefundRequestId(
+      params.refund.id,
+      params.manager,
+    );
+    if (existing?.status === CodPayoutStatus.PAID) {
+      return existing;
+    }
+
+    if (!existing) {
+      return this.insertPayoutForAllocation(params, payoutAmount);
+    }
+
+    const returnRequest = params.refund.returnRequestId
+      ? await params.manager.getRepository(ReturnRequestEntity).findOne({
+          where: { id: params.refund.returnRequestId },
+        })
+      : null;
+    const method = this.resolvePayoutMethod(params.allocation, returnRequest);
+    const hasBank =
+      method === CodRefundMethod.BANK_ACCOUNT && Boolean(returnRequest?.bankAccountNumberLast4);
+    const nextStatus =
+      method === CodRefundMethod.WALLET
+        ? CodPayoutStatus.READY_FOR_PAYOUT
+        : hasBank
+          ? CodPayoutStatus.DETAILS_SUBMITTED
+          : CodPayoutStatus.PENDING_DETAILS;
+
+    await this.payoutsRepository.updateById(
+      existing.id,
+      {
+        amount: toMoneyString(payoutAmount),
+        refundMethod: method,
+        status: nextStatus,
+        accountHolderName: returnRequest?.bankAccountHolderName ?? null,
+        maskedAccountNumber: returnRequest?.bankAccountNumberLast4
+          ? `XXXXXX${returnRequest.bankAccountNumberLast4}`
+          : null,
+        accountNumberLast4: returnRequest?.bankAccountNumberLast4 ?? null,
+        ifsc: returnRequest?.bankIfsc ?? null,
+        bankName: returnRequest?.bankName ?? null,
+        accountType: returnRequest?.bankAccountType ?? null,
+        updatedBy: params.actor.email ?? params.actor.id,
+      },
+      params.manager,
+    );
+
+    const updated =
+      (await this.payoutsRepository.findById(existing.id, params.manager)) ?? existing;
+    this.logger.log(
+      {
+        payoutId: updated.id,
+        refundRequestId: params.refund.id,
+        method,
+        status: updated.status,
+        amount: updated.amount,
+      },
+      'COD payout synced to admin settlement destination; no money moved',
+    );
+
+    await this.auditService.enqueueCritical(params.manager, {
+      entityType: AuditEntityType.COD_PAYOUT,
+      entityId: updated.id,
+      entityRefId: updated.refId,
+      action: 'SETTLEMENT_SYNCED',
+      performedBy: params.actor.email ?? params.actor.id,
+      idempotencyKey: auditIdempotency.refund(
+        'SETTLEMENT_SYNCED',
+        updated.id,
+        `${updated.status}:${method}`,
+      ),
+      details: {
+        refundRequestId: params.refund.id,
+        method,
+        status: updated.status,
+        amount: updated.amount,
+      },
+    });
+
+    return updated;
+  }
+
+  private resolvePayoutMethod(
+    allocation: IRefundAmountAllocation,
+    returnRequest: ReturnRequestEntity | null,
+  ): CodRefundMethod {
+    if (allocation.adminSettlementDestination) {
+      return allocation.adminSettlementDestination;
+    }
+    if (allocation.codRefundMethod) {
+      return allocation.codRefundMethod;
+    }
+    if (
+      parseMoney(allocation.codAmount) <= 0 &&
+      parseMoney(allocation.originalWalletAmount) > 0
+    ) {
+      return CodRefundMethod.WALLET;
+    }
+    return returnRequest?.refundMethod ?? CodRefundMethod.BANK_ACCOUNT;
+  }
+
+  private async insertPayoutForAllocation(
+    params: {
+      refund: RefundRequestEntity;
+      allocation: IRefundAmountAllocation;
+      actor: RefundActor;
+      manager?: EntityManager;
+    },
+    payoutAmount: number,
+  ): Promise<CodRefundPayoutEntity> {
     const returnRequest = params.refund.returnRequestId
       ? await (params.manager ?? this.dataSource).getRepository(ReturnRequestEntity).findOne({
           where: { id: params.refund.returnRequestId },
         })
       : null;
 
-    const method =
-      parseMoney(params.allocation.codAmount) <= 0 &&
-      parseMoney(params.allocation.originalWalletAmount) > 0
-        ? CodRefundMethod.WALLET
-        : returnRequest?.refundMethod ??
-          params.allocation.codRefundMethod ??
-          CodRefundMethod.BANK_ACCOUNT;
-
+    const method = this.resolvePayoutMethod(params.allocation, returnRequest);
     const hasBank =
       method === CodRefundMethod.BANK_ACCOUNT && Boolean(returnRequest?.bankAccountNumberLast4);
 
@@ -632,11 +753,19 @@ export class CodRefundPayoutService {
       this.assertPayoutTransition(payout.status, CodPayoutStatus.PAID);
     }
 
+    const allocation = refund.amountAllocation;
+    const originalWalletAmount = parseMoney(allocation?.originalWalletAmount ?? 0);
+    const codAmount = parseMoney(allocation?.codAmount ?? 0);
+    const isOriginalWalletRefund =
+      originalWalletAmount > 0 && (codAmount <= 0 || payout.refundMethod === CodRefundMethod.WALLET);
+
     const entry = await this.walletService.credit(
       {
         customerId: payout.customerId,
         amount: payout.amount,
-        type: RefundWalletEntryType.COD_REFUND,
+        type: isOriginalWalletRefund
+          ? RefundWalletEntryType.ORIGINAL_WALLET_REFUND
+          : RefundWalletEntryType.COD_REFUND,
         payoutId: payout.id,
         refundRequestId: refund.id,
         returnRequestId: payout.returnRequestId,
@@ -660,7 +789,14 @@ export class CodRefundPayoutService {
     payout.status = CodPayoutStatus.PAID;
     payout.walletLedgerId = entry.id;
 
-    await this.completeRefundIfSettled(refund.id, actor, manager, { codStatus: 'COMPLETED' });
+    const settlementPatch =
+      isOriginalWalletRefund && originalWalletAmount > 0
+        ? {
+            originalWalletStatus: 'COMPLETED' as const,
+            ...(codAmount <= 0 ? { codStatus: 'COMPLETED' as const } : {}),
+          }
+        : { codStatus: 'COMPLETED' as const };
+    await this.completeRefundIfSettled(refund.id, actor, manager, settlementPatch);
     await this.eventEmitter.emitAsync(EVENTS.REFUND_WALLET_CREDITED, {
       payoutId: payout.id,
       refundRequestId: refund.id,

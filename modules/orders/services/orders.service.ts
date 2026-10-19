@@ -332,7 +332,7 @@ export class OrdersService {
           placedAt: new Date(),
           ...applyOrderStatusTimestamps(
             EMPTY_ORDER_STATUS_TIMESTAMPS,
-            dto.paymentMethod === OrderPaymentMethod.COD
+            dto.paymentMethod === OrderPaymentMethod.COD || isWalletOrder
               ? OrderStatus.CONFIRMED
               : OrderStatus.PENDING,
             new Date(),

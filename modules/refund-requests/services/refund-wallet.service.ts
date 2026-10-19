@@ -1,6 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
+import { AuditService } from '@modules/master/services/audit.service';
+import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
 import { generateUniqueRefId } from '@packages/common';
-import { EntityManager } from 'typeorm';
+import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
 import { COD_PAYOUT_DUPLICATE } from '../constants/cod-payout.constants';
 import { RefundWalletAccountEntity } from '../entities/refund-wallet-account.entity';
 import { RefundWalletLedgerEntity } from '../entities/refund-wallet-ledger.entity';
@@ -32,7 +35,11 @@ export type ReserveWalletInput = {
 
 @Injectable()
 export class RefundWalletService {
-  constructor(private readonly walletRepository: RefundWalletRepository) {}
+  constructor(
+    private readonly walletRepository: RefundWalletRepository,
+    private readonly dataSource: DataSource,
+    private readonly auditService: AuditService,
+  ) {}
 
   async getOverview(customerId: string) {
     const account = await this.walletRepository.findAccountByCustomerId(customerId);
@@ -59,16 +66,49 @@ export class RefundWalletService {
     return this.getOverview(customerId);
   }
 
-  async setAccountStatus(customerId: string, status: RefundWalletAccountStatus, actorId: string) {
-    const account = await this.walletRepository.findAccountByCustomerId(customerId);
-    if (!account) throw new NotFoundException('Wallet account not found');
-    await this.walletRepository.saveAccountStatus(customerId, status, actorId);
-    return this.walletRepository.findAccountByCustomerId(customerId);
+  async setAccountStatus(
+    customerId: string,
+    status: RefundWalletAccountStatus,
+    actorId: string,
+    performedBy?: string,
+  ) {
+    return this.dataSource.transaction(async (manager) => {
+      const account = await this.walletRepository.findAccountByCustomerId(customerId, manager);
+      if (!account) throw new NotFoundException('Wallet account not found');
+      const previousStatus = account.status;
+      await manager.getRepository(RefundWalletAccountEntity).update(
+        { customerId },
+        { status, updatedBy: actorId },
+      );
+      await this.auditService.enqueueCritical(manager, {
+        entityType: AuditEntityType.WALLET_ACCOUNT,
+        entityId: account.id,
+        entityRefId: account.refId,
+        action: 'WALLET_STATUS_CHANGED',
+        performedBy: performedBy ?? actorId,
+        idempotencyKey: auditIdempotency.write(
+          AuditEntityType.WALLET_ACCOUNT,
+          account.id,
+          `status:${previousStatus}->${status}`,
+          new Date().toISOString(),
+        ),
+        details: {
+          customerId,
+          previousStatus,
+          status,
+        },
+      });
+      return this.walletRepository.findAccountByCustomerId(customerId, manager);
+    });
   }
 
   async getPendingReservations(page = 1, limit = 20) {
     const [items, total] = await this.walletRepository.findPendingReservations(page, limit);
     return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
+  }
+
+  async findStalePendingReservations(expiredBefore: Date, limit: number) {
+    return this.walletRepository.findStalePendingReservations(expiredBefore, limit);
   }
 
   async credit(input: CreditRefundWalletInput, manager: EntityManager): Promise<RefundWalletLedgerEntity> {
@@ -173,23 +213,50 @@ export class RefundWalletService {
     const refId = await generateUniqueRefId('rfwres', (candidate) =>
       this.walletRepository.existsReservationRefId(candidate, manager),
     );
-    const reservation = await this.walletRepository.saveReservation({
-      refId,
-      accountId: account.id,
-      customerId: input.customerId,
-      paymentRequestId: input.paymentRequestId,
-      orderId: null,
-      amountPaise: String(input.amountPaise),
-      status: RefundWalletReservationStatus.PENDING,
-      idempotencyKey: input.idempotencyKey,
-      expiresAt: input.expiresAt,
-      settledAt: null,
-      createdBy: input.actorId,
-      updatedBy: input.actorId,
-    }, manager);
-    const nextReserved = Number(account.reservedBalancePaise ?? 0) + input.amountPaise;
-    await this.walletRepository.updateAccount(account.id, { reservedBalancePaise: String(nextReserved), updatedBy: input.actorId }, manager);
-    return reservation;
+    try {
+      const reservation = await this.walletRepository.saveReservation({
+        refId,
+        accountId: account.id,
+        customerId: input.customerId,
+        paymentRequestId: input.paymentRequestId,
+        orderId: null,
+        amountPaise: String(input.amountPaise),
+        status: RefundWalletReservationStatus.PENDING,
+        idempotencyKey: input.idempotencyKey,
+        expiresAt: input.expiresAt,
+        settledAt: null,
+        createdBy: input.actorId,
+        updatedBy: input.actorId,
+      }, manager);
+      const nextReserved = Number(account.reservedBalancePaise ?? 0) + input.amountPaise;
+      await this.walletRepository.updateAccount(account.id, { reservedBalancePaise: String(nextReserved), updatedBy: input.actorId }, manager);
+      return reservation;
+    } catch (error) {
+      if (!this.isUniqueViolation(error)) throw error;
+      const duplicate = await this.walletRepository.findReservationByIdempotencyKey(input.idempotencyKey, manager);
+      if (duplicate) {
+        if (duplicate.customerId !== input.customerId || Number(duplicate.amountPaise) !== input.amountPaise) {
+          throw new ConflictException('Wallet reservation idempotency key was reused with different details');
+        }
+        return duplicate;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Releases a PENDING reservation for a payment request.
+   * Callers must ensure the payment request is not PAID (or pass allowWhenPaid=false default).
+   * Safe under concurrent consume: reservation row lock + status check.
+   */
+  async releaseReservationForPaymentRequest(
+    paymentRequestId: string,
+    actorId: string,
+    manager: EntityManager,
+  ): Promise<RefundWalletReservationEntity | null> {
+    const reservation = await this.walletRepository.lockReservationByPaymentRequestId(paymentRequestId, manager);
+    if (!reservation) return null;
+    return this.releaseReservation(reservation.id, actorId, manager);
   }
 
   async consumeReservation(reservationId: string, orderId: string, actorId: string, manager: EntityManager): Promise<RefundWalletLedgerEntity> {
@@ -248,9 +315,15 @@ export class RefundWalletService {
   async releaseReservation(reservationId: string, actorId: string, manager: EntityManager): Promise<RefundWalletReservationEntity> {
     const reservation = await this.walletRepository.lockReservationById(reservationId, manager);
     if (!reservation) throw new NotFoundException('Wallet reservation not found');
-    if (reservation.status === RefundWalletReservationStatus.RELEASED) return reservation;
+    // Idempotent: already released, or already consumed by a successful settlement race.
+    if (
+      reservation.status === RefundWalletReservationStatus.RELEASED ||
+      reservation.status === RefundWalletReservationStatus.CONSUMED
+    ) {
+      return reservation;
+    }
     if (reservation.status !== RefundWalletReservationStatus.PENDING) {
-      throw new ConflictException('A consumed wallet reservation cannot be released');
+      throw new ConflictException('Wallet reservation cannot be released');
     }
     const account = await this.lockAccount(reservation.customerId, manager);
     const amountPaise = Number(reservation.amountPaise);
@@ -285,5 +358,14 @@ export class RefundWalletService {
     }
     if (!account) throw new ConflictException('Unable to create wallet account');
     return account;
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      const driver = error as { code?: string; driverError?: { code?: string } };
+      return driver.code === '23505' || driver.driverError?.code === '23505';
+    }
+    const driver = error.driverError as { code?: string } | undefined;
+    return driver?.code === '23505';
   }
 }

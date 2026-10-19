@@ -4,6 +4,7 @@ export const AuditEntityType = {
   RETURN_REQUEST: 'return_request',
   RETURN_POLICY: 'return_policy',
   COD_PAYOUT: 'cod_payout',
+  WALLET_ACCOUNT: 'wallet_account',
   PRODUCT: 'product',
   ORDER: 'order',
   USER: 'user',
