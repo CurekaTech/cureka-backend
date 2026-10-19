@@ -897,4 +897,77 @@ export class CodRefundPayoutService {
       locked: entity.bankDetailsLocked,
     };
   }
+
+  /**
+   * Copies bank destination from the return onto an unpaid COD payout.
+   * Used when admin/customer submit bank details after the refund row exists.
+   */
+  async syncBankDetailsFromReturn(
+    returnRequest: ReturnRequestEntity,
+    actor: RefundActor,
+  ): Promise<CodRefundPayoutEntity | null> {
+    if (!returnRequest.refundRequestId) {
+      return null;
+    }
+
+    const payout = await this.payoutsRepository.findByRefundRequestId(
+      returnRequest.refundRequestId,
+    );
+    if (!payout) {
+      return null;
+    }
+    if (
+      payout.status === CodPayoutStatus.PAID ||
+      payout.status === CodPayoutStatus.CANCELLED
+    ) {
+      return payout;
+    }
+
+    const method = returnRequest.refundMethod ?? CodRefundMethod.BANK_ACCOUNT;
+    const hasBank =
+      method === CodRefundMethod.BANK_ACCOUNT &&
+      Boolean(returnRequest.bankAccountNumberLast4);
+    const nextStatus =
+      method === CodRefundMethod.WALLET
+        ? CodPayoutStatus.READY_FOR_PAYOUT
+        : hasBank
+          ? CodPayoutStatus.DETAILS_SUBMITTED
+          : CodPayoutStatus.PENDING_DETAILS;
+
+    if (
+      nextStatus !== payout.status &&
+      !canTransitionCodPayoutStatus(payout.status, nextStatus)
+    ) {
+      // Still refresh masked fields even when status cannot move.
+      await this.payoutsRepository.updateById(payout.id, {
+        refundMethod: method,
+        accountHolderName: returnRequest.bankAccountHolderName ?? null,
+        maskedAccountNumber: returnRequest.bankAccountNumberLast4
+          ? `XXXXXX${returnRequest.bankAccountNumberLast4}`
+          : null,
+        accountNumberLast4: returnRequest.bankAccountNumberLast4 ?? null,
+        ifsc: returnRequest.bankIfsc ?? null,
+        bankName: returnRequest.bankName ?? null,
+        accountType: returnRequest.bankAccountType ?? null,
+        updatedBy: actor.email ?? actor.id,
+      });
+      return (await this.payoutsRepository.findById(payout.id)) ?? payout;
+    }
+
+    await this.payoutsRepository.updateById(payout.id, {
+      refundMethod: method,
+      status: nextStatus,
+      accountHolderName: returnRequest.bankAccountHolderName ?? null,
+      maskedAccountNumber: returnRequest.bankAccountNumberLast4
+        ? `XXXXXX${returnRequest.bankAccountNumberLast4}`
+        : null,
+      accountNumberLast4: returnRequest.bankAccountNumberLast4 ?? null,
+      ifsc: returnRequest.bankIfsc ?? null,
+      bankName: returnRequest.bankName ?? null,
+      accountType: returnRequest.bankAccountType ?? null,
+      updatedBy: actor.email ?? actor.id,
+    });
+
+    return (await this.payoutsRepository.findById(payout.id)) ?? payout;
+  }
 }

@@ -96,6 +96,8 @@ import { ReturnEvidencesRepository } from '../repositories/return-evidences.repo
 import { ReturnPickupsRepository } from '../repositories/return-pickups.repository';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
 import { RefundRequestsRepository } from '@modules/refund-requests/repositories/refund-requests.repository';
+import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
+import { CodRefundPayoutService } from '@modules/refund-requests/services/cod-refund-payout.service';
 import { ReturnAmountService } from './return-amount.service';
 import { ReturnEligibilityService } from './return-eligibility.service';
 import { ReturnPickupService } from './return-pickup.service';
@@ -157,6 +159,7 @@ export class ReturnRequestsService {
     private readonly configService: ConfigService,
     private readonly pickupService: ReturnPickupService,
     private readonly refundRequestsRepository: RefundRequestsRepository,
+    private readonly codRefundPayoutService: CodRefundPayoutService,
   ) {}
 
   private readonly bankDetailsLimiter = new InMemoryRateLimiter(10, 60_000);
@@ -712,7 +715,76 @@ export class ReturnRequestsService {
         accountNumberLast4: patch.bankAccountNumberLast4 ?? null,
       },
     });
+
+    const reloaded = await this.requireReturn(request.id);
+    await this.codRefundPayoutService.syncBankDetailsFromReturn(reloaded, {
+      id: customerId,
+      email: undefined,
+      role: null,
+      type: RefundRequestedByType.CUSTOMER,
+    });
+
     return this.getForCustomer(identifier, customerId);
+  }
+
+  /**
+   * Admin can optionally set COD bank destination when the customer has not,
+   * or update unlocked details. Full account number is never returned — only last4.
+   */
+  async adminUpdateBankDetails(
+    identifier: string,
+    dto: SubmitReturnBankDetailsDto,
+    actor: ReturnActor,
+  ): Promise<string> {
+    const request = await this.requireReturn(identifier);
+    if (request.resolution !== ReturnResolution.REFUND) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_NOT_APPLICABLE,
+        message: 'Bank details only apply to refund-resolution returns',
+      });
+    }
+
+    const hasExistingBank = Boolean(request.bankAccountNumberLast4);
+    if (hasExistingBank && request.bankDetailsLocked) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_LOCKED,
+        message:
+          'Bank details are locked. Finance must reopen verification before they can be changed.',
+      });
+    }
+
+    const order = await this.requireOrder(request.orderId);
+    const patch = this.resolveRefundDestination(order, {
+      ...dto,
+      resolution: request.resolution,
+    });
+
+    await this.returnRequestsRepository.updateById(request.id, {
+      ...patch,
+      updatedBy: actor.email ?? actor.id,
+    });
+    await this.auditService.log({
+      entityType: AuditEntityType.RETURN_REQUEST,
+      entityId: request.id,
+      entityRefId: request.refId,
+      action: 'ADMIN_BANK_DETAILS_UPDATED',
+      performedBy: actor.email ?? actor.id,
+      details: {
+        refundMethod: patch.refundMethod,
+        accountNumberLast4: patch.bankAccountNumberLast4 ?? null,
+        previouslySubmitted: hasExistingBank,
+      },
+    });
+
+    const reloaded = await this.requireReturn(request.id);
+    await this.codRefundPayoutService.syncBankDetailsFromReturn(reloaded, {
+      id: actor.id,
+      email: actor.email,
+      role: actor.role ?? null,
+      type: RefundRequestedByType.ADMIN,
+    });
+
+    return request.id;
   }
 
   async cancelByCustomer(

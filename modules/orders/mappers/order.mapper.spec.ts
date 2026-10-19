@@ -18,6 +18,8 @@ describe('mapOrderPaymentSummary', () => {
     grandTotal: '745.00',
     paymentMethod: OrderPaymentMethod.COD,
     paymentStatus: OrderPaymentStatus.PENDING,
+    walletAmountPaise: '0',
+    gatewayAmountPaise: '74500',
   };
 
   it('maps stored decimal strings to numeric payment summary fields', () => {
@@ -31,6 +33,8 @@ describe('mapOrderPaymentSummary', () => {
       paidAmount: 0,
       paymentMethod: 'COD',
       paymentStatus: 'PENDING',
+      walletAmount: 0,
+      gatewayAmount: 745,
     });
   });
 

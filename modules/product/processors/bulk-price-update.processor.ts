@@ -22,6 +22,7 @@ import {
   releaseBulkPriceUpdateLock,
   renewBulkPriceUpdateLock,
 } from '../utils/bulk-price-update-lock.util';
+import { uploadCommerceErrorWorkbook } from '../utils/commerce-sheet-file.util';
 
 interface BulkPriceUpdateJobData {
   uploadRefId: string;
@@ -191,6 +192,24 @@ export class BulkPriceUpdateProcessor extends WorkerHost {
       if (successfulRows === 0 && failedRows > 0) status = BulkUploadStatus.FAILED;
       else if (successfulRows > 0 && failedRows > 0) status = BulkUploadStatus.PARTIAL_SUCCESS;
 
+      let errorFileUrl: string | null = null;
+      if (allErrors.length) {
+        try {
+          errorFileUrl = await uploadCommerceErrorWorkbook(
+            this.storageService,
+            uploadRefId,
+            allErrors,
+            'bulk-price-updates/errors',
+          );
+        } catch (error) {
+          this.logger.error(
+            `[BULK_PRICE_UPDATE] Error workbook upload failed for ${uploadRefId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
       await this.repository.updateFieldsByRefId(uploadRefId, {
         status,
         totalRows,
@@ -198,6 +217,7 @@ export class BulkPriceUpdateProcessor extends WorkerHost {
         successfulRows,
         failedRows,
         errorSummary: allErrors.slice(0, 1000),
+        errorFileUrl,
         completedAt: new Date(),
       });
       this.logger.log(

@@ -1,3 +1,4 @@
+import { CodRefundMethod } from '@modules/refund-requests/enums/cod-refund-method.enum';
 import { IStorageFileReferenceResponse } from '@packages/storage';
 import { RETURN_PERMISSIONS } from '../constants/return-permissions.constants';
 import {
@@ -350,13 +351,22 @@ export const mapReturnToDetail = (
       paymentLink: entity.replacementPaymentLink ?? null,
       paymentStatus: extras.replacementPaymentStatus ?? null,
     },
-    codRefund: entity.refundMethod
-      ? {
-          method: entity.refundMethod,
-          bankDetails:
-            entity.refundMethod === 'BANK_ACCOUNT' ? mapMaskedReturnBankDetails(entity) : null,
-        }
-      : null,
+    codRefund:
+      entity.resolution === ReturnResolution.REFUND
+        ? {
+            method: entity.refundMethod,
+            detailsSubmitted:
+              entity.refundMethod === CodRefundMethod.WALLET ||
+              Boolean(entity.bankAccountNumberLast4),
+            canAdminSetBankDetails:
+              !entity.bankAccountNumberLast4 || !entity.bankDetailsLocked,
+            bankDetails:
+              entity.refundMethod === CodRefundMethod.BANK_ACCOUNT ||
+              Boolean(entity.bankAccountNumberLast4)
+                ? mapMaskedReturnBankDetails(entity)
+                : null,
+          }
+        : null,
     timeline: history.map(mapAdminTimelineEntry),
     availableActions: buildAvailableActions(entity),
   };
@@ -462,6 +472,7 @@ export const mapMaskedReturnBankDetails = (entity: ReturnRequestEntity) => ({
   accountNumberMasked: entity.bankAccountNumberLast4
     ? `XXXXXX${entity.bankAccountNumberLast4}`
     : null,
+  accountNumberLast4: entity.bankAccountNumberLast4,
   ifsc: entity.bankIfsc,
   bankName: entity.bankName,
   locked: entity.bankDetailsLocked,

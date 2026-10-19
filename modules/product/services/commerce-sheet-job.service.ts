@@ -202,8 +202,17 @@ export class CommerceSheetJobService {
 
   async getHistory(page = 1, limit = 20) {
     const [records, total] = await this.repository.findHistory(page, limit, this.options.uploadType);
+    const data = await Promise.all(
+      records.map(async (record) => {
+        const view = this.toJobView(record);
+        return {
+          ...view,
+          errorFileUrl: await this.resolveErrorFileUrl(view.errorFileUrl),
+        };
+      }),
+    );
     return {
-      data: records.map((record) => this.toJobView(record)),
+      data,
       pagination: {
         page,
         limit,
@@ -229,7 +238,7 @@ export class CommerceSheetJobService {
           view.totalRows > 0 ? Math.round((view.processedRows / view.totalRows) * 100) : 0,
       },
       summary: view.summary,
-      errorFileUrl: view.errorFileUrl,
+      errorFileUrl: await this.resolveErrorFileUrl(view.errorFileUrl),
       errorSummary: view.errorSummary,
       createdAt: view.createdAt,
       completedAt: view.completedAt,
@@ -364,5 +373,15 @@ export class CommerceSheetJobService {
       createdAt: record.createdAt,
       completedAt: record.completedAt,
     };
+  }
+
+  /** Stored value is a storage key; browsers need a signed or /uploads URL. */
+  private async resolveErrorFileUrl(stored: string | null): Promise<string | null> {
+    if (!stored?.trim()) return null;
+    const trimmed = stored.trim();
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/uploads/')) {
+      return trimmed;
+    }
+    return (await this.storageService.resolveAccessibleUrl(trimmed)) ?? trimmed;
   }
 }
