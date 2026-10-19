@@ -18,7 +18,7 @@ import { MasterListQueryDto } from '@modules/master/dto/master-list-query.dto';
 import { CreateRoleDto, UpdateRoleDto, UpdateRoleStatusDto } from '../dto/role.dto';
 import { RolesService } from '../services/roles.service';
 import { PermissionsGuard } from '../guards/permissions.guard';
-import { RequirePermissions } from '../decorators/permissions.decorator';
+import { RequireAnyPermission, RequirePermissions } from '../decorators/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
@@ -35,7 +35,14 @@ export class RolesController {
   }
 
   @ResponseMessage('Roles retrieved successfully')
-  @RequirePermissions('roles.read')
+  @RequireAnyPermission(
+    'roles.read',
+    'roles.create',
+    'roles.update',
+    'admin_users.read',
+    'admin_users.create',
+    'admin_users.update',
+  )
   @Get()
   findAll(@Query() query: MasterListQueryDto) {
     return this.rolesService.findAll(query);

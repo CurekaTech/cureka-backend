@@ -21,7 +21,7 @@ import {
 } from '../dto/permission.dto';
 import { PermissionsService } from '../services/permissions.service';
 import { PermissionsGuard } from '../guards/permissions.guard';
-import { RequirePermissions } from '../decorators/permissions.decorator';
+import { RequireAnyPermission, RequirePermissions } from '../decorators/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
@@ -45,7 +45,12 @@ export class PermissionsController {
   }
 
   @ResponseMessage('Permissions grouped by module retrieved successfully')
-  @RequirePermissions('permissions.read')
+  @RequireAnyPermission(
+    'permissions.read',
+    'roles.read',
+    'roles.create',
+    'roles.update',
+  )
   @Get('grouped/by-module')
   findGroupedByModule() {
     return this.permissionsService.findGroupedByModule();

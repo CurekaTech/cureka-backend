@@ -991,14 +991,20 @@ export const MENU_HIERARCHY: MenuItem[] = [
         key: 'roles-list',
         icon: 'ShieldCheck',
         href: '/roles-permissions/roles',
-        requiredPermissions: ['roles.read'],
+        requiredPermissions: ['roles.read', 'roles.create', 'roles.update'],
       },
       {
         name: 'Admin Users',
         key: 'admin-users-list',
         icon: 'Users',
         href: '/roles-permissions/admin-users',
-        requiredPermissions: ['admin_users.read'],
+        // Roles module may also manage role-based admin users.
+        requiredPermissions: [
+          'admin_users.read',
+          'admin_users.create',
+          'roles.read',
+          'roles.create',
+        ],
       },
     ],
   },
