@@ -275,7 +275,16 @@ export class PaymentsWebhookController {
       | { entity?: { id?: string; notes?: Record<string, unknown> } }
       | undefined;
     const paymentEntity = payloadData?.['payment'] as
-      | { entity?: { id?: string; order_id?: string; error_description?: string; notes?: Record<string, unknown> } }
+      | {
+          entity?: {
+            id?: string;
+            order_id?: string;
+            /** Razorpay amount in paise */
+            amount?: number | string;
+            error_description?: string;
+            notes?: Record<string, unknown>;
+          };
+        }
       | undefined;
     const orderEntity = payloadData?.['order'] as
       | { entity?: { id?: string; notes?: Record<string, unknown> } }
