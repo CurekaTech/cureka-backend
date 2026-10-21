@@ -12,6 +12,34 @@ describe('GokwikWalletRedemptionService', () => {
     jest.resetAllMocks();
   });
 
+  it('omits the wallet balance when GOKWIK_WALLET_REDEMPTION_ENABLED is false', async () => {
+    configService.get.mockReturnValue(false);
+    const walletService = { getOverview: jest.fn() };
+    const service = new GokwikWalletRedemptionService(configService as never, walletService as never);
+
+    await expect(service.readWalletBalancesForGetUser('user-1')).resolves.toBeNull();
+    expect(walletService.getOverview).not.toHaveBeenCalled();
+  });
+
+  it('returns whole-rupee balances when the GoKwik wallet flag is true', async () => {
+    configService.get.mockImplementation((key: string) => key === 'wallet.gokwikRedemptionEnabled');
+    const walletService = {
+      getOverview: jest.fn(async () => ({
+        balance: '125.50',
+        reserved: '0.00',
+        available: '100.40',
+        currency: 'INR',
+        status: 'ACTIVE',
+      })),
+    };
+    const service = new GokwikWalletRedemptionService(configService as never, walletService as never);
+
+    await expect(service.readWalletBalancesForGetUser('user-1')).resolves.toEqual({
+      wallet_balance: 125,
+      usable_wallet_balance: 100,
+    });
+  });
+
   it('rejects apply when GOKWIK_WALLET_REDEMPTION_ENABLED is false', async () => {
     configService.get.mockReturnValue(false);
     const service = new GokwikWalletRedemptionService(configService as never);
