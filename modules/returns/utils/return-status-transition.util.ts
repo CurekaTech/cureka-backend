@@ -89,6 +89,48 @@ export function canTransitionReturnStatus(from: ReturnStatus, to: ReturnStatus):
   return ALLOWED[from]?.includes(to) ?? false;
 }
 
+/**
+ * Pickup updates can skip ahead (scheduled → delivered). Walk only legal
+ * forward hops so the return actually leaves "pickup scheduled".
+ */
+export function returnStatusesForPickupAdvance(
+  from: ReturnStatus,
+  target: ReturnStatus,
+): ReturnStatus[] {
+  if (from === target) return [];
+  if (canTransitionReturnStatus(from, target)) return [target];
+
+  const pipeline: ReturnStatus[] = [
+    ReturnStatus.PICKUP_SCHEDULED,
+    ReturnStatus.PICKED_UP,
+    ReturnStatus.IN_TRANSIT_TO_WAREHOUSE,
+    ReturnStatus.RECEIVED_AT_WAREHOUSE,
+  ];
+  const targetIndex = pipeline.indexOf(target);
+  if (targetIndex < 0) return [];
+
+  const startIndex = pipeline.indexOf(from);
+  const sequence =
+    startIndex >= 0
+      ? pipeline.slice(startIndex + 1, targetIndex + 1)
+      : from === ReturnStatus.PICKUP_ATTEMPTED
+        ? pipeline.slice(pipeline.indexOf(ReturnStatus.PICKED_UP), targetIndex + 1)
+        : [];
+
+  const steps: ReturnStatus[] = [];
+  let cursor = from;
+  for (const next of sequence) {
+    if (canTransitionReturnStatus(cursor, target)) {
+      steps.push(target);
+      return steps;
+    }
+    if (!canTransitionReturnStatus(cursor, next)) return steps;
+    steps.push(next);
+    cursor = next;
+  }
+  return steps;
+}
+
 export function allowedReturnTransitionsFrom(from: ReturnStatus): ReturnStatus[] {
   return [...(ALLOWED[from] ?? [])];
 }
