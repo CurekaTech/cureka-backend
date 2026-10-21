@@ -7,5 +7,7 @@ describe('normalizeListingHeading', () => {
     expect(normalizeListingHeading('   ')).toBeNull();
     expect(normalizeListingHeading(null)).toBeNull();
     expect(normalizeListingHeading(undefined)).toBeNull();
+    expect(normalizeListingHeading('<p></p>')).toBeNull();
+    expect(normalizeListingHeading('<p><br></p>')).toBeNull();
   });
 });

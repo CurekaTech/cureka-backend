@@ -4,6 +4,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { PromotionalPageEntity } from '../entities/promotional-page.entity';
 import { PromotionalPageSectionEntity } from '../entities/promotional-page-section.entity';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
+import { PromotionalPageType } from '../enums/promotional-page-type.enum';
 import { PromotionalSectionType } from '../enums/promotional-section-type.enum';
 import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
 import { PromotionalPagesRepository } from '../repositories/promotional-pages.repository';
@@ -22,6 +23,7 @@ const basePage = (overrides: Partial<PromotionalPageEntity> = {}): PromotionalPa
     metaTitle: null,
     metaDescription: null,
     status: PromotionalPageStatus.DRAFT,
+    promotionType: PromotionalPageType.DEFAULT,
     startAt: null,
     endAt: null,
     couponId: null,
@@ -144,7 +146,10 @@ describe('PromotionalPagesService', () => {
 
     expect(created.slug).toBe('himalaya-buy-more-save-more');
     expect(created.storedStatus).toBe(PromotionalPageStatus.DRAFT);
-    expect(pagesRepository.create).toHaveBeenCalled();
+    expect(created.promotionType).toBe(PromotionalPageType.DEFAULT);
+    expect(pagesRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ promotionType: PromotionalPageType.DEFAULT }),
+    );
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'create', entityType: 'promotional_page' }),
     );
@@ -184,7 +189,22 @@ describe('PromotionalPagesService', () => {
     );
 
     expect(updated.title).toBe('Save more this season');
+    expect(updated.promotionType).toBe(PromotionalPageType.DEFAULT);
     expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'update' }));
+  });
+
+  it('updates the promotion type to month-end', async () => {
+    const updated = await service.update(
+      'HIM2026000001',
+      { promotionType: PromotionalPageType.MONTH_END },
+      'admin@cureka.com',
+    );
+
+    expect(updated.promotionType).toBe(PromotionalPageType.MONTH_END);
+    expect(pagesRepository.updateByRefId).toHaveBeenCalledWith(
+      'HIM2026000001',
+      expect.objectContaining({ promotionType: PromotionalPageType.MONTH_END }),
+    );
   });
 
   it('archives a page instead of deleting the row', async () => {

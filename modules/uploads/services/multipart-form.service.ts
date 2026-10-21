@@ -138,7 +138,11 @@ export class MultipartFormService {
       if (key in fileFields || this.isIndexedFileField(key, options)) continue;
 
       const trimmed = value.trim();
-      if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') continue;
+      if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') {
+        // Product List Heading sends "" to clear. Other empty fields stay omitted.
+        if (key === 'listingHeading') cleaned[key] = '';
+        continue;
+      }
 
       cleaned[key] = value;
     }
