@@ -43,6 +43,24 @@ export function isCancellationBlockingExport(
   return CANCELLATION_BLOCKS_EXPORT.has(status as CancellationStatus);
 }
 
+/**
+ * Failed or unpaid prepaid orders must not take a Shipway status.
+ * COD and partial-COD still follow Shipway. A failed payment never does.
+ */
+export function shipwayMustNotDriveOrder(
+  order: Pick<OrderEntity, 'paymentStatus' | 'paymentMethod'>,
+): boolean {
+  if (order.paymentStatus === OrderPaymentStatus.FAILED) {
+    return true;
+  }
+
+  if (isCodLike(order.paymentMethod)) {
+    return false;
+  }
+
+  return !PAID_READY_STATUSES.has(order.paymentStatus);
+}
+
 export function isReadyForUnicommercePush(
   order: Pick<OrderEntity, 'orderStatus' | 'paymentStatus' | 'paymentMethod'> & {
     cancellationStatus?: CancellationStatus | string | null;

@@ -10,7 +10,10 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
-import { isCancellationBlockingExport } from '@modules/orders/utils/fulfillment-readiness.util';
+import {
+  isCancellationBlockingExport,
+  shipwayMustNotDriveOrder,
+} from '@modules/orders/utils/fulfillment-readiness.util';
 import {
   applyOrderStatusTimestamps,
   resolveOccurredAt,
@@ -92,6 +95,9 @@ export class ShippingService {
         },
         'Skipping Shipway push because order is not ready',
       );
+      if (shipwayMustNotDriveOrder(order)) {
+        await this.releaseUnpaidOrderFromShipway(order.id);
+      }
       return null;
     }
 
@@ -662,6 +668,22 @@ export class ShippingService {
     orderId: string,
     orderNumber: string,
   ): Promise<{ shipment: ShipmentEntity | null; shipwayStatus: boolean }> {
+    const order = await this.ordersRepository.findById(orderId);
+    if (order && shipwayMustNotDriveOrder(order)) {
+      await this.releaseUnpaidOrderFromShipway(orderId);
+      const released = await this.shipmentsRepository.findByOrderId(orderId);
+      this.logger.log(
+        {
+          orderId,
+          orderNumber,
+          paymentStatus: order.paymentStatus,
+          orderStatus: order.orderStatus,
+        },
+        '[Shipway] Skipping live status — payment is not complete',
+      );
+      return { shipment: released, shipwayStatus: false };
+    }
+
     const local = await this.shipmentsRepository.findByOrderId(orderId);
     const shipwayOrderId = local?.shipwayOrderId ?? orderNumber;
 
@@ -1021,7 +1043,56 @@ export class ShippingService {
     } as ShipmentEntity;
   }
 
+  /**
+   * Failed and unpaid prepaid orders are not Shipway orders. Clear a stale
+   * "Confirmed" row and cancel an AWB if one was created before payment failed.
+   */
+  private async releaseUnpaidOrderFromShipway(orderId: string): Promise<void> {
+    const shipment = await this.shipmentsRepository.findByOrderId(orderId);
+    if (!shipment) return;
+
+    if (shipment.awbNumber && this.shipwayService.isConfigured()) {
+      try {
+        await this.shipwayService.cancelShipment({
+          awb_number: shipment.awbNumber,
+          courier_id: shipment.courierId ?? undefined,
+          reason: 'Payment was not completed',
+        });
+      } catch (error) {
+        this.logger.warn(
+          {
+            orderId,
+            orderNumber: shipment.orderNumber,
+            awbNumber: shipment.awbNumber,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          '[Shipway] Could not cancel shipment for an unpaid order',
+        );
+      }
+    }
+
+    const showsConfirmed =
+      shipment.shipmentStatus === ShipmentStatus.CONFIRMED ||
+      Boolean(shipment.shipwayRawStatus?.trim()) ||
+      Boolean(shipment.pushedAt);
+
+    if (!showsConfirmed) return;
+
+    shipment.shipmentStatus = ShipmentStatus.PENDING;
+    shipment.shipwayRawStatus = null;
+    shipment.updatedBy = 'shipway-unpaid-release';
+    await this.shipmentsRepository.save(shipment);
+    this.logger.log(
+      { orderId, orderNumber: shipment.orderNumber, shipmentId: shipment.id },
+      '[Shipway] Cleared confirmed status for an unpaid or failed-payment order',
+    );
+  }
+
   private isReadyForShipway(order: OrderEntity): boolean {
+    if (shipwayMustNotDriveOrder(order)) {
+      return false;
+    }
+
     if ([OrderStatus.CANCELLED, OrderStatus.DELIVERED, OrderStatus.RTO, OrderStatus.FAILED_DELIVERY].includes(order.orderStatus)) {
       return false;
     }
@@ -1441,6 +1512,20 @@ export class ShippingService {
       this.logger.warn(
         { orderId, shipmentStatus, orderStatus },
         '[Shipway] Order not found during orderStatus sync',
+      );
+      return;
+    }
+
+    if (shipwayMustNotDriveOrder(order)) {
+      this.logger.log(
+        {
+          orderId,
+          orderNumber: order.orderNumber,
+          paymentStatus: order.paymentStatus,
+          orderStatus: order.orderStatus,
+          shipmentStatus,
+        },
+        '[Shipway] Ignoring shipment status — payment is not complete',
       );
       return;
     }
