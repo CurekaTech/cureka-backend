@@ -319,27 +319,28 @@ export class PermissionsService {
           {
             name: 'All Orders',
             key: 'orders-list-all',
-            permissions: getPerms('orders', ['read']),
+            // update = cancel, complete, payment links. status = order status changes.
+            permissions: getPerms('orders', ['read', 'update', 'status']),
           },
           {
             name: 'Active Orders',
             key: 'active-orders',
-            permissions: getPerms('orders', ['read']),
+            permissions: getPerms('orders', ['read', 'update', 'status']),
           },
           {
             name: 'In Transit',
             key: 'in-transit-orders',
-            permissions: getPerms('orders', ['read']),
+            permissions: getPerms('orders', ['read', 'update', 'status']),
           },
           {
             name: 'Completed',
             key: 'delivered-orders',
-            permissions: getPerms('orders', ['read']),
+            permissions: getPerms('orders', ['read', 'update', 'status']),
           },
           {
             name: 'Cancelled',
             key: 'cancelled-orders',
-            permissions: getPerms('orders', ['read']),
+            permissions: getPerms('orders', ['read', 'update', 'status']),
           },
           {
             name: 'Abandoned Carts',
@@ -349,7 +350,13 @@ export class PermissionsService {
           {
             name: 'Return Requests',
             key: 'orders-return-requests',
-            permissions: getPerms('returns', ['read']),
+            permissions: getPerms('returns', [
+              'read',
+              'update',
+              'approve',
+              'reject',
+              'status',
+            ]),
             subItems: [
               {
                 name: 'Create Return',
@@ -359,7 +366,13 @@ export class PermissionsService {
               {
                 name: 'All Returns',
                 key: 'returns-all',
-                permissions: getPerms('returns', ['read']),
+                permissions: getPerms('returns', [
+                  'read',
+                  'update',
+                  'approve',
+                  'reject',
+                  'status',
+                ]),
               },
               {
                 name: 'Pending Review',
