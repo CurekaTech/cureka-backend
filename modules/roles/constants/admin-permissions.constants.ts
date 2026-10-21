@@ -296,6 +296,7 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('importers', 'Importers'),
   ...buildCrudPermissions('subscription_frequencies', 'Subscription Frequencies'),
   ...buildCrudPermissions('coupon_codes', 'Coupon Codes'),
+  ...buildCrudPermissions('promotional_offers', 'Promotional Offers'),
   ...buildCrudPermissions('membership_plans', 'Membership Plans'),
   ...buildCrudPermissions('membership_benefits', 'Membership Benefits'),
   ...buildCrudPermissions('user_memberships', 'User Memberships'),

@@ -17,6 +17,8 @@ import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { PaymentRequestsService } from '@modules/payment-requests/services/payment-requests.service';
+import { PromotionalOfferReservationService } from '@modules/promotional-offers/services/promotional-offer-reservation.service';
+import { PromotionalOfferReservationStatus } from '@modules/promotional-offers/enums/promotional-offer-reservation-status.enum';
 import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
@@ -132,6 +134,7 @@ export class OrdersService {
     @Inject(forwardRef(() => RefundWalletService))
     private readonly refundWalletService: RefundWalletService,
     private readonly configService: ConfigService,
+    private readonly promotionalOfferReservationService: PromotionalOfferReservationService,
   ) {}
 
   private async decrementVariantStock(
@@ -211,7 +214,9 @@ export class OrdersService {
 
     await this.checkoutService.assertCartDeliverableToAddress(userId, dto.addressId);
 
-    const summary = await this.checkoutService.validateCheckout(userId, dto);
+    const summary = await this.checkoutService.validateCheckout(userId, dto, {
+      applyPromotionalOffers: checkoutProvider === 'legacy',
+    });
     if (dto.orderSource) {
       await this.cartService.setPreferredOrderSource(userId, dto.orderSource);
     }
@@ -248,7 +253,7 @@ export class OrdersService {
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId: dto.addressId,
       paymentMethod: dto.paymentMethod,
-    });
+    }, { applyPromotionalOffers: true });
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -306,6 +311,13 @@ export class OrdersService {
           platformFee: toMoneyString(summary.platformFee),
           codCharge: toMoneyString(summary.codCharge),
           prepaidDiscount: toMoneyString(summary.prepaidDiscount),
+          promotionDiscount: toMoneyString(summary.promotionDiscount ?? 0),
+          promotionSnapshot: {
+            promotions: summary.promotions ?? [],
+            warnings: summary.promotionWarnings ?? [],
+            bmsmDiscount: summary.bmsmDiscount ?? 0,
+            rewardCharged: summary.rewardCharged ?? 0,
+          },
           grandTotal: toMoneyString(summary.grandTotal),
           couponId: appliedCoupon?.id ?? null,
           couponCode: appliedCoupon?.code ?? null,
@@ -383,6 +395,10 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
+          promotionDiscount: (item.promotionDiscount ?? 0).toFixed(2),
+          catalogUnitPrice: item.catalogUnitPrice != null ? item.catalogUnitPrice.toFixed(2) : item.unitPrice.toFixed(2),
+          lineSource: item.lineSource ?? 'customer',
+          promotionOfferId: item.promotionOfferId ?? null,
           isSubscription: item.isSubscription,
           frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
@@ -396,7 +412,7 @@ export class OrdersService {
         await this.couponCheckoutService.validateCoupon(appliedCoupon, {
           userId,
           subtotal: summary.subtotal,
-          items: summary.items.map((item) => ({
+          items: summary.items.filter((item) => item.lineSource !== 'promotion').map((item) => ({
             id: item.cartItemId,
             productId: item.productId,
             variantId: item.variantId,
@@ -438,6 +454,25 @@ export class OrdersService {
           },
           manager,
         );
+      }
+
+      const appliedPromotions = summary.promotions ?? [];
+      if (appliedPromotions.length > 0) {
+        const holds = appliedPromotions.map((promotion) => ({
+          offerId: promotion.id,
+          discountAmount: promotion.discountAmount,
+        }));
+        const filtered = await this.promotionalOfferReservationService.filterReservable(manager, userId, holds);
+        if (filtered.rejectedOfferIds.length) {
+          throw new ConflictException('A promotional offer reached its usage limit. Refresh checkout and try again.');
+        }
+        await this.promotionalOfferReservationService.insertReservations(manager, {
+          userId,
+          orderId: createdOrder.id,
+          holds: filtered.accepted,
+          status: PromotionalOfferReservationStatus.CONSUMED,
+          expiresAt: null,
+        });
       }
 
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
@@ -524,7 +559,7 @@ export class OrdersService {
         addressId: params.addressId,
         paymentMethod: params.ignorePaymentMethodPricing ? undefined : params.paymentMethod,
       },
-      { skipCodVariantEligibility: isGokwikOrder },
+      { skipCodVariantEligibility: isGokwikOrder, applyPromotionalOffers: false },
     );
 
     if (!summary.items.length) {
@@ -2141,6 +2176,8 @@ export class OrdersService {
     couponDiscountType?: string | null;
     platformFee?: string;
     codCharge?: string;
+    promotionDiscount?: string;
+    promotionSnapshot?: import('@modules/promotional-offers/constants/promotional-offer-pricing.rules').PromotionSnapshot | null;
     items: Array<{
       productId: string;
       variantId: string;
@@ -2149,6 +2186,10 @@ export class OrdersService {
       totalPrice: string;
       isSubscription?: boolean;
       frequency?: ProductSubscriptionFrequency | null;
+      lineSource?: string | null;
+      promotionOfferId?: string | null;
+      catalogUnitPrice?: string | null;
+      promotionDiscount?: string | null;
     }>;
   }) {
     const oosTransitions: VariantOosTransition[] = [];
@@ -2175,6 +2216,7 @@ export class OrdersService {
           totalPrice: parseFloat(item.totalPrice),
           isSubscription: item.isSubscription,
           frequency: item.frequency ?? null,
+          skipCatalogPriceCheck: item.lineSource === 'promotion',
         })),
         manager,
       );
@@ -2225,6 +2267,8 @@ export class OrdersService {
           platformFee: params.platformFee ?? '0.00',
           codCharge: params.codCharge ?? '0.00',
           prepaidDiscount: params.prepaidDiscount ?? '0.00',
+          promotionDiscount: params.promotionDiscount ?? '0.00',
+          promotionSnapshot: params.promotionSnapshot ?? null,
           grandTotal: params.eligibleTotalPaise ? paiseToRupees(Number(params.eligibleTotalPaise)) : params.grandTotal,
           paymentRequestId: params.paymentRequestId,
           walletAmountPaise: params.walletAmountPaise ?? '0',
@@ -2304,6 +2348,10 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          promotionDiscount: item.promotionDiscount ?? '0.00',
+          catalogUnitPrice: item.catalogUnitPrice ?? item.unitPrice,
+          lineSource: item.lineSource ?? 'customer',
+          promotionOfferId: item.promotionOfferId ?? null,
           isSubscription: !!item.isSubscription,
           frequency: item.isSubscription
             ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
@@ -2314,6 +2362,11 @@ export class OrdersService {
       }
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+      await this.promotionalOfferReservationService.consumeByPaymentRequest(
+        params.paymentRequestId,
+        createdOrder.id,
+        manager,
+      );
 
       if (params.couponId && params.couponCode) {
         await this.couponCheckoutService.incrementUsage(
@@ -2566,6 +2619,8 @@ export class OrdersService {
         | 'platformFee'
         | 'codCharge'
         | 'grandTotal'
+        | 'promotionDiscount'
+        | 'promotionSnapshot'
         | 'notes'
       >;
       summary?: CheckoutSummary;
@@ -2632,6 +2687,8 @@ export class OrdersService {
         totalAmount: params.order.grandTotal,
         couponCode: params.couponCode,
         couponDiscount: params.order.discountAmount,
+        promotionDiscount: params.order.promotionDiscount ?? '0.00',
+        promotionSnapshot: params.order.promotionSnapshot ?? null,
         currency: 'INR',
         notes: params.order.notes ?? `COD order ${params.order.orderNumber}`,
         orderSource: params.orderSource,

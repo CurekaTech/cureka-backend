@@ -15,6 +15,7 @@ import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
+import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { buildProductLocPath } from '@modules/sitemap/services/sitemap-url.builder';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
@@ -43,6 +44,13 @@ const EMPTY_CART_BASE = {
   codCharge: 0,
   prepaidDiscount: 0,
   grandTotal: 0,
+  promotionDiscount: 0,
+  bmsmDiscount: 0,
+  rewardCharged: 0,
+  promotions: [],
+  promotionWarnings: [],
+  rewardLines: [],
+  lineAllocations: [],
 };
 
 @Injectable()
@@ -59,7 +67,12 @@ export class CartService {
     private readonly codBlocklistService: CodBlocklistService,
     private readonly savedForLaterItemsRepository: SavedForLaterItemsRepository,
     private readonly configService: ConfigService,
+    private readonly checkoutResolver: CheckoutResolverService,
   ) { }
+
+  async nativePromotionalOffersEnabled(): Promise<boolean> {
+    return (await this.checkoutResolver.resolveProvider()) === 'legacy';
+  }
 
   private async buildEmptyCartResponse(userId?: string): Promise<CartResponse> {
     const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
@@ -183,6 +196,7 @@ export class CartService {
     return this.toCartResponse(cart, userId, manager, {
       clearInvalidCoupon: true,
       paymentMethod: options?.paymentMethod,
+      applyPromotionalOffers: await this.nativePromotionalOffersEnabled(),
     });
   }
 
@@ -281,7 +295,11 @@ export class CartService {
     });
   }
 
-  async applyCoupon(userId: string, dto: ApplyCouponDto): Promise<CartResponse> {
+  async applyCoupon(
+    userId: string,
+    dto: ApplyCouponDto,
+    options?: { applyPromotionalOffers?: boolean },
+  ): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
@@ -310,11 +328,13 @@ export class CartService {
 
       const refreshed = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!refreshed) throw new BadRequestException('Cart not found');
-      return this.toCartResponse(refreshed, userId, manager);
+      return this.toCartResponse(refreshed, userId, manager, {
+        applyPromotionalOffers: options?.applyPromotionalOffers === true,
+      });
     });
   }
 
-  async removeCoupon(userId: string): Promise<CartResponse> {
+  async removeCoupon(userId: string, options?: { applyPromotionalOffers?: boolean }): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) {
@@ -333,7 +353,9 @@ export class CartService {
       if (!refreshed) {
         return this.buildEmptyCartResponse(userId);
       }
-      return this.toCartResponse(refreshed, userId, manager);
+      return this.toCartResponse(refreshed, userId, manager, {
+        applyPromotionalOffers: options?.applyPromotionalOffers === true,
+      });
     });
   }
 
@@ -545,7 +567,7 @@ export class CartService {
     cart: CartEntity,
     userId: string,
     manager = this.dataSource.manager,
-    options?: { clearInvalidCoupon?: boolean; paymentMethod?: OrderPaymentMethod },
+    options?: { clearInvalidCoupon?: boolean; paymentMethod?: OrderPaymentMethod; applyPromotionalOffers?: boolean },
   ): Promise<CartResponse> {
     const items = await this.buildLineItems(cart);
     const pricing = await this.cartPricingService.calculateCartPricing({
@@ -556,12 +578,23 @@ export class CartService {
       paymentMethod: options?.paymentMethod,
       manager,
       clearInvalidCoupon: options?.clearInvalidCoupon ?? false,
+      applyPromotionalOffers: options?.applyPromotionalOffers === true,
+    });
+
+    const allocationByLine = new Map((pricing.lineAllocations ?? []).map((row) => [row.lineId, row]));
+    const pricedItems = items.map((item) => {
+      const allocation = allocationByLine.get(item.id);
+      return {
+        ...item,
+        promotionDiscount: allocation?.promotionDiscount ?? 0,
+        promotionOfferId: allocation?.promotionOfferId ?? null,
+      };
     });
 
     return {
       cartId: cart.id,
-      items,
-      totalItems: items.reduce((sum, item) => sum + item.quantity, 0),
+      items: pricedItems,
+      totalItems: pricedItems.reduce((sum, item) => sum + item.quantity, 0),
       ...pricing,
     };
   }

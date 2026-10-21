@@ -93,7 +93,7 @@ export class CheckoutService {
   async validateCheckout(
     userId: string,
     dto: CheckoutDto,
-    options?: { skipCodVariantEligibility?: boolean },
+    options?: { skipCodVariantEligibility?: boolean; applyPromotionalOffers?: boolean; excludeOfferIds?: string[] },
   ): Promise<CheckoutSummary> {
     let deliveryPincode: string | undefined;
     let checkoutMobile: string | undefined;
@@ -148,6 +148,8 @@ export class CheckoutService {
       strict: true,
       deliveryPincode,
       checkoutMobile,
+      applyPromotionalOffers: options?.applyPromotionalOffers === true,
+      excludeOfferIds: options?.excludeOfferIds,
     });
 
     if (isCodPaymentMethod(dto.paymentMethod)) {
@@ -161,8 +163,44 @@ export class CheckoutService {
       this.cartCheckoutAdminSettingsService.assertCodOrderEligible(payable, amounts);
     }
 
+    const rewardItems = (pricing.rewardLines ?? []).map((reward) => ({
+      cartItemId: `promotion:${reward.promotionOfferId}:${reward.variantId}`,
+      productId: reward.productId,
+      variantId: reward.variantId,
+      sku: reward.sku,
+      productName: reward.productName,
+      variantName: reward.variantLabel,
+      quantity: reward.quantity,
+      unitPrice: reward.chargedUnitPrice,
+      totalPrice: reward.totalPrice,
+      categoryId: items[0]?.categoryId ?? '',
+      subCategoryId: null,
+      subSubCategoryId: null,
+      subSubSubCategoryId: null,
+      brandId: null,
+      isSubscription: false,
+      frequency: null,
+      lineSource: 'promotion' as const,
+      promotionOfferId: reward.promotionOfferId,
+      catalogUnitPrice: reward.catalogUnitPrice,
+      promotionDiscount: reward.promotionDiscount,
+    }));
+
+    const allocationByLine = new Map(
+      (pricing.lineAllocations ?? []).map((row) => [row.lineId, row]),
+    );
+    const customerItems = items.map((item) => {
+      const allocation = allocationByLine.get(item.cartItemId);
+      return {
+        ...item,
+        lineSource: 'customer' as const,
+        promotionOfferId: allocation?.promotionOfferId ?? null,
+        promotionDiscount: allocation?.promotionDiscount ?? 0,
+      };
+    });
+
     return {
-      items,
+      items: [...customerItems, ...rewardItems],
       ...pricing,
     };
   }

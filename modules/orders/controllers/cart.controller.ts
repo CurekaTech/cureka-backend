@@ -68,16 +68,18 @@ export class CartController {
   @ResponseMessage('Coupon applied successfully')
   @Post('coupon')
   @HttpCode(HttpStatus.OK)
-  applyCoupon(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCouponDto) {
-    return this.cartService.applyCoupon(user.sub, dto);
+  async applyCoupon(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCouponDto) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.applyCoupon(user.sub, dto, { applyPromotionalOffers });
   }
 
   @ApiOperation({ summary: 'Remove coupon from cart' })
   @ResponseMessage('Coupon removed successfully')
   @Delete('coupon')
   @HttpCode(HttpStatus.OK)
-  removeCoupon(@CurrentSessionUser() user: IUserSessionContext) {
-    return this.cartService.removeCoupon(user.sub);
+  async removeCoupon(@CurrentSessionUser() user: IUserSessionContext) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.removeCoupon(user.sub, { applyPromotionalOffers });
   }
 
   @ApiOperation({ summary: 'Update cart item quantity' })

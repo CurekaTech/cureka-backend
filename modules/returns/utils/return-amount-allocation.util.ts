@@ -18,6 +18,8 @@ export interface IAllocatableLine {
   returnQuantity: number;
   orderedQuantity: number;
   unitPrice: string;
+  /** BMSM (or other customer-line) promotion already taken off the charged price. */
+  promotionDiscount?: string;
 }
 
 export interface IAllocatedLine {
@@ -76,8 +78,11 @@ export const allocateReturnAmounts = (
     const gross = weight.returnedValue;
     const discountAllocation = discountParts[index] ?? 0;
     const prepaidDiscountAllocation = prepaidParts[index] ?? 0;
+    const promotionAllocation = roundMoney(
+      parseMoney(weight.line.promotionDiscount ?? '0') * weight.returnedShare,
+    );
     const netAmount = roundMoney(
-      Math.max(0, gross - discountAllocation - prepaidDiscountAllocation),
+      Math.max(0, gross - discountAllocation - prepaidDiscountAllocation - promotionAllocation),
     );
 
     return {

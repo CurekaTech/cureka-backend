@@ -267,6 +267,7 @@ export interface IPublicStorefrontProductDetail {
   codMinOrderAmount: number;
   attributes: Array<{ refId: string; name: string }>;
   variants: IPublicStorefrontProductVariant[];
+  offers: Array<{ id: string; offerType: string; customerMessage: string }>;
   media: IPublicProductMedia[];
   healthConcerns: Array<{ refId: string; name: string; slug: string }>;
   faqs: Array<{ refId: string; question: string; answer: string; sequence: number }>;

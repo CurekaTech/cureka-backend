@@ -39,6 +39,18 @@ export class OrderItemEntity extends BaseEntity {
   @Column({ name: 'total_price', type: 'decimal', precision: 12, scale: 2 })
   totalPrice!: string;
 
+  @Column({ name: 'promotion_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  promotionDiscount!: string;
+
+  @Column({ name: 'catalog_unit_price', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  catalogUnitPrice!: string | null;
+
+  @Column({ name: 'line_source', type: 'varchar', length: 20, default: 'customer' })
+  lineSource!: string;
+
+  @Column({ name: 'promotion_offer_id', type: 'uuid', nullable: true })
+  promotionOfferId!: string | null;
+
   @Column({ name: 'is_subscription', type: 'boolean', default: false })
   isSubscription!: boolean;
 

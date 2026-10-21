@@ -795,6 +795,7 @@ export const toPublicStorefrontProductDetail = (
   codMinOrderAmount: detail.codMinOrderAmount,
   attributes: detail.attributes,
   variants: detail.variants.map(toPublicStorefrontProductVariant),
+  offers: [],
   media: detail.media,
   healthConcerns: detail.healthConcerns,
   faqs: detail.faqs,

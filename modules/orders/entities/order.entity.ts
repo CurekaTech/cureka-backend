@@ -40,6 +40,12 @@ export class OrderEntity extends BaseEntity {
   @Column({ name: 'prepaid_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
   prepaidDiscount!: string;
 
+  @Column({ name: 'promotion_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  promotionDiscount!: string;
+
+  @Column({ name: 'promotion_snapshot', type: 'jsonb', nullable: true })
+  promotionSnapshot!: import('@modules/promotional-offers/constants/promotional-offer-pricing.rules').PromotionSnapshot | null;
+
   @Column({ name: 'grand_total', type: 'decimal', precision: 12, scale: 2 })
   grandTotal!: string;
 

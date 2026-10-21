@@ -24,6 +24,7 @@ describe('AdminAuthService - Menu Filtering', () => {
       { persistCritical: jest.fn() } as never,
       { get: configGet } as never,
       { allocate: jest.fn(), revoke: jest.fn(), isActiveForAdmin: jest.fn() } as never,
+      { isPromotionalOffersEnabled: jest.fn().mockResolvedValue(false) } as never,
     );
   });
 

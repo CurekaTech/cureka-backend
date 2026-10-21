@@ -15,6 +15,7 @@ import { ReturnsModule } from '@modules/returns/returns.module';
 import { PincodesModule } from '@modules/pincodes/pincodes.module';
 import { CodBlocklistModule } from '@modules/cod-blocklist/cod-blocklist.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
+import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
@@ -72,6 +73,7 @@ import { OrdersService } from './services/orders.service';
     PincodesModule,
     CodBlocklistModule,
     OosEmailModule,
+    PromotionalOffersModule,
   ],
   controllers: [
     CartController,

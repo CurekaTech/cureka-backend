@@ -48,6 +48,7 @@ export class ReturnAmountService {
         returnQuantity: selectionByItemId.get(item.id) ?? 0,
         orderedQuantity: item.quantity,
         unitPrice: item.unitPrice,
+        promotionDiscount: item.lineSource === 'promotion' ? '0.00' : item.promotionDiscount,
       }));
 
     const subtotal = toMoneyString(

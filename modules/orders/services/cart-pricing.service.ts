@@ -16,6 +16,12 @@ import { CouponCheckoutService } from './coupon-checkout.service';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
 import { CodBlocklistService } from '@modules/cod-blocklist/services/cod-blocklist.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
+import {
+  CartPromotionSummary,
+  CartPromotionWarning,
+  CartRewardLine,
+} from '../interfaces/cart-pricing.interface';
 
 @Injectable()
 export class CartPricingService {
@@ -26,6 +32,7 @@ export class CartPricingService {
     private readonly cartsRepository: CartsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly codBlocklistService: CodBlocklistService,
+    private readonly promotionalOfferEvaluationService: PromotionalOfferEvaluationService,
   ) {}
 
   async calculateCartPricing(params: {
@@ -39,6 +46,8 @@ export class CartPricingService {
     strict?: boolean;
     deliveryPincode?: string;
     checkoutMobile?: string;
+    applyPromotionalOffers?: boolean;
+    excludeOfferIds?: string[];
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
 
@@ -72,10 +81,46 @@ export class CartPricingService {
         platformFee: 0,
         codCharge: 0,
         prepaidDiscount: 0,
+        promotionDiscount: 0,
+        bmsmDiscount: 0,
+        rewardCharged: 0,
+        promotions: [],
+        promotionWarnings: [],
+        rewardLines: [],
+        lineAllocations: [],
         checkoutRules,
         cod,
       });
     }
+
+    const promotion = params.applyPromotionalOffers
+      ? await this.promotionalOfferEvaluationService.evaluateForCart({
+          userId: params.userId,
+          customerSubtotal: subtotal,
+          excludeOfferIds: params.excludeOfferIds,
+          lines: params.items.map((item) => ({
+            id: item.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            sku: item.sku,
+            productName: item.productName,
+            variantLabel: item.variantLabel,
+            isSubscription: item.isSubscription,
+            productType: null,
+          })),
+        })
+      : {
+          promotionDiscount: 0,
+          bmsmDiscount: 0,
+          rewardCharged: 0,
+          promotions: [] as CartPromotionSummary[],
+          warnings: [] as CartPromotionWarning[],
+          rewardLines: [] as CartRewardLine[],
+          lineAllocations: [],
+        };
 
     let coupon: CouponEntity | null = null;
     let discountAmount = 0;
@@ -218,6 +263,13 @@ export class CartPricingService {
       platformFee,
       codCharge,
       prepaidDiscount,
+      promotionDiscount: promotion.promotionDiscount,
+      bmsmDiscount: promotion.bmsmDiscount,
+      rewardCharged: promotion.rewardCharged,
+      promotions: promotion.promotions,
+      promotionWarnings: 'warnings' in promotion ? promotion.warnings : [],
+      rewardLines: promotion.rewardLines,
+      lineAllocations: promotion.lineAllocations,
       checkoutRules,
       cod: await this.codBlocklistService.overlayNativeCodEligibility(
         settings.resolveCodEligibility(payableSubtotal, checkoutAdminSettings),
@@ -239,11 +291,22 @@ export class CartPricingService {
     platformFee: number;
     codCharge: number;
     prepaidDiscount: number;
+    promotionDiscount?: number;
+    bmsmDiscount?: number;
+    rewardCharged?: number;
+    promotions?: CartPricing['promotions'];
+    promotionWarnings?: CartPricing['promotionWarnings'];
+    rewardLines?: CartPricing['rewardLines'];
+    lineAllocations?: CartPricing['lineAllocations'];
     checkoutRules: CartPricing['checkoutRules'];
     cod: CartPricing['cod'];
   }): CartPricing {
+    const bmsmDiscount = parts.bmsmDiscount ?? 0;
+    const rewardCharged = parts.rewardCharged ?? 0;
     const grandTotal = roundMoney(
       parts.subtotal -
+        bmsmDiscount +
+        rewardCharged -
         parts.discountAmount +
         parts.shippingAmount +
         parts.handlingAmount +
@@ -261,6 +324,13 @@ export class CartPricingService {
       platformFee: parts.platformFee,
       codCharge: parts.codCharge,
       prepaidDiscount: parts.prepaidDiscount,
+      promotionDiscount: parts.promotionDiscount ?? 0,
+      bmsmDiscount,
+      rewardCharged,
+      promotions: parts.promotions ?? [],
+      promotionWarnings: parts.promotionWarnings ?? [],
+      rewardLines: parts.rewardLines ?? [],
+      lineAllocations: parts.lineAllocations ?? [],
       grandTotal: Math.max(0, grandTotal),
       checkoutRules: parts.checkoutRules,
       cod: parts.cod,

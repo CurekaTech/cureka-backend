@@ -20,6 +20,7 @@ import {
   isSuperAdminSessionAccount,
   parseJwtExpiresInToMilliseconds,
 } from '../utils/super-admin-session.util';
+import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 
 @Injectable()
@@ -32,6 +33,7 @@ export class AdminAuthService {
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
     private readonly adminSessionsRepository: AdminSessionsRepository,
+    private readonly adminSettingsService: AdminSettingsService,
   ) { }
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
@@ -242,7 +244,16 @@ export class AdminAuthService {
         .filter(Boolean) as MenuItem[];
     };
 
-    return filterItems(menuForSubscriptionsModule(isSubscriptionsModuleEnabled(this.configService)));
+    const offersEnabled = await this.adminSettingsService.isPromotionalOffersEnabled();
+    const withModules = menuForSubscriptionsModule(isSubscriptionsModuleEnabled(this.configService));
+    const visible = offersEnabled
+      ? withModules
+      : withModules.map((item) =>
+          item.subItems
+            ? { ...item, subItems: item.subItems.filter((sub) => sub.key !== 'masters-promotional-offers') }
+            : item,
+        );
+    return filterItems(visible);
   }
 }
 
@@ -400,6 +411,13 @@ export const MENU_HIERARCHY: MenuItem[] = [
         icon: 'Ticket',
         href: '/master/coupon-code',
         requiredPermissions: ['coupon_codes.read'],
+      },
+      {
+        name: 'Promotions',
+        key: 'masters-promotional-offers',
+        icon: 'Ticket',
+        href: '/master/promotional-offers',
+        requiredPermissions: ['promotional_offers.read'],
       },
     ],
   },
