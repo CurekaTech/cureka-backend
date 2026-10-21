@@ -8,6 +8,7 @@ describe('AdminAuthService - Menu Filtering', () => {
   let service: AdminAuthService;
   let adminUsersService: jest.Mocked<AdminUsersService>;
   let jwtService: jest.Mocked<JwtService>;
+  let configGet: jest.Mock;
 
   beforeEach(() => {
     adminUsersService = {
@@ -15,12 +16,13 @@ describe('AdminAuthService - Menu Filtering', () => {
     } as unknown as jest.Mocked<AdminUsersService>;
 
     jwtService = {} as unknown as jest.Mocked<JwtService>;
+    configGet = jest.fn();
 
     service = new AdminAuthService(
       adminUsersService,
       jwtService,
       { persistCritical: jest.fn() } as never,
-      { get: jest.fn() } as never,
+      { get: configGet } as never,
       { allocate: jest.fn(), revoke: jest.fn(), isActiveForAdmin: jest.fn() } as never,
     );
   });
@@ -50,11 +52,35 @@ describe('AdminAuthService - Menu Filtering', () => {
       expect(keys).toContain('masters');
       expect(keys).toContain('products');
       expect(keys).toContain('orders');
-      expect(keys).toContain('subscriptions');
+      expect(keys).not.toContain('subscriptions');
       expect(keys).toContain('cms');
       expect(keys).toContain('role-management');
       expect(keys).toContain('audit-logs');
       expect(keys).toContain('settings');
+      const masters = menu.find((item) => item.key === 'masters');
+      expect(masters?.subItems?.map((item) => item.key)).not.toContain(
+        'masters-subscription-frequency',
+      );
+    });
+
+    it('includes the subscription module when SUBSCRIPTIONS_MODULE_ENABLED=true', async () => {
+      configGet.mockImplementation(
+        (key: string) => key === 'subscriptions.moduleEnabled',
+      );
+      adminUsersService.findEntityById.mockResolvedValue({
+        id: 'super-admin-id',
+        role: 'super_admin',
+        isActive: true,
+        roleRecord: null,
+      } as any);
+
+      const menu = await service.getMenuForUser('super-admin-id');
+      const keys = menu.map((item) => item.key);
+      expect(keys).toContain('subscriptions');
+      const masters = menu.find((item) => item.key === 'masters');
+      expect(masters?.subItems?.map((item) => item.key)).toContain(
+        'masters-subscription-frequency',
+      );
     });
 
     it('should filter menu items strictly based on user permissions', async () => {

@@ -179,15 +179,21 @@ export class PromotionalPageReferenceService {
     if (section.type === PromotionalSectionType.PRODUCT_COLLECTION) {
       const mode = section.config?.selectionMode ?? 'manual';
       const limit = section.config?.maxItems ?? DEFAULT_COLLECTION_LIMIT;
+      const hideOutOfStock = section.config?.hideOutOfStock === true;
       if (mode === 'manual') {
         products = items
           .map((item) => catalogs.productCards.get(item.targetRefId))
           .filter((card): card is IPublicStorefrontProductCard => Boolean(card))
+          .filter((card) => !hideOutOfStock || !card.outOfStock)
           .slice(0, limit);
       } else if (mode === 'brand' && section.config?.brandRefId) {
-        products = await this.loadProductsForBrand(section.config.brandRefId, limit);
+        products = await this.loadProductsForBrand(section.config.brandRefId, limit, hideOutOfStock);
       } else if (mode === 'category' && section.config?.categoryRefId) {
-        products = await this.loadProductsForCategory(section.config.categoryRefId, limit);
+        products = await this.loadProductsForCategory(
+          section.config.categoryRefId,
+          limit,
+          hideOutOfStock,
+        );
       }
     }
 
@@ -261,6 +267,7 @@ export class PromotionalPageReferenceService {
   private async loadProductsForBrand(
     brandRefId: string,
     limit: number,
+    hideOutOfStock = false,
   ): Promise<IPublicStorefrontProductCard[]> {
     const brands = await this.brandsRepository.findByRefIds([brandRefId]);
     const brand = brands.find((row) => row.refId === brandRefId && row.status === MasterStatus.ACTIVE);
@@ -269,6 +276,7 @@ export class PromotionalPageReferenceService {
       page: 1,
       limit,
       brandId: brand.id,
+      ...(hideOutOfStock ? { inStockOnly: true } : {}),
     });
     return mapProductEntitiesToPublicStorefrontCards(data);
   }
@@ -276,6 +284,7 @@ export class PromotionalPageReferenceService {
   private async loadProductsForCategory(
     categoryRefId: string,
     limit: number,
+    hideOutOfStock = false,
   ): Promise<IPublicStorefrontProductCard[]> {
     const categories = await this.categoriesRepository.findActiveByRefIds([categoryRefId]);
     const category = categories.find((row) => row.refId === categoryRefId);
@@ -284,6 +293,7 @@ export class PromotionalPageReferenceService {
       page: 1,
       limit,
       categoryId: category.id,
+      ...(hideOutOfStock ? { inStockOnly: true } : {}),
     });
     return mapProductEntitiesToPublicStorefrontCards(data);
   }

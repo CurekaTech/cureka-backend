@@ -27,11 +27,12 @@ import {
   UpdateMembershipPlanDto,
 } from '../dto/membership.dto';
 import { MembershipBenefitsService } from '../services/membership-benefits.service';
+import { SubscriptionsModuleEnabledGuard } from '../guards/subscriptions-module-enabled.guard';
 import { MembershipPlansService } from '../services/membership-plans.service';
 
 @ApiTags('Admin Membership Plans')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@UseGuards(SubscriptionsModuleEnabledGuard, JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('admin/memberships/plans')
 export class AdminMembershipPlansController {
   constructor(

@@ -17,11 +17,12 @@ import {
   AdminUserMembershipQueryDto,
 } from '../dto/membership.dto';
 import { MembershipPaymentsService } from '../services/membership-payments.service';
+import { SubscriptionsModuleEnabledGuard } from '../guards/subscriptions-module-enabled.guard';
 import { MembershipsService } from '../services/memberships.service';
 
 @ApiTags('Admin Memberships')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@UseGuards(SubscriptionsModuleEnabledGuard, JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('admin/memberships')
 export class AdminMembershipsController {
   constructor(
