@@ -271,7 +271,7 @@ describe('ShippingService webhook handling', () => {
     );
   });
 
-  it('does not alter prepaid payment status on DELIVERED status', async () => {
+  it('does not apply Shipway status to an unpaid prepaid order', async () => {
     ordersRepository.findById.mockResolvedValue({
       id: 'ord-1',
       orderNumber: 'CUR1',
@@ -294,13 +294,7 @@ describe('ShippingService webhook handling', () => {
       awb_number: 'AWB1',
     });
 
-    const call = ordersRepository.updateById.mock.calls.at(-1);
-    expect(call?.[1]).toEqual(
-      expect.objectContaining({
-        orderStatus: expect.any(String),
-      }),
-    );
-    expect(call?.[1]).not.toHaveProperty('paymentStatus');
+    expect(ordersRepository.updateById).not.toHaveBeenCalled();
   });
 
   it('batch marks missing shipments as unresolved without failing the batch', async () => {

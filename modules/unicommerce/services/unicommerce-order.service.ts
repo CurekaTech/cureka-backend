@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OrdersRepository } from '@modules/orders/repositories/orders.repository';
-import { isReadyForUnicommercePush } from '@modules/orders/utils/fulfillment-readiness.util';
+import {
+  isReadyForUnicommercePush,
+  shipwayMustNotDriveOrder,
+} from '@modules/orders/utils/fulfillment-readiness.util';
 import { mapOrderToUnicommercePayload } from '../mappers/unicommerce-order.mapper';
 import {
   reconstructUnicommerceSaleOrderItemCodes,
@@ -134,6 +137,9 @@ export class UnicommerceOrderService implements OnModuleInit {
         },
         'Unicommerce push skipped — order not ready (prepaid requires PAID/PARTIALLY_PAID and non-PENDING order status; COD requires non-PENDING)',
       );
+      if (shipwayMustNotDriveOrder(order)) {
+        await this.cancelUnpaidSaleOrder(order);
+      }
       return null;
     }
 
@@ -354,6 +360,25 @@ export class UnicommerceOrderService implements OnModuleInit {
     );
 
     return response;
+  }
+
+  /** Drop a sale order that was created before payment failed or was left unpaid. */
+  private async cancelUnpaidSaleOrder(order: { orderNumber: string }): Promise<void> {
+    try {
+      await this.cancelSaleOrder({
+        orderNumber: order.orderNumber,
+        reason: 'Payment was not completed',
+        cancelledBySeller: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        {
+          orderNumber: order.orderNumber,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Unicommerce cancel skipped for unpaid order — sale order may not exist',
+      );
+    }
   }
 
   private async resolveSaleOrderItems(params: UnicommerceReversePickupParams) {

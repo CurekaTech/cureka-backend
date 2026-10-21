@@ -9,6 +9,7 @@ import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
+import { shipwayMustNotDriveOrder } from '@modules/orders/utils/fulfillment-readiness.util';
 import {
   applyOrderStatusTimestamps,
   resolveOccurredAt,
@@ -99,6 +100,20 @@ export class ShipwayShipmentReconciliationService {
           note: 'Will not create a customer order',
         },
       };
+    }
+
+    if (shipwayMustNotDriveOrder(order)) {
+      this.logger.log(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          paymentStatus: order.paymentStatus,
+          paymentMethod: order.paymentMethod,
+          source: params.source,
+        },
+        '[Shipway reconcile] Ignoring status — payment is not complete',
+      );
+      return { outcome: 'rejected', reason: 'payment_not_complete', order };
     }
 
     this.assertNoConflictingMapping(order, resolvedIds);
@@ -655,6 +670,10 @@ export class ShipwayShipmentReconciliationService {
 
     const order = await this.ordersRepository.findById(orderId, manager);
     if (!order) return;
+
+    if (shipwayMustNotDriveOrder(order)) {
+      return;
+    }
 
     // Multi-shipment: do not regress a more advanced local order status.
     const rank = this.orderStatusRank(orderStatus);

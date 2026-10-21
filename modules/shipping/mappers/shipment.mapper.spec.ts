@@ -80,6 +80,40 @@ describe('ShipmentMapper', () => {
     expect(response.awbNumber).toBeNull();
   });
 
+  it('does not mark a pending order as Shipway confirmed', () => {
+    const response = mapDefaultShipmentResponse({
+      id: 'order-123',
+      orderNumber: 'ORD12345',
+      orderStatus: OrderStatus.PENDING,
+      createdAt: new Date('2026-07-17T06:00:00.000Z'),
+    });
+
+    expect(response.shipwayStatus).toBe(false);
+    expect(response.shipmentStatus).toBe(ShipmentStatus.PENDING);
+    expect(response.currentStatusLabel).toBe('Order Pending');
+    expect(response.shipwayRawStatus).toBeNull();
+    expect(response.statusFlow.every((step) => step.status === 'pending')).toBe(true);
+  });
+
+  it('ignores a stored Shipway Confirmed status while the order is still pending', () => {
+    const shipment = {
+      ...baseShipment,
+      shipmentStatus: ShipmentStatus.CONFIRMED,
+      shipwayRawStatus: 'Confirmed',
+    } as ShipmentEntity;
+
+    const response = mapShipmentToResponse(shipment, {
+      shipwayStatus: true,
+      orderStatus: OrderStatus.PENDING,
+    });
+
+    expect(response.shipwayStatus).toBe(false);
+    expect(response.shipwayRawStatus).toBeNull();
+    expect(response.currentStatusLabel).toBe('Order Pending');
+    expect(response.shipmentStatus).toBe(ShipmentStatus.PENDING);
+    expect(response.statusFlow.every((step) => step.status === 'pending')).toBe(true);
+  });
+
   it('maps default response from order DELIVERED status', () => {
     const response = mapDefaultShipmentResponse({
       id: 'order-123',

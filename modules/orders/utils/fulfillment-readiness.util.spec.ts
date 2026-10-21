@@ -2,7 +2,7 @@ import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { CancellationStatus } from '../enums/cancellation-status.enum';
-import { isReadyForUnicommercePush } from './fulfillment-readiness.util';
+import { isReadyForUnicommercePush, shipwayMustNotDriveOrder } from './fulfillment-readiness.util';
 
 describe('isReadyForUnicommercePush', () => {
   it('allows COD when CONFIRMED with payment still PENDING', () => {
@@ -80,6 +80,36 @@ describe('isReadyForUnicommercePush', () => {
         paymentStatus: OrderPaymentStatus.PENDING,
         orderStatus: OrderStatus.CONFIRMED,
         cancellationStatus: CancellationStatus.PROCESSING,
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps Shipway off failed and unpaid prepaid orders', () => {
+    expect(
+      shipwayMustNotDriveOrder({
+        paymentMethod: OrderPaymentMethod.RAZORPAY,
+        paymentStatus: OrderPaymentStatus.FAILED,
+      }),
+    ).toBe(true);
+
+    expect(
+      shipwayMustNotDriveOrder({
+        paymentMethod: OrderPaymentMethod.CASHFREE,
+        paymentStatus: OrderPaymentStatus.PENDING,
+      }),
+    ).toBe(true);
+
+    expect(
+      shipwayMustNotDriveOrder({
+        paymentMethod: OrderPaymentMethod.COD,
+        paymentStatus: OrderPaymentStatus.PENDING,
+      }),
+    ).toBe(false);
+
+    expect(
+      shipwayMustNotDriveOrder({
+        paymentMethod: OrderPaymentMethod.RAZORPAY,
+        paymentStatus: OrderPaymentStatus.PAID,
       }),
     ).toBe(false);
   });

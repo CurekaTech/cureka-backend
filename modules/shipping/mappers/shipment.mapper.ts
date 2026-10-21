@@ -140,6 +140,7 @@ function getFriendlyStatusLabel(status: string | ShipmentStatus): string {
 function getFriendlyOrderStatusLabel(orderStatus: OrderStatus | string): string {
   switch (orderStatus) {
     case OrderStatus.PENDING:
+      return 'Order Pending';
     case OrderStatus.CONFIRMED:
     case OrderStatus.PROCESSING:
       return 'Order Confirmed';
@@ -357,6 +358,16 @@ function buildStatusFlowFromOrderStatus(
   orderStatus: OrderStatus | string,
   times: ResolvedFlowTimes,
 ): ShipmentStatusFlowStep[] {
+  // Unpaid / failed-payment orders stay PENDING. Do not mark "Order Confirmed" done.
+  if (orderStatus === OrderStatus.PENDING) {
+    return STATIC_FLOW_STEPS.map((step) => ({
+      key: step.key,
+      label: step.label,
+      status: 'pending' as const,
+      happenedAt: null,
+    }));
+  }
+
   if (orderStatus === OrderStatus.CANCELLED) {
     return [
       {
@@ -577,6 +588,17 @@ export function mapShipmentToResponse(
   const mappedEvents = events.map(mapShipmentEventToResponse);
   const shipwayStatus = options.shipwayStatus;
   const orderTimestamps = options.orderTimestamps;
+
+  // Failed prepaid checkouts are stored as PENDING and are never pushed to Shipway.
+  // A stale local row must not show Shipway status "Confirmed".
+  if (options.orderStatus === OrderStatus.PENDING) {
+    return mapDefaultShipmentResponse({
+      id: shipment.orderId,
+      orderNumber: shipment.orderNumber,
+      orderStatus: OrderStatus.PENDING,
+      ...(orderTimestamps ?? {}),
+    });
+  }
 
   if (!shipwayStatus) {
     const orderStatus = options.orderStatus ?? OrderStatus.CONFIRMED;
