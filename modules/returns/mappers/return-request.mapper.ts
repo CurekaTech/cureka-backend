@@ -533,7 +533,11 @@ export const buildAvailableActions = (entity: ReturnRequestEntity): IReturnAvail
     },
     {
       action: 'receiveAtWarehouse',
-      allowed: [ReturnStatus.PICKED_UP, ReturnStatus.IN_TRANSIT_TO_WAREHOUSE].includes(status),
+      allowed: [
+        ReturnStatus.PICKED_UP,
+        ReturnStatus.IN_TRANSIT_TO_WAREHOUSE,
+        ReturnStatus.RECEIVED_AT_WAREHOUSE,
+      ].includes(status),
       requiredPermission: RETURN_PERMISSIONS.STATUS,
     },
     {

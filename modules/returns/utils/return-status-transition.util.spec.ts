@@ -5,6 +5,7 @@ import {
   allowedReturnTransitionsFrom,
   canTransitionReturnStatus,
   isTerminalReturnStatus,
+  returnStatusesForPickupAdvance,
 } from './return-status-transition.util';
 
 describe('return status transitions', () => {
@@ -70,6 +71,21 @@ describe('return status transitions', () => {
     expect(
       canTransitionReturnStatus(ReturnStatus.PICKED_UP, ReturnStatus.CANCELLED_BY_CUSTOMER),
     ).toBe(false);
+  });
+
+  it('walks a scheduled pickup forward when the admin marks it delivered', () => {
+    expect(
+      returnStatusesForPickupAdvance(
+        ReturnStatus.PICKUP_SCHEDULED,
+        ReturnStatus.RECEIVED_AT_WAREHOUSE,
+      ),
+    ).toEqual([ReturnStatus.PICKED_UP, ReturnStatus.RECEIVED_AT_WAREHOUSE]);
+  });
+
+  it('keeps a direct pickup hop as a single step', () => {
+    expect(
+      returnStatusesForPickupAdvance(ReturnStatus.PICKUP_SCHEDULED, ReturnStatus.PICKED_UP),
+    ).toEqual([ReturnStatus.PICKED_UP]);
   });
 
   it('rejects a self transition', () => {
