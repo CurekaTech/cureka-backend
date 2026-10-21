@@ -19,11 +19,12 @@ import {
   ChangeMembershipPlanDto,
   PurchaseMembershipDto,
 } from '../dto/membership.dto';
+import { SubscriptionsModuleEnabledGuard } from '../guards/subscriptions-module-enabled.guard';
 import { MembershipsService } from '../services/memberships.service';
 
 @ApiTags('Memberships')
 @ApiBearerAuth()
-@UseGuards(SessionCookieGuard, VerifiedUserGuard)
+@UseGuards(SubscriptionsModuleEnabledGuard, SessionCookieGuard, VerifiedUserGuard)
 @Controller('memberships')
 export class MembershipsController {
   constructor(private readonly membershipsService: MembershipsService) {}

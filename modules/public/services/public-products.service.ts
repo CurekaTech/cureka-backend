@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -35,6 +36,7 @@ import { ProductInformationLabelsRepository } from '@modules/product/repositorie
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
+import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 import { resolvePublicExpiryDate } from '@modules/product/utils/expiry-date.util';
 import {
   buildCategoryPermalink,
@@ -113,6 +115,7 @@ export class PublicProductsService {
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly reviewStats: PublicProductReviewStatsService,
     private readonly pincodesService: PincodesService,
+    private readonly configService: ConfigService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -1048,15 +1051,18 @@ export class PublicProductsService {
     const { isFreeDelivery, codMinOrderAmount } =
       await this.resolveCheckoutBadgeHints(merged);
     const banners = await this.resolvePdpBanners(product);
-    const subscriptionConfig =
-      await this.productSubscriptionConfigService.findForProductVariant(
-        merged.id,
-        merged.selectedVariantId ?? null,
-      );
+    const subscriptionsModuleEnabled = isSubscriptionsModuleEnabled(this.configService);
+    const subscriptionConfig = subscriptionsModuleEnabled
+      ? await this.productSubscriptionConfigService.findForProductVariant(
+          merged.id,
+          merged.selectedVariantId ?? null,
+        )
+      : null;
     const sharedSubscriptionConfig =
       subscriptionConfig?.enabled === true ? subscriptionConfig : null;
     const subscriptionEnabled =
-      merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig);
+      subscriptionsModuleEnabled &&
+      (merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig));
 
     // Re-apply live master order after variant merge (variant payload may replace product info).
     return toPublicStorefrontProductDetail({

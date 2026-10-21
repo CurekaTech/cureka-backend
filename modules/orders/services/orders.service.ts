@@ -2841,6 +2841,10 @@ export class OrdersService {
     addressId: string | null,
     source: string,
   ): Promise<void> {
+    if (this.configService.get<boolean>('subscriptions.moduleEnabled') !== true) {
+      return;
+    }
+
     const items = order.items ?? [];
     const subscriptionItems = items
       .filter((item) => item.isSubscription && item.frequency)

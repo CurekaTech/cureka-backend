@@ -1,8 +1,10 @@
 import { InjectQueue, Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bullmq';
 import { SUBSCRIPTION_QUEUE } from '../constants/subscription-queue.constants';
 import { MembershipsService } from '../services/memberships.service';
+import { isSubscriptionsModuleEnabled } from '../utils/subscriptions-module.util';
 
 @Injectable()
 @Processor(SUBSCRIPTION_QUEUE.MEMBERSHIP_RENEWAL)
@@ -13,6 +15,7 @@ export class MembershipRenewalProcessor extends WorkerHost implements OnModuleIn
     private readonly membershipsService: MembershipsService,
     @InjectQueue(SUBSCRIPTION_QUEUE.MEMBERSHIP_RENEWAL)
     private readonly queue: Queue,
+    private readonly configService: ConfigService,
   ) {
     super();
   }
@@ -31,6 +34,7 @@ export class MembershipRenewalProcessor extends WorkerHost implements OnModuleIn
   }
 
   async process(job: Job): Promise<void> {
+    if (!isSubscriptionsModuleEnabled(this.configService)) return;
     this.logger.log({ jobId: job.id, name: job.name }, 'Running membership renewal job');
     const renewed = await this.membershipsService.processRenewals();
     this.logger.log({ renewed }, 'Membership renewal job completed');

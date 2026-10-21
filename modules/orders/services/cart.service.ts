@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { generateUniqueRefId, getSalableStockQuantity, isVariantInStock, STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
@@ -12,6 +13,7 @@ import { ProductType } from '@modules/product/enums/product-type.enum';
 import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
+import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { buildProductLocPath } from '@modules/sitemap/services/sitemap-url.builder';
@@ -56,6 +58,7 @@ export class CartService {
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly codBlocklistService: CodBlocklistService,
     private readonly savedForLaterItemsRepository: SavedForLaterItemsRepository,
+    private readonly configService: ConfigService,
   ) { }
 
   private async buildEmptyCartResponse(userId?: string): Promise<CartResponse> {
@@ -737,6 +740,10 @@ export class CartService {
     variantId: string,
     frequency: ProductSubscriptionFrequency,
   ): Promise<void> {
+    if (!isSubscriptionsModuleEnabled(this.configService)) {
+      throw new BadRequestException('Subscriptions are not available');
+    }
+
     const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
       productId,
       variantId,

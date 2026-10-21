@@ -20,6 +20,7 @@ import {
   isSuperAdminSessionAccount,
   parseJwtExpiresInToMilliseconds,
 } from '../utils/super-admin-session.util';
+import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 
 @Injectable()
 export class AdminAuthService {
@@ -241,8 +242,22 @@ export class AdminAuthService {
         .filter(Boolean) as MenuItem[];
     };
 
-    return filterItems(MENU_HIERARCHY);
+    return filterItems(menuForSubscriptionsModule(isSubscriptionsModuleEnabled(this.configService)));
   }
+}
+
+function menuForSubscriptionsModule(enabled: boolean): MenuItem[] {
+  if (enabled) return MENU_HIERARCHY;
+  return MENU_HIERARCHY.flatMap((item) => {
+    if (item.key === 'subscriptions') return [];
+    if (!item.subItems?.length) return [item];
+    return [
+      {
+        ...item,
+        subItems: item.subItems.filter((sub) => sub.key !== 'masters-subscription-frequency'),
+      },
+    ];
+  });
 }
 
 export interface MenuItem {

@@ -27,6 +27,11 @@ const asMoney = (value: string | undefined): string | null => {
  * payment routing and is independent of this flag.
  */
 export const subscriptionsConfig = registerAs('subscriptions', () => ({
+  /**
+   * Website + admin subscription and membership module.
+   * Default false so live stays hidden. Set true only on techbv.
+   */
+  moduleEnabled: asBool(process.env['SUBSCRIPTIONS_MODULE_ENABLED'], false),
   timezone: process.env['SUBSCRIPTION_TIMEZONE']?.trim() || 'Asia/Kolkata',
   deliveryLeadDays: asInt(process.env['SUBSCRIPTION_DELIVERY_LEAD_DAYS'], 2),
   maxRetries: asInt(process.env['SUBSCRIPTION_MAX_RETRIES'], 3),

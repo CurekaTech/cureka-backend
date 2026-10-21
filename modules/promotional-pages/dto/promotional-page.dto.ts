@@ -116,6 +116,10 @@ export class PromotionalSectionConfigDto {
   layout?: 'carousel' | 'grid' | null;
 
   @IsOptional()
+  @IsBoolean()
+  hideOutOfStock?: boolean;
+
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
   videoUrl?: string | null;
