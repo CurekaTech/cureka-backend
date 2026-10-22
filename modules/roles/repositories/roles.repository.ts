@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, QueryDeepPartialEntity, Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -64,7 +64,36 @@ export class RolesRepository {
       return null;
     }
 
-    await repo.save({ ...existing, ...data });
+    const { permissions, ...columns } = data;
+    const columnUpdate = Object.fromEntries(
+      Object.entries(columns).filter(([, value]) => value !== undefined),
+    );
+    if (Object.keys(columnUpdate).length > 0) {
+      await repo.update(
+        { id: existing.id },
+        columnUpdate as QueryDeepPartialEntity<RoleEntity>,
+      );
+    }
+
+    // save() on an already-loaded role does not replace role_permissions rows.
+    // Sync the join table explicitly so checked permissions are what gets stored.
+    if (permissions) {
+      const nextIds = [...new Set(permissions.map((permission) => permission.id))];
+      const currentIds = (existing.permissions ?? []).map((permission) => permission.id);
+      const nextIdSet = new Set(nextIds);
+      const currentIdSet = new Set(currentIds);
+      const toAdd = nextIds.filter((id) => !currentIdSet.has(id));
+      const toRemove = currentIds.filter((id) => !nextIdSet.has(id));
+
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        await (manager ?? repo.manager)
+          .createQueryBuilder()
+          .relation(RoleEntity, 'permissions')
+          .of(existing.id)
+          .addAndRemove(toAdd, toRemove);
+      }
+    }
+
     return this.findByRefId(refId, manager);
   }
 
