@@ -106,6 +106,34 @@ describe('evaluatePromotionalOffers', () => {
     expect(result.warnings[0].code).toBe('REWARD_OUT_OF_STOCK');
   });
 
+  it('does not grant a free unit when recorded stock is already in the cart', () => {
+    const result = evaluatePromotionalOffers(
+      [line({ quantity: 1, totalPrice: 100 })],
+      [
+        offer({
+          config: { qualifyingQuantity: 1, rewardQuantity: 1, rewardPricing: RewardPricing.FREE },
+          targets: [
+            target({
+              role: PromotionalOfferTargetRole.QUALIFYING,
+              variantId: 'variant-1',
+              productId: 'product-1',
+              ...purchasable,
+              stock: 1,
+              stockValidation: false,
+            }),
+          ],
+        }),
+      ],
+      100,
+    );
+
+    expect(result.rewardLines).toHaveLength(0);
+    expect(result.promotions).toHaveLength(0);
+    expect(result.warnings[0].message).toBe(
+      'The free item is out of stock, so this offer cannot be applied right now.',
+    );
+  });
+
   it('adds one gift when customer subtotal reaches the single threshold', () => {
     const result = evaluatePromotionalOffers(
       [line()],

@@ -106,9 +106,12 @@ const chargedUnit = (sellingPrice: number, pricing: string, value: number): numb
   return Math.max(0, roundMoney(sellingPrice - value));
 };
 
+const REWARD_STOCK_NOTE = 'The free item is out of stock, so this offer cannot be applied right now.';
+
 const availableForReward = (target: PromotionCatalogTarget, customerQty: number): number => {
   if (!target.purchasable || target.outOfStock) return 0;
-  if (!target.stockValidation) return Number.MAX_SAFE_INTEGER;
+  // No stock figure and qty checks are off: the catalog is not tracking units.
+  if (!target.stockValidation && target.stock <= 0) return Number.MAX_SAFE_INTEGER;
   return Math.max(0, target.stock - customerQty);
 };
 
@@ -180,7 +183,7 @@ const pushReward = (
   if (quantity > available) {
     result.warnings.push({
       code: target.role === PromotionalOfferTargetRole.GIFT ? 'GIFT_UNAVAILABLE' : 'REWARD_OUT_OF_STOCK',
-      message: `${offer.name} reward is out of stock`,
+      message: REWARD_STOCK_NOTE,
     });
     return false;
   }
@@ -226,7 +229,7 @@ const applyBogo = (
   const held = customerQty(lines, target.variantId);
   const available = availableForReward(target, held);
   if (reward > available) {
-    result.warnings.push({ code: 'REWARD_OUT_OF_STOCK', message: `${offer.name} reward is out of stock` });
+    result.warnings.push({ code: 'REWARD_OUT_OF_STOCK', message: REWARD_STOCK_NOTE });
     return;
   }
   const pricing = String(offer.config['rewardPricing'] ?? RewardPricing.FREE);
@@ -279,7 +282,7 @@ const applyBuyXGetY = (
   if (maxReward !== null) quantity = Math.min(quantity, maxReward);
   const available = availableForReward(reward, customerQty(lines, reward.variantId));
   if (quantity > available) {
-    result.warnings.push({ code: 'REWARD_OUT_OF_STOCK', message: `${offer.name} reward is out of stock` });
+    result.warnings.push({ code: 'REWARD_OUT_OF_STOCK', message: REWARD_STOCK_NOTE });
     return;
   }
   if (!pushReward(offer, reward, quantity, result)) return;
@@ -310,7 +313,7 @@ const applyGift = (
   if (customerSubtotal < threshold) return;
   const available = availableForReward(gift, customerQty(lines, gift.variantId));
   if (available < 1) {
-    result.warnings.push({ code: 'GIFT_UNAVAILABLE', message: `${offer.name} gift is unavailable` });
+    result.warnings.push({ code: 'GIFT_UNAVAILABLE', message: REWARD_STOCK_NOTE });
     return;
   }
   if (!pushReward(offer, gift, 1, result)) return;

@@ -480,7 +480,6 @@ export class CartService {
         );
         const warning = preview.warnings[0];
         if (!applied && !(cartHasTarget && warning)) continue;
-        const blockedByStock = !applied && (warning?.code === 'REWARD_OUT_OF_STOCK' || warning?.code === 'GIFT_UNAVAILABLE');
         rows.push({
           code: offer.code,
           sourceType: 'promotional_offer',
@@ -488,11 +487,7 @@ export class CartService {
           title: offer.name,
           description: offer.customerMessage,
           estimatedBenefit: applied ? benefit : 0,
-          conditions: applied
-            ? offer.customerMessage
-            : blockedByStock
-              ? 'The free item is out of stock, so this offer cannot be applied right now.'
-              : warning?.message ?? offer.customerMessage,
+          conditions: applied ? offer.customerMessage : warning?.message ?? offer.customerMessage,
           expiresAt: offer.expiryDate,
           selected: cart.promotionalOfferId === offer.id,
           applicable: applied,
