@@ -98,12 +98,10 @@ describe('Promotional landing page RBAC', () => {
     );
 
     const tree = await permissions.findGroupedByModule();
-    const marketing = tree.find((item: { key: string }) => item.key === 'marketing');
-    const entry = marketing.subItems.find(
-      (item: { key: string }) => item.key === 'marketing-promotional-pages',
-    );
+    const marketing = tree.find((item) => item.key === 'marketing');
+    const entry = marketing?.subItems?.find((item) => item.key === 'marketing-promotional-pages');
 
-    expect(entry.permissions.map((permission: { code: string }) => permission.code).sort()).toEqual(
+    expect((entry?.permissions ?? []).map((permission) => permission.code).sort()).toEqual(
       [...Object.values(PROMOTIONAL_PAGE_PERMISSIONS)].sort(),
     );
   });

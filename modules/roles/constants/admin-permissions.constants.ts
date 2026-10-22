@@ -1,4 +1,5 @@
 import { PermissionAction } from '../enums/permission-action.enum';
+import { SCOPED_PERMISSION_DEFINITIONS } from './menu-permission-scopes.constants';
 
 export interface IPermissionSeed {
   name: string;
@@ -404,4 +405,10 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     module: 'support',
     action: PermissionAction.READ,
   },
+  ...SCOPED_PERMISSION_DEFINITIONS.map(({ name, code, module, action }) => ({
+    name,
+    code,
+    module,
+    action,
+  })),
 ];

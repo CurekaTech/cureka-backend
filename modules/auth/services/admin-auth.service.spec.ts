@@ -90,8 +90,8 @@ describe('AdminAuthService - Menu Filtering', () => {
         isActive: true,
         roleRecord: {
           permissions: [
-            { code: 'orders.read', status: MasterStatus.ACTIVE },
-            { code: 'settings.read', status: MasterStatus.ACTIVE },
+            { code: 'orders_list_all.read', status: MasterStatus.ACTIVE },
+            { code: 'cart_charges_view.read', status: MasterStatus.ACTIVE },
             { code: 'roles.read', status: MasterStatus.ACTIVE },
           ],
         },
@@ -101,18 +101,26 @@ describe('AdminAuthService - Menu Filtering', () => {
 
       const menu = await service.getMenuForUser('admin-id');
 
-      // Masters still appears because "Country of Origin" has no requiredPermissions.
       // Subscriptions must stay hidden without user_product_subscriptions.read.
       const keys = menu.map((m) => m.key);
       expect(keys).toContain('dashboard'); // Dashboard has no requiredPermissions, always visible
-      expect(keys).toContain('orders'); // accessible via orders.read
+      expect(keys).toContain('orders'); // accessible via orders_list_all.read
       expect(keys).toContain('role-management'); // accessible via roles.read
-      expect(keys).toContain('settings'); // accessible via settings.read
+      expect(keys).toContain('settings'); // accessible via cart_charges_view.read
 
       expect(keys).not.toContain('products');
       expect(keys).not.toContain('subscriptions');
       expect(keys).not.toContain('cms');
       expect(keys).not.toContain('audit-logs');
+
+      const orderKeys = menu
+        .find((item) => item.key === 'orders')
+        ?.subItems?.map((item) => item.key);
+      expect(orderKeys).toEqual(['orders-list-all']);
+      const settingKeys = menu
+        .find((item) => item.key === 'settings')
+        ?.subItems?.map((item) => item.key);
+      expect(settingKeys).toEqual(['cart-charges-view']);
     });
   });
 });
