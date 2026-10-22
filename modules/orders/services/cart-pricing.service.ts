@@ -105,7 +105,7 @@ export class CartPricingService {
       promotions: [] as CartPromotionSummary[],
       warnings: [] as CartPromotionWarning[],
       rewardLines: [] as CartRewardLine[],
-      lineAllocations: [],
+      lineAllocations: [] as NonNullable<CartPricing['lineAllocations']>,
     };
     let invalidatedCode: CartInvalidatedCode | null = null;
     let appliedCode: CartAppliedCode | null = null;
