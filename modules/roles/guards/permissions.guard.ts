@@ -11,6 +11,7 @@ import {
   PERMISSIONS_MODE_KEY,
   type PermissionsMode,
 } from '../decorators/permissions.decorator';
+import { hasRequiredPermissions } from '../utils/implied-read-permission.util';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -61,10 +62,7 @@ export class PermissionsGuard implements CanActivate {
         .map((permission) => permission.code),
     );
 
-    const hasAccess =
-      mode === 'any'
-        ? requiredPermissions.some((permission) => permissionCodes.has(permission))
-        : requiredPermissions.every((permission) => permissionCodes.has(permission));
+    const hasAccess = hasRequiredPermissions(requiredPermissions, permissionCodes, mode);
 
     if (!hasAccess) {
       const joiner = mode === 'any' ? ' or ' : ', ';

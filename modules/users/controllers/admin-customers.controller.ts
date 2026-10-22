@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { PaginationQueryDto, ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { RequireAnyPermission } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { CreateAdminCustomerDto, UpdateAdminCustomerDto } from '../dto/user.dto';
 import { UsersService } from '../services/users.service';
@@ -37,7 +37,7 @@ export class AdminCustomersController {
 
   @ApiOperation({ summary: 'Create a new customer (admin payment-request wizard)' })
   @ResponseMessage('Customer created successfully')
-  @RequirePermissions('users.create')
+  @RequireAnyPermission('users.create', 'orders.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(
@@ -53,7 +53,7 @@ export class AdminCustomersController {
       'Returns paginated customer list. Pass `search` to filter by firstName, lastName, email, or mobileNumber.',
   })
   @ResponseMessage('Customers retrieved successfully')
-  @RequirePermissions('users.read')
+  @RequireAnyPermission('users.read', 'orders.create', 'orders.update')
   @Get('search')
   search(@Query() query: PaginationQueryDto) {
     return this.usersService.findCustomers(query);
@@ -63,7 +63,7 @@ export class AdminCustomersController {
     summary: 'Get customer detail by refId (includes addresses)',
   })
   @ResponseMessage('Customer retrieved successfully')
-  @RequirePermissions('users.read')
+  @RequireAnyPermission('users.read', 'orders.create', 'orders.update')
   @Get(':refId')
   findOne(@Param('refId') refId: string) {
     return this.usersService.findCustomerByRefId(refId);
@@ -71,7 +71,7 @@ export class AdminCustomersController {
 
   @ApiOperation({ summary: 'Update customer details (admin payment-request wizard)' })
   @ResponseMessage('Customer updated successfully')
-  @RequirePermissions('users.update')
+  @RequireAnyPermission('users.update', 'orders.create', 'orders.update')
   @Put(':refId')
   update(
     @Param('refId') refId: string,
