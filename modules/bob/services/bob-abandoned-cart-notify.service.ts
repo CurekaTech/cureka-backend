@@ -205,7 +205,7 @@ export class BobAbandonedCartNotifyService {
           httpStatus: result.httpStatus,
           phoneMasked: snapshot.phoneMasked,
         },
-        '[BOB abandoned-cart] BOB accepted /abancart-external (WhatsApp delivery is BOB-side)',
+        `[BOB abandoned-cart] BOB accepted ${BOB_ABANDONED_CART_PATH} (WhatsApp delivery is BOB-side)`,
       );
       return { status: 'accepted' };
     }
@@ -247,7 +247,7 @@ export class BobAbandonedCartNotifyService {
         httpStatus: result.httpStatus,
         permanent,
       },
-      '[BOB abandoned-cart] /abancart-external rejected',
+      `[BOB abandoned-cart] ${BOB_ABANDONED_CART_PATH} rejected`,
     );
     return { status: 'failed', reason: result.error };
   }

@@ -358,24 +358,24 @@ export class BobNotifyListener {
     }
   }
 
-  /** Notifications API: POST /abancart-external. */
+  /** Notifications API: POST /abancart. */
   @OnEvent(EVENTS.CHECKOUT_CART_ABANDONED)
   async onCartAbandoned(event: CheckoutCartAbandonedEvent): Promise<void> {
     this.logger.log(
       {
         whatsappKind: 'abandoned_cart',
         decision: 'call',
-        api: '/abancart-external',
+        api: '/abancart',
         checkoutId: event.checkoutId,
       },
-      '[BOB notify] CHECKOUT_CART_ABANDONED — preparing /abancart-external',
+      '[BOB notify] CHECKOUT_CART_ABANDONED — preparing /abancart',
     );
     try {
       const storefront =
         this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ?? '';
       const recoveryUrl = storefront ? `${storefront}/cart` : '';
       await this.bobNotifyService.post(
-        '/abancart-external',
+        '/abancart',
         mapBobAbandonedCart({
           checkoutId: event.checkoutId,
           recoveryUrl,
@@ -386,11 +386,11 @@ export class BobNotifyListener {
       this.logger.warn(
         {
           decision: 'error',
-          api: '/abancart-external',
+          api: '/abancart',
           checkoutId: event.checkoutId,
           error: error instanceof Error ? error.message : String(error),
         },
-        '[BOB notify] /abancart-external crashed (non-blocking)',
+        '[BOB notify] /abancart crashed (non-blocking)',
       );
     }
   }
