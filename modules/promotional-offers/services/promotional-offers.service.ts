@@ -279,6 +279,17 @@ export class PromotionalOffersService {
     }
   }
 
+  private targetVariantLabel(target: {
+    variant?: { sku?: string | null; displayName?: string | null; product?: { name?: string | null } | null } | null;
+  }): string | null {
+    const variant = target.variant;
+    if (!variant) return null;
+    const name = String(variant.displayName || variant.product?.name || '').trim();
+    const sku = String(variant.sku || '').trim();
+    if (name && sku) return `${name} (${sku})`;
+    return name || sku || null;
+  }
+
   private assertRewardPricing(config: Record<string, unknown>): void {
     const pricing = String(config['rewardPricing'] ?? '');
     if (![RewardPricing.FREE, RewardPricing.PERCENTAGE, RewardPricing.FIXED].includes(pricing as RewardPricing)) {
@@ -305,7 +316,13 @@ export class PromotionalOffersService {
     config: Record<string, unknown>;
     createdAt: Date;
     updatedAt: Date;
-    targets?: Array<{ role: PromotionalOfferTargetRole; variantId: string; productId: string; quantity: number | null }>;
+    targets?: Array<{
+      role: PromotionalOfferTargetRole;
+      variantId: string;
+      productId: string;
+      quantity: number | null;
+      variant?: { sku?: string | null; displayName?: string | null; product?: { name?: string | null } | null } | null;
+    }>;
   }) {
     const now = new Date();
     let derivedStatus = 'inactive';
@@ -332,6 +349,7 @@ export class PromotionalOffersService {
         variantId: target.variantId,
         productId: target.productId,
         quantity: target.quantity,
+        variantLabel: this.targetVariantLabel(target),
       })),
       createdAt: offer.createdAt,
       updatedAt: offer.updatedAt,

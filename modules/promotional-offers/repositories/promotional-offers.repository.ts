@@ -19,7 +19,10 @@ export class PromotionalOffersRepository {
 
   findByRefId(refId: string, manager?: EntityManager): Promise<PromotionalOfferEntity | null> {
     const repository = manager ? manager.getRepository(PromotionalOfferEntity) : this.repo;
-    return repository.findOne({ where: { refId }, relations: { targets: true } });
+    return repository.findOne({
+      where: { refId },
+      relations: { targets: { variant: { product: true } } },
+    });
   }
 
   findById(id: string, manager?: EntityManager): Promise<PromotionalOfferEntity | null> {

@@ -411,6 +411,7 @@ export class CartService {
       conditions: string;
       expiresAt: Date | null;
       selected: boolean;
+      applicable: boolean;
     }>;
   }> {
     const cart = await this.cartsRepository.findActiveByUserId(userId);
@@ -427,6 +428,7 @@ export class CartService {
       conditions: string;
       expiresAt: Date | null;
       selected: boolean;
+      applicable: boolean;
     }> = [];
     const coupons = await this.couponsRepository.findAllActiveValid();
     for (const coupon of coupons) {
@@ -443,6 +445,7 @@ export class CartService {
           conditions: `Minimum purchase ${Number(coupon.minPurchase).toFixed(2)}`,
           expiresAt: coupon.expiryDate,
           selected: cart.couponId === coupon.id,
+          applicable: true,
         });
       } catch {
         continue;
@@ -472,17 +475,27 @@ export class CartService {
         });
         const benefit = preview.promotionDiscount || preview.bmsmDiscount || preview.promotions[0]?.discountAmount || 0;
         const applied = preview.promotions.length > 0 || preview.rewardLines.length > 0 || preview.bmsmDiscount > 0;
-        if (!applied) continue;
+        const cartHasTarget = (offer.targets ?? []).some((target) =>
+          lineItems.some((item) => item.variantId === target.variantId && !item.isSubscription),
+        );
+        const warning = preview.warnings[0];
+        if (!applied && !(cartHasTarget && warning)) continue;
+        const blockedByStock = !applied && (warning?.code === 'REWARD_OUT_OF_STOCK' || warning?.code === 'GIFT_UNAVAILABLE');
         rows.push({
           code: offer.code,
           sourceType: 'promotional_offer',
           id: offer.id,
           title: offer.name,
           description: offer.customerMessage,
-          estimatedBenefit: benefit,
-          conditions: offer.customerMessage,
+          estimatedBenefit: applied ? benefit : 0,
+          conditions: applied
+            ? offer.customerMessage
+            : blockedByStock
+              ? 'The free item is out of stock, so this offer cannot be applied right now.'
+              : warning?.message ?? offer.customerMessage,
           expiresAt: offer.expiryDate,
           selected: cart.promotionalOfferId === offer.id,
+          applicable: applied,
         });
       }
     }
