@@ -44,6 +44,8 @@ export type CartLineItem = {
   isSubscription: boolean;
   frequency: string | null;
   lineType: 'SUBSCRIPTION' | 'ONE_TIME';
+  promotionDiscount?: number;
+  promotionOfferId?: string | null;
 };
 
 export type CartCouponSummary = {
@@ -69,6 +71,33 @@ export type CartCodEligibility = {
   reasonCode?: string | null;
 };
 
+export type CartPromotionSummary = {
+  id: string;
+  name: string;
+  offerType: string;
+  customerMessage: string;
+  discountAmount: number;
+};
+
+export type CartPromotionWarning = {
+  code: string;
+  message: string;
+};
+
+export type CartRewardLine = {
+  promotionOfferId: string;
+  productId: string;
+  variantId: string;
+  sku: string;
+  productName: string;
+  variantLabel: string | null;
+  quantity: number;
+  catalogUnitPrice: number;
+  chargedUnitPrice: number;
+  totalPrice: number;
+  promotionDiscount: number;
+};
+
 export type CartPricing = {
   subtotal: number;
   coupon: CartCouponSummary;
@@ -80,6 +109,14 @@ export type CartPricing = {
   /** Discount applied when paying with a prepaid method (subtracted from total). */
   prepaidDiscount: number;
   grandTotal: number;
+  /** Display total of BMSM plus reward catalog savings. Not subtracted again on top of rewardCharged. */
+  promotionDiscount?: number;
+  bmsmDiscount?: number;
+  rewardCharged?: number;
+  promotions?: CartPromotionSummary[];
+  promotionWarnings?: CartPromotionWarning[];
+  rewardLines?: CartRewardLine[];
+  lineAllocations?: Array<{ lineId: string; promotionOfferId: string; promotionDiscount: number }>;
   /** Live admin rules for FE (prepaid % + COD limits). */
   checkoutRules: CartCheckoutRules;
   /** Backend-computed COD availability for the current cart payable merchandise. */
@@ -109,6 +146,10 @@ export type CheckoutLineItem = {
   brandId: string | null;
   isSubscription: boolean;
   frequency: string | null;
+  lineSource?: 'customer' | 'promotion';
+  promotionOfferId?: string | null;
+  catalogUnitPrice?: number | null;
+  promotionDiscount?: number;
 };
 
 export type CheckoutSummary = {

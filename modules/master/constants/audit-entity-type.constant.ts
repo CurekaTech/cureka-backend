@@ -12,6 +12,7 @@ export const AuditEntityType = {
   BRAND: 'brand',
   CATEGORY: 'category',
   COUPON: 'coupon',
+  PROMOTIONAL_OFFER: 'promotional_offer',
   BANNER: 'banner',
   ADMIN_SETTING: 'admin_setting',
   COD_BLOCKLIST: 'cod_blocklist',

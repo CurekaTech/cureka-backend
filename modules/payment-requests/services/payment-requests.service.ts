@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -37,6 +38,8 @@ import {
   UpdatePaymentRequestDto,
   ValidateAdminCouponDto,
 } from '../dto/payment-request.dto';
+import { PromotionalOfferReservationService } from '@modules/promotional-offers/services/promotional-offer-reservation.service';
+import { PromotionalOfferReservationStatus } from '@modules/promotional-offers/enums/promotional-offer-reservation-status.enum';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
@@ -87,6 +90,7 @@ export class PaymentRequestsService {
     private readonly gokwikCheckoutTokenService: GokwikCheckoutTokenService,
     @Inject(forwardRef(() => RefundWalletService))
     private readonly refundWalletService: RefundWalletService,
+    private readonly promotionalOfferReservationService: PromotionalOfferReservationService,
   ) { }
 
   async checkoutFromCart(
@@ -126,6 +130,7 @@ export class PaymentRequestsService {
         orderSource,
         prepaidMethod,
         walletChoice?.walletAmountPaise ?? 0,
+        true,
       );
       try {
         const callbackUrl = this.getStorefrontPaymentCallbackUrl();
@@ -214,6 +219,7 @@ export class PaymentRequestsService {
         orderSource,
         prepaidMethod,
         walletChoice?.walletAmountPaise ?? 0,
+        true,
       );
       try {
         this.assertChargeAmountForQr({
@@ -370,6 +376,7 @@ export class PaymentRequestsService {
       orderSource,
       prepaidMethod,
       walletChoice?.walletAmountPaise ?? 0,
+        true,
     );
     try {
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
@@ -496,6 +503,7 @@ export class PaymentRequestsService {
       orderSource,
       prepaidMethod,
       walletChoice?.walletAmountPaise ?? 0,
+        true,
     );
 
     try {
@@ -690,6 +698,7 @@ export class PaymentRequestsService {
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
     walletAmountPaise = 0,
+    applyPromotionalOffers = false,
   ) {
     // Native online checkout must price as prepaid so QR/PG charge includes 2% off.
     const pricingMethod =
@@ -706,7 +715,7 @@ export class PaymentRequestsService {
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId,
       paymentMethod: pricingMethod,
-    });
+    }, { applyPromotionalOffers });
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
     }
@@ -729,9 +738,12 @@ export class PaymentRequestsService {
           variantId: item.variantId,
           quantity: item.quantity,
           unitPrice,
-          discount: '0.00',
+          discount: (item.promotionDiscount ?? 0).toFixed(2),
           tax: '0.00',
           total,
+          lineSource: item.lineSource ?? 'customer',
+          promotionOfferId: item.promotionOfferId ?? null,
+          catalogUnitPrice: item.catalogUnitPrice != null ? item.catalogUnitPrice.toFixed(2) : null,
           isSubscription: item.isSubscription,
           frequency: item.frequency ?? null,
         };
@@ -745,13 +757,17 @@ export class PaymentRequestsService {
     // Safety net: if prepaid pricing did not apply, force line-item % off into the charge.
     if (prepaidPercent > 0 && prepaidDiscount <= 0) {
       prepaidDiscount = roundMoney(
-        summary.items.reduce(
+        summary.items
+          .filter((item) => item.lineSource !== 'promotion')
+          .reduce(
           (sum, item) => sum + roundMoney((item.totalPrice * prepaidPercent) / 100),
           0,
         ),
       );
       chargeGrandTotal = roundMoney(
         summary.subtotal -
+          (summary.bmsmDiscount ?? 0) +
+          (summary.rewardCharged ?? 0) -
           summary.discountAmount +
           summary.shippingAmount +
           summary.handlingAmount +
@@ -783,6 +799,7 @@ export class PaymentRequestsService {
         Math.max(0, chargeGrandTotal).toFixed(2),
         prepaidDiscount > 0 ? prepaidDiscount.toFixed(2) : undefined,
       ),
+      subtotal: summary.subtotal.toFixed(2),
       prepaidDiscountPercent: prepaidPercent,
     };
 
@@ -835,6 +852,14 @@ export class PaymentRequestsService {
           eligibleTotalPaise: String(eligibleTotalPaise),
           couponCode: summary.coupon?.code ?? null,
           couponDiscount: totals.discount,
+          promotionDiscount: (summary.promotionDiscount ?? 0).toFixed(2),
+          promotionSnapshot: {
+            promotions: summary.promotions ?? [],
+            warnings: summary.promotionWarnings ?? [],
+            bmsmDiscount: summary.bmsmDiscount ?? 0,
+            rewardCharged: summary.rewardCharged ?? 0,
+            promotionDiscount: summary.promotionDiscount ?? 0,
+          },
           currency: 'INR',
           notes: 'Storefront checkout',
           orderSource: resolvedOrderSource,
@@ -856,6 +881,9 @@ export class PaymentRequestsService {
           discount: item.discount,
           tax: item.tax,
           total: item.total,
+          lineSource: item.lineSource,
+          promotionOfferId: item.promotionOfferId,
+          catalogUnitPrice: item.catalogUnitPrice,
           isSubscription: item.isSubscription,
           frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
@@ -863,6 +891,25 @@ export class PaymentRequestsService {
         })),
         manager,
       );
+
+      const appliedPromotions = summary.promotions ?? [];
+      if (applyPromotionalOffers && appliedPromotions.length > 0) {
+        const holds = appliedPromotions.map((promotion) => ({
+          offerId: promotion.id,
+          discountAmount: promotion.discountAmount,
+        }));
+        const filtered = await this.promotionalOfferReservationService.filterReservable(manager, userId, holds);
+        if (filtered.rejectedOfferIds.length) {
+          throw new ConflictException('A promotional offer reached its usage limit. Refresh checkout and try again.');
+        }
+        await this.promotionalOfferReservationService.insertReservations(manager, {
+          userId,
+          paymentRequestId: created.id,
+          holds: filtered.accepted,
+          status: PromotionalOfferReservationStatus.RESERVED,
+          expiresAt: this.promotionalOfferReservationService.defaultExpiry(),
+        });
+      }
 
       if (walletAmountPaise > 0) {
         const ttl = this.configService.get<number>('wallet.reservationTtlMinutes') ?? 60;
@@ -984,6 +1031,7 @@ export class PaymentRequestsService {
         );
         return;
       }
+      await this.promotionalOfferReservationService.releaseByPaymentRequest(paymentRequestId, manager);
       if (Number(locked.walletAmountPaise ?? 0) <= 0) return;
       await this.refundWalletService.releaseReservationForPaymentRequest(
         paymentRequestId,
@@ -1132,7 +1180,11 @@ export class PaymentRequestsService {
     if (!isPrepaidPaymentMethod(paymentMethod)) {
       throw new BadRequestException('Wallet cannot be combined with COD');
     }
-    const summary = await this.checkoutService.validateCheckout(userId, { addressId, paymentMethod });
+    const summary = await this.checkoutService.validateCheckout(
+      userId,
+      { addressId, paymentMethod },
+      { applyPromotionalOffers: true },
+    );
     if (!summary.items.length) throw new BadRequestException('Cart is empty');
     const eligibleTotalPaise = rupeesToPaise(toMoneyString(summary.grandTotal));
     const overview = await this.refundWalletService.getOverview(userId);
@@ -1842,6 +1894,8 @@ export class PaymentRequestsService {
         ...couponDetails,
         platformFee: existing.platformFee,
         codCharge: existing.codCharge,
+        promotionDiscount: existing.promotionDiscount ?? '0.00',
+        promotionSnapshot: existing.promotionSnapshot ?? null,
         items: existing.items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
@@ -1850,6 +1904,10 @@ export class PaymentRequestsService {
           totalPrice: item.total,
           isSubscription: item.isSubscription,
           frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
+          lineSource: item.lineSource,
+          promotionOfferId: item.promotionOfferId,
+          catalogUnitPrice: item.catalogUnitPrice,
+          promotionDiscount: item.discount,
         })),
       });
       this.logger.log(

@@ -177,6 +177,11 @@ export class PermissionsService {
             key: 'masters-coupon-codes',
             permissions: getPerms('coupon_codes'),
           },
+          {
+            name: 'Promotions',
+            key: 'masters-promotional-offers',
+            permissions: getPerms('promotional_offers'),
+          },
         ],
       },
       {

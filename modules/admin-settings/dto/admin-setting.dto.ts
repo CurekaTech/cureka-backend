@@ -35,6 +35,11 @@ export class BulkUpdateSettingsDto {
   settings!: BulkUpdateSettingItemDto[];
 }
 
+export class UpdatePromotionalOffersEnabledDto {
+  @IsBoolean()
+  enabled!: boolean;
+}
+
 export class UpdateAllowGuestLoginDto {
   @IsBoolean()
   enabled!: boolean;

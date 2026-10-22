@@ -6,6 +6,7 @@ import { PublicBrandCategoryFiltersQueryDto } from '../dto/public-brand-category
 import { PublicProductFiltersQueryDto } from '../dto/public-product-filters-query.dto';
 import { YouMayAlsoLikeQueryDto } from '../dto/you-may-also-like-query.dto';
 import { FrequentlyBoughtTogetherQueryDto } from '../dto/frequently-bought-together-query.dto';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { PublicProductsService } from '../services/public-products.service';
 import { PublicProductFiltersService } from '../services/public-product-filters.service';
 
@@ -16,6 +17,7 @@ export class PublicProductsController {
   constructor(
     private readonly publicProductsService: PublicProductsService,
     private readonly publicProductFiltersService: PublicProductFiltersService,
+    private readonly promotionalOfferEvaluationService: PromotionalOfferEvaluationService,
   ) {}
 
   @ResponseMessage('Products retrieved successfully')
@@ -121,7 +123,7 @@ export class PublicProductsController {
     const path = this.extractShopRelativePath(req);
     const key = `/shop/${path}`;
     this.logger.log(`[findBySlug] request product_page_url="${key}"`);
-    const result = await this.publicProductsService.findBySlug(key, pincode);
+    const result = await this.withOffers(await this.publicProductsService.findBySlug(key, pincode));
     this.logger.log(
       `[findBySlug] response product_page_url="${key}" refId="${result.refId}" mediaWithUrl=${result.media.filter((m) => this.hasAccessibleUrl(m.url)).length}/${result.media.length}`,
     );
@@ -145,11 +147,19 @@ export class PublicProductsController {
   @Get(':slug')
   async findBySlug(@Param('slug') slug: string, @Query('pincode') pincode?: string) {
     this.logger.log(`[findBySlug] request slug="${slug}"`);
-    const result = await this.publicProductsService.findBySlug(slug, pincode);
+    const result = await this.withOffers(await this.publicProductsService.findBySlug(slug, pincode));
     this.logger.log(
       `[findBySlug] response slug="${slug}" refId="${result.refId}" mediaWithUrl=${result.media.filter((m) => this.hasAccessibleUrl(m.url)).length}/${result.media.length}`,
     );
     return result;
+  }
+
+  private async withOffers<T extends { selectedVariantId?: string | null; variants?: Array<{ id: string }> }>(
+    product: T,
+  ): Promise<T & { offers: Array<{ id: string; offerType: string; customerMessage: string }> }> {
+    const variantId = product.selectedVariantId || product.variants?.[0]?.id || '';
+    const offers = await this.promotionalOfferEvaluationService.publicMessagesForVariant(variantId);
+    return { ...product, offers };
   }
 
   private extractShopRelativePath(req: FastifyRequest): string {

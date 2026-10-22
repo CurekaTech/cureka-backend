@@ -66,6 +66,12 @@ export class PaymentRequestEntity extends BaseEntity {
   @Column({ name: 'coupon_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
   couponDiscount!: string;
 
+  @Column({ name: 'promotion_discount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  promotionDiscount!: string;
+
+  @Column({ name: 'promotion_snapshot', type: 'jsonb', nullable: true })
+  promotionSnapshot!: import('@modules/promotional-offers/constants/promotional-offer-pricing.rules').PromotionSnapshot | null;
+
   @Column({ type: 'varchar', length: 5, default: 'INR' })
   currency!: string;
 
