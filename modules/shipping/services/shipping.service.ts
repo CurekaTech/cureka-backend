@@ -1122,7 +1122,7 @@ export class ShippingService {
       order_id: order.orderNumber,
       payment_type: order.paymentMethod === OrderPaymentMethod.COD ? 'C' : 'P',
       products: order.items.map((item) => ({
-        product: item.productName,
+        product: item.lineSource === 'promotion' ? `${item.productName} (Free offer)` : item.productName,
         price: item.unitPrice,
         product_code: item.sku,
         product_quantity: String(item.quantity),

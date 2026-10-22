@@ -6,6 +6,7 @@ import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import { isStockValidationEnabled } from '@packages/common';
 import { PromotionalOfferTargetRole } from '../enums/promotional-offer-target-role.enum';
 import { PromotionalOfferType } from '../enums/promotional-offer-type.enum';
@@ -24,6 +25,16 @@ export type PublicOfferHighlight = {
   offerType: string;
   customerMessage: string;
 };
+
+/** Same title the cart uses, so a BOGO reward is not labeled as a sibling variant. */
+function rewardVariantName(variant: ProductVariantEntity): string {
+  const productName = variant.product?.name?.trim() ?? '';
+  const displayName = variant.displayName?.trim() ?? '';
+  if (variant.product?.productType === ProductType.VARIABLE) {
+    return displayName || productName;
+  }
+  return productName || displayName;
+}
 
 const EMPTY: PromotionEvaluation = {
   promotionDiscount: 0,
@@ -99,7 +110,7 @@ export class PromotionalOfferEvaluationService {
           productId: variant.productId,
           quantity: target.quantity,
           sku: variant.sku,
-          productName: variant.product?.name ?? '',
+          productName: rewardVariantName(variant),
           variantLabel: null,
           sellingPrice: Number(variant.sellingPrice),
           stock: variant.stock ?? 0,

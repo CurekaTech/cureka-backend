@@ -123,6 +123,7 @@ export type CartRewardLine = {
   chargedUnitPrice: number;
   totalPrice: number;
   promotionDiscount: number;
+  primaryImageUrl?: IStorageFileReferenceResponse | null;
 };
 
 export type CartPricing = {
