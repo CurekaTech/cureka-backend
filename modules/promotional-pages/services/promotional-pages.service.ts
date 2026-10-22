@@ -24,6 +24,7 @@ import {
 import { PromotionalPageEntity } from '../entities/promotional-page.entity';
 import { PromotionalPageSectionEntity } from '../entities/promotional-page-section.entity';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
+import { PromotionalPageType } from '../enums/promotional-page-type.enum';
 import {
   IAdminPromotionalPage,
   IAdminPromotionalPageList,
@@ -94,6 +95,7 @@ export class PromotionalPagesService {
       metaTitle: this.optionalText(dto.metaTitle, 'Meta title', 255),
       metaDescription: this.optionalText(dto.metaDescription, 'Meta description', 500),
       status,
+      promotionType: dto.promotionType ?? PromotionalPageType.DEFAULT,
       startAt,
       endAt,
       couponId,
@@ -213,6 +215,7 @@ export class PromotionalPagesService {
           ? this.optionalText(dto.metaDescription, 'Meta description', 500)
           : current.metaDescription,
       status,
+      promotionType: dto.promotionType ?? current.promotionType ?? PromotionalPageType.DEFAULT,
       startAt,
       endAt,
       couponId,
@@ -405,6 +408,7 @@ export class PromotionalPagesService {
       metaTitle: page.metaTitle,
       metaDescription: page.metaDescription,
       status: resolveEffectiveStatus(page, now),
+      promotionType: page.promotionType ?? PromotionalPageType.DEFAULT,
       startAt: page.startAt,
       endAt: page.endAt,
       sections: hydrated.sections.map((section) => ({
@@ -442,6 +446,7 @@ export class PromotionalPagesService {
       metaDescription: page.metaDescription,
       status: resolveEffectiveStatus(page, now),
       storedStatus: page.status,
+      promotionType: page.promotionType ?? PromotionalPageType.DEFAULT,
       startAt: page.startAt,
       endAt: page.endAt,
       couponRefId: page.coupon?.refId ?? null,
@@ -490,6 +495,7 @@ export class PromotionalPagesService {
       title: page.title,
       status: resolveEffectiveStatus(page, now),
       storedStatus: page.status,
+      promotionType: page.promotionType ?? PromotionalPageType.DEFAULT,
       startAt: page.startAt,
       endAt: page.endAt,
       sectionCount: page.sectionCount ?? 0,

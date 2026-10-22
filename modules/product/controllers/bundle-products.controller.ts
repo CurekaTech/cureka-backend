@@ -145,7 +145,7 @@ export class BundleProductsController {
   @Post('bulk-mark-out-of-stock')
   @HttpCode(HttpStatus.OK)
   bulkMarkOutOfStock(@Body() dto: BulkMarkOutOfStockDto) {
-    return this.productsService.bulkMarkOutOfStock(dto);
+    return this.productsService.bulkMarkOutOfStock(dto, { productType: ProductType.BUNDLE });
   }
 
   @ApiOperation({
@@ -173,7 +173,7 @@ export class BundleProductsController {
   @Post('bulk-restore-stock')
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
-    return this.productsService.bulkRestoreStock(dto);
+    return this.productsService.bulkRestoreStock(dto, { productType: ProductType.BUNDLE });
   }
 
   @ApiOperation({

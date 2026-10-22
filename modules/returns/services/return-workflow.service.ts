@@ -86,7 +86,10 @@ import { ReturnQcRecordsRepository } from '../repositories/return-qc-records.rep
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
 import { calculateReplacementPriceDifference } from '../utils/replacement-price-difference.util';
 import { assessReplacementVariant } from '../utils/replacement-variant-availability.util';
-import { canTransitionReturnStatus } from '../utils/return-status-transition.util';
+import {
+  canTransitionReturnStatus,
+  returnStatusesForPickupAdvance,
+} from '../utils/return-status-transition.util';
 import { ReturnPickupService } from './return-pickup.service';
 import { mapShipwayStatusToReturnPickupStatus } from '../utils/shipway-return-pickup-status.util';
 
@@ -526,27 +529,11 @@ export class ReturnWorkflowService {
         manager,
       );
 
-      if (nextReturnStatus && canTransitionReturnStatus(locked.status, nextReturnStatus)) {
-        await this.applyStatus(manager, locked, nextReturnStatus, {
-          pickedUpAt:
-            nextReturnStatus === ReturnStatus.PICKED_UP ? eventAt : locked.pickedUpAt,
-          receivedAtWarehouseAt:
-            nextReturnStatus === ReturnStatus.RECEIVED_AT_WAREHOUSE
-              ? eventAt
-              : locked.receivedAtWarehouseAt,
-          updatedBy: actor.email ?? actor.id,
-        });
-        await this.writeHistory(manager, locked, nextReturnStatus, {
-          action:
-            nextReturnStatus === ReturnStatus.PICKED_UP
-              ? ReturnHistoryAction.PICKED_UP
-              : ReturnHistoryAction.PICKUP_UPDATED,
-          comment: dto.comment?.trim() ?? null,
-          customerVisible: true,
-          actor,
-          metadata: { pickupStatus: dto.status },
-        });
-      } else {
+      const steps = nextReturnStatus
+        ? returnStatusesForPickupAdvance(locked.status, nextReturnStatus)
+        : [];
+
+      if (steps.length === 0) {
         await this.writeHistory(manager, locked, locked.status, {
           action: ReturnHistoryAction.PICKUP_UPDATED,
           comment: dto.comment?.trim() ?? null,
@@ -554,8 +541,47 @@ export class ReturnWorkflowService {
           actor,
           metadata: { pickupStatus: dto.status },
         });
+      } else {
+        for (const step of steps) {
+          await this.applyStatus(manager, locked, step, {
+            pickedUpAt:
+              step === ReturnStatus.PICKED_UP ? eventAt : locked.pickedUpAt,
+            receivedAtWarehouseAt:
+              step === ReturnStatus.RECEIVED_AT_WAREHOUSE
+                ? eventAt
+                : locked.receivedAtWarehouseAt,
+            updatedBy: actor.email ?? actor.id,
+          });
+          await this.writeHistory(manager, locked, step, {
+            action:
+              step === ReturnStatus.PICKED_UP
+                ? ReturnHistoryAction.PICKED_UP
+                : step === ReturnStatus.RECEIVED_AT_WAREHOUSE
+                  ? ReturnHistoryAction.RECEIVED_AT_WAREHOUSE
+                  : ReturnHistoryAction.PICKUP_UPDATED,
+            comment: dto.comment?.trim() ?? null,
+            customerVisible: true,
+            actor,
+            metadata: { pickupStatus: dto.status },
+          });
+          locked.status = step;
+          if (step === ReturnStatus.PICKED_UP) locked.pickedUpAt = eventAt;
+          if (step === ReturnStatus.RECEIVED_AT_WAREHOUSE) {
+            locked.receivedAtWarehouseAt = eventAt;
+          }
+        }
       }
     });
+
+    const advanced = await this.requireReturn(request.id);
+    if (advanced.status === ReturnStatus.RECEIVED_AT_WAREHOUSE) {
+      await this.eventEmitter.emitAsync(EVENTS.RETURN_RECEIVED_AT_WAREHOUSE, {
+        returnRequestId: advanced.id,
+        returnNumber: advanced.returnNumber,
+        customerId: advanced.customerId,
+      });
+      return this.openQcOrResolution(advanced, actor);
+    }
 
     await this.eventEmitter.emitAsync(EVENTS.RETURN_PICKUP_UPDATED, {
       returnRequestId: request.id,
@@ -695,6 +721,9 @@ export class ReturnWorkflowService {
     actor: ReturnActor,
   ) {
     const request = await this.requireReturn(identifier);
+    if (request.status === ReturnStatus.RECEIVED_AT_WAREHOUSE) {
+      return this.openQcOrResolution(request, actor);
+    }
     const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
 
     await this.dataSource.transaction(async (manager) => {
@@ -723,8 +752,19 @@ export class ReturnWorkflowService {
     });
 
     const reloaded = await this.requireReturn(request.id);
-    if (reloaded.qcRequired) {
-      return this.transitionEntity(reloaded, ReturnStatus.QC_PENDING, {
+    return this.openQcOrResolution(reloaded, actor);
+  }
+
+  /** After the parcel is at the warehouse, open QC, or the refund step when QC is not required. */
+  private async openQcOrResolution(
+    request: ReturnRequestEntity,
+    actor: ReturnActor,
+  ): Promise<IReturnRequestDetail> {
+    if (request.status !== ReturnStatus.RECEIVED_AT_WAREHOUSE) {
+      return this.getDetail(request.id);
+    }
+    if (request.qcRequired) {
+      return this.transitionEntity(request, ReturnStatus.QC_PENDING, {
         action: ReturnHistoryAction.RECEIVED_AT_WAREHOUSE,
         comment: 'Awaiting quality check',
         customerVisible: true,

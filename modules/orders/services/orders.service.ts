@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
@@ -16,6 +17,8 @@ import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
 import { PaymentRequestsService } from '@modules/payment-requests/services/payment-requests.service';
+import { PromotionalOfferReservationService } from '@modules/promotional-offers/services/promotional-offer-reservation.service';
+import { PromotionalOfferReservationStatus } from '@modules/promotional-offers/enums/promotional-offer-reservation-status.enum';
 import { GenerateLinkPrefillDto } from '@modules/payment-requests/dto/payment-request.dto';
 import { ShippingService } from '@modules/shipping/services/shipping.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
@@ -64,6 +67,8 @@ import { UnicommerceOrderQueueService } from '@modules/unicommerce/services/unic
 import { OrderFulfillmentCancelService } from '@modules/unicommerce/services/order-fulfillment-cancel.service';
 import { OrderNotificationsService } from '@modules/notifications/services/order-notifications.service';
 import { RefundRequestsService } from '@modules/refund-requests/services/refund-request.service';
+import { RefundWalletService } from '@modules/refund-requests/services/refund-wallet.service';
+import { paiseToRupees, rupeesToPaise } from '@modules/refund-requests/utils/wallet-money.util';
 import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
 import { ReturnEligibilityService } from '@modules/returns/services/return-eligibility.service';
 import { ReturnRequestsService } from '@modules/returns/services/return-requests.service';
@@ -110,6 +115,7 @@ export class OrdersService {
     private readonly shippingService: ShippingService,
     private readonly shipmentsRepository: ShipmentsRepository,
     private readonly unicommerceOrderQueueService: UnicommerceOrderQueueService,
+    @Inject(forwardRef(() => OrderFulfillmentCancelService))
     private readonly orderFulfillmentCancelService: OrderFulfillmentCancelService,
     private readonly fulfillmentEventsRepository: OrderFulfillmentEventsRepository,
     private readonly orderNotificationsService: OrderNotificationsService,
@@ -125,6 +131,10 @@ export class OrdersService {
     private readonly returnEligibilityService: ReturnEligibilityService,
     private readonly oosEmailQueueService: OosEmailQueueService,
     private readonly auditService: AuditService,
+    @Inject(forwardRef(() => RefundWalletService))
+    private readonly refundWalletService: RefundWalletService,
+    private readonly configService: ConfigService,
+    private readonly promotionalOfferReservationService: PromotionalOfferReservationService,
   ) {}
 
   private async decrementVariantStock(
@@ -204,14 +214,22 @@ export class OrdersService {
 
     await this.checkoutService.assertCartDeliverableToAddress(userId, dto.addressId);
 
-    const summary = await this.checkoutService.validateCheckout(userId, dto);
+    const summary = await this.checkoutService.validateCheckout(userId, dto, {
+      applyPromotionalOffers: checkoutProvider === 'legacy',
+    });
     if (dto.orderSource) {
       await this.cartService.setPreferredOrderSource(userId, dto.orderSource);
     }
     return { ...summary, checkoutProvider, orderSource: dto.orderSource ?? null };
   }
 
-  async placeOrder(userId: string, dto: PlaceOrderDto) {
+  async placeOrder(userId: string, dto: PlaceOrderDto, walletCheckout = false) {
+    if (dto.paymentMethod === OrderPaymentMethod.WALLET && !walletCheckout) {
+      throw new BadRequestException('Wallet payment must be started through POST /payment-requests/checkout with useWallet=true');
+    }
+    if (walletCheckout && this.configService.get<boolean>('wallet.checkoutEnabled') !== true) {
+      throw new BadRequestException('Cureka Wallet checkout is not enabled');
+    }
     if (
       dto.paymentMethod === OrderPaymentMethod.RAZORPAY ||
       dto.paymentMethod === OrderPaymentMethod.CASHFREE
@@ -231,10 +249,12 @@ export class OrdersService {
     }
 
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
+    const isWalletOrder = walletCheckout && dto.paymentMethod === OrderPaymentMethod.WALLET;
+    const checkoutProvider = await this.checkoutResolver.resolveProvider();
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId: dto.addressId,
       paymentMethod: dto.paymentMethod,
-    });
+    }, { applyPromotionalOffers: checkoutProvider === 'legacy' });
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -292,16 +312,27 @@ export class OrdersService {
           platformFee: toMoneyString(summary.platformFee),
           codCharge: toMoneyString(summary.codCharge),
           prepaidDiscount: toMoneyString(summary.prepaidDiscount),
+          promotionDiscount: toMoneyString(summary.promotionDiscount ?? 0),
+          promotionSnapshot: {
+            code: summary.promotions?.[0]?.code ?? null,
+            sourceType: (summary.promotions?.length ?? 0) > 0 ? 'promotional_offer' : null,
+            promotions: summary.promotions ?? [],
+            warnings: summary.promotionWarnings ?? [],
+            bmsmDiscount: summary.bmsmDiscount ?? 0,
+            rewardCharged: summary.rewardCharged ?? 0,
+          },
           grandTotal: toMoneyString(summary.grandTotal),
           couponId: appliedCoupon?.id ?? null,
           couponCode: appliedCoupon?.code ?? null,
           couponTitle: appliedCoupon?.title ?? null,
           couponDiscountType: appliedCoupon?.discountType ?? null,
           paymentMethod: dto.paymentMethod,
-          paymentStatus: OrderPaymentStatus.PENDING,
-          // COD: order is accepted immediately; cash remains unpaid until delivery.
+          paymentStatus: isWalletOrder ? OrderPaymentStatus.PAID : OrderPaymentStatus.PENDING,
+          walletAmountPaise: isWalletOrder ? String(rupeesToPaise(toMoneyString(summary.grandTotal))) : '0',
+          gatewayAmountPaise: '0',
+          // COD and atomic full-wallet orders are confirmed immediately.
           orderStatus:
-            dto.paymentMethod === OrderPaymentMethod.COD
+            dto.paymentMethod === OrderPaymentMethod.COD || isWalletOrder
               ? OrderStatus.CONFIRMED
               : OrderStatus.PENDING,
           orderSource: resolvedOrderSource,
@@ -317,7 +348,7 @@ export class OrdersService {
           placedAt: new Date(),
           ...applyOrderStatusTimestamps(
             EMPTY_ORDER_STATUS_TIMESTAMPS,
-            dto.paymentMethod === OrderPaymentMethod.COD
+            dto.paymentMethod === OrderPaymentMethod.COD || isWalletOrder
               ? OrderStatus.CONFIRMED
               : OrderStatus.PENDING,
             new Date(),
@@ -327,6 +358,16 @@ export class OrdersService {
         },
         manager,
       );
+
+      if (isWalletOrder) {
+        await this.refundWalletService.debitForOrder(
+          userId,
+          createdOrder.id,
+          rupeesToPaise(toMoneyString(summary.grandTotal)),
+          userId,
+          manager,
+        );
+      }
 
       const orderItemsPayload = [];
       for (const item of summary.items) {
@@ -357,6 +398,10 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2),
           totalPrice: item.totalPrice.toFixed(2),
+          promotionDiscount: (item.promotionDiscount ?? 0).toFixed(2),
+          catalogUnitPrice: item.catalogUnitPrice != null ? item.catalogUnitPrice.toFixed(2) : item.unitPrice.toFixed(2),
+          lineSource: item.lineSource ?? 'customer',
+          promotionOfferId: item.promotionOfferId ?? null,
           isSubscription: item.isSubscription,
           frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
@@ -370,7 +415,7 @@ export class OrdersService {
         await this.couponCheckoutService.validateCoupon(appliedCoupon, {
           userId,
           subtotal: summary.subtotal,
-          items: summary.items.map((item) => ({
+          items: summary.items.filter((item) => item.lineSource !== 'promotion').map((item) => ({
             id: item.cartItemId,
             productId: item.productId,
             variantId: item.variantId,
@@ -414,10 +459,29 @@ export class OrdersService {
         );
       }
 
+      const appliedPromotions = summary.promotions ?? [];
+      if (appliedPromotions.length > 0) {
+        const holds = appliedPromotions.map((promotion) => ({
+          offerId: promotion.id,
+          discountAmount: promotion.discountAmount,
+        }));
+        const filtered = await this.promotionalOfferReservationService.filterReservable(manager, userId, holds);
+        if (filtered.rejectedOfferIds.length) {
+          throw new ConflictException('A promotional offer reached its usage limit. Refresh checkout and try again.');
+        }
+        await this.promotionalOfferReservationService.insertReservations(manager, {
+          userId,
+          orderId: createdOrder.id,
+          holds: filtered.accepted,
+          status: PromotionalOfferReservationStatus.CONSUMED,
+          expiresAt: null,
+        });
+      }
+
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
       await this.cartsRepository.updateById(
         cart.id,
-        { couponId: null, orderSource: null, updatedBy: userId },
+        { couponId: null, promotionalOfferId: null, selectedCode: null, orderSource: null, updatedBy: userId },
         manager,
       );
 
@@ -470,6 +534,10 @@ export class OrdersService {
     return this.findOne(userId, order.id);
   }
 
+  async placeWalletOrder(userId: string, dto: PlaceOrderDto) {
+    return this.placeOrder(userId, { ...dto, paymentMethod: OrderPaymentMethod.WALLET }, true);
+  }
+
   /**
    * Create a PENDING draft order from the user's active cart without clearing the cart,
    * decrementing stock, incrementing coupon usage, or pushing fulfillment.
@@ -494,7 +562,7 @@ export class OrdersService {
         addressId: params.addressId,
         paymentMethod: params.ignorePaymentMethodPricing ? undefined : params.paymentMethod,
       },
-      { skipCodVariantEligibility: isGokwikOrder },
+      { skipCodVariantEligibility: isGokwikOrder, applyPromotionalOffers: false },
     );
 
     if (!summary.items.length) {
@@ -807,7 +875,7 @@ export class OrdersService {
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
       await this.cartsRepository.updateById(
         cart.id,
-        { couponId: null, orderSource: null, updatedBy: userId },
+        { couponId: null, promotionalOfferId: null, selectedCode: null, orderSource: null, updatedBy: userId },
         manager,
       );
 
@@ -2092,6 +2160,8 @@ export class OrdersService {
     addressId?: string | null;
     paymentRequestId: string;
     paymentRequestRefId: string;
+    walletAmountPaise?: string;
+    eligibleTotalPaise?: string | null;
     subtotal: string;
     discountAmount: string;
     shippingAmount: string;
@@ -2109,6 +2179,8 @@ export class OrdersService {
     couponDiscountType?: string | null;
     platformFee?: string;
     codCharge?: string;
+    promotionDiscount?: string;
+    promotionSnapshot?: import('@modules/promotional-offers/constants/promotional-offer-pricing.rules').PromotionSnapshot | null;
     items: Array<{
       productId: string;
       variantId: string;
@@ -2117,11 +2189,26 @@ export class OrdersService {
       totalPrice: string;
       isSubscription?: boolean;
       frequency?: ProductSubscriptionFrequency | null;
+      lineSource?: string | null;
+      promotionOfferId?: string | null;
+      catalogUnitPrice?: string | null;
+      promotionDiscount?: string | null;
     }>;
   }) {
     const oosTransitions: VariantOosTransition[] = [];
     const stockAffectedProductIds = new Set<string>();
+    let newlyMaterialized = false;
     const order = await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(PaymentRequestEntity).createQueryBuilder('paymentRequest')
+        .setLock('pessimistic_write')
+        .where('paymentRequest.id = :id', { id: params.paymentRequestId })
+        .getOne();
+      const existingOrder = await manager.getRepository(OrderEntity).findOne({
+        where: { paymentRequestId: params.paymentRequestId },
+      });
+      if (existingOrder) return existingOrder;
+      newlyMaterialized = true;
+
       await this.checkoutService.assertProductPricesCurrent(
         params.customerId,
         params.items.map((item) => ({
@@ -2132,6 +2219,7 @@ export class OrdersService {
           totalPrice: parseFloat(item.totalPrice),
           isSubscription: item.isSubscription,
           frequency: item.frequency ?? null,
+          skipCatalogPriceCheck: item.lineSource === 'promotion',
         })),
         manager,
       );
@@ -2182,7 +2270,12 @@ export class OrdersService {
           platformFee: params.platformFee ?? '0.00',
           codCharge: params.codCharge ?? '0.00',
           prepaidDiscount: params.prepaidDiscount ?? '0.00',
-          grandTotal: params.grandTotal,
+          promotionDiscount: params.promotionDiscount ?? '0.00',
+          promotionSnapshot: params.promotionSnapshot ?? null,
+          grandTotal: params.eligibleTotalPaise ? paiseToRupees(Number(params.eligibleTotalPaise)) : params.grandTotal,
+          paymentRequestId: params.paymentRequestId,
+          walletAmountPaise: params.walletAmountPaise ?? '0',
+          gatewayAmountPaise: String(rupeesToPaise(params.grandTotal)),
           couponId: params.couponId ?? null,
           couponCode: params.couponCode ?? null,
           couponTitle: params.couponTitle ?? null,
@@ -2211,6 +2304,21 @@ export class OrdersService {
         },
         manager,
       );
+
+      const eligibleTotalPaise = params.eligibleTotalPaise ? Number(params.eligibleTotalPaise) : rupeesToPaise(params.grandTotal);
+      const walletAmountPaise = Number(params.walletAmountPaise ?? 0);
+      const gatewayAmountPaise = rupeesToPaise(params.grandTotal);
+      if (walletAmountPaise + gatewayAmountPaise !== eligibleTotalPaise) {
+        throw new BadRequestException('Wallet and gateway allocations do not equal the eligible order total');
+      }
+      if (walletAmountPaise > 0) {
+        const debit = await this.refundWalletService.consumeReservationForPaymentRequest(
+          params.paymentRequestId, createdOrder.id, params.createdBy ?? 'payment-webhook', manager,
+        );
+        if (!debit || rupeesToPaise(debit.amount) !== walletAmountPaise) {
+          throw new ConflictException('Wallet reservation does not match the persisted order allocation');
+        }
+      }
 
       const orderItemsPayload = [];
       for (const item of params.items) {
@@ -2243,6 +2351,10 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          promotionDiscount: item.promotionDiscount ?? '0.00',
+          catalogUnitPrice: item.catalogUnitPrice ?? item.unitPrice,
+          lineSource: item.lineSource ?? 'customer',
+          promotionOfferId: item.promotionOfferId ?? null,
           isSubscription: !!item.isSubscription,
           frequency: item.isSubscription
             ? ((item.frequency as ProductSubscriptionFrequency | null) ?? null)
@@ -2253,6 +2365,11 @@ export class OrdersService {
       }
 
       await this.orderItemsRepository.createMany(orderItemsPayload, manager);
+      await this.promotionalOfferReservationService.consumeByPaymentRequest(
+        params.paymentRequestId,
+        createdOrder.id,
+        manager,
+      );
 
       if (params.couponId && params.couponCode) {
         await this.couponCheckoutService.incrementUsage(
@@ -2279,15 +2396,13 @@ export class OrdersService {
       return order;
     });
 
-    this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
-    await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
-    await this.notifyOrderPlacedSafely(order, 'payment-request-order');
-    await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
-    await this.activateSubscriptionsForConfirmedOrder(
-      order,
-      params.addressId ?? null,
-      'payment-request-order',
-    );
+    if (newlyMaterialized) {
+      this.oosEmailQueueService.enqueueTransitionsSafe(oosTransitions);
+      await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
+      await this.notifyOrderPlacedSafely(order, 'payment-request-order');
+      await this.kickoffFulfillment(order.id, order.orderNumber, 'payment-request-order');
+      await this.activateSubscriptionsForConfirmedOrder(order, params.addressId ?? null, 'payment-request-order');
+    }
 
     return (await this.ordersRepository.findByIdAndUserId(order.id, params.customerId)) ?? order;
   }
@@ -2301,6 +2416,8 @@ export class OrdersService {
     addressId?: string | null;
     paymentRequestId: string;
     paymentRequestRefId: string;
+    walletAmountPaise?: string;
+    eligibleTotalPaise?: string | null;
     subtotal: string;
     discountAmount: string;
     shippingAmount: string;
@@ -2505,6 +2622,8 @@ export class OrdersService {
         | 'platformFee'
         | 'codCharge'
         | 'grandTotal'
+        | 'promotionDiscount'
+        | 'promotionSnapshot'
         | 'notes'
       >;
       summary?: CheckoutSummary;
@@ -2571,6 +2690,8 @@ export class OrdersService {
         totalAmount: params.order.grandTotal,
         couponCode: params.couponCode,
         couponDiscount: params.order.discountAmount,
+        promotionDiscount: params.order.promotionDiscount ?? '0.00',
+        promotionSnapshot: params.order.promotionSnapshot ?? null,
         currency: 'INR',
         notes: params.order.notes ?? `COD order ${params.order.orderNumber}`,
         orderSource: params.orderSource,
@@ -2780,6 +2901,10 @@ export class OrdersService {
     addressId: string | null,
     source: string,
   ): Promise<void> {
+    if (this.configService.get<boolean>('subscriptions.moduleEnabled') !== true) {
+      return;
+    }
+
     const items = order.items ?? [];
     const subscriptionItems = items
       .filter((item) => item.isSubscription && item.frequency)

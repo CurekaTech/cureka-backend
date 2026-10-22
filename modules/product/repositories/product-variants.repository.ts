@@ -25,6 +25,16 @@ import {
   validateUniqueVariantCombinations,
 } from '../validators/variant.validator';
 import { ProductsRepository } from './products.repository';
+
+const matchesStockScope = (
+  actual: ProductType | undefined,
+  productType?: ProductType,
+  excludeProductType?: ProductType,
+): boolean => {
+  if (productType && actual !== productType) return false;
+  if (excludeProductType && actual === excludeProductType) return false;
+  return true;
+};
 import {
   mapVariantDetailDtoToEntityColumns,
   VariantDetailMasterIds,
@@ -1053,6 +1063,7 @@ export class ProductVariantsRepository {
     skus: string[],
     outOfStock: boolean,
     productType?: ProductType,
+    excludeProductType?: ProductType,
   ): Promise<{
     bySkuResult: Map<string, 'updated' | 'already' | 'not_found' | 'blocked'>;
     updatedProductIds: Set<string>;
@@ -1071,7 +1082,7 @@ export class ProductVariantsRepository {
 
     const now = new Date();
     for (const variant of variants) {
-      if (productType && variant.product?.productType !== productType) {
+      if (!matchesStockScope(variant.product?.productType, productType, excludeProductType)) {
         continue;
       }
       const opts = managementOptionsForVariant(variant);
@@ -1143,6 +1154,7 @@ export class ProductVariantsRepository {
   async restoreStockBySkus(
     items: Array<{ sku: string; stock: number }>,
     productType?: ProductType,
+    excludeProductType?: ProductType,
   ): Promise<{
     bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
     updatedProductIds: Set<string>;
@@ -1167,7 +1179,7 @@ export class ProductVariantsRepository {
     const now = new Date();
 
     for (const variant of variants) {
-      if (productType && variant.product?.productType !== productType) {
+      if (!matchesStockScope(variant.product?.productType, productType, excludeProductType)) {
         continue;
       }
       const stock = stockBySku.get(variant.sku);
@@ -1259,6 +1271,7 @@ export class ProductVariantsRepository {
     skus: string[],
     inCurekaInventory: boolean,
     productType?: ProductType,
+    excludeProductType?: ProductType,
   ): Promise<{
     bySkuResult: Map<string, 'updated' | 'already' | 'not_found'>;
     updatedProductIds: Set<string>;
@@ -1274,7 +1287,7 @@ export class ProductVariantsRepository {
     const variants = await this.findVariantsBySkus(uniqueSkus);
 
     for (const variant of variants) {
-      if (productType && variant.product?.productType !== productType) {
+      if (!matchesStockScope(variant.product?.productType, productType, excludeProductType)) {
         continue;
       }
       if (variant.inCurekaInventory === inCurekaInventory) {

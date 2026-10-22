@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -24,7 +25,7 @@ import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
-import { roundMoney } from '@modules/orders/utils/money.util';
+import { roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { resolveStorefrontOrderSource } from '@modules/orders/utils/storefront-order-source.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { ShiprocketCheckoutProvider } from '@modules/checkout/providers/shiprocket-checkout.provider';
@@ -37,6 +38,8 @@ import {
   UpdatePaymentRequestDto,
   ValidateAdminCouponDto,
 } from '../dto/payment-request.dto';
+import { PromotionalOfferReservationService } from '@modules/promotional-offers/services/promotional-offer-reservation.service';
+import { PromotionalOfferReservationStatus } from '@modules/promotional-offers/enums/promotional-offer-reservation-status.enum';
 import { CouponCheckoutService } from '@modules/orders/services/coupon-checkout.service';
 import { CartCheckoutAdminSettingsService } from '@modules/orders/services/cart-checkout-admin-settings.service';
 import { PaymentRequestEntity } from '../entities/payment-request.entity';
@@ -55,6 +58,9 @@ import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
 import { canTransitionPaymentRequestStatus } from '../utils/payment-request-status-transition.util';
+import { RefundWalletService } from '@modules/refund-requests/services/refund-wallet.service';
+import { paiseToRupees, rupeesToPaise } from '@modules/refund-requests/utils/wallet-money.util';
+import { PlaceOrderDto } from '@modules/orders/dto/order.dto';
 
 @Injectable()
 export class PaymentRequestsService {
@@ -82,6 +88,9 @@ export class PaymentRequestsService {
     private readonly couponCheckoutService: CouponCheckoutService,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
     private readonly gokwikCheckoutTokenService: GokwikCheckoutTokenService,
+    @Inject(forwardRef(() => RefundWalletService))
+    private readonly refundWalletService: RefundWalletService,
+    private readonly promotionalOfferReservationService: PromotionalOfferReservationService,
   ) { }
 
   async checkoutFromCart(
@@ -89,92 +98,118 @@ export class PaymentRequestsService {
     addressId?: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    useWallet = false,
   ) {
     const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    if (useWallet) this.assertWalletCheckoutEnabled();
     if (checkoutProvider === 'gokwik') {
+      if (useWallet) {
+        // GoKwik wallet uses a separate merchant-hosted apply/remove contract.
+        // Keep native useWallet rejected until that contract is production-ready.
+        throw new BadRequestException('Wallet redemption is not available through GoKwik');
+      }
       return this.createGokwikCheckoutSession(userId, addressId, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
+      if (useWallet) throw new BadRequestException('Wallet checkout is not supported by Shiprocket');
       this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
       return this.createShiprocketCheckoutSession(userId, addressId, orderSource, paymentMethod);
     }
 
     this.assertAddressRequiredForCheckout(addressId, 'legacy');
+    if (useWallet) this.assertWalletCheckoutEnabled();
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
+    if (useWallet && !isPrepaidPaymentMethod(prepaidMethod)) throw new BadRequestException('Wallet cannot be combined with COD');
+    const walletChoice = useWallet ? await this.getWalletCheckoutAllocation(userId, addressId, prepaidMethod) : null;
+    if (walletChoice?.full) return this.ordersService.placeWalletOrder(userId, { addressId: addressId!, paymentMethod: OrderPaymentMethod.WALLET, orderSource });
     if (activeGateway === 'cashfree') {
       const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
         userId,
         addressId,
         orderSource,
         prepaidMethod,
+        walletChoice?.walletAmountPaise ?? 0,
+        true,
       );
-      const callbackUrl = this.getStorefrontPaymentCallbackUrl();
-      const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
+      try {
+        const callbackUrl = this.getStorefrontPaymentCallbackUrl();
+        const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
-      const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
-      const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
+        const parsedPhone = parseIndianMobileNumber(customer.mobileNumber!);
+        const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer';
 
-      this.assertChargeAmountForQr({
-        source: 'checkout-link-cashfree',
-        paymentMethod: prepaidMethod,
-        chargeAmount: Number(totals.totalAmount),
-        prepaidDiscount: Number(totals.prepaidDiscount),
-        prepaidPercent: Number(totals.prepaidDiscountPercent),
-      });
+        this.assertChargeAmountForQr({
+          source: 'checkout-link-cashfree',
+          paymentMethod: prepaidMethod,
+          chargeAmount: Number(totals.totalAmount),
+          prepaidDiscount: Number(totals.prepaidDiscount),
+          prepaidPercent: Number(totals.prepaidDiscountPercent),
+        });
 
-      const cashfreeOrder = await this.cashfreeService.createOrder({
-        orderId: paymentRequest.refId,
-        amount: Number(totals.totalAmount),
-        currency: paymentRequest.currency,
-        customer: {
-          id: customer.id,
-          email: customer.email ?? undefined,
-          phone: parsedPhone,
-          name,
-        },
-        returnUrl,
-      });
-
-      const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
-      const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
-      if (!paymentSessionId) {
-        throw new BadRequestException('Failed to create Cashfree order');
-      }
-
-      await this.paymentRequestsRepository.updateById(paymentRequest.id, {
-        providerReferenceId: cfOrderId,
-        paymentReference: cfOrderId,
-        paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
-        paymentProvider: 'CASHFREE',
-        status: PaymentRequestStatus.LINK_GENERATED,
-        updatedBy: userId,
-      });
-
-      this.logger.log(
-        {
-          refId: paymentRequest.refId,
-          qrChargeAmount: totals.totalAmount,
-          prepaidDiscount: totals.prepaidDiscount,
-          paymentSessionId,
-        },
-        '[CHECKOUT] Cashfree QR/session created with prepaid-discounted amount',
-      );
-
-      return {
-        gateway: 'cashfree',
-        paymentData: {
-          paymentRequestId: paymentRequest.id,
-          refId: paymentRequest.refId,
-          paymentSessionId,
-          cfOrderId,
-          expiresAt: cashfreeOrder['order_expiry_time'] ? new Date(cashfreeOrder['order_expiry_time']) : null,
+        const cashfreeOrder = await this.cashfreeService.createOrder({
+          orderId: paymentRequest.refId,
           amount: Number(totals.totalAmount),
-          totalAmount: totals.totalAmount,
-          prepaidDiscount: totals.prepaidDiscount,
+          currency: paymentRequest.currency,
+          customer: {
+            id: customer.id,
+            email: customer.email ?? undefined,
+            phone: parsedPhone,
+            name,
+          },
+          returnUrl,
+        });
+
+        const paymentSessionId = String(cashfreeOrder['payment_session_id'] ?? '');
+        const cfOrderId = String(cashfreeOrder['cf_order_id'] ?? '');
+        if (!paymentSessionId) {
+          throw new BadRequestException('Failed to create Cashfree order');
+        }
+
+        await this.paymentRequestsRepository.updateById(paymentRequest.id, {
+          providerReferenceId: cfOrderId,
+          paymentReference: cfOrderId,
           paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
-        },
-      };
+          paymentProvider: 'CASHFREE',
+          status: PaymentRequestStatus.LINK_GENERATED,
+          updatedBy: userId,
+        });
+
+        this.logger.log(
+          {
+            refId: paymentRequest.refId,
+            qrChargeAmount: totals.totalAmount,
+            prepaidDiscount: totals.prepaidDiscount,
+            paymentSessionId,
+          },
+          '[CHECKOUT] Cashfree QR/session created with prepaid-discounted amount',
+        );
+
+        return {
+          gateway: 'cashfree',
+          paymentData: {
+            paymentRequestId: paymentRequest.id,
+            refId: paymentRequest.refId,
+            paymentSessionId,
+            cfOrderId,
+            expiresAt: cashfreeOrder['order_expiry_time'] ? new Date(cashfreeOrder['order_expiry_time']) : null,
+            amount: Number(totals.totalAmount),
+            totalAmount: totals.totalAmount,
+            walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+            gatewayAmount: paymentRequest.totalAmount,
+            eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
+            prepaidDiscount: totals.prepaidDiscount,
+            paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
+          },
+        };
+      } catch (error) {
+        await this.abortCheckoutAfterGatewayFailure(
+          paymentRequest.id,
+          userId,
+          'Cashfree session creation failed; wallet reservation released',
+        );
+        throw error;
+      }
     } else if (activeGateway === 'payu') {
       throw new BadRequestException('PayU payment gateway is not fully implemented yet');
     } else {
@@ -183,45 +218,58 @@ export class PaymentRequestsService {
         addressId,
         orderSource,
         prepaidMethod,
+        walletChoice?.walletAmountPaise ?? 0,
+        true,
       );
+      try {
+        this.assertChargeAmountForQr({
+          source: 'checkout-link-razorpay',
+          paymentMethod: prepaidMethod,
+          chargeAmount: Number(totals.totalAmount),
+          prepaidDiscount: Number(totals.prepaidDiscount),
+          prepaidPercent: Number(totals.prepaidDiscountPercent),
+        });
 
-      this.assertChargeAmountForQr({
-        source: 'checkout-link-razorpay',
-        paymentMethod: prepaidMethod,
-        chargeAmount: Number(totals.totalAmount),
-        prepaidDiscount: Number(totals.prepaidDiscount),
-        prepaidPercent: Number(totals.prepaidDiscountPercent),
-      });
+        const withLink = await this.generateLink(paymentRequest.id, userId, undefined, {
+          callbackUrl: this.getStorefrontPaymentCallbackUrl(),
+        });
+        if (!withLink.paymentLink) {
+          throw new BadRequestException('Failed to generate payment link');
+        }
 
-      const withLink = await this.generateLink(paymentRequest.id, userId, undefined, {
-      callbackUrl: this.getStorefrontPaymentCallbackUrl(),
-    });
-    if (!withLink.paymentLink) {
-      throw new BadRequestException('Failed to generate payment link');
-    }
+        this.logger.log(
+          {
+            refId: withLink.refId,
+            qrChargeAmount: totals.totalAmount,
+            prepaidDiscount: totals.prepaidDiscount,
+            paymentLink: withLink.paymentLink,
+          },
+          '[CHECKOUT] Razorpay payment-link/QR created with prepaid-discounted amount',
+        );
 
-      this.logger.log(
-        {
-          refId: withLink.refId,
-          qrChargeAmount: totals.totalAmount,
-          prepaidDiscount: totals.prepaidDiscount,
-          paymentLink: withLink.paymentLink,
-        },
-        '[CHECKOUT] Razorpay payment-link/QR created with prepaid-discounted amount',
-      );
-
-    return {
-        gateway: 'razorpay',
-        paymentData: {
-      paymentRequestId: withLink.id,
-      refId: withLink.refId,
-      paymentLink: withLink.paymentLink,
-      expiresAt: withLink.expiresAt,
-          amount: Number(totals.totalAmount),
-          totalAmount: totals.totalAmount,
-          prepaidDiscount: totals.prepaidDiscount,
-        },
-      };
+        return {
+          gateway: 'razorpay',
+          paymentData: {
+            paymentRequestId: withLink.id,
+            refId: withLink.refId,
+            paymentLink: withLink.paymentLink,
+            expiresAt: withLink.expiresAt,
+            amount: Number(totals.totalAmount),
+            totalAmount: totals.totalAmount,
+            walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+            gatewayAmount: paymentRequest.totalAmount,
+            eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
+            prepaidDiscount: totals.prepaidDiscount,
+          },
+        };
+      } catch (error) {
+        await this.abortCheckoutAfterGatewayFailure(
+          paymentRequest.id,
+          userId,
+          'Razorpay session creation failed; wallet reservation released',
+        );
+        throw error;
+      }
     }
   }
 
@@ -231,6 +279,7 @@ export class PaymentRequestsService {
     addressId?: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    useWallet = false,
   ) {
     this.logger.log(
       {
@@ -250,10 +299,15 @@ export class PaymentRequestsService {
 
     // GoKwik / Shiprocket only when explicitly enabled; otherwise native PG (Cashfree/Razorpay).
     if (checkoutProvider === 'gokwik') {
+      if (useWallet) {
+        this.assertWalletCheckoutEnabled();
+        throw new BadRequestException('Wallet redemption is not available through GoKwik');
+      }
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to GoKwik');
       return this.createGokwikCheckoutSession(userId, addressId, paymentMethod);
     }
     if (checkoutProvider === 'shiprocket') {
+      if (useWallet) throw new BadRequestException('Wallet checkout is not supported by Shiprocket');
       this.assertAddressRequiredForCheckout(addressId, 'shiprocket');
       this.logger.log({ userId }, '[CHECKOUT-MODAL] routing to Shiprocket');
       return this.createShiprocketCheckoutSession(
@@ -274,7 +328,8 @@ export class PaymentRequestsService {
       '[CHECKOUT-MODAL] routing to legacy native PG',
     );
     this.assertAddressRequiredForCheckout(addressId, 'legacy');
-    return this.createLegacyModalCheckout(userId, addressId, orderSource, paymentMethod);
+    if (useWallet && !isPrepaidPaymentMethod(this.resolveStorefrontPrepaidMethod(await this.gatewayResolver.getActiveGateway(), paymentMethod))) throw new BadRequestException('Wallet cannot be combined with COD');
+    return this.createLegacyModalCheckout(userId, addressId, orderSource, paymentMethod, useWallet);
   }
 
   private async createLegacyModalCheckout(
@@ -282,6 +337,7 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    useWallet = false,
   ) {
     this.logger.log(
       {
@@ -293,8 +349,12 @@ export class PaymentRequestsService {
       '[CHECKOUT-MODAL] legacy: resolving active gateway',
     );
 
+    if (useWallet) this.assertWalletCheckoutEnabled();
     const activeGateway = await this.gatewayResolver.getActiveGateway();
     const prepaidMethod = this.resolveStorefrontPrepaidMethod(activeGateway, paymentMethod);
+    if (useWallet && !isPrepaidPaymentMethod(prepaidMethod)) throw new BadRequestException('Wallet cannot be combined with COD');
+    const walletChoice = useWallet ? await this.getWalletCheckoutAllocation(userId, addressId, prepaidMethod) : null;
+    if (walletChoice?.full) return this.ordersService.placeWalletOrder(userId, { addressId, paymentMethod: OrderPaymentMethod.WALLET, orderSource });
     this.logger.log(
       { userId, activeGateway, prepaidMethod },
       '[CHECKOUT-MODAL] legacy: active gateway selected',
@@ -313,9 +373,12 @@ export class PaymentRequestsService {
     const { paymentRequest, customer, totals } = await this.createCheckoutPaymentRequest(
       userId,
       addressId,
-        orderSource,
-        prepaidMethod,
-      );
+      orderSource,
+      prepaidMethod,
+      walletChoice?.walletAmountPaise ?? 0,
+        true,
+    );
+    try {
       const callbackUrl = this.getStorefrontPaymentCallbackUrl();
       const returnUrl = callbackUrl ? `${callbackUrl}?order_id={order_id}` : 'https://cureka.com/thankyou';
 
@@ -328,6 +391,9 @@ export class PaymentRequestsService {
           paymentRequestId: paymentRequest.id,
           refId: paymentRequest.refId,
           totalAmount: totals.totalAmount,
+          walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+          gatewayAmount: paymentRequest.totalAmount,
+          eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
           prepaidDiscount: totals.prepaidDiscount,
           returnUrl,
           credentials: this.cashfreeService.getCredentialDiagnostics(),
@@ -403,6 +469,9 @@ export class PaymentRequestsService {
           appId: this.cashfreeService.getAppId(),
           environment: this.cashfreeService.getEnv(),
           totalAmount: totals.totalAmount,
+          walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+          gatewayAmount: paymentRequest.totalAmount,
+          eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
           prepaidDiscount: totals.prepaidDiscount,
           customer: {
             name,
@@ -411,6 +480,14 @@ export class PaymentRequestsService {
           },
         },
       };
+    } catch (error) {
+      await this.abortCheckoutAfterGatewayFailure(
+        paymentRequest.id,
+        userId,
+        'Cashfree modal session creation failed; wallet reservation released',
+      );
+      throw error;
+    }
     }
 
     if (activeGateway === 'payu') {
@@ -425,8 +502,11 @@ export class PaymentRequestsService {
       addressId,
       orderSource,
       prepaidMethod,
+      walletChoice?.walletAmountPaise ?? 0,
+        true,
     );
 
+    try {
     this.assertChargeAmountForQr({
       source: 'checkout-modal-razorpay',
       paymentMethod: prepaidMethod,
@@ -474,6 +554,9 @@ export class PaymentRequestsService {
       currency: String(razorpayOrder['currency'] ?? paymentRequest.currency),
       keyId: this.razorpayService.getKeyId(),
         totalAmount: totals.totalAmount,
+        walletAmount: paiseToRupees(paymentRequest.walletAmountPaise ?? '0'),
+        gatewayAmount: paymentRequest.totalAmount,
+        eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
         prepaidDiscount: totals.prepaidDiscount,
       customer: {
         name: customerName,
@@ -482,6 +565,14 @@ export class PaymentRequestsService {
         },
       },
     };
+    } catch (error) {
+      await this.abortCheckoutAfterGatewayFailure(
+        paymentRequest.id,
+        userId,
+        'Razorpay modal session creation failed; wallet reservation released',
+      );
+      throw error;
+    }
   }
 
   async verifyModalCheckoutPayment(userId: string, dto: CheckoutVerifyPaymentDto) {
@@ -577,6 +668,7 @@ export class PaymentRequestsService {
       status: PaymentRequestStatus.CANCELLED,
       updatedBy: userId,
     });
+    await this.releaseWalletReservationForPaymentRequest(paymentRequest.id, userId);
 
     return { paymentRequestId: paymentRequest.id, status: PaymentRequestStatus.CANCELLED };
   }
@@ -605,6 +697,8 @@ export class PaymentRequestsService {
     addressId: string,
     orderSource?: OrderSource,
     paymentMethod?: OrderPaymentMethod,
+    walletAmountPaise = 0,
+    applyPromotionalOffers = false,
   ) {
     // Native online checkout must price as prepaid so QR/PG charge includes 2% off.
     const pricingMethod =
@@ -621,7 +715,7 @@ export class PaymentRequestsService {
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId,
       paymentMethod: pricingMethod,
-    });
+    }, { applyPromotionalOffers });
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
     }
@@ -644,9 +738,12 @@ export class PaymentRequestsService {
           variantId: item.variantId,
           quantity: item.quantity,
           unitPrice,
-          discount: '0.00',
+          discount: (item.promotionDiscount ?? 0).toFixed(2),
           tax: '0.00',
           total,
+          lineSource: item.lineSource ?? 'customer',
+          promotionOfferId: item.promotionOfferId ?? null,
+          catalogUnitPrice: item.catalogUnitPrice != null ? item.catalogUnitPrice.toFixed(2) : null,
           isSubscription: item.isSubscription,
           frequency: item.frequency ?? null,
         };
@@ -660,13 +757,17 @@ export class PaymentRequestsService {
     // Safety net: if prepaid pricing did not apply, force line-item % off into the charge.
     if (prepaidPercent > 0 && prepaidDiscount <= 0) {
       prepaidDiscount = roundMoney(
-        summary.items.reduce(
+        summary.items
+          .filter((item) => item.lineSource !== 'promotion')
+          .reduce(
           (sum, item) => sum + roundMoney((item.totalPrice * prepaidPercent) / 100),
           0,
         ),
       );
       chargeGrandTotal = roundMoney(
         summary.subtotal -
+          (summary.bmsmDiscount ?? 0) +
+          (summary.rewardCharged ?? 0) -
           summary.discountAmount +
           summary.shippingAmount +
           summary.handlingAmount +
@@ -698,6 +799,7 @@ export class PaymentRequestsService {
         Math.max(0, chargeGrandTotal).toFixed(2),
         prepaidDiscount > 0 ? prepaidDiscount.toFixed(2) : undefined,
       ),
+      subtotal: summary.subtotal.toFixed(2),
       prepaidDiscountPercent: prepaidPercent,
     };
 
@@ -719,7 +821,18 @@ export class PaymentRequestsService {
       '[CHECKOUT] payment request totals for QR/PG (must include prepaid discount)',
     );
 
+    const eligibleTotalPaise = rupeesToPaise(toMoneyString(chargeGrandTotal));
+    if (!Number.isSafeInteger(walletAmountPaise) || walletAmountPaise < 0 || walletAmountPaise >= eligibleTotalPaise) {
+      if (walletAmountPaise !== 0) throw new BadRequestException('Invalid wallet allocation for gateway checkout');
+    }
+    const gatewayAmountPaise = eligibleTotalPaise - walletAmountPaise;
+    const gatewayAmount = paiseToRupees(gatewayAmountPaise);
+    totals.totalAmount = gatewayAmount;
+
     const paymentRequest = await this.dataSource.transaction(async (manager) => {
+      if (summary.coupon?.id) {
+        await this.couponCheckoutService.assertUsageSlot(summary.coupon.id, userId, manager);
+      }
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
         this.paymentRequestsRepository.existsByRefId(candidate),
       );
@@ -737,9 +850,22 @@ export class PaymentRequestsService {
           platformFee: totals.platformFee,
           codCharge: totals.codCharge,
           prepaidDiscount: totals.prepaidDiscount,
-          totalAmount: totals.totalAmount,
+          totalAmount: gatewayAmount,
+          walletAmountPaise: String(walletAmountPaise),
+          eligibleTotalPaise: String(eligibleTotalPaise),
+          couponId: summary.coupon?.id ?? null,
           couponCode: summary.coupon?.code ?? null,
           couponDiscount: totals.discount,
+          promotionDiscount: (summary.promotionDiscount ?? 0).toFixed(2),
+          promotionSnapshot: {
+            code: summary.promotions?.[0]?.code ?? null,
+            sourceType: (summary.promotions?.length ?? 0) > 0 ? 'promotional_offer' : null,
+            promotions: summary.promotions ?? [],
+            warnings: summary.promotionWarnings ?? [],
+            bmsmDiscount: summary.bmsmDiscount ?? 0,
+            rewardCharged: summary.rewardCharged ?? 0,
+            promotionDiscount: summary.promotionDiscount ?? 0,
+          },
           currency: 'INR',
           notes: 'Storefront checkout',
           orderSource: resolvedOrderSource,
@@ -761,6 +887,9 @@ export class PaymentRequestsService {
           discount: item.discount,
           tax: item.tax,
           total: item.total,
+          lineSource: item.lineSource,
+          promotionOfferId: item.promotionOfferId,
+          catalogUnitPrice: item.catalogUnitPrice,
           isSubscription: item.isSubscription,
           frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
           createdBy: userId,
@@ -768,6 +897,33 @@ export class PaymentRequestsService {
         })),
         manager,
       );
+
+      const appliedPromotions = summary.promotions ?? [];
+      if (applyPromotionalOffers && appliedPromotions.length > 0) {
+        const holds = appliedPromotions.map((promotion) => ({
+          offerId: promotion.id,
+          discountAmount: promotion.discountAmount,
+        }));
+        const filtered = await this.promotionalOfferReservationService.filterReservable(manager, userId, holds);
+        if (filtered.rejectedOfferIds.length) {
+          throw new ConflictException('A promotional offer reached its usage limit. Refresh checkout and try again.');
+        }
+        await this.promotionalOfferReservationService.insertReservations(manager, {
+          userId,
+          paymentRequestId: created.id,
+          holds: filtered.accepted,
+          status: PromotionalOfferReservationStatus.RESERVED,
+          expiresAt: this.promotionalOfferReservationService.defaultExpiry(),
+        });
+      }
+
+      if (walletAmountPaise > 0) {
+        const ttl = this.configService.get<number>('wallet.reservationTtlMinutes') ?? 60;
+        await this.refundWalletService.reserve({
+          customerId: userId, amountPaise: walletAmountPaise, paymentRequestId: created.id,
+          idempotencyKey: `wallet-checkout:${created.id}`, expiresAt: new Date(Date.now() + ttl * 60_000), actorId: userId,
+        }, manager);
+      }
 
       return (await this.paymentRequestsRepository.findById(created.id, manager)) as PaymentRequestEntity;
     });
@@ -850,6 +1006,202 @@ export class PaymentRequestsService {
         ? 'addressId is required for Shiprocket checkout'
         : 'addressId is required for checkout',
     );
+  }
+
+  private assertWalletCheckoutEnabled(): void {
+    if (this.configService.get<boolean>('wallet.checkoutEnabled') !== true) {
+      throw new BadRequestException('Cureka Wallet checkout is not enabled');
+    }
+  }
+
+  /**
+   * Release a wallet reservation only for definitive non-success payment outcomes.
+   * Never releases when the payment request is already PAID (consume wins the race).
+   */
+  private async releaseWalletReservationForPaymentRequest(
+    paymentRequestId: string,
+    actorId: string,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await manager
+        .getRepository(PaymentRequestEntity)
+        .createQueryBuilder('pr')
+        .setLock('pessimistic_write')
+        .where('pr.id = :id', { id: paymentRequestId })
+        .getOne();
+      if (!locked) return;
+      if (locked.status === PaymentRequestStatus.PAID) {
+        this.logger.log(
+          { paymentRequestId, status: locked.status },
+          'Skipping wallet reservation release — payment request is PAID',
+        );
+        return;
+      }
+      await this.promotionalOfferReservationService.releaseByPaymentRequest(paymentRequestId, manager);
+      if (Number(locked.walletAmountPaise ?? 0) <= 0) return;
+      await this.refundWalletService.releaseReservationForPaymentRequest(
+        paymentRequestId,
+        actorId,
+        manager,
+      );
+    });
+  }
+
+  /**
+   * After a payment request + reservation commit, gateway session creation can fail.
+   * Mark the PR cancelled and release the hold so funds are not stuck.
+   */
+  private async abortCheckoutAfterGatewayFailure(
+    paymentRequestId: string,
+    actorId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await manager
+        .getRepository(PaymentRequestEntity)
+        .createQueryBuilder('pr')
+        .setLock('pessimistic_write')
+        .where('pr.id = :id', { id: paymentRequestId })
+        .getOne();
+      if (!locked || locked.status === PaymentRequestStatus.PAID) return;
+      if (canTransitionPaymentRequestStatus(locked.status, PaymentRequestStatus.CANCELLED)) {
+        await this.paymentRequestsRepository.updateById(
+          locked.id,
+          {
+            status: PaymentRequestStatus.CANCELLED,
+            notes: locked.notes?.trim()
+              ? `${locked.notes.trim()}\n${reason}`
+              : reason,
+            updatedBy: actorId,
+          },
+          manager,
+        );
+      }
+      if (Number(locked.walletAmountPaise ?? 0) > 0) {
+        await this.refundWalletService.releaseReservationForPaymentRequest(
+          paymentRequestId,
+          actorId,
+          manager,
+        );
+      }
+    });
+  }
+
+  /**
+   * Compare provider-reported capture amount with the expected gateway remaining amount.
+   * Returns false when the amounts diverge beyond 1 paise — caller must quarantine.
+   */
+  private assertGatewayCaptureMatchesPaymentRequest(
+    paymentRequest: PaymentRequestEntity,
+    providerAmountRupees: number | null | undefined,
+  ): boolean {
+    if (providerAmountRupees === null || providerAmountRupees === undefined) {
+      return true;
+    }
+    if (!Number.isFinite(providerAmountRupees)) {
+      return false;
+    }
+    const expectedPaise = rupeesToPaise(paymentRequest.totalAmount);
+    const actualPaise = rupeesToPaise(toMoneyString(providerAmountRupees));
+    return Math.abs(expectedPaise - actualPaise) <= 1;
+  }
+
+  /**
+   * Stale PENDING reservations whose payment requests are definitively unsuccessful.
+   * Does not release uncertain PENDING / LINK_GENERATED payments solely because TTL elapsed.
+   */
+  async reconcileStaleWalletReservations(limit = 50): Promise<{
+    examined: number;
+    released: number;
+    skippedUncertain: number;
+    skippedPaidOrConsumed: number;
+    anomalies: Array<{ paymentRequestId: string; reservationId: string; reason: string }>;
+  }> {
+    const stale = await this.refundWalletService.findStalePendingReservations(
+      new Date(),
+      Math.min(Math.max(limit, 1), 200),
+    );
+    let released = 0;
+    let skippedUncertain = 0;
+    let skippedPaidOrConsumed = 0;
+    const anomalies: Array<{ paymentRequestId: string; reservationId: string; reason: string }> = [];
+
+    for (const reservation of stale) {
+      const paymentRequestId = reservation.paymentRequestId;
+      if (!paymentRequestId) {
+        anomalies.push({
+          paymentRequestId: '',
+          reservationId: reservation.id,
+          reason: 'Reservation has no paymentRequestId',
+        });
+        continue;
+      }
+      const pr = await this.paymentRequestsRepository.findById(paymentRequestId);
+      if (!pr) {
+        anomalies.push({
+          paymentRequestId,
+          reservationId: reservation.id,
+          reason: 'Payment request missing',
+        });
+        continue;
+      }
+      if (pr.status === PaymentRequestStatus.PAID) {
+        skippedPaidOrConsumed += 1;
+        anomalies.push({
+          paymentRequestId,
+          reservationId: reservation.id,
+          reason: 'Payment is PAID but reservation still PENDING — requires ops review',
+        });
+        continue;
+      }
+      if (
+        pr.status === PaymentRequestStatus.FAILED ||
+        pr.status === PaymentRequestStatus.CANCELLED ||
+        pr.status === PaymentRequestStatus.EXPIRED
+      ) {
+        await this.releaseWalletReservationForPaymentRequest(
+          paymentRequestId,
+          'wallet-reservation-reconcile',
+        );
+        released += 1;
+        continue;
+      }
+      skippedUncertain += 1;
+    }
+
+    return {
+      examined: stale.length,
+      released,
+      skippedUncertain,
+      skippedPaidOrConsumed,
+      anomalies,
+    };
+  }
+
+  private async getWalletCheckoutAllocation(
+    userId: string,
+    addressId: string,
+    paymentMethod: OrderPaymentMethod,
+  ): Promise<{ walletAmountPaise: number; eligibleTotalPaise: number; full: boolean }> {
+    if (!isPrepaidPaymentMethod(paymentMethod)) {
+      throw new BadRequestException('Wallet cannot be combined with COD');
+    }
+    const summary = await this.checkoutService.validateCheckout(
+      userId,
+      { addressId, paymentMethod },
+      { applyPromotionalOffers: true },
+    );
+    if (!summary.items.length) throw new BadRequestException('Cart is empty');
+    const eligibleTotalPaise = rupeesToPaise(toMoneyString(summary.grandTotal));
+    const overview = await this.refundWalletService.getOverview(userId);
+    const availablePaise = rupeesToPaise(overview.available);
+    const walletAmountPaise = Math.min(eligibleTotalPaise, availablePaise);
+    if (walletAmountPaise <= 0) throw new BadRequestException('Insufficient wallet balance');
+    return {
+      walletAmountPaise,
+      eligibleTotalPaise,
+      full: walletAmountPaise === eligibleTotalPaise,
+    };
   }
 
   private async createShiprocketCheckoutSession(
@@ -1067,8 +1419,10 @@ export class PaymentRequestsService {
       couponDiscountType: null,
     };
 
-    if (paymentRequest.couponCode) {
-      const coupon = await this.couponCheckoutService.findByCode(paymentRequest.couponCode);
+    if (paymentRequest.couponId || paymentRequest.couponCode) {
+      const coupon = paymentRequest.couponId
+        ? await this.couponCheckoutService.findById(paymentRequest.couponId)
+        : await this.couponCheckoutService.findByCode(paymentRequest.couponCode!);
       if (coupon) {
         couponDetails = {
           couponId: coupon.id,
@@ -1446,15 +1800,19 @@ export class PaymentRequestsService {
     existing: PaymentRequestEntity,
     providerPaymentId?: string,
     updatedBy = 'razorpay-webhook',
+    providerAmountRupees?: number | null,
   ): Promise<void> {
-    if (existing.status === PaymentRequestStatus.PAID) {
-      this.logger.log(
+    if (!this.assertGatewayCaptureMatchesPaymentRequest(existing, providerAmountRupees)) {
+      this.logger.error(
         {
           paymentRequestId: existing.id,
-          paymentRequestRefId: existing.refId,
+          refId: existing.refId,
+          expectedGatewayAmount: existing.totalAmount,
+          providerAmountRupees,
           providerPaymentId,
+          updatedBy,
         },
-        'Ignoring duplicate payment-success notification',
+        'Quarantining payment — provider capture amount does not match expected gateway amount',
       );
       return;
     }
@@ -1472,7 +1830,7 @@ export class PaymentRequestsService {
       },
     );
 
-    if (!markedPaid) {
+    if (!markedPaid && existing.status !== PaymentRequestStatus.PAID) {
       this.logger.log(
         {
           paymentRequestId: existing.id,
@@ -1481,13 +1839,15 @@ export class PaymentRequestsService {
         },
         'Payment request was already marked as paid by another notification',
       );
-        return;
+      return;
       }
 
     this.logger.log(
       {
         paymentRequestId: existing.id,
         paymentRequestRefId: existing.refId,
+        walletAmountPaise: existing.walletAmountPaise ?? '0',
+        eligibleTotalPaise: existing.eligibleTotalPaise,
         providerPaymentId,
         previousStatus: existing.status,
         updatedBy,
@@ -1508,7 +1868,17 @@ export class PaymentRequestsService {
         couponDiscountType: null,
       };
 
-      if (existing.couponCode) {
+      if (existing.couponId) {
+        const coupon = await this.couponCheckoutService.findById(existing.couponId);
+        if (coupon) {
+          couponDetails = {
+            couponId: coupon.id,
+            couponCode: existing.couponCode ?? coupon.code,
+            couponTitle: coupon.title,
+            couponDiscountType: coupon.discountType,
+          };
+        }
+      } else if (existing.couponCode) {
         const coupon = await this.couponCheckoutService.findByCode(existing.couponCode);
         if (coupon) {
           couponDetails = {
@@ -1527,6 +1897,8 @@ export class PaymentRequestsService {
         addressId: existing.addressId,
         paymentRequestId: existing.id,
         paymentRequestRefId: existing.refId,
+        walletAmountPaise: existing.walletAmountPaise ?? '0',
+        eligibleTotalPaise: existing.eligibleTotalPaise,
         subtotal: existing.subtotal,
         discountAmount: existing.discount,
         shippingAmount: existing.shipping ?? '0.00',
@@ -1540,6 +1912,8 @@ export class PaymentRequestsService {
         ...couponDetails,
         platformFee: existing.platformFee,
         codCharge: existing.codCharge,
+        promotionDiscount: existing.promotionDiscount ?? '0.00',
+        promotionSnapshot: existing.promotionSnapshot ?? null,
         items: existing.items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
@@ -1548,6 +1922,10 @@ export class PaymentRequestsService {
           totalPrice: item.total,
           isSubscription: item.isSubscription,
           frequency: (item.frequency as ProductSubscriptionFrequency | null) ?? null,
+          lineSource: item.lineSource,
+          promotionOfferId: item.promotionOfferId,
+          catalogUnitPrice: item.catalogUnitPrice,
+          promotionDiscount: item.discount,
         })),
       });
       this.logger.log(
@@ -1587,9 +1965,10 @@ export class PaymentRequestsService {
     orderId: string,
     providerPaymentId?: string,
     updatedBy = 'cashfree-webhook',
+    providerAmountRupees?: number | null,
   ): Promise<void> {
     this.logger.log(
-      { orderId, providerPaymentId, updatedBy },
+      { orderId, providerPaymentId, updatedBy, providerAmountRupees },
       'Handling Cashfree payment success',
     );
     const existing = await this.paymentRequestsRepository.findById(orderId);
@@ -1597,7 +1976,7 @@ export class PaymentRequestsService {
       this.logger.warn(`Payment request not found for Cashfree orderId ${orderId}`);
       return;
     }
-    await this.markRequestAsPaid(existing, providerPaymentId, updatedBy);
+    await this.markRequestAsPaid(existing, providerPaymentId, updatedBy, providerAmountRupees);
   }
 
   async handleShiprocketCheckoutPaymentSuccess(
@@ -1618,9 +1997,10 @@ export class PaymentRequestsService {
     providerReferenceId: string,
     providerPaymentId?: string,
     updatedBy = 'razorpay-webhook',
+    providerAmountRupees?: number | null,
   ): Promise<void> {
     this.logger.log(
-      { providerReferenceId, providerPaymentId, updatedBy },
+      { providerReferenceId, providerPaymentId, updatedBy, providerAmountRupees },
       'Handling Razorpay payment link paid',
     );
     const existing = await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId);
@@ -1628,12 +2008,16 @@ export class PaymentRequestsService {
       this.logger.warn(`Payment request not found for provider reference ${providerReferenceId}`);
       return;
     }
-    await this.markRequestAsPaid(existing, providerPaymentId, updatedBy);
+    await this.markRequestAsPaid(existing, providerPaymentId, updatedBy, providerAmountRupees);
   }
 
-  async handlePaymentCaptured(paymentRequestId: string, providerPaymentId?: string): Promise<void> {
+  async handlePaymentCaptured(
+    paymentRequestId: string,
+    providerPaymentId?: string,
+    providerAmountRupees?: number | null,
+  ): Promise<void> {
     this.logger.log(
-      { paymentRequestId, providerPaymentId },
+      { paymentRequestId, providerPaymentId, providerAmountRupees },
       'Handling Razorpay payment captured',
     );
     const existing = await this.paymentRequestsRepository.findById(paymentRequestId);
@@ -1641,7 +2025,7 @@ export class PaymentRequestsService {
       this.logger.warn(`Payment request not found for ID ${paymentRequestId}`);
       return;
     }
-    await this.markRequestAsPaid(existing, providerPaymentId);
+    await this.markRequestAsPaid(existing, providerPaymentId, 'razorpay-webhook', providerAmountRupees);
   }
 
   async handlePaymentFailed(paymentRequestId: string, reason?: string): Promise<void> {
@@ -1696,8 +2080,9 @@ export class PaymentRequestsService {
     await this.paymentRequestsRepository.updateById(existing.id, {
       status: PaymentRequestStatus.FAILED,
       notes,
-          updatedBy,
+      updatedBy,
     });
+    await this.releaseWalletReservationForPaymentRequest(existing.id, updatedBy);
 
     this.logger.warn(
       {
@@ -1778,6 +2163,7 @@ export class PaymentRequestsService {
       status: PaymentRequestStatus.CANCELLED,
       updatedBy: 'razorpay-webhook',
     });
+    await this.releaseWalletReservationForPaymentRequest(existing.id, 'razorpay-webhook');
   }
 
   async handlePaymentLinkExpired(providerReferenceId: string): Promise<void> {
@@ -1797,6 +2183,41 @@ export class PaymentRequestsService {
       status: PaymentRequestStatus.EXPIRED,
       updatedBy: 'razorpay-webhook',
     });
+    await this.releaseWalletReservationForPaymentRequest(existing.id, 'razorpay-webhook');
+  }
+
+  /**
+   * Ambiguous provider outcomes (e.g. Cashfree user-dropped) must not auto-fail
+   * or release wallet holds. Leave the payment request open for success recovery
+   * or definitive failure / expiry reconciliation.
+   */
+  async handlePaymentOutcomeUncertain(
+    providerReferenceId: string,
+    reason: string,
+    updatedBy = 'payment-webhook',
+  ): Promise<void> {
+    const existing =
+      await this.paymentRequestsRepository.findByProviderReferenceId(providerReferenceId)
+      ?? await this.paymentRequestsRepository.findById(providerReferenceId);
+    if (!existing) {
+      this.logger.warn(
+        `Payment request not found for uncertain outcome reference ${providerReferenceId}`,
+      );
+      return;
+    }
+    if (existing.status === PaymentRequestStatus.PAID) {
+      return;
+    }
+    this.logger.warn(
+      {
+        paymentRequestId: existing.id,
+        refId: existing.refId,
+        status: existing.status,
+        reason,
+        updatedBy,
+      },
+      'Payment outcome uncertain — leaving payment request and wallet reservation open',
+    );
   }
 
   formatRazorpayDescription(request: PaymentRequestEntity): string {

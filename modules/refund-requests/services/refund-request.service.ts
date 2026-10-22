@@ -18,6 +18,8 @@ import {
 } from '@packages/common';
 import { EVENTS } from '@packages/events';
 import { DataSource, EntityManager } from 'typeorm';
+import { ReturnRequestEntity } from '@modules/returns/entities/return-request.entity';
+import { BANK_DETAILS_REQUIRED } from '../constants/cod-payout.constants';
 import {
   REFUND_ALREADY_INITIATED,
   REFUND_ALREADY_PROCESSED,
@@ -42,6 +44,7 @@ import {
   RejectRefundRequestDto,
   RetryRefundRequestDto,
 } from '../dto/refund-request.dto';
+import { CodRefundMethod } from '../enums/cod-refund-method.enum';
 import { RefundHistoryAction } from '../enums/refund-history-action.enum';
 import { RefundPaymentProvider } from '../enums/refund-payment-provider.enum';
 import { RefundReason } from '../enums/refund-reason.enum';
@@ -63,14 +66,18 @@ import {
 } from '../mappers/refund-request.mapper';
 import { RefundRequestsRepository } from '../repositories/refund-requests.repository';
 import {
+  buildAdminSettlementAllocation,
+  resolveApproveRefundDestination,
+} from '../utils/admin-refund-settlement.util';
+import { allocateReturnRefundFunds } from '../utils/cod-refund-allocation.util';
+import {
   canTransitionRefundStatus,
   isInitiatableRefundStatus,
 } from '../utils/refund-status-transition.util';
+import { CodRefundPayoutService } from './cod-refund-payout.service';
 import { RefundAmountService } from './refund-amount.service';
 import { RefundProcessorService } from './refund-processor.service';
 import { RefundProviderResolverService } from './refund-provider-resolver.service';
-import { CodRefundPayoutService } from './cod-refund-payout.service';
-import { allocateReturnRefundFunds } from '../utils/cod-refund-allocation.util';
 import { CodPayoutStatus } from '../enums/cod-payout-status.enum';
 
 @Injectable()
@@ -317,19 +324,63 @@ export class RefundRequestsService {
       });
     }
 
-    const detail = await this.transition({
-      idOrRefId,
-      actor,
-      toStatus: RefundRequestStatus.APPROVED,
-      action: RefundHistoryAction.APPROVED,
-      comment: dto.comment,
-      patch: () => ({
+    const destination = resolveApproveRefundDestination(dto.refundDestination);
+    if (destination === CodRefundMethod.BANK_ACCOUNT) {
+      await this.assertCustomerBankDetailsForBankSettlement(current);
+    }
+
+    const allocation = buildAdminSettlementAllocation({
+      approvedAmount,
+      destination,
+      currency: current.currency,
+    });
+
+    const detail = await this.dataSource.transaction(async (manager) => {
+      const locked = await this.lockOrThrow(idOrRefId, manager);
+      if (!canTransitionRefundStatus(locked.status, RefundRequestStatus.APPROVED)) {
+        throw new BadRequestException({
+          code: REFUND_INVALID_STATUS_TRANSITION,
+          message: `Cannot move refund from ${locked.status} to ${RefundRequestStatus.APPROVED}`,
+        });
+      }
+      const previousStatus = locked.status;
+      await this.applyStatusChange(manager, locked, RefundRequestStatus.APPROVED, {
         approvedAmount,
         approvedBy: actor.id,
         approvedAt: new Date(),
+        amountAllocation: allocation,
         updatedBy: actor.email ?? actor.id,
-      }),
+      });
+      await this.writeHistory(
+        manager,
+        { ...locked, status: previousStatus },
+        RefundRequestStatus.APPROVED,
+        RefundHistoryAction.APPROVED,
+        actor,
+        dto.comment,
+      );
+      await this.audit(manager, locked, RefundHistoryAction.APPROVED, actor, RefundRequestStatus.APPROVED, {
+        refundDestination: destination,
+        approvedAmount,
+      });
+
+      const settledRefund = {
+        ...locked,
+        status: RefundRequestStatus.APPROVED,
+        approvedAmount,
+        amountAllocation: allocation,
+      } as RefundRequestEntity;
+      await this.payoutService.syncForAdminSettlement({
+        refund: settledRefund,
+        allocation,
+        actor,
+        manager,
+      });
+
+      const reloaded = await this.refundRequestsRepository.findById(locked.id, manager);
+      return this.toDetail(reloaded ?? settledRefund, actor);
     });
+
     await this.eventEmitter.emitAsync(EVENTS.REFUND_REQUEST_APPROVED, {
       refundRequestId: detail.id,
     });
@@ -442,22 +493,41 @@ export class RefundRequestsService {
 
       const order = await this.requireOrder(locked.orderId, manager);
       const resolution = await this.providerResolver.resolve(order);
-      if (
-        resolution.paymentProvider !== RefundPaymentProvider.COD &&
-        (!resolution.identifiable ||
-          !resolution.paymentProvider ||
-          resolution.paymentProvider === RefundPaymentProvider.OTHER)
-      ) {
-        throw new BadRequestException({
-          code: REFUND_PROVIDER_NOT_FOUND,
-          message: resolution.unresolvedReason ?? 'Original payment source could not be identified',
-        });
-      }
       const amount = parseMoney(locked.approvedAmount ?? locked.requestedAmount);
       if (amount <= 0) {
         throw new BadRequestException({
           code: REFUND_AMOUNT_INVALID,
           message: 'Approved refund amount is invalid',
+        });
+      }
+
+      const allocation =
+        locked.amountAllocation ??
+        this.buildAllocation(order, toMoneyString(amount), resolution.paymentProvider);
+      const onlineAmount = parseMoney(allocation.onlineAmount);
+      const hasCodOrWallet =
+        parseMoney(allocation.codAmount) > 0 || parseMoney(allocation.originalWalletAmount) > 0;
+      const needsOnlineGateway =
+        onlineAmount > 0 &&
+        resolution.paymentProvider !== RefundPaymentProvider.COD &&
+        resolution.paymentProvider !== RefundPaymentProvider.WALLET;
+
+      if (needsOnlineGateway) {
+        if (
+          !resolution.identifiable ||
+          !resolution.paymentProvider ||
+          resolution.paymentProvider === RefundPaymentProvider.OTHER
+        ) {
+          throw new BadRequestException({
+            code: REFUND_PROVIDER_NOT_FOUND,
+            message:
+              resolution.unresolvedReason ?? 'Original payment source could not be identified',
+          });
+        }
+      } else if (!hasCodOrWallet) {
+        throw new BadRequestException({
+          code: REFUND_PROVIDER_NOT_FOUND,
+          message: 'No refundable payment component was found',
         });
       }
 
@@ -472,11 +542,6 @@ export class RefundRequestsService {
       });
       await this.writeHistory(manager, { ...locked, status: previousStatus }, RefundRequestStatus.PROCESSING, RefundHistoryAction.INITIATED, actor, dto.comment);
 
-      const allocation = locked.amountAllocation ?? this.buildAllocation(order, toMoneyString(amount), resolution.paymentProvider);
-      const onlineAmount = parseMoney(allocation.onlineAmount);
-      const hasCodOrWallet =
-        parseMoney(allocation.codAmount) > 0 || parseMoney(allocation.originalWalletAmount) > 0;
-
       if (hasCodOrWallet) {
         await this.payoutService.onRefundInitiated(
           { ...locked, amountAllocation: allocation } as RefundRequestEntity,
@@ -485,7 +550,7 @@ export class RefundRequestsService {
         );
       }
 
-      if (onlineAmount > 0 && resolution.paymentProvider !== RefundPaymentProvider.COD) {
+      if (needsOnlineGateway) {
         const result = await this.processor.initiate(
           {
             ...locked,
@@ -515,11 +580,6 @@ export class RefundRequestsService {
             onlineStatus: 'COMPLETED',
           });
         }
-      } else if (!hasCodOrWallet) {
-        throw new BadRequestException({
-          code: REFUND_PROVIDER_NOT_FOUND,
-          message: 'No refundable payment component was found',
-        });
       }
 
       await this.eventEmitter.emitAsync(EVENTS.REFUND_PROCESSING_STARTED, { refundRequestId: locked.id });
@@ -678,7 +738,9 @@ export class RefundRequestsService {
           : 'This order has no captured online amount to refund',
       });
     }
-    if (!params.returnRequestId && !refundable.requiresOnlineRefund) {
+    const hasWalletTender = Number(params.order.walletAmountPaise ?? 0) > 0
+      || params.order.paymentMethod === OrderPaymentMethod.WALLET;
+    if (!params.returnRequestId && !refundable.requiresOnlineRefund && !hasWalletTender) {
       throw new BadRequestException({
         code: REFUND_NOT_REQUIRED,
         message: 'This order has no captured online amount to refund',
@@ -949,6 +1011,32 @@ export class RefundRequestsService {
     return locked;
   }
 
+  private async assertCustomerBankDetailsForBankSettlement(
+    refund: RefundRequestEntity,
+  ): Promise<void> {
+    if (!refund.returnRequestId) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_REQUIRED,
+        message:
+          'Bank account settlement requires a return with customer-submitted bank details',
+      });
+    }
+    const returnRequest = await this.dataSource.getRepository(ReturnRequestEntity).findOne({
+      where: { id: refund.returnRequestId },
+    });
+    if (
+      !returnRequest?.bankAccountNumberEncrypted ||
+      !returnRequest.bankIfsc ||
+      !returnRequest.bankAccountHolderName
+    ) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_REQUIRED,
+        message:
+          'Customer bank details are required before approving a bank account refund',
+      });
+    }
+  }
+
   private async requireRequest(idOrRefId: string): Promise<RefundRequestEntity> {
     const entity = await this.refundRequestsRepository.findByIdOrRefId(idOrRefId);
     if (!entity) {
@@ -984,8 +1072,43 @@ export class RefundRequestsService {
     const refundable = await this.amountService.calculateRefundableAmount(order, full.id);
     const payout = await this.payoutService.getByRefundRequestId(full.id);
     const detail = mapRefundRequestToDetail(full, refundable, buildAvailableActions(full.status));
+
+    let returnRefId: string | null = null;
+    let settlementBank: IRefundRequestDetail['settlementBank'] = null;
+    if (full.returnRequestId) {
+      const returnRequest = await this.dataSource.getRepository(ReturnRequestEntity).findOne({
+        where: { id: full.returnRequestId },
+        select: [
+          'id',
+          'refId',
+          'bankAccountNumberLast4',
+          'bankAccountHolderName',
+          'bankIfsc',
+          'bankName',
+        ],
+      });
+      if (returnRequest) {
+        returnRefId = returnRequest.refId ?? null;
+        const hasDetails = Boolean(
+          returnRequest.bankAccountNumberLast4 &&
+            returnRequest.bankIfsc &&
+            returnRequest.bankAccountHolderName,
+        );
+        settlementBank = {
+          hasDetails,
+          accountNumberLast4: returnRequest.bankAccountNumberLast4 ?? null,
+          accountHolderName: returnRequest.bankAccountHolderName ?? null,
+          ifsc: returnRequest.bankIfsc ?? null,
+          bankName: returnRequest.bankName ?? null,
+        };
+      }
+    }
+
     return {
       ...detail,
+      returnRequestId: full.returnRequestId ?? null,
+      returnRefId,
+      settlementBank,
       amountAllocation: full.amountAllocation,
       codPayout: payout ? this.payoutService.toAdminView(payout) : null,
     };
@@ -1007,6 +1130,8 @@ export class RefundRequestsService {
           ? Math.max(0, parseMoney(order.grandTotal) - parseMoney(prepaidAmount))
           : undefined,
       onlineProvider,
+      walletAmountPaise: order.walletAmountPaise,
+      gatewayAmountPaise: order.gatewayAmountPaise,
     });
   }
 

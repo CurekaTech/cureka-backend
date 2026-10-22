@@ -1,4 +1,5 @@
 import { PermissionAction } from '../enums/permission-action.enum';
+import { SCOPED_PERMISSION_DEFINITIONS } from './menu-permission-scopes.constants';
 
 export interface IPermissionSeed {
   name: string;
@@ -296,6 +297,7 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
   ...buildCrudPermissions('importers', 'Importers'),
   ...buildCrudPermissions('subscription_frequencies', 'Subscription Frequencies'),
   ...buildCrudPermissions('coupon_codes', 'Coupon Codes'),
+  ...buildCrudPermissions('promotional_offers', 'Promotional Offers'),
   ...buildCrudPermissions('membership_plans', 'Membership Plans'),
   ...buildCrudPermissions('membership_benefits', 'Membership Benefits'),
   ...buildCrudPermissions('user_memberships', 'User Memberships'),
@@ -403,4 +405,10 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     module: 'support',
     action: PermissionAction.READ,
   },
+  ...SCOPED_PERMISSION_DEFINITIONS.map(({ name, code, module, action }) => ({
+    name,
+    code,
+    module,
+    action,
+  })),
 ];

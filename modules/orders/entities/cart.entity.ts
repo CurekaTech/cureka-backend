@@ -19,6 +19,13 @@ export class CartEntity extends BaseEntity {
   @Column({ name: 'coupon_id', type: 'uuid', nullable: true })
   couponId!: string | null;
 
+  @Index()
+  @Column({ name: 'promotional_offer_id', type: 'uuid', nullable: true })
+  promotionalOfferId!: string | null;
+
+  @Column({ name: 'selected_code', type: 'varchar', length: 100, nullable: true })
+  selectedCode!: string | null;
+
   /**
    * Sticky storefront source from validate/checkout (`App` | `Website`).
    * Used when place-order / payment-requests/checkout omit `orderSource`.

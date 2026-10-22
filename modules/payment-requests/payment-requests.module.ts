@@ -5,6 +5,8 @@ import { UsersModule } from '@modules/users/users.module';
 import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { CheckoutModule } from '@modules/checkout/checkout.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
+import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
+import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { PaymentRequestEntity } from './entities/payment-request.entity';
 import { PaymentRequestItemEntity } from './entities/payment-request-item.entity';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
@@ -27,6 +29,8 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     AdminSettingsModule,
     CheckoutModule,
     forwardRef(() => SubscriptionModule),
+    forwardRef(() => RefundRequestsModule),
+    PromotionalOffersModule,
   ],
   providers: [
     PaymentRequestsRepository,

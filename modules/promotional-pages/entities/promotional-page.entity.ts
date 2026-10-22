@@ -2,6 +2,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm
 import { BaseEntity } from '@packages/database';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
+import { PromotionalPageType } from '../enums/promotional-page-type.enum';
 import { PromotionalPageSectionEntity } from './promotional-page-section.entity';
 import { PromotionalPageTargetEntity } from './promotional-page-target.entity';
 
@@ -31,6 +32,15 @@ export class PromotionalPageEntity extends BaseEntity {
     default: PromotionalPageStatus.DRAFT,
   })
   status!: PromotionalPageStatus;
+
+  @Column({
+    name: 'promotion_type',
+    type: 'enum',
+    enum: PromotionalPageType,
+    enumName: 'promotional_pages_promotion_type_enum',
+    default: PromotionalPageType.DEFAULT,
+  })
+  promotionType!: PromotionalPageType;
 
   @Column({ name: 'start_at', type: 'timestamptz', nullable: true })
   startAt!: Date | null;

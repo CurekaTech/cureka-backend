@@ -30,10 +30,12 @@ import {
   UpdateProductSubscriptionQuantityDto,
   VerifyProductSubscriptionPaymentDto,
 } from '../dto/product-subscription.dto';
+import { SubscriptionsModuleEnabledGuard } from '../guards/subscriptions-module-enabled.guard';
 import { ProductSubscriptionsService } from '../services/product-subscriptions.service';
 
 @ApiTags('Product Subscriptions')
 @ApiBearerAuth()
+@UseGuards(SubscriptionsModuleEnabledGuard)
 @Controller('subscriptions/products')
 export class ProductSubscriptionsController {
   constructor(private readonly productSubscriptionsService: ProductSubscriptionsService) {}

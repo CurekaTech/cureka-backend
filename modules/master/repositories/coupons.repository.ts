@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { buildSkipTake } from '@packages/database';
 import { MasterStatus } from '../enums/master-status.enum';
 import { CouponEntity } from '../entities/coupon.entity';
@@ -13,9 +13,10 @@ export class CouponsRepository {
     private readonly repo: Repository<CouponEntity>,
   ) {}
 
-  async create(data: Partial<CouponEntity>): Promise<CouponEntity> {
-    const entity = this.repo.create(data);
-    return this.repo.save(entity);
+  async create(data: Partial<CouponEntity>, manager?: EntityManager): Promise<CouponEntity> {
+    const repository = manager ? manager.getRepository(CouponEntity) : this.repo;
+    const entity = repository.create(data);
+    return repository.save(entity);
   }
 
   async findByRefId(refId: string): Promise<CouponEntity | null> {
@@ -25,8 +26,9 @@ export class CouponsRepository {
     });
   }
 
-  async findById(id: string): Promise<CouponEntity | null> {
-    return this.repo.findOne({
+  async findById(id: string, manager?: EntityManager): Promise<CouponEntity | null> {
+    const repository = manager ? manager.getRepository(CouponEntity) : this.repo;
+    return repository.findOne({
       where: { id },
       relations: this.applicabilityRelations,
     });
@@ -71,9 +73,15 @@ export class CouponsRepository {
   async updateByRefId(
     refId: string,
     data: Partial<CouponEntity>,
+    manager?: EntityManager,
   ): Promise<CouponEntity | null> {
-    await this.repo.update({ refId }, data);
-    return this.findByRefId(refId);
+    const repository = manager ? manager.getRepository(CouponEntity) : this.repo;
+    await repository.update({ refId }, data);
+    if (!manager) return this.findByRefId(refId);
+    return repository.findOne({
+      where: { refId },
+      relations: this.applicabilityRelations,
+    });
   }
 
   async softDeleteByRefId(refId: string): Promise<void> {

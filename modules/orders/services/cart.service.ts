@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { generateUniqueRefId, getSalableStockQuantity, isVariantInStock, STOCK_VALIDATION_ENABLED } from '@packages/common';
 import { IStorageFileReference, IStorageFileReferenceResponse } from '@packages/storage';
@@ -12,7 +13,9 @@ import { ProductType } from '@modules/product/enums/product-type.enum';
 import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
+import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
+import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { buildProductLocPath } from '@modules/sitemap/services/sitemap-url.builder';
 import { AddCartItemDto, ApplyCouponDto, UpdateCartItemDto } from '../dto/cart.dto';
@@ -24,6 +27,10 @@ import { CartItemsRepository } from '../repositories/cart-items.repository';
 import { CartsRepository } from '../repositories/carts.repository';
 import { SavedForLaterItemsRepository } from '../repositories/saved-for-later-items.repository';
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
+import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
+import { normalizeCheckoutCode } from '@modules/promotional-offers/utils/checkout-code-namespace.util';
+import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { CartPricingService } from './cart-pricing.service';
 import { CouponCheckoutService } from './coupon-checkout.service';
 import { CodBlocklistService } from '@modules/cod-blocklist/services/cod-blocklist.service';
@@ -41,6 +48,13 @@ const EMPTY_CART_BASE = {
   codCharge: 0,
   prepaidDiscount: 0,
   grandTotal: 0,
+  promotionDiscount: 0,
+  bmsmDiscount: 0,
+  rewardCharged: 0,
+  promotions: [],
+  promotionWarnings: [],
+  rewardLines: [],
+  lineAllocations: [],
 };
 
 @Injectable()
@@ -56,7 +70,15 @@ export class CartService {
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly codBlocklistService: CodBlocklistService,
     private readonly savedForLaterItemsRepository: SavedForLaterItemsRepository,
+    private readonly configService: ConfigService,
+    private readonly checkoutResolver: CheckoutResolverService,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
+    private readonly couponsRepository: CouponsRepository,
   ) { }
+
+  async nativePromotionalOffersEnabled(): Promise<boolean> {
+    return (await this.checkoutResolver.resolveProvider()) === 'legacy';
+  }
 
   private async buildEmptyCartResponse(userId?: string): Promise<CartResponse> {
     const amounts = await this.cartCheckoutAdminSettingsService.resolveAmounts();
@@ -180,6 +202,7 @@ export class CartService {
     return this.toCartResponse(cart, userId, manager, {
       clearInvalidCoupon: true,
       paymentMethod: options?.paymentMethod,
+      applyPromotionalOffers: await this.nativePromotionalOffersEnabled(),
     });
   }
 
@@ -216,6 +239,8 @@ export class CartService {
       userId: cart.userId,
       cartId: cart.id,
       couponId: cart.couponId,
+      promotionalOfferId: cart.promotionalOfferId,
+      selectedCode: cart.selectedCode,
       items,
       manager: this.dataSource.manager,
       clearInvalidCoupon: false,
@@ -278,50 +303,222 @@ export class CartService {
     });
   }
 
-  async applyCoupon(userId: string, dto: ApplyCouponDto): Promise<CartResponse> {
+  async applyCoupon(
+    userId: string,
+    dto: ApplyCouponDto,
+    options?: { applyPromotionalOffers?: boolean },
+  ): Promise<CartResponse> {
+    return this.applyCode(userId, dto.couponCode, options);
+  }
+
+  async applyCode(
+    userId: string,
+    rawCode: string,
+    options?: { applyPromotionalOffers?: boolean },
+  ): Promise<CartResponse> {
+    const code = normalizeCheckoutCode(rawCode);
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) throw new BadRequestException('Cart not found');
       if (!cart.items?.length) throw new BadRequestException('Cart is empty');
+      if (cart.selectedCode && normalizeCheckoutCode(cart.selectedCode) === code) {
+        return this.toCartResponse(cart, userId, manager, {
+          applyPromotionalOffers: options?.applyPromotionalOffers === true,
+          clearInvalidCoupon: true,
+        });
+      }
 
-      const coupon = await this.couponCheckoutService.findByCode(dto.couponCode);
-      if (!coupon) {
-        throw new NotFoundException(`Coupon code "${dto.couponCode}" not found`);
+      const [coupon, offer] = await Promise.all([
+        this.couponCheckoutService.findByCode(code),
+        this.promotionalOffers.findOfferByCode(code),
+      ]);
+      if (coupon && offer) {
+        throw new ConflictException(`Code "${code}" is ambiguous`);
+      }
+      if (!coupon && !offer) {
+        throw new NotFoundException(`Code "${code}" was not found`);
       }
 
       const lineItems = await this.buildLineItems(cart);
       const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      const native = options?.applyPromotionalOffers === true;
 
-      await this.couponCheckoutService.validateCoupon(coupon, {
-        userId,
-        subtotal,
-        items: lineItems,
-        manager,
-      });
-
-      await this.cartsRepository.updateById(
-        cart.id,
-        { couponId: coupon.id, updatedBy: userId },
-        manager,
-      );
+      if (offer) {
+        if (!isPromotionalOffersEnabled(this.configService)) {
+          throw new BadRequestException('Promotional offers are turned off');
+        }
+        if (!native) {
+          throw new BadRequestException('Promotional offers apply on native checkout only');
+        }
+        const preview = await this.promotionalOffers.evaluateForCart({
+          userId,
+          customerSubtotal: subtotal,
+          offerId: offer.id,
+          lines: lineItems.map((item) => ({
+            id: item.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            sku: item.sku,
+            productName: item.productName,
+            variantLabel: item.variantLabel,
+            isSubscription: item.isSubscription,
+            productType: null,
+          })),
+        });
+        const applied = preview.promotions.length > 0 || preview.rewardLines.length > 0 || preview.bmsmDiscount > 0;
+        if (!applied) {
+          throw new BadRequestException(preview.warnings[0]?.message ?? 'This offer is not eligible for the cart');
+        }
+        await this.cartsRepository.updateById(
+          cart.id,
+          { couponId: null, promotionalOfferId: offer.id, selectedCode: code, updatedBy: userId },
+          manager,
+        );
+      } else if (coupon) {
+        await this.couponCheckoutService.validateCoupon(coupon, {
+          userId,
+          subtotal,
+          items: lineItems,
+          manager,
+        });
+        await this.cartsRepository.updateById(
+          cart.id,
+          { couponId: coupon.id, promotionalOfferId: null, selectedCode: code, updatedBy: userId },
+          manager,
+        );
+      }
 
       const refreshed = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!refreshed) throw new BadRequestException('Cart not found');
-      return this.toCartResponse(refreshed, userId, manager);
+      return this.toCartResponse(refreshed, userId, manager, {
+        applyPromotionalOffers: native,
+        clearInvalidCoupon: true,
+      });
     });
   }
 
-  async removeCoupon(userId: string): Promise<CartResponse> {
+  async listOffers(userId: string): Promise<{
+    offers: Array<{
+      code: string;
+      sourceType: 'coupon' | 'promotional_offer';
+      id: string;
+      title: string;
+      description: string;
+      estimatedBenefit: number;
+      conditions: string;
+      expiresAt: Date | null;
+      selected: boolean;
+      applicable: boolean;
+    }>;
+  }> {
+    const cart = await this.cartsRepository.findActiveByUserId(userId);
+    if (!cart) return { offers: [] };
+    const lineItems = await this.buildLineItems(cart, { skipImages: true });
+    const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const rows: Array<{
+      code: string;
+      sourceType: 'coupon' | 'promotional_offer';
+      id: string;
+      title: string;
+      description: string;
+      estimatedBenefit: number;
+      conditions: string;
+      expiresAt: Date | null;
+      selected: boolean;
+      applicable: boolean;
+    }> = [];
+    const coupons = await this.couponsRepository.findAllActiveValid();
+    for (const coupon of coupons) {
+      try {
+        await this.couponCheckoutService.validateCoupon(coupon, { userId, subtotal, items: lineItems });
+        const eligible = this.couponCheckoutService.getDiscountSubtotal(coupon, { userId, subtotal, items: lineItems });
+        rows.push({
+          code: coupon.code,
+          sourceType: 'coupon',
+          id: coupon.id,
+          title: coupon.title,
+          description: coupon.title,
+          estimatedBenefit: this.couponCheckoutService.calculateDiscount(coupon, eligible),
+          conditions: `Minimum purchase ${Number(coupon.minPurchase).toFixed(2)}`,
+          expiresAt: coupon.expiryDate,
+          selected: cart.couponId === coupon.id,
+          applicable: true,
+        });
+      } catch {
+        continue;
+      }
+    }
+    if (isPromotionalOffersEnabled(this.configService)) {
+      const offers = await this.promotionalOffers.listLiveOffers();
+      for (const offer of offers) {
+        if (!offer.code) continue;
+        const preview = await this.promotionalOffers.evaluateForCart({
+          userId,
+          customerSubtotal: subtotal,
+          offerId: offer.id,
+          lines: lineItems.map((item) => ({
+            id: item.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            sku: item.sku,
+            productName: item.productName,
+            variantLabel: item.variantLabel,
+            isSubscription: item.isSubscription,
+            productType: null,
+          })),
+        });
+        const benefit = preview.promotionDiscount || preview.bmsmDiscount || preview.promotions[0]?.discountAmount || 0;
+        const applied = preview.promotions.length > 0 || preview.rewardLines.length > 0 || preview.bmsmDiscount > 0;
+        const cartHasTarget = (offer.targets ?? []).some((target) =>
+          lineItems.some((item) => item.variantId === target.variantId && !item.isSubscription),
+        );
+        const selected =
+          cart.promotionalOfferId === offer.id ||
+          (!!cart.selectedCode &&
+            !!offer.code &&
+            normalizeCheckoutCode(cart.selectedCode) === normalizeCheckoutCode(offer.code));
+        const warning = preview.warnings[0];
+        if (!applied && !cartHasTarget && !selected) continue;
+        rows.push({
+          code: offer.code,
+          sourceType: 'promotional_offer',
+          id: offer.id,
+          title: offer.name,
+          description: offer.customerMessage,
+          estimatedBenefit: applied ? benefit : 0,
+          conditions: applied
+            ? offer.customerMessage
+            : warning?.message ?? 'This offer cannot be applied to the cart right now.',
+          expiresAt: offer.expiryDate,
+          selected,
+          applicable: applied,
+        });
+      }
+    }
+    return { offers: rows };
+  }
+
+  async removeCoupon(userId: string, options?: { applyPromotionalOffers?: boolean }): Promise<CartResponse> {
+    return this.removeCode(userId, options);
+  }
+
+  async removeCode(userId: string, options?: { applyPromotionalOffers?: boolean }): Promise<CartResponse> {
     return this.dataSource.transaction(async (manager) => {
       const cart = await this.cartsRepository.findActiveByUserId(userId, manager);
       if (!cart) {
         return this.buildEmptyCartResponse(userId);
       }
 
-      if (cart.couponId) {
+      if (cart.couponId || cart.promotionalOfferId || cart.selectedCode) {
         await this.cartsRepository.updateById(
           cart.id,
-          { couponId: null, updatedBy: userId },
+          { couponId: null, promotionalOfferId: null, selectedCode: null, updatedBy: userId },
           manager,
         );
       }
@@ -330,7 +527,10 @@ export class CartService {
       if (!refreshed) {
         return this.buildEmptyCartResponse(userId);
       }
-      return this.toCartResponse(refreshed, userId, manager);
+      return this.toCartResponse(refreshed, userId, manager, {
+        applyPromotionalOffers: options?.applyPromotionalOffers === true,
+        clearInvalidCoupon: true,
+      });
     });
   }
 
@@ -373,6 +573,8 @@ export class CartService {
         cart.id,
         {
           couponId: null,
+          promotionalOfferId: null,
+          selectedCode: null,
           orderSource: null,
           updatedBy: userId,
         },
@@ -472,10 +674,15 @@ export class CartService {
 
         await this.cartsRepository.touchCustomerActivity(targetCart.id, toUserId, manager);
 
-        if (guestCart.couponId && !targetCart.couponId) {
+        if (!targetCart.couponId && !targetCart.promotionalOfferId && (guestCart.couponId || guestCart.promotionalOfferId)) {
           await this.cartsRepository.updateById(
             targetCart.id,
-            { couponId: guestCart.couponId, updatedBy: toUserId },
+            {
+              couponId: guestCart.couponId,
+              promotionalOfferId: guestCart.promotionalOfferId,
+              selectedCode: guestCart.selectedCode,
+              updatedBy: toUserId,
+            },
             manager,
           );
         }
@@ -483,7 +690,7 @@ export class CartService {
         await this.cartItemsRepository.clearByCartId(guestCart.id, manager);
         await this.cartsRepository.updateById(
           guestCart.id,
-          { isActive: false, couponId: null, updatedBy: toUserId },
+          { isActive: false, couponId: null, promotionalOfferId: null, selectedCode: null, updatedBy: toUserId },
           manager,
         );
       }
@@ -542,24 +749,46 @@ export class CartService {
     cart: CartEntity,
     userId: string,
     manager = this.dataSource.manager,
-    options?: { clearInvalidCoupon?: boolean; paymentMethod?: OrderPaymentMethod },
+    options?: { clearInvalidCoupon?: boolean; paymentMethod?: OrderPaymentMethod; applyPromotionalOffers?: boolean },
   ): Promise<CartResponse> {
     const items = await this.buildLineItems(cart);
     const pricing = await this.cartPricingService.calculateCartPricing({
       userId,
       cartId: cart.id,
       couponId: cart.couponId,
+      promotionalOfferId: cart.promotionalOfferId,
+      selectedCode: cart.selectedCode,
       items,
       paymentMethod: options?.paymentMethod,
       manager,
       clearInvalidCoupon: options?.clearInvalidCoupon ?? false,
+      applyPromotionalOffers: options?.applyPromotionalOffers === true,
     });
+
+    const allocationByLine = new Map((pricing.lineAllocations ?? []).map((row) => [row.lineId, row]));
+    const pricedItems = items.map((item) => {
+      const allocation = allocationByLine.get(item.id);
+      return {
+        ...item,
+        promotionDiscount: allocation?.promotionDiscount ?? 0,
+        promotionOfferId: allocation?.promotionOfferId ?? null,
+      };
+    });
+    const pricedItemsWithMessages = pricedItems.map((item) => ({
+      ...item,
+      promotionalMessages: [] as string[],
+    }));
+    const rewardLines = await this.enrichRewardLines(pricing.rewardLines ?? []);
 
     return {
       cartId: cart.id,
-      items,
-      totalItems: items.reduce((sum, item) => sum + item.quantity, 0),
+      items: pricedItemsWithMessages,
+      totalItems:
+        pricedItemsWithMessages.reduce((sum, item) => sum + item.quantity, 0) +
+        rewardLines.reduce((sum, item) => sum + item.quantity, 0),
       ...pricing,
+      rewardLines,
+      promotionNotices: [],
     };
   }
 
@@ -737,6 +966,10 @@ export class CartService {
     variantId: string,
     frequency: ProductSubscriptionFrequency,
   ): Promise<void> {
+    if (!isSubscriptionsModuleEnabled(this.configService)) {
+      throw new BadRequestException('Subscriptions are not available');
+    }
+
     const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
       productId,
       variantId,
@@ -876,6 +1109,28 @@ export class CartService {
 
   private hasDetailPart(parts: string[], keyword: 'weight' | 'dimension'): boolean {
     return parts.some((part) => part.toLowerCase().includes(keyword));
+  }
+
+  private async enrichRewardLines(rewards: CartResponse['rewardLines']): Promise<NonNullable<CartResponse['rewardLines']>> {
+    const lines = rewards ?? [];
+    if (!lines.length) return [];
+    const variants = await this.dataSource.getRepository(ProductVariantEntity).find({
+      where: { id: In(lines.map((line) => line.variantId)) },
+      relations: { product: { media: true }, attributeValues: { attribute: true } },
+    });
+    const byId = new Map(variants.map((variant) => [variant.id, variant]));
+    return Promise.all(
+      lines.map(async (line) => {
+        const variant = byId.get(line.variantId);
+        const imageRef = this.resolvePrimaryImageRef(variant?.product, line.variantId);
+        return {
+          ...line,
+          productName: variant ? this.resolveCartProductName(variant.product, variant) : line.productName,
+          variantLabel: this.formatVariantLabel(variant) || line.variantLabel,
+          primaryImageUrl: imageRef ? await this.storageUrlEnricher.toReference(imageRef) : null,
+        };
+      }),
+    );
   }
 
   private resolvePrimaryImageRef(

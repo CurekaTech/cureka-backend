@@ -14,6 +14,7 @@ import { CouponsRepository } from '@modules/master/repositories/coupons.reposito
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { mapCategoryEntitiesToPublicListItems } from '@modules/public/mappers/public-category.mapper';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { mapProductEntitiesToPublicStorefrontCards } from '@modules/public/mappers/public-product.mapper';
 import { IPublicCategoryListItem } from '@modules/public/interfaces/public-master.interface';
 import { IPublicStorefrontProductCard } from '@modules/public/interfaces/public-product.interface';
@@ -41,6 +42,7 @@ export class PromotionalPageReferenceService {
     private readonly brandsRepository: BrandsRepository,
     private readonly categoriesRepository: CategoriesRepository,
     private readonly couponsRepository: CouponsRepository,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   async assertCatalogRefs(refs: CatalogRefSets): Promise<{ couponId: string | null }> {
@@ -136,7 +138,7 @@ export class PromotionalPageReferenceService {
       );
     }
 
-    return {
+    const hydrated = {
       sections: publicSections,
       targets: {
         products: targets
@@ -159,6 +161,8 @@ export class PromotionalPageReferenceService {
         ),
       },
     };
+    await this.promotionalOffers.attachPublicOffersDeep(hydrated);
+    return hydrated;
   }
 
   private async hydrateSection(
@@ -179,15 +183,21 @@ export class PromotionalPageReferenceService {
     if (section.type === PromotionalSectionType.PRODUCT_COLLECTION) {
       const mode = section.config?.selectionMode ?? 'manual';
       const limit = section.config?.maxItems ?? DEFAULT_COLLECTION_LIMIT;
+      const hideOutOfStock = section.config?.hideOutOfStock === true;
       if (mode === 'manual') {
         products = items
           .map((item) => catalogs.productCards.get(item.targetRefId))
           .filter((card): card is IPublicStorefrontProductCard => Boolean(card))
+          .filter((card) => !hideOutOfStock || !card.outOfStock)
           .slice(0, limit);
       } else if (mode === 'brand' && section.config?.brandRefId) {
-        products = await this.loadProductsForBrand(section.config.brandRefId, limit);
+        products = await this.loadProductsForBrand(section.config.brandRefId, limit, hideOutOfStock);
       } else if (mode === 'category' && section.config?.categoryRefId) {
-        products = await this.loadProductsForCategory(section.config.categoryRefId, limit);
+        products = await this.loadProductsForCategory(
+          section.config.categoryRefId,
+          limit,
+          hideOutOfStock,
+        );
       }
     }
 
@@ -261,6 +271,7 @@ export class PromotionalPageReferenceService {
   private async loadProductsForBrand(
     brandRefId: string,
     limit: number,
+    hideOutOfStock = false,
   ): Promise<IPublicStorefrontProductCard[]> {
     const brands = await this.brandsRepository.findByRefIds([brandRefId]);
     const brand = brands.find((row) => row.refId === brandRefId && row.status === MasterStatus.ACTIVE);
@@ -269,6 +280,7 @@ export class PromotionalPageReferenceService {
       page: 1,
       limit,
       brandId: brand.id,
+      ...(hideOutOfStock ? { inStockOnly: true } : {}),
     });
     return mapProductEntitiesToPublicStorefrontCards(data);
   }
@@ -276,6 +288,7 @@ export class PromotionalPageReferenceService {
   private async loadProductsForCategory(
     categoryRefId: string,
     limit: number,
+    hideOutOfStock = false,
   ): Promise<IPublicStorefrontProductCard[]> {
     const categories = await this.categoriesRepository.findActiveByRefIds([categoryRefId]);
     const category = categories.find((row) => row.refId === categoryRefId);
@@ -284,6 +297,7 @@ export class PromotionalPageReferenceService {
       page: 1,
       limit,
       categoryId: category.id,
+      ...(hideOutOfStock ? { inStockOnly: true } : {}),
     });
     return mapProductEntitiesToPublicStorefrontCards(data);
   }

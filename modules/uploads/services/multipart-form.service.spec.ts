@@ -8,6 +8,9 @@ import { MultipartFormService } from './multipart-form.service';
 class TestDto {
   @IsOptional()
   value?: string;
+
+  @IsOptional()
+  listingHeading?: string;
 }
 
 describe('MultipartFormService', () => {
@@ -43,5 +46,23 @@ describe('MultipartFormService', () => {
         maxSizeOverride: maxFileSizeOverride,
       }),
     );
+  });
+
+  it('keeps an empty listingHeading so a cleared product list heading can be saved', async () => {
+    const request = {
+      headers: { 'content-type': 'multipart/form-data' },
+      parts: jest.fn(async function* () {
+        yield { type: 'field' as const, fieldname: 'value', value: 'kept' };
+        yield { type: 'field' as const, fieldname: 'listingHeading', value: '' };
+        yield { type: 'field' as const, fieldname: 'description', value: '' };
+      }),
+    } as unknown as FastifyRequest;
+    const storageService = { uploadImage: jest.fn() } as unknown as StorageService;
+    const service = new MultipartFormService(storageService);
+
+    const { dto } = await service.parseAndValidate(request, TestDto, {});
+
+    expect(dto.listingHeading).toBe('');
+    expect(dto.value).toBe('kept');
   });
 });

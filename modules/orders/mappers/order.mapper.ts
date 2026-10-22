@@ -56,6 +56,8 @@ export type OrderItemResponse = {
   quantity: number;
   unitPrice: string;
   totalPrice: string;
+  /** `promotion` is a free or discounted reward line. `customer` is a cart line. */
+  lineSource: string;
   isSubscription: boolean;
   frequency: string | null;
   subscriptionId: string | null;
@@ -93,6 +95,10 @@ export type OrderPaymentSummaryResponse = {
   paidAmount: number;
   paymentMethod: string;
   paymentStatus: string;
+  /** Wallet tender in INR (from walletAmountPaise). */
+  walletAmount: number;
+  /** Gateway / COD remainder in INR (from gatewayAmountPaise). */
+  gatewayAmount: number;
 };
 
 export type OrderResponse = Omit<OrderEntity, 'items' | 'user'> &
@@ -134,7 +140,7 @@ export type AdminOrderCustomerResponse = {
 export type AdminOrderResponse = OrderResponse & {
   customer: AdminOrderCustomerResponse | null;
   /** Present when admin order detail is resolved from a payment request (`PAY…`). */
-  paymentRequestId?: string;
+  paymentRequestId?: string | null;
   paymentRequestRefId?: string;
   paymentRequestStatus?: PaymentRequestStatus;
   paymentLink?: string | null;
@@ -228,6 +234,7 @@ async function mapOrderItemToResponse(
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     totalPrice: item.totalPrice,
+    lineSource: item.lineSource ?? 'customer',
     isSubscription: !!item.isSubscription,
     frequency: item.frequency ?? null,
     subscriptionId: item.subscriptionId ?? null,
@@ -290,8 +297,12 @@ export function mapOrderPaymentSummary(
     | 'grandTotal'
     | 'paymentMethod'
     | 'paymentStatus'
+    | 'walletAmountPaise'
+    | 'gatewayAmountPaise'
   >,
 ): OrderPaymentSummaryResponse {
+  const walletPaise = Number(order.walletAmountPaise ?? 0);
+  const gatewayPaise = Number(order.gatewayAmountPaise ?? 0);
   return {
     itemTotal: parseMoney(order.subtotal),
     discount: parseMoney(order.discountAmount),
@@ -301,6 +312,8 @@ export function mapOrderPaymentSummary(
     paidAmount: resolvePaidAmount(order),
     paymentMethod: String(order.paymentMethod),
     paymentStatus: String(order.paymentStatus),
+    walletAmount: Number.isFinite(walletPaise) ? walletPaise / 100 : 0,
+    gatewayAmount: Number.isFinite(gatewayPaise) ? gatewayPaise / 100 : 0,
   };
 }
 

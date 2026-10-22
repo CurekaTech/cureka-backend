@@ -88,17 +88,39 @@ describe('UnicommerceOrderService', () => {
     await expect(service.pushOrder('missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('skips push for unpaid prepaid orders', async () => {
+  it('skips push for unpaid prepaid orders and cancels a sale order if one exists', async () => {
     (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
       ...order,
       paymentStatus: OrderPaymentStatus.PENDING,
       orderStatus: OrderStatus.PROCESSING,
     });
+    (apiService.cancelSaleOrder as jest.Mock).mockResolvedValue({ successful: false });
 
     const result = await service.pushOrder('order-uuid-1');
 
     expect(result).toBeNull();
     expect(apiService.createSaleOrder).not.toHaveBeenCalled();
+    expect(apiService.cancelSaleOrder).toHaveBeenCalled();
+  });
+
+  it('skips push for a failed payment and cancels the Uniware sale order', async () => {
+    (ordersRepository.findForUnicommercePush as jest.Mock).mockResolvedValue({
+      ...order,
+      paymentStatus: OrderPaymentStatus.FAILED,
+      orderStatus: OrderStatus.PENDING,
+    });
+    (apiService.cancelSaleOrder as jest.Mock).mockResolvedValue({ successful: true });
+
+    const result = await service.pushOrder('order-uuid-1');
+
+    expect(result).toBeNull();
+    expect(apiService.createSaleOrder).not.toHaveBeenCalled();
+    expect(apiService.cancelSaleOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saleOrderCode: 'ORD123456780001',
+        cancelledBySeller: true,
+      }),
+    );
   });
 
   it('skips push for pending COD draft orders', async () => {

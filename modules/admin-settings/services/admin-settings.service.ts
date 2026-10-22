@@ -73,7 +73,10 @@ export class AdminSettingsService {
     }
 
     if (normalizedType === 'store_configuration' || normalizedType === 'store-configuration') {
-      await Promise.all([this.ensureAllowGuestLoginSetting(), this.ensureEnableTypesenseSetting()]);
+      await Promise.all([
+        this.ensureAllowGuestLoginSetting(),
+        this.ensureEnableTypesenseSetting(),
+      ]);
       const refreshed = mapAdminSettingEntitiesToResponse(await this.adminSettingsRepository.findAll());
       return refreshed.filter((setting) => STORE_CONFIGURATION_KEYS.includes(setting.key));
     }

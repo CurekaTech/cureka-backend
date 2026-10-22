@@ -3,6 +3,7 @@ import { IPublicStorefrontProductCard } from '@modules/public/interfaces/public-
 import { IStorageFileReference } from '@packages/storage';
 import { PaginatedResult } from '@packages/common';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
+import { PromotionalPageType } from '../enums/promotional-page-type.enum';
 import { PromotionalSectionType } from '../enums/promotional-section-type.enum';
 import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
 import { PromotionalSectionConfig } from '../utils/promotional-page-content.util';
@@ -67,6 +68,7 @@ export interface IAdminPromotionalPage {
   status: PromotionalPageStatus;
   /** Value stored on the row. Expired can differ when the end date has passed. */
   storedStatus: PromotionalPageStatus;
+  promotionType: PromotionalPageType;
   startAt: Date | null;
   endAt: Date | null;
   couponRefId: string | null;
@@ -92,6 +94,7 @@ export interface IAdminPromotionalPageListItem {
   title: string;
   status: PromotionalPageStatus;
   storedStatus: PromotionalPageStatus;
+  promotionType: PromotionalPageType;
   startAt: Date | null;
   endAt: Date | null;
   sectionCount: number;
@@ -156,6 +159,7 @@ export interface IPublicPromotionalPage {
   metaTitle: string | null;
   metaDescription: string | null;
   status: PromotionalPageStatus;
+  promotionType: PromotionalPageType;
   startAt: Date | null;
   endAt: Date | null;
   sections: IPublicPromotionalSection[];

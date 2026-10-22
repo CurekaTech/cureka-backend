@@ -23,6 +23,8 @@ import {
   sitemapConfig,
   imagePipelineConfig,
   smtpConfig,
+  walletConfig,
+  promotionalOffersConfig,
   envValidationSchema,
 } from './config';
 
@@ -44,6 +46,7 @@ import { GoogleMerchantModule } from '@modules/google-merchant/google-merchant.m
 import { ProductModule } from '@modules/product/product.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
+import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { RolesModule } from '@modules/roles/roles.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { SearchModule } from '@modules/search/search.module';
@@ -90,6 +93,8 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
         sitemapConfig,
         imagePipelineConfig,
         smtpConfig,
+        walletConfig,
+        promotionalOffersConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {
@@ -130,6 +135,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
     ProductModule,
     UnicommerceModule,
     OrdersModule,
+    PromotionalOffersModule,
     RolesModule,
     PaymentRequestsModule,
     SearchModule,

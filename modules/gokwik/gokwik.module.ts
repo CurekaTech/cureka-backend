@@ -10,10 +10,15 @@ import { UnicommerceOrderModule } from '@modules/unicommerce/unicommerce-order.m
 import { UsersModule } from '@modules/users/users.module';
 import { MasterModule } from '@modules/master/master.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
+import { RefundRequestsModule } from '@modules/refund-requests/refund-requests.module';
 import { GokwikCartController } from './controllers/gokwik-cart.controller';
 import { GokwikOrderController } from './controllers/gokwik-order.controller';
 import { GokwikWebhookController } from './controllers/gokwik-webhook.controller';
 import { GokwikAdminController } from './controllers/gokwik-admin.controller';
+import {
+  GokwikGetUserController,
+  GokwikWalletController,
+} from './controllers/gokwik-wallet.controller';
 import { GokwikAbandonedCartEntity } from './entities/gokwik-abandoned-cart.entity';
 import { GokwikOrderEntity } from './entities/gokwik-order.entity';
 import { GokwikRefundEntity } from './entities/gokwik-refund.entity';
@@ -37,6 +42,7 @@ import { GokwikWebhookService } from './services/gokwik-webhook.service';
 import { GokwikCatalogSyncService } from './services/gokwik-catalog-sync.service';
 import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service';
 import { GokwikComplimentaryOrderItemsService } from './services/gokwik-complimentary-order-items.service';
+import { GokwikWalletRedemptionService } from './services/gokwik-wallet-redemption.service';
 
 @Module({
   imports: [
@@ -44,6 +50,7 @@ import { GokwikComplimentaryOrderItemsService } from './services/gokwik-complime
     forwardRef(() => OrdersModule),
     forwardRef(() => UnicommerceOrderModule),
     UsersModule,
+    forwardRef(() => RefundRequestsModule),
     MasterModule,
     UploadsModule,
     TypeOrmModule.forFeature([
@@ -68,11 +75,14 @@ import { GokwikComplimentaryOrderItemsService } from './services/gokwik-complime
     GokwikOrderController,
     GokwikWebhookController,
     GokwikAdminController,
+    GokwikWalletController,
+    GokwikGetUserController,
   ],
   providers: [
     GokwikCartService,
     GokwikOrderService,
     GokwikComplimentaryOrderItemsService,
+    GokwikWalletRedemptionService,
     GokwikApiService,
     GokwikCallbackGuard,
     GokwikCartOwnerGuard,

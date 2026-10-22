@@ -45,6 +45,8 @@ export interface PromotionalSectionConfig {
   categoryRefId?: string | null;
   maxItems?: number | null;
   layout?: 'carousel' | 'grid' | null;
+  /** When true, the public page omits products that are out of stock. */
+  hideOutOfStock?: boolean;
   videoUrl?: string | null;
   videoAltText?: string | null;
   blogMode?: 'selected' | 'featured' | 'trending';
@@ -583,6 +585,7 @@ const normalizeConfig = (
       config.maxItems = null;
     }
     applyLayout(config, source, label, errors, strict);
+    config.hideOutOfStock = source.hideOutOfStock === true;
   }
 
   if (type === PromotionalSectionType.CATEGORY || type === PromotionalSectionType.BRAND) {

@@ -23,7 +23,7 @@ import { AdminUserRole } from '../enums/admin-user-role.enum';
 import { CurrentAdminUser } from '@packages/auth';
 import { IAdminJwtPayload } from '@packages/auth';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
-import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { RequireAnyPermission } from '@modules/roles/decorators/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR)
@@ -31,7 +31,8 @@ import { RequirePermissions } from '@modules/roles/decorators/permissions.decora
 export class AdminUsersController {
   constructor(private readonly adminUsersService: AdminUsersService) {}
 
-  @RequirePermissions('admin_users.create')
+  /** Roles module can also create role-based admin users. */
+  @RequireAnyPermission('admin_users.create', 'roles.create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateAdminUserDto, @CurrentAdminUser() user: IAdminJwtPayload) {
@@ -43,19 +44,19 @@ export class AdminUsersController {
     );
   }
 
-  @RequirePermissions('admin_users.read')
+  @RequireAnyPermission('admin_users.read', 'roles.read')
   @Get()
   findAll(@Query() query: PaginationQueryDto) {
     return this.adminUsersService.findAll(query);
   }
 
-  @RequirePermissions('admin_users.read')
+  @RequireAnyPermission('admin_users.read', 'roles.read')
   @Get(':refIdOrId')
   findOne(@Param('refIdOrId') refIdOrId: string) {
     return this.adminUsersService.findOne(refIdOrId);
   }
 
-  @RequirePermissions('admin_users.update')
+  @RequireAnyPermission('admin_users.update', 'roles.update')
   @Patch(':refIdOrId')
   update(
     @Param('refIdOrId') refIdOrId: string,
@@ -65,7 +66,7 @@ export class AdminUsersController {
     return this.adminUsersService.update(refIdOrId, dto, user.role as AdminUserRole, user.sub);
   }
 
-  @RequirePermissions('admin_users.delete')
+  @RequireAnyPermission('admin_users.delete', 'roles.delete')
   @Delete(':refIdOrId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('refIdOrId') refIdOrId: string) {

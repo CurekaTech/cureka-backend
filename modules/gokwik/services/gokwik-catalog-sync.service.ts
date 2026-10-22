@@ -3,9 +3,16 @@ import { ConfigService } from '@nestjs/config';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
+import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
+import { PromotionalTargetType } from '@modules/promotional-pages/enums/promotional-target-type.enum';
+import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { Brackets, DataSource, IsNull } from 'typeorm';
 import { GokwikRepository } from '../repositories/gokwik.repository';
+import {
+  GOKWIK_PRODUCT_PROMOTION_TYPE_FIELD,
+  resolveGokwikPromotionType,
+} from '../utils/gokwik-promotion-type.util';
 import { GokwikApiService } from './gokwik-api.service';
 import { GokwikQueueService } from './gokwik-queue.service';
 
@@ -61,6 +68,21 @@ export class GokwikCatalogSyncService {
         .filter(Boolean)
         .join(',');
 
+      const promotionTypes = product.refId
+        ? await this.findNonDefaultPromotionTypes(product.refId)
+        : [];
+      const resolvedPromotion = resolveGokwikPromotionType(promotionTypes);
+      if (resolvedPromotion.conflict.length > 0) {
+        this.logger.warn(
+          {
+            productId: product.id,
+            refId: product.refId,
+            promotionTypes: resolvedPromotion.conflict,
+          },
+          'GoKwik product sync omitted promotionType because the product is on promotions with different non-default types',
+        );
+      }
+
       const payload = {
         id: product.id,
         title: product.name,
@@ -85,6 +107,9 @@ export class GokwikCatalogSyncService {
           };
         }),
         images,
+        ...(resolvedPromotion.promotionType
+          ? { [GOKWIK_PRODUCT_PROMOTION_TYPE_FIELD]: resolvedPromotion.promotionType }
+          : {}),
       };
 
       this.logger.log(
@@ -95,6 +120,7 @@ export class GokwikCatalogSyncService {
           is_deleted: isDeleted,
           variantCount: payload.variants.length,
           imageCount: payload.images.length,
+          promotionType: resolvedPromotion.promotionType,
         },
         'Syncing product to GoKwik',
       );
@@ -193,6 +219,50 @@ export class GokwikCatalogSyncService {
       'Enqueued GoKwik catalog backfill',
     );
     return { products: products.length, collections: collections.length };
+  }
+
+  /**
+   * Explicit product links on promotional pages: section items and page targets.
+   * Default pages are excluded. Archived pages are soft-deleted and are excluded too.
+   */
+  private async findNonDefaultPromotionTypes(productRefId: string): Promise<PromotionalPageType[]> {
+    const rows = await this.dataSource
+      .getRepository(PromotionalPageEntity)
+      .createQueryBuilder('page')
+      .select('page.promotionType', 'promotionType')
+      .distinct(true)
+      .where('page.promotionType != :defaultType', {
+        defaultType: PromotionalPageType.DEFAULT,
+      })
+      .andWhere(
+        new Brackets((query) => {
+          query
+            .where(
+              `EXISTS (
+                SELECT 1 FROM promotional_page_targets target
+                WHERE target.promotional_page_id = page.id
+                  AND target.target_type = :productTarget
+                  AND target.target_ref_id = :productRefId
+              )`,
+            )
+            .orWhere(
+              `EXISTS (
+                SELECT 1 FROM promotional_page_sections section
+                INNER JOIN promotional_page_section_items item ON item.section_id = section.id
+                WHERE section.promotional_page_id = page.id
+                  AND item.target_type = :productTarget
+                  AND item.target_ref_id = :productRefId
+              )`,
+            );
+        }),
+      )
+      .setParameters({
+        productTarget: PromotionalTargetType.PRODUCT,
+        productRefId,
+      })
+      .getRawMany<{ promotionType: PromotionalPageType }>();
+
+    return rows.map((row) => row.promotionType).filter(Boolean);
   }
 
   private assertConfiguredEnabled(): void {

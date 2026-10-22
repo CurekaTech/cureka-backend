@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -35,6 +36,7 @@ import { ProductInformationLabelsRepository } from '@modules/product/repositorie
 import { ProductMediaType } from '@modules/product/enums/product-media-type.enum';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
+import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 import { resolvePublicExpiryDate } from '@modules/product/utils/expiry-date.util';
 import {
   buildCategoryPermalink,
@@ -82,6 +84,7 @@ import {
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
 import {
@@ -113,6 +116,8 @@ export class PublicProductsService {
     private readonly productSubscriptionConfigService: ProductSubscriptionConfigService,
     private readonly reviewStats: PublicProductReviewStatsService,
     private readonly pincodesService: PincodesService,
+    private readonly configService: ConfigService,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -910,9 +915,10 @@ export class PublicProductsService {
   private async enrichPaginatedVariantSearch(
     result: PaginatedResult<IPublicProductVariantSearchItem>,
   ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {
+    const data = await Promise.all(result.data.map((item) => this.enrichVariantSearchItem(item)));
     return {
       ...result,
-      data: await Promise.all(result.data.map((item) => this.enrichVariantSearchItem(item))),
+      data: await this.promotionalOffers.assignPublicOffers(data),
     };
   }
 
@@ -961,6 +967,7 @@ export class PublicProductsService {
       }),
     );
     const withRatings = await this.reviewStats.attach(data);
+    await this.promotionalOffers.attachPublicOffersDeep(withRatings);
     return { ...result, data: withRatings as T[] };
   }
 
@@ -1048,15 +1055,18 @@ export class PublicProductsService {
     const { isFreeDelivery, codMinOrderAmount } =
       await this.resolveCheckoutBadgeHints(merged);
     const banners = await this.resolvePdpBanners(product);
-    const subscriptionConfig =
-      await this.productSubscriptionConfigService.findForProductVariant(
-        merged.id,
-        merged.selectedVariantId ?? null,
-      );
+    const subscriptionsModuleEnabled = isSubscriptionsModuleEnabled(this.configService);
+    const subscriptionConfig = subscriptionsModuleEnabled
+      ? await this.productSubscriptionConfigService.findForProductVariant(
+          merged.id,
+          merged.selectedVariantId ?? null,
+        )
+      : null;
     const sharedSubscriptionConfig =
       subscriptionConfig?.enabled === true ? subscriptionConfig : null;
     const subscriptionEnabled =
-      merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig);
+      subscriptionsModuleEnabled &&
+      (merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig));
 
     // Re-apply live master order after variant merge (variant payload may replace product info).
     return toPublicStorefrontProductDetail({
@@ -1261,6 +1271,7 @@ export class PublicProductsService {
   >(result: PaginatedResult<T>): Promise<PaginatedResult<T>> {
     const data = await Promise.all(result.data.map((card) => this.enrichCard(card)));
     const withRatings = await this.reviewStats.attach(data);
+    await this.promotionalOffers.attachPublicOffersDeep(withRatings);
     return { ...result, data: withRatings as T[] };
   }
 

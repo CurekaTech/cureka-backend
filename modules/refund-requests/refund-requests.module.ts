@@ -8,11 +8,14 @@ import { PaymentRequestsModule } from '@modules/payment-requests/payment-request
 import { ReturnRequestEntity } from '@modules/returns/entities/return-request.entity';
 import { UserEntity } from '@modules/users/entities/user.entity';
 import { AdminRefundRequestsController } from './controllers/admin-refund-requests.controller';
+import { CustomerWalletController } from './controllers/customer-wallet.controller';
+import { AdminWalletController } from './controllers/admin-wallet.controller';
 import { CodRefundPayoutEntity } from './entities/cod-refund-payout.entity';
 import { RefundRequestHistoryEntity } from './entities/refund-request-history.entity';
 import { RefundRequestEntity } from './entities/refund-request.entity';
 import { RefundWalletAccountEntity } from './entities/refund-wallet-account.entity';
 import { RefundWalletLedgerEntity } from './entities/refund-wallet-ledger.entity';
+import { RefundWalletReservationEntity } from './entities/refund-wallet-reservation.entity';
 import { RefundRequestListener } from './listeners/refund-request.listener';
 import { CodRefundPayoutsRepository } from './repositories/cod-refund-payouts.repository';
 import { RefundRequestsRepository } from './repositories/refund-requests.repository';
@@ -33,6 +36,7 @@ import { RefundWalletService } from './services/refund-wallet.service';
       CodRefundPayoutEntity,
       RefundWalletAccountEntity,
       RefundWalletLedgerEntity,
+      RefundWalletReservationEntity,
       ReturnRequestEntity,
       OrderEntity,
       UserEntity,
@@ -42,7 +46,7 @@ import { RefundWalletService } from './services/refund-wallet.service';
     forwardRef(() => PaymentRequestsModule),
     MasterModule,
   ],
-  controllers: [AdminRefundRequestsController],
+  controllers: [AdminRefundRequestsController, CustomerWalletController, AdminWalletController],
   providers: [
     RefundRequestsRepository,
     CodRefundPayoutsRepository,
@@ -61,6 +65,7 @@ import { RefundWalletService } from './services/refund-wallet.service';
     RefundAmountService,
     CodRefundPayoutService,
     RefundRequestsRepository,
+    RefundWalletService,
   ],
 })
 export class RefundRequestsModule {}

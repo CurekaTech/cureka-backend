@@ -8,6 +8,7 @@ describe('RefundProviderResolverService', () => {
     findOrderByOrderId: jest.fn(),
   };
   const paymentRequestsRepository = {
+    findById: jest.fn(),
     findPaidByRefId: jest.fn(),
     findPaidByPaymentReference: jest.fn(),
     findLatestPaidForCustomerAmount: jest.fn(),
@@ -99,5 +100,49 @@ describe('RefundProviderResolverService', () => {
       userId: 'user-1',
     } as never);
     expect(result.paymentProvider).toBe(RefundPaymentProvider.CASHFREE);
+  });
+
+  it('resolves pure wallet orders without treating them as OTHER', async () => {
+    gokwikRepository.findOrderByOrderId.mockResolvedValue(null);
+    const result = await service.resolve({
+      id: 'order-wallet',
+      paymentMethod: OrderPaymentMethod.WALLET,
+      paymentStatus: OrderPaymentStatus.PAID,
+      grandTotal: '120.00',
+      walletAmountPaise: '12000',
+      gatewayAmountPaise: '0',
+      paymentRequestId: null,
+      notes: null,
+      orderNumber: 'ORDW',
+      userId: 'user-1',
+    } as never);
+    expect(result.paymentProvider).toBe(RefundPaymentProvider.WALLET);
+    expect(result.capturedAmount).toBe('120.00');
+    expect(result.identifiable).toBe(true);
+  });
+
+  it('prefers order.paymentRequestId for hybrid gateway lookup', async () => {
+    gokwikRepository.findOrderByOrderId.mockResolvedValue(null);
+    paymentRequestsRepository.findById = jest.fn().mockResolvedValue({
+      id: 'pr-hybrid',
+      paymentProvider: 'RAZORPAY',
+      paymentReference: 'pay_hybrid',
+      status: 'PAID',
+      totalAmount: '75.00',
+    });
+    const result = await service.resolve({
+      id: 'order-hybrid',
+      paymentMethod: OrderPaymentMethod.RAZORPAY,
+      paymentStatus: OrderPaymentStatus.PAID,
+      grandTotal: '100.00',
+      walletAmountPaise: '2500',
+      gatewayAmountPaise: '7500',
+      paymentRequestId: 'pr-hybrid',
+      notes: null,
+      orderNumber: 'ORDH',
+      userId: 'user-1',
+    } as never);
+    expect(result.paymentRequestId).toBe('pr-hybrid');
+    expect(result.capturedAmount).toBe('75.00');
   });
 });

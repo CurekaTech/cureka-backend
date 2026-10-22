@@ -1,7 +1,7 @@
 export const BOB_ABANDONED_CART_NOTIFY_KIND = 'abandoned-cart';
 
-/** BOB external abandoned-cart endpoint. */
-export const BOB_ABANDONED_CART_PATH = '/abancart-external';
+/** BOB abandoned-cart endpoint. */
+export const BOB_ABANDONED_CART_PATH = '/abancart';
 
 export const BOB_ABANDONED_CART_JOB = {
   SCAN: 'scan',

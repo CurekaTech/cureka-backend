@@ -19,7 +19,7 @@ import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
-import { AddCartItemDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
+import { AddCartItemDto, ApplyCheckoutCodeDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartService } from '../services/cart.service';
 import { SavedForLaterService } from '../services/saved-for-later.service';
@@ -64,20 +64,48 @@ export class CartController {
     return this.cartService.getCart(user.sub, undefined, { paymentMethod });
   }
 
+  @ApiOperation({ summary: 'List eligible coupons and promotional offers for this cart' })
+  @ResponseMessage('Offers fetched successfully')
+  @Get('offers')
+  @HttpCode(HttpStatus.OK)
+  listOffers(@CurrentSessionUser() user: IUserSessionContext) {
+    return this.cartService.listOffers(user.sub);
+  }
+
+  @ApiOperation({ summary: 'Apply a coupon or promotional offer code' })
+  @ResponseMessage('Code applied successfully')
+  @Post('offers')
+  @HttpCode(HttpStatus.OK)
+  async applyOfferCode(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCheckoutCodeDto) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.applyCode(user.sub, dto.code, { applyPromotionalOffers });
+  }
+
+  @ApiOperation({ summary: 'Remove the selected coupon or promotional offer' })
+  @ResponseMessage('Code removed successfully')
+  @Delete('offers')
+  @HttpCode(HttpStatus.OK)
+  async removeOfferCode(@CurrentSessionUser() user: IUserSessionContext) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.removeCode(user.sub, { applyPromotionalOffers });
+  }
+
   @ApiOperation({ summary: 'Apply coupon to cart' })
   @ResponseMessage('Coupon applied successfully')
   @Post('coupon')
   @HttpCode(HttpStatus.OK)
-  applyCoupon(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCouponDto) {
-    return this.cartService.applyCoupon(user.sub, dto);
+  async applyCoupon(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCouponDto) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.applyCoupon(user.sub, dto, { applyPromotionalOffers });
   }
 
   @ApiOperation({ summary: 'Remove coupon from cart' })
   @ResponseMessage('Coupon removed successfully')
   @Delete('coupon')
   @HttpCode(HttpStatus.OK)
-  removeCoupon(@CurrentSessionUser() user: IUserSessionContext) {
-    return this.cartService.removeCoupon(user.sub);
+  async removeCoupon(@CurrentSessionUser() user: IUserSessionContext) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.removeCoupon(user.sub, { applyPromotionalOffers });
   }
 
   @ApiOperation({ summary: 'Update cart item quantity' })

@@ -17,6 +17,7 @@ import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { isPublicProductSellable } from '@modules/product/utils/public-variant-availability.util';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { IPublicWatchAndShopItem } from '../interfaces/public-watch-and-shop.interface';
 
 @Injectable()
@@ -27,6 +28,7 @@ export class PublicWatchAndShopService {
     private readonly cacheStrategy: CacheStrategyService,
     private readonly reviewStats: PublicProductReviewStatsService,
     private readonly pincodesService: PincodesService,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   async findAll(
@@ -49,6 +51,7 @@ export class PublicWatchAndShopService {
     });
     const cards = result.data.map((item) => item.product);
     const withRatings = await this.reviewStats.attach(cards);
+    await this.promotionalOffers.attachPublicOffersDeep(withRatings);
     return {
       ...result,
       data: result.data.map((item, index) => ({ ...item, product: withRatings[index]! })),

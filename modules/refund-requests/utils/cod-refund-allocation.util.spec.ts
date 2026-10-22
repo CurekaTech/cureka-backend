@@ -51,4 +51,33 @@ describe('allocateReturnRefundFunds', () => {
     expect(result.codAmount).toBe('0.00');
     expect(result.onlineProvider).toBe(RefundPaymentProvider.RAZORPAY);
   });
+
+  it('splits hybrid wallet + Razorpay refunds using persisted paise allocations', () => {
+    const result = allocateReturnRefundFunds({
+      paymentMethod: OrderPaymentMethod.RAZORPAY,
+      refundAmount: '100.00',
+      orderGrandTotal: '100.00',
+      walletAmountPaise: 2500,
+      gatewayAmountPaise: 7500,
+      onlineProvider: RefundPaymentProvider.RAZORPAY,
+    });
+    expect(result.originalWalletAmount).toBe('25.00');
+    expect(result.onlineAmount).toBe('75.00');
+    expect(result.codAmount).toBe('0.00');
+    expect(result.onlineProvider).toBe(RefundPaymentProvider.RAZORPAY);
+    expect(result.originalWalletStatus).toBe('PENDING');
+  });
+
+  it('splits hybrid wallet + Cashfree partial return proportionally', () => {
+    const result = allocateReturnRefundFunds({
+      paymentMethod: OrderPaymentMethod.CASHFREE,
+      refundAmount: '50.00',
+      orderGrandTotal: '100.00',
+      walletAmountPaise: 4000,
+      gatewayAmountPaise: 6000,
+    });
+    expect(result.originalWalletAmount).toBe('20.00');
+    expect(result.onlineAmount).toBe('30.00');
+    expect(result.onlineProvider).toBe(RefundPaymentProvider.CASHFREE);
+  });
 });

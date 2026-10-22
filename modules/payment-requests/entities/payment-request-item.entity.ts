@@ -28,6 +28,15 @@ export class PaymentRequestItemEntity extends BaseEntity {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   discount!: string;
 
+  @Column({ name: 'line_source', type: 'varchar', length: 20, default: 'customer' })
+  lineSource!: string;
+
+  @Column({ name: 'promotion_offer_id', type: 'uuid', nullable: true })
+  promotionOfferId!: string | null;
+
+  @Column({ name: 'catalog_unit_price', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  catalogUnitPrice!: string | null;
+
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   tax!: string;
 

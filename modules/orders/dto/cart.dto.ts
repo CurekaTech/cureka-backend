@@ -55,3 +55,10 @@ export class ApplyCouponDto {
   @MaxLength(100)
   couponCode!: string;
 }
+
+export class ApplyCheckoutCodeDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  code!: string;
+}

@@ -155,6 +155,26 @@ describe('promotional page content', () => {
     ).toThrow(/brand reference/);
   });
 
+  it('stores hideOutOfStock on a product collection and clears it when unchecked', () => {
+    const hidden = normalizeSections([
+      {
+        type: PromotionalSectionType.PRODUCT_COLLECTION,
+        config: { selectionMode: 'manual', hideOutOfStock: true },
+        items: [{ targetType: PromotionalTargetType.PRODUCT, targetRefId: 'PRO2026000001' }],
+      },
+    ]);
+    expect(hidden[0]?.config.hideOutOfStock).toBe(true);
+
+    const shown = normalizeSections([
+      {
+        type: PromotionalSectionType.PRODUCT_COLLECTION,
+        config: { selectionMode: 'manual', hideOutOfStock: false },
+        items: [{ targetType: PromotionalTargetType.PRODUCT, targetRefId: 'PRO2026000001' }],
+      },
+    ]);
+    expect(shown[0]?.config.hideOutOfStock).toBe(false);
+  });
+
   it('keeps section order, visibility, and product references', () => {
     const sections = normalizeSections([
       {

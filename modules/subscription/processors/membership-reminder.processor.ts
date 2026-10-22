@@ -1,8 +1,10 @@
 import { InjectQueue, Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bullmq';
 import { SUBSCRIPTION_QUEUE } from '../constants/subscription-queue.constants';
 import { MembershipsService } from '../services/memberships.service';
+import { isSubscriptionsModuleEnabled } from '../utils/subscriptions-module.util';
 
 @Injectable()
 @Processor(SUBSCRIPTION_QUEUE.MEMBERSHIP_REMINDER)
@@ -13,6 +15,7 @@ export class MembershipReminderProcessor extends WorkerHost implements OnModuleI
     private readonly membershipsService: MembershipsService,
     @InjectQueue(SUBSCRIPTION_QUEUE.MEMBERSHIP_REMINDER)
     private readonly queue: Queue,
+    private readonly configService: ConfigService,
   ) {
     super();
   }
@@ -31,6 +34,7 @@ export class MembershipReminderProcessor extends WorkerHost implements OnModuleI
   }
 
   async process(job: Job): Promise<void> {
+    if (!isSubscriptionsModuleEnabled(this.configService)) return;
     this.logger.log({ jobId: job.id, name: job.name }, 'Running membership reminder job');
     const sent = await this.membershipsService.processReminders();
     this.logger.log({ sent }, 'Membership reminder job completed');

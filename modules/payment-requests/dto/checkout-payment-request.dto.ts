@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { normalizeStorefrontOrderSource } from '@modules/orders/utils/storefront-order-source.util';
@@ -48,6 +48,11 @@ export class CheckoutPaymentRequestDto {
   @IsOptional()
   @IsEnum(OrderPaymentMethod)
   paymentMethod?: OrderPaymentMethod;
+
+  @ApiPropertyOptional({ description: 'Apply the maximum eligible Cureka Wallet balance. COD and GoKwik wallet use are not supported in this phase.' })
+  @IsOptional()
+  @IsBoolean()
+  useWallet?: boolean;
 
   @ApiPropertyOptional({ enum: [OrderSource.WEBSITE, OrderSource.APP] })
   @IsOptional()

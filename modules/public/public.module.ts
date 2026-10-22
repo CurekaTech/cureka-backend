@@ -4,6 +4,7 @@ import { OrdersModule } from '@modules/orders/orders.module';
 import { ProductModule } from '@modules/product/product.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
+import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { HomepageController } from './controllers/homepage.controller';
 import { FooterController } from './controllers/footer.controller';
 import { PublicCommonController } from './controllers/public-common.controller';
@@ -25,7 +26,7 @@ import { StorefrontRevalidateService } from './services/storefront-revalidate.se
 import { PublicProductReviewStatsService } from './services/public-product-review-stats.service';
 
 @Module({
-  imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule],
+  imports: [MasterModule, OrdersModule, ProductModule, SubscriptionModule, UploadsModule, PromotionalOffersModule],
   controllers: [
     HomepageController,
     FooterController,

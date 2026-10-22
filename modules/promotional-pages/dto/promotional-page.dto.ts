@@ -24,6 +24,7 @@ import {
 import { PaginationQueryDto } from '@packages/common';
 import { REF_ID_PATTERN } from '@packages/common';
 import { PromotionalPageStatus } from '../enums/promotional-page-status.enum';
+import { PromotionalPageType } from '../enums/promotional-page-type.enum';
 import { PromotionalSectionType } from '../enums/promotional-section-type.enum';
 import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
 import {
@@ -113,6 +114,10 @@ export class PromotionalSectionConfigDto {
   @IsOptional()
   @IsIn(['carousel', 'grid'])
   layout?: 'carousel' | 'grid' | null;
+
+  @IsOptional()
+  @IsBoolean()
+  hideOutOfStock?: boolean;
 
   @IsOptional()
   @IsString()
@@ -242,6 +247,10 @@ export class CreatePromotionalPageDto {
   @IsOptional()
   @IsEnum(PromotionalPageStatus)
   status?: PromotionalPageStatus;
+
+  @IsOptional()
+  @IsEnum(PromotionalPageType)
+  promotionType?: PromotionalPageType;
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)

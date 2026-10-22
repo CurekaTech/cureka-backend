@@ -50,6 +50,18 @@ export class RefundWalletLedgerEntity extends BaseEntity {
   @Column({ name: 'return_request_id', type: 'uuid', nullable: true })
   returnRequestId!: string | null;
 
+  @Index('IDX_refund_wallet_ledger_payment_request_id')
+  @Column({ name: 'payment_request_id', type: 'uuid', nullable: true })
+  paymentRequestId!: string | null;
+
+  @Index('IDX_refund_wallet_ledger_order_id')
+  @Column({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId!: string | null;
+
+  @Index('UQ_refund_wallet_ledger_reservation_id', { unique: true })
+  @Column({ name: 'reservation_id', type: 'uuid', nullable: true })
+  reservationId!: string | null;
+
   @Index('UQ_refund_wallet_ledger_idempotency_key', { unique: true })
   @Column({ name: 'idempotency_key', type: 'varchar', length: 120 })
   idempotencyKey!: string;

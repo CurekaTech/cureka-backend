@@ -23,11 +23,12 @@ import {
   PauseProductSubscriptionDto,
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionPaymentsService } from '../services/product-subscription-payments.service';
+import { SubscriptionsModuleEnabledGuard } from '../guards/subscriptions-module-enabled.guard';
 import { ProductSubscriptionsService } from '../services/product-subscriptions.service';
 
 @ApiTags('Admin Product Subscriptions')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@UseGuards(SubscriptionsModuleEnabledGuard, JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller('admin/subscriptions/products')
 export class AdminProductSubscriptionsController {
   constructor(

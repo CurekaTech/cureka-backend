@@ -4,6 +4,7 @@ import { BlogPostEntity } from '@modules/master/entities/blog-post.entity';
 import { MasterModule } from '@modules/master/master.module';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductModule } from '@modules/product/product.module';
+import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { UploadsModule } from '@modules/uploads/uploads.module';
 import { AdminPromotionalPagesController } from './controllers/admin-promotional-pages.controller';
 import { PublicPromotionalPagesController } from './controllers/public-promotional-pages.controller';
@@ -28,6 +29,7 @@ import { PromotionalPagesService } from './services/promotional-pages.service';
     MasterModule,
     ProductModule,
     UploadsModule,
+    PromotionalOffersModule,
   ],
   controllers: [AdminPromotionalPagesController, PublicPromotionalPagesController],
   providers: [PromotionalPagesRepository, PromotionalPageReferenceService, PromotionalPagesService],

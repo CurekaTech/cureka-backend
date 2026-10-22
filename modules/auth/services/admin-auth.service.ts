@@ -20,6 +20,16 @@ import {
   isSuperAdminSessionAccount,
   parseJwtExpiresInToMilliseconds,
 } from '../utils/super-admin-session.util';
+import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
+import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
+import {
+  expandScopedPermissionCodes,
+  scopedMenuRequiredPermissions,
+} from '@modules/roles/constants/menu-permission-scopes.constants';
+
+import { MENU_HIERARCHY, type MenuItem } from '../constants/admin-menu.constants';
+
+export { MENU_HIERARCHY, type MenuItem };
 
 @Injectable()
 export class AdminAuthService {
@@ -189,9 +199,13 @@ export class AdminAuthService {
       return ['*'];
     }
 
-    return (entity.roleRecord?.permissions ?? [])
-      .filter((permission) => permission.status === MasterStatus.ACTIVE)
-      .map((permission) => permission.code);
+    return [
+      ...expandScopedPermissionCodes(
+        (entity.roleRecord?.permissions ?? [])
+          .filter((permission) => permission.status === MasterStatus.ACTIVE)
+          .map((permission) => permission.code),
+      ),
+    ];
   }
 
   async getMenuForUser(adminUserId: string): Promise<MenuItem[]> {
@@ -208,9 +222,11 @@ export class AdminAuthService {
       return items
         .map((item) => {
           let hasAccess = false;
+          const requiredPermissions =
+            scopedMenuRequiredPermissions(item.key) ?? item.requiredPermissions;
 
-          if (item.requiredPermissions && item.requiredPermissions.length > 0) {
-            hasAccess = hasWildcard || item.requiredPermissions.some((p) => userPermissionsSet.has(p));
+          if (requiredPermissions && requiredPermissions.length > 0) {
+            hasAccess = hasWildcard || requiredPermissions.some((p) => userPermissionsSet.has(p));
           } else {
             hasAccess = true;
           }
@@ -241,17 +257,31 @@ export class AdminAuthService {
         .filter(Boolean) as MenuItem[];
     };
 
-    return filterItems(MENU_HIERARCHY);
+    const offersEnabled = isPromotionalOffersEnabled(this.configService);
+    const withModules = menuForSubscriptionsModule(isSubscriptionsModuleEnabled(this.configService));
+    const visible = offersEnabled
+      ? withModules
+      : withModules.map((item) =>
+          item.subItems
+            ? { ...item, subItems: item.subItems.filter((sub) => sub.key !== 'masters-promotional-offers') }
+            : item,
+        );
+    return filterItems(visible);
   }
 }
 
-export interface MenuItem {
-  name: string;
-  key: string;
-  icon: string | null;
-  href?: string;
-  requiredPermissions?: string[];
-  subItems?: MenuItem[];
+function menuForSubscriptionsModule(enabled: boolean): MenuItem[] {
+  if (enabled) return MENU_HIERARCHY;
+  return MENU_HIERARCHY.flatMap((item) => {
+    if (item.key === 'subscriptions') return [];
+    if (!item.subItems?.length) return [item];
+    return [
+      {
+        ...item,
+        subItems: item.subItems.filter((sub) => sub.key !== 'masters-subscription-frequency'),
+      },
+    ];
+  });
 }
 
 export const MENU_HIERARCHY: MenuItem[] = [

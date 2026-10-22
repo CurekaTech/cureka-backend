@@ -96,6 +96,8 @@ import { ReturnEvidencesRepository } from '../repositories/return-evidences.repo
 import { ReturnPickupsRepository } from '../repositories/return-pickups.repository';
 import { ReturnRequestsRepository } from '../repositories/return-requests.repository';
 import { RefundRequestsRepository } from '@modules/refund-requests/repositories/refund-requests.repository';
+import { RefundRequestedByType } from '@modules/refund-requests/enums/refund-requested-by-type.enum';
+import { CodRefundPayoutService } from '@modules/refund-requests/services/cod-refund-payout.service';
 import { ReturnAmountService } from './return-amount.service';
 import { ReturnEligibilityService } from './return-eligibility.service';
 import { ReturnPickupService } from './return-pickup.service';
@@ -157,6 +159,7 @@ export class ReturnRequestsService {
     private readonly configService: ConfigService,
     private readonly pickupService: ReturnPickupService,
     private readonly refundRequestsRepository: RefundRequestsRepository,
+    private readonly codRefundPayoutService: CodRefundPayoutService,
   ) {}
 
   private readonly bankDetailsLimiter = new InMemoryRateLimiter(10, 60_000);
@@ -712,7 +715,81 @@ export class ReturnRequestsService {
         accountNumberLast4: patch.bankAccountNumberLast4 ?? null,
       },
     });
+
+    const reloaded = await this.requireReturn(request.id);
+    await this.codRefundPayoutService.syncBankDetailsFromReturn(reloaded, {
+      id: customerId,
+      email: undefined,
+      role: null,
+      type: RefundRequestedByType.CUSTOMER,
+    });
+
     return this.getForCustomer(identifier, customerId);
+  }
+
+  /**
+   * Admin can set bank/wallet destination for refund settlement when the customer
+   * has not, or update unlocked details. Applies to COD returns and to prepaid
+   * returns when finance chooses BANK_ACCOUNT settlement (full account never returned).
+   */
+  async adminUpdateBankDetails(
+    identifier: string,
+    dto: SubmitReturnBankDetailsDto,
+    actor: ReturnActor,
+  ): Promise<string> {
+    const request = await this.requireReturn(identifier);
+    if (request.resolution !== ReturnResolution.REFUND) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_NOT_APPLICABLE,
+        message: 'Bank details only apply to refund-resolution returns',
+      });
+    }
+
+    const hasExistingBank = Boolean(request.bankAccountNumberLast4);
+    if (hasExistingBank && request.bankDetailsLocked) {
+      throw new BadRequestException({
+        code: BANK_DETAILS_LOCKED,
+        message:
+          'Bank details are locked. Finance must reopen verification before they can be changed.',
+      });
+    }
+
+    const order = await this.requireOrder(request.orderId);
+    // COD: same customer destination rules. Prepaid/wallet orders: still allow
+    // admin bank details for approve-time BANK_ACCOUNT settlement.
+    const patch = orderHasCodRefundPortion(order.paymentMethod)
+      ? this.resolveRefundDestination(order, {
+          ...dto,
+          resolution: request.resolution,
+        })
+      : this.resolveAdminSettlementDestination(dto);
+
+    await this.returnRequestsRepository.updateById(request.id, {
+      ...patch,
+      updatedBy: actor.email ?? actor.id,
+    });
+    await this.auditService.log({
+      entityType: AuditEntityType.RETURN_REQUEST,
+      entityId: request.id,
+      entityRefId: request.refId,
+      action: 'ADMIN_BANK_DETAILS_UPDATED',
+      performedBy: actor.email ?? actor.id,
+      details: {
+        refundMethod: patch.refundMethod,
+        accountNumberLast4: patch.bankAccountNumberLast4 ?? null,
+        previouslySubmitted: hasExistingBank,
+      },
+    });
+
+    const reloaded = await this.requireReturn(request.id);
+    await this.codRefundPayoutService.syncBankDetailsFromReturn(reloaded, {
+      id: actor.id,
+      email: actor.email,
+      role: actor.role ?? null,
+      type: RefundRequestedByType.ADMIN,
+    });
+
+    return request.id;
   }
 
   async cancelByCustomer(
@@ -1103,6 +1180,43 @@ export class ReturnRequestsService {
       bankName: encrypted?.bankName ?? null,
       bankAccountType: encrypted?.bankAccountType ?? null,
       bankDetailsSubmittedAt: encrypted?.bankDetailsSubmittedAt ?? (method === CodRefundMethod.WALLET ? new Date() : null),
+      bankDetailsLocked: false,
+    };
+  }
+
+  /**
+   * Admin bank/wallet destination for prepaid (non-COD) returns when settling
+   * the approved refund to bank instead of the original payment gateway.
+   */
+  private resolveAdminSettlementDestination(
+    dto: SubmitReturnBankDetailsDto,
+  ): Partial<ReturnRequestEntity> {
+    const method = dto.refundMethod;
+    if (method !== CodRefundMethod.BANK_ACCOUNT && method !== CodRefundMethod.WALLET) {
+      throw new BadRequestException({
+        code: COD_REFUND_METHOD_REQUIRED,
+        message: 'Select bank account or Cureka Wallet for refund settlement',
+      });
+    }
+    if (method === CodRefundMethod.WALLET && !this.walletRefundEnabled()) {
+      throw new BadRequestException({
+        code: WALLET_REFUND_NOT_ENABLED,
+        message: 'Cureka Wallet refunds are not enabled',
+      });
+    }
+
+    const encrypted = requireBankDetailsForMethod(method, dto.bankDetails);
+    return {
+      refundMethod: method,
+      bankAccountHolderName: encrypted?.bankAccountHolderName ?? null,
+      bankAccountNumberEncrypted: encrypted?.bankAccountNumberEncrypted ?? null,
+      bankAccountNumberLast4: encrypted?.bankAccountNumberLast4 ?? null,
+      bankIfsc: encrypted?.bankIfsc ?? null,
+      bankName: encrypted?.bankName ?? null,
+      bankAccountType: encrypted?.bankAccountType ?? null,
+      bankDetailsSubmittedAt:
+        encrypted?.bankDetailsSubmittedAt ??
+        (method === CodRefundMethod.WALLET ? new Date() : null),
       bankDetailsLocked: false,
     };
   }

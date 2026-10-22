@@ -74,7 +74,7 @@ describe('OrdersService.checkout pincode gate', () => {
     const result = await service.checkout('user-1', {});
 
     expect(checkoutService.assertCartDeliverableToAddress).toHaveBeenCalledWith('user-1', undefined);
-    expect(checkoutService.validateCheckout).toHaveBeenCalledWith('user-1', {});
+    expect(checkoutService.validateCheckout).toHaveBeenCalledWith('user-1', {}, { applyPromotionalOffers: false });
     expect(result).toEqual({
       ...summary,
       checkoutProvider: 'gokwik',
@@ -117,11 +117,15 @@ describe('OrdersService.checkout pincode gate', () => {
       'user-1',
       'address-1',
     );
-    expect(checkoutService.validateCheckout).toHaveBeenCalledWith('user-1', {
-      addressId: 'address-1',
-      orderSource: OrderSource.WEBSITE,
-      paymentMethod: OrderPaymentMethod.COD,
-    });
+    expect(checkoutService.validateCheckout).toHaveBeenCalledWith(
+      'user-1',
+      {
+        addressId: 'address-1',
+        orderSource: OrderSource.WEBSITE,
+        paymentMethod: OrderPaymentMethod.COD,
+      },
+      { applyPromotionalOffers: true },
+    );
     expect(cartService.setPreferredOrderSource).toHaveBeenCalledWith('user-1', OrderSource.WEBSITE);
     expect(result).toEqual({
       ...summary,

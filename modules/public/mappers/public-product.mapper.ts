@@ -702,6 +702,7 @@ export const toPublicStorefrontProductCard = (
   tags: card.tags.map((tag) => ({ name: tag.name })),
   averageRating: card.averageRating ?? 0,
   reviewCount: card.reviewCount ?? 0,
+  offers: [],
 });
 
 export const mapProductEntitiesToPublicStorefrontCards = (
@@ -795,6 +796,7 @@ export const toPublicStorefrontProductDetail = (
   codMinOrderAmount: detail.codMinOrderAmount,
   attributes: detail.attributes,
   variants: detail.variants.map(toPublicStorefrontProductVariant),
+  offers: [],
   media: detail.media,
   healthConcerns: detail.healthConcerns,
   faqs: detail.faqs,
