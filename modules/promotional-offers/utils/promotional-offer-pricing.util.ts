@@ -225,7 +225,15 @@ const applyBogo = (
   const bought = customerQty(lines, target.variantId);
   let reward = Math.floor(bought / qualifyingQuantity) * rewardQuantity;
   if (maxReward !== null) reward = Math.min(reward, maxReward);
-  if (reward <= 0) return;
+  if (reward <= 0) {
+    if (bought > 0) {
+      result.warnings.push({
+        code: 'OFFER_INELIGIBLE',
+        message: 'Add the required quantity of this product to use this offer.',
+      });
+    }
+    return;
+  }
   const held = customerQty(lines, target.variantId);
   const available = availableForReward(target, held);
   if (reward > available) {

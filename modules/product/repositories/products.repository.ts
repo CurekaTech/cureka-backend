@@ -1137,16 +1137,27 @@ export class ProductsRepository {
   async findIdsByRefIds(
     refIds: string[],
     manager?: EntityManager,
+    scope?: { productType?: ProductType; excludeProductType?: ProductType },
   ): Promise<Map<string, string>> {
     if (!refIds.length) return new Map();
 
     const repository = manager ? manager.getRepository(ProductEntity) : this.repo;
     const rows = await repository.find({
       where: { refId: In([...new Set(refIds)]) },
-      select: ['id', 'refId'],
+      select: ['id', 'refId', 'productType'],
     });
 
-    return new Map(rows.map((row) => [row.refId, row.id]));
+    return new Map(
+      rows
+        .filter((row) => {
+          if (scope?.productType && row.productType !== scope.productType) return false;
+          if (scope?.excludeProductType && row.productType === scope.excludeProductType) {
+            return false;
+          }
+          return true;
+        })
+        .map((row) => [row.refId, row.id]),
+    );
   }
 
   async findVariantsByProductIds(
