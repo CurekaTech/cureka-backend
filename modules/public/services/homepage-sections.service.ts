@@ -21,6 +21,7 @@ import { isPublicProductSellable } from '@modules/product/utils/public-variant-a
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { mapProductEntitiesToPublicStorefrontCards } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { mapCategoryEntitiesToPublicListItems } from '../mappers/public-category.mapper';
 import { HomepageSectionKey } from '../enums/homepage-section.enum';
 import {
@@ -175,6 +176,7 @@ export class HomepageSectionsService implements OnModuleInit {
     private readonly categoriesRepository: CategoriesRepository,
     private readonly reviewStats: PublicProductReviewStatsService,
     private readonly pincodesService: PincodesService,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   onModuleInit(): void {
@@ -256,6 +258,7 @@ export class HomepageSectionsService implements OnModuleInit {
     sections: IHomepageSectionsResponse,
   ): Promise<IHomepageSectionsResponse> {
     await this.reviewStats.attachDeep(sections);
+    await this.promotionalOffers.attachPublicOffersDeep(sections);
     return sections;
   }
 
@@ -319,6 +322,7 @@ export class HomepageSectionsService implements OnModuleInit {
       pageCanonicalUrl: section.pageCanonicalUrl,
     };
 
+    await this.promotionalOffers.attachPublicOffersDeep(withSeo);
     return this.storageUrlEnricher.enrichDeep(withSeo);
   }
 

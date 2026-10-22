@@ -20,6 +20,11 @@ import { PromotionalOfferType } from '../enums/promotional-offer-type.enum';
 import { RewardPricing } from '../enums/reward-pricing.enum';
 import { PromotionalOfferReservationsRepository } from '../repositories/promotional-offer-reservations.repository';
 import { PromotionalOffersRepository } from '../repositories/promotional-offers.repository';
+import {
+  assertCheckoutCodeAvailable,
+  assertPromotionalCodeShape,
+  normalizeCheckoutCode,
+} from '../utils/checkout-code-namespace.util';
 
 @Injectable()
 export class PromotionalOffersService {
@@ -31,23 +36,29 @@ export class PromotionalOffersService {
   ) {}
 
   async create(dto: CreatePromotionalOfferDto, actor: string) {
+    const code = normalizeCheckoutCode(dto.code);
+    assertPromotionalCodeShape(code);
+    if ((dto.status ?? MasterStatus.INACTIVE) === MasterStatus.ACTIVE && !code) {
+      throw new BadRequestException('An active offer requires a code');
+    }
     const targets = await this.validate(dto);
     const refId = await generateUniqueRefId('PO', async (candidate) => {
       const existing = await this.offersRepository.findByRefId(candidate);
       return Boolean(existing);
     });
     const created = await this.dataSource.transaction(async (manager) => {
+      await assertCheckoutCodeAvailable(manager, code);
       const offer = await this.offersRepository.create(
         {
           refId,
           name: dto.name.trim(),
+          code,
           internalDescription: dto.internalDescription?.trim() || null,
           customerMessage: dto.customerMessage.trim(),
           offerType: dto.offerType,
           status: dto.status ?? MasterStatus.INACTIVE,
           startDate: new Date(dto.startDate),
           expiryDate: new Date(dto.expiryDate),
-          priority: dto.priority ?? 100,
           usageLimit: dto.usageLimit ?? null,
           sameUserLimit: dto.sameUserLimit ?? null,
           config: dto.config,
@@ -117,20 +128,27 @@ export class PromotionalOffersService {
     if (reservations > 0 && dto.offerType !== existing.offerType) {
       throw new ConflictException('Offer type cannot change after a reservation exists');
     }
+    const code = normalizeCheckoutCode(dto.code);
+    assertPromotionalCodeShape(code);
+    const nextStatus = dto.status ?? existing.status;
+    if (nextStatus === MasterStatus.ACTIVE && !code) {
+      throw new BadRequestException('An active offer requires a code');
+    }
     const targets = await this.validate(dto);
     await this.dataSource.transaction(async (manager) => {
+      await assertCheckoutCodeAvailable(manager, code, { offerId: existing.id });
       await manager.getRepository(PromotionalOfferTargetEntity).delete({ offerId: existing.id });
       await manager.getRepository(PromotionalOfferEntity).update(
         { id: existing.id },
         {
           name: dto.name.trim(),
+          code,
           internalDescription: dto.internalDescription?.trim() || null,
           customerMessage: dto.customerMessage.trim(),
           offerType: dto.offerType,
-          status: dto.status ?? existing.status,
+          status: nextStatus,
           startDate: new Date(dto.startDate),
           expiryDate: new Date(dto.expiryDate),
-          priority: dto.priority ?? existing.priority,
           usageLimit: dto.usageLimit ?? null,
           sameUserLimit: dto.sameUserLimit ?? null,
           config: dto.config as never,
@@ -169,6 +187,9 @@ export class PromotionalOffersService {
   async updateStatus(refId: string, dto: UpdatePromotionalOfferStatusDto, actor: string) {
     const existing = await this.offersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException('Promotional offer not found');
+    if (dto.status === MasterStatus.ACTIVE && !existing.code) {
+      throw new BadRequestException('An active offer requires a code');
+    }
     await this.dataSource.getRepository(PromotionalOfferEntity).update(
       { id: existing.id },
       { status: dto.status, updatedBy: actor },
@@ -278,7 +299,7 @@ export class PromotionalOffersService {
     status: MasterStatus;
     startDate: Date;
     expiryDate: Date;
-    priority: number;
+    code: string | null;
     usageLimit: number | null;
     sameUserLimit: number | null;
     config: Record<string, unknown>;
@@ -302,7 +323,7 @@ export class PromotionalOffersService {
       derivedStatus,
       startDate: offer.startDate,
       expiryDate: offer.expiryDate,
-      priority: offer.priority,
+      code: offer.code,
       usageLimit: offer.usageLimit,
       sameUserLimit: offer.sameUserLimit,
       config: offer.config,

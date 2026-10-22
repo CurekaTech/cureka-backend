@@ -830,6 +830,9 @@ export class PaymentRequestsService {
     totals.totalAmount = gatewayAmount;
 
     const paymentRequest = await this.dataSource.transaction(async (manager) => {
+      if (summary.coupon?.id) {
+        await this.couponCheckoutService.assertUsageSlot(summary.coupon.id, userId, manager);
+      }
       const refId = await generateUniqueRefId('pay-request', (candidate) =>
         this.paymentRequestsRepository.existsByRefId(candidate),
       );
@@ -850,10 +853,13 @@ export class PaymentRequestsService {
           totalAmount: gatewayAmount,
           walletAmountPaise: String(walletAmountPaise),
           eligibleTotalPaise: String(eligibleTotalPaise),
+          couponId: summary.coupon?.id ?? null,
           couponCode: summary.coupon?.code ?? null,
           couponDiscount: totals.discount,
           promotionDiscount: (summary.promotionDiscount ?? 0).toFixed(2),
           promotionSnapshot: {
+            code: summary.promotions?.[0]?.code ?? null,
+            sourceType: (summary.promotions?.length ?? 0) > 0 ? 'promotional_offer' : null,
             promotions: summary.promotions ?? [],
             warnings: summary.promotionWarnings ?? [],
             bmsmDiscount: summary.bmsmDiscount ?? 0,
@@ -1413,8 +1419,10 @@ export class PaymentRequestsService {
       couponDiscountType: null,
     };
 
-    if (paymentRequest.couponCode) {
-      const coupon = await this.couponCheckoutService.findByCode(paymentRequest.couponCode);
+    if (paymentRequest.couponId || paymentRequest.couponCode) {
+      const coupon = paymentRequest.couponId
+        ? await this.couponCheckoutService.findById(paymentRequest.couponId)
+        : await this.couponCheckoutService.findByCode(paymentRequest.couponCode!);
       if (coupon) {
         couponDetails = {
           couponId: coupon.id,
@@ -1860,7 +1868,17 @@ export class PaymentRequestsService {
         couponDiscountType: null,
       };
 
-      if (existing.couponCode) {
+      if (existing.couponId) {
+        const coupon = await this.couponCheckoutService.findById(existing.couponId);
+        if (coupon) {
+          couponDetails = {
+            couponId: coupon.id,
+            couponCode: existing.couponCode ?? coupon.code,
+            couponTitle: coupon.title,
+            couponDiscountType: coupon.discountType,
+          };
+        }
+      } else if (existing.couponCode) {
         const coupon = await this.couponCheckoutService.findByCode(existing.couponCode);
         if (coupon) {
           couponDetails = {

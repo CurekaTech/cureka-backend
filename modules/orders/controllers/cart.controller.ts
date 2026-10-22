@@ -19,7 +19,7 @@ import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
-import { AddCartItemDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
+import { AddCartItemDto, ApplyCheckoutCodeDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { CartService } from '../services/cart.service';
 import { SavedForLaterService } from '../services/saved-for-later.service';
@@ -62,6 +62,32 @@ export class CartController {
     paymentMethod?: OrderPaymentMethod,
   ) {
     return this.cartService.getCart(user.sub, undefined, { paymentMethod });
+  }
+
+  @ApiOperation({ summary: 'List eligible coupons and promotional offers for this cart' })
+  @ResponseMessage('Offers fetched successfully')
+  @Get('offers')
+  @HttpCode(HttpStatus.OK)
+  listOffers(@CurrentSessionUser() user: IUserSessionContext) {
+    return this.cartService.listOffers(user.sub);
+  }
+
+  @ApiOperation({ summary: 'Apply a coupon or promotional offer code' })
+  @ResponseMessage('Code applied successfully')
+  @Post('offers')
+  @HttpCode(HttpStatus.OK)
+  async applyOfferCode(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: ApplyCheckoutCodeDto) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.applyCode(user.sub, dto.code, { applyPromotionalOffers });
+  }
+
+  @ApiOperation({ summary: 'Remove the selected coupon or promotional offer' })
+  @ResponseMessage('Code removed successfully')
+  @Delete('offers')
+  @HttpCode(HttpStatus.OK)
+  async removeOfferCode(@CurrentSessionUser() user: IUserSessionContext) {
+    const applyPromotionalOffers = await this.cartService.nativePromotionalOffersEnabled();
+    return this.cartService.removeCode(user.sub, { applyPromotionalOffers });
   }
 
   @ApiOperation({ summary: 'Apply coupon to cart' })

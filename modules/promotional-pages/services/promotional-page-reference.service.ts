@@ -14,6 +14,7 @@ import { CouponsRepository } from '@modules/master/repositories/coupons.reposito
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { mapCategoryEntitiesToPublicListItems } from '@modules/public/mappers/public-category.mapper';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { mapProductEntitiesToPublicStorefrontCards } from '@modules/public/mappers/public-product.mapper';
 import { IPublicCategoryListItem } from '@modules/public/interfaces/public-master.interface';
 import { IPublicStorefrontProductCard } from '@modules/public/interfaces/public-product.interface';
@@ -41,6 +42,7 @@ export class PromotionalPageReferenceService {
     private readonly brandsRepository: BrandsRepository,
     private readonly categoriesRepository: CategoriesRepository,
     private readonly couponsRepository: CouponsRepository,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   async assertCatalogRefs(refs: CatalogRefSets): Promise<{ couponId: string | null }> {
@@ -136,7 +138,7 @@ export class PromotionalPageReferenceService {
       );
     }
 
-    return {
+    const hydrated = {
       sections: publicSections,
       targets: {
         products: targets
@@ -159,6 +161,8 @@ export class PromotionalPageReferenceService {
         ),
       },
     };
+    await this.promotionalOffers.attachPublicOffersDeep(hydrated);
+    return hydrated;
   }
 
   private async hydrateSection(

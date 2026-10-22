@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { CouponEntity } from '@modules/master/entities/coupon.entity';
 import {
@@ -18,10 +18,13 @@ import { isPrepaidPaymentMethod } from '../utils/payment-method.util';
 import { CodBlocklistService } from '@modules/cod-blocklist/services/cod-blocklist.service';
 import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import {
+  CartAppliedCode,
+  CartInvalidatedCode,
   CartPromotionSummary,
   CartPromotionWarning,
   CartRewardLine,
 } from '../interfaces/cart-pricing.interface';
+import { normalizeCheckoutCode } from '@modules/promotional-offers/utils/checkout-code-namespace.util';
 
 @Injectable()
 export class CartPricingService {
@@ -48,6 +51,8 @@ export class CartPricingService {
     checkoutMobile?: string;
     applyPromotionalOffers?: boolean;
     excludeOfferIds?: string[];
+    promotionalOfferId?: string | null;
+    selectedCode?: string | null;
   }): Promise<CartPricing> {
     const subtotal = roundMoney(params.items.reduce((sum, item) => sum + item.totalPrice, 0));
 
@@ -93,11 +98,43 @@ export class CartPricingService {
       });
     }
 
-    const promotion = params.applyPromotionalOffers
-      ? await this.promotionalOfferEvaluationService.evaluateForCart({
+    const emptyPromotion = {
+      promotionDiscount: 0,
+      bmsmDiscount: 0,
+      rewardCharged: 0,
+      promotions: [] as CartPromotionSummary[],
+      warnings: [] as CartPromotionWarning[],
+      rewardLines: [] as CartRewardLine[],
+      lineAllocations: [],
+    };
+    let invalidatedCode: CartInvalidatedCode | null = null;
+    let appliedCode: CartAppliedCode | null = null;
+    let promotion = emptyPromotion;
+    let coupon: CouponEntity | null = null;
+    let discountAmount = 0;
+    const offerSelected = Boolean(params.promotionalOfferId);
+    const priceOffer = params.applyPromotionalOffers === true && offerSelected;
+
+    if (priceOffer && params.promotionalOfferId) {
+      const offer = await this.promotionalOfferEvaluationService.findOfferForPricing(params.promotionalOfferId);
+      const liveCode = offer?.code ? normalizeCheckoutCode(offer.code) : null;
+      const storedCode = params.selectedCode ? normalizeCheckoutCode(params.selectedCode) : null;
+      if (!offer || !liveCode || (storedCode && storedCode !== liveCode)) {
+        invalidatedCode = {
+          previousCode: params.selectedCode ?? null,
+          status: !offer || !liveCode ? 'disabled' : 'code_changed',
+          sourceType: 'promotional_offer',
+          message: !offer || !liveCode
+            ? 'This offer is no longer available. Apply a code again.'
+            : 'This code changed. Apply a code again if you still want the offer.',
+        };
+        await this.clearSelection(params, invalidatedCode);
+      } else {
+        promotion = await this.promotionalOfferEvaluationService.evaluateForCart({
           userId: params.userId,
           customerSubtotal: subtotal,
           excludeOfferIds: params.excludeOfferIds,
+          offerId: params.promotionalOfferId,
           lines: params.items.map((item) => ({
             id: item.id,
             productId: item.productId,
@@ -111,31 +148,45 @@ export class CartPricingService {
             isSubscription: item.isSubscription,
             productType: null,
           })),
-        })
-      : {
-          promotionDiscount: 0,
-          bmsmDiscount: 0,
-          rewardCharged: 0,
-          promotions: [] as CartPromotionSummary[],
-          warnings: [] as CartPromotionWarning[],
-          rewardLines: [] as CartRewardLine[],
-          lineAllocations: [],
-        };
-
-    let coupon: CouponEntity | null = null;
-    let discountAmount = 0;
-
-    if (params.couponId) {
-      coupon = await this.couponCheckoutService.findById(params.couponId);
-
-      if (!coupon) {
-        if (params.clearInvalidCoupon) {
-          await this.cartsRepository.updateById(
-            params.cartId,
-            { couponId: null },
-            params.manager,
-          );
+        });
+        const applied = (promotion.promotions?.length ?? 0) > 0 || (promotion.rewardLines?.length ?? 0) > 0 || (promotion.bmsmDiscount ?? 0) > 0;
+        if (!applied) {
+          const warning = promotion.warnings[0];
+          invalidatedCode = {
+            previousCode: storedCode,
+            status: this.invalidStatus(warning?.code),
+            sourceType: 'promotional_offer',
+            message: warning?.message ?? 'This offer is not eligible for the cart. Apply a code again.',
+          };
+          promotion = emptyPromotion;
+          await this.clearSelection(params, invalidatedCode);
+        } else {
+          if (!storedCode && params.clearInvalidCoupon) {
+            await this.cartsRepository.updateById(params.cartId, { selectedCode: liveCode }, params.manager);
+          }
+          appliedCode = {
+            code: liveCode,
+            sourceType: 'promotional_offer',
+            id: offer.id,
+            title: offer.name,
+          };
         }
+      }
+    } else if (params.couponId) {
+      coupon = await this.couponCheckoutService.findById(params.couponId);
+      const storedCode = params.selectedCode ? normalizeCheckoutCode(params.selectedCode) : null;
+      const liveCode = coupon ? normalizeCheckoutCode(coupon.code) : null;
+      if (!coupon || (storedCode && liveCode && storedCode !== liveCode)) {
+        invalidatedCode = {
+          previousCode: params.selectedCode ?? coupon?.code ?? null,
+          status: !coupon ? 'disabled' : 'code_changed',
+          sourceType: 'coupon',
+          message: !coupon
+            ? 'This coupon is no longer available. Apply a code again.'
+            : 'This code changed. Apply a code again if you still want the coupon.',
+        };
+        coupon = null;
+        await this.clearSelection(params, invalidatedCode);
       } else {
         try {
           await this.couponCheckoutService.validateCoupon(coupon, {
@@ -151,21 +202,40 @@ export class CartPricingService {
             manager: params.manager,
           });
           discountAmount = this.couponCheckoutService.calculateDiscount(coupon, eligibleSubtotal);
+          if (!storedCode && params.clearInvalidCoupon) {
+            await this.cartsRepository.updateById(params.cartId, { selectedCode: liveCode }, params.manager);
+          }
+          appliedCode = {
+            code: liveCode ?? coupon.code,
+            sourceType: 'coupon',
+            id: coupon.id,
+            title: coupon.title,
+          };
         } catch (error) {
           if (params.strict) {
+            await this.clearSelection(params, {
+              previousCode: storedCode ?? liveCode,
+              status: 'ineligible',
+              sourceType: 'coupon',
+              message: error instanceof Error ? error.message : 'Coupon is not eligible',
+            });
             throw error;
           }
-          if (params.clearInvalidCoupon) {
-            await this.cartsRepository.updateById(
-              params.cartId,
-              { couponId: null },
-              params.manager,
-            );
-          }
+          invalidatedCode = {
+            previousCode: storedCode ?? liveCode,
+            status: 'ineligible',
+            sourceType: 'coupon',
+            message: error instanceof Error ? error.message : 'Coupon is not eligible',
+          };
+          if (params.clearInvalidCoupon) await this.clearSelection(params, invalidatedCode);
           coupon = null;
           discountAmount = 0;
         }
       }
+    }
+
+    if (invalidatedCode && params.strict && priceOffer) {
+      throw new BadRequestException(invalidatedCode.message);
     }
 
     // Merchandise payable (products after coupon). Fee thresholds use this base.
@@ -270,6 +340,8 @@ export class CartPricingService {
       promotionWarnings: 'warnings' in promotion ? promotion.warnings : [],
       rewardLines: promotion.rewardLines,
       lineAllocations: promotion.lineAllocations,
+      appliedCode,
+      invalidatedCode,
       checkoutRules,
       cod: await this.codBlocklistService.overlayNativeCodEligibility(
         settings.resolveCodEligibility(payableSubtotal, checkoutAdminSettings),
@@ -298,6 +370,8 @@ export class CartPricingService {
     promotionWarnings?: CartPricing['promotionWarnings'];
     rewardLines?: CartPricing['rewardLines'];
     lineAllocations?: CartPricing['lineAllocations'];
+    appliedCode?: CartPricing['appliedCode'];
+    invalidatedCode?: CartPricing['invalidatedCode'];
     checkoutRules: CartPricing['checkoutRules'];
     cod: CartPricing['cod'];
   }): CartPricing {
@@ -331,6 +405,8 @@ export class CartPricingService {
       promotionWarnings: parts.promotionWarnings ?? [],
       rewardLines: parts.rewardLines ?? [],
       lineAllocations: parts.lineAllocations ?? [],
+      appliedCode: parts.appliedCode ?? null,
+      invalidatedCode: parts.invalidatedCode ?? null,
       grandTotal: Math.max(0, grandTotal),
       checkoutRules: parts.checkoutRules,
       cod: parts.cod,
@@ -397,6 +473,28 @@ export class CartPricingService {
     );
 
     return shippingAmount;
+  }
+
+  private async clearSelection(
+    params: { cartId: string; manager?: EntityManager; clearInvalidCoupon?: boolean; strict?: boolean },
+    invalidated: CartInvalidatedCode,
+  ): Promise<void> {
+    if (!params.clearInvalidCoupon && !params.strict) return;
+    await this.cartsRepository.updateById(
+      params.cartId,
+      { couponId: null, promotionalOfferId: null, selectedCode: null },
+      params.manager,
+    );
+    void invalidated;
+  }
+
+  private invalidStatus(code?: string): CartInvalidatedCode['status'] {
+    if (code === 'OFFERS_DISABLED') return 'feature_disabled';
+    if (code === 'OFFER_LIMIT_REACHED') return 'usage_limit';
+    if (code === 'OFFER_EXPIRED') return 'expired';
+    if (code === 'OFFER_DISABLED' || code === 'OFFER_UNAVAILABLE') return 'disabled';
+    if (code === 'REWARD_OUT_OF_STOCK' || code === 'GIFT_UNAVAILABLE') return 'reward_unavailable';
+    return 'ineligible';
   }
 
   private toCouponSummary(coupon: CouponEntity): CartCouponSummary {

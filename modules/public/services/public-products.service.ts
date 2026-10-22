@@ -84,6 +84,7 @@ import {
   applySelectedVariantDetailToPublicProduct,
 } from '../mappers/public-product.mapper';
 import { PublicProductReviewStatsService } from './public-product-review-stats.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
 import { FBT_CATEGORY_RULES } from '../config/fbt-category-mapping.config';
 import {
@@ -116,6 +117,7 @@ export class PublicProductsService {
     private readonly reviewStats: PublicProductReviewStatsService,
     private readonly pincodesService: PincodesService,
     private readonly configService: ConfigService,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   async findAll(query: PublicProductQueryDto): Promise<IPublicProductListResponse> {
@@ -913,9 +915,10 @@ export class PublicProductsService {
   private async enrichPaginatedVariantSearch(
     result: PaginatedResult<IPublicProductVariantSearchItem>,
   ): Promise<PaginatedResult<IPublicProductVariantSearchItem>> {
+    const data = await Promise.all(result.data.map((item) => this.enrichVariantSearchItem(item)));
     return {
       ...result,
-      data: await Promise.all(result.data.map((item) => this.enrichVariantSearchItem(item))),
+      data: await this.promotionalOffers.assignPublicOffers(data),
     };
   }
 
@@ -964,6 +967,7 @@ export class PublicProductsService {
       }),
     );
     const withRatings = await this.reviewStats.attach(data);
+    await this.promotionalOffers.attachPublicOffersDeep(withRatings);
     return { ...result, data: withRatings as T[] };
   }
 
@@ -1267,6 +1271,7 @@ export class PublicProductsService {
   >(result: PaginatedResult<T>): Promise<PaginatedResult<T>> {
     const data = await Promise.all(result.data.map((card) => this.enrichCard(card)));
     const withRatings = await this.reviewStats.attach(data);
+    await this.promotionalOffers.attachPublicOffersDeep(withRatings);
     return { ...result, data: withRatings as T[] };
   }
 

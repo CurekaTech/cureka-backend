@@ -10,6 +10,7 @@ import { QueueModule } from '@packages/queue';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
 import { GalleryModule } from '../gallery/gallery.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
+import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { PincodesModule } from '@modules/pincodes/pincodes.module';
 
 // ── Product entities ─────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ const BULK_RETURN_UPDATE_PROCESSOR_ENABLED =
     forwardRef(() => SubscriptionModule),
     forwardRef(() => SitemapModule),
     OosEmailModule,
+    PromotionalOffersModule,
     PincodesModule,
     QueueModule.registerQueue('bulk-upload'),
     QueueModule.registerQueue('bulk-price-update'),
