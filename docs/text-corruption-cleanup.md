@@ -2,6 +2,8 @@
 
 The runner inspects `public.product_faqs`, `public.product_variants`, `public.products`, and `public.blog_posts`. It keeps the configured mojibake indicator matching and removes only those matched fragments. JSON/JSONB fields are traversed recursively through string values; object keys and non-string values are preserved. Updates are keyed by each table's primary key and guarded by the original field value inside a transaction.
 
+The SQL scan and JavaScript cleanup share one indicator pattern. The `Ã` marker recognizes ASCII and Latin-1 letters after it (including `Ãé`) rather than relying on the database locale's `[:alpha:]` class. Apply explicitly serializes JSON and JSONB `before`/`after` values as JSON text before binding them, including root-level JSON strings; this avoids passing unquoted string contents to PostgreSQL's JSON parser. Updates and post-update verification remain in one transaction, and the committed success summary is printed only after `COMMIT` succeeds.
+
 The runner requires an explicit `--dry-run` or `--apply` mode. It never creates, overwrites, restores, truncates, or deletes a backup or database.
 
 ## Remote target gate

@@ -4,9 +4,13 @@ import {
   applyCandidatesBatched,
   groupCandidatesForApply,
   hasIndicator,
+  INDICATOR_PATTERN,
   parseMode,
+  previewFingerprint,
   resolveDatabaseTarget,
+  runCleanupTransaction,
   runApplyIfAuthorized,
+  serializePgColumnValue,
   summarizeCandidates,
   validateBackupArtifact,
 } from './cleanup-text-corruption.runner';
@@ -22,6 +26,44 @@ const remoteEnv = {
 const backup = { path: '/backup.dump', size: 123, verified: true as const };
 
 describe('text corruption cleanup helpers', () => {
+  it('detects and cleans each supported indicator, including accented Ã followed by é', () => {
+    const indicators = [
+      '\u00e2\u20ac\u2122',
+      '\u00e2\u20ac\u0153',
+      '\u00e2\u20ac',
+      '\u00c3a',
+      '\u00c3\u00e9',
+      '\u00ef\u00bf\u00bd',
+      '\u00f0\u0178',
+    ];
+    for (const indicator of indicators) {
+      expect(new RegExp(INDICATOR_PATTERN, 'u').test(indicator)).toBe(true);
+      expect(hasIndicator(`text ${indicator} tail`)).toBe(true);
+      expect(cleanString(`text ${indicator} tail`)).toBe('text  tail');
+    }
+  });
+
+  it('does not flag ordinary ASCII, valid accented text, or unrelated emoji', () => {
+    for (const text of ['ordinary text', 'café', 'naïve', '東京', '😀']) {
+      expect(new RegExp(INDICATOR_PATTERN, 'u').test(text)).toBe(false);
+      expect(hasIndicator(text)).toBe(false);
+      expect(cleanString(text)).toBe(text);
+    }
+  });
+
+  it('serializes JSON and JSONB values as JSON text for node-postgres parameters', () => {
+    const jsonRootString = '\u00e9 cleaned string';
+    const jsonObject = { list: [1, true, null, { nested: 'text' }] };
+    expect(serializePgColumnValue(jsonRootString, 'json')).toBe(JSON.stringify(jsonRootString));
+    expect(serializePgColumnValue(jsonObject, 'jsonb')).toBe(JSON.stringify(jsonObject));
+    expect(serializePgColumnValue([1, true, null], 'jsonb')).toBe('[1,true,null]');
+    expect(serializePgColumnValue(42, 'json')).toBe('42');
+    expect(serializePgColumnValue(false, 'jsonb')).toBe('false');
+    expect(serializePgColumnValue(null, 'json')).toBe('null');
+    expect(serializePgColumnValue('plain text', 'text')).toBe('plain text');
+    expect(() => serializePgColumnValue(undefined, 'json')).toThrow(/undefined/);
+  });
+
   it('groups only candidate-bearing table/column pairs for apply', () => {
     const candidates = [
       {
@@ -108,6 +150,120 @@ describe('text corruption cleanup helpers', () => {
     expect(sql).not.toContain('aâ€™');
   });
 
+  it('binds JSON and JSONB before/after values as valid serialized JSON', async () => {
+    const beforeObject = { nested: ['bad \u00c3\u00e9', 2, false, null] };
+    const afterObject = { nested: ['bad ', 2, false, null] };
+    const client = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 2 }),
+    };
+    const candidates = [
+      {
+        table: 'blog_posts',
+        column: 'settings',
+        type: 'json',
+        pk: { id: 'json-row' },
+        before: 'bad \u00e2\u20ac\u2122',
+        after: 'bad ',
+      },
+      {
+        table: 'products',
+        column: 'settings',
+        type: 'jsonb',
+        pk: { id: 'jsonb-row' },
+        before: beforeObject,
+        after: afterObject,
+      },
+      {
+        table: 'products',
+        column: 'settings',
+        type: 'jsonb',
+        pk: { id: 'json-string-row' },
+        before: '\u00c3\u00e9',
+        after: '',
+      },
+    ];
+    await expect(applyCandidatesBatched(client, candidates)).resolves.toBe(3);
+    expect(client.query).toHaveBeenCalledTimes(2);
+    const [jsonSql, jsonValues] = client.query.mock.calls[0];
+    expect(jsonSql).toContain('UPDATE public."blog_posts"');
+    expect(jsonSql).toContain('"settings"::jsonb IS NOT DISTINCT FROM $2::jsonb');
+    expect(jsonValues).toEqual([
+      'json-row',
+      JSON.stringify('bad \u00e2\u20ac\u2122'),
+      JSON.stringify('bad '),
+    ]);
+    const [sql, values] = client.query.mock.calls[1];
+    expect(sql).toContain('"settings" IS NOT DISTINCT FROM');
+    expect(values).toEqual([
+      'jsonb-row',
+      JSON.stringify(beforeObject),
+      'json-string-row',
+      JSON.stringify('\u00c3\u00e9'),
+      JSON.stringify(afterObject),
+      JSON.stringify(''),
+    ]);
+  });
+
+  it('preserves nested JSON types while cleaning nested strings only', () => {
+    const input = {
+      nested: { text: 'bad \u00c3\u00e9', number: 12, bool: true, nil: null },
+      list: ['\u00e2\u20ac\u2122', 4, false, null, ['caf\u00e9']],
+    };
+    const result = cleanJson(input);
+    expect(result.changed).toBe(true);
+    expect(result.value).toEqual({
+      nested: { text: 'bad ', number: 12, bool: true, nil: null },
+      list: ['', 4, false, null, ['caf\u00e9']],
+    });
+  });
+
+  it('preserves JSON object keys named __proto__ during recursive cleanup', () => {
+    const input = JSON.parse('{"__proto__":{"text":"bad \\u00c3\\u00e9"}}');
+    const result = cleanJson(input);
+    expect(result.changed).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(result.value, '__proto__')).toBe(true);
+    expect(JSON.stringify(result.value)).toBe('{"__proto__":{"text":"bad "}}');
+  });
+
+  it('rolls back the transaction when update or post-update verification throws', async () => {
+    for (const failurePhase of ['update', 'verification']) {
+      const calls: string[] = [];
+      const client = {
+        query: jest.fn(async (sql: string) => {
+          calls.push(sql);
+          if (failurePhase === 'update' && sql === 'UPDATE test') throw new Error('update failed');
+          if (failurePhase === 'verification' && sql === 'SELECT verification')
+            throw new Error('verification failed');
+          return { rows: [], rowCount: sql === 'UPDATE test' ? 1 : null };
+        }),
+      };
+      const work = async () => {
+        await client.query('UPDATE test');
+        if (failurePhase === 'verification') await client.query('SELECT verification');
+      };
+      await expect(runCleanupTransaction(client, 'apply', work)).rejects.toThrow(
+        failurePhase === 'update' ? 'update failed' : 'verification failed',
+      );
+      expect(calls).toEqual(
+        failurePhase === 'update'
+          ? ['BEGIN', 'UPDATE test', 'ROLLBACK']
+          : ['BEGIN', 'UPDATE test', 'SELECT verification', 'ROLLBACK'],
+      );
+    }
+  });
+
+  it('commits before transaction success is observable to the caller', async () => {
+    const client = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: null }) };
+    const completion = jest.fn();
+    await runCleanupTransaction(client, 'apply', async () => undefined);
+    completion();
+    expect(client.query.mock.calls.map(([sql]) => sql)).toEqual(['BEGIN', 'COMMIT']);
+    expect(completion).toHaveBeenCalledTimes(1);
+  });
+
   it('fails the batch if a candidate became stale or was not uniquely updated', async () => {
     const client = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }) };
     await expect(
@@ -172,6 +328,23 @@ describe('text corruption cleanup helpers', () => {
         primaryKeys: [{ id: 'row-0' }, { id: 'row-1' }, { id: 'row-2' }],
       },
     ]);
+  });
+
+  it('generates a stable preview fingerprint independent of candidate order', () => {
+    const target = resolveDatabaseTarget('postgresql://user@localhost/local_db', 'dry-run', {});
+    const first = {
+      table: 'products',
+      column: 'description',
+      type: 'text',
+      pk: { id: 'a' },
+      before: 'bad \u00c3\u00a9',
+      after: 'bad ',
+    };
+    const second = { ...first, pk: { id: 'b' } };
+    expect(previewFingerprint(target, [first, second])).toBe(
+      previewFingerprint(target, [second, first]),
+    );
+    expect(previewFingerprint(target, [first])).not.toBe(previewFingerprint(target, [second]));
   });
 });
 
@@ -376,6 +549,18 @@ describe('backup and apply safeguards', () => {
     await expect(
       runApplyIfAuthorized('apply', target, 'reviewed-preview-id', backup, env, write),
     ).resolves.toBe(true);
+    expect(write).toHaveBeenCalledTimes(1);
+
+    await expect(
+      runApplyIfAuthorized(
+        'apply',
+        target,
+        'reviewed-preview-id',
+        backup,
+        { ...env, TEXT_CORRUPTION_CLEANUP_CONFIRM_TARGET: '8.231.74.21/cureka_cleanup_test' },
+        write,
+      ),
+    ).rejects.toThrow(/CONFIRM_TARGET/);
     expect(write).toHaveBeenCalledTimes(1);
   });
 });

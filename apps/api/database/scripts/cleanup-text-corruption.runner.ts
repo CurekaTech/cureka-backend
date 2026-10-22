@@ -13,8 +13,10 @@ import { isAbsolute } from 'path';
 
 dotenv.config();
 
-const INDICATOR = '(â€™|â€œ|â€|Ã[[:alpha:]]|ï¿½|ðŸ)';
-const JS_INDICATOR = /â€™|â€œ|â€|Ã\p{L}|ï¿½|ðŸ/gu;
+export const INDICATOR_PATTERN =
+  '(â€™|â€œ|â€|Ã[A-Za-zÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]|ï¿½|ðŸ)';
+const JS_INDICATOR = new RegExp(INDICATOR_PATTERN, 'gu');
+const JS_INDICATOR_TEST = new RegExp(INDICATOR_PATTERN, 'u');
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const REMOTE_ALLOWED_HOST = '8.231.74.20';
 const REMOTE_CONFIRMATION = 'I_UNDERSTAND_THIS_IS_REMOTE_CUREKA_DATABASE';
@@ -124,7 +126,7 @@ function quoteIdent(identifier: string): string {
 }
 
 export function hasIndicator(value: unknown): boolean {
-  return typeof value === 'string' && /â€™|â€œ|â€|Ã\p{L}|ï¿½|ðŸ/u.test(value);
+  return typeof value === 'string' && JS_INDICATOR_TEST.test(value);
 }
 
 export function cleanString(value: string): string {
@@ -150,7 +152,12 @@ export function cleanJson(value: unknown): { value: unknown; changed: boolean } 
     const next: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
       const result = cleanJson(item);
-      next[key] = result.value;
+      Object.defineProperty(next, key, {
+        value: result.value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
       changed ||= result.changed;
     }
     return { value: next, changed };
@@ -164,6 +171,14 @@ function isJsonColumn(column: PgColumn): boolean {
 
 function isTextColumn(column: PgColumn): boolean {
   return ['text', 'character varying', 'character'].includes(column.data_type);
+}
+
+export function serializePgColumnValue(value: unknown, columnType: string): unknown {
+  if (columnType !== 'json' && columnType !== 'jsonb') return value;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined)
+    throw new Error(`Cannot serialize undefined as PostgreSQL ${columnType}.`);
+  return serialized;
 }
 
 function redactPk(pk: Record<string, unknown>): Record<string, unknown> {
@@ -338,12 +353,16 @@ export async function applyCandidatesBatched(
           parameters.push(item.pk[key]);
           return `${quoteIdent(key)} IS NOT DISTINCT FROM $${parameters.length}`;
         });
-        parameters.push(item.before);
-        terms.push(`${quoteIdent(group.column)} IS NOT DISTINCT FROM $${parameters.length}`);
+        parameters.push(serializePgColumnValue(item.before, item.type));
+        terms.push(
+          item.type === 'json'
+            ? `${quoteIdent(group.column)}::jsonb IS NOT DISTINCT FROM $${parameters.length}::jsonb`
+            : `${quoteIdent(group.column)} IS NOT DISTINCT FROM $${parameters.length}`,
+        );
         return `(${terms.join(' AND ')})`;
       });
       const assignments = chunk.map((item, index) => {
-        parameters.push(item.after);
+        parameters.push(serializePgColumnValue(item.after, item.type));
         return `WHEN ${predicates[index]} THEN $${parameters.length}`;
       });
       const update = await client.query(
@@ -356,11 +375,27 @@ export async function applyCandidatesBatched(
         );
       updated += update.rowCount;
       console.log(
-        `[apply] public.${group.table}.${group.column}: updated ${chunk.length} candidate rows`,
+        `[apply] public.${group.table}.${group.column}: staged ${chunk.length} candidate rows in the open transaction`,
       );
     }
   }
   return updated;
+}
+
+export async function runCleanupTransaction<T>(
+  client: Pick<PgClient, 'query'>,
+  mode: Mode,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    await client.query(mode === 'apply' ? 'BEGIN' : 'BEGIN READ ONLY');
+    const result = await work();
+    await client.query(mode === 'apply' ? 'COMMIT' : 'ROLLBACK');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  }
 }
 
 async function loadSchema(client: PgClient): Promise<Map<string, PgColumn[]>> {
@@ -439,7 +474,7 @@ async function scanTable(
     .join(' OR ');
   const result = await client.query(
     `SELECT ${selected.map(quoteIdent).join(', ')} FROM public.${quoteIdent(spec.table)} WHERE ${predicates}`,
-    [INDICATOR],
+    [INDICATOR_PATTERN],
   );
   const candidates: Candidate[] = [];
   for (const row of result.rows as Record<string, unknown>[]) {
@@ -501,7 +536,6 @@ async function main(): Promise<void> {
     connectionTimeoutMillis: 10_000,
   });
   await client.connect();
-  let inTransaction = false;
   try {
     const identity = await client.query<{ database_name: string; server_address: string | null }>(
       'SELECT current_database() AS database_name, inet_server_addr()::text AS server_address',
@@ -514,64 +548,74 @@ async function main(): Promise<void> {
     );
     const regexProbe = await client.query<{ sample: string; matches: boolean }>(
       'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
-      [INDICATOR, ['Ãa', 'Ã©', 'ðŸ', 'ordinary text']],
+      [
+        INDICATOR_PATTERN,
+        [
+          '\u00e2\u20ac\u2122',
+          '\u00e2\u20ac\u0153',
+          '\u00e2\u20ac',
+          '\u00c3a',
+          '\u00c3\u00e9',
+          '\u00ef\u00bf\u00bd',
+          '\u00f0\u0178',
+          'caf\u00e9',
+          'ordinary text',
+        ],
+      ],
     );
     console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(regexProbe.rows)}`);
-    if (mode === 'apply') {
-      await client.query('BEGIN');
-      inTransaction = true;
-    } else {
-      await client.query('BEGIN READ ONLY');
-      inTransaction = true;
-    }
 
-    const schema = await loadSchema(client);
-    const candidates: Candidate[] = [];
-    for (const spec of TABLE_SPECS) candidates.push(...(await scanTable(client, spec, schema)));
-    const previewId = previewFingerprint(target, candidates);
-    const matchedRows = new Map<string, Set<string>>();
-    for (const item of candidates) {
-      const key = `${item.table}:${JSON.stringify(item.pk)}`;
-      const columns = matchedRows.get(key);
-      if (columns) columns.add(item.column);
-      else matchedRows.set(key, new Set([item.column]));
-    }
-    console.log(
-      `[summary] matched rows=${matchedRows.size}; matched fields=${candidates.length}; skipped fields=${skippedFields.size}; failures=0; mode=${mode}`,
-    );
-    console.log(`[preview] id=${previewId}`);
-    for (const group of summarizeCandidates(candidates))
-      console.log(`[preview] ${JSON.stringify(group)}`);
-    console.log('[preview] Samples show primary-key references only; text values are not printed.');
+    let updated = 0;
+    let candidateCount = 0;
+    await runCleanupTransaction(client, mode, async () => {
+      const schema = await loadSchema(client);
+      const candidates: Candidate[] = [];
+      for (const spec of TABLE_SPECS) candidates.push(...(await scanTable(client, spec, schema)));
+      candidateCount = candidates.length;
+      const previewId = previewFingerprint(target, candidates);
+      const matchedRows = new Map<string, Set<string>>();
+      for (const item of candidates) {
+        const key = `${item.table}:${JSON.stringify(item.pk)}`;
+        const columns = matchedRows.get(key);
+        if (columns) columns.add(item.column);
+        else matchedRows.set(key, new Set([item.column]));
+      }
+      console.log(
+        `[summary] matched rows=${matchedRows.size}; matched fields=${candidates.length}; skipped fields=${skippedFields.size}; failures=0; mode=${mode}`,
+      );
+      console.log(`[preview] id=${previewId}`);
+      for (const group of summarizeCandidates(candidates))
+        console.log(`[preview] ${JSON.stringify(group)}`);
+      console.log(
+        '[preview] Samples show primary-key references only; text values are not printed.',
+      );
 
-    if (mode === 'apply') {
-      await runApplyIfAuthorized(mode, target, previewId, backup, process.env, async () => {
-        const updated = await applyCandidatesBatched(client, candidates);
-        const remainingTargetCandidates: Candidate[] = [];
-        const affected = new Map<string, Set<string>>();
-        for (const item of candidates)
-          affected.set(item.table, new Set([...(affected.get(item.table) ?? []), item.column]));
-        for (const spec of TABLE_SPECS) {
-          const columns = affected.get(spec.table);
-          if (columns?.size)
-            remainingTargetCandidates.push(...(await scanTable(client, spec, schema, columns)));
-        }
-        if (remainingTargetCandidates.length)
-          throw new Error('Post-update verification failed; rolling back.');
-        await client.query('COMMIT');
-        inTransaction = false;
-        console.log(
-          `[summary] updated fields=${updated}; post-update eligible matches=0; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
-        );
-      });
-    } else {
-      await client.query('ROLLBACK');
-      inTransaction = false;
-      console.log('[dry-run] read-only transaction rolled back; no writes performed.');
-    }
-  } catch (error) {
-    if (inTransaction) await client.query('ROLLBACK').catch(() => undefined);
-    throw error;
+      if (mode === 'apply') {
+        await runApplyIfAuthorized(mode, target, previewId, backup, process.env, async () => {
+          updated = await applyCandidatesBatched(client, candidates);
+          const remainingTargetCandidates: Candidate[] = [];
+          const affected = new Map<string, Set<string>>();
+          for (const item of candidates) {
+            const columns = affected.get(item.table);
+            if (columns) columns.add(item.column);
+            else affected.set(item.table, new Set([item.column]));
+          }
+          for (const spec of TABLE_SPECS) {
+            const columns = affected.get(spec.table);
+            if (columns?.size)
+              remainingTargetCandidates.push(...(await scanTable(client, spec, schema, columns)));
+          }
+          if (remainingTargetCandidates.length)
+            throw new Error('Post-update verification failed; rolling back.');
+        });
+      }
+    });
+    if (mode === 'apply')
+      console.log(
+        `[summary] updated fields=${updated}; post-update eligible matches=0; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
+      );
+    else console.log('[dry-run] read-only transaction rolled back; no writes performed.');
+    console.log(`[summary] final candidate field count=${candidateCount}; transaction complete.`);
   } finally {
     await client.end();
   }
