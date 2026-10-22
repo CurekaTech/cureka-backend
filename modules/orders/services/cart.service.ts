@@ -771,12 +771,16 @@ export class CartService {
       ...item,
       promotionalMessages: [] as string[],
     }));
+    const rewardLines = await this.enrichRewardLines(pricing.rewardLines ?? []);
 
     return {
       cartId: cart.id,
       items: pricedItemsWithMessages,
-      totalItems: pricedItemsWithMessages.reduce((sum, item) => sum + item.quantity, 0),
+      totalItems:
+        pricedItemsWithMessages.reduce((sum, item) => sum + item.quantity, 0) +
+        rewardLines.reduce((sum, item) => sum + item.quantity, 0),
       ...pricing,
+      rewardLines,
       promotionNotices: [],
     };
   }
@@ -1098,6 +1102,28 @@ export class CartService {
 
   private hasDetailPart(parts: string[], keyword: 'weight' | 'dimension'): boolean {
     return parts.some((part) => part.toLowerCase().includes(keyword));
+  }
+
+  private async enrichRewardLines(rewards: CartResponse['rewardLines']): Promise<NonNullable<CartResponse['rewardLines']>> {
+    const lines = rewards ?? [];
+    if (!lines.length) return [];
+    const variants = await this.dataSource.getRepository(ProductVariantEntity).find({
+      where: { id: In(lines.map((line) => line.variantId)) },
+      relations: { product: { media: true }, attributeValues: { attribute: true } },
+    });
+    const byId = new Map(variants.map((variant) => [variant.id, variant]));
+    return Promise.all(
+      lines.map(async (line) => {
+        const variant = byId.get(line.variantId);
+        const imageRef = this.resolvePrimaryImageRef(variant?.product, line.variantId);
+        return {
+          ...line,
+          productName: variant ? this.resolveCartProductName(variant.product, variant) : line.productName,
+          variantLabel: this.formatVariantLabel(variant) || line.variantLabel,
+          primaryImageUrl: imageRef ? await this.storageUrlEnricher.toReference(imageRef) : null,
+        };
+      }),
+    );
   }
 
   private resolvePrimaryImageRef(

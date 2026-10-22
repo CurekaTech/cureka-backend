@@ -56,6 +56,8 @@ export type OrderItemResponse = {
   quantity: number;
   unitPrice: string;
   totalPrice: string;
+  /** `promotion` is a free or discounted reward line. `customer` is a cart line. */
+  lineSource: string;
   isSubscription: boolean;
   frequency: string | null;
   subscriptionId: string | null;
@@ -232,6 +234,7 @@ async function mapOrderItemToResponse(
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     totalPrice: item.totalPrice,
+    lineSource: item.lineSource ?? 'customer',
     isSubscription: !!item.isSubscription,
     frequency: item.frequency ?? null,
     subscriptionId: item.subscriptionId ?? null,
