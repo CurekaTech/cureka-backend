@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AdminSettingsModule } from '@modules/admin-settings/admin-settings.module';
 import { MasterModule } from '@modules/master/master.module';
 import { AdminPromotionalOffersController } from './controllers/admin-promotional-offers.controller';
 import { PromotionalOfferReservationEntity } from './entities/promotional-offer-reservation.entity';
@@ -20,7 +19,6 @@ import { PromotionalOffersService } from './services/promotional-offers.service'
       PromotionalOfferTargetEntity,
       PromotionalOfferReservationEntity,
     ]),
-    AdminSettingsModule,
     MasterModule,
   ],
   controllers: [AdminPromotionalOffersController],

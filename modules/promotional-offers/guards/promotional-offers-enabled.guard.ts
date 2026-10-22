@@ -1,13 +1,13 @@
 import { CanActivate, ExecutionContext, Injectable, NotFoundException } from '@nestjs/common';
-import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
+import { ConfigService } from '@nestjs/config';
+import { isPromotionalOffersEnabled } from '../utils/promotional-offers-enabled.util';
 
 @Injectable()
 export class PromotionalOffersEnabledGuard implements CanActivate {
-  constructor(private readonly adminSettingsService: AdminSettingsService) {}
+  constructor(private readonly configService: ConfigService) {}
 
-  async canActivate(_context: ExecutionContext): Promise<boolean> {
-    const enabled = await this.adminSettingsService.isPromotionalOffersEnabled();
-    if (!enabled) throw new NotFoundException();
+  canActivate(_context: ExecutionContext): boolean {
+    if (!isPromotionalOffersEnabled(this.configService)) throw new NotFoundException();
     return true;
   }
 }

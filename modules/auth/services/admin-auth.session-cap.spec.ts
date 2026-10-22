@@ -28,7 +28,6 @@ describe('AdminAuthService super admin session cap', () => {
     auditService as never,
     configService as never,
     sessions as never,
-    { isPromotionalOffersEnabled: jest.fn().mockResolvedValue(false) } as never,
   );
 
   const superAdmin = {

@@ -9,8 +9,6 @@
  * These are the only bases phase 2 is allowed to apply. They are not a
  * commercial approval that stacking or fee treatment should stay this way.
  */
-export const PROMOTIONAL_OFFERS_SETTING_KEY = 'PROMOTIONAL_OFFERS_ENABLED';
-
 export interface PromotionSnapshot {
   promotions: Array<{
     id: string;
