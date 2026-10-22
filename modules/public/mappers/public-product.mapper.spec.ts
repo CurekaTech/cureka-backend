@@ -71,6 +71,7 @@ describe('toPublicStorefrontProductCard', () => {
       tags: [{ name: 'Bestsellers' }],
       averageRating: 4.5,
       reviewCount: 12,
+      offers: [],
     });
 
     expect(slim).not.toHaveProperty('refId');

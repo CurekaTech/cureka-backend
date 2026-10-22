@@ -79,6 +79,11 @@ export interface IPublicProductVariantSearchItem {
   subSubSubCategory: IPublicCategorySummary | null;
   variantId: string;
   sku: string;
+  offers?: Array<{
+    id: string;
+    offerType: string;
+    customerMessage: string;
+  }>;
   mrp: number;
   sellingPrice: number;
   discountPercentage: number | null;
@@ -178,6 +183,12 @@ export interface IPublicStorefrontProductCard {
   tags: Array<{ name: string }>;
   averageRating: number;
   reviewCount: number;
+  /** Live qualifying or tier-group offers for this card's variant. Empty when the flag is off. */
+  offers: Array<{
+    id: string;
+    offerType: string;
+    customerMessage: string;
+  }>;
 }
 
 /** PDP variant — fields the Cureka website reads on chips, price, and delivery. */

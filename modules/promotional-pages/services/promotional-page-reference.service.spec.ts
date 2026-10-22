@@ -6,6 +6,7 @@ import { CategoriesRepository } from '@modules/master/repositories/categories.re
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { PromotionalPageReferenceService } from './promotional-page-reference.service';
 
 describe('PromotionalPageReferenceService', () => {
@@ -15,6 +16,7 @@ describe('PromotionalPageReferenceService', () => {
   const brandsRepository = { findByRefIds: jest.fn() };
   const categoriesRepository = { findByRefIds: jest.fn(), findActiveByRefIds: jest.fn() };
   const couponsRepository = { findByRefId: jest.fn() };
+  const promotionalOffers = { attachPublicOffersDeep: jest.fn(async () => undefined) };
 
   const service = new PromotionalPageReferenceService(
     productRows as unknown as Repository<ProductEntity>,
@@ -23,6 +25,7 @@ describe('PromotionalPageReferenceService', () => {
     brandsRepository as unknown as BrandsRepository,
     categoriesRepository as unknown as CategoriesRepository,
     couponsRepository as unknown as CouponsRepository,
+    promotionalOffers as unknown as PromotionalOfferEvaluationService,
   );
 
   const empty = {

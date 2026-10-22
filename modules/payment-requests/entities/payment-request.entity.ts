@@ -60,6 +60,9 @@ export class PaymentRequestEntity extends BaseEntity {
   @Column({ name: 'eligible_total_paise', type: 'bigint', nullable: true })
   eligibleTotalPaise!: string | null;
 
+  @Column({ name: 'coupon_id', type: 'uuid', nullable: true })
+  couponId!: string | null;
+
   @Column({ name: 'coupon_code', type: 'varchar', length: 100, nullable: true })
   couponCode!: string | null;
 

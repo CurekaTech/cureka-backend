@@ -17,10 +17,24 @@ export class PromotionalOfferReservationsRepository {
       .createQueryBuilder('reservation')
       .where('reservation.offerId = :offerId', { offerId })
       .andWhere(
-        `(reservation.status = :consumed OR (reservation.status = :reserved AND (reservation.expires_at IS NULL OR reservation.expires_at > NOW())))`,
+        `(reservation.status = :consumed OR (
+            reservation.status = :reserved
+            AND (
+              reservation.expires_at IS NULL
+              OR reservation.expires_at > NOW()
+              OR EXISTS (
+                SELECT 1 FROM payment_requests pr
+                WHERE pr.id = reservation.payment_request_id
+                  AND pr.deleted_at IS NULL
+                  AND pr.status IN (:pending, :linkGenerated)
+              )
+            )
+          ))`,
         {
           consumed: PromotionalOfferReservationStatus.CONSUMED,
           reserved: PromotionalOfferReservationStatus.RESERVED,
+          pending: 'PAYMENT_PENDING',
+          linkGenerated: 'LINK_GENERATED',
         },
       );
     if (userId) qb.andWhere('reservation.userId = :userId', { userId });

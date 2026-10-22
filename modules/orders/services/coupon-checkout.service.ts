@@ -67,12 +67,28 @@ export class CouponCheckoutService {
     }
 
     if (coupon.sameUserLimit !== null) {
+      if (context.manager) {
+        await context.manager.query(`SELECT id FROM coupons WHERE id = $1 FOR UPDATE`, [coupon.id]);
+      }
       const usageCount = await this.couponUsagesRepository.countByCouponAndUser(
         coupon.id,
         context.userId,
         context.manager,
       );
-      if (usageCount >= coupon.sameUserLimit) {
+      let pending = 0;
+      if (context.manager) {
+        const rows: Array<{ count: number }> = await context.manager.query(
+          `SELECT COUNT(*)::int AS count
+           FROM payment_requests
+           WHERE customer_id = $1
+             AND coupon_id = $2
+             AND deleted_at IS NULL
+             AND status IN ('PAYMENT_PENDING', 'LINK_GENERATED')`,
+          [context.userId, coupon.id],
+        );
+        pending = Number(rows[0]?.count ?? 0);
+      }
+      if (usageCount + pending >= coupon.sameUserLimit) {
         throw new BadRequestException('Coupon usage limit reached for this user');
       }
     }
@@ -104,6 +120,25 @@ export class CouponCheckoutService {
     }
 
     return roundMoney(discount);
+  }
+
+  async assertUsageSlot(couponId: string, userId: string, manager: EntityManager): Promise<void> {
+    const coupon = await this.findById(couponId);
+    if (!coupon || coupon.sameUserLimit === null) return;
+    await manager.query(`SELECT id FROM coupons WHERE id = $1 FOR UPDATE`, [coupon.id]);
+    const usageCount = await this.couponUsagesRepository.countByCouponAndUser(coupon.id, userId, manager);
+    const rows: Array<{ count: number }> = await manager.query(
+      `SELECT COUNT(*)::int AS count
+       FROM payment_requests
+       WHERE customer_id = $1
+         AND coupon_id = $2
+         AND deleted_at IS NULL
+         AND status IN ('PAYMENT_PENDING', 'LINK_GENERATED')`,
+      [userId, coupon.id],
+    );
+    if (usageCount + Number(rows[0]?.count ?? 0) >= coupon.sameUserLimit) {
+      throw new BadRequestException('Coupon usage limit reached for this user');
+    }
   }
 
   async incrementUsage(

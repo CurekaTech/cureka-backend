@@ -250,10 +250,11 @@ export class OrdersService {
 
     const address = await this.userAddressesService.findOne(userId, dto.addressId);
     const isWalletOrder = walletCheckout && dto.paymentMethod === OrderPaymentMethod.WALLET;
+    const checkoutProvider = await this.checkoutResolver.resolveProvider();
     const summary = await this.checkoutService.validateCheckout(userId, {
       addressId: dto.addressId,
       paymentMethod: dto.paymentMethod,
-    }, { applyPromotionalOffers: true });
+    }, { applyPromotionalOffers: checkoutProvider === 'legacy' });
 
     if (!summary.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -313,6 +314,8 @@ export class OrdersService {
           prepaidDiscount: toMoneyString(summary.prepaidDiscount),
           promotionDiscount: toMoneyString(summary.promotionDiscount ?? 0),
           promotionSnapshot: {
+            code: summary.promotions?.[0]?.code ?? null,
+            sourceType: (summary.promotions?.length ?? 0) > 0 ? 'promotional_offer' : null,
             promotions: summary.promotions ?? [],
             warnings: summary.promotionWarnings ?? [],
             bmsmDiscount: summary.bmsmDiscount ?? 0,
@@ -478,7 +481,7 @@ export class OrdersService {
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
       await this.cartsRepository.updateById(
         cart.id,
-        { couponId: null, orderSource: null, updatedBy: userId },
+        { couponId: null, promotionalOfferId: null, selectedCode: null, orderSource: null, updatedBy: userId },
         manager,
       );
 
@@ -872,7 +875,7 @@ export class OrdersService {
       await this.cartItemsRepository.clearByCartId(cart.id, manager);
       await this.cartsRepository.updateById(
         cart.id,
-        { couponId: null, orderSource: null, updatedBy: userId },
+        { couponId: null, promotionalOfferId: null, selectedCode: null, orderSource: null, updatedBy: userId },
         manager,
       );
 

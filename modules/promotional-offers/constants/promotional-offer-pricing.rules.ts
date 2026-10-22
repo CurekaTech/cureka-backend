@@ -10,12 +10,15 @@
  * commercial approval that stacking or fee treatment should stay this way.
  */
 export interface PromotionSnapshot {
+  code?: string | null;
+  sourceType?: 'coupon' | 'promotional_offer' | null;
   promotions: Array<{
     id: string;
     name: string;
     offerType: string;
     customerMessage: string;
     discountAmount: number;
+    code?: string | null;
   }>;
   warnings: Array<{ code: string; message: string }>;
   bmsmDiscount: number;

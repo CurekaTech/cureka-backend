@@ -41,8 +41,8 @@ export class PromotionalOfferEntity extends BaseEntity {
   @Column({ name: 'expiry_date', type: 'timestamptz' })
   expiryDate!: Date;
 
-  @Column({ type: 'int', default: 100 })
-  priority!: number;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  code!: string | null;
 
   @Column({ name: 'usage_limit', type: 'int', nullable: true })
   usageLimit!: number | null;

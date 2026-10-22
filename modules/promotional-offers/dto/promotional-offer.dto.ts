@@ -5,7 +5,9 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsNumber,
+  Matches,
   IsObject,
   IsOptional,
   IsString,
@@ -58,9 +60,10 @@ export class CreatePromotionalOfferDto {
   @IsDateString()
   expiryDate!: string;
 
-  @IsOptional()
-  @IsInt()
-  priority?: number;
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[A-Za-z0-9]{4,20}$/)
+  code!: string;
 
   @IsOptional()
   @IsInt()

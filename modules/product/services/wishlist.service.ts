@@ -5,6 +5,7 @@ import { CacheKeys, CacheModuleName, CacheStrategyService } from '@packages/cach
 import { IPublicProductCard } from '@modules/public/interfaces/public-product.interface';
 import { ProductsService } from '@modules/product/services/products.service';
 import { PincodesService } from '@modules/pincodes/services/pincodes.service';
+import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { AddWishlistItemDto } from '../dto/wishlist.dto';
 import {
@@ -36,6 +37,7 @@ export class WishlistService {
     private readonly storageUrlEnricher: StorageUrlEnricher,
     private readonly cacheStrategy: CacheStrategyService,
     private readonly pincodesService: PincodesService,
+    private readonly promotionalOffers: PromotionalOfferEvaluationService,
   ) {}
 
   async findAll(userId: string, page = 1, limit = 20, pincode?: string): Promise<IWishlistResponse> {
@@ -90,6 +92,7 @@ export class WishlistService {
 
     const enrichStartedAt = Date.now();
     const items = await enrichWishlistCards(cachedPage.items, this.storageUrlEnricher);
+    await this.promotionalOffers.attachPublicOffersDeep(items);
 
     this.logger.log(
       `[PERF] wishlist.findAll | user=${userId} page=${pagination.page} enrich=${Date.now() - enrichStartedAt}ms total=${Date.now() - startedAt}ms`,

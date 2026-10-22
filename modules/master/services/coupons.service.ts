@@ -26,6 +26,7 @@ import { ICoupon } from '../interfaces/coupon.interface';
 import { mapCouponEntitiesToResponse, mapCouponEntityToResponse } from '../mappers/coupon.mapper';
 import { CouponApplicabilityRepository } from '../repositories/coupon-applicability.repository';
 import { CouponsRepository } from '../repositories/coupons.repository';
+import { assertCheckoutCodeAvailable } from '@modules/promotional-offers/utils/checkout-code-namespace.util';
 import { buildMasterListOptions } from '../utils/master-list-query.util';
 
 @Injectable()
@@ -60,11 +61,8 @@ export class CouponsService {
     }
     this.validateApplicabilityRefIds(applicabilityScope, dto);
 
-    if (await this.couponsRepository.existsByCode(code)) {
-      throw new ConflictException(`Coupon code "${code}" already exists`);
-    }
-
     const created = await this.dataSource.transaction(async (manager) => {
+      await assertCheckoutCodeAvailable(manager, code);
       const entity = await this.couponsRepository.create({
         couponType: dto.couponType.trim(),
         title: dto.title.trim(),
@@ -85,11 +83,11 @@ export class CouponsService {
           this.couponsRepository.existsByRefId(refId),
         ),
         createdBy,
-      });
+      }, manager);
 
       await this.syncApplicabilityMappings(entity.id, applicabilityScope, dto, manager);
 
-      const refreshed = await this.couponsRepository.findById(entity.id);
+      const refreshed = await this.couponsRepository.findById(entity.id, manager);
       if (!refreshed) {
         throw new NotFoundException('Coupon not found after create');
       }
@@ -147,9 +145,6 @@ export class CouponsService {
     let code: string | undefined;
     if (dto.code !== undefined) {
       code = this.normalizeCode(dto.code);
-      if (await this.couponsRepository.existsByCode(code, refId)) {
-        throw new ConflictException(`Coupon code "${code}" already exists`);
-      }
     }
 
     const applicabilityTouched =
@@ -163,6 +158,7 @@ export class CouponsService {
     }
 
     return this.dataSource.transaction(async (manager) => {
+      if (code) await assertCheckoutCodeAvailable(manager, code, { couponRefId: refId });
       const updated = await this.couponsRepository.updateByRefId(refId, {
         couponType: dto.couponType?.trim(),
         title: dto.title?.trim(),
@@ -183,7 +179,7 @@ export class CouponsService {
         applicabilityScope: dto.applicabilityScope,
         status: dto.status,
         updatedBy,
-      });
+      }, manager);
 
       if (!updated) {
         throw new NotFoundException(`Coupon with refId ${refId} not found after update`);
@@ -193,7 +189,7 @@ export class CouponsService {
         await this.syncApplicabilityMappings(updated.id, applicabilityScope, dto, manager, existing);
       }
 
-      const refreshed = await this.couponsRepository.findById(updated.id);
+      const refreshed = await this.couponsRepository.findById(updated.id, manager);
       if (!refreshed) {
         throw new NotFoundException(`Coupon with refId ${refId} not found after update`);
       }

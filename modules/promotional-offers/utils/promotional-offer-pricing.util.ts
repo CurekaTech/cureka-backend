@@ -39,7 +39,7 @@ export type PromotionOfferInput = {
   name: string;
   customerMessage: string;
   offerType: PromotionalOfferType;
-  priority: number;
+  code?: string | null;
   createdAt: string;
   config: Record<string, unknown>;
   targets: PromotionCatalogTarget[];
@@ -74,6 +74,7 @@ export type PromotionEvaluation = {
     offerType: PromotionalOfferType;
     customerMessage: string;
     discountAmount: number;
+    code?: string | null;
   }>;
   warnings: Array<{ code: string; message: string }>;
   appliedOfferIds: string[];
@@ -120,15 +121,13 @@ export const evaluatePromotionalOffers = (
   lines: PromotionCustomerLine[],
   offers: PromotionOfferInput[],
   customerSubtotal: number,
+  onlyOfferId?: string,
 ): PromotionEvaluation => {
   const eligibleLines = lines.filter((line) => !line.isSubscription && line.productType !== 'bundle');
-  if (!eligibleLines.length || !offers.length) return { ...EMPTY, warnings: [] };
-
-  const ordered = [...offers].sort((a, b) => {
-    if (a.priority !== b.priority) return a.priority - b.priority;
-    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
-    return a.id < b.id ? -1 : 1;
-  });
+  const ordered = onlyOfferId
+    ? offers.filter((offer) => offer.id === onlyOfferId).slice(0, 1)
+    : offers.slice(0, 1);
+  if (!eligibleLines.length || !ordered.length) return { ...EMPTY, warnings: [] };
 
   const claimed = new Set<string>();
   const result: PromotionEvaluation = {
@@ -151,9 +150,6 @@ export const evaluatePromotionalOffers = (
       });
       continue;
     }
-
-    const variantIds = offer.targets.map((target) => target.variantId);
-    if (variantIds.some((id) => claimed.has(id))) continue;
 
     if (offer.offerType === PromotionalOfferType.BOGO) {
       applyBogo(offer, eligibleLines, result, claimed);
@@ -259,6 +255,7 @@ const applyBogo = (
     name: offer.name,
     offerType: offer.offerType,
     customerMessage: offer.customerMessage,
+    code: offer.code ?? null,
     discountAmount: catalogSavings,
   });
 };
@@ -295,6 +292,7 @@ const applyBuyXGetY = (
     name: offer.name,
     offerType: offer.offerType,
     customerMessage: offer.customerMessage,
+    code: offer.code ?? null,
     discountAmount: savings,
   });
 };
@@ -324,6 +322,7 @@ const applyGift = (
     name: offer.name,
     offerType: offer.offerType,
     customerMessage: offer.customerMessage,
+    code: offer.code ?? null,
     discountAmount: savings,
   });
 };
@@ -374,6 +373,7 @@ const applyBuyMoreSaveMore = (
     name: offer.name,
     offerType: offer.offerType,
     customerMessage: offer.customerMessage,
+    code: offer.code ?? null,
     discountAmount: discount,
   });
 };

@@ -30,7 +30,6 @@ const offer = (partial: Partial<PromotionOfferInput>): PromotionOfferInput => ({
   name: 'Offer',
   customerMessage: 'Offer message',
   offerType: PromotionalOfferType.BOGO,
-  priority: 10,
   createdAt: '2026-01-01T00:00:00.000Z',
   config: {},
   targets: [],
@@ -162,7 +161,7 @@ describe('evaluatePromotionalOffers', () => {
     expect(result.lineAllocations.reduce((sum, row) => sum + row.promotionDiscount, 0)).toBe(45);
   });
 
-  it('lets the lower priority offer win a shared variant', () => {
+  it('applies only the selected offer when several are supplied', () => {
     const shared = target({
       role: PromotionalOfferTargetRole.QUALIFYING,
       variantId: 'variant-1',
@@ -173,22 +172,21 @@ describe('evaluatePromotionalOffers', () => {
       [line({ quantity: 2, totalPrice: 200 })],
       [
         offer({
-          id: 'high',
-          priority: 20,
+          id: 'first',
           config: { qualifyingQuantity: 2, rewardQuantity: 1, rewardPricing: RewardPricing.FREE },
           targets: [shared],
         }),
         offer({
-          id: 'low',
-          priority: 5,
+          id: 'selected',
           config: { qualifyingQuantity: 2, rewardQuantity: 1, rewardPricing: RewardPricing.PERCENTAGE, rewardDiscountValue: 50 },
           targets: [{ ...shared }],
         }),
       ],
       200,
+      'selected',
     );
 
-    expect(result.appliedOfferIds).toEqual(['low']);
+    expect(result.appliedOfferIds).toEqual(['selected']);
     expect(result.rewardLines[0].chargedUnitPrice).toBe(50);
   });
 });

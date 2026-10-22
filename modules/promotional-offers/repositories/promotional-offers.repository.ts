@@ -22,6 +22,20 @@ export class PromotionalOffersRepository {
     return repository.findOne({ where: { refId }, relations: { targets: true } });
   }
 
+  findById(id: string, manager?: EntityManager): Promise<PromotionalOfferEntity | null> {
+    const repository = manager ? manager.getRepository(PromotionalOfferEntity) : this.repo;
+    return repository.findOne({ where: { id }, relations: { targets: true } });
+  }
+
+  findByNormalizedCode(code: string, manager?: EntityManager): Promise<PromotionalOfferEntity | null> {
+    const repository = manager ? manager.getRepository(PromotionalOfferEntity) : this.repo;
+    return repository
+      .createQueryBuilder('offer')
+      .leftJoinAndSelect('offer.targets', 'target')
+      .where('UPPER(offer.code) = :code', { code: code.trim().toUpperCase() })
+      .getOne();
+  }
+
   findByIdForUpdate(id: string, manager: EntityManager): Promise<PromotionalOfferEntity | null> {
     return manager
       .getRepository(PromotionalOfferEntity)
@@ -38,8 +52,8 @@ export class PromotionalOffersRepository {
       .where('offer.status = :status', { status: MasterStatus.ACTIVE })
       .andWhere('offer.startDate <= :now', { now })
       .andWhere('offer.expiryDate >= :now', { now })
-      .orderBy('offer.priority', 'ASC')
-      .addOrderBy('offer.createdAt', 'ASC')
+      .andWhere('offer.code IS NOT NULL')
+      .orderBy('offer.createdAt', 'ASC')
       .getMany();
   }
 
@@ -52,7 +66,7 @@ export class PromotionalOffersRepository {
   }): Promise<{ rows: PromotionalOfferEntity[]; total: number }> {
     const qb = this.repo.createQueryBuilder('offer').leftJoinAndSelect('offer.targets', 'target');
     if (params.search) {
-      qb.andWhere('offer.name ILIKE :search', { search: `%${params.search}%` });
+      qb.andWhere('(offer.name ILIKE :search OR offer.code ILIKE :search)', { search: `%${params.search}%` });
     }
     if (params.offerType) qb.andWhere('offer.offerType = :offerType', { offerType: params.offerType });
     if (params.status) qb.andWhere('offer.status = :status', { status: params.status });

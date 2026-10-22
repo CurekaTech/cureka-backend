@@ -143,6 +143,8 @@ export class CheckoutService {
       userId,
       cartId: cart.id,
       couponId: cart.couponId,
+      promotionalOfferId: cart.promotionalOfferId,
+      selectedCode: cart.selectedCode,
       items: lineItems,
       paymentMethod: dto.paymentMethod,
       strict: true,
