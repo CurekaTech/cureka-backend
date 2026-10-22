@@ -478,8 +478,13 @@ export class CartService {
         const cartHasTarget = (offer.targets ?? []).some((target) =>
           lineItems.some((item) => item.variantId === target.variantId && !item.isSubscription),
         );
+        const selected =
+          cart.promotionalOfferId === offer.id ||
+          (!!cart.selectedCode &&
+            !!offer.code &&
+            normalizeCheckoutCode(cart.selectedCode) === normalizeCheckoutCode(offer.code));
         const warning = preview.warnings[0];
-        if (!applied && !(cartHasTarget && warning)) continue;
+        if (!applied && !cartHasTarget && !selected) continue;
         rows.push({
           code: offer.code,
           sourceType: 'promotional_offer',
@@ -487,9 +492,11 @@ export class CartService {
           title: offer.name,
           description: offer.customerMessage,
           estimatedBenefit: applied ? benefit : 0,
-          conditions: applied ? offer.customerMessage : warning?.message ?? offer.customerMessage,
+          conditions: applied
+            ? offer.customerMessage
+            : warning?.message ?? 'This offer cannot be applied to the cart right now.',
           expiresAt: offer.expiryDate,
-          selected: cart.promotionalOfferId === offer.id,
+          selected,
           applicable: applied,
         });
       }

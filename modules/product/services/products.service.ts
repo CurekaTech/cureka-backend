@@ -1437,13 +1437,16 @@ export class ProductsService {
    * Sets outOfStock = true and stock = 0 on every non-deleted variant for the selected products.
    * Used by admin product list multi-select "Mark out of stock".
    */
-  async bulkMarkOutOfStock(dto: BulkMarkOutOfStockDto): Promise<IBulkMarkOutOfStockResult> {
+  async bulkMarkOutOfStock(
+    dto: BulkMarkOutOfStockDto,
+    options?: { productType?: ProductType; excludeProductType?: ProductType },
+  ): Promise<IBulkMarkOutOfStockResult> {
     const uniqueRefIds = [...new Set(dto.productRefIds.map((refId) => refId.trim()).filter(Boolean))];
     if (!uniqueRefIds.length) {
       throw new BadRequestException('productRefIds must contain at least one product refId');
     }
 
-    const idByRefId = await this.productsRepository.findIdsByRefIds(uniqueRefIds);
+    const idByRefId = await this.productsRepository.findIdsByRefIds(uniqueRefIds, undefined, options);
     const notFound = uniqueRefIds.filter((refId) => !idByRefId.has(refId));
     const foundEntries = [...idByRefId.entries()];
 
@@ -1495,7 +1498,7 @@ export class ProductsService {
    */
   async bulkUpdateVariantOos(
     dto: BulkUpdateVariantOosDto,
-    options?: { productType?: ProductType },
+    options?: { productType?: ProductType; excludeProductType?: ProductType },
   ): Promise<{
     requested: number;
     updated: string[];
@@ -1514,6 +1517,7 @@ export class ProductsService {
         uniqueSkus,
         dto.outOfStock,
         options?.productType,
+        options?.excludeProductType,
       );
 
     const updated: string[] = [];
@@ -1556,7 +1560,7 @@ export class ProductsService {
    */
   async bulkUpdateCurekaInventory(
     dto: BulkUpdateCurekaInventoryDto,
-    options?: { productType?: ProductType },
+    options?: { productType?: ProductType; excludeProductType?: ProductType },
   ): Promise<{
     requested: number;
     updated: string[];
@@ -1574,6 +1578,7 @@ export class ProductsService {
         uniqueSkus,
         dto.inCurekaInventory,
         options?.productType,
+        options?.excludeProductType,
       );
 
     const updated: string[] = [];
@@ -1606,7 +1611,10 @@ export class ProductsService {
    * Restores stock on every non-deleted variant for the selected products.
    * stock > 0 also clears outOfStock (including flag-only mode).
    */
-  async bulkRestoreStock(dto: BulkRestoreStockDto): Promise<{
+  async bulkRestoreStock(
+    dto: BulkRestoreStockDto,
+    options?: { productType?: ProductType; excludeProductType?: ProductType },
+  ): Promise<{
     requested: number;
     updated: string[];
     notFound: string[];
@@ -1621,7 +1629,7 @@ export class ProductsService {
       throw new BadRequestException('items must contain at least one product refId');
     }
 
-    const idByRefId = await this.productsRepository.findIdsByRefIds(uniqueRefIds);
+    const idByRefId = await this.productsRepository.findIdsByRefIds(uniqueRefIds, undefined, options);
     const notFound = uniqueRefIds.filter((refId) => !idByRefId.has(refId));
     const updates = [...idByRefId.entries()].map(([refId, productId]) => ({
       productId,
@@ -1659,7 +1667,7 @@ export class ProductsService {
    */
   async bulkRestoreVariantStock(
     dto: BulkRestoreVariantStockDto,
-    options?: { productType?: ProductType },
+    options?: { productType?: ProductType; excludeProductType?: ProductType },
   ): Promise<{
     requested: number;
     updated: string[];
@@ -1668,7 +1676,11 @@ export class ProductsService {
     productsAffected: number;
   }> {
     const { bySkuResult, updatedProductIds, oosTransitions } =
-      await this.variantsRepository.restoreStockBySkus(dto.items, options?.productType);
+      await this.variantsRepository.restoreStockBySkus(
+        dto.items,
+        options?.productType,
+        options?.excludeProductType,
+      );
 
     const updated: string[] = [];
     const alreadyAtTarget: string[] = [];

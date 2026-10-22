@@ -36,6 +36,7 @@ import {
   BulkUpdateCurekaInventoryDto,
 } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
+import { ProductType } from '../enums/product-type.enum';
 import {
   CombineSimpleProductsDto,
   CombineSimpleProductsPreviewDto,
@@ -117,7 +118,9 @@ export class ProductsController {
   @Post('bulk-mark-out-of-stock')
   @HttpCode(HttpStatus.OK)
   bulkMarkOutOfStock(@Body() dto: BulkMarkOutOfStockDto) {
-    return this.productsService.bulkMarkOutOfStock(dto);
+    return this.productsService.bulkMarkOutOfStock(dto, {
+      excludeProductType: ProductType.BUNDLE,
+    });
   }
 
   @ApiOperation({
@@ -133,7 +136,9 @@ export class ProductsController {
   @Post('bulk-update-variant-oos')
   @HttpCode(HttpStatus.OK)
   bulkUpdateVariantOos(@Body() dto: BulkUpdateVariantOosDto) {
-    return this.productsService.bulkUpdateVariantOos(dto);
+    return this.productsService.bulkUpdateVariantOos(dto, {
+      excludeProductType: ProductType.BUNDLE,
+    });
   }
 
   @ApiOperation({
@@ -160,7 +165,9 @@ export class ProductsController {
   @Patch('bulk-update-cureka-inventory')
   @HttpCode(HttpStatus.OK)
   bulkUpdateCurekaInventory(@Body() dto: BulkUpdateCurekaInventoryDto) {
-    return this.productsService.bulkUpdateCurekaInventory(dto);
+    return this.productsService.bulkUpdateCurekaInventory(dto, {
+      excludeProductType: ProductType.BUNDLE,
+    });
   }
 
   @ApiOperation({
@@ -174,7 +181,9 @@ export class ProductsController {
   @Post('bulk-restore-stock')
   @HttpCode(HttpStatus.OK)
   bulkRestoreStock(@Body() dto: BulkRestoreStockDto) {
-    return this.productsService.bulkRestoreStock(dto);
+    return this.productsService.bulkRestoreStock(dto, {
+      excludeProductType: ProductType.BUNDLE,
+    });
   }
 
   @ApiOperation({
@@ -188,7 +197,9 @@ export class ProductsController {
   @Post('bulk-restore-variant-stock')
   @HttpCode(HttpStatus.OK)
   bulkRestoreVariantStock(@Body() dto: BulkRestoreVariantStockDto) {
-    return this.productsService.bulkRestoreVariantStock(dto);
+    return this.productsService.bulkRestoreVariantStock(dto, {
+      excludeProductType: ProductType.BUNDLE,
+    });
   }
 
   @ApiOperation({ summary: 'Re-submit product for checker approval (after rejection or draft edits)' })
