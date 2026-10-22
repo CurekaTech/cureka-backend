@@ -12,6 +12,7 @@ import {
   type PermissionsMode,
 } from '../decorators/permissions.decorator';
 import { hasRequiredPermissions } from '../utils/implied-read-permission.util';
+import { expandScopedPermissionCodes } from '../constants/menu-permission-scopes.constants';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -56,7 +57,7 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Assigned role is inactive or missing');
     }
 
-    const permissionCodes = new Set(
+    const permissionCodes = expandScopedPermissionCodes(
       (adminUser.roleRecord.permissions ?? [])
         .filter((permission) => permission.status === MasterStatus.ACTIVE)
         .map((permission) => permission.code),

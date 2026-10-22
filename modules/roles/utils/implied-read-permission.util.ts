@@ -1,32 +1,40 @@
 const WRITE_ACTIONS = new Set(['create', 'update']);
 
 /**
- * Dropdown and lookup modules used while creating or editing another record.
+ * Dropdown, picker, and lookup modules used while creating or editing another record.
  * A role with any create/update permission can read these without a separate read grant.
+ * Products and bundles are here because blog posts, CMS sections, coupons, offers,
+ * vendors, and category parents all load the product picker or product-wizard dropdowns.
  * Customer, order, admin-user, and audit lists are not in this set.
  */
 const MASTER_DATA_MODULES = new Set([
   'age_groups',
   'attributes',
+  'blog_categories',
   'brands',
+  'bundle_products',
   'categories',
   'category_filters',
   'cities',
   'countries',
   'coupon_codes',
+  'gallery',
   'health_concerns',
   'importers',
   'manufacturers',
+  'membership_benefits',
   'packers',
   'product_informations',
   'product_natures',
   'product_tags',
+  'products',
   'reason_masters',
   'states',
   'subcategories',
   'subsubcategories',
   'subsubsubcategories',
   'subscription_frequencies',
+  'support_categories',
   'units',
   'wellness_goals',
 ]);
