@@ -29,8 +29,7 @@ const BOOLEAN_SETTING_KEYS = [SHIPROCKET_CHECKOUT_ENABLED_KEY, GOKWIK_CHECKOUT_E
 const REQUIRED_NATIVE_PG_KEYS = ['razor_pay', 'cash_free'];
 const ALLOW_GUEST_LOGIN_KEY = 'allowGuestLogin';
 const ENABLE_TYPESENSE_KEY = 'enableTypesense';
-const PROMOTIONAL_OFFERS_ENABLED_KEY = 'PROMOTIONAL_OFFERS_ENABLED';
-const STORE_CONFIGURATION_KEYS = [ALLOW_GUEST_LOGIN_KEY, ENABLE_TYPESENSE_KEY, PROMOTIONAL_OFFERS_ENABLED_KEY];
+const STORE_CONFIGURATION_KEYS = [ALLOW_GUEST_LOGIN_KEY, ENABLE_TYPESENSE_KEY];
 
 @Injectable()
 export class AdminSettingsService {
@@ -77,7 +76,6 @@ export class AdminSettingsService {
       await Promise.all([
         this.ensureAllowGuestLoginSetting(),
         this.ensureEnableTypesenseSetting(),
-        this.ensurePromotionalOffersSetting(),
       ]);
       const refreshed = mapAdminSettingEntitiesToResponse(await this.adminSettingsRepository.findAll());
       return refreshed.filter((setting) => STORE_CONFIGURATION_KEYS.includes(setting.key));
@@ -116,41 +114,6 @@ export class AdminSettingsService {
   async isTypesenseSearchEnabled(): Promise<boolean> {
     const { enableTypesense } = await this.getEnableTypesense();
     return enableTypesense;
-  }
-
-  async isPromotionalOffersEnabled(): Promise<boolean> {
-    const setting = await this.ensurePromotionalOffersSetting();
-    if (!setting?.value) return false;
-    return this.toBoolean(setting.value) && setting.status === AdminSettingStatus.ACTIVE;
-  }
-
-  async getPromotionalOffersEnabled(): Promise<{ promotionalOffersEnabled: boolean }> {
-    const promotionalOffersEnabled = await this.isPromotionalOffersEnabled();
-    return { promotionalOffersEnabled };
-  }
-
-  async updatePromotionalOffersEnabled(
-    enabled: boolean,
-    updatedBy: string,
-  ): Promise<{ promotionalOffersEnabled: boolean }> {
-    await this.ensurePromotionalOffersSetting();
-    await this.adminSettingsRepository.updateByKey(PROMOTIONAL_OFFERS_ENABLED_KEY, {
-      value: enabled ? 'true' : 'false',
-      status: enabled ? AdminSettingStatus.ACTIVE : AdminSettingStatus.INACTIVE,
-      updatedBy,
-    });
-    const updated = await this.adminSettingsRepository.findByKey(PROMOTIONAL_OFFERS_ENABLED_KEY);
-    if (updated) {
-      await this.auditService.recordWrite({
-        entityType: AuditEntityType.ADMIN_SETTING,
-        entityId: updated.id,
-        entityRefId: PROMOTIONAL_OFFERS_ENABLED_KEY,
-        action: 'updated',
-        performedBy: updatedBy,
-        details: { key: PROMOTIONAL_OFFERS_ENABLED_KEY, enabled },
-      });
-    }
-    return { promotionalOffersEnabled: enabled };
   }
 
   async updateEnableTypesense(
@@ -502,23 +465,6 @@ export class AdminSettingsService {
       value: 'false',
       status: AdminSettingStatus.INACTIVE,
       description: 'Controls whether guest login is allowed on storefront.',
-      createdBy: 'system',
-      updatedBy: 'system',
-    });
-  }
-
-  private async ensurePromotionalOffersSetting(): Promise<AdminSettingEntity> {
-    const existing = await this.adminSettingsRepository.findByKey(PROMOTIONAL_OFFERS_ENABLED_KEY);
-    if (existing) return existing;
-    const refId = await generateUniqueRefId('SET', (candidate) =>
-      this.adminSettingsRepository.existsByRefId(candidate),
-    );
-    return this.adminSettingsRepository.create({
-      refId,
-      key: PROMOTIONAL_OFFERS_ENABLED_KEY,
-      value: 'false',
-      status: AdminSettingStatus.INACTIVE,
-      description: 'Runtime switch for Cureka native promotional offers.',
       createdBy: 'system',
       updatedBy: 'system',
     });

@@ -238,6 +238,8 @@ export const envValidationSchema = Joi.object({
   RETURN_RESTOCK_ON_QC_PASS: Joi.string().valid('true', 'false').optional(),
   RETURN_WALLET_REFUND_ENABLED: Joi.string().valid('true', 'false').optional(),
   WALLET_CHECKOUT_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  /** Native BOGO / Buy X Get Y / gift / Buy More Save More. Default off. */
+  PROMOTIONAL_OFFERS_ENABLED: Joi.string().valid('true', 'false').default('false'),
   GOKWIK_WALLET_REDEMPTION_ENABLED: Joi.string().valid('true', 'false').default('false'),
   WALLET_RESERVATION_TTL_MINUTES: Joi.number().integer().min(5).max(1440).default(60),
   BANK_ACCOUNT_ENCRYPTION_KEY: Joi.string().allow('').optional(),

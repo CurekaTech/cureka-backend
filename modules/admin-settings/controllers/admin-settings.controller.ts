@@ -11,7 +11,6 @@ import {
   BulkUpdateSettingsDto,
   UpdateAllowGuestLoginDto,
   UpdateEnableTypesenseDto,
-  UpdatePromotionalOffersEnabledDto,
 } from '../dto/admin-setting.dto';
 import { AdminSettingsService } from '../services/admin-settings.service';
 
@@ -73,25 +72,6 @@ export class AdminSettingsController {
     @CurrentAdminUser() user: IAdminJwtPayload,
   ) {
     return this.adminSettingsService.updateAllowGuestLogin(dto.enabled, user.email);
-  }
-
-  @ApiOperation({ summary: 'Get promotional offers feature flag' })
-  @ResponseMessage('Promotional offers setting retrieved successfully')
-  @RequirePermissions('settings.read')
-  @Get('promotional-offers-enabled')
-  getPromotionalOffersEnabled() {
-    return this.adminSettingsService.getPromotionalOffersEnabled();
-  }
-
-  @ApiOperation({ summary: 'Update promotional offers feature flag' })
-  @ResponseMessage('Promotional offers setting updated successfully')
-  @RequirePermissions('settings.update')
-  @Put('promotional-offers-enabled')
-  updatePromotionalOffersEnabled(
-    @Body() dto: UpdatePromotionalOffersEnabledDto,
-    @CurrentAdminUser() user: IAdminJwtPayload,
-  ) {
-    return this.adminSettingsService.updatePromotionalOffersEnabled(dto.enabled, user.email);
   }
 
   @ApiOperation({ summary: 'Get Enable Typesense setting (Store Configuration)' })

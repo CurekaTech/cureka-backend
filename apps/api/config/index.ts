@@ -21,3 +21,4 @@ export { smtpConfig } from './smtp.config';
 export { envValidationSchema } from './env.validation';
 
 export { walletConfig } from './wallet.config';
+export { promotionalOffersConfig } from './promotional-offers.config';

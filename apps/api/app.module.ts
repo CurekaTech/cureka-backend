@@ -24,6 +24,7 @@ import {
   imagePipelineConfig,
   smtpConfig,
   walletConfig,
+  promotionalOffersConfig,
   envValidationSchema,
 } from './config';
 
@@ -93,6 +94,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
         imagePipelineConfig,
         smtpConfig,
         walletConfig,
+        promotionalOffersConfig,
       ],
       validationSchema: envValidationSchema,
       validationOptions: {

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
+import { ConfigService } from '@nestjs/config';
+import { isPromotionalOffersEnabled } from '../utils/promotional-offers-enabled.util';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -31,7 +32,7 @@ const EMPTY: PromotionEvaluation = {
 @Injectable()
 export class PromotionalOfferEvaluationService {
   constructor(
-    private readonly adminSettingsService: AdminSettingsService,
+    private readonly configService: ConfigService,
     private readonly offersRepository: PromotionalOffersRepository,
     private readonly reservationsRepository: PromotionalOfferReservationsRepository,
     private readonly dataSource: DataSource,
@@ -43,7 +44,7 @@ export class PromotionalOfferEvaluationService {
     customerSubtotal: number;
     excludeOfferIds?: string[];
   }): Promise<PromotionEvaluation> {
-    const enabled = await this.adminSettingsService.isPromotionalOffersEnabled();
+    const enabled = isPromotionalOffersEnabled(this.configService);
     if (!enabled) {
       return { ...EMPTY, warnings: [{ code: 'OFFERS_DISABLED', message: 'Promotional offers are disabled' }] };
     }
@@ -100,7 +101,7 @@ export class PromotionalOfferEvaluationService {
   }
 
   async publicMessagesForVariant(variantId: string): Promise<Array<{ id: string; offerType: string; customerMessage: string }>> {
-    const enabled = await this.adminSettingsService.isPromotionalOffersEnabled();
+    const enabled = isPromotionalOffersEnabled(this.configService);
     if (!enabled || !variantId) return [];
     const live = await this.offersRepository.findLive();
     return live

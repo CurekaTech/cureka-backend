@@ -119,15 +119,6 @@ export class AddPromotionalOffers1786014000000 implements MigrationInterface {
     await queryRunner.query(`ALTER TABLE "payment_request_items" ADD COLUMN IF NOT EXISTS "promotion_offer_id" uuid`);
     await queryRunner.query(`ALTER TABLE "payment_request_items" ADD COLUMN IF NOT EXISTS "catalog_unit_price" numeric(12,2)`);
 
-    await queryRunner.query(`
-      INSERT INTO "admin_setting" ("id", "ref_id", "key", "value", "status", "description", "created_by", "updated_by", "created_at", "updated_at")
-      SELECT uuid_generate_v4(), 'SETPROMOFLAG01', 'PROMOTIONAL_OFFERS_ENABLED', 'false', 'inactive',
-        'Runtime switch for Cureka native promotional offers', 'system', 'system', now(), now()
-      WHERE NOT EXISTS (
-        SELECT 1 FROM "admin_setting" WHERE "key" = 'PROMOTIONAL_OFFERS_ENABLED' AND "deleted_at" IS NULL
-      )
-    `);
-
     for (const permission of permissions) {
       await queryRunner.query(
         `
@@ -155,7 +146,6 @@ export class AddPromotionalOffers1786014000000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DELETE FROM "role_permissions" WHERE "permission_id" IN (SELECT "id" FROM "permissions" WHERE "code" LIKE 'promotional_offers.%')`);
     await queryRunner.query(`DELETE FROM "permissions" WHERE "code" LIKE 'promotional_offers.%'`);
-    await queryRunner.query(`DELETE FROM "admin_setting" WHERE "key" = 'PROMOTIONAL_OFFERS_ENABLED'`);
     await queryRunner.query(`ALTER TABLE "payment_request_items" DROP COLUMN IF EXISTS "catalog_unit_price"`);
     await queryRunner.query(`ALTER TABLE "payment_request_items" DROP COLUMN IF EXISTS "promotion_offer_id"`);
     await queryRunner.query(`ALTER TABLE "payment_request_items" DROP COLUMN IF EXISTS "line_source"`);

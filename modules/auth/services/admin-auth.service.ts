@@ -20,7 +20,7 @@ import {
   isSuperAdminSessionAccount,
   parseJwtExpiresInToMilliseconds,
 } from '../utils/super-admin-session.util';
-import { AdminSettingsService } from '@modules/admin-settings/services/admin-settings.service';
+import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
 
 @Injectable()
@@ -33,7 +33,6 @@ export class AdminAuthService {
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
     private readonly adminSessionsRepository: AdminSessionsRepository,
-    private readonly adminSettingsService: AdminSettingsService,
   ) { }
 
   async login(dto: AdminLoginDto): Promise<IAdminAuthResponse> {
@@ -244,7 +243,7 @@ export class AdminAuthService {
         .filter(Boolean) as MenuItem[];
     };
 
-    const offersEnabled = await this.adminSettingsService.isPromotionalOffersEnabled();
+    const offersEnabled = isPromotionalOffersEnabled(this.configService);
     const withModules = menuForSubscriptionsModule(isSubscriptionsModuleEnabled(this.configService));
     const visible = offersEnabled
       ? withModules
