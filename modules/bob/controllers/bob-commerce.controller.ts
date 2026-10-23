@@ -13,6 +13,7 @@ import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RawResponse } from '@packages/common';
 import {
   BobCreateOrderDto,
+  BobListProductsQueryDto,
   BobPlaceOrderDto,
   BobUpdateProductTagsDto,
 } from '../dto/bob.dto';
@@ -45,10 +46,13 @@ export class BobCommerceController {
     return this.bobCatalogService.listProductsByCategory(categoryId);
   }
 
-  @ApiOperation({ summary: 'BOB: all products, or filter with ?ids=' })
+  @ApiOperation({
+    summary:
+      'BOB: products and variants. Optional ?search= (or ?q=), ?page=&limit= (max 100). ?ids= still selects specific products. No query returns the full catalogue.',
+  })
   @Get('products')
-  listProducts(@Query('ids') ids?: string) {
-    return this.bobCatalogService.listProducts(ids);
+  listProducts(@Query() query: BobListProductsQueryDto) {
+    return this.bobCatalogService.listProducts(query);
   }
 
   @ApiOperation({ summary: 'BOB: product + variants' })
