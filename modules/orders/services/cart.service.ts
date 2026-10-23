@@ -633,14 +633,16 @@ export class CartService {
 
         for (const item of guestCart.items) {
           const variant = await this.getValidVariant(item.productId, item.variantId, manager);
-          const existing = await this.cartItemsRepository.findByCartAndVariant(
+          const isSubscription = !!item.isSubscription;
+          const frequency = isSubscription ? item.frequency ?? null : null;
+          const existingLines = await this.cartItemsRepository.findAllByCartAndVariant(
             targetCart.id,
             item.variantId,
             manager,
-            {
-              isSubscription: item.isSubscription,
-              frequency: item.isSubscription ? item.frequency ?? null : null,
-            },
+          );
+          const existing = existingLines.find(
+            (line) =>
+              line.isSubscription === isSubscription && (line.frequency ?? null) === frequency,
           );
 
           if (existing) {
@@ -649,6 +651,22 @@ export class CartService {
             await this.cartItemsRepository.updateById(
               existing.id,
               { quantity: nextQty, updatedBy: toUserId },
+              manager,
+            );
+          } else if (existingLines[0]) {
+            // One row per variant. A one-time guest line must clear isSubscription
+            // or the later GoKwik checkout rejects the whole cart.
+            const opposite = existingLines[0];
+            const nextQty = opposite.quantity + item.quantity;
+            this.assertStockAvailable(nextQty, variant);
+            await this.cartItemsRepository.updateById(
+              opposite.id,
+              {
+                quantity: nextQty,
+                isSubscription,
+                frequency,
+                updatedBy: toUserId,
+              },
               manager,
             );
           } else {
@@ -662,8 +680,8 @@ export class CartService {
                 productId: item.productId,
                 variantId: item.variantId,
                 quantity: item.quantity,
-                isSubscription: !!item.isSubscription,
-                frequency: item.isSubscription ? item.frequency ?? null : null,
+                isSubscription,
+                frequency,
                 createdBy: toUserId,
                 updatedBy: toUserId,
               },
@@ -921,11 +939,14 @@ export class CartService {
       await this.assertSubscriptionAllowed(dto.productId, dto.variantId, frequency);
     }
 
-    const existing = await this.cartItemsRepository.findByCartAndVariant(
+    const existingLines = await this.cartItemsRepository.findAllByCartAndVariant(
       cartId,
       dto.variantId,
       manager,
-      { isSubscription, frequency },
+    );
+    const existing = existingLines.find(
+      (line) =>
+        line.isSubscription === isSubscription && (line.frequency ?? null) === frequency,
     );
 
     if (existing) {
@@ -934,6 +955,37 @@ export class CartService {
       await this.cartItemsRepository.updateById(
         existing.id,
         { quantity: nextQty, updatedBy: userId },
+        manager,
+      );
+      await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
+      return;
+    }
+
+    const sameType = existingLines.find((line) => line.isSubscription === isSubscription);
+    if (sameType) {
+      await this.cartItemsRepository.updateById(
+        sameType.id,
+        { frequency, updatedBy: userId },
+        manager,
+      );
+      await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
+      return;
+    }
+
+    // Unique (cart, variant) — a subscribe line and a one-time line cannot both exist.
+    // Switching to a normal purchase must clear isSubscription so GoKwik can take the cart.
+    const opposite = existingLines[0];
+    if (opposite) {
+      const nextQty = opposite.quantity + dto.quantity;
+      this.assertStockAvailable(nextQty, variant);
+      await this.cartItemsRepository.updateById(
+        opposite.id,
+        {
+          quantity: nextQty,
+          isSubscription,
+          frequency,
+          updatedBy: userId,
+        },
         manager,
       );
       await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);

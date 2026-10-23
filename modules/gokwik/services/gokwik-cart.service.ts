@@ -225,6 +225,11 @@ export class GokwikCartService {
     return cart;
   }
 
+  /**
+   * Blocks carts that contain a subscription line. A product that is only
+   * marked available for subscription can still be purchased one-time
+   * (`isSubscription` false) through GoKwik.
+   */
   private assertNoSubscriptionItems(items: CartResponse['items']): void {
     if (items.some((item) => item.isSubscription)) {
       throw new BadRequestException({
