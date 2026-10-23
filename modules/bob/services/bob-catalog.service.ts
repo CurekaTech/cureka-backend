@@ -17,6 +17,7 @@ import {
   mapBobProductSummary,
   mapBobVariantDetail,
 } from '../mappers/bob.mapper';
+import { BobListProductsQueryDto } from '../dto/bob.dto';
 import {
   BobCategory,
   BobProductDetail,
@@ -24,7 +25,9 @@ import {
   BobVariantDetail,
 } from '../interfaces/bob.interface';
 
-const PRODUCT_PAGE_SIZE = 40;
+const PRODUCT_PAGE_SIZE = 100;
+const PRODUCT_LOAD_CONCURRENCY = 4;
+const DEFAULT_SEARCH_PAGE_SIZE = 20;
 
 @Injectable()
 export class BobCatalogService {
@@ -69,24 +72,50 @@ export class BobCatalogService {
     return mapBobProductDetail(product, imageByKey, this.storefrontUrl());
   }
 
-  async listProducts(idsParam?: string): Promise<BobProductDetail[]> {
-    const ids = (idsParam ?? '')
+  async listProducts(query: BobListProductsQueryDto = {}): Promise<BobProductDetail[]> {
+    const started = Date.now();
+    const ids = (query.ids ?? '')
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean);
+    const search = (query.search ?? query.q)?.trim() || undefined;
+    const paged = query.page != null || query.limit != null || Boolean(search);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? (paged ? DEFAULT_SEARCH_PAGE_SIZE : undefined);
 
-    const products = ids.length
-      ? await this.bobProductResolver.findPublishedByBobIds(ids)
-      : this.onlyCatalogueProducts(
-          await this.loadPublishedByRefIds(
-            await this.productsRepository.findPublishedRefIdsForBobCatalog(),
-          ),
-          'GET /products',
-        );
+    let total = ids.length;
+    let products: ProductEntity[];
+    if (ids.length) {
+      products = await this.bobProductResolver.findPublishedByBobIds(ids);
+    } else {
+      const catalog = await this.productsRepository.findPublishedRefIdsForBobCatalog({
+        search,
+        page: paged ? page : undefined,
+        limit,
+      });
+      total = catalog.total;
+      products = this.onlyCatalogueProducts(
+        await this.loadPublishedByRefIds(catalog.refIds),
+        'GET /products',
+      );
+    }
 
     const imageByKey = await this.signImages(products);
     const storefront = this.storefrontUrl();
-    return products.map((product) => mapBobProductDetail(product, imageByKey, storefront));
+    const details = products.map((product) => mapBobProductDetail(product, imageByKey, storefront));
+    this.logger.log(
+      {
+        count: details.length,
+        total,
+        ids: ids.length,
+        search: search ?? null,
+        page: paged ? page : null,
+        limit: limit ?? null,
+        ms: Date.now() - started,
+      },
+      '[BOB inbound] GET /products',
+    );
+    return details;
   }
 
   async getVariant(variantId: string): Promise<BobVariantDetail> {
@@ -151,20 +180,27 @@ export class BobCatalogService {
     return ready;
   }
 
+  /**
+   * Catalogue rows only need variants, media, tags, and category slugs.
+   * findPublishedByRefIds loads those. The PDP relation load (faqs, bundles,
+   * health concerns) is what made an unfiltered catalogue call exceed
+   * Cloudflare's gateway time.
+   */
   private async loadPublishedByRefIds(refIds: string[]): Promise<ProductEntity[]> {
-    const products: ProductEntity[] = [];
+    const chunks: string[][] = [];
     for (let index = 0; index < refIds.length; index += PRODUCT_PAGE_SIZE) {
-      const chunk = refIds.slice(index, index + PRODUCT_PAGE_SIZE);
-      const listed = await this.productsRepository.findPublishedByRefIds(chunk);
-      const detailed = await this.productsRepository.findPublishedByIds(
-        listed.map((product) => product.id),
+      chunks.push(refIds.slice(index, index + PRODUCT_PAGE_SIZE));
+    }
+
+    const products: ProductEntity[] = [];
+    for (let index = 0; index < chunks.length; index += PRODUCT_LOAD_CONCURRENCY) {
+      const batch = chunks.slice(index, index + PRODUCT_LOAD_CONCURRENCY);
+      const loaded = await Promise.all(
+        batch.map((chunk) => this.productsRepository.findPublishedByRefIds(chunk)),
       );
-      const byId = new Map(detailed.map((product) => [product.id, product]));
-      products.push(
-        ...listed
-          .map((product) => byId.get(product.id))
-          .filter((product): product is ProductEntity => Boolean(product)),
-      );
+      for (const rows of loaded) {
+        products.push(...rows);
+      }
     }
     this.logger.log({ count: products.length }, '[BOB catalog] products loaded');
     return products;

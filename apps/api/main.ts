@@ -1,3 +1,4 @@
+import { RequestMethod } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +11,7 @@ import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { AppModule } from './app.module';
+import { registerCspReportParsers } from './csp-report/csp-report.parser';
 import { resolveUploadDir } from './config/storage.config';
 import { resolveTrustProxy } from './config/trust-proxy.util';
 import { APP_CONSTANTS } from '@packages/common';
@@ -117,7 +119,12 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
 
-  app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX);
+  // CSP reports are posted to /api/csp-report (report-uri on the storefront).
+  // /api on www.cureka.com is this process, so this path must not sit under api/v1.
+  registerCspReportParsers(app.getHttpAdapter().getInstance());
+  app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX, {
+    exclude: [{ path: 'api/csp-report', method: RequestMethod.POST }],
+  });
 
   const swaggerEnabled = configService.get<boolean>('app.swaggerEnabled') === true;
   if (swaggerEnabled) {
