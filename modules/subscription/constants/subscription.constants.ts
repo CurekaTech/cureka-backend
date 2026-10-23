@@ -11,11 +11,13 @@ export const PRODUCT_FREQUENCY_DAYS = { DAILY: 1 } as const;
 
 /** Short TechBV test intervals, in minutes. Production tenures are not listed here. */
 export const PRODUCT_FREQUENCY_MINUTES = {
+  MINUTES_2: 2,
   MINUTES_30: 30,
   HOURLY: 60,
 } as const;
 
 export const PRODUCT_FREQUENCY_LABELS = {
+  MINUTES_2: 'Every 2 minutes',
   MINUTES_30: 'Every 30 minutes',
   HOURLY: 'Every 1 hour',
   DAILY: 'Every 1 day',
@@ -30,6 +32,9 @@ export function describeProductFrequency(frequency: string): {
   intervalMonths?: number;
   label: string;
 } {
+  if (frequency === 'MINUTES_2') {
+    return { intervalMinutes: 2, label: PRODUCT_FREQUENCY_LABELS.MINUTES_2 };
+  }
   if (frequency === 'MINUTES_30') {
     return { intervalMinutes: 30, label: PRODUCT_FREQUENCY_LABELS.MINUTES_30 };
   }

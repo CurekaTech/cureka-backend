@@ -13,6 +13,8 @@ export type SubscriptionCheckoutExtras = {
     email?: string;
     contact?: string;
   } | null;
+  recurring?: string | null;
+  gatewayCustomerId?: string | null;
 };
 
 export function checkoutExtrasFromLink(
@@ -27,6 +29,8 @@ export function checkoutExtrasFromLink(
     paymentSessionId: link.paymentSessionId ?? null,
     environment: link.environment ?? null,
     customer: link.customer,
+    recurring: link.recurring ?? null,
+    gatewayCustomerId: link.gatewayCustomerId ?? null,
   };
 }
 

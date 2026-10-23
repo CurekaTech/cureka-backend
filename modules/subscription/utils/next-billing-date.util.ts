@@ -122,6 +122,7 @@ export function getNextProductBillingDate(
   timeZone = SUBSCRIPTION_DEFAULT_TIMEZONE,
   anchorDay?: number | null,
 ): Date {
+  if (frequency === ProductSubscriptionFrequency.MINUTES_2) return addMinutes(from, 2);
   if (frequency === ProductSubscriptionFrequency.MINUTES_30) return addMinutes(from, 30);
   if (frequency === ProductSubscriptionFrequency.HOURLY) return addMinutes(from, 60);
   if (frequency === ProductSubscriptionFrequency.DAILY) return addDays(from, 1);
@@ -136,6 +137,7 @@ export function getNextMembershipBillingDate(
   from: Date,
   billingCycle: MembershipBillingCycle,
 ): Date {
+  if (billingCycle === MembershipBillingCycle.MINUTES_2) return addMinutes(from, 2);
   if (billingCycle === MembershipBillingCycle.MINUTES_30) return addMinutes(from, 30);
   if (billingCycle === MembershipBillingCycle.HOURLY) return addMinutes(from, 60);
   if (billingCycle === MembershipBillingCycle.DAILY) return addDays(from, 1);

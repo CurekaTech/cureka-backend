@@ -5,12 +5,14 @@ import { ProductSubscriptionFrequency } from '../enums/product-subscription-freq
 
 /** Tenures that exist only so TechBV can exercise renewal without waiting a month. */
 export const TEST_PRODUCT_FREQUENCIES = new Set<ProductSubscriptionFrequency>([
+  ProductSubscriptionFrequency.MINUTES_2,
   ProductSubscriptionFrequency.MINUTES_30,
   ProductSubscriptionFrequency.HOURLY,
   ProductSubscriptionFrequency.DAILY,
 ]);
 
 export const TEST_MEMBERSHIP_CYCLES = new Set<MembershipBillingCycle>([
+  MembershipBillingCycle.MINUTES_2,
   MembershipBillingCycle.MINUTES_30,
   MembershipBillingCycle.HOURLY,
   MembershipBillingCycle.DAILY,
@@ -30,7 +32,7 @@ export function assertProductFrequenciesAllowed(
   for (const frequency of frequencies) {
     if (TEST_PRODUCT_FREQUENCIES.has(frequency)) {
       throw new BadRequestException(
-        '30-minute, 1-hour, and 1-day tenures are only available in the TechBV test environment',
+        '2-minute, 30-minute, 1-hour, and 1-day tenures are only available in the TechBV test environment',
       );
     }
   }
@@ -43,7 +45,7 @@ export function assertMembershipCycleAllowed(
   if (!billingCycle || isSubscriptionTestTenuresEnabled(config)) return;
   if (TEST_MEMBERSHIP_CYCLES.has(billingCycle)) {
     throw new BadRequestException(
-      '30-minute, 1-hour, and 1-day tenures are only available in the TechBV test environment',
+      '2-minute, 30-minute, 1-hour, and 1-day tenures are only available in the TechBV test environment',
     );
   }
 }

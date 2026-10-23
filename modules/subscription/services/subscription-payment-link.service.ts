@@ -33,6 +33,8 @@ export type CreateSubscriptionPaymentLinkResult = {
     email: string;
     contact: string;
   };
+  recurring?: string | null;
+  gatewayCustomerId?: string | null;
 };
 
 @Injectable()

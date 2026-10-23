@@ -25,6 +25,9 @@ describe('next-billing-date.util', () => {
   });
 
   it('adds TechBV test tenures without changing calendar-month schedules', () => {
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.MINUTES_2, 'UTC').getTime() - base.getTime()).toBe(
+      2 * 60 * 1000,
+    );
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.MINUTES_30, 'UTC').getTime() - base.getTime()).toBe(
       30 * 60 * 1000,
     );
@@ -33,6 +36,9 @@ describe('next-billing-date.util', () => {
     );
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.DAILY, 'UTC').getTime() - base.getTime()).toBe(
       24 * 60 * 60 * 1000,
+    );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.MINUTES_2).getTime() - base.getTime()).toBe(
+      2 * 60 * 1000,
     );
     expect(getNextMembershipBillingDate(base, MembershipBillingCycle.MINUTES_30).getTime() - base.getTime()).toBe(
       30 * 60 * 1000,

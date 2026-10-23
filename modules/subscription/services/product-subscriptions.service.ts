@@ -143,6 +143,10 @@ export class ProductSubscriptionsService {
       memberDiscount,
     );
     const described = describeProductFrequency(dto.frequency);
+    const registersMandate = this.mandateService.willRegisterMandateOnFirstCharge({
+      amount: pricing.finalAmount,
+      productMandateMaxAmount: config.mandateMaxAmount,
+    });
     return {
       productId: product.id,
       productVariantId: variant.id,
@@ -159,13 +163,13 @@ export class ProductSubscriptionsService {
           'One-time and Subscribe & Save items may share a cart. Subscription discount applies only to subscription lines. First payment uses existing GoKwik or native checkout. The paid order is created once; each subscription line is activated afterwards.',
       },
       firstPayment: {
-        routedThroughExistingCheckout: true,
-        isMandateAuthorization: false,
+        routedThroughExistingCheckout: !registersMandate,
+        isMandateAuthorization: registersMandate,
       },
       autopay: {
         enabled: this.mandateService.isAutopayFeatureEnabled(),
         ready: false,
-        requiresSeparateMandateSetup: true,
+        requiresSeparateMandateSetup: !registersMandate,
       },
     };
   }
@@ -199,6 +203,17 @@ export class ProductSubscriptionsService {
     const address = await this.addressesRepository.findByIdAndUserId(dto.addressId, userId);
     if (!address) {
       throw new BadRequestException('Delivery address not found');
+    }
+
+    const previous = await this.subscriptionsRepository.findByUserId(userId);
+    for (const row of previous) {
+      if (
+        row.productId === dto.productId &&
+        row.productVariantId === dto.productVariantId &&
+        row.status === ProductSubscriptionStatus.PENDING_PAYMENT
+      ) {
+        await this.abandonUnpaid(userId, row.id);
+      }
     }
 
     const memberDiscount = await this.membershipBenefits.getMemberDiscount(userId);
@@ -271,26 +286,51 @@ export class ProductSubscriptionsService {
     });
 
     const user = await this.usersRepository.findById(userId);
-    const link = await this.paymentLinkService.createPaymentLink({
-      amount: pricing.finalAmount,
-      currency: 'INR',
-      referenceId: payment.refId,
-      customer: {
-        id: userId,
-        name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
-        email: user?.email,
-        phone: user?.mobileNumber ?? '',
-      },
-      notes: buildSubscriptionGatewayNotes({
-        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
-        billingCycleRef,
-        subscriptionId: subscription.id,
-        subscriptionPaymentId: payment.id,
-        userId,
-        productId: dto.productId,
-      }),
-      description: `Product subscription ${subscription.refId}`,
+    const customer = {
+      id: userId,
+      name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
+      email: user?.email,
+      phone: user?.mobileNumber ?? '',
+    };
+    const notes = buildSubscriptionGatewayNotes({
+      paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+      billingCycleRef,
+      subscriptionId: subscription.id,
+      subscriptionPaymentId: payment.id,
+      userId,
+      productId: dto.productId,
     });
+    const firstChargeMandate = await this.mandateService.tryStartFirstChargeAuthorization({
+      subscription,
+      customer,
+      actor: userId,
+      amount: pricing.finalAmount,
+      productMandateMaxAmount: configEntity.mandateMaxAmount,
+      notes,
+    });
+    const link = firstChargeMandate
+      ? {
+          paymentLink: null,
+          gatewayOrderId: firstChargeMandate.session.authorizationOrderId,
+          paymentGateway: 'RAZORPAY',
+          razorpayOrderId: firstChargeMandate.session.authorizationOrderId,
+          keyId: firstChargeMandate.session.keyId ?? null,
+          amount: firstChargeMandate.session.amountPaise ?? null,
+          currency: firstChargeMandate.session.currency,
+          customer: {
+            name: customer.name || customer.phone,
+            email: customer.email ?? '',
+            contact: customer.phone,
+          },
+        }
+      : await this.paymentLinkService.createPaymentLink({
+          amount: pricing.finalAmount,
+          currency: 'INR',
+          referenceId: payment.refId,
+          customer,
+          notes,
+          description: `Product subscription ${subscription.refId}`,
+        });
 
     await this.paymentsService.attachPaymentLink(payment.id, {
       paymentLink: link.paymentLink ?? '',
@@ -312,7 +352,11 @@ export class ProductSubscriptionsService {
     });
 
     const refreshed = await this.subscriptionsRepository.findById(subscription.id);
-    return this.mapOwned(refreshed ?? subscription, checkoutExtrasFromLink(link));
+    return this.mapOwned(refreshed ?? subscription, {
+      ...checkoutExtrasFromLink(link),
+      recurring: firstChargeMandate ? '1' : null,
+      gatewayCustomerId: firstChargeMandate?.session.gatewayCustomerId ?? null,
+    });
   }
 
   /**
@@ -562,6 +606,25 @@ export class ProductSubscriptionsService {
       toStatus: ProductSubscriptionStatus.ACTIVE,
     });
     return this.getMine(userId, id);
+  }
+
+  /**
+   * Opening the payment window creates a pending row so the gateway has an order.
+   * Closing that window without payment removes the row. A captured payment is kept.
+   */
+  async abandonUnpaid(userId: string, id: string): Promise<{ abandoned: boolean }> {
+    const sub = await this.subscriptionsRepository.findByIdAndUserId(id, userId);
+    if (!sub || sub.status !== ProductSubscriptionStatus.PENDING_PAYMENT) {
+      return { abandoned: false };
+    }
+
+    const payments = await this.paymentsService.findBySubscriptionId(id);
+    if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+      return { abandoned: false };
+    }
+
+    await this.subscriptionsRepository.softDeleteById(id, userId);
+    return { abandoned: true };
   }
 
   async cancel(userId: string, id: string, reason?: string) {
@@ -1103,9 +1166,18 @@ export class ProductSubscriptionsService {
       payment.id,
       { gatewayPaymentId: params.gatewayPaymentId, actor: params.actor },
     );
-    if (!newlyPaid) return;
+    if (!newlyPaid) {
+      await this.confirmFirstChargeMandate(payment.gatewayOrderId, params.gatewayPaymentId, params.actor);
+      return;
+    }
 
-    const sub = await this.subscriptionsRepository.findById(paidPayment.subscriptionId);
+    let sub = await this.subscriptionsRepository.findById(paidPayment.subscriptionId);
+    if (!sub) {
+      sub = await this.subscriptionsRepository.findByIdIncludingDeleted(paidPayment.subscriptionId);
+      if (sub?.deletedAt) {
+        await this.subscriptionsRepository.restoreById(sub.id);
+      }
+    }
     if (!sub) {
       this.logger.error({ paymentId: paidPayment.id }, 'Subscription missing after payment');
       return;
@@ -1160,6 +1232,33 @@ export class ProductSubscriptionsService {
       kind: 'product_subscription',
       refId: sub.refId,
     });
+    await this.confirmFirstChargeMandate(
+      paidPayment.gatewayOrderId,
+      params.gatewayPaymentId ?? paidPayment.gatewayPaymentId,
+      params.actor,
+    );
+  }
+
+  private async confirmFirstChargeMandate(
+    gatewayOrderId: string | null | undefined,
+    gatewayPaymentId: string | null | undefined,
+    actor?: string,
+  ): Promise<void> {
+    try {
+      await this.mandateService.confirmFromAuthorizationPayment({
+        gatewayOrderId,
+        gatewayPaymentId,
+        actor: actor ?? 'webhook',
+      });
+    } catch (error) {
+      this.logger.warn(
+        {
+          gatewayOrderId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'AutoPay mandate was not confirmed from the first payment',
+      );
+    }
   }
 
   async processRenewals(asOfDate = new Date()): Promise<number> {

@@ -423,6 +423,7 @@ export class PaymentsWebhookController {
       await this.subscriptionMandateService.handleProviderWebhook({
         provider: SubscriptionMandateProvider.RAZORPAY,
         gatewayMandateId: tokenEntity?.entity?.id,
+        gatewayCustomerId: tokenEntity?.entity?.customer_id,
         status: mapRazorpayTokenStatus(
           tokenEntity?.entity?.recurring_status ?? tokenEntity?.entity?.status ?? event.replace('token.', ''),
         ),

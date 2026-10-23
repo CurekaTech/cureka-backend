@@ -51,9 +51,14 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     }
 
     const maxPaise = Math.round(Number(input.maxAmount) * 100);
+    const requestedPaise = Math.round(Number(input.authorizationAmount ?? 1) * 100);
+    const chargePaise = Math.max(100, requestedPaise);
+    if (!Number.isFinite(maxPaise) || maxPaise < chargePaise) {
+      throw new BadRequestException('First charge is above the AutoPay mandate limit');
+    }
     const expireAt = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 60 * 60;
     const order = await this.request('POST', '/orders', {
-      amount: 100,
+      amount: chargePaise,
       currency: input.currency ?? 'INR',
       customer_id: customerId,
       method: 'upi',
@@ -76,14 +81,14 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
       authorizationOrderId: orderId,
       gatewayCustomerId: customerId,
       keyId: this.keyId,
-      amountPaise: 100,
+      amountPaise: chargePaise,
       currency: input.currency ?? 'INR',
       checkoutPayload: {
         key: this.keyId,
         order_id: orderId,
         customer_id: customerId,
         recurring: '1',
-        amount: 100,
+        amount: chargePaise,
         currency: input.currency ?? 'INR',
         name: input.customer.name || 'Cureka Subscribe & Save',
         prefill: {

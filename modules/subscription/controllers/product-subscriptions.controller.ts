@@ -241,6 +241,18 @@ export class ProductSubscriptionsController {
     return this.productSubscriptionsService.resume(user.sub, id);
   }
 
+  @ApiOperation({ summary: 'Remove a subscription that was never paid' })
+  @ResponseMessage('Unpaid subscription removed')
+  @Post(':id/abandon-unpaid')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  abandonUnpaid(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.abandonUnpaid(user.sub, id);
+  }
+
   @ApiOperation({ summary: 'Cancel subscription' })
   @ResponseMessage('Subscription cancelled successfully')
   @Post(':id/cancel')

@@ -25,6 +25,18 @@ export class UserProductSubscriptionsRepository {
     return repository.findOne({ where: { id }, relations: { config: true } });
   }
 
+  findByIdIncludingDeleted(
+    id: string,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity | null> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    return repository.findOne({
+      where: { id },
+      relations: { config: true },
+      withDeleted: true,
+    });
+  }
+
   findByRefId(refId: string, manager?: EntityManager): Promise<UserProductSubscriptionEntity | null> {
     const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
     return repository.findOne({ where: { refId }, relations: { config: true } });
@@ -118,7 +130,12 @@ export class UserProductSubscriptionsRepository {
     await repository.softDelete(id);
   }
 
+  async restoreById(id: string, manager?: EntityManager): Promise<void> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    await repository.restore(id);
+  }
+
   existsByRefId(refId: string): Promise<boolean> {
-    return this.repo.exists({ where: { refId } });
+    return this.repo.exists({ where: { refId }, withDeleted: true });
   }
 }

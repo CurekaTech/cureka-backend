@@ -54,6 +54,9 @@ export class SubscriptionMandateService {
     customer: { name?: string; email?: string | null; phone: string };
     actor: string;
     returnUrl?: string;
+    /** When set, this checkout charges that amount and registers the mandate together. */
+    authorizationAmount?: string;
+    notes?: Record<string, string>;
   }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession }> {
     if (!this.isAutopayFeatureEnabled()) {
       throw new BadRequestException({
@@ -87,7 +90,8 @@ export class SubscriptionMandateService {
       userId: params.subscription.userId,
       customer: params.customer,
       maxAmount,
-      notes: {
+      authorizationAmount: params.authorizationAmount,
+      notes: params.notes ?? {
         paymentPurpose: 'PRODUCT_SUBSCRIPTION_MANDATE',
         subscriptionId: params.subscription.id,
         userId: params.subscription.userId,
@@ -180,6 +184,7 @@ export class SubscriptionMandateService {
     gatewaySubscriptionId?: string | null;
     authorizationOrderId?: string | null;
     gatewayPaymentId?: string | null;
+    gatewayCustomerId?: string | null;
     status: SubscriptionMandateStatus;
     actor: string;
     raw?: Record<string, unknown>;
@@ -193,6 +198,9 @@ export class SubscriptionMandateService {
         : null) ??
       (params.authorizationOrderId
         ? await this.mandatesRepository.findByAuthorizationOrderId(params.authorizationOrderId)
+        : null) ??
+      (params.gatewayCustomerId
+        ? await this.mandatesRepository.findLatestPendingByGatewayCustomerId(params.gatewayCustomerId)
         : null);
     if (!mandate) return false;
     if (mandate.provider !== params.provider) {
@@ -222,6 +230,87 @@ export class SubscriptionMandateService {
 
   adapter(provider: SubscriptionMandateProvider): RazorpayRecurringProvider | CashfreeSubscriptionProvider {
     return provider === SubscriptionMandateProvider.CASHFREE ? this.cashfree : this.razorpay;
+  }
+
+  willRegisterMandateOnFirstCharge(params: {
+    amount: string | number;
+    productMandateMaxAmount?: string | null;
+  }): boolean {
+    if (!this.isAutopayFeatureEnabled() || !this.razorpay.isConfigured()) return false;
+    const configured = this.configService.get<string>('subscriptions.autopayProvider');
+    if (configured === SubscriptionMandateProvider.CASHFREE) return false;
+    const maxAmount = resolveMandateMaxAmount({
+      productMandateMaxAmount: params.productMandateMaxAmount,
+      globalMandateMaxAmount: this.configService.get<string>('subscriptions.mandateMaxAmount'),
+    });
+    const amount = Number(params.amount);
+    return Boolean(maxAmount) && Number.isFinite(amount) && amount > 0 && amount <= Number(maxAmount);
+  }
+
+  /**
+   * First Subscribe checkout charges the product and registers UPI AutoPay together.
+   * Returns null when AutoPay cannot be registered, so the caller keeps the normal payment.
+   */
+  async tryStartFirstChargeAuthorization(params: {
+    subscription: UserProductSubscriptionEntity;
+    customer: { name?: string; email?: string | null; phone: string };
+    actor: string;
+    amount: string;
+    productMandateMaxAmount?: string | null;
+    notes: Record<string, string>;
+  }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession } | null> {
+    if (
+      !params.customer.phone ||
+      !this.willRegisterMandateOnFirstCharge({
+        amount: params.amount,
+        productMandateMaxAmount: params.productMandateMaxAmount,
+      })
+    ) {
+      return null;
+    }
+    try {
+      return await this.startAuthorization({
+        subscription: params.subscription,
+        customer: params.customer,
+        actor: params.actor,
+        authorizationAmount: params.amount,
+        notes: params.notes,
+      });
+    } catch (error) {
+      this.logger.warn(
+        {
+          subscriptionId: params.subscription.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'First payment could not register AutoPay — using a one-time charge',
+      );
+      return null;
+    }
+  }
+
+  async confirmFromAuthorizationPayment(params: {
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+    actor: string;
+  }): Promise<void> {
+    if (!params.gatewayOrderId) return;
+    const mandate = await this.mandatesRepository.findByAuthorizationOrderId(params.gatewayOrderId);
+    if (!mandate) return;
+    const adapter = this.adapter(mandate.provider);
+    if (!adapter.isConfigured()) return;
+    const snapshot = await adapter.fetchMandateStatus({
+      gatewayPaymentId: params.gatewayPaymentId,
+      gatewayCustomerId: mandate.gatewayCustomerId,
+      gatewayMandateId: mandate.gatewayMandateId,
+    });
+    await this.applyStatusSnapshot({
+      mandateId: mandate.id,
+      status: snapshot.status,
+      gatewayMandateId: snapshot.gatewayMandateId,
+      gatewayPaymentId: params.gatewayPaymentId,
+      actor: params.actor,
+      raw: snapshot.raw,
+    });
   }
 
   private resolveNewMandateProvider(): SubscriptionMandateProvider {

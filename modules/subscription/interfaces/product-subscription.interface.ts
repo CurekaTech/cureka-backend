@@ -123,6 +123,8 @@ export interface IUserProductSubscription {
     email?: string;
     contact?: string;
   } | null;
+  recurring?: string | null;
+  gatewayCustomerId?: string | null;
   user?: ISubscriptionUserSummary | null;
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;
