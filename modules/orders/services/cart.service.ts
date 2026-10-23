@@ -14,6 +14,7 @@ import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
+import { assertProductFrequenciesAllowed } from '@modules/subscription/utils/subscription-test-tenures.util';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -1021,6 +1022,7 @@ export class CartService {
     if (!isSubscriptionsModuleEnabled(this.configService)) {
       throw new BadRequestException('Subscriptions are not available');
     }
+    assertProductFrequenciesAllowed(this.configService, [frequency]);
 
     const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
       productId,

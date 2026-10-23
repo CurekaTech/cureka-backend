@@ -24,6 +24,7 @@ import { checkoutExtrasFromLink } from '../utils/checkout-extras.util';
 import { UserMembershipsRepository } from '../repositories/user-memberships.repository';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
 import { getNextMembershipBillingDate } from '../utils/next-billing-date.util';
+import { TEST_MEMBERSHIP_CYCLES } from '../utils/subscription-test-tenures.util';
 import { buildSubscriptionGatewayNotes } from '../utils/subscription-gateway-notes.util';
 import { MembershipPaymentsService } from './membership-payments.service';
 import { MembershipPlansService } from './membership-plans.service';
@@ -88,7 +89,7 @@ export class MembershipsService {
     });
 
     const billingDate = new Date();
-    const billingCycleRef = buildBillingCycleRef(billingDate);
+    const billingCycleRef = buildBillingCycleRef(billingDate, plan.billingCycle);
     const payment = await this.paymentsService.upsertPendingCycle({
       userMembershipId: membership.id,
       userId,
@@ -187,7 +188,7 @@ export class MembershipsService {
     }
 
     const billingDate = membership.nextBillingDate ?? new Date();
-    const billingCycleRef = buildBillingCycleRef(billingDate);
+    const billingCycleRef = buildBillingCycleRef(billingDate, plan.billingCycle);
     const { amount } = this.pricingService.calculate(plan.price);
 
     const payment = await this.paymentsService.upsertPendingCycle({
@@ -272,7 +273,7 @@ export class MembershipsService {
     });
 
     const billingDate = new Date();
-    const billingCycleRef = buildBillingCycleRef(billingDate);
+    const billingCycleRef = buildBillingCycleRef(billingDate, newPlan.billingCycle);
     const payment = await this.paymentsService.upsertPendingCycle({
       userMembershipId: membership.id,
       userId,
@@ -401,9 +402,13 @@ export class MembershipsService {
     }
 
     const now = new Date();
-    const endDate = new Date(now.getTime());
-    endDate.setUTCDate(endDate.getUTCDate() + plan.validityDays);
     const nextBilling = getNextMembershipBillingDate(now, plan.billingCycle);
+    const endDate = TEST_MEMBERSHIP_CYCLES.has(plan.billingCycle)
+      ? nextBilling
+      : new Date(now.getTime());
+    if (!TEST_MEMBERSHIP_CYCLES.has(plan.billingCycle)) {
+      endDate.setUTCDate(endDate.getUTCDate() + plan.validityDays);
+    }
 
     await this.membershipsRepository.updateById(membership.id, {
       status: MembershipStatus.ACTIVE,
@@ -438,7 +443,7 @@ export class MembershipsService {
         if (!plan || !plan.renewalEnabled) continue;
 
         const billingDate = membership.nextBillingDate ?? asOfDate;
-        const billingCycleRef = buildBillingCycleRef(billingDate);
+        const billingCycleRef = buildBillingCycleRef(billingDate, plan.billingCycle);
         const { amount } = this.pricingService.calculate(plan.price);
 
         const payment = await this.paymentsService.upsertPendingCycle({

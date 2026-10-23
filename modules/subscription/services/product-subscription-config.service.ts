@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { generateUniqueRefId } from '@packages/common';
 import { ProductSubscriptionConfigDto } from '../dto/product-subscription-config.dto';
 import { SubscriptionMissedPaymentAction } from '../enums/subscription-missed-payment-action.enum';
@@ -6,10 +7,14 @@ import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.
 import { mapProductSubscriptionConfigToResponse } from '../mappers/product-subscription.mapper';
 import { IProductSubscriptionConfig } from '../interfaces/product-subscription.interface';
 import { ProductSubscriptionConfigsRepository } from '../repositories/product-subscription-configs.repository';
+import { assertProductFrequenciesAllowed } from '../utils/subscription-test-tenures.util';
 
 @Injectable()
 export class ProductSubscriptionConfigService {
-  constructor(private readonly configsRepository: ProductSubscriptionConfigsRepository) {}
+  constructor(
+    private readonly configsRepository: ProductSubscriptionConfigsRepository,
+    private readonly configService: ConfigService,
+  ) {}
 
   async upsertForProduct(
     productId: string,
@@ -17,6 +22,7 @@ export class ProductSubscriptionConfigService {
     dto: ProductSubscriptionConfigDto,
     actor: string,
   ): Promise<IProductSubscriptionConfig> {
+    assertProductFrequenciesAllowed(this.configService, dto.frequencies);
     const existing = await this.configsRepository.findByProductAndVariant(
       productId,
       productVariantId,

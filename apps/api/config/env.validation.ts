@@ -257,6 +257,8 @@ export const envValidationSchema = Joi.object({
 
   /** Website + admin subscription/membership module. Default off. true only on techbv. */
   SUBSCRIPTIONS_MODULE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  /** 30-minute, 1-hour, and 1-day tenures. Leave false outside TechBV. */
+  SUBSCRIPTION_TEST_TENURES_ENABLED: Joi.string().valid('true', 'false').default('false'),
   SUBSCRIPTION_TIMEZONE: Joi.string().default('Asia/Kolkata'),
   SUBSCRIPTION_DELIVERY_LEAD_DAYS: Joi.number().integer().min(0).max(30).default(2),
   SUBSCRIPTION_MAX_RETRIES: Joi.number().integer().min(0).max(10).default(3),

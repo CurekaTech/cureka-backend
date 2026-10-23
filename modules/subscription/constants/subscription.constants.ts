@@ -9,12 +9,44 @@ export const PRODUCT_FREQUENCY_MONTHS = {
 
 export const PRODUCT_FREQUENCY_DAYS = { DAILY: 1 } as const;
 
+/** Short TechBV test intervals, in minutes. Production tenures are not listed here. */
+export const PRODUCT_FREQUENCY_MINUTES = {
+  MINUTES_30: 30,
+  HOURLY: 60,
+} as const;
+
 export const PRODUCT_FREQUENCY_LABELS = {
-  DAILY: 'Every 24 hours',
+  MINUTES_30: 'Every 30 minutes',
+  HOURLY: 'Every 1 hour',
+  DAILY: 'Every 1 day',
   MONTHLY: 'Every month',
   BI_MONTHLY: 'Every 2 months',
   QUARTERLY: 'Every 3 months',
 } as const;
+
+export function describeProductFrequency(frequency: string): {
+  intervalMinutes?: number;
+  intervalDays?: number;
+  intervalMonths?: number;
+  label: string;
+} {
+  if (frequency === 'MINUTES_30') {
+    return { intervalMinutes: 30, label: PRODUCT_FREQUENCY_LABELS.MINUTES_30 };
+  }
+  if (frequency === 'HOURLY') {
+    return { intervalMinutes: 60, label: PRODUCT_FREQUENCY_LABELS.HOURLY };
+  }
+  if (frequency === 'DAILY') {
+    return { intervalDays: 1, label: PRODUCT_FREQUENCY_LABELS.DAILY };
+  }
+  if (frequency === 'BI_MONTHLY') {
+    return { intervalMonths: 2, label: PRODUCT_FREQUENCY_LABELS.BI_MONTHLY };
+  }
+  if (frequency === 'QUARTERLY') {
+    return { intervalMonths: 3, label: PRODUCT_FREQUENCY_LABELS.QUARTERLY };
+  }
+  return { intervalMonths: 1, label: PRODUCT_FREQUENCY_LABELS.MONTHLY };
+}
 
 export const SUBSCRIPTION_ERROR = {
   MIXED_CART_UNSUPPORTED: 'SUBSCRIPTION_MIXED_CART_UNSUPPORTED',
