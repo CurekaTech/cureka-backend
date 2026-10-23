@@ -33,6 +33,23 @@ export class CartItemsRepository {
     });
   }
 
+  /**
+   * Every active line for this SKU. The cart allows only one row per variant,
+   * so a subscribe line and a one-time line share that row and must be updated
+   * in place. Lookup by `isSubscription` misses the other purchase type and
+   * then insert hits the unique index.
+   */
+  findAllByCartAndVariant(
+    cartId: string,
+    variantId: string,
+    manager?: EntityManager,
+  ): Promise<CartItemEntity[]> {
+    const repository = manager ? manager.getRepository(CartItemEntity) : this.repo;
+    return repository.find({
+      where: { cartId, variantId },
+    });
+  }
+
   create(data: Partial<CartItemEntity>, manager?: EntityManager): Promise<CartItemEntity> {
     const repository = manager ? manager.getRepository(CartItemEntity) : this.repo;
     return repository.save(repository.create(data));
