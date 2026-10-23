@@ -2648,13 +2648,18 @@ export class ProductsRepository {
   }
 
   /**
-   * BOB full catalog. Same published + active-variant rule as category product lists.
+   * BOB catalog ref ids. Same published + active-variant rule as category product lists.
    * Does not require publishedAt. Unicommerce keeps findAllPublishedRefIds.
+   * `search` matches product name/slug and active variant sku, slug, or display name.
+   * `limit` pages the result; omit both `page` and `limit` to return the full catalogue.
    */
-  async findPublishedRefIdsForBobCatalog(): Promise<string[]> {
-    const rows = await this.repo
+  async findPublishedRefIdsForBobCatalog(options?: {
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ refIds: string[]; total: number }> {
+    const qb = this.repo
       .createQueryBuilder('product')
-      .select('product.refId', 'refId')
       .where('product.status = :status', { status: ProductStatus.PUBLISHED })
       .andWhere(
         `EXISTS (
@@ -2664,12 +2669,41 @@ export class ProductsRepository {
             AND pv.status = :variantStatus
         )`,
         { variantStatus: VariantStatus.ACTIVE },
-      )
-      .orderBy('product.publishedAt', 'DESC', 'NULLS LAST')
-      .addOrderBy('product.refId', 'ASC')
-      .getRawMany<{ refId: string }>();
+      );
 
-    return rows.map((row) => row.refId);
+    const search = options?.search?.trim();
+    if (search) {
+      const plan = buildSearchSqlPlan(
+        search,
+        (pattern) => `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR EXISTS (
+          SELECT 1 FROM product_variants search_variant
+          WHERE search_variant.product_id = product.id
+            AND search_variant.deleted_at IS NULL
+            AND search_variant.status = :variantStatus
+            AND (
+              search_variant.sku ILIKE ${pattern} ESCAPE '!'
+              OR search_variant.display_name ILIKE ${pattern} ESCAPE '!'
+              OR search_variant.slug ILIKE ${pattern} ESCAPE '!'
+            )
+        ))`,
+        'bobCatalogSearch',
+      );
+      qb.andWhere(plan.whereSql, plan.parameters);
+    }
+
+    qb.orderBy('product.publishedAt', 'DESC', 'NULLS LAST').addOrderBy('product.refId', 'ASC');
+
+    const total = await qb.getCount();
+    const limit = options?.limit;
+    const page = options?.page;
+    if (limit != null || page != null) {
+      const safeLimit = Math.min(Math.max(limit ?? 20, 1), 100);
+      const safePage = Math.max(page ?? 1, 1);
+      qb.skip((safePage - 1) * safeLimit).take(safeLimit);
+    }
+
+    const rows = await qb.select('product.refId', 'refId').getRawMany<{ refId: string }>();
+    return { refIds: rows.map((row) => row.refId), total };
   }
 
   /** Only live marketplace catalog: published products with active variants (not draft/inactive/archived). */

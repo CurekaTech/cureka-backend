@@ -10,10 +10,43 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
+
+/** Query for GET /bob/products. No query still returns the full catalogue. */
+export class BobListProductsQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  ids?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  /** Alias for `search`, for callers that send `q`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
 
 export class BobUpdateProductTagsDto {
   @IsArray()
