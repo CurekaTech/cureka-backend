@@ -114,23 +114,20 @@ export class GokwikWalletRedemptionService {
    */
   async readWalletBalancesForGetUser(customerId: string): Promise<{
     wallet_balance: number;
-    usable_wallet_balance: number;
   } | null> {
     if (!this.isEnabled()) return null;
     if (!this.walletService) {
-      return { wallet_balance: 0, usable_wallet_balance: 0 };
+      return { wallet_balance: 0 };
     }
 
     const overview = await this.walletService.getOverview(customerId);
     if (overview.status !== 'ACTIVE') {
-      return { wallet_balance: 0, usable_wallet_balance: 0 };
+      return { wallet_balance: 0 };
     }
 
     const balancePaise = rupeesToPaise(overview.balance);
-    const usablePaise = Math.max(0, rupeesToPaise(overview.available));
     return {
       wallet_balance: this.formatUsableBalanceForWire(balancePaise, 0),
-      usable_wallet_balance: this.formatUsableBalanceForWire(usablePaise, 0),
     };
   }
 

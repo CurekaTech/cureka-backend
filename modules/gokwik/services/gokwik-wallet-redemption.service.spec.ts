@@ -36,7 +36,6 @@ describe('GokwikWalletRedemptionService', () => {
 
     await expect(service.readWalletBalancesForGetUser('user-1')).resolves.toEqual({
       wallet_balance: 125,
-      usable_wallet_balance: 100,
     });
   });
 

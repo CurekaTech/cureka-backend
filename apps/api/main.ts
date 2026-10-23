@@ -121,7 +121,12 @@ async function bootstrap(): Promise<void> {
 
   // CSP reports are posted to /api/csp-report (report-uri on the storefront).
   // /api on www.cureka.com is this process, so this path must not sit under api/v1.
-  registerCspReportParsers(app.getHttpAdapter().getInstance());
+  // Two Fastify copies (Nest adapter vs app) are not mutually assignable.
+  registerCspReportParsers(
+    app.getHttpAdapter().getInstance() as unknown as Parameters<
+      typeof registerCspReportParsers
+    >[0],
+  );
   app.setGlobalPrefix(APP_CONSTANTS.API_PREFIX, {
     exclude: [{ path: 'api/csp-report', method: RequestMethod.POST }],
   });
