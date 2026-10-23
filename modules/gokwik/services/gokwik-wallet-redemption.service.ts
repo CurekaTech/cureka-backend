@@ -1,13 +1,22 @@
 import {
   BadRequestException,
+  ConflictException,
+  Inject,
   Injectable,
   Logger,
+  Optional,
   ServiceUnavailableException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
+import { CartService } from '@modules/orders/services/cart.service';
 import { RefundWalletService } from '@modules/refund-requests/services/refund-wallet.service';
 import { rupeesToPaise } from '@modules/refund-requests/utils/wallet-money.util';
-import { isGokwikWalletUnsupportedPaymentMethod } from '../constants/gokwik-wallet.constants';
+import { gokwikWalletApplyIdempotencyKey, isGokwikWalletUnsupportedPaymentMethod } from '../constants/gokwik-wallet.constants';
+import { GokwikGetCartSuccessResponse } from '../interfaces/gokwik-cart.interface';
+import { mapCartToGokwikCart } from '../mappers/gokwik-cart.mapper';
+import { GokwikCartService } from './gokwik-cart.service';
 import {
   GOKWIK_WALLET_CONTRACT_REGISTER,
   GOKWIK_WALLET_LIVE_BLOCKERS,
@@ -59,8 +68,8 @@ export type GokwikWalletApplyPlan = {
  * Isolated GoKwik wallet adapter boundary.
  *
  * Native Razorpay/Cashfree wallet checkout must not be reused here.
- * Live apply/remove that mutates Cureka wallet funds stays blocked while
- * `GOKWIK_WALLET_LIVE_BLOCKERS` is non-empty / flag is false.
+ * Apply and remove run only when `GOKWIK_WALLET_REDEMPTION_ENABLED` is true.
+ * Apply places a reservation. It does not debit. Final consume stays blocked.
  *
  * Intended lifecycle (Cureka policy — final debit event still vendor-gated):
  *
@@ -86,7 +95,16 @@ export class GokwikWalletRedemptionService {
 
   constructor(
     private readonly configService: ConfigService,
+    @Optional()
+    @Inject(forwardRef(() => RefundWalletService))
     private readonly walletService?: RefundWalletService,
+    @Optional()
+    @Inject(forwardRef(() => GokwikCartService))
+    private readonly gokwikCartService?: GokwikCartService,
+    @Optional()
+    private readonly dataSource?: DataSource,
+    @Optional()
+    private readonly ordersCartService?: CartService,
   ) {}
 
   /**
@@ -269,17 +287,99 @@ export class GokwikWalletRedemptionService {
   }
 
   /**
-   * Merchant-hosted apply-wallet-credit entrypoint (GoKwik → Cureka).
-   * Does not invent settlement behavior. Keeps funds untouched until blockers clear.
+   * Whole rupees currently held for this GoKwik cart.
+   * Flag off, or no pending hold, returns 0 and does not touch the ledger.
    */
-  async applyWalletCredit(input: GokwikWalletApplyRequest): Promise<never> {
-    this.assertCartId(input.cart_id);
-    this.assertDisabledOrBlocked('apply-wallet-credit', input);
+  async readAppliedWalletCreditRupees(cartId: string): Promise<number> {
+    if (!this.isEnabled() || !this.walletService || !cartId.trim()) return 0;
+    const pending = await this.walletService.listPendingByIdempotencyPrefix(
+      gokwikWalletApplyIdempotencyKey(cartId),
+    );
+    const paise = pending.reduce((sum, row) => sum + Number(row.amountPaise), 0);
+    if (paise <= 0) return 0;
+    return this.formatUsableBalanceForWire(paise, 0);
   }
 
-  async removeWalletCredit(input: GokwikWalletRemoveRequest): Promise<never> {
+  /**
+   * Merchant-hosted apply-wallet-credit (GoKwik → Cureka).
+   * Flag off: refuse, no hold. Flag on: reserve the usable whole-rupee amount
+   * and return the cart with wallet_credit_used. Does not debit.
+   */
+  async applyWalletCredit(input: GokwikWalletApplyRequest): Promise<GokwikGetCartSuccessResponse> {
     this.assertCartId(input.cart_id);
-    this.assertDisabledOrBlocked('remove-wallet-credit', input);
+    if (!this.isEnabled()) {
+      this.assertDisabled();
+    }
+    this.assertStagingReady();
+
+    const cartId = input.cart_id.trim();
+    const cartEntity = await this.ordersCartService!.findActiveCartById(cartId);
+    if (!cartEntity) throw new BadRequestException('Invalid cart id');
+    const priced = await this.ordersCartService!.getCartById(cartEntity.id);
+    if (!priced.items.length) throw new BadRequestException('Cart is empty');
+
+    const overview = await this.walletService!.getOverview(cartEntity.userId);
+    if (overview.status !== 'ACTIVE') {
+      throw new ConflictException('Wallet is not available for spending');
+    }
+
+    const prefix = gokwikWalletApplyIdempotencyKey(cartId);
+    const eligibleCartTotalPaise = mapCartToGokwikCart(priced).total * 100;
+    await this.dataSource!.transaction(async (manager) => {
+      const pending = await this.walletService!.listPendingByIdempotencyPrefix(prefix, manager);
+      const ownHoldPaise = pending.reduce((sum, row) => sum + Number(row.amountPaise), 0);
+      const plan = this.planApply({
+        cartId,
+        customerId: cartEntity.userId,
+        availableBalancePaise: rupeesToPaise(overview.available) + ownHoldPaise,
+        reservedBalancePaise: 0,
+        eligibleCartTotalPaise,
+      });
+      const alreadyHeld =
+        pending.length === 1 && Number(pending[0]?.amountPaise) === plan.wireWalletCreditPaise;
+      if (alreadyHeld) return;
+
+      for (const row of pending) {
+        await this.walletService!.releaseReservation(row.id, cartEntity.userId, manager);
+      }
+      const ttlMinutes = this.configService.get<number>('wallet.reservationTtlMinutes') ?? 60;
+      await this.walletService!.reserve(
+        {
+          customerId: cartEntity.userId,
+          amountPaise: plan.wireWalletCreditPaise,
+          paymentRequestId: null,
+          idempotencyKey: plan.applyIdempotencyKey,
+          expiresAt: new Date(Date.now() + ttlMinutes * 60_000),
+          actorId: cartEntity.userId,
+        },
+        manager,
+      );
+    });
+
+    return this.gokwikCartService!.getCart(cartId);
+  }
+
+  /**
+   * Releases the GoKwik cart hold and returns the cart with wallet_credit_used 0.
+   * Flag off refuses. A cart with no hold still returns the current cart.
+   */
+  async removeWalletCredit(input: GokwikWalletRemoveRequest): Promise<GokwikGetCartSuccessResponse> {
+    this.assertCartId(input.cart_id);
+    if (!this.isEnabled()) {
+      this.assertDisabled();
+    }
+    this.assertStagingReady();
+
+    const cartId = input.cart_id.trim();
+    const prefix = gokwikWalletApplyIdempotencyKey(cartId);
+    await this.dataSource!.transaction(async (manager) => {
+      const pending = await this.walletService!.listPendingByIdempotencyPrefix(prefix, manager);
+      for (const row of pending) {
+        await this.walletService!.releaseReservation(row.id, row.customerId, manager);
+      }
+    });
+
+    return this.gokwikCartService!.getCart(cartId);
   }
 
   /** Wire helper for get-user style balance display (whole rupees provisional). */
@@ -289,38 +389,20 @@ export class GokwikWalletRedemptionService {
     return paiseToGokwikWalletRupees(whole);
   }
 
-  private assertDisabledOrBlocked(
-    operation: 'apply-wallet-credit' | 'remove-wallet-credit',
-    input: { cart_id: string; user_id?: string },
-  ): never {
-    if (!this.isEnabled()) {
-      throw new BadRequestException({
-        error: 'GoKwik wallet redemption is disabled',
-        code: 'GOKWIK_WALLET_DISABLED',
+  private assertDisabled(): never {
+    throw new BadRequestException({
+      error: 'GoKwik wallet redemption is disabled',
+      code: 'GOKWIK_WALLET_DISABLED',
+    });
+  }
+
+  private assertStagingReady(): void {
+    if (!this.walletService || !this.gokwikCartService || !this.dataSource || !this.ordersCartService) {
+      throw new ServiceUnavailableException({
+        error: 'GoKwik wallet redemption is not available',
+        code: 'GOKWIK_WALLET_UNAVAILABLE',
       });
     }
-
-    const blockers = this.getLiveBlockers();
-    this.logger.warn(
-      {
-        operation,
-        cartId: input.cart_id,
-        userId: input.user_id ?? null,
-        blockers,
-      },
-      'GoKwik wallet operation refused — contract blockers remain; no funds moved',
-    );
-    throw new ServiceUnavailableException({
-      error: 'GoKwik wallet redemption is not production-ready',
-      code: 'GOKWIK_WALLET_CONTRACT_INCOMPLETE',
-      openQuestions: blockers,
-      register: this.getContractRegister().map((q) => ({
-        id: q.id,
-        status: q.status,
-        provisionalAssumption: q.provisionalAssumption,
-        blocksLiveRedemption: q.blocksLiveRedemption,
-      })),
-    });
   }
 
   private assertCartId(cartId: string | undefined): asserts cartId is string {

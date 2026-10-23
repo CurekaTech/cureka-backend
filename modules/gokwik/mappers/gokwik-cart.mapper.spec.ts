@@ -60,6 +60,10 @@ describe('mapCartToGokwikCart', () => {
       ],
     };
 
+    const withWallet = mapCartToGokwikCart(cart, { walletCreditUsed: 100 });
+    expect(withWallet.wallet_credit_used).toBe(100);
+    expect(withWallet.total).toBe(395);
+
     const result = mapCartToGokwikCart(cart, {
       availablePaymentMethods: [
         {
