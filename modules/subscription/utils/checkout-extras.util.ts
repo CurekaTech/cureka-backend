@@ -15,6 +15,7 @@ export type SubscriptionCheckoutExtras = {
   } | null;
   recurring?: string | null;
   gatewayCustomerId?: string | null;
+  subscriptionCheckout?: boolean | null;
 };
 
 export function checkoutExtrasFromLink(
@@ -31,6 +32,7 @@ export function checkoutExtrasFromLink(
     customer: link.customer,
     recurring: link.recurring ?? null,
     gatewayCustomerId: link.gatewayCustomerId ?? null,
+    subscriptionCheckout: link.subscriptionCheckout ?? null,
   };
 }
 

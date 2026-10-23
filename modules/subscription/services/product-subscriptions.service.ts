@@ -308,20 +308,33 @@ export class ProductSubscriptionsService {
       productMandateMaxAmount: configEntity.mandateMaxAmount,
       notes,
     });
-    const link = firstChargeMandate
+    const session = firstChargeMandate?.session;
+    const isCashfree = session?.provider === 'CASHFREE';
+    const checkoutEnvironment: 'sandbox' | 'production' | undefined =
+      session?.checkoutPayload.environment === 'sandbox'
+        ? 'sandbox'
+        : session?.checkoutPayload.environment === 'production'
+          ? 'production'
+          : undefined;
+    const link = session
       ? {
-          paymentLink: null,
-          gatewayOrderId: firstChargeMandate.session.authorizationOrderId,
-          paymentGateway: 'RAZORPAY',
-          razorpayOrderId: firstChargeMandate.session.authorizationOrderId,
-          keyId: firstChargeMandate.session.keyId ?? null,
-          amount: firstChargeMandate.session.amountPaise ?? null,
-          currency: firstChargeMandate.session.currency,
+          paymentLink: session.authorizationLink ?? null,
+          gatewayOrderId: session.authorizationOrderId,
+          paymentGateway: isCashfree ? 'CASHFREE' : 'RAZORPAY',
+          razorpayOrderId: isCashfree ? null : session.authorizationOrderId,
+          keyId: session.keyId ?? null,
+          amount: session.amountPaise ?? null,
+          currency: session.currency,
+          paymentSessionId: session.paymentSessionId ?? null,
+          environment: checkoutEnvironment,
           customer: {
             name: customer.name || customer.phone,
             email: customer.email ?? '',
             contact: customer.phone,
           },
+          recurring: isCashfree ? null : '1',
+          gatewayCustomerId: session.gatewayCustomerId ?? null,
+          subscriptionCheckout: isCashfree,
         }
       : await this.paymentLinkService.createPaymentLink({
           amount: pricing.finalAmount,
@@ -352,11 +365,7 @@ export class ProductSubscriptionsService {
     });
 
     const refreshed = await this.subscriptionsRepository.findById(subscription.id);
-    return this.mapOwned(refreshed ?? subscription, {
-      ...checkoutExtrasFromLink(link),
-      recurring: firstChargeMandate ? '1' : null,
-      gatewayCustomerId: firstChargeMandate?.session.gatewayCustomerId ?? null,
-    });
+    return this.mapOwned(refreshed ?? subscription, checkoutExtrasFromLink(link));
   }
 
   /**

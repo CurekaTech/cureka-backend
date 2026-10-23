@@ -125,6 +125,7 @@ export interface IUserProductSubscription {
   } | null;
   recurring?: string | null;
   gatewayCustomerId?: string | null;
+  subscriptionCheckout?: boolean | null;
   user?: ISubscriptionUserSummary | null;
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;

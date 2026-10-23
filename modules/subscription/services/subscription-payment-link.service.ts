@@ -35,6 +35,7 @@ export type CreateSubscriptionPaymentLinkResult = {
   };
   recurring?: string | null;
   gatewayCustomerId?: string | null;
+  subscriptionCheckout?: boolean;
 };
 
 @Injectable()

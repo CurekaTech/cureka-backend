@@ -186,27 +186,45 @@ export class PaymentsWebhookController {
       });
       if (fresh) {
         if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS') {
+          const tags = (subscriptionData['subscription_tags'] ?? {}) as Record<string, unknown>;
           await this.productSubscriptionsService.handlePaymentSuccess({
-            gatewayOrderId: String(paymentData?.['payment_id'] ?? orderId ?? ''),
+            paymentId: String(tags['subscriptionPaymentId'] ?? '') || undefined,
+            gatewayOrderId: String(
+              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
+            ),
             gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
             actor: 'cashfree-subscription-webhook',
           });
         } else if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
           await this.productSubscriptionsService.handlePaymentFailed({
-            gatewayOrderId: String(paymentData?.['payment_id'] ?? orderId ?? ''),
+            gatewayOrderId: String(
+              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
+            ),
             reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
             actor: 'cashfree-subscription-webhook',
           });
         } else {
+          const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
+          const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
           await this.subscriptionMandateService.handleProviderWebhook({
             provider: SubscriptionMandateProvider.CASHFREE,
-            gatewaySubscriptionId: String(
-              subscriptionData['subscription_id'] ?? subscriptionData['cf_subscription_id'] ?? '',
-            ),
+            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+            authorizationOrderId: merchantSubscriptionId || undefined,
             status: mapCashfreeSubscriptionStatus(String(subscriptionData['subscription_status'] ?? '')),
             actor: 'cashfree-webhook',
             raw: payload,
           });
+          if (String(subscriptionData['subscription_status'] ?? '').toUpperCase() === 'ACTIVE') {
+            const paymentId = await this.subscriptionMandateService.firstChargePaymentIdIfReady(
+              merchantSubscriptionId || cfSubscriptionId,
+            );
+            if (paymentId) {
+              await this.productSubscriptionsService.handlePaymentSuccess({
+                paymentId,
+                actor: 'cashfree-subscription-webhook',
+              });
+            }
+          }
         }
       }
     } else if (eventType === 'REFUND_STATUS_WEBHOOK' || eventType === 'REFUND_WEBHOOK') {
