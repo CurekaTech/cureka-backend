@@ -29,7 +29,8 @@ export type CreditRefundWalletInput = {
 export type ReserveWalletInput = {
   customerId: string;
   amountPaise: number;
-  paymentRequestId: string;
+  /** Null for a GoKwik cart hold that is not tied to a payment request yet. */
+  paymentRequestId: string | null;
   idempotencyKey: string;
   expiresAt: Date;
   actorId: string;
@@ -142,6 +143,10 @@ export class RefundWalletService {
 
   async findStalePendingReservations(expiredBefore: Date, limit: number) {
     return this.walletRepository.findStalePendingReservations(expiredBefore, limit);
+  }
+
+  listPendingByIdempotencyPrefix(prefix: string, manager?: EntityManager) {
+    return this.walletRepository.findPendingByIdempotencyPrefix(prefix, manager);
   }
 
   async credit(input: CreditRefundWalletInput, manager: EntityManager): Promise<RefundWalletLedgerEntity> {

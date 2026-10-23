@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
 import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
@@ -23,6 +23,7 @@ import {
   GokwikSetShippingAddressDto,
   GokwikShippingAddressDto,
 } from '../dto/gokwik-cart-actions.dto';
+import { GokwikWalletRedemptionService } from './gokwik-wallet-redemption.service';
 
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'cash_free', 'pay_you', 'shipway'] as const;
 
@@ -37,6 +38,8 @@ export class GokwikCartService {
     private readonly couponsRepository: CouponsRepository,
     private readonly adminSettingsRepository: AdminSettingsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
+    @Inject(forwardRef(() => GokwikWalletRedemptionService))
+    private readonly walletRedemption: GokwikWalletRedemptionService,
   ) {}
 
   async getCart(cartId: string): Promise<GokwikGetCartSuccessResponse> {
@@ -219,9 +222,14 @@ export class GokwikCartService {
   }
 
   private async getCartMappingOptions(cart: CartResponse) {
+    const [availablePaymentMethods, walletCreditUsed] = await Promise.all([
+      this.resolveAvailablePaymentMethods(cart),
+      this.walletRedemption.readAppliedWalletCreditRupees(cart.cartId),
+    ]);
     return {
-      availablePaymentMethods: await this.resolveAvailablePaymentMethods(cart),
+      availablePaymentMethods,
       availableShippingMethods: this.resolveAvailableShippingMethods(cart.shippingAmount),
+      walletCreditUsed,
     };
   }
 

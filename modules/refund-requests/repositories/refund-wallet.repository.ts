@@ -117,6 +117,17 @@ export class RefundWalletRepository {
     return repository.findOne({ where: { idempotencyKey } });
   }
 
+  findPendingByIdempotencyPrefix(prefix: string, manager?: EntityManager) {
+    const repository = manager?.getRepository(RefundWalletReservationEntity) ?? this.reservations;
+    const escaped = prefix.replace(/[\\%_]/g, (char) => `\\${char}`);
+    const query = repository
+      .createQueryBuilder('reservation')
+      .where('reservation.status = :status', { status: RefundWalletReservationStatus.PENDING })
+      .andWhere("reservation.idempotencyKey LIKE :prefix ESCAPE '\\'", { prefix: `${escaped}:%` });
+    if (manager) query.setLock('pessimistic_write');
+    return query.getMany();
+  }
+
   lockReservationById(id: string, manager: EntityManager) {
     return manager
       .getRepository(RefundWalletReservationEntity)
