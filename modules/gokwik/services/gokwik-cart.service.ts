@@ -52,6 +52,7 @@ export class GokwikCartService {
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
+    this.assertNoSubscriptionItems(cart.items);
 
     return {
       data: {
@@ -86,6 +87,7 @@ export class GokwikCartService {
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
+    this.assertNoSubscriptionItems(cart.items);
 
     this.logger.log(
       {
@@ -154,6 +156,7 @@ export class GokwikCartService {
       this.cartService.getCartById(cartEntity.id),
       this.couponsRepository.findAllActiveValid(),
     ]);
+    this.assertNoSubscriptionItems(cart.items);
     const context = {
       userId: cartEntity.userId,
       subtotal: cart.subtotal,
@@ -218,7 +221,17 @@ export class GokwikCartService {
   private async requireCart(cartId: string) {
     const cart = await this.cartService.findActiveCartById(cartId.trim());
     if (!cart) throw new BadRequestException('Invalid cart id');
+    this.assertNoSubscriptionItems((await this.cartService.getCartById(cart.id)).items);
     return cart;
+  }
+
+  private assertNoSubscriptionItems(items: CartResponse['items']): void {
+    if (items.some((item) => item.isSubscription)) {
+      throw new BadRequestException({
+        code: 'SUBSCRIPTION_REQUIRES_NATIVE_CHECKOUT',
+        message: 'Subscription orders must use native checkout.',
+      });
+    }
   }
 
   private async getCartMappingOptions(cart: CartResponse) {

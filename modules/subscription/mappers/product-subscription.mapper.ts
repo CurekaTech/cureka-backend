@@ -108,7 +108,9 @@ export const mapUserProductSubscriptionToResponse = (
     mandateId: entity.mandateId ?? null,
     mandateMaxAmount: entity.mandateMaxAmount ?? null,
     mandateStatus: extras?.mandateStatus ?? null,
-    intervalMonths: PRODUCT_FREQUENCY_MONTHS[entity.frequency],
+    ...(entity.frequency === 'DAILY'
+      ? { intervalDays: 1 }
+      : { intervalMonths: PRODUCT_FREQUENCY_MONTHS[entity.frequency] }),
     intervalLabel: PRODUCT_FREQUENCY_LABELS[entity.frequency],
     allowedActions: {
       pause: activeLike && (entity.config?.pauseAllowed ?? true) && !cutoff,
