@@ -201,6 +201,17 @@ export class ProductSubscriptionsService {
       throw new BadRequestException('Delivery address not found');
     }
 
+    const previous = await this.subscriptionsRepository.findByUserId(userId);
+    for (const row of previous) {
+      if (
+        row.productId === dto.productId &&
+        row.productVariantId === dto.productVariantId &&
+        row.status === ProductSubscriptionStatus.PENDING_PAYMENT
+      ) {
+        await this.abandonUnpaid(userId, row.id);
+      }
+    }
+
     const memberDiscount = await this.membershipBenefits.getMemberDiscount(userId);
     const pricing = this.pricingService.calculate(
       variant.sellingPrice,
@@ -562,6 +573,25 @@ export class ProductSubscriptionsService {
       toStatus: ProductSubscriptionStatus.ACTIVE,
     });
     return this.getMine(userId, id);
+  }
+
+  /**
+   * Opening the payment window creates a pending row so the gateway has an order.
+   * Closing that window without payment removes the row. A captured payment is kept.
+   */
+  async abandonUnpaid(userId: string, id: string): Promise<{ abandoned: boolean }> {
+    const sub = await this.subscriptionsRepository.findByIdAndUserId(id, userId);
+    if (!sub || sub.status !== ProductSubscriptionStatus.PENDING_PAYMENT) {
+      return { abandoned: false };
+    }
+
+    const payments = await this.paymentsService.findBySubscriptionId(id);
+    if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+      return { abandoned: false };
+    }
+
+    await this.subscriptionsRepository.softDeleteById(id, userId);
+    return { abandoned: true };
   }
 
   async cancel(userId: string, id: string, reason?: string) {
@@ -1105,7 +1135,13 @@ export class ProductSubscriptionsService {
     );
     if (!newlyPaid) return;
 
-    const sub = await this.subscriptionsRepository.findById(paidPayment.subscriptionId);
+    let sub = await this.subscriptionsRepository.findById(paidPayment.subscriptionId);
+    if (!sub) {
+      sub = await this.subscriptionsRepository.findByIdIncludingDeleted(paidPayment.subscriptionId);
+      if (sub?.deletedAt) {
+        await this.subscriptionsRepository.restoreById(sub.id);
+      }
+    }
     if (!sub) {
       this.logger.error({ paymentId: paidPayment.id }, 'Subscription missing after payment');
       return;

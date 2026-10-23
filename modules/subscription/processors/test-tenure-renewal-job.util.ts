@@ -4,7 +4,7 @@ const TEST_TENURE_JOB = 'test-tenure-renewal';
 
 /**
  * Production keeps the daily 03:00 renewal. TechBV adds a one-minute pass so
- * 30-minute, 1-hour, and 1-day tenures can be observed without waiting overnight.
+ * 2-minute, 30-minute, 1-hour, and 1-day tenures can be observed without waiting overnight.
  */
 export async function syncTestTenureRenewalJob(
   queue: Queue,
