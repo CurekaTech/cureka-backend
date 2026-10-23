@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { generateUniqueRefId } from '@packages/common';
 import {
   CreateMembershipPlanDto,
@@ -11,6 +12,7 @@ import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.
 import { mapMembershipPlanToResponse } from '../mappers/membership.mapper';
 import { MembershipPlansRepository } from '../repositories/membership-plans.repository';
 import { MembershipBenefitsService } from './membership-benefits.service';
+import { assertMembershipCycleAllowed } from '../utils/subscription-test-tenures.util';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,9 +22,11 @@ export class MembershipPlansService {
   constructor(
     private readonly plansRepository: MembershipPlansRepository,
     private readonly benefitsService: MembershipBenefitsService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(dto: CreateMembershipPlanDto, actor: string) {
+    assertMembershipCycleAllowed(this.configService, dto.billingCycle);
     const refId = await generateUniqueRefId('mplan', (c) => this.plansRepository.existsByRefId(c));
     const created = await this.plansRepository.create({
       refId,
@@ -50,6 +54,7 @@ export class MembershipPlansService {
   }
 
   async update(idOrRefId: string, dto: UpdateMembershipPlanDto, actor: string) {
+    assertMembershipCycleAllowed(this.configService, dto.billingCycle);
     const existing = await this.resolveEntity(idOrRefId);
     await this.plansRepository.updateById(existing.id, {
       ...(dto.name !== undefined ? { name: dto.name } : {}),

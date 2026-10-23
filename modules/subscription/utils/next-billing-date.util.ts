@@ -2,12 +2,15 @@ import { MembershipBillingCycle } from '../enums/membership-billing-cycle.enum';
 import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
 import {
   PRODUCT_FREQUENCY_MONTHS,
-  PRODUCT_FREQUENCY_DAYS,
   SUBSCRIPTION_DEFAULT_TIMEZONE,
 } from '../constants/subscription.constants';
 
-const MEMBERSHIP_BILLING_CYCLE_MONTHS: Record<MembershipBillingCycle, number> = {
-  [MembershipBillingCycle.DAILY]: 0,
+const MEMBERSHIP_BILLING_CYCLE_MONTHS: Record<
+  | MembershipBillingCycle.MONTHLY
+  | MembershipBillingCycle.QUARTERLY
+  | MembershipBillingCycle.YEARLY,
+  number
+> = {
   [MembershipBillingCycle.MONTHLY]: 1,
   [MembershipBillingCycle.QUARTERLY]: 3,
   [MembershipBillingCycle.YEARLY]: 12,
@@ -104,6 +107,10 @@ export function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+export function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
+
 /** @deprecated UTC overflow helper — prefer addCalendarMonths for product schedules. */
 export function addMonths(date: Date, months: number): Date {
   return addCalendarMonths(date, months, 'UTC');
@@ -115,6 +122,8 @@ export function getNextProductBillingDate(
   timeZone = SUBSCRIPTION_DEFAULT_TIMEZONE,
   anchorDay?: number | null,
 ): Date {
+  if (frequency === ProductSubscriptionFrequency.MINUTES_30) return addMinutes(from, 30);
+  if (frequency === ProductSubscriptionFrequency.HOURLY) return addMinutes(from, 60);
   if (frequency === ProductSubscriptionFrequency.DAILY) return addDays(from, 1);
   return addCalendarMonths(from, PRODUCT_FREQUENCY_MONTHS[frequency], timeZone, anchorDay);
 }
@@ -127,6 +136,8 @@ export function getNextMembershipBillingDate(
   from: Date,
   billingCycle: MembershipBillingCycle,
 ): Date {
+  if (billingCycle === MembershipBillingCycle.MINUTES_30) return addMinutes(from, 30);
+  if (billingCycle === MembershipBillingCycle.HOURLY) return addMinutes(from, 60);
   if (billingCycle === MembershipBillingCycle.DAILY) return addDays(from, 1);
   return addCalendarMonths(from, MEMBERSHIP_BILLING_CYCLE_MONTHS[billingCycle], 'UTC');
 }
@@ -150,13 +161,14 @@ export function advancePastMissedCycles(params: {
   const timeZone = params.timeZone ?? SUBSCRIPTION_DEFAULT_TIMEZONE;
   let cursor = params.nextBillingDate;
   let skipped = 0;
-  const interval = params.frequency === ProductSubscriptionFrequency.DAILY
-    ? 0
-    : PRODUCT_FREQUENCY_MONTHS[params.frequency];
   while (cursor.getTime() < params.asOfDate.getTime()) {
-    const following = params.frequency === ProductSubscriptionFrequency.DAILY
-      ? addDays(cursor, PRODUCT_FREQUENCY_DAYS.DAILY)
-      : addCalendarMonths(cursor, interval, timeZone, params.anchorDay);
+    const following = getNextProductBillingDate(
+      cursor,
+      params.frequency,
+      timeZone,
+      params.anchorDay,
+    );
+    if (following.getTime() <= cursor.getTime()) break;
     if (following.getTime() <= params.asOfDate.getTime()) {
       skipped += 1;
       cursor = following;

@@ -5,6 +5,8 @@ import { Job, Queue } from 'bullmq';
 import { SUBSCRIPTION_QUEUE } from '../constants/subscription-queue.constants';
 import { MembershipsService } from '../services/memberships.service';
 import { isSubscriptionsModuleEnabled } from '../utils/subscriptions-module.util';
+import { isSubscriptionTestTenuresEnabled } from '../utils/subscription-test-tenures.util';
+import { syncTestTenureRenewalJob } from './test-tenure-renewal-job.util';
 
 @Injectable()
 @Processor(SUBSCRIPTION_QUEUE.MEMBERSHIP_RENEWAL)
@@ -30,6 +32,11 @@ export class MembershipRenewalProcessor extends WorkerHost implements OnModuleIn
         removeOnComplete: true,
         removeOnFail: 50,
       },
+    );
+    await syncTestTenureRenewalJob(
+      this.queue,
+      isSubscriptionTestTenuresEnabled(this.configService),
+      'membership-test-tenure-renewal',
     );
   }
 

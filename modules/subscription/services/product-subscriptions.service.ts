@@ -38,13 +38,14 @@ import { SubscriptionMissedPaymentAction } from '../enums/subscription-missed-pa
 import { SubscriptionPaymentAttemptKind } from '../enums/subscription-payment-attempt-kind.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
-import { SUBSCRIPTION_ERROR } from '../constants/subscription.constants';
+import { SUBSCRIPTION_ERROR, describeProductFrequency } from '../constants/subscription.constants';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '../constants/subscription-payment-purpose.constants';
 import { mapUserProductSubscriptionToResponse } from '../mappers/product-subscription.mapper';
 import { checkoutExtrasFromLink } from '../utils/checkout-extras.util';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { SubscriptionStatusHistoryRepository } from '../repositories/subscription-status-history.repository';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
+import { buildSubscriptionGatewayNotes } from '../utils/subscription-gateway-notes.util';
 import { isAmountWithinMandateLimit, resolveMandateMaxAmount } from '../utils/mandate-amount.util';
 import {
   advancePastMissedCycles,
@@ -56,7 +57,7 @@ import {
   isChangeCutoffReached,
   isCycleInFlight,
 } from '../utils/subscription-cycle-guard.util';
-import { buildSubscriptionGatewayNotes } from '../utils/subscription-gateway-notes.util';
+import { assertProductFrequenciesAllowed, isSubscriptionTestTenuresEnabled, TEST_PRODUCT_FREQUENCIES } from '../utils/subscription-test-tenures.util';
 import { MembershipBenefitsApplicationService } from './membership-benefits-application.service';
 import { ProductSubscriptionConfigService } from './product-subscription-config.service';
 import { ProductSubscriptionPaymentsService } from './product-subscription-payments.service';
@@ -103,22 +104,20 @@ export class ProductSubscriptionsService {
     if (!config || !config.enabled) {
       return null;
     }
+    const testTenures = isSubscriptionTestTenuresEnabled(this.nestConfig);
+    const frequencies = (config.frequencies ?? []).filter(
+      (frequency) => testTenures || !TEST_PRODUCT_FREQUENCIES.has(frequency),
+    );
+    if (!frequencies.length) return null;
     const autopayFeatureEnabled = this.mandateService.isAutopayFeatureEnabled();
     const mandateMaxConfigured = Boolean(config.mandateMaxAmount);
     const autopayAvailable = autopayFeatureEnabled && mandateMaxConfigured;
     return {
       ...config,
-      intervalLabels: (config.frequencies ?? []).map((frequency) => ({
+      frequencies,
+      intervalLabels: frequencies.map((frequency) => ({
         frequency,
-        ...(frequency === 'DAILY' ? { intervalDays: 1 } : { intervalMonths: { MONTHLY: 1, BI_MONTHLY: 2, QUARTERLY: 3 }[frequency] }),
-        label:
-          frequency === 'DAILY'
-            ? 'Every 24 hours'
-            : frequency === 'BI_MONTHLY'
-            ? 'Every 2 months'
-            : frequency === 'QUARTERLY'
-              ? 'Every 3 months'
-              : 'Every month',
+        ...describeProductFrequency(frequency),
       })),
       autopayAvailable,
       autopayUnavailableReason: autopayAvailable
@@ -143,20 +142,14 @@ export class ProductSubscriptionsService {
       config.discountValue,
       memberDiscount,
     );
+    const described = describeProductFrequency(dto.frequency);
     return {
       productId: product.id,
       productVariantId: variant.id,
       quantity: dto.quantity,
       frequency: dto.frequency,
-      ...(dto.frequency === 'DAILY' ? { intervalDays: 1 } : { intervalMonths: dto.frequency === 'BI_MONTHLY' ? 2 : dto.frequency === 'QUARTERLY' ? 3 : 1 }),
-      intervalLabel:
-        dto.frequency === 'DAILY'
-          ? 'Every 24 hours'
-          : dto.frequency === 'BI_MONTHLY'
-          ? 'Every 2 months'
-          : dto.frequency === 'QUARTERLY'
-            ? 'Every 3 months'
-            : 'Every month',
+      ...described,
+      intervalLabel: described.label,
       catalogUnitPrice: Number(variant.sellingPrice).toFixed(2),
       ...pricing,
       memberDiscountApplied: !!memberDiscount,
@@ -251,7 +244,7 @@ export class ProductSubscriptionsService {
     });
 
     const billingDate = new Date();
-    const billingCycleRef = buildBillingCycleRef(billingDate);
+    const billingCycleRef = buildBillingCycleRef(billingDate, dto.frequency);
     const payment = await this.paymentsService.upsertPendingCycle({
       subscriptionId: subscription.id,
       userId,
@@ -478,7 +471,7 @@ export class ProductSubscriptionsService {
       });
       subscriptionId = subscription.id;
 
-      const billingCycleRef = buildBillingCycleRef(now);
+      const billingCycleRef = buildBillingCycleRef(now, dto.frequency);
       const payment = await this.paymentsService.upsertPendingCycle({
         subscriptionId: subscription.id,
         userId,
@@ -621,7 +614,7 @@ export class ProductSubscriptionsService {
       skipNextCycle: false,
       updatedBy: actor,
     });
-    const skippedRef = buildBillingCycleRef(from);
+    const skippedRef = buildBillingCycleRef(from, sub.frequency);
     const cycle = await this.billingCycleService.getOrCreate({
       subscriptionId: sub.id,
       userId,
@@ -702,7 +695,7 @@ export class ProductSubscriptionsService {
     }
 
     const billingDate = sub.nextBillingDate ?? new Date();
-    const billingCycleRef = buildBillingCycleRef(billingDate);
+    const billingCycleRef = buildBillingCycleRef(billingDate, sub.frequency);
     const amount = await this.recalculateAmount(sub);
     const payment = await this.paymentsService.upsertPendingCycle({
       subscriptionId: sub.id,
@@ -1253,7 +1246,7 @@ export class ProductSubscriptionsService {
         (sub.nextBillingDate.getTime() - asOfDate.getTime()) / (24 * 60 * 60 * 1000),
       );
       if (!offsets.includes(daysUntil)) continue;
-      const cycleRef = buildBillingCycleRef(sub.nextBillingDate);
+      const cycleRef = buildBillingCycleRef(sub.nextBillingDate, sub.frequency);
       const payment = await this.paymentsService
         .findBySubscriptionId(sub.id)
         .then((rows) => rows.find((p) => p.billingCycleRef === cycleRef));
@@ -1300,7 +1293,7 @@ export class ProductSubscriptionsService {
     const chargeDate = skippedCount > 0 ? nextBillingDate : sub.nextBillingDate;
     if (chargeDate.getTime() > asOfDate.getTime()) return;
 
-    const billingCycleRef = buildBillingCycleRef(chargeDate);
+    const billingCycleRef = buildBillingCycleRef(chargeDate, sub.frequency);
     let amount: string;
     try {
       amount = await this.recalculateAmount(sub);
@@ -1659,7 +1652,7 @@ export class ProductSubscriptionsService {
   private async assertNotInFlight(sub: UserProductSubscriptionEntity, action: string): Promise<void> {
     if (!sub.nextBillingDate) return;
     const cycle = await this.billingCycleService.findBySubscriptionId(sub.id).then((rows) =>
-      rows.find((row) => row.billingCycleRef === buildBillingCycleRef(sub.nextBillingDate as Date)),
+      rows.find((row) => row.billingCycleRef === buildBillingCycleRef(sub.nextBillingDate as Date, sub.frequency)),
     );
     if (cycle && isCycleInFlight(cycle.status)) {
       throw new BadRequestException({
@@ -1702,6 +1695,7 @@ export class ProductSubscriptionsService {
     if (!config.frequencies.includes(frequency)) {
       throw new BadRequestException('Selected frequency is not allowed for this product');
     }
+    assertProductFrequenciesAllowed(this.nestConfig, [frequency]);
     return { product, variant, config };
   }
 

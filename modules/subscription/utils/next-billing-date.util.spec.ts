@@ -24,6 +24,27 @@ describe('next-billing-date.util', () => {
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.QUARTERLY, 'UTC').getUTCMonth()).toBe(3);
   });
 
+  it('adds TechBV test tenures without changing calendar-month schedules', () => {
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.MINUTES_30, 'UTC').getTime() - base.getTime()).toBe(
+      30 * 60 * 1000,
+    );
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.HOURLY, 'UTC').getTime() - base.getTime()).toBe(
+      60 * 60 * 1000,
+    );
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.DAILY, 'UTC').getTime() - base.getTime()).toBe(
+      24 * 60 * 60 * 1000,
+    );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.MINUTES_30).getTime() - base.getTime()).toBe(
+      30 * 60 * 1000,
+    );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.HOURLY).getTime() - base.getTime()).toBe(
+      60 * 60 * 1000,
+    );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.DAILY).getTime() - base.getTime()).toBe(
+      24 * 60 * 60 * 1000,
+    );
+  });
+
   it('clamps month-end January 31 to February 28', () => {
     const jan31 = new Date(Date.UTC(2026, 0, 31, 6, 30, 0));
     const next = addCalendarMonths(jan31, 1, 'UTC', 31);

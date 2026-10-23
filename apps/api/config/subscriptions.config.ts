@@ -32,6 +32,11 @@ export const subscriptionsConfig = registerAs('subscriptions', () => ({
    * Default false so live stays hidden. Set true only on techbv.
    */
   moduleEnabled: asBool(process.env['SUBSCRIPTIONS_MODULE_ENABLED'], false),
+  /**
+   * 30-minute, 1-hour, and 1-day tenures for TechBV renewal tests.
+   * Leave false in production so monthly, 2-month, and quarterly stay unchanged.
+   */
+  testTenuresEnabled: asBool(process.env['SUBSCRIPTION_TEST_TENURES_ENABLED'], false),
   timezone: process.env['SUBSCRIPTION_TIMEZONE']?.trim() || 'Asia/Kolkata',
   deliveryLeadDays: asInt(process.env['SUBSCRIPTION_DELIVERY_LEAD_DAYS'], 2),
   maxRetries: asInt(process.env['SUBSCRIPTION_MAX_RETRIES'], 3),
