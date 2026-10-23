@@ -55,13 +55,13 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         plan_name: 'SubscribeSave',
         plan_type: 'ON_DEMAND',
         plan_currency: input.currency ?? 'INR',
-        plan_max_amount: Number(input.maxAmount),
-      },
-      authorization_details: {
-        authorization_amount: 1,
-        authorization_amount_refund: true,
-        payment_methods: ['upi', 'enach', 'card'],
-      },
+      plan_max_amount: Number(input.maxAmount),
+    },
+    authorization_details: {
+      authorization_amount: Number(input.authorizationAmount ?? 1),
+      authorization_amount_refund: !input.authorizationAmount,
+      payment_methods: ['upi', 'enach', 'card'],
+    },
       subscription_meta: {
         return_url: input.returnUrl,
       },
@@ -73,19 +73,25 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     if (!sessionId && !String(created['subscription_id'] ?? '')) {
       throw new BadRequestException('Cashfree subscription create did not return a session');
     }
+    const env = (this.configService.get<string>('CASHFREE_ENV') ?? 'sandbox').toLowerCase();
+    const environment = env === 'production' ? 'production' : 'sandbox';
     return {
       provider: this.provider,
       authorizationOrderId: String(created['subscription_id'] ?? subscriptionId),
       gatewaySubscriptionId: cfId || String(created['subscription_id'] ?? subscriptionId),
       currency: input.currency ?? 'INR',
+      amountPaise: Math.round(Number(input.authorizationAmount ?? 1) * 100),
       paymentSessionId: sessionId || null,
       authorizationLink: sessionId
         ? `${this.baseUrl.replace('/pg', '')}/pg/view/subscriptions?subscription_session_id=${sessionId}`
         : null,
       checkoutPayload: {
         subscription_session_id: sessionId,
+        paymentSessionId: sessionId,
         subscription_id: created['subscription_id'],
         cf_subscription_id: cfId,
+        environment,
+        subscriptionCheckout: true,
       },
     };
   }

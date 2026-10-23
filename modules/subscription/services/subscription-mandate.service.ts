@@ -114,6 +114,8 @@ export class SubscriptionMandateService {
       consentEvidence: {
         startedAt: new Date().toISOString(),
         actor: params.actor,
+        firstCharge: Boolean(params.authorizationAmount),
+        subscriptionPaymentId: params.notes?.subscriptionPaymentId ?? null,
       },
       createdBy: params.actor,
       updatedBy: params.actor,
@@ -236,9 +238,7 @@ export class SubscriptionMandateService {
     amount: string | number;
     productMandateMaxAmount?: string | null;
   }): boolean {
-    if (!this.isAutopayFeatureEnabled() || !this.razorpay.isConfigured()) return false;
-    const configured = this.configService.get<string>('subscriptions.autopayProvider');
-    if (configured === SubscriptionMandateProvider.CASHFREE) return false;
+    if (!this.isAutopayFeatureEnabled() || !this.configuredMandateProvider()) return false;
     const maxAmount = resolveMandateMaxAmount({
       productMandateMaxAmount: params.productMandateMaxAmount,
       globalMandateMaxAmount: this.configService.get<string>('subscriptions.mandateMaxAmount'),
@@ -302,6 +302,7 @@ export class SubscriptionMandateService {
       gatewayPaymentId: params.gatewayPaymentId,
       gatewayCustomerId: mandate.gatewayCustomerId,
       gatewayMandateId: mandate.gatewayMandateId,
+      gatewaySubscriptionId: mandate.gatewaySubscriptionId ?? mandate.authorizationOrderId,
     });
     await this.applyStatusSnapshot({
       mandateId: mandate.id,
@@ -311,6 +312,30 @@ export class SubscriptionMandateService {
       actor: params.actor,
       raw: snapshot.raw,
     });
+  }
+
+  async firstChargePaymentIdIfReady(gatewaySubscriptionId: string): Promise<string | null> {
+    if (!gatewaySubscriptionId) return null;
+    const mandate =
+      (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
+      (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
+    if (!mandate || !isMandateAutopayReady(mandate.status)) return null;
+    if (mandate.consentEvidence?.firstCharge !== true) return null;
+    const paymentId = mandate.consentEvidence.subscriptionPaymentId;
+    return typeof paymentId === 'string' && paymentId ? paymentId : null;
+  }
+
+  private configuredMandateProvider(): SubscriptionMandateProvider | null {
+    const configured = this.configService.get<string>('subscriptions.autopayProvider');
+    if (configured === SubscriptionMandateProvider.CASHFREE) {
+      return this.cashfree.isConfigured() ? SubscriptionMandateProvider.CASHFREE : null;
+    }
+    if (configured === SubscriptionMandateProvider.RAZORPAY) {
+      return this.razorpay.isConfigured() ? SubscriptionMandateProvider.RAZORPAY : null;
+    }
+    if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
+    if (this.cashfree.isConfigured()) return SubscriptionMandateProvider.CASHFREE;
+    return null;
   }
 
   private resolveNewMandateProvider(): SubscriptionMandateProvider {
