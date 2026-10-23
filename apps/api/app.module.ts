@@ -41,6 +41,7 @@ import { UploadsModule } from '@modules/uploads/uploads.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
+import { CspReportModule } from './csp-report/csp-report.module';
 import { PublicModule } from '@modules/public/public.module';
 import { GoogleMerchantModule } from '@modules/google-merchant/google-merchant.module';
 import { ProductModule } from '@modules/product/product.module';
@@ -130,6 +131,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
     ImagePipelineModule,
     OosEmailModule,
     HealthModule,
+    CspReportModule,
     PublicModule,
     GoogleMerchantModule,
     ProductModule,
