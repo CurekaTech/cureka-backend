@@ -41,6 +41,8 @@ export type CreateMandateAuthInput = {
     phone: string;
   };
   maxAmount: string;
+  /** Rupees charged in this checkout. Defaults to ₹1 when omitted. */
+  authorizationAmount?: string;
   currency?: string;
   returnUrl?: string;
   notes: Record<string, string>;
