@@ -97,6 +97,7 @@ export interface IUserProductSubscription {
   mandateMaxAmount: string | null;
   mandateStatus?: string | null;
   intervalMonths?: number;
+  intervalDays?: number;
   intervalLabel?: string;
   allowedActions?: {
     pause: boolean;

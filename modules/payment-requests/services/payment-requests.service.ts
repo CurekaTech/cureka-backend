@@ -100,7 +100,13 @@ export class PaymentRequestsService {
     paymentMethod?: OrderPaymentMethod,
     useWallet = false,
   ) {
-    const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    const [configuredProvider, hasSubscriptionItems] = await Promise.all([
+      this.checkoutResolver.resolveProvider(),
+      this.hasSubscriptionCartItems(userId),
+    ]);
+    // Subscription payments use the native Razorpay/Cashfree session flow.
+    // GoKwik and Shiprocket do not support subscription payment events.
+    const checkoutProvider = hasSubscriptionItems ? 'legacy' : configuredProvider;
     if (useWallet) this.assertWalletCheckoutEnabled();
     if (checkoutProvider === 'gokwik') {
       if (useWallet) {
@@ -291,7 +297,13 @@ export class PaymentRequestsService {
       '[CHECKOUT-MODAL] start',
     );
 
-    const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    const [configuredProvider, hasSubscriptionItems] = await Promise.all([
+      this.checkoutResolver.resolveProvider(),
+      this.hasSubscriptionCartItems(userId),
+    ]);
+    // Keep subscription carts on native Razorpay/Cashfree even when another
+    // storefront checkout provider is enabled for one-time purchases.
+    const checkoutProvider = hasSubscriptionItems ? 'legacy' : configuredProvider;
     this.logger.log(
       { userId, checkoutProvider },
       '[CHECKOUT-MODAL] checkout provider resolved (gokwik/shiprocket/legacy)',
@@ -944,6 +956,12 @@ export class PaymentRequestsService {
     if (!cart) {
       throw new BadRequestException('Cart not found');
     }
+    if (pricing.items.some((item) => item.isSubscription)) {
+      throw new BadRequestException({
+        code: 'SUBSCRIPTION_REQUIRES_NATIVE_CHECKOUT',
+        message: 'Subscription orders must use native checkout.',
+      });
+    }
 
     const appId = this.configService.get<string>('gokwik.appId')?.trim() ?? '';
     const merchantId = this.configService.get<string>('gokwik.merchantId')?.trim() ?? '';
@@ -992,6 +1010,11 @@ export class PaymentRequestsService {
         },
       },
     };
+  }
+
+  private async hasSubscriptionCartItems(userId: string): Promise<boolean> {
+    const cart = await this.cartService.getCart(userId);
+    return cart.items.some((item) => item.isSubscription);
   }
 
   private assertAddressRequiredForCheckout(

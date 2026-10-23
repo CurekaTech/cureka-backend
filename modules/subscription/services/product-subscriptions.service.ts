@@ -110,9 +110,11 @@ export class ProductSubscriptionsService {
       ...config,
       intervalLabels: (config.frequencies ?? []).map((frequency) => ({
         frequency,
-        intervalMonths: { MONTHLY: 1, BI_MONTHLY: 2, QUARTERLY: 3 }[frequency],
+        ...(frequency === 'DAILY' ? { intervalDays: 1 } : { intervalMonths: { MONTHLY: 1, BI_MONTHLY: 2, QUARTERLY: 3 }[frequency] }),
         label:
-          frequency === 'BI_MONTHLY'
+          frequency === 'DAILY'
+            ? 'Every 24 hours'
+            : frequency === 'BI_MONTHLY'
             ? 'Every 2 months'
             : frequency === 'QUARTERLY'
               ? 'Every 3 months'
@@ -146,9 +148,11 @@ export class ProductSubscriptionsService {
       productVariantId: variant.id,
       quantity: dto.quantity,
       frequency: dto.frequency,
-      intervalMonths: dto.frequency === 'BI_MONTHLY' ? 2 : dto.frequency === 'QUARTERLY' ? 3 : 1,
+      ...(dto.frequency === 'DAILY' ? { intervalDays: 1 } : { intervalMonths: dto.frequency === 'BI_MONTHLY' ? 2 : dto.frequency === 'QUARTERLY' ? 3 : 1 }),
       intervalLabel:
-        dto.frequency === 'BI_MONTHLY'
+        dto.frequency === 'DAILY'
+          ? 'Every 24 hours'
+          : dto.frequency === 'BI_MONTHLY'
           ? 'Every 2 months'
           : dto.frequency === 'QUARTERLY'
             ? 'Every 3 months'

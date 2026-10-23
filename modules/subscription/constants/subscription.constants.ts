@@ -7,7 +7,10 @@ export const PRODUCT_FREQUENCY_MONTHS = {
   QUARTERLY: 3,
 } as const;
 
+export const PRODUCT_FREQUENCY_DAYS = { DAILY: 1 } as const;
+
 export const PRODUCT_FREQUENCY_LABELS = {
+  DAILY: 'Every 24 hours',
   MONTHLY: 'Every month',
   BI_MONTHLY: 'Every 2 months',
   QUARTERLY: 'Every 3 months',

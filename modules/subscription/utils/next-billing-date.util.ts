@@ -2,10 +2,12 @@ import { MembershipBillingCycle } from '../enums/membership-billing-cycle.enum';
 import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
 import {
   PRODUCT_FREQUENCY_MONTHS,
+  PRODUCT_FREQUENCY_DAYS,
   SUBSCRIPTION_DEFAULT_TIMEZONE,
 } from '../constants/subscription.constants';
 
 const MEMBERSHIP_BILLING_CYCLE_MONTHS: Record<MembershipBillingCycle, number> = {
+  [MembershipBillingCycle.DAILY]: 0,
   [MembershipBillingCycle.MONTHLY]: 1,
   [MembershipBillingCycle.QUARTERLY]: 3,
   [MembershipBillingCycle.YEARLY]: 12,
@@ -113,6 +115,7 @@ export function getNextProductBillingDate(
   timeZone = SUBSCRIPTION_DEFAULT_TIMEZONE,
   anchorDay?: number | null,
 ): Date {
+  if (frequency === ProductSubscriptionFrequency.DAILY) return addDays(from, 1);
   return addCalendarMonths(from, PRODUCT_FREQUENCY_MONTHS[frequency], timeZone, anchorDay);
 }
 
@@ -124,6 +127,7 @@ export function getNextMembershipBillingDate(
   from: Date,
   billingCycle: MembershipBillingCycle,
 ): Date {
+  if (billingCycle === MembershipBillingCycle.DAILY) return addDays(from, 1);
   return addCalendarMonths(from, MEMBERSHIP_BILLING_CYCLE_MONTHS[billingCycle], 'UTC');
 }
 
@@ -146,9 +150,13 @@ export function advancePastMissedCycles(params: {
   const timeZone = params.timeZone ?? SUBSCRIPTION_DEFAULT_TIMEZONE;
   let cursor = params.nextBillingDate;
   let skipped = 0;
-  const interval = PRODUCT_FREQUENCY_MONTHS[params.frequency];
+  const interval = params.frequency === ProductSubscriptionFrequency.DAILY
+    ? 0
+    : PRODUCT_FREQUENCY_MONTHS[params.frequency];
   while (cursor.getTime() < params.asOfDate.getTime()) {
-    const following = addCalendarMonths(cursor, interval, timeZone, params.anchorDay);
+    const following = params.frequency === ProductSubscriptionFrequency.DAILY
+      ? addDays(cursor, PRODUCT_FREQUENCY_DAYS.DAILY)
+      : addCalendarMonths(cursor, interval, timeZone, params.anchorDay);
     if (following.getTime() <= params.asOfDate.getTime()) {
       skipped += 1;
       cursor = following;

@@ -66,6 +66,7 @@ export class GokwikOrderService {
       if (!cart) {
         throw new BadRequestException('Invalid cart id');
       }
+      this.assertNoSubscriptionItems((await this.cartService.getCartById(cartId)).items);
 
       this.logger.log(
         {
@@ -319,6 +320,7 @@ export class GokwikOrderService {
         }
         throw new BadRequestException('Invalid cart id');
       }
+      this.assertNoSubscriptionItems((await this.cartService.getCartById(cartId)).items);
 
       const customerPhone = parseIndianMobileNumber(dto.customer_phone);
       const link = await this.gokwikRepository.findOrderByCartId(cartId);
@@ -448,6 +450,15 @@ export class GokwikOrderService {
         thankyou_redirect_url: this.buildThankYouUrl(order.orderNumber),
       };
     });
+  }
+
+  private assertNoSubscriptionItems(items: Array<{ isSubscription: boolean }>): void {
+    if (items.some((item) => item.isSubscription)) {
+      throw new BadRequestException({
+        code: 'SUBSCRIPTION_REQUIRES_NATIVE_CHECKOUT',
+        message: 'Subscription orders must use native checkout.',
+      });
+    }
   }
 
   /**
