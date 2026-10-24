@@ -33,7 +33,7 @@ export const subscriptionsConfig = registerAs('subscriptions', () => ({
    */
   moduleEnabled: asBool(process.env['SUBSCRIPTIONS_MODULE_ENABLED'], false),
   /**
-   * 2-minute, 30-minute, 1-hour, and 1-day tenures for TechBV renewal tests.
+   * 2-minute, 5-minute, 30-minute, 1-hour, and 1-day tenures for TechBV renewal tests.
    * Leave false in production so monthly, 2-month, and quarterly stay unchanged.
    */
   testTenuresEnabled: asBool(process.env['SUBSCRIPTION_TEST_TENURES_ENABLED'], false),
