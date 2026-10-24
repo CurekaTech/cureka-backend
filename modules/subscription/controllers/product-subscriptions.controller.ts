@@ -203,6 +203,18 @@ export class ProductSubscriptionsController {
     return this.productSubscriptionsService.verifyRazorpayPayment(user.sub, id, dto);
   }
 
+  @ApiOperation({ summary: 'Confirm a subscription if Razorpay has already captured the checkout order' })
+  @ResponseMessage('Payment status checked')
+  @Post(':id/sync-payment')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  syncPayment(
+    @CurrentSessionUser() user: IUserSessionContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productSubscriptionsService.syncRazorpayPayment(user.sub, id);
+  }
+
   @ApiOperation({ summary: 'Pay an unpaid billing cycle with a manual checkout session' })
   @ResponseMessage('Checkout session created successfully')
   @Post(':id/cycles/:cycleId/pay')

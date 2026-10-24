@@ -69,6 +69,20 @@ export class RazorpayPaymentLinksService {
     }
   }
 
+  async fetchOrderPayments(orderId: string): Promise<Array<Record<string, unknown>>> {
+    if (!this.client) {
+      throw new InternalServerErrorException(
+        'Razorpay client is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_SECRET in environment.',
+      );
+    }
+    const result = (await (
+      this.client.orders.fetchPayments as (id: string) => Promise<unknown>
+    )(orderId)) as { items?: unknown[] };
+    return (result.items ?? []).filter(
+      (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object',
+    );
+  }
+
   verifyPaymentSignature(orderId: string, paymentId: string, signature: string | undefined): void {
     if (!signature) {
       throw new BadRequestException('Missing Razorpay payment signature');
