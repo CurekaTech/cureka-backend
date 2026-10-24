@@ -52,11 +52,13 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
 
     const maxPaise = Math.round(Number(input.maxAmount) * 100);
     const requestedPaise = Math.round(Number(input.authorizationAmount ?? 1) * 100);
-    const chargePaise = Math.max(100, requestedPaise);
-    if (!Number.isFinite(maxPaise) || maxPaise < chargePaise) {
+    const productPaise = Math.max(100, requestedPaise);
+    const method = input.method === 'card' ? 'card' : 'upi';
+    // Razorpay card mandates authorise at ₹1. The product amount is charged on the token after.
+    const chargePaise = method === 'card' ? 100 : productPaise;
+    if (!Number.isFinite(maxPaise) || maxPaise < productPaise) {
       throw new BadRequestException('First charge is above the AutoPay mandate limit');
     }
-    const method = input.method === 'card' ? 'card' : 'upi';
     const expireAt = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 60 * 60;
     const order = await this.request('POST', '/orders', {
       amount: chargePaise,
@@ -64,7 +66,10 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
       customer_id: customerId,
       method,
       receipt: `man-${input.subscriptionId}`.slice(0, 40),
-      notes: input.notes,
+      notes: {
+        ...input.notes,
+        ...(method === 'card' ? { razorpayCardAuthorization: '1' } : {}),
+      },
       token: {
         max_amount: maxPaise,
         expire_at: expireAt,

@@ -36,6 +36,7 @@ export type CreateSubscriptionPaymentLinkResult = {
   recurring?: string | null;
   gatewayCustomerId?: string | null;
   subscriptionCheckout?: boolean;
+  autopayMethod?: 'upi' | 'card' | null;
 };
 
 @Injectable()

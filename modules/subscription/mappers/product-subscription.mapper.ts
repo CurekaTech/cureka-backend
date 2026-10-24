@@ -135,6 +135,7 @@ export const mapUserProductSubscriptionToResponse = (
     recurring: extras?.recurring ?? null,
     gatewayCustomerId: extras?.gatewayCustomerId ?? null,
     subscriptionCheckout: extras?.subscriptionCheckout ?? null,
+    autopayMethod: extras?.autopayMethod ?? null,
     user: extras?.user ?? null,
     product: extras?.product ?? null,
     variant: extras?.variant ?? null,
