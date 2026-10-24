@@ -53,8 +53,11 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     const maxPaise = Math.round(Number(input.maxAmount) * 100);
     const requestedPaise = Math.round(Number(input.authorizationAmount ?? 1) * 100);
     const productPaise = Math.max(100, requestedPaise);
-    const method = input.method === 'card' ? 'card' : 'upi';
-    const chargePaise = productPaise;
+    const method =
+      input.method === 'card' ? 'card' : input.method === 'emandate' ? 'emandate' : 'upi';
+    // Razorpay registers a card token only on a ₹1 authorisation, and a netbanking
+    // eMandate only on a ₹0 authorisation. The subscription amount is charged on that token next.
+    const chargePaise = method === 'card' ? 100 : method === 'emandate' ? 0 : productPaise;
     if (!Number.isFinite(maxPaise) || maxPaise < productPaise) {
       throw new BadRequestException('First charge is above the AutoPay mandate limit');
     }
@@ -66,11 +69,19 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
       method,
       receipt: `man-${input.subscriptionId}`.slice(0, 40),
       notes: input.notes,
-      token: {
-        max_amount: maxPaise,
-        expire_at: expireAt,
-        frequency: 'as_presented',
-      },
+      ...(method === 'emandate' ? { payment_capture: true } : {}),
+      token:
+        method === 'emandate'
+          ? {
+              auth_type: 'netbanking',
+              max_amount: maxPaise,
+              expire_at: expireAt,
+            }
+          : {
+              max_amount: maxPaise,
+              expire_at: expireAt,
+              frequency: 'as_presented',
+            },
     });
     const orderId = String(order['id'] ?? '');
     if (!orderId) {

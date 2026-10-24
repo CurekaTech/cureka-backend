@@ -44,10 +44,10 @@ export class CreateProductSubscriptionDto {
   @IsBoolean()
   termsAccepted?: boolean;
 
-  @ApiPropertyOptional({ enum: ['upi', 'card'] })
+  @ApiPropertyOptional({ enum: ['upi', 'card', 'emandate'] })
   @IsOptional()
-  @IsIn(['upi', 'card'])
-  autopayMethod?: 'upi' | 'card';
+  @IsIn(['upi', 'card', 'emandate'])
+  autopayMethod?: 'upi' | 'card' | 'emandate';
 }
 
 export class PauseProductSubscriptionDto {
