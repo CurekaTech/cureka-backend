@@ -107,53 +107,66 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     gatewayCustomerId?: string | null;
   }): Promise<MandateStatusSnapshot> {
     this.assertConfigured();
+    let customerId = params.gatewayCustomerId ?? null;
+    let tokenId = params.gatewayMandateId ?? null;
+
     if (params.gatewayPaymentId) {
       const payment = await this.request('GET', `/payments/${params.gatewayPaymentId}`);
-      const tokenId =
-        typeof payment['token_id'] === 'string'
-          ? payment['token_id']
-          : typeof payment['token'] === 'string'
-            ? payment['token']
-            : null;
+      tokenId = readRazorpayTokenId(payment) ?? tokenId;
+      customerId = customerId ?? (String(payment['customer_id'] ?? '') || null);
       const tokenStatus =
         typeof payment['token'] === 'object' && payment['token']
           ? String((payment['token'] as Record<string, unknown>)['recurring_status'] ?? '')
           : '';
-      return {
-        status: mapRazorpayTokenStatus(tokenStatus || (tokenId ? 'confirmed' : 'pending')),
-        gatewayMandateId: tokenId,
-        gatewayCustomerId:
-          params.gatewayCustomerId ?? (String(payment['customer_id'] ?? '') || null),
-        raw: payment,
-      };
+      if (tokenId) {
+        return {
+          status: mapRazorpayTokenStatus(tokenStatus || 'confirmed'),
+          gatewayMandateId: tokenId,
+          gatewayCustomerId: customerId,
+          raw: payment,
+        };
+      }
     }
 
-    if (params.gatewayCustomerId && params.gatewayMandateId) {
-      const tokens = await this.request('GET', `/customers/${params.gatewayCustomerId}/tokens`);
-      const items = Array.isArray(tokens['items']) ? tokens['items'] : [];
-      const token = items.find((item) => String((item as Record<string, unknown>)['id']) === params.gatewayMandateId) as
-        | Record<string, unknown>
-        | undefined;
+    if (customerId) {
+      const tokens = await this.request('GET', `/customers/${customerId}/tokens`);
+      const items = Array.isArray(tokens['items'])
+        ? (tokens['items'] as Record<string, unknown>[])
+        : [];
+      const token = tokenId
+        ? items.find((item) => String(item['id']) === tokenId)
+        : items.find((item) =>
+            ['confirmed', 'authorized'].includes(
+              String(item['recurring_status'] ?? item['status'] ?? '').toLowerCase(),
+            ),
+          );
+      const resolvedId = token ? String(token['id'] ?? '') || tokenId : tokenId;
       return {
-        status: mapRazorpayTokenStatus(String(token?.['recurring_status'] ?? token?.['status'] ?? '')),
-        gatewayMandateId: params.gatewayMandateId,
-        gatewayCustomerId: params.gatewayCustomerId,
+        status: mapRazorpayTokenStatus(
+          String(token?.['recurring_status'] ?? token?.['status'] ?? (resolvedId ? 'confirmed' : 'pending')),
+        ),
+        gatewayMandateId: resolvedId,
+        gatewayCustomerId: customerId,
         raw: token ?? tokens,
       };
     }
 
-    return { status: mapRazorpayTokenStatus('pending') };
+    return { status: mapRazorpayTokenStatus('pending'), gatewayMandateId: tokenId, gatewayCustomerId: customerId };
   }
 
   async charge(input: ChargeMandateInput): Promise<AutopayChargeResult> {
     this.assertConfigured();
     const amountPaise = Math.round(Number(input.amount) * 100);
+    const paymentAfter = input.debitAt ? Math.floor(input.debitAt.getTime() / 1000) : null;
     const order = await this.request('POST', '/orders', {
       amount: amountPaise,
       currency: input.currency ?? 'INR',
       payment_capture: true,
       receipt: input.receipt.slice(0, 40),
       notes: input.notes,
+      ...(paymentAfter && input.gatewayMandateId
+        ? { notification: { token_id: input.gatewayMandateId, payment_after: paymentAfter } }
+        : {}),
     });
     const orderId = String(order['id'] ?? '');
     if (!orderId) {
@@ -235,4 +248,15 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     }
     return json;
   }
+}
+
+function readRazorpayTokenId(payment: Record<string, unknown>): string | null {
+  if (typeof payment['token_id'] === 'string' && payment['token_id']) return payment['token_id'];
+  const token = payment['token'];
+  if (typeof token === 'string' && token) return token;
+  if (token && typeof token === 'object') {
+    const id = (token as Record<string, unknown>)['id'];
+    if (typeof id === 'string' && id) return id;
+  }
+  return null;
 }

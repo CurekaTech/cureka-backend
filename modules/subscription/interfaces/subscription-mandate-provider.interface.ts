@@ -64,6 +64,8 @@ export type ChargeMandateInput = {
   };
   notes: Record<string, string>;
   scheduleDate?: Date;
+  /** When set, Razorpay schedules the debit at this time instead of the default 25-hour window. */
+  debitAt?: Date;
 };
 
 export interface ISubscriptionMandateProvider {

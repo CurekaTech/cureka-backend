@@ -44,7 +44,6 @@ export class SubscriptionMandateService {
   canPresentAsAutopay(sub: UserProductSubscriptionEntity, mandate?: SubscriptionMandateEntity | null): boolean {
     if (!this.isAutopayFeatureEnabled()) return false;
     if (!sub.autopayReady) return false;
-    if (sub.renewalMethod !== SubscriptionRenewalMethod.AUTO_PAY) return false;
     if (!mandate) return false;
     return isMandateAutopayReady(mandate.status);
   }

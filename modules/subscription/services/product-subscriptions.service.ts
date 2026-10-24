@@ -37,6 +37,7 @@ import { SubscriptionHistoryAction } from '../enums/subscription-history-action.
 import { SubscriptionMissedPaymentAction } from '../enums/subscription-missed-payment-action.enum';
 import { SubscriptionPaymentAttemptKind } from '../enums/subscription-payment-attempt-kind.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
+import { SubscriptionMandateProvider } from '../enums/subscription-mandate-provider.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
 import { SUBSCRIPTION_ERROR, describeProductFrequency } from '../constants/subscription.constants';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '../constants/subscription-payment-purpose.constants';
@@ -1378,6 +1379,16 @@ export class ProductSubscriptionsService {
       return;
     }
 
+    const openCycles = await this.billingCycleService.findBySubscriptionId(sub.id);
+    const debitInFlight = openCycles.find((cycle) => cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING);
+    if (debitInFlight) {
+      const waitMs = TEST_PRODUCT_FREQUENCIES.has(sub.frequency) ? 5 * 60 * 1000 : 36 * 60 * 60 * 1000;
+      const earliest = debitInFlight.debitEarliestAt ? new Date(debitInFlight.debitEarliestAt).getTime() : 0;
+      if (earliest && asOfDate.getTime() < earliest + waitMs) return;
+      const started = new Date(debitInFlight.processingStartedAt ?? debitInFlight.chargeDate).getTime();
+      if (asOfDate.getTime() - started < waitMs) return;
+    }
+
     const timezone = sub.timezone || 'Asia/Kolkata';
     const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
     const { nextBillingDate, skippedCount } = advancePastMissedCycles({
@@ -1444,7 +1455,13 @@ export class ProductSubscriptionsService {
         );
       } else {
         const charged = await this.attemptAutopay(sub, cycle, mandate.id, amount, billingCycleRef);
-        if (charged) return;
+        if (!charged) {
+          this.logger.warn(
+            { subscriptionId: sub.id, billingCycleRef },
+            'AutoPay debit was not accepted — the next run retries it. No payment link is sent.',
+          );
+        }
+        return;
       }
     }
 
@@ -1680,13 +1697,28 @@ export class ProductSubscriptionsService {
     amount: string,
     billingCycleRef: string,
   ): Promise<boolean> {
-    const mandate = await this.mandateService.getForSubscription(sub.id);
+    let mandate = await this.mandateService.getForSubscription(sub.id);
     if (!mandate) return false;
+    if (!mandate.gatewayMandateId && mandate.authorizationOrderId) {
+      await this.mandateService.confirmFromAuthorizationPayment({
+        gatewayOrderId: mandate.authorizationOrderId,
+        gatewayPaymentId: mandate.authorizationPaymentId,
+        actor: 'scheduler',
+      });
+      mandate = (await this.mandateService.getForSubscription(sub.id)) ?? mandate;
+    }
     const provider = this.mandateService.resolveChargeProvider(sub);
     if (!provider || provider !== mandate.provider) {
       this.logger.warn(
         { subscriptionId: sub.id, stored: sub.paymentGateway, mandate: mandate.provider },
         'Refusing to charge a mandate through a different provider',
+      );
+      return false;
+    }
+    if (provider === SubscriptionMandateProvider.RAZORPAY && !mandate.gatewayMandateId) {
+      this.logger.warn(
+        { subscriptionId: sub.id },
+        'AutoPay is on but Razorpay has no token yet, so the debit was not sent',
       );
       return false;
     }
@@ -1709,8 +1741,13 @@ export class ProductSubscriptionsService {
     await this.billingCycleService.updateById(cycle.id, {
       status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
       paymentId: payment.id,
+      processingStartedAt: new Date(),
       updatedBy: 'scheduler',
     });
+    const debitAt =
+      provider === SubscriptionMandateProvider.RAZORPAY && TEST_PRODUCT_FREQUENCIES.has(sub.frequency)
+        ? new Date(Date.now() + 60_000)
+        : undefined;
     const result = await this.mandateService.adapter(provider).charge({
       gatewayCustomerId: mandate.gatewayCustomerId ?? '',
       gatewayMandateId: mandate.gatewayMandateId ?? '',
@@ -1718,6 +1755,7 @@ export class ProductSubscriptionsService {
       amount,
       receipt: payment.refId,
       idempotencyKey,
+      debitAt,
       customer: { email: user?.email, phone: user?.mobileNumber ?? '' },
       notes: buildSubscriptionGatewayNotes({
         paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
@@ -1728,8 +1766,27 @@ export class ProductSubscriptionsService {
         productId: sub.productId,
       }),
     });
+    if (result.gatewayOrderId) {
+      await this.paymentsService.recordProviderCharge(payment.id, {
+        gatewayOrderId: result.gatewayOrderId,
+        gatewayPaymentId: result.gatewayPaymentId,
+        paymentGateway: provider,
+        pending: result.pending,
+        actor: 'scheduler',
+      });
+    }
     if (result.pending) {
-      await this.paymentsService.markReconciling(payment.id, 'scheduler');
+      const debitEarliestAt =
+        provider === SubscriptionMandateProvider.CASHFREE
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+          : debitAt ?? null;
+      if (debitEarliestAt) {
+        await this.billingCycleService.updateById(cycle.id, {
+          debitEarliestAt,
+          updatedBy: 'scheduler',
+        });
+      }
+      if (!result.gatewayOrderId) await this.paymentsService.markReconciling(payment.id, 'scheduler');
       return true;
     }
     if (result.accepted && result.gatewayOrderId) {
