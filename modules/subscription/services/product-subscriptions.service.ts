@@ -207,12 +207,23 @@ export class ProductSubscriptionsService {
     }
 
     const previous = await this.subscriptionsRepository.findByUserId(userId);
-    for (const row of previous) {
-      if (
-        row.productId === dto.productId &&
-        row.productVariantId === dto.productVariantId &&
-        row.status === ProductSubscriptionStatus.PENDING_PAYMENT
-      ) {
+    const sameVariant = previous.filter(
+      (row) =>
+        row.productId === dto.productId && row.productVariantId === dto.productVariantId,
+    );
+    const alreadyOwned = sameVariant.find((row) =>
+      [
+        ProductSubscriptionStatus.ACTIVE,
+        ProductSubscriptionStatus.RENEWAL_PAYMENT_PENDING,
+        ProductSubscriptionStatus.PAST_DUE,
+        ProductSubscriptionStatus.PAUSED,
+      ].includes(row.status),
+    );
+    if (alreadyOwned) {
+      throw new BadRequestException('You already have a subscription for this product option');
+    }
+    for (const row of sameVariant) {
+      if (row.status === ProductSubscriptionStatus.PENDING_PAYMENT) {
         await this.abandonUnpaid(userId, row.id);
       }
     }
