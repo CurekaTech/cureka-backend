@@ -124,6 +124,27 @@ export class ProductSubscriptionPaymentsService {
     });
   }
 
+  async recordProviderCharge(
+    paymentId: string,
+    data: {
+      gatewayOrderId: string;
+      gatewayPaymentId?: string | null;
+      paymentGateway: string;
+      pending: boolean;
+      actor: string;
+    },
+  ): Promise<void> {
+    const existing = await this.paymentsRepository.findById(paymentId);
+    if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
+    await this.paymentsRepository.updateById(paymentId, {
+      gatewayOrderId: data.gatewayOrderId,
+      gatewayPaymentId: data.gatewayPaymentId ?? existing.gatewayPaymentId,
+      paymentGateway: data.paymentGateway,
+      status: data.pending ? SubscriptionPaymentStatus.RECONCILING : existing.status,
+      updatedBy: data.actor,
+    });
+  }
+
   async markReconciling(paymentId: string, actor: string): Promise<void> {
     const existing = await this.paymentsRepository.findById(paymentId);
     if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
