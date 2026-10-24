@@ -57,6 +57,7 @@ export class SubscriptionMandateService {
     /** When set, this checkout charges that amount and registers the mandate together. */
     authorizationAmount?: string;
     notes?: Record<string, string>;
+    method?: 'upi' | 'card';
   }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession }> {
     if (!this.isAutopayFeatureEnabled()) {
       throw new BadRequestException({
@@ -91,6 +92,7 @@ export class SubscriptionMandateService {
       customer: params.customer,
       maxAmount,
       authorizationAmount: params.authorizationAmount,
+      method: params.method,
       notes: params.notes ?? {
         paymentPurpose: 'PRODUCT_SUBSCRIPTION_MANDATE',
         subscriptionId: params.subscription.id,
@@ -258,6 +260,7 @@ export class SubscriptionMandateService {
     amount: string;
     productMandateMaxAmount?: string | null;
     notes: Record<string, string>;
+    method?: 'upi' | 'card';
   }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession } | null> {
     if (
       !params.customer.phone ||
@@ -274,6 +277,7 @@ export class SubscriptionMandateService {
         customer: params.customer,
         actor: params.actor,
         authorizationAmount: params.amount,
+        method: params.method,
         notes: params.notes,
       });
     } catch (error) {

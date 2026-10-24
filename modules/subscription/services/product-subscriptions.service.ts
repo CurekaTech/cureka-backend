@@ -307,6 +307,7 @@ export class ProductSubscriptionsService {
       amount: pricing.finalAmount,
       productMandateMaxAmount: configEntity.mandateMaxAmount,
       notes,
+      method: dto.autopayMethod,
     });
     const session = firstChargeMandate?.session;
     const isCashfree = session?.provider === 'CASHFREE';
