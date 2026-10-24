@@ -448,6 +448,11 @@ export class PaymentsWebhookController {
         actor: 'razorpay-webhook',
         raw: payload,
       });
+      if (event === 'token.confirmed') {
+        await this.productSubscriptionsService.collectCardProductAfterTokenConfirmed(
+          tokenEntity?.entity?.id,
+        );
+      }
     } else if (
       event === 'refund.processed' ||
       event === 'refund.failed' ||

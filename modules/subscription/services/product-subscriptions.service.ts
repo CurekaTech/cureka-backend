@@ -1283,6 +1283,28 @@ export class ProductSubscriptionsService {
     );
   }
 
+  async collectCardProductAfterTokenConfirmed(gatewayMandateId?: string | null): Promise<void> {
+    if (!gatewayMandateId) return;
+    const mandate = await this.mandateService.findByGatewayMandateId(gatewayMandateId);
+    const paymentId = mandate?.consentEvidence?.subscriptionPaymentId;
+    if (!mandate?.authorizationOrderId || typeof paymentId !== 'string' || !paymentId) return;
+    if (mandate.consentEvidence?.cardAuthOnly !== true || mandate.consentEvidence?.productChargeOrderId) return;
+    const payment = await this.paymentsService.findById(paymentId);
+    if (!payment || payment.status === SubscriptionPaymentStatus.PAID) return;
+    const charged = await this.collectProductAfterCardAuthorization(payment, mandate.id, {
+      gatewayOrderId: mandate.authorizationOrderId,
+      gatewayPaymentId: mandate.authorizationPaymentId,
+      actor: 'razorpay-webhook',
+    });
+    if (!charged) return;
+    await this.handlePaymentSuccess({
+      paymentId: payment.id,
+      gatewayOrderId: charged.gatewayOrderId,
+      gatewayPaymentId: charged.gatewayPaymentId ?? undefined,
+      actor: 'razorpay-webhook',
+    });
+  }
+
   private async collectProductAfterCardAuthorization(
     payment: {
       id: string;
