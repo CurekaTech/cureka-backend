@@ -118,7 +118,7 @@ export class SubscriptionMandateService {
         firstCharge: Boolean(params.authorizationAmount),
         subscriptionPaymentId: params.notes?.subscriptionPaymentId ?? null,
         method: params.method === 'card' ? 'card' : 'upi',
-        cardAuthOnly: provider === SubscriptionMandateProvider.RAZORPAY && params.method === 'card',
+        cardAuthOnly: false,
       },
       createdBy: params.actor,
       updatedBy: params.actor,
