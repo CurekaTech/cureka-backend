@@ -74,7 +74,6 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         max_amount: maxPaise,
         expire_at: expireAt,
         frequency: 'as_presented',
-        ...(method === 'upi' ? { type: 'single_block_multiple_debit' } : {}),
       },
     });
     const orderId = String(order['id'] ?? '');
