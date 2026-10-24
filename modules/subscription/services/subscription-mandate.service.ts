@@ -296,6 +296,10 @@ export class SubscriptionMandateService {
     }
   }
 
+  findByGatewayMandateId(gatewayMandateId: string) {
+    return this.mandatesRepository.findByGatewayMandateId(gatewayMandateId);
+  }
+
   async confirmFromAuthorizationPayment(params: {
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
