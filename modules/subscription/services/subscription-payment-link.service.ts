@@ -54,6 +54,10 @@ export class SubscriptionPaymentLinkService {
     this.razorpayService.verifyPaymentSignature(orderId, paymentId, signature);
   }
 
+  async fetchRazorpayOrderPayments(orderId: string): Promise<Array<Record<string, unknown>>> {
+    return this.razorpayService.fetchOrderPayments(orderId);
+  }
+
   async createPaymentLink(
     input: CreateSubscriptionPaymentLinkInput,
   ): Promise<CreateSubscriptionPaymentLinkResult> {

@@ -872,6 +872,42 @@ export class ProductSubscriptionsService {
     return this.getMine(userId, subscriptionId);
   }
 
+  async syncRazorpayPayment(userId: string, subscriptionId: string): Promise<{ paid: boolean }> {
+    const sub = await this.subscriptionsRepository.findByIdAndUserId(subscriptionId, userId);
+    if (!sub) throw new NotFoundException('Subscription not found');
+    const payments = await this.paymentsService.findBySubscriptionId(subscriptionId);
+    if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+      return { paid: true };
+    }
+    const pending = [...payments].reverse().find((payment) => payment.gatewayOrderId?.startsWith('order_'));
+    if (!pending?.gatewayOrderId) return { paid: false };
+    let items: Array<Record<string, unknown>> = [];
+    try {
+      items = await this.paymentLinkService.fetchRazorpayOrderPayments(pending.gatewayOrderId);
+    } catch (error) {
+      this.logger.warn(
+        {
+          subscriptionId,
+          orderId: pending.gatewayOrderId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Could not read Razorpay order while the QR was open',
+      );
+      return { paid: false };
+    }
+    const success = items.find((item) =>
+      ['captured', 'authorized'].includes(String(item['status'] ?? '').toLowerCase()),
+    );
+    if (!success) return { paid: false };
+    await this.handlePaymentSuccess({
+      paymentId: pending.id,
+      gatewayOrderId: pending.gatewayOrderId,
+      gatewayPaymentId: String(success['id'] ?? '') || undefined,
+      actor: userId,
+    });
+    return { paid: true };
+  }
+
   async tryHandlePaidByGatewayOrderId(
     gatewayOrderId?: string,
     gatewayPaymentId?: string,
