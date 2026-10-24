@@ -16,6 +16,7 @@ export type SubscriptionCheckoutExtras = {
   recurring?: string | null;
   gatewayCustomerId?: string | null;
   subscriptionCheckout?: boolean | null;
+  autopayMethod?: 'upi' | 'card' | null;
 };
 
 export function checkoutExtrasFromLink(

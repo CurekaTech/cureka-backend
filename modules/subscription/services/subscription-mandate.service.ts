@@ -8,7 +8,7 @@ import { SubscriptionHistoryAction } from '../enums/subscription-history-action.
 import { SubscriptionMandateProvider } from '../enums/subscription-mandate-provider.enum';
 import { SubscriptionMandateStatus } from '../enums/subscription-mandate-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
-import { MandateAuthSession } from '../interfaces/subscription-mandate-provider.interface';
+import { MandateAuthSession, AutopayChargeResult } from '../interfaces/subscription-mandate-provider.interface';
 import { SubscriptionMandatesRepository } from '../repositories/subscription-mandates.repository';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { resolveMandateMaxAmount } from '../utils/mandate-amount.util';
@@ -117,6 +117,8 @@ export class SubscriptionMandateService {
         actor: params.actor,
         firstCharge: Boolean(params.authorizationAmount),
         subscriptionPaymentId: params.notes?.subscriptionPaymentId ?? null,
+        method: params.method === 'card' ? 'card' : 'upi',
+        cardAuthOnly: provider === SubscriptionMandateProvider.RAZORPAY && params.method === 'card',
       },
       createdBy: params.actor,
       updatedBy: params.actor,
@@ -280,14 +282,17 @@ export class SubscriptionMandateService {
         notes: params.notes,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        {
-          subscriptionId: params.subscription.id,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'First payment could not register AutoPay — using a one-time charge',
+        { subscriptionId: params.subscription.id, error: message },
+        'First payment could not register AutoPay',
       );
-      return null;
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException({
+        code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+        message:
+          'AutoPay could not be started, so this subscription was not charged. Check the Razorpay recurring setup and try again.',
+      });
     }
   }
 
@@ -328,28 +333,121 @@ export class SubscriptionMandateService {
     return typeof paymentId === 'string' && paymentId ? paymentId : null;
   }
 
+  /**
+   * Razorpay card mandates capture ₹1 first. Returns the mandate when this
+   * webhook is that authorisation and the product amount still has to be charged.
+   * A repeat of the ₹1 event, after the product charge has started, returns 'wait'
+   * so the ₹1 capture is not treated as the product payment.
+   */
+  async cardAuthorizationAction(
+    gatewayOrderId?: string | null,
+  ): Promise<{ action: 'charge'; mandate: SubscriptionMandateEntity } | { action: 'wait' } | { action: 'none' }> {
+    if (!gatewayOrderId) return { action: 'none' };
+    const mandate = await this.mandatesRepository.findByAuthorizationOrderId(gatewayOrderId);
+    if (!mandate || mandate.consentEvidence?.cardAuthOnly !== true) return { action: 'none' };
+    if (mandate.consentEvidence?.productChargeOrderId || mandate.consentEvidence?.productChargeStartedAt) {
+      return { action: 'wait' };
+    }
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: {
+        ...mandate.consentEvidence,
+        productChargeStartedAt: new Date().toISOString(),
+      },
+    });
+    return { action: 'charge', mandate };
+  }
+
+  async chargeCardProduct(params: {
+    mandateId: string;
+    amount: string;
+    customer: { email?: string | null; phone: string };
+    notes: Record<string, string>;
+    actor: string;
+    receipt: string;
+  }): Promise<AutopayChargeResult> {
+    const mandate = await this.mandatesRepository.findById(params.mandateId);
+    if (!mandate?.gatewayCustomerId || !mandate.gatewayMandateId) {
+      await this.releaseCardChargeClaim(mandate);
+      return { accepted: false, pending: true, failureReason: 'Card token is not confirmed yet' };
+    }
+    if (!params.customer.phone) {
+      await this.releaseCardChargeClaim(mandate);
+      return { accepted: false, pending: false, failureReason: 'Customer phone is required to charge the card' };
+    }
+    const result = await this.adapter(mandate.provider).charge({
+      gatewayCustomerId: mandate.gatewayCustomerId,
+      gatewayMandateId: mandate.gatewayMandateId,
+      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+      amount: params.amount,
+      receipt: params.receipt,
+      idempotencyKey: params.receipt,
+      customer: params.customer,
+      notes: params.notes,
+    }).catch(async (error: unknown): Promise<AutopayChargeResult> => {
+      await this.releaseCardChargeClaim(mandate);
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        accepted: false,
+        pending: false,
+        failureReason: message,
+      };
+    });
+    if (result.gatewayOrderId) {
+      await this.mandatesRepository.updateById(mandate.id, {
+        consentEvidence: {
+          ...(mandate.consentEvidence ?? {}),
+          productChargeStartedAt: new Date().toISOString(),
+          productChargeOrderId: result.gatewayOrderId,
+        },
+        updatedBy: params.actor,
+      });
+      return result;
+    }
+    await this.releaseCardChargeClaim(mandate);
+    return result;
+  }
+
+  private async releaseCardChargeClaim(mandate: SubscriptionMandateEntity | null): Promise<void> {
+    if (!mandate?.consentEvidence) return;
+    const evidence = { ...mandate.consentEvidence };
+    delete evidence.productChargeStartedAt;
+    await this.mandatesRepository.updateById(mandate.id, { consentEvidence: evidence });
+  }
+
   private configuredMandateProvider(): SubscriptionMandateProvider | null {
-    const configured = this.configService.get<string>('subscriptions.autopayProvider');
-    if (configured === SubscriptionMandateProvider.CASHFREE) {
-      return this.cashfree.isConfigured() ? SubscriptionMandateProvider.CASHFREE : null;
-    }
-    if (configured === SubscriptionMandateProvider.RAZORPAY) {
-      return this.razorpay.isConfigured() ? SubscriptionMandateProvider.RAZORPAY : null;
-    }
+    const pinned = this.pinnedProviderIfConfigured();
+    if (pinned) return pinned;
     if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
     if (this.cashfree.isConfigured()) return SubscriptionMandateProvider.CASHFREE;
     return null;
   }
 
   private resolveNewMandateProvider(): SubscriptionMandateProvider {
+    const pinned = this.pinnedProviderIfConfigured();
+    if (pinned) return pinned;
     const configured = this.configService.get<string>('subscriptions.autopayProvider');
-    if (configured === SubscriptionMandateProvider.CASHFREE) return SubscriptionMandateProvider.CASHFREE;
-    if (configured === SubscriptionMandateProvider.RAZORPAY) return SubscriptionMandateProvider.RAZORPAY;
+    if (configured === SubscriptionMandateProvider.CASHFREE && this.razorpay.isConfigured()) {
+      return SubscriptionMandateProvider.RAZORPAY;
+    }
+    if (configured === SubscriptionMandateProvider.RAZORPAY && this.cashfree.isConfigured()) {
+      return SubscriptionMandateProvider.CASHFREE;
+    }
     if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
     if (this.cashfree.isConfigured()) return SubscriptionMandateProvider.CASHFREE;
     throw new BadRequestException({
       code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
       message: 'No AutoPay provider is configured',
     });
+  }
+
+  private pinnedProviderIfConfigured(): SubscriptionMandateProvider | null {
+    const configured = this.configService.get<string>('subscriptions.autopayProvider');
+    if (configured === SubscriptionMandateProvider.CASHFREE && this.cashfree.isConfigured()) {
+      return SubscriptionMandateProvider.CASHFREE;
+    }
+    if (configured === SubscriptionMandateProvider.RAZORPAY && this.razorpay.isConfigured()) {
+      return SubscriptionMandateProvider.RAZORPAY;
+    }
+    return null;
   }
 }

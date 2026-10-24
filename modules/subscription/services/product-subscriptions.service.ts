@@ -312,15 +312,23 @@ export class ProductSubscriptionsService {
       userId,
       productId: dto.productId,
     });
-    const firstChargeMandate = await this.mandateService.tryStartFirstChargeAuthorization({
-      subscription,
-      customer,
-      actor: userId,
-      amount: pricing.finalAmount,
-      productMandateMaxAmount: configEntity.mandateMaxAmount,
-      notes,
-      method: dto.autopayMethod,
-    });
+    let firstChargeMandate: Awaited<
+      ReturnType<SubscriptionMandateService['tryStartFirstChargeAuthorization']>
+    > = null;
+    try {
+      firstChargeMandate = await this.mandateService.tryStartFirstChargeAuthorization({
+        subscription,
+        customer,
+        actor: userId,
+        amount: pricing.finalAmount,
+        productMandateMaxAmount: configEntity.mandateMaxAmount,
+        notes,
+        method: dto.autopayMethod,
+      });
+    } catch (error) {
+      await this.abandonUnpaid(userId, subscription.id);
+      throw error;
+    }
     const session = firstChargeMandate?.session;
     const isCashfree = session?.provider === 'CASHFREE';
     const checkoutEnvironment: 'sandbox' | 'production' | undefined =
@@ -329,6 +337,7 @@ export class ProductSubscriptionsService {
         : session?.checkoutPayload.environment === 'production'
           ? 'production'
           : undefined;
+    const checkoutMethod: 'upi' | 'card' = dto.autopayMethod === 'card' ? 'card' : 'upi';
     const link = session
       ? {
           paymentLink: session.authorizationLink ?? null,
@@ -348,6 +357,7 @@ export class ProductSubscriptionsService {
           recurring: isCashfree ? null : '1',
           gatewayCustomerId: session.gatewayCustomerId ?? null,
           subscriptionCheckout: isCashfree,
+          autopayMethod: checkoutMethod,
         }
       : await this.paymentLinkService.createPaymentLink({
           amount: pricing.finalAmount,
@@ -1184,6 +1194,18 @@ export class ProductSubscriptionsService {
       return;
     }
 
+    const cardAction = await this.mandateService.cardAuthorizationAction(params.gatewayOrderId);
+    if (cardAction.action === 'wait') return;
+    if (cardAction.action === 'charge') {
+      const charged = await this.collectProductAfterCardAuthorization(payment, cardAction.mandate.id, params);
+      if (!charged) return;
+      params = {
+        ...params,
+        gatewayOrderId: charged.gatewayOrderId ?? params.gatewayOrderId,
+        gatewayPaymentId: charged.gatewayPaymentId ?? params.gatewayPaymentId,
+      };
+    }
+
     const { payment: paidPayment, newlyPaid } = await this.paymentsService.markPaidIdempotent(
       payment.id,
       { gatewayPaymentId: params.gatewayPaymentId, actor: params.actor },
@@ -1259,6 +1281,55 @@ export class ProductSubscriptionsService {
       params.gatewayPaymentId ?? paidPayment.gatewayPaymentId,
       params.actor,
     );
+  }
+
+  private async collectProductAfterCardAuthorization(
+    payment: {
+      id: string;
+      amount: string;
+      userId: string;
+      subscriptionId: string;
+      billingCycleRef: string;
+    },
+    mandateId: string,
+    params: { gatewayOrderId?: string | null; gatewayPaymentId?: string | null; actor?: string },
+  ): Promise<{ gatewayOrderId: string; gatewayPaymentId?: string | null } | null> {
+    await this.confirmFirstChargeMandate(params.gatewayOrderId, params.gatewayPaymentId, params.actor);
+    const user = await this.usersRepository.findById(payment.userId);
+    const actor = params.actor ?? 'webhook';
+    const result = await this.mandateService.chargeCardProduct({
+      mandateId,
+      amount: payment.amount,
+      customer: { email: user?.email ?? null, phone: user?.mobileNumber ?? '' },
+      notes: buildSubscriptionGatewayNotes({
+        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+        billingCycleRef: payment.billingCycleRef,
+        subscriptionId: payment.subscriptionId,
+        subscriptionPaymentId: payment.id,
+        userId: payment.userId,
+      }),
+      actor,
+      receipt: `card-${payment.id}`.slice(0, 40),
+    });
+    if (!result.accepted || !result.gatewayOrderId) {
+      this.logger.warn(
+        { paymentId: payment.id, reason: result.failureReason },
+        'Card AutoPay did not charge the product amount',
+      );
+      return null;
+    }
+    await this.paymentsService.recordProviderCharge(payment.id, {
+      gatewayOrderId: result.gatewayOrderId,
+      gatewayPaymentId: result.gatewayPaymentId,
+      paymentGateway: SubscriptionMandateProvider.RAZORPAY,
+      pending: result.pending,
+      actor,
+    });
+    if (result.pending) return null;
+    return {
+      gatewayOrderId: result.gatewayOrderId,
+      gatewayPaymentId: result.gatewayPaymentId,
+    };
   }
 
   private async confirmFirstChargeMandate(
