@@ -56,19 +56,20 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     if (!Number.isFinite(maxPaise) || maxPaise < chargePaise) {
       throw new BadRequestException('First charge is above the AutoPay mandate limit');
     }
+    const method = input.method === 'card' ? 'card' : 'upi';
     const expireAt = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 60 * 60;
     const order = await this.request('POST', '/orders', {
       amount: chargePaise,
       currency: input.currency ?? 'INR',
       customer_id: customerId,
-      method: 'upi',
+      method,
       receipt: `man-${input.subscriptionId}`.slice(0, 40),
       notes: input.notes,
       token: {
         max_amount: maxPaise,
         expire_at: expireAt,
         frequency: 'as_presented',
-        type: 'single_block_multiple_debit',
+        ...(method === 'upi' ? { type: 'single_block_multiple_debit' } : {}),
       },
     });
     const orderId = String(order['id'] ?? '');

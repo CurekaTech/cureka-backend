@@ -46,6 +46,8 @@ export type CreateMandateAuthInput = {
   currency?: string;
   returnUrl?: string;
   notes: Record<string, string>;
+  /** Razorpay authorisation method. UPI and card each get their own token. */
+  method?: 'upi' | 'card';
 };
 
 export type ChargeMandateInput = {

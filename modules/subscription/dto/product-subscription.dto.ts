@@ -4,6 +4,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -42,6 +43,11 @@ export class CreateProductSubscriptionDto {
   @IsOptional()
   @IsBoolean()
   termsAccepted?: boolean;
+
+  @ApiPropertyOptional({ enum: ['upi', 'card'] })
+  @IsOptional()
+  @IsIn(['upi', 'card'])
+  autopayMethod?: 'upi' | 'card';
 }
 
 export class PauseProductSubscriptionDto {
