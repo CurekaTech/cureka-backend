@@ -337,7 +337,8 @@ export class ProductSubscriptionsService {
         : session?.checkoutPayload.environment === 'production'
           ? 'production'
           : undefined;
-    const checkoutMethod: 'upi' | 'card' = dto.autopayMethod === 'card' ? 'card' : 'upi';
+    const checkoutMethod: 'upi' | 'card' | 'emandate' =
+      dto.autopayMethod === 'card' ? 'card' : dto.autopayMethod === 'emandate' ? 'emandate' : 'upi';
     const link = session
       ? {
           paymentLink: session.authorizationLink ?? null,
@@ -1884,8 +1885,12 @@ export class ProductSubscriptionsService {
       processingStartedAt: new Date(),
       updatedBy: 'scheduler',
     });
+    const mandateMethod = String(mandate.consentEvidence?.method ?? '');
     const debitAt =
-      provider === SubscriptionMandateProvider.RAZORPAY && TEST_PRODUCT_FREQUENCIES.has(sub.frequency)
+      provider === SubscriptionMandateProvider.RAZORPAY &&
+      mandateMethod !== 'card' &&
+      mandateMethod !== 'emandate' &&
+      TEST_PRODUCT_FREQUENCIES.has(sub.frequency)
         ? new Date(Date.now() + 60_000)
         : undefined;
     const result = await this.mandateService.adapter(provider).charge({

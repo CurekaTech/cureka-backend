@@ -126,7 +126,7 @@ export interface IUserProductSubscription {
   recurring?: string | null;
   gatewayCustomerId?: string | null;
   subscriptionCheckout?: boolean | null;
-  autopayMethod?: 'upi' | 'card' | null;
+  autopayMethod?: 'upi' | 'card' | 'emandate' | null;
   user?: ISubscriptionUserSummary | null;
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;

@@ -46,8 +46,8 @@ export type CreateMandateAuthInput = {
   currency?: string;
   returnUrl?: string;
   notes: Record<string, string>;
-  /** Razorpay authorisation method. UPI and card each get their own token. */
-  method?: 'upi' | 'card';
+  /** Razorpay authorisation method. Netbanking uses an eMandate token. */
+  method?: 'upi' | 'card' | 'emandate';
 };
 
 export type ChargeMandateInput = {
