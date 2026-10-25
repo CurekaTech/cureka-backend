@@ -10,6 +10,7 @@ import { ProductSubscriptionsService } from '@modules/subscription/services/prod
 import { SubscriptionMandateService } from '@modules/subscription/services/subscription-mandate.service';
 import { SubscriptionWebhookEventsRepository } from '@modules/subscription/repositories/subscription-webhook-events.repository';
 import { mapCashfreeSubscriptionStatus, mapRazorpayTokenStatus } from '@modules/subscription/utils/subscription-mandate-status.util';
+import { razorpaySubscriptionEventSettlesPayment } from '@modules/subscription/utils/razorpay-upi-debit.util';
 import { PaymentRequestsService } from '../services/payment-requests.service';
 import { RazorpayPaymentLinksService } from '../services/razorpay-payment-links.service';
 import { CashfreePaymentService } from '../services/cashfree-payment.service';
@@ -297,6 +298,7 @@ export class PaymentsWebhookController {
           entity?: {
             id?: string;
             order_id?: string;
+            status?: string;
             /** Razorpay amount in paise */
             amount?: number | string;
             error_description?: string;
@@ -368,6 +370,27 @@ export class PaymentsWebhookController {
     } else if (event === 'payment_link.expired' && linkId) {
       await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
     } else if (event === 'payment.authorized' || event === 'payment.captured' || event === 'order.paid') {
+      const subscriptionPurpose =
+        paymentPurpose === SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION ||
+        paymentPurpose === SUBSCRIPTION_PAYMENT_PURPOSE.MEMBERSHIP;
+      let markSubscriptionPaid = false;
+      if (subscriptionPurpose) {
+        const settlement = razorpaySubscriptionEventSettlesPayment(event, paymentEntity?.entity?.status);
+        markSubscriptionPaid =
+          settlement === 'paid' ||
+          (settlement === 'verify' &&
+            (await this.productSubscriptionsService.isRazorpayChargeCaptured({
+              gatewayOrderId: orderId,
+              gatewayPaymentId: paymentEntity?.entity?.id,
+            })));
+        if (!markSubscriptionPaid) {
+          this.logger.log(
+            { event, orderId, paymentStatus: paymentEntity?.entity?.status, requestId: req.id },
+            'Subscription payment was not captured, so it was not marked paid',
+          );
+        }
+      }
+      if (!subscriptionPurpose || markSubscriptionPaid) {
       const routed = await this.routeSubscriptionPaid({
         paymentPurpose,
         gatewayOrderId: orderId ?? linkId,
@@ -398,6 +421,7 @@ export class PaymentsWebhookController {
             razorpayAmountRupees,
           );
         }
+      }
       }
     } else if (event === 'payment.failed') {
       if (orderId) {

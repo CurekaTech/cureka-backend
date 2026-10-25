@@ -5,6 +5,7 @@ import {
   AutopayChargeResult,
   ChargeMandateInput,
   CreateMandateAuthInput,
+  GatewayChargeSnapshot,
   ISubscriptionMandateProvider,
   MandateAuthSession,
   MandateStatusSnapshot,
@@ -160,6 +161,10 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       }
       return { accepted: false, pending: false, failureReason: message };
     }
+  }
+
+  async fetchChargeStatus(): Promise<GatewayChargeSnapshot> {
+    return { state: 'unknown' };
   }
 
   private defaultUpiScheduleDate(): Date {

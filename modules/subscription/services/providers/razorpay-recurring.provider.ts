@@ -5,11 +5,13 @@ import {
   AutopayChargeResult,
   ChargeMandateInput,
   CreateMandateAuthInput,
+  GatewayChargeSnapshot,
   ISubscriptionMandateProvider,
   MandateAuthSession,
   MandateStatusSnapshot,
 } from '../../interfaces/subscription-mandate-provider.interface';
 import { mapRazorpayTokenStatus } from '../../utils/subscription-mandate-status.util';
+import { classifyRazorpayPaymentStatus } from '../../utils/razorpay-upi-debit.util';
 
 /**
  * Razorpay Recurring Payments (token / UPI Autopay), not Razorpay Subscriptions plans.
@@ -169,20 +171,53 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     this.assertConfigured();
     const amountPaise = Math.round(Number(input.amount) * 100);
     const paymentAfter = input.debitAt ? Math.floor(input.debitAt.getTime() / 1000) : null;
-    const order = await this.request('POST', '/orders', {
+    // Razorpay Orders use `receipt` as the idempotency key. There is no idempotency
+    // header on /orders or /payments/create/recurring (those headers exist only for
+    // Payouts and Route transfers). The stored subscription idempotency key is not sent.
+    const receipt = input.receipt.slice(0, 40);
+    const orderBody: Record<string, unknown> = {
       amount: amountPaise,
       currency: input.currency ?? 'INR',
       payment_capture: true,
-      receipt: input.receipt.slice(0, 40),
+      receipt,
       notes: input.notes,
       ...(paymentAfter && input.gatewayMandateId
         ? { notification: { token_id: input.gatewayMandateId, payment_after: paymentAfter } }
         : {}),
-    });
+    };
+
+    let order: Record<string, unknown> | null = null;
+    try {
+      order = await this.request('POST', '/orders', orderBody);
+    } catch (error) {
+      if (this.isDuplicateReceipt(error)) {
+        order = await this.findOrderByReceipt(receipt);
+      }
+      if (!order) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (this.isUnknownTransport(message)) {
+          return { accepted: true, pending: true, failureReason: message };
+        }
+        return { accepted: false, pending: false, failureReason: message };
+      }
+    }
+
     const orderId = String(order['id'] ?? '');
     if (!orderId) {
       return { accepted: false, pending: false, failureReason: 'Razorpay order missing id', raw: order };
     }
+
+    const existing = await this.readOrderPayments(orderId).catch(() => null);
+    if (!existing) {
+      return {
+        accepted: true,
+        pending: true,
+        gatewayOrderId: orderId,
+        failureReason: 'Razorpay payment status is unknown',
+      };
+    }
+    const open = paymentSnapshot(existing, orderId);
+    if (open) return snapshotToCharge(open, orderId);
 
     try {
       const payment = await this.request('POST', '/payments/create/recurring', {
@@ -196,32 +231,88 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         recurring: true,
         notes: input.notes,
       });
-      const status = String(payment['status'] ?? '').toLowerCase();
-      if (['created', 'authorized', 'captured'].includes(status)) {
-        return {
-          accepted: true,
-          pending: status !== 'captured',
-          gatewayOrderId: orderId,
-          gatewayPaymentId: String(payment['id'] ?? '') || null,
-          raw: payment,
-        };
-      }
-      return {
-        accepted: false,
-        pending: ['pending', 'created'].includes(status),
+      return snapshotToCharge(paymentSnapshot([payment], orderId) ?? {
+        state: 'unknown',
         gatewayOrderId: orderId,
         gatewayPaymentId: String(payment['id'] ?? '') || null,
-        failureReason: String(payment['error_description'] ?? payment['status'] ?? 'recurring charge declined'),
-        raw: payment,
-      };
+      }, orderId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn({ orderId, error: message }, 'Razorpay recurring charge did not complete');
-      if (/timeout|ECONNRESET|fetch failed|network/i.test(message)) {
-        return { accepted: true, pending: true, gatewayOrderId: orderId, failureReason: message };
-      }
-      return { accepted: false, pending: false, gatewayOrderId: orderId, failureReason: message };
+      // The order exists. A second create/recurring could debit twice, so leave it unknown.
+      return { accepted: true, pending: true, gatewayOrderId: orderId, failureReason: message };
     }
+  }
+
+  async fetchChargeStatus(params: {
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+  }): Promise<GatewayChargeSnapshot> {
+    this.assertConfigured();
+    try {
+      if (params.gatewayPaymentId) {
+        const payment = await this.request('GET', `/payments/${params.gatewayPaymentId}`);
+        return (
+          paymentSnapshot([payment], params.gatewayOrderId ?? String(payment['order_id'] ?? '')) ?? {
+            state: 'unknown',
+            gatewayOrderId: params.gatewayOrderId,
+            gatewayPaymentId: params.gatewayPaymentId,
+          }
+        );
+      }
+      if (params.gatewayOrderId) {
+        const items = await this.readOrderPayments(params.gatewayOrderId);
+        return (
+          paymentSnapshot(items, params.gatewayOrderId) ?? {
+            state: 'unknown',
+            gatewayOrderId: params.gatewayOrderId,
+          }
+        );
+      }
+      return { state: 'unknown' };
+    } catch (error) {
+      this.logger.warn(
+        {
+          gatewayOrderId: params.gatewayOrderId,
+          gatewayPaymentId: params.gatewayPaymentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Razorpay charge status could not be read',
+      );
+      return {
+        state: 'unknown',
+        gatewayOrderId: params.gatewayOrderId,
+        gatewayPaymentId: params.gatewayPaymentId,
+      };
+    }
+  }
+
+  private isDuplicateReceipt(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /receipt/i.test(message) && /already/i.test(message);
+  }
+
+  private isUnknownTransport(message: string): boolean {
+    return /timeout|ECONNRESET|fetch failed|network/i.test(message);
+  }
+
+  private async findOrderByReceipt(receipt: string): Promise<Record<string, unknown> | null> {
+    try {
+      const listed = await this.request('GET', `/orders?receipt=${encodeURIComponent(receipt)}`);
+      const items = Array.isArray(listed['items']) ? (listed['items'] as Record<string, unknown>[]) : [];
+      return items.find((item) => String(item['receipt'] ?? '') === receipt) ?? items[0] ?? null;
+    } catch (error) {
+      this.logger.warn(
+        { receipt, error: error instanceof Error ? error.message : String(error) },
+        'Razorpay duplicate receipt could not be resolved',
+      );
+      return null;
+    }
+  }
+
+  private async readOrderPayments(orderId: string): Promise<Record<string, unknown>[]> {
+    const listed = await this.request('GET', `/orders/${orderId}/payments`);
+    return Array.isArray(listed['items']) ? (listed['items'] as Record<string, unknown>[]) : [];
   }
 
   private assertConfigured(): void {
@@ -251,14 +342,77 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         (typeof errorObj?.['description'] === 'string' && errorObj['description']) ||
         (typeof json['message'] === 'string' && json['message']) ||
         `Razorpay ${path} failed (${response.status})`;
+      const duplicateReceipt = /receipt/i.test(description) && /already/i.test(description);
       this.logger.warn(
         { path, status: response.status, description },
-        'Razorpay Recurring API error — merchant Recurring Payments may not be activated',
+        duplicateReceipt
+          ? 'Razorpay order receipt already exists; the existing order will be reused'
+          : 'Razorpay Recurring API error',
       );
       throw new BadRequestException(description);
     }
     return json;
   }
+}
+
+function paymentSnapshot(
+  items: Record<string, unknown>[],
+  orderId: string,
+): GatewayChargeSnapshot | null {
+  if (!items.length) return null;
+  const ranked = items.map((item) => ({
+    item,
+    state: classifyRazorpayPaymentStatus(
+      typeof item['status'] === 'string' ? item['status'] : null,
+    ),
+  }));
+  const captured = ranked.find((row) => row.state === 'captured');
+  const pending = ranked.find((row) => row.state === 'pending');
+  const chosen = captured ?? pending ?? (ranked.every((row) => row.state === 'failed') ? ranked[0] : null);
+  if (!chosen || chosen.state === 'unknown') {
+    return {
+      state: 'unknown',
+      gatewayOrderId: orderId,
+      gatewayPaymentId: String(items[0]?.['id'] ?? items[0]?.['razorpay_payment_id'] ?? '') || null,
+    };
+  }
+  return {
+    state: chosen.state,
+    gatewayOrderId: orderId || String(chosen.item['order_id'] ?? chosen.item['razorpay_order_id'] ?? '') || null,
+    gatewayPaymentId: String(chosen.item['id'] ?? chosen.item['razorpay_payment_id'] ?? '') || null,
+    failureReason:
+      chosen.state === 'failed'
+        ? String(chosen.item['error_description'] ?? chosen.item['status'] ?? 'Razorpay recurring payment failed')
+        : null,
+  };
+}
+
+function snapshotToCharge(snapshot: GatewayChargeSnapshot, orderId: string): AutopayChargeResult {
+  const gatewayOrderId = snapshot.gatewayOrderId || orderId;
+  if (snapshot.state === 'captured') {
+    return {
+      accepted: true,
+      pending: false,
+      gatewayOrderId,
+      gatewayPaymentId: snapshot.gatewayPaymentId,
+    };
+  }
+  if (snapshot.state === 'failed') {
+    return {
+      accepted: false,
+      pending: false,
+      gatewayOrderId,
+      gatewayPaymentId: snapshot.gatewayPaymentId,
+      failureReason: snapshot.failureReason ?? 'Razorpay recurring payment failed',
+    };
+  }
+  return {
+    accepted: true,
+    pending: true,
+    gatewayOrderId,
+    gatewayPaymentId: snapshot.gatewayPaymentId,
+    failureReason: snapshot.state === 'unknown' ? 'Razorpay payment status is unknown' : null,
+  };
 }
 
 function readRazorpayTokenId(payment: Record<string, unknown>): string | null {
