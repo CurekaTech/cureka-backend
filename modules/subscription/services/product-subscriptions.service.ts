@@ -61,6 +61,8 @@ import {
 } from '../utils/subscription-cycle-guard.util';
 import { assertProductFrequenciesAllowed, isSubscriptionTestTenuresEnabled, TEST_PRODUCT_FREQUENCIES } from '../utils/subscription-test-tenures.util';
 import { razorpayUpiDebitAt } from '../utils/razorpay-upi-debit.util';
+import { resolveSubscriptionPaymentPhase } from '../utils/subscription-payment-phase.util';
+import { IUserProductSubscription } from '../interfaces/product-subscription.interface';
 import { MembershipBenefitsApplicationService } from './membership-benefits-application.service';
 import { ProductSubscriptionConfigService } from './product-subscription-config.service';
 import { ProductSubscriptionPaymentsService } from './product-subscription-payments.service';
@@ -70,6 +72,7 @@ import { SubscriptionLockService } from './subscription-lock.service';
 import { SubscriptionMandateService } from './subscription-mandate.service';
 import { SubscriptionNotificationsService } from './subscription-notifications.service';
 import { SubscriptionPaymentLinkService } from './subscription-payment-link.service';
+import { RazorpayRecurringProvider } from './providers/razorpay-recurring.provider';
 import { SubscriptionRelationLoaderService } from './subscription-relation-loader.service';
 
 @Injectable()
@@ -575,6 +578,7 @@ export class ProductSubscriptionsService {
       userId,
     });
     const items = await this.mapSubscriptionsWithRelations(data);
+    await this.applyPaymentPhase(items);
     return {
       items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
@@ -587,6 +591,7 @@ export class ProductSubscriptionsService {
     await this.settleReconcilingPayments(id);
     const refreshed = (await this.subscriptionsRepository.findByIdAndUserId(id, userId)) ?? sub;
     const [mapped] = await this.mapSubscriptionsWithRelations([refreshed]);
+    if (mapped) await this.applyPaymentPhase([mapped]);
     return mapped;
   }
 
@@ -800,26 +805,77 @@ export class ProductSubscriptionsService {
       throw new BadRequestException('No pending payment to retry');
     }
 
-    const billingDate = sub.nextBillingDate ?? new Date();
-    const billingCycleRef = buildBillingCycleRef(billingDate, sub.frequency);
-    const amount = await this.recalculateAmount(sub);
-    const payment = await this.paymentsService.upsertPendingCycle({
-      subscriptionId: sub.id,
-      userId,
-      billingCycleRef,
-      amount,
-      billingDate,
-      actor: userId,
-    });
+    await this.settleReconcilingPayments(id);
+    return this.lockService.withDbLock(`retry:${id}`, () => this.retryPaymentLocked(userId, sub));
+  }
 
-    if (payment.status === SubscriptionPaymentStatus.PAID) {
-      return this.mapOwned(sub);
+  private async retryPaymentLocked(userId: string, sub: UserProductSubscriptionEntity) {
+    const payments = await this.paymentsService.findBySubscriptionId(sub.id);
+    if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+      return this.getMine(userId, sub.id);
+    }
+    const reconciling = payments.find((payment) => payment.status === SubscriptionPaymentStatus.RECONCILING);
+    if (reconciling) {
+      const recovered = await this.reconcileAmbiguousCardCharge(reconciling);
+      if (recovered === 'settled') return this.getMine(userId, sub.id);
+      if (recovered !== 'retryable') {
+        throw new BadRequestException(
+          'A subscription payment is already being confirmed. The order appears after that payment is captured.',
+        );
+      }
+    }
+    const fresh = await this.paymentsService.findBySubscriptionId(sub.id);
+    if (fresh.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+      return this.getMine(userId, sub.id);
+    }
+    const mandate = await this.mandateService.getForSubscription(sub.id);
+    const existing = fresh.find(
+      (payment) =>
+        payment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
+        Boolean(payment.paymentLink) &&
+        Boolean(payment.gatewayOrderId) &&
+        payment.gatewayOrderId !== mandate?.authorizationOrderId,
+    );
+    if (existing?.paymentLink) {
+      return this.mapOwned(sub, {
+        paymentLink: existing.paymentLink,
+        razorpayOrderId: existing.gatewayOrderId ?? null,
+      });
+    }
+    const gate = await this.blockRetryWhileGatewayChargeIsOpen(fresh);
+    if (gate === 'settled') return this.getMine(userId, sub.id);
+    if (gate === 'in_flight') {
+      throw new BadRequestException(
+        'A subscription payment is already being confirmed. The order appears after that payment is captured.',
+      );
+    }
+    const failed = fresh.find((payment) => payment.status === SubscriptionPaymentStatus.FAILED);
+    if (!failed) {
+      throw new BadRequestException(
+        'A subscription payment is already being confirmed. The order appears after that payment is captured.',
+      );
+    }
+    const claimed = await this.paymentsService.claimRetry(failed.id, userId);
+    if (!claimed) {
+      const again = await this.paymentsService.findById(failed.id);
+      if (again?.status === SubscriptionPaymentStatus.LINK_GENERATED && again.paymentLink) {
+        return this.mapOwned(sub, {
+          paymentLink: again.paymentLink,
+          razorpayOrderId: again.gatewayOrderId ?? null,
+        });
+      }
+      throw new BadRequestException(
+        'A subscription payment is already being confirmed. The order appears after that payment is captured.',
+      );
     }
 
+    const billingDate = sub.nextBillingDate ?? new Date();
+    const billingCycleRef = failed.billingCycleRef || buildBillingCycleRef(billingDate, sub.frequency);
+    const amount = failed.amount || (await this.recalculateAmount(sub));
     const user = await this.usersRepository.findById(userId);
     const link = await this.paymentLinkService.createPaymentLink({
       amount,
-      referenceId: `${payment.refId}-R${payment.retryCount + 1}`.slice(0, 40),
+      referenceId: `${failed.refId ?? failed.id}-R${(failed.retryCount ?? 0) + 1}`.slice(0, 40),
       customer: {
         id: userId,
         name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
@@ -830,19 +886,17 @@ export class ProductSubscriptionsService {
         paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
         billingCycleRef,
         subscriptionId: sub.id,
-        subscriptionPaymentId: payment.id,
+        subscriptionPaymentId: failed.id,
         userId,
         productId: sub.productId,
       }),
     });
-
-    await this.paymentsService.attachPaymentLink(payment.id, {
+    await this.paymentsService.attachPaymentLink(failed.id, {
       paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
       paymentGateway: link.paymentGateway,
       actor: userId,
     });
-
     this.notificationsService.notifyPaymentLinkCreated({
       userId,
       kind: 'product_subscription',
@@ -850,7 +904,6 @@ export class ProductSubscriptionsService {
       amount,
       refId: sub.refId,
     });
-
     return this.mapOwned(sub, checkoutExtrasFromLink(link));
   }
 
@@ -900,29 +953,22 @@ export class ProductSubscriptionsService {
     }
     const pending = [...payments].reverse().find((payment) => payment.gatewayOrderId?.startsWith('order_'));
     if (!pending?.gatewayOrderId) return { paid: false };
-    let items: Array<Record<string, unknown>> = [];
-    try {
-      items = await this.paymentLinkService.fetchRazorpayOrderPayments(pending.gatewayOrderId);
-    } catch (error) {
-      this.logger.warn(
-        {
-          subscriptionId,
-          orderId: pending.gatewayOrderId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'Could not read Razorpay order while the QR was open',
-      );
-      return { paid: false };
-    }
-    const success = items.find((item) => String(item['status'] ?? '').toLowerCase() === 'captured');
-    if (!success) return { paid: false };
-    await this.handlePaymentSuccess({
-      paymentId: pending.id,
+    const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+    if (!adapter.isConfigured()) return { paid: false };
+    const snapshot = await adapter.fetchChargeStatus({
       gatewayOrderId: pending.gatewayOrderId,
-      gatewayPaymentId: String(success['id'] ?? '') || undefined,
-      actor: userId,
+      gatewayPaymentId: pending.gatewayPaymentId,
     });
-    return { paid: true };
+    if (this.snapshotPaysProductAmount(pending.amount, snapshot) || snapshot.state === 'captured') {
+      await this.handlePaymentSuccess({
+        paymentId: pending.id,
+        gatewayOrderId: snapshot.gatewayOrderId ?? pending.gatewayOrderId,
+        gatewayPaymentId: snapshot.gatewayPaymentId ?? pending.gatewayPaymentId ?? undefined,
+        actor: userId,
+      });
+    }
+    const after = await this.paymentsService.findById(pending.id);
+    return { paid: after?.status === SubscriptionPaymentStatus.PAID };
   }
 
   async tryHandlePaidByGatewayOrderId(
@@ -1230,14 +1276,222 @@ export class ProductSubscriptionsService {
     );
   }
 
+  private async applyPaymentPhase(items: IUserProductSubscription[]): Promise<void> {
+    if (!items.length) return;
+    const payments = await this.paymentsService.listStatusBySubscriptionIds(items.map((item) => item.id));
+    const bySubscription = new Map<string, typeof payments>();
+    for (const payment of payments) {
+      const rows = bySubscription.get(payment.subscriptionId) ?? [];
+      rows.push(payment);
+      bySubscription.set(payment.subscriptionId, rows);
+    }
+    const phases = items.map((item) =>
+      resolveSubscriptionPaymentPhase({
+        status: item.status,
+        autopayReady: item.autopayReady,
+        firstOrderId: item.firstOrderId,
+        payments: bySubscription.get(item.id) ?? [],
+      }),
+    );
+    const orderNumbers = await this.ordersService.orderNumbersByIds(
+      phases.map((phase) => phase.orderId).filter((id): id is string => Boolean(id)),
+    );
+    items.forEach((item, index) => {
+      const phase = phases[index];
+      item.paymentPhase = phase.phase;
+      item.confirmedOrderNumber = phase.orderId ? orderNumbers.get(phase.orderId) ?? null : null;
+      if (item.allowedActions) {
+        item.allowedActions.retryPayment = item.allowedActions.retryPayment && phase.retryAllowed;
+      }
+    });
+  }
+
+  private async reconcileAmbiguousCardCharge(payment: {
+    id: string;
+    subscriptionId: string;
+    amount?: string | null;
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+    status: string;
+  }): Promise<'settled' | 'blocked' | 'retryable' | 'unchanged'> {
+    const mandate = await this.mandateService.getForSubscription(payment.subscriptionId);
+    if (mandate?.consentEvidence?.cardAuthOnly !== true) return 'unchanged';
+    const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+    if (!adapter.isConfigured() || !('lookupChargeByReceipt' in adapter)) return 'blocked';
+    const lookup = adapter.lookupChargeByReceipt.bind(adapter) as RazorpayRecurringProvider['lookupChargeByReceipt'];
+    const productOrder =
+      payment.gatewayOrderId && payment.gatewayOrderId !== mandate.authorizationOrderId
+        ? payment.gatewayOrderId
+        : null;
+    if (productOrder) {
+      const snapshot = await adapter.fetchChargeStatus({
+        gatewayOrderId: productOrder,
+        gatewayPaymentId: payment.gatewayPaymentId,
+      });
+      if (this.snapshotPaysProductAmount(payment.amount, snapshot)) {
+        await this.handlePaymentSuccess({
+          paymentId: payment.id,
+          gatewayOrderId: snapshot.gatewayOrderId ?? productOrder,
+          gatewayPaymentId: snapshot.gatewayPaymentId ?? payment.gatewayPaymentId ?? undefined,
+          actor: 'payment-reconcile',
+        });
+        return 'settled';
+      }
+      if (snapshot.state === 'failed') {
+        await this.paymentsService.markFailed(
+          payment.id,
+          snapshot.failureReason ?? 'Razorpay product charge failed',
+          'payment-reconcile',
+        );
+        return 'retryable';
+      }
+      return 'blocked';
+    }
+    const found = await lookup(`card-${payment.id}`.slice(0, 40));
+    if (found.outcome === 'unknown') return 'blocked';
+    if (found.outcome === 'absent') {
+      await this.paymentsService.markFailed(
+        payment.id,
+        'Razorpay did not create a product charge for this payment',
+        'payment-reconcile',
+      );
+      return 'retryable';
+    }
+    const snapshot = found.snapshot;
+    if (snapshot.gatewayOrderId) {
+      await this.paymentsService.recordProviderCharge(payment.id, {
+        gatewayOrderId: snapshot.gatewayOrderId,
+        gatewayPaymentId: snapshot.gatewayPaymentId,
+        paymentGateway: SubscriptionMandateProvider.RAZORPAY,
+        pending: snapshot.state !== 'captured',
+        actor: 'payment-reconcile',
+      });
+    }
+    if (this.snapshotPaysProductAmount(payment.amount, snapshot)) {
+      await this.handlePaymentSuccess({
+        paymentId: payment.id,
+        gatewayOrderId: snapshot.gatewayOrderId ?? undefined,
+        gatewayPaymentId: snapshot.gatewayPaymentId ?? undefined,
+        actor: 'payment-reconcile',
+      });
+      return 'settled';
+    }
+    if (snapshot.state === 'failed') {
+      await this.paymentsService.markFailed(
+        payment.id,
+        snapshot.failureReason ?? 'Razorpay product charge failed',
+        'payment-reconcile',
+      );
+      return 'retryable';
+    }
+    return 'blocked';
+  }
+
+  private async blockRetryWhileGatewayChargeIsOpen(
+    payments: Array<{
+      status: SubscriptionPaymentStatus | string;
+      amount?: string | null;
+      gatewayOrderId?: string | null;
+      gatewayPaymentId?: string | null;
+      paymentGateway?: string | null;
+      id: string;
+    }>,
+  ): Promise<'clear' | 'settled' | 'in_flight'> {
+    const open = payments.find(
+      (payment) =>
+        payment.gatewayOrderId?.startsWith('order_') &&
+        payment.status !== SubscriptionPaymentStatus.PAID &&
+        payment.status !== SubscriptionPaymentStatus.FAILED &&
+        (payment.paymentGateway ?? 'RAZORPAY').toUpperCase() === 'RAZORPAY',
+    );
+    if (!open?.gatewayOrderId) return 'clear';
+    const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+    if (!adapter.isConfigured()) return 'in_flight';
+    const snapshot = await adapter.fetchChargeStatus({
+      gatewayOrderId: open.gatewayOrderId,
+      gatewayPaymentId: open.gatewayPaymentId,
+    });
+    if (snapshot.state === 'failed' || (snapshot.state === 'unknown' && !open.gatewayPaymentId)) {
+      return 'clear';
+    }
+    if (this.snapshotPaysProductAmount(open.amount, snapshot) || snapshot.state === 'captured') {
+      await this.handlePaymentSuccess({
+        paymentId: open.id,
+        gatewayOrderId: snapshot.gatewayOrderId ?? open.gatewayOrderId,
+        gatewayPaymentId: snapshot.gatewayPaymentId ?? open.gatewayPaymentId ?? undefined,
+        actor: 'retry-reconcile',
+      });
+      const after = await this.paymentsService.findById(open.id);
+      if (after?.status === SubscriptionPaymentStatus.PAID) return 'settled';
+    }
+    return 'in_flight';
+  }
+
+  private snapshotPaysProductAmount(
+    expectedAmount: string | null | undefined,
+    snapshot: { state: string; amount?: string | null },
+  ): boolean {
+    if (snapshot.state !== 'captured') return false;
+    if (expectedAmount == null || expectedAmount === '' || snapshot.amount == null || snapshot.amount === '') {
+      return true;
+    }
+    const expected = Number(expectedAmount);
+    const actual = Number(snapshot.amount);
+    return Number.isFinite(expected) && Number.isFinite(actual) && Math.abs(expected - actual) < 0.009;
+  }
+
+  /**
+   * Cashfree subscription ACTIVE is only a mandate status. The product payment
+   * is recorded after a successful subscription payment whose amount matches.
+   */
+  async settleCashfreeSubscriptionPayment(params: {
+    paymentId?: string;
+    gatewayOrderId?: string;
+    gatewayPaymentId?: string;
+    gatewaySubscriptionId?: string;
+    actor: string;
+  }): Promise<boolean> {
+    const payment = params.paymentId
+      ? await this.paymentsService.findById(params.paymentId)
+      : params.gatewayOrderId
+        ? await this.paymentsService.findByGatewayOrderId(params.gatewayOrderId)
+        : null;
+    if (!payment || payment.status === SubscriptionPaymentStatus.PAID) return payment?.status === SubscriptionPaymentStatus.PAID;
+    const mandate = await this.mandateService.getForSubscription(payment.subscriptionId);
+    const storedOrder = params.gatewayOrderId ?? payment.gatewayOrderId;
+    const chargeOrderId =
+      storedOrder &&
+      storedOrder !== mandate?.authorizationOrderId &&
+      storedOrder !== params.gatewaySubscriptionId &&
+      storedOrder !== mandate?.gatewaySubscriptionId
+        ? storedOrder
+        : null;
+    const adapter = this.mandateService.adapter(SubscriptionMandateProvider.CASHFREE);
+    if (!adapter.isConfigured()) return false;
+    const snapshot = await adapter.fetchChargeStatus({
+      gatewayOrderId: chargeOrderId,
+      gatewayPaymentId: params.gatewayPaymentId ?? payment.gatewayPaymentId,
+      gatewaySubscriptionId:
+        params.gatewaySubscriptionId ?? mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId,
+    });
+    if (!snapshot.amount || !this.snapshotPaysProductAmount(payment.amount, snapshot)) return false;
+    await this.handlePaymentSuccess({
+      paymentId: payment.id,
+      gatewayPaymentId: snapshot.gatewayPaymentId ?? params.gatewayPaymentId ?? undefined,
+      actor: params.actor,
+    });
+    return true;
+  }
+
   async isRazorpayChargeCaptured(params: {
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
+    expectedAmount?: string | null;
   }): Promise<boolean> {
     const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
     if (!adapter.isConfigured()) return false;
     const snapshot = await adapter.fetchChargeStatus(params);
-    return snapshot.state === 'captured';
+    return this.snapshotPaysProductAmount(params.expectedAmount, snapshot);
   }
 
   async handlePaymentSuccess(params: {
@@ -1358,7 +1612,14 @@ export class ProductSubscriptionsService {
     if (!mandate?.authorizationOrderId || typeof paymentId !== 'string' || !paymentId) return;
     if (mandate.consentEvidence?.cardAuthOnly !== true || mandate.consentEvidence?.productChargeOrderId) return;
     const payment = await this.paymentsService.findById(paymentId);
-    if (!payment || payment.status === SubscriptionPaymentStatus.PAID) return;
+    if (
+      !payment ||
+      payment.status === SubscriptionPaymentStatus.PAID ||
+      payment.status === SubscriptionPaymentStatus.FAILED ||
+      payment.status === SubscriptionPaymentStatus.RECONCILING
+    ) {
+      return;
+    }
     const charged = await this.collectProductAfterCardAuthorization(payment, mandate.id, {
       gatewayOrderId: mandate.authorizationOrderId,
       gatewayPaymentId: mandate.authorizationPaymentId,
@@ -1384,42 +1645,71 @@ export class ProductSubscriptionsService {
     mandateId: string,
     params: { gatewayOrderId?: string | null; gatewayPaymentId?: string | null; actor?: string },
   ): Promise<{ gatewayOrderId: string; gatewayPaymentId?: string | null } | null> {
-    await this.confirmFirstChargeMandate(params.gatewayOrderId, params.gatewayPaymentId, params.actor);
-    const user = await this.usersRepository.findById(payment.userId);
-    const actor = params.actor ?? 'webhook';
-    const result = await this.mandateService.chargeCardProduct({
-      mandateId,
-      amount: payment.amount,
-      customer: { email: user?.email ?? null, phone: user?.mobileNumber ?? '' },
-      notes: buildSubscriptionGatewayNotes({
-        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
-        billingCycleRef: payment.billingCycleRef,
-        subscriptionId: payment.subscriptionId,
-        subscriptionPaymentId: payment.id,
-        userId: payment.userId,
-      }),
-      actor,
-      receipt: `card-${payment.id}`.slice(0, 40),
-    });
-    if (!result.accepted || !result.gatewayOrderId) {
+    return this.lockService.withDbLock(`product-charge:${payment.id}`, async () => {
+      const current = await this.paymentsService.findById(payment.id);
+      if (
+        !current ||
+        current.status === SubscriptionPaymentStatus.PAID ||
+        current.status === SubscriptionPaymentStatus.FAILED ||
+        current.status === SubscriptionPaymentStatus.RECONCILING
+      ) {
+        return null;
+      }
+      const actor = params.actor ?? 'webhook';
+      const claimed = await this.paymentsService.claimChargeInitiation(payment.id, actor);
+      if (!claimed) return null;
+      await this.confirmFirstChargeMandate(params.gatewayOrderId, params.gatewayPaymentId, actor);
+      const user = await this.usersRepository.findById(payment.userId);
+      const result = await this.mandateService.chargeCardProduct({
+        mandateId,
+        amount: payment.amount,
+        customer: { email: user?.email ?? null, phone: user?.mobileNumber ?? '' },
+        notes: buildSubscriptionGatewayNotes({
+          paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+          billingCycleRef: payment.billingCycleRef,
+          subscriptionId: payment.subscriptionId,
+          subscriptionPaymentId: payment.id,
+          userId: payment.userId,
+        }),
+        actor,
+        receipt: `card-${payment.id}`.slice(0, 40),
+      });
+      if (result.gatewayOrderId) {
+        await this.paymentsService.recordProviderCharge(payment.id, {
+          gatewayOrderId: result.gatewayOrderId,
+          gatewayPaymentId: result.gatewayPaymentId,
+          paymentGateway: SubscriptionMandateProvider.RAZORPAY,
+          pending: result.pending,
+          actor,
+        });
+        if (result.pending) return null;
+        return {
+          gatewayOrderId: result.gatewayOrderId,
+          gatewayPaymentId: result.gatewayPaymentId,
+        };
+      }
+      if (result.pending) {
+        if (result.accepted) {
+          this.logger.warn(
+            { paymentId: payment.id, reason: result.failureReason },
+            'Card product charge result is unknown, so no second charge will be started',
+          );
+          return null;
+        }
+        await this.paymentsService.releaseChargeInitiation(payment.id, actor);
+        return null;
+      }
+      await this.paymentsService.markFailed(
+        payment.id,
+        result.failureReason ?? 'Razorpay did not start the product charge',
+        actor,
+      );
       this.logger.warn(
         { paymentId: payment.id, reason: result.failureReason },
         'Card AutoPay did not charge the product amount',
       );
       return null;
-    }
-    await this.paymentsService.recordProviderCharge(payment.id, {
-      gatewayOrderId: result.gatewayOrderId,
-      gatewayPaymentId: result.gatewayPaymentId,
-      paymentGateway: SubscriptionMandateProvider.RAZORPAY,
-      pending: result.pending,
-      actor,
     });
-    if (result.pending) return null;
-    return {
-      gatewayOrderId: result.gatewayOrderId,
-      gatewayPaymentId: result.gatewayPaymentId,
-    };
   }
 
   private async confirmFirstChargeMandate(
@@ -1447,20 +1737,25 @@ export class ProductSubscriptionsService {
   private async settleReconcilingPayments(subscriptionId?: string): Promise<void> {
     const payments = await this.paymentsService.listReconciling(subscriptionId);
     for (const payment of payments) {
-      if (!payment.gatewayOrderId?.startsWith('order_')) continue;
-      if ((payment.paymentGateway ?? '').toUpperCase() !== 'RAZORPAY') continue;
+      if ((payment.paymentGateway ?? 'RAZORPAY').toUpperCase() !== 'RAZORPAY') continue;
       try {
-        const captured = await this.isRazorpayChargeCaptured({
-          gatewayOrderId: payment.gatewayOrderId,
-          gatewayPaymentId: payment.gatewayPaymentId,
-        });
-        if (!captured) continue;
-        await this.handlePaymentSuccess({
-          paymentId: payment.id,
-          gatewayOrderId: payment.gatewayOrderId,
-          gatewayPaymentId: payment.gatewayPaymentId ?? undefined,
-          actor: 'payment-reconcile',
-        });
+        if (payment.gatewayOrderId?.startsWith('order_')) {
+          const captured = await this.isRazorpayChargeCaptured({
+            gatewayOrderId: payment.gatewayOrderId,
+            gatewayPaymentId: payment.gatewayPaymentId,
+            expectedAmount: payment.amount,
+          });
+          if (captured) {
+            await this.handlePaymentSuccess({
+              paymentId: payment.id,
+              gatewayOrderId: payment.gatewayOrderId,
+              gatewayPaymentId: payment.gatewayPaymentId ?? undefined,
+              actor: 'payment-reconcile',
+            });
+            continue;
+          }
+        }
+        await this.reconcileAmbiguousCardCharge(payment);
       } catch (error) {
         this.logger.warn(
           {
@@ -1695,19 +1990,21 @@ export class ProductSubscriptionsService {
     }
 
     const provider = this.mandateService.resolveChargeProvider(sub);
-    if (provider !== SubscriptionMandateProvider.RAZORPAY) {
+    if (!provider) {
       this.logger.warn(
-        { subscriptionId: sub.id, provider },
+        { subscriptionId: sub.id },
         'In-flight debit was left untouched until its gateway reports a final status',
       );
       return;
     }
 
+    const mandate = await this.mandateService.getForSubscription(sub.id);
     const snapshot = await this.mandateService.adapter(provider).fetchChargeStatus({
       gatewayOrderId: payment.gatewayOrderId,
       gatewayPaymentId: payment.gatewayPaymentId,
+      gatewaySubscriptionId: mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId,
     });
-    if (snapshot.state === 'captured') {
+    if (this.snapshotPaysProductAmount(payment.amount, snapshot)) {
       await this.handlePaymentSuccess({
         paymentId: payment.id,
         gatewayOrderId: snapshot.gatewayOrderId ?? payment.gatewayOrderId ?? undefined,
@@ -1716,8 +2013,20 @@ export class ProductSubscriptionsService {
       });
       return;
     }
+    if (snapshot.state === 'captured') {
+      this.logger.warn(
+        {
+          subscriptionId: sub.id,
+          cycleId: cycle.id,
+          expectedAmount: payment.amount,
+          capturedAmount: snapshot.amount,
+        },
+        'Captured gateway payment does not match the product amount, so no order was created',
+      );
+      return;
+    }
     if (snapshot.state === 'failed') {
-      const reason = snapshot.failureReason ?? 'Razorpay recurring payment failed';
+      const reason = snapshot.failureReason ?? 'Recurring payment failed';
       await this.paymentsService.markFailed(payment.id, reason, 'scheduler-reconcile');
       await this.billingCycleService.updateById(cycle.id, {
         status: SubscriptionBillingCycleStatus.FAILED,
@@ -1727,8 +2036,8 @@ export class ProductSubscriptionsService {
       return;
     }
     this.logger.warn(
-      { subscriptionId: sub.id, cycleId: cycle.id, state: snapshot.state },
-      'Razorpay debit is not captured, so no new charge was created',
+      { subscriptionId: sub.id, cycleId: cycle.id, state: snapshot.state, provider },
+      'Debit is not captured, so no new charge was created',
     );
   }
 

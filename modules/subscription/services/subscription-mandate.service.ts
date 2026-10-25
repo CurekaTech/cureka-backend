@@ -408,6 +408,16 @@ export class SubscriptionMandateService {
       });
       return result;
     }
+    if (result.accepted && result.pending) {
+      await this.mandatesRepository.updateById(mandate.id, {
+        consentEvidence: {
+          ...(mandate.consentEvidence ?? {}),
+          productChargeStartedAt: new Date().toISOString(),
+        },
+        updatedBy: params.actor,
+      });
+      return result;
+    }
     await this.releaseCardChargeClaim(mandate);
     return result;
   }

@@ -96,6 +96,13 @@ export interface IUserProductSubscription {
   mandateId: string | null;
   mandateMaxAmount: string | null;
   mandateStatus?: string | null;
+  paymentPhase?:
+    | 'AWAITING_AUTHORIZATION'
+    | 'PRODUCT_PROCESSING'
+    | 'PRODUCT_CONFIRMED'
+    | 'PRODUCT_FAILED'
+    | 'RECONCILING';
+  confirmedOrderNumber?: string | null;
   intervalMonths?: number;
   intervalDays?: number;
   intervalMinutes?: number;

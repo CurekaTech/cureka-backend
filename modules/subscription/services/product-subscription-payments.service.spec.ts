@@ -72,4 +72,30 @@ describe('ProductSubscriptionPaymentsService idempotency', () => {
     const second = await service.markPaidIdempotent('pay-1', { actor: 'redirect' });
     expect(second.newlyPaid).toBe(false);
   });
+
+  it('drops the registration payment id when the product charge uses a new order', async () => {
+    paymentsRepository.findById.mockResolvedValue({
+      id: 'pay-1',
+      status: SubscriptionPaymentStatus.LINK_GENERATED,
+      gatewayOrderId: 'order_auth',
+      gatewayPaymentId: 'pay_auth',
+    });
+
+    await service.recordProviderCharge('pay-1', {
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: null,
+      paymentGateway: 'RAZORPAY',
+      pending: true,
+      actor: 'webhook',
+    });
+
+    expect(paymentsRepository.updateById).toHaveBeenCalledWith(
+      'pay-1',
+      expect.objectContaining({
+        gatewayOrderId: 'order_product',
+        gatewayPaymentId: null,
+        status: SubscriptionPaymentStatus.RECONCILING,
+      }),
+    );
+  });
 });

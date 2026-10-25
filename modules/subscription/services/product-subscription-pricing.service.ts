@@ -10,8 +10,9 @@ export type SubscriptionPriceResult = {
 @Injectable()
 export class ProductSubscriptionPricingService {
   /**
-   * Server-side pricing only — never trust frontend amounts.
-   * Base = variantSellingPrice * qty; apply subscription discount; then optional member discount.
+   * Merchandise only. Subscription discount, then member discount, each once.
+   * Shipping, handling, platform fee, coupons, and the prepaid-percent discount
+   * are not included. Do not add them until that fee policy is confirmed.
    */
   calculate(
     variantSellingPrice: string | number,

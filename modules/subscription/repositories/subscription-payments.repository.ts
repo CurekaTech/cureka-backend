@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, Not, Repository } from 'typeorm';
+import { EntityManager, In, Not, Repository } from 'typeorm';
 import { SubscriptionPaymentEntity } from '../entities/subscription-payment.entity';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
 
@@ -72,6 +72,34 @@ export class SubscriptionPaymentsRepository {
     });
   }
 
+  findStatusBySubscriptionIds(subscriptionIds: string[]): Promise<SubscriptionPaymentEntity[]> {
+    if (!subscriptionIds.length) return Promise.resolve([]);
+    return this.repo.find({
+      where: { subscriptionId: In(subscriptionIds) },
+      select: {
+        id: true,
+        subscriptionId: true,
+        status: true,
+        orderId: true,
+        gatewayPaymentId: true,
+        billingDate: true,
+      },
+      order: { billingDate: 'DESC' },
+    });
+  }
+
+  async findReconcilingSubscriptionIds(subscriptionIds: string[]): Promise<string[]> {
+    if (!subscriptionIds.length) return [];
+    const rows = await this.repo.find({
+      where: {
+        subscriptionId: In(subscriptionIds),
+        status: SubscriptionPaymentStatus.RECONCILING,
+      },
+      select: { subscriptionId: true },
+    });
+    return [...new Set(rows.map((row) => row.subscriptionId))];
+  }
+
   findByUserId(userId: string): Promise<SubscriptionPaymentEntity[]> {
     return this.repo.find({
       where: { userId },
@@ -123,6 +151,26 @@ export class SubscriptionPaymentsRepository {
   ): Promise<void> {
     const repository = manager ? manager.getRepository(SubscriptionPaymentEntity) : this.repo;
     await repository.update({ id }, data as any);
+  }
+
+  /**
+   * One database row can move into `to` from `from`. Concurrent callers cannot both win.
+   */
+  async claimStatus(
+    id: string,
+    from: SubscriptionPaymentStatus[],
+    to: SubscriptionPaymentStatus,
+    actor: string,
+  ): Promise<boolean> {
+    if (!from.length) return false;
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(SubscriptionPaymentEntity)
+      .set({ status: to, updatedBy: actor })
+      .where('id = :id', { id })
+      .andWhere('status IN (:...from)', { from })
+      .execute();
+    return (result.affected ?? 0) > 0;
   }
 
   async markPaidIfUnpaid(
