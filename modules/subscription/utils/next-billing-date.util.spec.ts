@@ -37,6 +37,9 @@ describe('next-billing-date.util', () => {
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.HOURLY, 'UTC').getTime() - base.getTime()).toBe(
       60 * 60 * 1000,
     );
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.HOURS_27, 'UTC').getTime() - base.getTime()).toBe(
+      27 * 60 * 60 * 1000,
+    );
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.DAILY, 'UTC').getTime() - base.getTime()).toBe(
       24 * 60 * 60 * 1000,
     );
@@ -51,6 +54,9 @@ describe('next-billing-date.util', () => {
     );
     expect(getNextMembershipBillingDate(base, MembershipBillingCycle.HOURLY).getTime() - base.getTime()).toBe(
       60 * 60 * 1000,
+    );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.HOURS_27).getTime() - base.getTime()).toBe(
+      27 * 60 * 60 * 1000,
     );
     expect(getNextMembershipBillingDate(base, MembershipBillingCycle.DAILY).getTime() - base.getTime()).toBe(
       24 * 60 * 60 * 1000,

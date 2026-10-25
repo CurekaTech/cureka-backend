@@ -8,7 +8,7 @@ export function buildBillingCycleRef(date: Date, frequency?: string | null): str
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   const base = `${year}-${month}-${day}`;
-  if (frequency === 'MINUTES_2' || frequency === 'MINUTES_5') {
+  if (frequency === 'MINUTES_2' || frequency === 'MINUTES_5' || frequency === 'HOURS_27') {
     const hour = String(date.getUTCHours()).padStart(2, '0');
     const minute = String(date.getUTCMinutes()).padStart(2, '0');
     return `${base}T${hour}${minute}Z`;

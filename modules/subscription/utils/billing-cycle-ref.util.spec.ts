@@ -15,6 +15,7 @@ describe('buildBillingCycleRef', () => {
     expect(buildBillingCycleRef(at, 'HOURLY')).toBe('2026-10-23T1400Z');
     expect(buildBillingCycleRef(at, 'MINUTES_2')).toBe('2026-10-23T1440Z');
     expect(buildBillingCycleRef(at, 'MINUTES_5')).toBe('2026-10-23T1440Z');
+    expect(buildBillingCycleRef(at, 'HOURS_27')).toBe('2026-10-23T1440Z');
     expect(buildBillingCycleRef(at, 'MINUTES_30')).toBe('2026-10-23T1430Z');
     expect(buildBillingCycleRef(new Date(Date.UTC(2026, 9, 23, 14, 10, 0)), 'MINUTES_30')).toBe(
       '2026-10-23T1400Z',

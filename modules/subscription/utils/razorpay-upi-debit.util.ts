@@ -24,6 +24,25 @@ export function razorpayUpiPaymentAfter(params: {
 }
 
 /**
+ * Debit at the subscription's next charge when that time already satisfies
+ * Razorpay's pre-debit window. Otherwise wait out the minimum window.
+ * A 27-hour tenure sent immediately therefore collects at 27 hours, not 25 hours
+ * after the cycle becomes due.
+ */
+export function razorpayUpiDebitAt(params: {
+  now: Date;
+  keyId: string;
+  allowShortWindow: boolean;
+  scheduledAt?: Date | null;
+}): Date {
+  const earliest = razorpayUpiPaymentAfter(params);
+  if (params.scheduledAt && params.scheduledAt.getTime() >= earliest.getTime()) {
+    return params.scheduledAt;
+  }
+  return earliest;
+}
+
+/**
  * payment.authorized never settles a subscription. order.paid and payment.captured
  * settle only when the payment status is captured. A missing status must be fetched.
  */

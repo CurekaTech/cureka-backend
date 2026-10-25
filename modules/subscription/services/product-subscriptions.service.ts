@@ -31,6 +31,7 @@ import {
   VerifyProductSubscriptionPaymentDto,
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
+import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
 import { SubscriptionBillingCycleStatus } from '../enums/subscription-billing-cycle-status.enum';
 import { SubscriptionHistoryAction } from '../enums/subscription-history-action.enum';
@@ -59,7 +60,7 @@ import {
   isCycleInFlight,
 } from '../utils/subscription-cycle-guard.util';
 import { assertProductFrequenciesAllowed, isSubscriptionTestTenuresEnabled, TEST_PRODUCT_FREQUENCIES } from '../utils/subscription-test-tenures.util';
-import { razorpayUpiPaymentAfter } from '../utils/razorpay-upi-debit.util';
+import { razorpayUpiDebitAt } from '../utils/razorpay-upi-debit.util';
 import { MembershipBenefitsApplicationService } from './membership-benefits-application.service';
 import { ProductSubscriptionConfigService } from './product-subscription-config.service';
 import { ProductSubscriptionPaymentsService } from './product-subscription-payments.service';
@@ -1481,6 +1482,7 @@ export class ProductSubscriptionsService {
     try {
       await this.finalizePaidCycles(asOfDate);
       await this.settleReconcilingPayments();
+      await this.scheduleUpcomingUpiDebits(asOfDate);
       const due = await this.subscriptionsRepository.findDueForRenewal(
         [
           ProductSubscriptionStatus.ACTIVE,
@@ -1505,6 +1507,98 @@ export class ProductSubscriptionsService {
     } finally {
       await this.lockService.release('product-renewal-run');
     }
+  }
+
+  /**
+   * Live UPI cannot be debited when a short cycle becomes due: Razorpay needs
+   * about 25 hours of notice. A 27-hour subscription sends that notice as soon
+   * as the next charge is known, with the debit time set to that charge.
+   */
+  private async scheduleUpcomingUpiDebits(asOfDate: Date): Promise<void> {
+    const upcoming = await this.subscriptionsRepository.findUpcomingByFrequency(
+      ProductSubscriptionFrequency.HOURS_27,
+      [ProductSubscriptionStatus.ACTIVE],
+      asOfDate,
+    );
+    for (const sub of upcoming) {
+      await this.lockService.withLock(
+        `renewal:${sub.id}`,
+        async () => {
+          await this.presentUpcomingUpiDebit(sub.id, asOfDate);
+        },
+        120_000,
+      );
+    }
+  }
+
+  private async presentUpcomingUpiDebit(subscriptionId: string, asOfDate: Date): Promise<void> {
+    const sub = await this.subscriptionsRepository.findById(subscriptionId);
+    if (!sub?.nextBillingDate || sub.frequency !== ProductSubscriptionFrequency.HOURS_27) return;
+    if (sub.status !== ProductSubscriptionStatus.ACTIVE) return;
+    if (sub.nextBillingDate.getTime() <= asOfDate.getTime()) return;
+
+    const openCycles = await this.billingCycleService.findBySubscriptionId(sub.id);
+    if (openCycles.some((cycle) => cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING)) return;
+
+    const billingCycleRef = buildBillingCycleRef(sub.nextBillingDate, sub.frequency);
+    const existing = openCycles.find((cycle) => cycle.billingCycleRef === billingCycleRef);
+    if (existing && existing.status !== SubscriptionBillingCycleStatus.SCHEDULED) return;
+
+    const mandate = await this.mandateService.getForSubscription(sub.id);
+    if (!mandate || !this.mandateService.canPresentAsAutopay(sub, mandate)) return;
+    const mandateMethod = String(mandate.consentEvidence?.method ?? '');
+    if (mandateMethod === 'card' || mandateMethod === 'emandate') return;
+    if (this.mandateService.resolveChargeProvider(sub) !== SubscriptionMandateProvider.RAZORPAY) return;
+
+    const debitAt = razorpayUpiDebitAt({
+      now: asOfDate,
+      keyId: this.nestConfig.get<string>('RAZORPAY_KEY_ID') ?? '',
+      allowShortWindow:
+        isSubscriptionTestTenuresEnabled(this.nestConfig) && TEST_PRODUCT_FREQUENCIES.has(sub.frequency),
+      scheduledAt: sub.nextBillingDate,
+    });
+    if (debitAt.getTime() !== sub.nextBillingDate.getTime()) return;
+
+    let amount: string;
+    try {
+      amount = await this.recalculateAmount(sub);
+    } catch (error) {
+      this.logger.warn(
+        { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
+        '27-hour UPI debit was not scheduled because pricing failed',
+      );
+      return;
+    }
+    if (!isAmountWithinMandateLimit(amount, mandate.maxAmount)) {
+      this.logger.warn(
+        { subscriptionId: sub.id, amount, maxAmount: mandate.maxAmount },
+        '27-hour UPI debit was not scheduled because the amount exceeds the mandate',
+      );
+      return;
+    }
+
+    const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
+    const cycle = await this.billingCycleService.getOrCreate({
+      subscriptionId: sub.id,
+      userId: sub.userId,
+      billingCycleRef,
+      sequence: (sub.billingCycleSequence ?? 0) + 1,
+      chargeDate: sub.nextBillingDate,
+      estimatedDeliveryDate: getEstimatedDeliveryDate(sub.nextBillingDate, deliveryLead),
+      amount,
+      pricingSnapshot: { amount, quantity: sub.quantity, frequency: sub.frequency },
+      actor: 'scheduler',
+    });
+    if (
+      cycle.status === SubscriptionBillingCycleStatus.PAID ||
+      cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
+      cycle.status === SubscriptionBillingCycleStatus.SKIPPED ||
+      cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING
+    ) {
+      return;
+    }
+
+    await this.attemptAutopay(sub, cycle, mandate.id, amount, billingCycleRef, sub.nextBillingDate);
   }
 
   async processGraceAndExpiry(asOfDate = new Date()): Promise<number> {
@@ -1990,6 +2084,7 @@ export class ProductSubscriptionsService {
     mandateId: string,
     amount: string,
     billingCycleRef: string,
+    scheduledDebitAt?: Date,
   ): Promise<boolean> {
     let mandate = await this.mandateService.getForSubscription(sub.id);
     if (!mandate) return false;
@@ -2044,12 +2139,13 @@ export class ProductSubscriptionsService {
       mandateMethod !== 'card' &&
       mandateMethod !== 'emandate';
     const debitAt = upiRenewal
-      ? razorpayUpiPaymentAfter({
+      ? razorpayUpiDebitAt({
           now: new Date(),
           keyId: this.nestConfig.get<string>('RAZORPAY_KEY_ID') ?? '',
           allowShortWindow:
             isSubscriptionTestTenuresEnabled(this.nestConfig) &&
             TEST_PRODUCT_FREQUENCIES.has(sub.frequency),
+          scheduledAt: scheduledDebitAt,
         })
       : undefined;
     let result: Awaited<ReturnType<ReturnType<SubscriptionMandateService['adapter']>['charge']>>;

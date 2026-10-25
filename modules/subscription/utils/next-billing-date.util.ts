@@ -126,6 +126,7 @@ export function getNextProductBillingDate(
   if (frequency === ProductSubscriptionFrequency.MINUTES_5) return addMinutes(from, 5);
   if (frequency === ProductSubscriptionFrequency.MINUTES_30) return addMinutes(from, 30);
   if (frequency === ProductSubscriptionFrequency.HOURLY) return addMinutes(from, 60);
+  if (frequency === ProductSubscriptionFrequency.HOURS_27) return addMinutes(from, 27 * 60);
   if (frequency === ProductSubscriptionFrequency.DAILY) return addDays(from, 1);
   return addCalendarMonths(from, PRODUCT_FREQUENCY_MONTHS[frequency], timeZone, anchorDay);
 }
@@ -142,6 +143,7 @@ export function getNextMembershipBillingDate(
   if (billingCycle === MembershipBillingCycle.MINUTES_5) return addMinutes(from, 5);
   if (billingCycle === MembershipBillingCycle.MINUTES_30) return addMinutes(from, 30);
   if (billingCycle === MembershipBillingCycle.HOURLY) return addMinutes(from, 60);
+  if (billingCycle === MembershipBillingCycle.HOURS_27) return addMinutes(from, 27 * 60);
   if (billingCycle === MembershipBillingCycle.DAILY) return addDays(from, 1);
   return addCalendarMonths(from, MEMBERSHIP_BILLING_CYCLE_MONTHS[billingCycle], 'UTC');
 }
