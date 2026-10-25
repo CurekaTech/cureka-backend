@@ -163,8 +163,56 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     }
   }
 
-  async fetchChargeStatus(): Promise<GatewayChargeSnapshot> {
-    return { state: 'unknown' };
+  async fetchChargeStatus(params: {
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+    gatewaySubscriptionId?: string | null;
+  }): Promise<GatewayChargeSnapshot> {
+    if (!this.isConfigured() || !params.gatewaySubscriptionId) {
+      return {
+        state: 'unknown',
+        gatewayOrderId: params.gatewayOrderId,
+        gatewayPaymentId: params.gatewayPaymentId,
+      };
+    }
+    try {
+      const listed = await this.request(
+        'GET',
+        `/subscriptions/${encodeURIComponent(params.gatewaySubscriptionId)}/payments`,
+      );
+      const rows = cashfreePaymentRows(listed);
+      const wanted = [params.gatewayOrderId, params.gatewayPaymentId].filter(
+        (value): value is string => Boolean(value),
+      );
+      const match = wanted.length
+        ? rows.find((row) => {
+            const paymentId = String(row['payment_id'] ?? '');
+            const cfPaymentId = String(row['cf_payment_id'] ?? '');
+            return wanted.includes(paymentId) || wanted.includes(cfPaymentId);
+          })
+        : singleCashfreePayment(rows);
+      if (!match) {
+        return {
+          state: 'unknown',
+          gatewayOrderId: params.gatewayOrderId,
+          gatewayPaymentId: params.gatewayPaymentId,
+        };
+      }
+      return cashfreePaymentSnapshot(match);
+    } catch (error) {
+      this.logger.warn(
+        {
+          gatewaySubscriptionId: params.gatewaySubscriptionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Cashfree subscription payment status could not be read',
+      );
+      return {
+        state: 'unknown',
+        gatewayOrderId: params.gatewayOrderId,
+        gatewayPaymentId: params.gatewayPaymentId,
+      };
+    }
   }
 
   private defaultUpiScheduleDate(): Date {
@@ -207,4 +255,45 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     }
     return json;
   }
+}
+
+function singleCashfreePayment(rows: Record<string, unknown>[]): Record<string, unknown> | undefined {
+  const successes = rows.filter((row) =>
+    ['SUCCESS', 'PAID'].includes(String(row['payment_status'] ?? row['status'] ?? '').toUpperCase()),
+  );
+  if (successes.length === 1) return successes[0];
+  const pending = rows.filter((row) =>
+    ['INITIALIZED', 'PENDING', 'ACTIVE'].includes(
+      String(row['payment_status'] ?? row['status'] ?? '').toUpperCase(),
+    ),
+  );
+  if (successes.length === 0 && pending.length === 1) return pending[0];
+  return undefined;
+}
+
+function cashfreePaymentRows(payload: Record<string, unknown>): Record<string, unknown>[] {
+  const payments = payload['payments'] ?? payload['data'];
+  if (Array.isArray(payments)) return payments as Record<string, unknown>[];
+  if (payload['payment_id'] || payload['cf_payment_id']) return [payload];
+  return [];
+}
+
+function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayChargeSnapshot {
+  const status = String(payment['payment_status'] ?? payment['status'] ?? '').toUpperCase();
+  const amount = Number(payment['payment_amount']);
+  const snapshot = {
+    gatewayOrderId: String(payment['payment_id'] ?? '') || null,
+    gatewayPaymentId: String(payment['cf_payment_id'] ?? '') || null,
+    amount: Number.isFinite(amount) ? amount.toFixed(2) : null,
+  };
+  if (['SUCCESS', 'PAID'].includes(status)) return { ...snapshot, state: 'captured' };
+  if (['FAILED', 'CANCELLED', 'USER_DROPPED'].includes(status)) {
+    return {
+      ...snapshot,
+      state: 'failed',
+      failureReason: String(payment['failure_reason'] ?? payment['payment_message'] ?? status),
+    };
+  }
+  if (['INITIALIZED', 'PENDING', 'ACTIVE'].includes(status)) return { ...snapshot, state: 'pending' };
+  return { ...snapshot, state: 'unknown' };
 }

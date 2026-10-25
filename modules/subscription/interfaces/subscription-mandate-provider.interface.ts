@@ -39,6 +39,8 @@ export type GatewayChargeSnapshot = {
   state: GatewayChargeState;
   gatewayOrderId?: string | null;
   gatewayPaymentId?: string | null;
+  /** Rupees, when the gateway included an amount. A mismatch must not be treated as the product payment. */
+  amount?: string | null;
   failureReason?: string | null;
 };
 
@@ -96,5 +98,6 @@ export interface ISubscriptionMandateProvider {
   fetchChargeStatus(params: {
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
+    gatewaySubscriptionId?: string | null;
   }): Promise<GatewayChargeSnapshot>;
 }

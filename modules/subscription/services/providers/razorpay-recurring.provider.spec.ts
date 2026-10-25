@@ -109,4 +109,26 @@ describe('RazorpayRecurringProvider UPI renewal', () => {
       gatewayOrderId: 'order_3',
     });
   });
+
+  it('does not treat a captured ₹1 registration payment as the product order', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'pay_auth', status: 'captured', order_id: 'order_auth', amount: 100 }) as never,
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [{ id: 'pay_product', status: 'created', order_id: 'order_product', amount: 200 }],
+        }) as never,
+      );
+
+    await expect(
+      provider.fetchChargeStatus({ gatewayPaymentId: 'pay_auth', gatewayOrderId: 'order_product' }),
+    ).resolves.toMatchObject({
+      state: 'pending',
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_product',
+      amount: '2.00',
+    });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/orders/order_product/payments');
+  });
 });

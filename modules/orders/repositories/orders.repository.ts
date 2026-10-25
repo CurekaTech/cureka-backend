@@ -351,6 +351,14 @@ export class OrdersRepository {
     return { data, total };
   }
 
+  findOrderNumbersByIds(ids: string[]): Promise<Array<Pick<OrderEntity, 'id' | 'orderNumber'>>> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.repo.find({
+      where: { id: In(ids) },
+      select: { id: true, orderNumber: true },
+    });
+  }
+
   findByIds(ids: string[]): Promise<OrderEntity[]> {
     if (!ids.length) {
       return Promise.resolve([]);

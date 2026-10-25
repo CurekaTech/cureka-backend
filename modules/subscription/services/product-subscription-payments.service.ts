@@ -136,13 +136,48 @@ export class ProductSubscriptionPaymentsService {
   ): Promise<void> {
     const existing = await this.paymentsRepository.findById(paymentId);
     if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
+    const orderChanged = Boolean(
+      existing.gatewayOrderId && data.gatewayOrderId && existing.gatewayOrderId !== data.gatewayOrderId,
+    );
     await this.paymentsRepository.updateById(paymentId, {
       gatewayOrderId: data.gatewayOrderId,
-      gatewayPaymentId: data.gatewayPaymentId ?? existing.gatewayPaymentId,
+      gatewayPaymentId: data.gatewayPaymentId
+        ? data.gatewayPaymentId
+        : orderChanged
+          ? null
+          : existing.gatewayPaymentId,
       paymentGateway: data.paymentGateway,
       status: data.pending ? SubscriptionPaymentStatus.RECONCILING : existing.status,
       updatedBy: data.actor,
     });
+  }
+
+  claimChargeInitiation(paymentId: string, actor: string): Promise<boolean> {
+    return this.paymentsRepository.claimStatus(
+      paymentId,
+      [SubscriptionPaymentStatus.PENDING, SubscriptionPaymentStatus.LINK_GENERATED],
+      SubscriptionPaymentStatus.RECONCILING,
+      actor,
+    );
+  }
+
+  claimRetry(paymentId: string, actor: string): Promise<boolean> {
+    return this.paymentsRepository.claimStatus(
+      paymentId,
+      [SubscriptionPaymentStatus.FAILED],
+      SubscriptionPaymentStatus.RECONCILING,
+      actor,
+    );
+  }
+
+  /** Token was not ready, and Razorpay was not asked to charge. Another confirmation may try once. */
+  releaseChargeInitiation(paymentId: string, actor: string): Promise<boolean> {
+    return this.paymentsRepository.claimStatus(
+      paymentId,
+      [SubscriptionPaymentStatus.RECONCILING],
+      SubscriptionPaymentStatus.LINK_GENERATED,
+      actor,
+    );
   }
 
   async markReconciling(paymentId: string, actor: string): Promise<void> {
@@ -188,6 +223,14 @@ export class ProductSubscriptionPaymentsService {
 
   listReconciling(subscriptionId?: string) {
     return this.paymentsRepository.findReconciling(subscriptionId);
+  }
+
+  listReconcilingSubscriptionIds(subscriptionIds: string[]) {
+    return this.paymentsRepository.findReconcilingSubscriptionIds(subscriptionIds);
+  }
+
+  listStatusBySubscriptionIds(subscriptionIds: string[]) {
+    return this.paymentsRepository.findStatusBySubscriptionIds(subscriptionIds);
   }
 
   async findBySubscriptionId(subscriptionId: string): Promise<ISubscriptionPayment[]> {

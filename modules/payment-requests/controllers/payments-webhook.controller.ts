@@ -186,24 +186,29 @@ export class PaymentsWebhookController {
         eventType,
       });
       if (fresh) {
-        if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS') {
+        if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
           const tags = (subscriptionData['subscription_tags'] ?? {}) as Record<string, unknown>;
-          await this.productSubscriptionsService.handlePaymentSuccess({
-            paymentId: String(tags['subscriptionPaymentId'] ?? '') || undefined,
-            gatewayOrderId: String(
-              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
-            ),
-            gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
-            actor: 'cashfree-subscription-webhook',
-          });
-        } else if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
-          await this.productSubscriptionsService.handlePaymentFailed({
-            gatewayOrderId: String(
-              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
-            ),
-            reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
-            actor: 'cashfree-subscription-webhook',
-          });
+          const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
+          const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
+          if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+            await this.productSubscriptionsService.handlePaymentFailed({
+              gatewayOrderId: String(
+                paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
+              ),
+              reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
+              actor: 'cashfree-subscription-webhook',
+            });
+          } else {
+            await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+              paymentId: String(tags['subscriptionPaymentId'] ?? '') || undefined,
+              gatewayOrderId: String(
+                paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
+              ),
+              gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+              gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+              actor: 'cashfree-subscription-webhook',
+            });
+          }
         } else {
           const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
           const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
@@ -220,8 +225,9 @@ export class PaymentsWebhookController {
               merchantSubscriptionId || cfSubscriptionId,
             );
             if (paymentId) {
-              await this.productSubscriptionsService.handlePaymentSuccess({
+              await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
                 paymentId,
+                gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
                 actor: 'cashfree-subscription-webhook',
               });
             }

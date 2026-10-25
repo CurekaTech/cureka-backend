@@ -28,6 +28,13 @@ describe('ProductSubscriptionPricingService', () => {
     expect(result.finalAmount).toBe('85.50');
   });
 
+  it('charges merchandise after both discounts and does not add checkout fees', () => {
+    const result = service.calculate(100, 1, SubscriptionDiscountType.FLAT, 0, null);
+    expect(result.finalAmount).toBe('100.00');
+    expect(result).not.toHaveProperty('shippingAmount');
+    expect(result).not.toHaveProperty('platformFee');
+  });
+
   it('never returns negative final amount', () => {
     const result = service.calculate(10, 1, SubscriptionDiscountType.FLAT, 50);
     expect(result.finalAmount).toBe('0.00');

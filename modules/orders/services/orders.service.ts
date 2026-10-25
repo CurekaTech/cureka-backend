@@ -1562,6 +1562,11 @@ export class OrdersService {
     return new Map(addresses.map((address) => [address.id, address]));
   }
 
+  async orderNumbersByIds(ids: string[]): Promise<Map<string, string>> {
+    const rows = await this.ordersRepository.findOrderNumbersByIds([...new Set(ids.filter(Boolean))]);
+    return new Map(rows.map((row) => [row.id, row.orderNumber]));
+  }
+
   async findOne(userId: string, id: string) {
     const order = await this.ordersRepository.findByIdAndUserId(id, userId);
     if (!order) throw new NotFoundException(`Order ${id} not found`);

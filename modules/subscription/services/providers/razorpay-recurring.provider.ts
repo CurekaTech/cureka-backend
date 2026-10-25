@@ -252,13 +252,17 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     try {
       if (params.gatewayPaymentId) {
         const payment = await this.request('GET', `/payments/${params.gatewayPaymentId}`);
-        return (
-          paymentSnapshot([payment], params.gatewayOrderId ?? String(payment['order_id'] ?? '')) ?? {
-            state: 'unknown',
-            gatewayOrderId: params.gatewayOrderId,
-            gatewayPaymentId: params.gatewayPaymentId,
-          }
-        );
+        const paymentOrderId = String(payment['order_id'] ?? '');
+        const requestedOrderId = params.gatewayOrderId ?? '';
+        if (!requestedOrderId || !paymentOrderId || paymentOrderId === requestedOrderId) {
+          return (
+            paymentSnapshot([payment], requestedOrderId || paymentOrderId) ?? {
+              state: 'unknown',
+              gatewayOrderId: requestedOrderId || paymentOrderId,
+              gatewayPaymentId: params.gatewayPaymentId,
+            }
+          );
+        }
       }
       if (params.gatewayOrderId) {
         const items = await this.readOrderPayments(params.gatewayOrderId);
@@ -284,6 +288,37 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         gatewayOrderId: params.gatewayOrderId,
         gatewayPaymentId: params.gatewayPaymentId,
       };
+    }
+  }
+
+  /**
+   * Successful empty list means Razorpay has no order for this receipt.
+   * A transport or API error stays unknown so the caller does not start another charge.
+   */
+  async lookupChargeByReceipt(receipt: string): Promise<
+    | { outcome: 'absent' }
+    | { outcome: 'unknown' }
+    | { outcome: 'found'; snapshot: GatewayChargeSnapshot }
+  > {
+    this.assertConfigured();
+    try {
+      const listed = await this.request('GET', `/orders?receipt=${encodeURIComponent(receipt)}`);
+      const items = Array.isArray(listed['items']) ? (listed['items'] as Record<string, unknown>[]) : [];
+      const order = items.find((item) => String(item['receipt'] ?? '') === receipt) ?? null;
+      const orderId = order ? String(order['id'] ?? '') : '';
+      if (!orderId) return { outcome: 'absent' };
+      const payments = await this.readOrderPayments(orderId).catch(() => null);
+      if (!payments) return { outcome: 'found', snapshot: { state: 'unknown', gatewayOrderId: orderId } };
+      return {
+        outcome: 'found',
+        snapshot: paymentSnapshot(payments, orderId) ?? { state: 'unknown', gatewayOrderId: orderId },
+      };
+    } catch (error) {
+      this.logger.warn(
+        { receipt, error: error instanceof Error ? error.message : String(error) },
+        'Razorpay receipt lookup could not be completed',
+      );
+      return { outcome: 'unknown' };
     }
   }
 
@@ -380,6 +415,7 @@ function paymentSnapshot(
     state: chosen.state,
     gatewayOrderId: orderId || String(chosen.item['order_id'] ?? chosen.item['razorpay_order_id'] ?? '') || null,
     gatewayPaymentId: String(chosen.item['id'] ?? chosen.item['razorpay_payment_id'] ?? '') || null,
+    amount: rupeesFromPaise(chosen.item['amount']),
     failureReason:
       chosen.state === 'failed'
         ? String(chosen.item['error_description'] ?? chosen.item['status'] ?? 'Razorpay recurring payment failed')
@@ -413,6 +449,12 @@ function snapshotToCharge(snapshot: GatewayChargeSnapshot, orderId: string): Aut
     gatewayPaymentId: snapshot.gatewayPaymentId,
     failureReason: snapshot.state === 'unknown' ? 'Razorpay payment status is unknown' : null,
   };
+}
+
+function rupeesFromPaise(amount: unknown): string | null {
+  const paise = Number(amount);
+  if (!Number.isFinite(paise)) return null;
+  return (paise / 100).toFixed(2);
 }
 
 function readRazorpayTokenId(payment: Record<string, unknown>): string | null {
