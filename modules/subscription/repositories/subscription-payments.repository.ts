@@ -61,6 +61,17 @@ export class SubscriptionPaymentsRepository {
     });
   }
 
+  findReconciling(subscriptionId?: string, limit = 30): Promise<SubscriptionPaymentEntity[]> {
+    return this.repo.find({
+      where: {
+        status: SubscriptionPaymentStatus.RECONCILING,
+        ...(subscriptionId ? { subscriptionId } : {}),
+      },
+      order: { createdAt: 'ASC' },
+      take: limit,
+    });
+  }
+
   findByUserId(userId: string): Promise<SubscriptionPaymentEntity[]> {
     return this.repo.find({
       where: { userId },

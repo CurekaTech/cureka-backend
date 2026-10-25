@@ -186,6 +186,10 @@ export class ProductSubscriptionPaymentsService {
     return this.paymentsRepository.findById(id);
   }
 
+  listReconciling(subscriptionId?: string) {
+    return this.paymentsRepository.findReconciling(subscriptionId);
+  }
+
   async findBySubscriptionId(subscriptionId: string): Promise<ISubscriptionPayment[]> {
     const rows = await this.paymentsRepository.findBySubscriptionId(subscriptionId);
     const sub = await this.subscriptionsRepository.findById(subscriptionId);
