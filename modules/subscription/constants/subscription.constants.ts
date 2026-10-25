@@ -15,6 +15,7 @@ export const PRODUCT_FREQUENCY_MINUTES = {
   MINUTES_5: 5,
   MINUTES_30: 30,
   HOURLY: 60,
+  HOURS_27: 27 * 60,
 } as const;
 
 export const PRODUCT_FREQUENCY_LABELS = {
@@ -22,6 +23,7 @@ export const PRODUCT_FREQUENCY_LABELS = {
   MINUTES_5: 'Every 5 minutes',
   MINUTES_30: 'Every 30 minutes',
   HOURLY: 'Every 1 hour',
+  HOURS_27: 'Every 27 hours',
   DAILY: 'Every 1 day',
   MONTHLY: 'Every month',
   BI_MONTHLY: 'Every 2 months',
@@ -45,6 +47,9 @@ export function describeProductFrequency(frequency: string): {
   }
   if (frequency === 'HOURLY') {
     return { intervalMinutes: 60, label: PRODUCT_FREQUENCY_LABELS.HOURLY };
+  }
+  if (frequency === 'HOURS_27') {
+    return { intervalMinutes: 27 * 60, label: PRODUCT_FREQUENCY_LABELS.HOURS_27 };
   }
   if (frequency === 'DAILY') {
     return { intervalDays: 1, label: PRODUCT_FREQUENCY_LABELS.DAILY };

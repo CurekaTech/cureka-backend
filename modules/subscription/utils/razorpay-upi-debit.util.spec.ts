@@ -3,6 +3,7 @@ import {
   RAZORPAY_UPI_TEST_PREDEBIT_MS,
   classifyRazorpayPaymentStatus,
   razorpaySubscriptionEventSettlesPayment,
+  razorpayUpiDebitAt,
   razorpayUpiPaymentAfter,
 } from './razorpay-upi-debit.util';
 
@@ -35,6 +36,25 @@ describe('Razorpay UPI pre-debit timing', () => {
       allowShortWindow: false,
     });
     expect(debitAt.getTime() - now.getTime()).toBe(RAZORPAY_UPI_LIVE_PREDEBIT_MS);
+  });
+
+  it('collects a 27-hour UPI tenure at the scheduled time when notice is already long enough', () => {
+    const scheduledAt = new Date(now.getTime() + 27 * 60 * 60 * 1000);
+    const liveDebit = razorpayUpiDebitAt({
+      now,
+      keyId: 'rzp_live_example',
+      allowShortWindow: true,
+      scheduledAt,
+    });
+    expect(liveDebit.getTime()).toBe(scheduledAt.getTime());
+
+    const tooSoon = razorpayUpiDebitAt({
+      now,
+      keyId: 'rzp_live_example',
+      allowShortWindow: true,
+      scheduledAt: new Date(now.getTime() + 60 * 60 * 1000),
+    });
+    expect(tooSoon.getTime() - now.getTime()).toBe(RAZORPAY_UPI_LIVE_PREDEBIT_MS);
   });
 
   it('classifies uncaptured and unknown Razorpay statuses', () => {
