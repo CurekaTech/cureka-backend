@@ -583,7 +583,9 @@ export class ProductSubscriptionsService {
   async getMine(userId: string, id: string) {
     const sub = await this.subscriptionsRepository.findByIdAndUserId(id, userId);
     if (!sub) throw new NotFoundException('Subscription not found');
-    const [mapped] = await this.mapSubscriptionsWithRelations([sub]);
+    await this.settleReconcilingPayments(id);
+    const refreshed = (await this.subscriptionsRepository.findByIdAndUserId(id, userId)) ?? sub;
+    const [mapped] = await this.mapSubscriptionsWithRelations([refreshed]);
     return mapped;
   }
 
@@ -653,7 +655,13 @@ export class ProductSubscriptionsService {
     }
 
     const payments = await this.paymentsService.findBySubscriptionId(id);
-    if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+    if (
+      payments.some(
+        (payment) =>
+          payment.status === SubscriptionPaymentStatus.PAID ||
+          payment.status === SubscriptionPaymentStatus.RECONCILING,
+      )
+    ) {
       return { abandoned: false };
     }
 
@@ -1435,6 +1443,35 @@ export class ProductSubscriptionsService {
     }
   }
 
+  private async settleReconcilingPayments(subscriptionId?: string): Promise<void> {
+    const payments = await this.paymentsService.listReconciling(subscriptionId);
+    for (const payment of payments) {
+      if (!payment.gatewayOrderId?.startsWith('order_')) continue;
+      if ((payment.paymentGateway ?? '').toUpperCase() !== 'RAZORPAY') continue;
+      try {
+        const captured = await this.isRazorpayChargeCaptured({
+          gatewayOrderId: payment.gatewayOrderId,
+          gatewayPaymentId: payment.gatewayPaymentId,
+        });
+        if (!captured) continue;
+        await this.handlePaymentSuccess({
+          paymentId: payment.id,
+          gatewayOrderId: payment.gatewayOrderId,
+          gatewayPaymentId: payment.gatewayPaymentId ?? undefined,
+          actor: 'payment-reconcile',
+        });
+      } catch (error) {
+        this.logger.warn(
+          {
+            paymentId: payment.id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Reconciling subscription payment could not be settled',
+        );
+      }
+    }
+  }
+
   async processRenewals(asOfDate = new Date()): Promise<number> {
     const lock = await this.lockService.acquire('product-renewal-run', 10 * 60 * 1000);
     if (!lock) {
@@ -1443,6 +1480,7 @@ export class ProductSubscriptionsService {
     }
     try {
       await this.finalizePaidCycles(asOfDate);
+      await this.settleReconcilingPayments();
       const due = await this.subscriptionsRepository.findDueForRenewal(
         [
           ProductSubscriptionStatus.ACTIVE,
