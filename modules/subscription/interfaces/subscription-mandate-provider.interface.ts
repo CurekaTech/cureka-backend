@@ -32,6 +32,16 @@ export type AutopayChargeResult = {
   raw?: Record<string, unknown>;
 };
 
+/** Razorpay does not expose an idempotency header on Orders or create/recurring. */
+export type GatewayChargeState = 'captured' | 'failed' | 'pending' | 'unknown';
+
+export type GatewayChargeSnapshot = {
+  state: GatewayChargeState;
+  gatewayOrderId?: string | null;
+  gatewayPaymentId?: string | null;
+  failureReason?: string | null;
+};
+
 export type CreateMandateAuthInput = {
   subscriptionId: string;
   userId: string;
@@ -64,7 +74,10 @@ export type ChargeMandateInput = {
   };
   notes: Record<string, string>;
   scheduleDate?: Date;
-  /** When set, Razorpay schedules the debit at this time instead of the default 25-hour window. */
+  /**
+   * UPI pre-debit time. Live Razorpay debits only after this timestamp, which must be at least
+   * 25 hours ahead. Card and eMandate charges omit it.
+   */
   debitAt?: Date;
 };
 
@@ -79,4 +92,9 @@ export interface ISubscriptionMandateProvider {
     gatewayCustomerId?: string | null;
   }): Promise<MandateStatusSnapshot>;
   charge(input: ChargeMandateInput): Promise<AutopayChargeResult>;
+  /** Read a renewal debit. Unknown means the caller must not create another charge. */
+  fetchChargeStatus(params: {
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+  }): Promise<GatewayChargeSnapshot>;
 }

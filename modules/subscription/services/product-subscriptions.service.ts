@@ -59,6 +59,7 @@ import {
   isCycleInFlight,
 } from '../utils/subscription-cycle-guard.util';
 import { assertProductFrequenciesAllowed, isSubscriptionTestTenuresEnabled, TEST_PRODUCT_FREQUENCIES } from '../utils/subscription-test-tenures.util';
+import { razorpayUpiPaymentAfter } from '../utils/razorpay-upi-debit.util';
 import { MembershipBenefitsApplicationService } from './membership-benefits-application.service';
 import { ProductSubscriptionConfigService } from './product-subscription-config.service';
 import { ProductSubscriptionPaymentsService } from './product-subscription-payments.service';
@@ -863,6 +864,14 @@ export class ProductSubscriptionsService {
       throw new BadRequestException('Payment does not match this subscription');
     }
 
+    const captured = await this.isRazorpayChargeCaptured({
+      gatewayOrderId: dto.razorpay_order_id,
+      gatewayPaymentId: dto.razorpay_payment_id,
+    });
+    if (!captured) {
+      throw new BadRequestException('Payment is not captured yet');
+    }
+
     await this.handlePaymentSuccess({
       paymentId: payment.id,
       gatewayOrderId: dto.razorpay_order_id,
@@ -896,9 +905,7 @@ export class ProductSubscriptionsService {
       );
       return { paid: false };
     }
-    const success = items.find((item) =>
-      ['captured', 'authorized'].includes(String(item['status'] ?? '').toLowerCase()),
-    );
+    const success = items.find((item) => String(item['status'] ?? '').toLowerCase() === 'captured');
     if (!success) return { paid: false };
     await this.handlePaymentSuccess({
       paymentId: pending.id,
@@ -1214,6 +1221,16 @@ export class ProductSubscriptionsService {
     );
   }
 
+  async isRazorpayChargeCaptured(params: {
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+  }): Promise<boolean> {
+    const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+    if (!adapter.isConfigured()) return false;
+    const snapshot = await adapter.fetchChargeStatus(params);
+    return snapshot.state === 'captured';
+  }
+
   async handlePaymentSuccess(params: {
     paymentId?: string;
     gatewayOrderId?: string;
@@ -1266,23 +1283,28 @@ export class ProductSubscriptionsService {
 
     const now = new Date();
     const timezone = sub.timezone || 'Asia/Kolkata';
-    const nextBilling = getNextProductBillingDate(
-      now,
-      sub.frequency,
-      timezone,
-      sub.scheduleAnchorDay,
-    );
-    const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
-
-    await this.subscriptionsRepository.updateById(sub.id, {
-      status: ProductSubscriptionStatus.ACTIVE,
-      startDate: sub.startDate ?? now,
-      nextBillingDate: nextBilling,
-      nextDeliveryDate: getEstimatedDeliveryDate(nextBilling, deliveryLead),
-      billingCycleSequence: (sub.billingCycleSequence ?? 0) + 1,
-      paymentGateway: paidPayment.paymentGateway ?? sub.paymentGateway,
-      updatedBy: params.actor ?? 'webhook',
-    });
+    const keepStatus =
+      sub.status === ProductSubscriptionStatus.CANCELLED ||
+      sub.status === ProductSubscriptionStatus.EXPIRED ||
+      sub.status === ProductSubscriptionStatus.PAUSED;
+    if (!keepStatus) {
+      const nextBilling = getNextProductBillingDate(
+        now,
+        sub.frequency,
+        timezone,
+        sub.scheduleAnchorDay,
+      );
+      const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
+      await this.subscriptionsRepository.updateById(sub.id, {
+        status: ProductSubscriptionStatus.ACTIVE,
+        startDate: sub.startDate ?? now,
+        nextBillingDate: nextBilling,
+        nextDeliveryDate: getEstimatedDeliveryDate(nextBilling, deliveryLead),
+        billingCycleSequence: (sub.billingCycleSequence ?? 0) + 1,
+        paymentGateway: paidPayment.paymentGateway ?? sub.paymentGateway,
+        updatedBy: params.actor ?? 'webhook',
+      });
+    }
 
     if (paidPayment.billingCycleId) {
       await this.billingCycleService.updateById(paidPayment.billingCycleId, {
@@ -1513,21 +1535,83 @@ export class ProductSubscriptionsService {
     return sent;
   }
 
+  private async reconcileInFlightDebit(
+    sub: UserProductSubscriptionEntity,
+    cycle: { id: string; paymentId: string | null; orderId?: string | null },
+  ): Promise<void> {
+    const payment = cycle.paymentId ? await this.paymentsService.findById(cycle.paymentId) : null;
+    if (!payment) {
+      this.logger.warn(
+        { subscriptionId: sub.id, cycleId: cycle.id },
+        'Debit is pending without a payment row, so no new charge was created',
+      );
+      return;
+    }
+    if (payment.status === SubscriptionPaymentStatus.PAID) {
+      if (!cycle.orderId) {
+        const order = await this.tryCreateOrderForPaidCycle(sub, payment, 'scheduler-reconcile');
+        if (order) {
+          await this.billingCycleService.updateById(cycle.id, {
+            status: SubscriptionBillingCycleStatus.PAID,
+            orderId: order.id,
+            paymentId: payment.id,
+            updatedBy: 'scheduler-reconcile',
+          });
+        }
+      }
+      return;
+    }
+
+    const provider = this.mandateService.resolveChargeProvider(sub);
+    if (provider !== SubscriptionMandateProvider.RAZORPAY) {
+      this.logger.warn(
+        { subscriptionId: sub.id, provider },
+        'In-flight debit was left untouched until its gateway reports a final status',
+      );
+      return;
+    }
+
+    const snapshot = await this.mandateService.adapter(provider).fetchChargeStatus({
+      gatewayOrderId: payment.gatewayOrderId,
+      gatewayPaymentId: payment.gatewayPaymentId,
+    });
+    if (snapshot.state === 'captured') {
+      await this.handlePaymentSuccess({
+        paymentId: payment.id,
+        gatewayOrderId: snapshot.gatewayOrderId ?? payment.gatewayOrderId ?? undefined,
+        gatewayPaymentId: snapshot.gatewayPaymentId ?? payment.gatewayPaymentId ?? undefined,
+        actor: 'scheduler-reconcile',
+      });
+      return;
+    }
+    if (snapshot.state === 'failed') {
+      const reason = snapshot.failureReason ?? 'Razorpay recurring payment failed';
+      await this.paymentsService.markFailed(payment.id, reason, 'scheduler-reconcile');
+      await this.billingCycleService.updateById(cycle.id, {
+        status: SubscriptionBillingCycleStatus.FAILED,
+        failureReason: reason,
+        updatedBy: 'scheduler-reconcile',
+      });
+      return;
+    }
+    this.logger.warn(
+      { subscriptionId: sub.id, cycleId: cycle.id, state: snapshot.state },
+      'Razorpay debit is not captured, so no new charge was created',
+    );
+  }
+
   private async processSingleRenewal(subscriptionId: string, asOfDate: Date): Promise<void> {
     const sub = await this.subscriptionsRepository.findById(subscriptionId);
     if (!sub || !sub.nextBillingDate) return;
-    if (sub.status === ProductSubscriptionStatus.PAUSED || sub.status === ProductSubscriptionStatus.CANCELLED) {
-      return;
-    }
 
     const openCycles = await this.billingCycleService.findBySubscriptionId(sub.id);
     const debitInFlight = openCycles.find((cycle) => cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING);
     if (debitInFlight) {
-      const waitMs = TEST_PRODUCT_FREQUENCIES.has(sub.frequency) ? 5 * 60 * 1000 : 36 * 60 * 60 * 1000;
-      const earliest = debitInFlight.debitEarliestAt ? new Date(debitInFlight.debitEarliestAt).getTime() : 0;
-      if (earliest && asOfDate.getTime() < earliest + waitMs) return;
-      const started = new Date(debitInFlight.processingStartedAt ?? debitInFlight.chargeDate).getTime();
-      if (asOfDate.getTime() - started < waitMs) return;
+      await this.reconcileInFlightDebit(sub, debitInFlight);
+      return;
+    }
+    if (sub.status === ProductSubscriptionStatus.PAUSED || sub.status === ProductSubscriptionStatus.CANCELLED) {
+      return;
     }
 
     const timezone = sub.timezone || 'Asia/Kolkata';
@@ -1585,6 +1669,17 @@ export class ProductSubscriptionsService {
     ) {
       return;
     }
+    if (cycle.status === SubscriptionBillingCycleStatus.FAILED) {
+      const existingPayment = cycle.paymentId
+        ? await this.paymentsService.findById(cycle.paymentId)
+        : null;
+      if (
+        existingPayment?.attemptKind === SubscriptionPaymentAttemptKind.AUTOPAY &&
+        (existingPayment.gatewayOrderId || existingPayment.gatewayPaymentId)
+      ) {
+        return;
+      }
+    }
 
     const mandate = await this.mandateService.getForSubscription(sub.id);
     const autopay = this.mandateService.canPresentAsAutopay(sub, mandate);
@@ -1599,7 +1694,7 @@ export class ProductSubscriptionsService {
         if (!charged) {
           this.logger.warn(
             { subscriptionId: sub.id, billingCycleRef },
-            'AutoPay debit was not accepted — the next run retries it. No payment link is sent.',
+            'AutoPay debit was not accepted. No second charge is sent while that Razorpay payment is failed or still unresolved.',
           );
         }
         return;
@@ -1782,6 +1877,26 @@ export class ProductSubscriptionsService {
 
   private async tryCreateOrderForPaidCycle(
     sub: UserProductSubscriptionEntity,
+    paidPayment: { id: string; amount: string; billingCycleRef: string; paymentGateway: string | null; billingCycleId?: string | null },
+    actor?: string,
+  ) {
+    const locked = await this.lockService.withLock(`renewal-order:${sub.id}`, async () => {
+      if (paidPayment.billingCycleId) {
+        const cycle = await this.billingCycleService.findById(paidPayment.billingCycleId);
+        if (cycle?.orderId) return { id: cycle.orderId };
+      }
+      return this.createSubscriptionOrder(sub, paidPayment, actor);
+    });
+    if (locked) return locked;
+    if (paidPayment.billingCycleId) {
+      const cycle = await this.billingCycleService.findById(paidPayment.billingCycleId);
+      if (cycle?.orderId) return { id: cycle.orderId };
+    }
+    return null;
+  }
+
+  private async createSubscriptionOrder(
+    sub: UserProductSubscriptionEntity,
     paidPayment: { id: string; amount: string; billingCycleRef: string; paymentGateway: string | null },
     actor?: string,
   ) {
@@ -1886,31 +2001,46 @@ export class ProductSubscriptionsService {
       updatedBy: 'scheduler',
     });
     const mandateMethod = String(mandate.consentEvidence?.method ?? '');
-    const debitAt =
+    const upiRenewal =
       provider === SubscriptionMandateProvider.RAZORPAY &&
       mandateMethod !== 'card' &&
-      mandateMethod !== 'emandate' &&
-      TEST_PRODUCT_FREQUENCIES.has(sub.frequency)
-        ? new Date(Date.now() + 60_000)
-        : undefined;
-    const result = await this.mandateService.adapter(provider).charge({
-      gatewayCustomerId: mandate.gatewayCustomerId ?? '',
-      gatewayMandateId: mandate.gatewayMandateId ?? '',
-      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
-      amount,
-      receipt: payment.refId,
-      idempotencyKey,
-      debitAt,
-      customer: { email: user?.email, phone: user?.mobileNumber ?? '' },
-      notes: buildSubscriptionGatewayNotes({
-        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
-        billingCycleRef,
-        subscriptionId: sub.id,
-        subscriptionPaymentId: payment.id,
-        userId: sub.userId,
-        productId: sub.productId,
-      }),
-    });
+      mandateMethod !== 'emandate';
+    const debitAt = upiRenewal
+      ? razorpayUpiPaymentAfter({
+          now: new Date(),
+          keyId: this.nestConfig.get<string>('RAZORPAY_KEY_ID') ?? '',
+          allowShortWindow:
+            isSubscriptionTestTenuresEnabled(this.nestConfig) &&
+            TEST_PRODUCT_FREQUENCIES.has(sub.frequency),
+        })
+      : undefined;
+    let result: Awaited<ReturnType<ReturnType<SubscriptionMandateService['adapter']>['charge']>>;
+    try {
+      result = await this.mandateService.adapter(provider).charge({
+        gatewayCustomerId: mandate.gatewayCustomerId ?? '',
+        gatewayMandateId: mandate.gatewayMandateId ?? '',
+        gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+        amount,
+        receipt: payment.refId,
+        idempotencyKey,
+        debitAt,
+        customer: { email: user?.email, phone: user?.mobileNumber ?? '' },
+        notes: buildSubscriptionGatewayNotes({
+          paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+          billingCycleRef,
+          subscriptionId: sub.id,
+          subscriptionPaymentId: payment.id,
+          userId: sub.userId,
+          productId: sub.productId,
+        }),
+      });
+    } catch (error) {
+      this.logger.warn(
+        { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
+        'AutoPay charge outcome is unknown, so no second charge was created',
+      );
+      return true;
+    }
     if (result.gatewayOrderId) {
       await this.paymentsService.recordProviderCharge(payment.id, {
         gatewayOrderId: result.gatewayOrderId,
