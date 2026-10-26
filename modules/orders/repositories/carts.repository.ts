@@ -89,12 +89,13 @@ export class CartsRepository {
   }
 
   /**
-   * Keyset page of authenticated (non-guest) carts idle past `inactiveBefore`.
-   * Does not join notify outbox — the scanner filters reservation/cooldown after fetch
-   * so marking a row pending cannot skip later candidates.
+   * Keyset page of authenticated (non-guest) carts idle past `inactiveBefore`
+   * and not older than `inactiveAfter` (max age). Newest activity first so live
+   * carts are not starved by a pool of stale carts.
    */
   async findAbandonedCartNotifyCandidates(options: {
     inactiveBefore: Date;
+    inactiveAfter: Date;
     afterActivityAt?: Date | null;
     afterCartId?: string | null;
     limit: number;
@@ -120,15 +121,18 @@ export class CartsRepository {
       .having(`${LAST_ACTIVITY_SQL} <= :inactiveBefore`, {
         inactiveBefore: options.inactiveBefore,
       })
-      .orderBy(LAST_ACTIVITY_SQL, 'ASC')
-      .addOrderBy('cart.id', 'ASC')
+      .andHaving(`${LAST_ACTIVITY_SQL} >= :inactiveAfter`, {
+        inactiveAfter: options.inactiveAfter,
+      })
+      .orderBy(LAST_ACTIVITY_SQL, 'DESC')
+      .addOrderBy('cart.id', 'DESC')
       .limit(options.limit);
 
     if (options.afterActivityAt && options.afterCartId) {
       qb.andHaving(
         `(
-          ${LAST_ACTIVITY_SQL} > :afterActivityAt
-          OR (${LAST_ACTIVITY_SQL} = :afterActivityAt AND cart.id > :afterCartId)
+          ${LAST_ACTIVITY_SQL} < :afterActivityAt
+          OR (${LAST_ACTIVITY_SQL} = :afterActivityAt AND cart.id < :afterCartId)
         )`,
         {
           afterActivityAt: options.afterActivityAt,

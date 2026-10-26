@@ -62,3 +62,10 @@ export class ApplyCheckoutCodeDto {
   @MaxLength(100)
   code!: string;
 }
+
+export class RecoverCartDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(64)
+  token!: string;
+}

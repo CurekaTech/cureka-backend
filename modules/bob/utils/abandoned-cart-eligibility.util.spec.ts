@@ -15,6 +15,8 @@ const eligibleBase = {
   lastActivityAt: new Date('2026-09-10T10:00:00.000Z'),
   now: new Date('2026-09-10T10:35:00.000Z'),
   inactivityMs,
+  maxAgeMs: cooldownMs,
+  lastSentActivityAt: null,
   lastAcceptedOrUncertainAt: null,
   cooldownMs,
   hasInFlightReservation: false,
@@ -59,17 +61,41 @@ describe('evaluateAbandonedCartEligibility', () => {
     ).toBe('cooldown_24h');
   });
 
-  it('allows the same cart again after the 24-hour window', () => {
+  it('allows a new session after the 24-hour window when the cart changed', () => {
     const acceptedAt = new Date('2026-09-10T10:00:00.000Z');
     const afterWindow = new Date('2026-09-11T10:00:01.000Z');
     expect(
       evaluateAbandonedCartEligibility({
         ...eligibleBase,
         now: afterWindow,
-        lastActivityAt: new Date('2026-09-10T09:00:00.000Z'),
+        lastActivityAt: new Date('2026-09-11T09:25:00.000Z'),
+        lastSentActivityAt: new Date('2026-09-10T09:00:00.000Z'),
         lastAcceptedOrUncertainAt: acceptedAt,
       }),
     ).toEqual({ eligible: true });
+  });
+
+  it('never re-sends the same idle session, even after 24 hours', () => {
+    const activity = new Date('2026-09-11T09:00:00.000Z');
+    expect(
+      evaluateAbandonedCartEligibility({
+        ...eligibleBase,
+        now: new Date('2026-09-11T10:00:00.000Z'),
+        lastActivityAt: activity,
+        lastSentActivityAt: activity,
+        lastAcceptedOrUncertainAt: null,
+      }).reason,
+    ).toBe('already_sent_for_session');
+  });
+
+  it('skips carts older than the max age window', () => {
+    expect(
+      evaluateAbandonedCartEligibility({
+        ...eligibleBase,
+        now: new Date('2026-09-12T10:00:00.000Z'),
+        lastActivityAt: new Date('2026-09-10T10:00:00.000Z'),
+      }).reason,
+    ).toBe('stale_cart');
   });
 
   it('skips when another reservation is already in flight', () => {
