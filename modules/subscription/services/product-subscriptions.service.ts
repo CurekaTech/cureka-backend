@@ -1401,7 +1401,7 @@ export class ProductSubscriptionsService {
     const listed = await this.readCardOrder(orderId);
     if (listed.outcome === 'unknown') return 'blocked';
     if (listed.outcome === 'found') return this.applyCardProductSnapshot(payment, orderId, listed.snapshot);
-    if (payment.gatewayPaymentId || mandate.consentEvidence?.productDebitSubmittedAt) return 'blocked';
+    if (payment.gatewayPaymentId || mandate.consentEvidence?.productEmptyListDebitAt) return 'blocked';
     return this.resumeCardDebitOnExistingOrder(payment, mandate, orderId);
   }
 
@@ -1476,7 +1476,7 @@ export class ProductSubscriptionsService {
       if (listed.outcome === 'unknown') return 'blocked';
       if (listed.outcome === 'found') return this.applyCardProductSnapshot(payment, orderId, listed.snapshot);
       const currentMandate = (await this.mandateService.getForSubscription(payment.subscriptionId)) ?? mandate;
-      if (payment.gatewayPaymentId || currentMandate.consentEvidence?.productDebitSubmittedAt) return 'blocked';
+      if (payment.gatewayPaymentId || currentMandate.consentEvidence?.productEmptyListDebitAt) return 'blocked';
       const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
       if (!('submitRecurringDebit' in adapter) || !adapter.submitRecurringDebit) return 'blocked';
       if (!currentMandate.gatewayCustomerId || !currentMandate.gatewayMandateId || !payment.userId || !payment.amount) {
@@ -1484,6 +1484,8 @@ export class ProductSubscriptionsService {
       }
       const user = await this.usersRepository.findById(payment.userId);
       if (!user?.mobileNumber) return 'blocked';
+      const claimed = await this.mandateService.claimCardEmptyListDebit(currentMandate.id, 'payment-reconcile');
+      if (!claimed) return 'blocked';
       await this.mandateService.markCardDebitSubmitted(currentMandate.id, 'payment-reconcile');
       const result = await adapter.submitRecurringDebit({
         gatewayCustomerId: currentMandate.gatewayCustomerId,

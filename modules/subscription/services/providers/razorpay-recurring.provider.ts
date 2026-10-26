@@ -255,7 +255,7 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         order_id: orderId,
         customer_id: input.gatewayCustomerId,
         token: input.gatewayMandateId,
-        recurring: true,
+        recurring: '1',
         notes: input.notes,
       });
       return {
@@ -269,6 +269,21 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn({ orderId, error: message }, 'Razorpay recurring charge did not complete');
+      const status = razorpayStatus(error);
+      if (status >= 400 && status < 500) {
+        const listed = await this.readOrderPayments(orderId).catch(() => null);
+        if (listed) {
+          const snapshot = paymentSnapshot(listed, orderId);
+          if (snapshot) return { ...snapshotToCharge(snapshot, orderId), debitAttempted: false };
+          return {
+            accepted: true,
+            pending: true,
+            gatewayOrderId: orderId,
+            failureReason: message,
+            debitAttempted: false,
+          };
+        }
+      }
       return {
         accepted: true,
         pending: true,
@@ -464,10 +479,18 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
           ? 'Razorpay order receipt already exists; the existing order will be reused'
           : 'Razorpay Recurring API error',
       );
-      throw new BadRequestException(description);
+      const failure = new BadRequestException(description) as BadRequestException & { razorpayStatus?: number };
+      failure.razorpayStatus = response.status;
+      throw failure;
     }
     return json;
   }
+}
+
+function razorpayStatus(error: unknown): number {
+  if (!error || typeof error !== 'object' || !('razorpayStatus' in error)) return 0;
+  const status = Number((error as { razorpayStatus?: number }).razorpayStatus);
+  return Number.isFinite(status) ? status : 0;
 }
 
 function paymentSnapshot(

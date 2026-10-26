@@ -82,6 +82,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     chargeCardProduct: jest.fn(),
     findByGatewayMandateId: jest.fn(),
     markCardDebitSubmitted: jest.fn(),
+    claimCardEmptyListDebit: jest.fn().mockResolvedValue(true),
     revokeForSubscription: jest.fn(),
   };
   const usersRepository = { findById: jest.fn() };
@@ -202,6 +203,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     submitRecurringDebit.mockReset();
     paymentsService.listReconciling.mockResolvedValue([]);
     paymentsService.claimChargeInitiation.mockResolvedValue(true);
+    mandateService.claimCardEmptyListDebit.mockResolvedValue(true);
     paymentsService.claimRetry.mockResolvedValue(true);
     paymentsService.releaseChargeInitiation.mockResolvedValue(true);
     ordersService.createOrderFromSubscription.mockResolvedValue({ id: 'order-row-1' });
@@ -1203,7 +1205,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
   });
 
-  it('does not debit a product order again after create/recurring was already attempted', async () => {
+  it('sends one product debit when an earlier attempt left the order empty, then stops', async () => {
     paymentsService.listReconciling.mockResolvedValue([
       {
         ...openCardPayment(),
@@ -1214,18 +1216,28 @@ describe('Product subscription Razorpay UPI renewal', () => {
     ]);
     mandateService.getForSubscription.mockResolvedValue({
       ...cardMandate(),
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
       consentEvidence: {
         ...cardMandate().consentEvidence,
         productChargeOrderId: 'order_product',
         productDebitSubmittedAt: '2026-10-26T07:15:00.000Z',
       },
     });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
     listOrderCharge.mockResolvedValue({ outcome: 'absent' });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_product',
+    });
+    mandateService.claimCardEmptyListDebit.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
     await settle('sub-1');
     await settle('sub-1');
 
-    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
     expect(paymentsService.markFailed).not.toHaveBeenCalled();
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
   });
