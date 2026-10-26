@@ -35,12 +35,23 @@ export type AutopayChargeResult = {
 /** Razorpay does not expose an idempotency header on Orders or create/recurring. */
 export type GatewayChargeState = 'captured' | 'failed' | 'pending' | 'unknown';
 
+export type ListedOrderCharge =
+  | { outcome: 'unknown' }
+  | { outcome: 'absent' }
+  | { outcome: 'found'; snapshot: GatewayChargeSnapshot };
+
 export type GatewayChargeSnapshot = {
   state: GatewayChargeState;
   gatewayOrderId?: string | null;
   gatewayPaymentId?: string | null;
   /** Rupees, when the gateway included an amount. A mismatch must not be treated as the product payment. */
   amount?: string | null;
+  failureReason?: string | null;
+};
+
+export type MandateCancelResult = {
+  /** True when the gateway mandate is gone, or there was no remote id to cancel. */
+  cancelled: boolean;
   failureReason?: string | null;
 };
 
@@ -94,10 +105,28 @@ export interface ISubscriptionMandateProvider {
     gatewayCustomerId?: string | null;
   }): Promise<MandateStatusSnapshot>;
   charge(input: ChargeMandateInput): Promise<AutopayChargeResult>;
+  /**
+   * Debit an order whose pre-debit notification was already created.
+   * Returns an existing payment instead of creating another one.
+   */
+  submitRecurringDebit?(
+    input: ChargeMandateInput & { gatewayOrderId: string },
+  ): Promise<AutopayChargeResult>;
   /** Read a renewal debit. Unknown means the caller must not create another charge. */
   fetchChargeStatus(params: {
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
     gatewaySubscriptionId?: string | null;
   }): Promise<GatewayChargeSnapshot>;
+  /**
+   * Successful empty means this order has no payment. A transport error is unknown
+   * and must not be treated as an absent debit.
+   */
+  listOrderCharge?(orderId: string): Promise<ListedOrderCharge>;
+  /** Stop future recurring charges. Does not refund a payment that already succeeded. */
+  cancelMandate(params: {
+    gatewayCustomerId?: string | null;
+    gatewayMandateId?: string | null;
+    gatewaySubscriptionId?: string | null;
+  }): Promise<MandateCancelResult>;
 }

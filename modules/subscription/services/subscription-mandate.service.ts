@@ -7,8 +7,9 @@ import { UserProductSubscriptionEntity } from '../entities/user-product-subscrip
 import { SubscriptionHistoryAction } from '../enums/subscription-history-action.enum';
 import { SubscriptionMandateProvider } from '../enums/subscription-mandate-provider.enum';
 import { SubscriptionMandateStatus } from '../enums/subscription-mandate-status.enum';
+import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
-import { MandateAuthSession, AutopayChargeResult } from '../interfaces/subscription-mandate-provider.interface';
+import { MandateAuthSession, AutopayChargeResult, MandateCancelResult } from '../interfaces/subscription-mandate-provider.interface';
 import { SubscriptionMandatesRepository } from '../repositories/subscription-mandates.repository';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { resolveMandateMaxAmount } from '../utils/mandate-amount.util';
@@ -156,6 +157,32 @@ export class SubscriptionMandateService {
     const mandate = await this.mandatesRepository.findById(params.mandateId);
     if (!mandate) return null;
 
+    const subscription = await this.subscriptionsRepository.findById(mandate.subscriptionId);
+    const subscriptionEnded =
+      subscription?.status === ProductSubscriptionStatus.CANCELLED ||
+      subscription?.status === ProductSubscriptionStatus.EXPIRED;
+    if (subscriptionEnded && !isMandateTerminal(params.status)) {
+      const result = await this.deleteGatewayMandate({
+        ...mandate,
+        gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
+        gatewayCustomerId: mandate.gatewayCustomerId ?? subscription?.gatewayCustomerId ?? null,
+        gatewaySubscriptionId:
+          mandate.gatewaySubscriptionId ?? subscription?.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+      });
+      if (!result.cancelled) {
+        this.logger.warn(
+          { mandateId: mandate.id, reason: result.failureReason },
+          'AutoPay mandate stayed at the provider after the subscription ended',
+        );
+        await this.subscriptionsRepository.updateById(mandate.subscriptionId, {
+          autopayReady: false,
+          updatedBy: params.actor,
+        });
+        return mandate;
+      }
+      params = { ...params, status: SubscriptionMandateStatus.CANCELLED };
+    }
+
     await this.mandatesRepository.updateById(mandate.id, {
       status: params.status,
       gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
@@ -182,6 +209,50 @@ export class SubscriptionMandateService {
       toStatus: params.status,
     });
     return this.mandatesRepository.findById(mandate.id);
+  }
+
+  /**
+   * Cancels the Razorpay token or Cashfree subscription before the plan is marked cancelled.
+   * A gateway failure leaves the subscription active so the customer can retry.
+   */
+  async revokeForSubscription(subscriptionId: string, actor: string): Promise<void> {
+    const mandate = await this.getForSubscription(subscriptionId);
+    if (!mandate || isMandateTerminal(mandate.status)) return;
+    const subscription = await this.subscriptionsRepository.findById(subscriptionId);
+    const result = await this.deleteGatewayMandate({
+      ...mandate,
+      gatewayCustomerId: mandate.gatewayCustomerId ?? subscription?.gatewayCustomerId ?? null,
+      gatewaySubscriptionId:
+        mandate.gatewaySubscriptionId ?? subscription?.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+    });
+    if (!result.cancelled) {
+      throw new BadRequestException(
+        result.failureReason ?? 'AutoPay could not be cancelled, so the subscription is still active.',
+      );
+    }
+    await this.applyStatusSnapshot({
+      mandateId: mandate.id,
+      status: SubscriptionMandateStatus.CANCELLED,
+      gatewayMandateId: mandate.gatewayMandateId,
+      actor,
+    });
+  }
+
+  private async deleteGatewayMandate(
+    mandate: Pick<
+      SubscriptionMandateEntity,
+      'provider' | 'gatewayCustomerId' | 'gatewayMandateId' | 'gatewaySubscriptionId'
+    >,
+  ): Promise<MandateCancelResult> {
+    const adapter = this.adapter(mandate.provider);
+    if (!adapter.isConfigured()) {
+      return { cancelled: false, failureReason: 'AutoPay provider is not configured' };
+    }
+    return adapter.cancelMandate({
+      gatewayCustomerId: mandate.gatewayCustomerId,
+      gatewayMandateId: mandate.gatewayMandateId,
+      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+    });
   }
 
   async handleProviderWebhook(params: {

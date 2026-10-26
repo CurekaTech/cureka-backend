@@ -170,6 +170,12 @@ export class ProductSubscriptionPaymentsService {
     );
   }
 
+  async attachOrderId(paymentId: string, orderId: string, actor: string): Promise<void> {
+    const existing = await this.paymentsRepository.findById(paymentId);
+    if (!existing || existing.orderId) return;
+    await this.paymentsRepository.updateById(paymentId, { orderId, updatedBy: actor });
+  }
+
   /** Token was not ready, and Razorpay was not asked to charge. Another confirmation may try once. */
   releaseChargeInitiation(paymentId: string, actor: string): Promise<boolean> {
     return this.paymentsRepository.claimStatus(

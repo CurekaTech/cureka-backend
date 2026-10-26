@@ -8,6 +8,7 @@ import {
   GatewayChargeSnapshot,
   ISubscriptionMandateProvider,
   MandateAuthSession,
+  MandateCancelResult,
   MandateStatusSnapshot,
 } from '../../interfaces/subscription-mandate-provider.interface';
 import { mapRazorpayTokenStatus } from '../../utils/subscription-mandate-status.util';
@@ -218,12 +219,37 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     }
     const open = paymentSnapshot(existing, orderId);
     if (open) return snapshotToCharge(open, orderId);
+    if (paymentAfter && paymentAfter * 1000 > Date.now()) {
+      return { accepted: true, pending: true, gatewayOrderId: orderId };
+    }
+    return this.submitRecurringDebit({ ...input, gatewayOrderId: orderId });
+  }
 
+  /**
+   * Debits an order that already has a pre-debit notification.
+   * A payment already on the order is returned instead of creating another one.
+   */
+  async submitRecurringDebit(
+    input: ChargeMandateInput & { gatewayOrderId: string },
+  ): Promise<AutopayChargeResult> {
+    this.assertConfigured();
+    const orderId = input.gatewayOrderId;
+    const existing = await this.readOrderPayments(orderId).catch(() => null);
+    if (!existing) {
+      return {
+        accepted: true,
+        pending: true,
+        gatewayOrderId: orderId,
+        failureReason: 'Razorpay payment status is unknown',
+      };
+    }
+    const open = paymentSnapshot(existing, orderId);
+    if (open) return snapshotToCharge(open, orderId);
     try {
       const payment = await this.request('POST', '/payments/create/recurring', {
         email: input.customer.email || undefined,
         contact: input.customer.phone,
-        amount: amountPaise,
+        amount: Math.round(Number(input.amount) * 100),
         currency: input.currency ?? 'INR',
         order_id: orderId,
         customer_id: input.gatewayCustomerId,
@@ -239,7 +265,6 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn({ orderId, error: message }, 'Razorpay recurring charge did not complete');
-      // The order exists. A second create/recurring could debit twice, so leave it unknown.
       return { accepted: true, pending: true, gatewayOrderId: orderId, failureReason: message };
     }
   }
@@ -288,6 +313,26 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         gatewayOrderId: params.gatewayOrderId,
         gatewayPaymentId: params.gatewayPaymentId,
       };
+    }
+  }
+
+  async listOrderCharge(orderId: string): Promise<
+    | { outcome: 'unknown' }
+    | { outcome: 'absent' }
+    | { outcome: 'found'; snapshot: GatewayChargeSnapshot }
+  > {
+    this.assertConfigured();
+    try {
+      const items = await this.readOrderPayments(orderId);
+      const snapshot = paymentSnapshot(items, orderId);
+      if (!snapshot) return { outcome: 'absent' };
+      return { outcome: 'found', snapshot };
+    } catch (error) {
+      this.logger.warn(
+        { orderId, error: error instanceof Error ? error.message : String(error) },
+        'Razorpay order payments could not be listed',
+      );
+      return { outcome: 'unknown' };
     }
   }
 

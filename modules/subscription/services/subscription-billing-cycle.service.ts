@@ -59,6 +59,10 @@ export class SubscriptionBillingCycleService {
     return this.cyclesRepository.findBySubscriptionId(subscriptionId);
   }
 
+  latestOrderIdsBySubscription(subscriptionIds: string[]) {
+    return this.cyclesRepository.findLatestOrderIdsBySubscriptionIds(subscriptionIds);
+  }
+
   findById(id: string) {
     return this.cyclesRepository.findById(id);
   }
@@ -69,5 +73,18 @@ export class SubscriptionBillingCycleService {
 
   updateById(id: string, data: Partial<SubscriptionBillingCycleEntity>) {
     return this.cyclesRepository.updateById(id, data);
+  }
+
+  claimStatus(
+    id: string,
+    from: SubscriptionBillingCycleStatus[],
+    to: SubscriptionBillingCycleStatus,
+    actor: string,
+  ) {
+    return this.cyclesRepository.claimStatus(id, from, to, actor);
+  }
+
+  claimDebitRetry(id: string, staleBefore: Date, actor: string) {
+    return this.cyclesRepository.claimDebitRetry(id, staleBefore, actor);
   }
 }

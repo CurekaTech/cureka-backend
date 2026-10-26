@@ -61,4 +61,17 @@ describe('CashfreeSubscriptionProvider payment status', () => {
       provider.fetchChargeStatus({ gatewaySubscriptionId: 'sub_1', gatewayOrderId: 'pay_cf' }),
     ).resolves.toMatchObject({ state: 'unknown', gatewayOrderId: 'pay_cf' });
   });
+
+  it('cancels the Cashfree subscription mandate', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ subscription_status: 'CANCELLED' }) as never);
+
+    await expect(provider.cancelMandate({ gatewaySubscriptionId: 'sub_1' })).resolves.toEqual({
+      cancelled: true,
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/subscriptions/sub_1/manage');
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body).toEqual({ action: 'CANCEL' });
+  });
 });
