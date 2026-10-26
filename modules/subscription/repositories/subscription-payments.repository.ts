@@ -72,6 +72,19 @@ export class SubscriptionPaymentsRepository {
     });
   }
 
+  /** Cashfree checkout rows that may already be captured. Reading them does not start a debit. */
+  findCashfreeAwaitingSettlement(subscriptionId?: string, limit = 30): Promise<SubscriptionPaymentEntity[]> {
+    return this.repo.find({
+      where: {
+        paymentGateway: 'CASHFREE',
+        status: In([SubscriptionPaymentStatus.RECONCILING, SubscriptionPaymentStatus.LINK_GENERATED]),
+        ...(subscriptionId ? { subscriptionId } : {}),
+      },
+      order: { createdAt: 'ASC' },
+      take: limit,
+    });
+  }
+
   findStatusBySubscriptionIds(subscriptionIds: string[]): Promise<SubscriptionPaymentEntity[]> {
     if (!subscriptionIds.length) return Promise.resolve([]);
     return this.repo.find({

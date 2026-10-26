@@ -124,6 +124,11 @@ export interface ISubscriptionMandateProvider {
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
     gatewaySubscriptionId?: string | null;
+    /**
+     * First checkout only. When the local row has no Cashfree payment id yet,
+     * one captured subscription payment may be used. A renewal must not set this.
+     */
+    matchSingleCaptured?: boolean;
   }): Promise<GatewayChargeSnapshot>;
   /**
    * Successful empty means this order has no payment. A transport error is unknown

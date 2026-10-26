@@ -231,6 +231,10 @@ export class ProductSubscriptionPaymentsService {
     return this.paymentsRepository.findReconciling(subscriptionId);
   }
 
+  listCashfreeAwaitingSettlement(subscriptionId?: string) {
+    return this.paymentsRepository.findCashfreeAwaitingSettlement(subscriptionId);
+  }
+
   listReconcilingSubscriptionIds(subscriptionIds: string[]) {
     return this.paymentsRepository.findReconcilingSubscriptionIds(subscriptionIds);
   }
