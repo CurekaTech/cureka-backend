@@ -988,7 +988,6 @@ export class ProductSubscriptionsService {
       gatewayOrderId: pending.gatewayOrderId,
       gatewayPaymentId: pending.gatewayPaymentId,
     });
-    const mandate = await this.mandateService.getForSubscription(subscriptionId);
     const registrationOrder = pending.gatewayOrderId === mandate?.authorizationOrderId;
     const card = mandate?.consentEvidence?.cardAuthOnly === true;
     const paysProduct = card
