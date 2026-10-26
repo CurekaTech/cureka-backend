@@ -255,7 +255,7 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         order_id: orderId,
         customer_id: input.gatewayCustomerId,
         token: input.gatewayMandateId,
-        recurring: '1',
+        recurring: true,
         notes: input.notes,
       });
       return {

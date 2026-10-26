@@ -21,6 +21,12 @@ import { CashfreeSubscriptionProvider } from './providers/cashfree-subscription.
 import { RazorpayRecurringProvider } from './providers/razorpay-recurring.provider';
 import { SubscriptionStatusHistoryRepository } from '../repositories/subscription-status-history.repository';
 
+const CARD_RECURRING_API_RETRY_MS = 2 * 60 * 1000;
+
+function recurringApiUnavailable(message: string | null | undefined): boolean {
+  return /requested URL was not found/i.test(message ?? '');
+}
+
 @Injectable()
 export class SubscriptionMandateService {
   private readonly logger = new Logger(SubscriptionMandateService.name);
@@ -475,6 +481,9 @@ export class SubscriptionMandateService {
           productChargeStartedAt: new Date().toISOString(),
           productChargeOrderId: result.gatewayOrderId,
           ...(result.debitAttempted ? { productDebitSubmittedAt: new Date().toISOString() } : {}),
+          ...(recurringApiUnavailable(result.failureReason) && !result.gatewayPaymentId
+            ? { productRecurringApiUnavailableAt: new Date().toISOString() }
+            : {}),
         },
         updatedBy: params.actor,
       });
@@ -497,18 +506,40 @@ export class SubscriptionMandateService {
   /**
    * Allows one create/recurring when the product order has no payment.
    * A later pass sees the timestamp and does not send another debit.
+   * If Razorpay reports that the recurring URL is not enabled, another attempt
+   * is allowed after the cooldown. A submitted debit is not retried.
    */
   async claimCardEmptyListDebit(mandateId: string, actor: string): Promise<boolean> {
     const mandate = await this.mandatesRepository.findById(mandateId);
-    if (!mandate || mandate.consentEvidence?.productEmptyListDebitAt) return false;
+    if (!mandate) return false;
+    const evidence = mandate.consentEvidence ?? {};
+    const emptyAt = Date.parse(String(evidence.productEmptyListDebitAt ?? ''));
+    const unavailableAt = Date.parse(String(evidence.productRecurringApiUnavailableAt ?? ''));
+    const hasEmpty = Number.isFinite(emptyAt);
+    const hasUnavailable = Number.isFinite(unavailableAt);
+    if (hasEmpty && (!hasUnavailable || emptyAt >= unavailableAt)) return false;
+    if (hasUnavailable && Date.now() - unavailableAt < CARD_RECURRING_API_RETRY_MS) return false;
     await this.mandatesRepository.updateById(mandate.id, {
       consentEvidence: {
-        ...(mandate.consentEvidence ?? {}),
+        ...evidence,
         productEmptyListDebitAt: new Date().toISOString(),
       },
       updatedBy: actor,
     });
     return true;
+  }
+
+  /** The recurring endpoint rejected the call and created no payment, so the order can be debited later. */
+  async releaseCardEmptyListDebitForUnavailable(mandateId: string, actor: string): Promise<void> {
+    const mandate = await this.mandatesRepository.findById(mandateId);
+    if (!mandate) return;
+    const evidence = { ...(mandate.consentEvidence ?? {}) };
+    delete evidence.productEmptyListDebitAt;
+    evidence.productRecurringApiUnavailableAt = new Date().toISOString();
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: evidence,
+      updatedBy: actor,
+    });
   }
 
   /** Records that create/recurring was already attempted for this card product order. */

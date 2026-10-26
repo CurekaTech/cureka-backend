@@ -1514,6 +1514,10 @@ export class ProductSubscriptionsService {
           actor: 'payment-reconcile',
         });
       }
+      if (/requested URL was not found/i.test(result.failureReason ?? '') && !result.gatewayPaymentId) {
+        await this.mandateService.releaseCardEmptyListDebitForUnavailable(currentMandate.id, 'payment-reconcile');
+        return 'blocked';
+      }
       if (result.pending || !result.gatewayPaymentId) return 'blocked';
       if (!result.accepted) {
         await this.paymentsService.markFailed(
