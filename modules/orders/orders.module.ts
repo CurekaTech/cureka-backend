@@ -19,6 +19,7 @@ import { PromotionalOffersModule } from '@modules/promotional-offers/promotional
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { CartEntity } from './entities/cart.entity';
 import { CartItemEntity } from './entities/cart-item.entity';
+import { CartRecoverySnapshotEntity } from './entities/cart-recovery-snapshot.entity';
 import { SavedForLaterItemEntity } from './entities/saved-for-later-item.entity';
 import { CouponUsageEntity } from './entities/coupon-usage.entity';
 import { OrderEntity } from './entities/order.entity';
@@ -30,12 +31,14 @@ import { OrdersController } from './controllers/orders.controller';
 import { AdminOrdersController } from './controllers/admin-orders.controller';
 import { AdminOrderHistoryController } from './controllers/admin-order-history.controller';
 import { AdminAbandonedCartsController } from './controllers/admin-abandoned-carts.controller';
+import { CartRecoverySnapshotsRepository } from './repositories/cart-recovery-snapshots.repository';
 import { CartsRepository } from './repositories/carts.repository';
 import { CartItemsRepository } from './repositories/cart-items.repository';
 import { SavedForLaterItemsRepository } from './repositories/saved-for-later-items.repository';
 import { CouponUsagesRepository } from './repositories/coupon-usages.repository';
 import { OrdersRepository } from './repositories/orders.repository';
 import { OrderItemsRepository } from './repositories/order-items.repository';
+import { CartRecoveryService } from './services/cart-recovery.service';
 import { CartService } from './services/cart.service';
 import { SavedForLaterService } from './services/saved-for-later.service';
 import { AdminAbandonedCartsService } from './services/admin-abandoned-carts.service';
@@ -51,6 +54,7 @@ import { OrdersService } from './services/orders.service';
     TypeOrmModule.forFeature([
       CartEntity,
       CartItemEntity,
+      CartRecoverySnapshotEntity,
       SavedForLaterItemEntity,
       CouponUsageEntity,
       OrderEntity,
@@ -85,12 +89,14 @@ import { OrdersService } from './services/orders.service';
   ],
   providers: [
     CartsRepository,
+    CartRecoverySnapshotsRepository,
     CartItemsRepository,
     SavedForLaterItemsRepository,
     CouponUsagesRepository,
     OrdersRepository,
     OrderItemsRepository,
     CartService,
+    CartRecoveryService,
     SavedForLaterService,
     AdminAbandonedCartsService,
     CartCheckoutAdminSettingsService,
@@ -105,6 +111,7 @@ import { OrdersService } from './services/orders.service';
     OrdersRepository,
     OrderItemsRepository,
     CartService,
+    CartRecoveryService,
     CheckoutService,
     CouponCheckoutService,
     CartCheckoutAdminSettingsService,

@@ -19,8 +19,16 @@ import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
 import { ResponseMessage } from '@packages/common';
-import { AddCartItemDto, ApplyCheckoutCodeDto, ApplyCouponDto, MergeGuestCartDto, UpdateCartItemDto } from '../dto/cart.dto';
+import {
+  AddCartItemDto,
+  ApplyCheckoutCodeDto,
+  ApplyCouponDto,
+  MergeGuestCartDto,
+  RecoverCartDto,
+  UpdateCartItemDto,
+} from '../dto/cart.dto';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
+import { CartRecoveryService } from '../services/cart-recovery.service';
 import { CartService } from '../services/cart.service';
 import { SavedForLaterService } from '../services/saved-for-later.service';
 
@@ -32,6 +40,7 @@ export class CartController {
   constructor(
     private readonly cartService: CartService,
     private readonly savedForLaterService: SavedForLaterService,
+    private readonly cartRecoveryService: CartRecoveryService,
   ) {}
 
   @ApiOperation({ summary: 'Add item to cart' })
@@ -152,6 +161,18 @@ export class CartController {
   @HttpCode(HttpStatus.OK)
   async clear(@CurrentSessionUser() user: IUserSessionContext): Promise<void> {
     await this.cartService.clear(user.sub);
+  }
+
+  @ApiOperation({
+    summary: 'Restore an abandoned cart from a WhatsApp recovery token',
+    description:
+      'Loads the snapshot into the current session cart (guest or logged-in). Out-of-stock items are skipped. Works in WhatsApp in-app browser after the storefront opens /cart/recover?token=.',
+  })
+  @ResponseMessage('Cart restored successfully')
+  @Post('recover')
+  @HttpCode(HttpStatus.OK)
+  recoverCart(@CurrentSessionUser() user: IUserSessionContext, @Body() dto: RecoverCartDto) {
+    return this.cartRecoveryService.recoverForUser(user.sub, dto.token);
   }
 
   @ApiOperation({ summary: 'Merge guest cart items into the logged-in user cart' })

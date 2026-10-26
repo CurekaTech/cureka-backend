@@ -23,6 +23,11 @@ describe('BobAbandonedCartNotifyService', () => {
     findBlockingByUserIds: jest.Mock;
     findBlockingByPhones: jest.Mock;
     findCooldownAnchor: jest.Mock;
+    countSessionsForCart: jest.Mock;
+  };
+  let cartRecoveryService: {
+    createSnapshot: jest.Mock;
+    recoverUrl: jest.Mock;
   };
   let queueService: { enqueueSend: jest.Mock };
   let bobNotifyService: { post: jest.Mock };
@@ -65,6 +70,7 @@ describe('BobAbandonedCartNotifyService', () => {
             scanIntervalMinutes: 30,
             inactivityMinutes: 30,
             cooldownHours: 24,
+            maxAgeHours: 24,
             batchSize: 50,
             maxBatchesPerScan: 2,
             maxAttempts: 3,
@@ -105,7 +111,16 @@ describe('BobAbandonedCartNotifyService', () => {
         addresses: [],
         defaultAddress: null,
         cart: {
-          items: [{ productSlug: 'slug', productName: 'Item', quantity: 1, unitPrice: 100 }],
+          items: [
+            {
+              productSlug: 'slug',
+              sku: 'SKU-100G',
+              variantId: 'var-1',
+              productName: 'Item',
+              quantity: 1,
+              unitPrice: 100,
+            },
+          ],
           grandTotal: 100,
           discountAmount: 0,
         },
@@ -126,6 +141,13 @@ describe('BobAbandonedCartNotifyService', () => {
       findBlockingByUserIds: jest.fn().mockResolvedValue([]),
       findBlockingByPhones: jest.fn().mockResolvedValue([]),
       findCooldownAnchor: jest.fn().mockResolvedValue(null),
+      countSessionsForCart: jest.fn().mockResolvedValue(0),
+    };
+    cartRecoveryService = {
+      createSnapshot: jest.fn().mockResolvedValue({ token: 'tok123' }),
+      recoverUrl: jest.fn(
+        (storefront: string, token: string) => `${storefront}/cart/recover?token=${token}`,
+      ),
     };
     queueService = { enqueueSend: jest.fn().mockResolvedValue(true) };
     bobNotifyService = {
@@ -138,6 +160,7 @@ describe('BobAbandonedCartNotifyService', () => {
       cartsRepository as never,
       usersService as never,
       abandonedCartsService as never,
+      cartRecoveryService as never,
       outboxRepository as never,
       queueService as never,
       bobNotifyService as never,
@@ -154,10 +177,17 @@ describe('BobAbandonedCartNotifyService', () => {
     expect(summary.scanned).toBe(1);
     expect(summary.eligible).toBe(1);
     expect(summary.queued).toBe(1);
+    expect(cartsRepository.findAbandonedCartNotifyCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inactiveAfter: expect.any(Date),
+        inactiveBefore: expect.any(Date),
+      }),
+    );
     expect(outboxRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-1',
         cartId: 'cart-1',
+        checkoutId: 'CAR20260001-S1',
         destinationPhoneNormalized: '9876543210',
         status: 'pending',
       }),
@@ -258,7 +288,10 @@ describe('BobAbandonedCartNotifyService', () => {
     expect(bobNotifyService.post).toHaveBeenCalledTimes(1);
     expect(bobNotifyService.post).toHaveBeenCalledWith(
       '/abancart',
-      expect.objectContaining({ checkout_id: 'CAR20260001' }),
+      expect.objectContaining({
+        checkout_id: 'CAR20260001-S1',
+        cart_recovery_url: 'https://www.cureka.com/cart/recover?token=tok123',
+      }),
       expect.objectContaining({ idempotencyKey: 'key-1' }),
     );
     expect(outboxRepository.updateStatusForClaim).toHaveBeenCalledWith(
