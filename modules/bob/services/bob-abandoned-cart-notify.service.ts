@@ -5,7 +5,6 @@ import { generateUniqueRefId } from '@packages/common';
 import { RedisConnectionService } from '@packages/cache';
 import { canonicalizeIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { AdminAbandonedCartsService } from '@modules/orders/services/admin-abandoned-carts.service';
-import { CartRecoveryService } from '@modules/orders/services/cart-recovery.service';
 import { CartsRepository } from '@modules/orders/repositories/carts.repository';
 import { AbandonedCartNotifyCandidate } from '@modules/orders/interfaces/abandoned-cart.interface';
 import { resolveCartCustomerActivityAt } from '@modules/orders/utils/cart-activity.util';
@@ -21,7 +20,7 @@ import {
 import { BobAbandonedCartOutboxEntity } from '../entities/bob-abandoned-cart-outbox.entity';
 import { mapCurekaAbandonedCartToBob } from '../mappers/bob.mapper';
 import { BobAbandonedCartOutboxRepository } from '../repositories/bob-abandoned-cart-outbox.repository';
-import { toBobE164Phone } from '../utils/bob.util';
+import { BOB_DEFAULT_STOREFRONT_URL, toBobCartRecoveryUrl, toBobE164Phone } from '../utils/bob.util';
 import {
   evaluateAbandonedCartEligibility,
   isRetryableBobHttpStatus,
@@ -58,7 +57,6 @@ export class BobAbandonedCartNotifyService {
     private readonly cartsRepository: CartsRepository,
     private readonly usersService: UsersService,
     private readonly abandonedCartsService: AdminAbandonedCartsService,
-    private readonly cartRecoveryService: CartRecoveryService,
     private readonly outboxRepository: BobAbandonedCartOutboxRepository,
     private readonly queueService: BobAbandonedCartQueueService,
     private readonly bobNotifyService: BobNotifyService,
@@ -505,18 +503,12 @@ export class BobAbandonedCartNotifyService {
     try {
       const detail = await this.abandonedCartsService.findOne(outbox.cartRefId);
       const storefront =
-        this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ??
-        'https://www.cureka.com';
+        this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ||
+        BOB_DEFAULT_STOREFRONT_URL;
       const checkoutId = outbox.checkoutId?.trim() || `${detail.refId}-S1`;
-      const snapshot = await this.cartRecoveryService.createSnapshot({
-        cartId: outbox.cartId,
-        checkoutId,
-        items: detail.cart.items ?? [],
-        createdBy: 'bob-abandoned-cart',
-      });
       let payload = mapCurekaAbandonedCartToBob({
         detail,
-        recoveryUrl: this.cartRecoveryService.recoverUrl(storefront, snapshot.token),
+        recoveryUrl: toBobCartRecoveryUrl(storefront),
         storefrontUrl: storefront,
         checkoutId,
       });

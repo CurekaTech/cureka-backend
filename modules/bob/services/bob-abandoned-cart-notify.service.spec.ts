@@ -25,10 +25,6 @@ describe('BobAbandonedCartNotifyService', () => {
     findCooldownAnchor: jest.Mock;
     countSessionsForCart: jest.Mock;
   };
-  let cartRecoveryService: {
-    createSnapshot: jest.Mock;
-    recoverUrl: jest.Mock;
-  };
   let queueService: { enqueueSend: jest.Mock };
   let bobNotifyService: { post: jest.Mock };
   let service: BobAbandonedCartNotifyService;
@@ -143,12 +139,6 @@ describe('BobAbandonedCartNotifyService', () => {
       findCooldownAnchor: jest.fn().mockResolvedValue(null),
       countSessionsForCart: jest.fn().mockResolvedValue(0),
     };
-    cartRecoveryService = {
-      createSnapshot: jest.fn().mockResolvedValue({ token: 'tok123' }),
-      recoverUrl: jest.fn(
-        (storefront: string, token: string) => `${storefront}/cart/recover?token=${token}`,
-      ),
-    };
     queueService = { enqueueSend: jest.fn().mockResolvedValue(true) };
     bobNotifyService = {
       post: jest.fn().mockResolvedValue({ accepted: true, httpStatus: 200 }),
@@ -160,7 +150,6 @@ describe('BobAbandonedCartNotifyService', () => {
       cartsRepository as never,
       usersService as never,
       abandonedCartsService as never,
-      cartRecoveryService as never,
       outboxRepository as never,
       queueService as never,
       bobNotifyService as never,
@@ -290,7 +279,7 @@ describe('BobAbandonedCartNotifyService', () => {
       '/abancart',
       expect.objectContaining({
         checkout_id: 'CAR20260001-S1',
-        cart_recovery_url: 'https://www.cureka.com/cart/recover?token=tok123',
+        cart_recovery_url: 'https://www.cureka.com/cart',
       }),
       expect.objectContaining({ idempotencyKey: 'key-1' }),
     );

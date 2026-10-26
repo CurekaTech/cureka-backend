@@ -21,7 +21,11 @@ import { AppModule } from '../../app.module';
 import { BobNotifyService } from '../../../../modules/bob/services/bob-notify.service';
 import { AdminAbandonedCartsService } from '../../../../modules/orders/services/admin-abandoned-carts.service';
 import { mapCurekaAbandonedCartToBob } from '../../../../modules/bob/mappers/bob.mapper';
-import { toBobE164Phone } from '../../../../modules/bob/utils/bob.util';
+import {
+  BOB_DEFAULT_STOREFRONT_URL,
+  toBobCartRecoveryUrl,
+  toBobE164Phone,
+} from '../../../../modules/bob/utils/bob.util';
 import type { BobAbandonedCartPayload } from '../../../../modules/bob/interfaces/bob.interface';
 
 /** BOB abandoned-cart notify path (tenant-confirmed). */
@@ -381,8 +385,8 @@ async function main(): Promise<void> {
       config.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ||
       process.env['STOREFRONT_URL']?.replace(/\/+$/, '') ||
       '';
-    const recoveryBase = storefront || 'https://www.cureka.com';
-    const recoveryUrl = `${recoveryBase}/cart`;
+    const recoveryBase = storefront || BOB_DEFAULT_STOREFRONT_URL;
+    const recoveryUrl = toBobCartRecoveryUrl(recoveryBase);
 
     logger.log({ recoveryBase, recoveryUrl }, 'Cart recovery URL resolved');
 

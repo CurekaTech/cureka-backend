@@ -4,6 +4,7 @@ import { AdminAbandonedCartsService } from '@modules/orders/services/admin-aband
 import { BobAbandonedCartPayload } from '../interfaces/bob.interface';
 import { mapCurekaAbandonedCartToBob } from '../mappers/bob.mapper';
 import { BobAbandonedCartWebhookQueryDto } from '../dto/bob-abandoned-cart-webhook.dto';
+import { BOB_DEFAULT_STOREFRONT_URL, toBobCartRecoveryUrl } from '../utils/bob.util';
 
 @Injectable()
 export class BobAbandonedCartWebhookService {
@@ -33,6 +34,7 @@ export class BobAbandonedCartWebhookService {
     });
 
     const recoveryBase = this.recoveryBaseUrl();
+    const recoveryUrl = toBobCartRecoveryUrl(recoveryBase);
     const carts: BobAbandonedCartPayload[] = [];
 
     for (const row of result.data) {
@@ -41,7 +43,7 @@ export class BobAbandonedCartWebhookService {
         carts.push(
           mapCurekaAbandonedCartToBob({
             detail,
-            recoveryUrl: `${recoveryBase}/cart`,
+            recoveryUrl,
             storefrontUrl: recoveryBase,
           }),
         );
@@ -67,10 +69,11 @@ export class BobAbandonedCartWebhookService {
   async getOne(refId: string): Promise<BobAbandonedCartPayload> {
     try {
       const detail = await this.abandonedCartsService.findOne(refId);
+      const recoveryBase = this.recoveryBaseUrl();
       return mapCurekaAbandonedCartToBob({
         detail,
-        recoveryUrl: `${this.recoveryBaseUrl()}/cart`,
-        storefrontUrl: this.recoveryBaseUrl(),
+        recoveryUrl: toBobCartRecoveryUrl(recoveryBase),
+        storefrontUrl: recoveryBase,
       });
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
@@ -80,8 +83,8 @@ export class BobAbandonedCartWebhookService {
 
   private recoveryBaseUrl(): string {
     return (
-      this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ??
-      'https://cureka.com'
+      this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ||
+      BOB_DEFAULT_STOREFRONT_URL
     );
   }
 }
