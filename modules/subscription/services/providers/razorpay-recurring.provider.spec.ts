@@ -79,6 +79,8 @@ describe('RazorpayRecurringProvider UPI renewal', () => {
       String(call[0]).includes('/payments/create/recurring'),
     );
     expect(recurringCalls).toHaveLength(1);
+    const recurringBody = JSON.parse(String((recurringCalls[0]?.[1] as { body?: string } | undefined)?.body ?? '{}'));
+    expect(recurringBody.recurring).toBe('1');
     expect(result).toMatchObject({
       accepted: true,
       pending: true,
@@ -165,6 +167,33 @@ describe('RazorpayRecurringProvider UPI renewal', () => {
       pending: true,
       gatewayOrderId: 'order_due',
       gatewayPaymentId: 'pay_unknown',
+    });
+  });
+
+  it('keeps a rejected create/recurring retryable when Razorpay stored no payment', async () => {
+    jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ items: [] }) as never)
+      .mockResolvedValueOnce(
+        jsonResponse({ error: { description: 'The recurring field must be 1' } }, false, 400) as never,
+      )
+      .mockResolvedValueOnce(jsonResponse({ items: [] }) as never);
+
+    await expect(
+      provider.submitRecurringDebit({
+        gatewayOrderId: 'order_1',
+        gatewayCustomerId: 'cust_1',
+        gatewayMandateId: 'token_1',
+        amount: '2.00',
+        receipt: 'card-payment',
+        idempotencyKey: 'card-payment',
+        customer: { email: 'a@example.com', phone: '9000000000' },
+        notes: { paymentPurpose: 'PRODUCT_SUBSCRIPTION' },
+      }),
+    ).resolves.toMatchObject({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_1',
+      debitAttempted: false,
     });
   });
 

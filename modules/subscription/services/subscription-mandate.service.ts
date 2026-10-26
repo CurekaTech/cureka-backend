@@ -494,6 +494,23 @@ export class SubscriptionMandateService {
     return result;
   }
 
+  /**
+   * Allows one create/recurring when the product order has no payment.
+   * A later pass sees the timestamp and does not send another debit.
+   */
+  async claimCardEmptyListDebit(mandateId: string, actor: string): Promise<boolean> {
+    const mandate = await this.mandatesRepository.findById(mandateId);
+    if (!mandate || mandate.consentEvidence?.productEmptyListDebitAt) return false;
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: {
+        ...(mandate.consentEvidence ?? {}),
+        productEmptyListDebitAt: new Date().toISOString(),
+      },
+      updatedBy: actor,
+    });
+    return true;
+  }
+
   /** Records that create/recurring was already attempted for this card product order. */
   async markCardDebitSubmitted(mandateId: string, actor: string): Promise<void> {
     const mandate = await this.mandatesRepository.findById(mandateId);
