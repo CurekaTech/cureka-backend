@@ -181,6 +181,7 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
     gatewaySubscriptionId?: string | null;
+    matchSingleCaptured?: boolean;
   }): Promise<GatewayChargeSnapshot> {
     if (!this.isConfigured() || !params.gatewaySubscriptionId) {
       return {
@@ -198,19 +199,22 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       const wanted = [params.gatewayOrderId, params.gatewayPaymentId].filter(
         (value): value is string => Boolean(value),
       );
-      if (!wanted.length) {
-        return {
-          state: 'unknown',
-          gatewayOrderId: params.gatewayOrderId,
-          gatewayPaymentId: params.gatewayPaymentId,
-        };
-      }
-      const match = rows.find((row) => {
-        const paymentId = String(row['payment_id'] ?? '');
-        const cfPaymentId = String(row['cf_payment_id'] ?? '');
-        return wanted.includes(paymentId) || wanted.includes(cfPaymentId);
-      });
+      const captured = rows.filter((row) => cashfreePaymentSnapshot(row).state === 'captured');
+      const match = wanted.length
+        ? rows.find((row) => cashfreeRowIds(row).some((id) => wanted.includes(id)))
+        : params.matchSingleCaptured && captured.length === 1
+          ? captured[0]
+          : undefined;
       if (!match) {
+        this.logger.warn(
+          {
+            gatewaySubscriptionId: params.gatewaySubscriptionId,
+            rowCount: rows.length,
+            capturedCount: captured.length,
+            lookedUpPaymentId: Boolean(params.gatewayOrderId || params.gatewayPaymentId),
+          },
+          'Cashfree subscription payment was not found in the payment list',
+        );
         return {
           state: 'unknown',
           gatewayOrderId: params.gatewayOrderId,
@@ -292,11 +296,24 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
   }
 }
 
-function cashfreePaymentRows(payload: Record<string, unknown>): Record<string, unknown>[] {
+function cashfreePaymentRows(payload: unknown): Record<string, unknown>[] {
+  if (Array.isArray(payload)) return payload.filter(isRecord);
+  if (!isRecord(payload)) return [];
   const payments = payload['payments'] ?? payload['data'];
-  if (Array.isArray(payments)) return payments as Record<string, unknown>[];
+  if (Array.isArray(payments)) return payments.filter(isRecord);
   if (payload['payment_id'] || payload['cf_payment_id']) return [payload];
   return [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cashfreeRowIds(row: Record<string, unknown>): string[] {
+  const gateway = isRecord(row['payment_gateway_details']) ? row['payment_gateway_details'] : {};
+  return [row['payment_id'], row['cf_payment_id'], row['cf_order_id'], gateway['gateway_payment_id'], gateway['gateway_order_id']]
+    .map((value) => (value == null ? '' : String(value).trim()))
+    .filter((value) => value.length > 0);
 }
 
 function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayChargeSnapshot {

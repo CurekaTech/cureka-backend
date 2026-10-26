@@ -1708,6 +1708,11 @@ export class ProductSubscriptionsService {
       gatewayOrderId: chargeOrderId,
       gatewayPaymentId: params.gatewayPaymentId ?? payment.gatewayPaymentId,
       gatewaySubscriptionId,
+      matchSingleCaptured:
+        !chargeOrderId &&
+        !params.gatewayPaymentId &&
+        !payment.gatewayPaymentId &&
+        payment.attemptKind === SubscriptionPaymentAttemptKind.FIRST_ORDER,
     });
     if (!this.cashfreeCapturedPaymentMatches(payment, snapshot)) {
       this.logger.warn(
@@ -2101,7 +2106,13 @@ export class ProductSubscriptionsService {
   }
 
   private async settleReconcilingPayments(subscriptionId?: string): Promise<void> {
-    const payments = await this.paymentsService.listReconciling(subscriptionId);
+    const reconciling = await this.paymentsService.listReconciling(subscriptionId);
+    const cashfreeOpen = await this.paymentsService.listCashfreeAwaitingSettlement(subscriptionId);
+    const seen = new Set(reconciling.map((payment) => payment.id));
+    const payments = [
+      ...reconciling,
+      ...cashfreeOpen.filter((payment) => !seen.has(payment.id)),
+    ];
     for (const payment of payments) {
       const gateway = (payment.paymentGateway ?? '').trim().toUpperCase();
       if (!gateway || (gateway !== 'RAZORPAY' && gateway !== 'CASHFREE')) {

@@ -24,6 +24,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     findById: jest.fn(),
     findBySubscriptionId: jest.fn(),
     listReconciling: jest.fn(),
+    listCashfreeAwaitingSettlement: jest.fn(),
     markPaidIdempotent: jest.fn(),
     markFailed: jest.fn(),
     upsertPendingCycle: jest.fn(),
@@ -202,6 +203,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     listOrderCharge.mockResolvedValue({ outcome: 'unknown' });
     submitRecurringDebit.mockReset();
     paymentsService.listReconciling.mockResolvedValue([]);
+    paymentsService.listCashfreeAwaitingSettlement.mockResolvedValue([]);
     paymentsService.claimChargeInitiation.mockResolvedValue(true);
     mandateService.claimCardEmptyListDebit.mockResolvedValue(true);
     paymentsService.claimRetry.mockResolvedValue(true);
