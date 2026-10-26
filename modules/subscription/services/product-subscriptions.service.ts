@@ -1631,7 +1631,24 @@ export class ProductSubscriptionsService {
       : params.gatewayOrderId
         ? await this.paymentsService.findByGatewayOrderId(params.gatewayOrderId)
         : null;
-    if (!payment || payment.status === SubscriptionPaymentStatus.PAID) return payment?.status === SubscriptionPaymentStatus.PAID;
+    if (!payment) {
+      this.logger.warn(
+        {
+          paymentId: params.paymentId ?? null,
+          gatewayOrderId: params.gatewayOrderId ?? null,
+          gatewaySubscriptionId: params.gatewaySubscriptionId ?? null,
+        },
+        'Cashfree settlement skipped because the subscription payment row was not found',
+      );
+      return false;
+    }
+    if (payment.status === SubscriptionPaymentStatus.PAID) {
+      this.logger.log(
+        { paymentId: payment.id, subscriptionId: payment.subscriptionId, status: payment.status },
+        'Cashfree settlement skipped because the subscription payment is already paid',
+      );
+      return true;
+    }
     const mandate = await this.mandateService.getForSubscription(payment.subscriptionId);
     const storedOrder = params.gatewayOrderId ?? payment.gatewayOrderId;
     const chargeOrderId =
@@ -1642,14 +1659,44 @@ export class ProductSubscriptionsService {
         ? storedOrder
         : null;
     const adapter = this.mandateService.adapter(SubscriptionMandateProvider.CASHFREE);
-    if (!adapter.isConfigured()) return false;
+    if (!adapter.isConfigured()) {
+      this.logger.warn(
+        { paymentId: payment.id, subscriptionId: payment.subscriptionId },
+        'Cashfree settlement skipped because Cashfree credentials are missing',
+      );
+      return false;
+    }
+    const gatewaySubscriptionId =
+      params.gatewaySubscriptionId ?? mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId;
     const snapshot = await adapter.fetchChargeStatus({
       gatewayOrderId: chargeOrderId,
       gatewayPaymentId: params.gatewayPaymentId ?? payment.gatewayPaymentId,
-      gatewaySubscriptionId:
-        params.gatewaySubscriptionId ?? mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId,
+      gatewaySubscriptionId,
     });
-    if (!snapshot.amount || !this.snapshotPaysProductAmount(payment.amount, snapshot)) return false;
+    if (!snapshot.amount || !this.snapshotPaysProductAmount(payment.amount, snapshot)) {
+      this.logger.warn(
+        {
+          paymentId: payment.id,
+          subscriptionId: payment.subscriptionId,
+          expectedAmount: payment.amount,
+          snapshotState: snapshot.state,
+          snapshotAmount: snapshot.amount ?? null,
+          gatewaySubscriptionId: gatewaySubscriptionId ?? null,
+          chargeOrderId,
+        },
+        'Cashfree settlement skipped because the captured amount does not match the subscription',
+      );
+      return false;
+    }
+    this.logger.log(
+      {
+        paymentId: payment.id,
+        subscriptionId: payment.subscriptionId,
+        snapshotAmount: snapshot.amount,
+        snapshotState: snapshot.state,
+      },
+      'Cashfree product payment matched the subscription amount',
+    );
     await this.handlePaymentSuccess({
       paymentId: payment.id,
       gatewayPaymentId: snapshot.gatewayPaymentId ?? params.gatewayPaymentId ?? undefined,
@@ -1687,10 +1734,22 @@ export class ProductSubscriptionsService {
     }
 
     const cardAction = await this.mandateService.cardAuthorizationAction(params.gatewayOrderId);
-    if (cardAction.action === 'wait') return;
+    if (cardAction.action === 'wait') {
+      this.logger.log(
+        { paymentId: payment.id, gatewayOrderId: params.gatewayOrderId ?? null },
+        'Card authorization is waiting for the product charge, so no order was created',
+      );
+      return;
+    }
     if (cardAction.action === 'charge') {
       const charged = await this.collectProductAfterCardAuthorization(payment, cardAction.mandate.id, params);
-      if (!charged) return;
+      if (!charged) {
+        this.logger.warn(
+          { paymentId: payment.id, subscriptionId: payment.subscriptionId },
+          'Card product charge did not finish, so no order was created',
+        );
+        return;
+      }
       params = {
         ...params,
         gatewayOrderId: charged.gatewayOrderId ?? params.gatewayOrderId,
@@ -1703,6 +1762,10 @@ export class ProductSubscriptionsService {
       { gatewayPaymentId: params.gatewayPaymentId, actor: params.actor },
     );
     if (!newlyPaid) {
+      this.logger.log(
+        { paymentId: payment.id, subscriptionId: payment.subscriptionId },
+        'Subscription payment was already recorded, so a second order was not created',
+      );
       await this.confirmFirstChargeMandate(payment.gatewayOrderId, params.gatewayPaymentId, params.actor);
       return;
     }
@@ -1760,6 +1823,17 @@ export class ProductSubscriptionsService {
     });
 
     const order = await this.tryCreateOrderForPaidCycle(sub, paidPayment, params.actor);
+    if (!order) {
+      this.logger.warn(
+        { subscriptionId: sub.id, paymentId: paidPayment.id, status: sub.status },
+        'Subscription payment was recorded, but the Cureka order was not created',
+      );
+    } else {
+      this.logger.log(
+        { subscriptionId: sub.id, paymentId: paidPayment.id, orderId: order.id },
+        'Subscription order created from the captured payment',
+      );
+    }
     if (order) {
       if (!sub.firstOrderId) {
         await this.subscriptionsRepository.updateById(sub.id, {
@@ -2854,6 +2928,10 @@ export class ProductSubscriptionsService {
       const cycle = await this.billingCycleService.findById(paidPayment.billingCycleId);
       if (cycle?.orderId) return { id: cycle.orderId };
     }
+    this.logger.warn(
+      { subscriptionId: sub.id, paymentId: paidPayment.id, billingCycleId: paidPayment.billingCycleId ?? null },
+      'Subscription order lock did not return an order',
+    );
     return null;
   }
 

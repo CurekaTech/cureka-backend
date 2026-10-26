@@ -288,7 +288,18 @@ export class SubscriptionMandateService {
       (params.gatewayCustomerId
         ? await this.mandatesRepository.findLatestPendingByGatewayCustomerId(params.gatewayCustomerId)
         : null);
-    if (!mandate) return false;
+    if (!mandate) {
+      this.logger.warn(
+        {
+          provider: params.provider,
+          gatewaySubscriptionId: params.gatewaySubscriptionId ?? null,
+          authorizationOrderId: params.authorizationOrderId ?? null,
+          status: params.status,
+        },
+        'Mandate webhook did not match a subscription',
+      );
+      return false;
+    }
     if (mandate.provider !== params.provider) {
       this.logger.warn(
         { mandateId: mandate.id, stored: mandate.provider, incoming: params.provider },
