@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Inject, Logger, Post, Req, forwardRef } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, HttpCode, HttpStatus, Inject, Logger, Post, Req, forwardRef } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
@@ -89,7 +89,17 @@ export class PaymentsWebhookController {
     @Headers('x-webhook-signature') signature?: string,
     @Headers('x-webhook-timestamp') timestamp?: string,
   ) {
-    const rawBody = JSON.stringify(payload);
+    const rawBodySource = (req as FastifyRequest & { rawBody?: Buffer | string }).rawBody;
+    const rawBody = Buffer.isBuffer(rawBodySource)
+      ? rawBodySource.toString('utf8')
+      : rawBodySource;
+    if (!rawBody) {
+      this.logger.error(
+        { requestId: req.id, rawBodyAvailable: false },
+        'Cashfree webhook raw body is missing, so the signature cannot be verified',
+      );
+      throw new BadRequestException('Cashfree webhook body is missing');
+    }
     this.cashfreeService.verifyWebhookSignature(rawBody, timestamp, signature);
 
     const eventType = String(payload['type'] ?? '');
