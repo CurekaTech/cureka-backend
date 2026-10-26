@@ -46,6 +46,18 @@ export type BobProductDetail = {
   variants: BobVariant[];
 };
 
+/** GET /bob/products. Product objects stay the same; paging fields sit beside them. */
+export type BobProductList = {
+  products: BobProductDetail[];
+  page: number;
+  limit: number;
+  /** Matching products for the same search/filter, before this page is sliced. */
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+};
+
 export type BobVariantDetail = {
   id: string;
   title: string;

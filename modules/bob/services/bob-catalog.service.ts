@@ -21,6 +21,7 @@ import { BobListProductsQueryDto } from '../dto/bob.dto';
 import {
   BobCategory,
   BobProductDetail,
+  BobProductList,
   BobProductSummary,
   BobVariantDetail,
 } from '../interfaces/bob.interface';
@@ -72,7 +73,7 @@ export class BobCatalogService {
     return mapBobProductDetail(product, imageByKey, this.storefrontUrl());
   }
 
-  async listProducts(query: BobListProductsQueryDto = {}): Promise<BobProductDetail[]> {
+  async listProducts(query: BobListProductsQueryDto = {}): Promise<BobProductList> {
     const started = Date.now();
     const ids = (query.ids ?? '')
       .split(',')
@@ -83,7 +84,7 @@ export class BobCatalogService {
     const page = query.page ?? 1;
     const limit = query.limit ?? (paged ? DEFAULT_SEARCH_PAGE_SIZE : undefined);
 
-    let total = ids.length;
+    let total = 0;
     let products: ProductEntity[];
     if (ids.length) {
       products = await this.bobProductResolver.findPublishedByBobIds(ids);
@@ -103,19 +104,29 @@ export class BobCatalogService {
     const imageByKey = await this.signImages(products);
     const storefront = this.storefrontUrl();
     const details = products.map((product) => mapBobProductDetail(product, imageByKey, storefront));
+    if (ids.length) {
+      total = details.length;
+    }
+    const list = toBobProductList({
+      products: details,
+      total,
+      page: paged && !ids.length ? page : 1,
+      limit: paged && !ids.length ? (limit ?? DEFAULT_SEARCH_PAGE_SIZE) : total,
+    });
     this.logger.log(
       {
         count: details.length,
-        total,
+        total: list.total,
+        totalPages: list.totalPages,
         ids: ids.length,
         search: search ?? null,
-        page: paged ? page : null,
-        limit: limit ?? null,
+        page: list.page,
+        limit: list.limit,
         ms: Date.now() - started,
       },
       '[BOB inbound] GET /products',
     );
-    return details;
+    return list;
   }
 
   async getVariant(variantId: string): Promise<BobVariantDetail> {
@@ -223,4 +234,25 @@ export class BobCatalogService {
   private storefrontUrl(): string {
     return this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ?? '';
   }
+}
+
+function toBobProductList(input: {
+  products: BobProductDetail[];
+  total: number;
+  page: number;
+  limit: number;
+}): BobProductList {
+  const page = Math.max(input.page, 1);
+  const limit = Math.max(input.limit, 0);
+  const total = Math.max(input.total, 0);
+  const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+  return {
+    products: input.products,
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPreviousPage: page > 1 && totalPages > 0,
+  };
 }
