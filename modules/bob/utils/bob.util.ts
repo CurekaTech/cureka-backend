@@ -31,6 +31,14 @@ export function toBobOrderAlias(orderNumber: string | null | undefined): string 
   return value.startsWith('#') ? value : `#${value}`;
 }
 
+export const BOB_DEFAULT_STOREFRONT_URL = 'https://www.cureka.com';
+
+/** BOB cart-recovery button. Confirmed as the storefront cart page, not a token restore link. */
+export function toBobCartRecoveryUrl(storefrontUrl?: string | null): string {
+  const base = String(storefrontUrl ?? '').replace(/\/+$/, '') || BOB_DEFAULT_STOREFRONT_URL;
+  return `${base}/cart`;
+}
+
 export function parseMoneyAmount(value: string | number | undefined, fallback = 0): number {
   if (value === undefined || value === null || value === '') {
     return fallback;

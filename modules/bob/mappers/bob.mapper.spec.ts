@@ -354,13 +354,13 @@ describe('mapCurekaAbandonedCartToBob', () => {
           discountAmount: 0,
         },
       } as never,
-      recoveryUrl: 'https://www.cureka.com/cart/recover?token=abc',
+      recoveryUrl: 'https://www.cureka.com/cart',
       storefrontUrl: 'https://www.cureka.com',
       checkoutId: 'CAR2026217409-S1',
     });
 
     expect(payload.checkout_id).toBe('CAR2026217409-S1');
-    expect(payload.cart_recovery_url).toBe('https://www.cureka.com/cart/recover?token=abc');
+    expect(payload.cart_recovery_url).toBe('https://www.cureka.com/cart');
     expect(payload.line_items[0]?.id).toBe('CERAVE-454G');
     expect(payload.line_items[0]?.name).toBe('CeraVe Moisturizing Cream 454g');
   });
