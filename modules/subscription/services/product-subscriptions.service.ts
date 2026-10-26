@@ -951,6 +951,30 @@ export class ProductSubscriptionsService {
   async syncRazorpayPayment(userId: string, subscriptionId: string): Promise<{ paid: boolean }> {
     const sub = await this.subscriptionsRepository.findByIdAndUserId(subscriptionId, userId);
     if (!sub) throw new NotFoundException('Subscription not found');
+    const mandate = await this.mandateService.getForSubscription(subscriptionId);
+    if (mandate?.provider === SubscriptionMandateProvider.CASHFREE) {
+      await this.settleReconcilingPayments(subscriptionId);
+      const payments = await this.paymentsService.findBySubscriptionId(subscriptionId);
+      if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
+        return { paid: true };
+      }
+      const pending = [...payments]
+        .reverse()
+        .find(
+          (payment) =>
+            payment.status !== SubscriptionPaymentStatus.PAID &&
+            payment.status !== SubscriptionPaymentStatus.FAILED,
+        );
+      if (!pending) return { paid: false };
+      const settled = await this.settleCashfreeSubscriptionPayment({
+        paymentId: pending.id,
+        gatewayOrderId: pending.gatewayOrderId ?? undefined,
+        gatewayPaymentId: pending.gatewayPaymentId ?? undefined,
+        gatewaySubscriptionId: mandate.gatewaySubscriptionId ?? mandate.authorizationOrderId ?? undefined,
+        actor: userId,
+      });
+      return { paid: settled };
+    }
     await this.settleReconcilingPayments(subscriptionId);
     const payments = await this.paymentsService.findBySubscriptionId(subscriptionId);
     if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.PAID)) {
