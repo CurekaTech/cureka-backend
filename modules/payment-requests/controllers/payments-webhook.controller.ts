@@ -122,6 +122,10 @@ export class PaymentsWebhookController {
           actor: 'cashfree-webhook',
         });
         if (!routed) {
+          this.logger.log(
+            { orderId, paymentPurpose, requestId: req.id },
+            'Cashfree payment success had no subscription purpose, so checkout handled it',
+          );
           const providerAmount = Number(
             paymentData?.['payment_amount'] ?? orderData?.['order_amount'] ?? NaN,
           );
@@ -133,7 +137,7 @@ export class PaymentsWebhookController {
           );
         }
         this.logger.log(
-          { orderId, cfPaymentId, requestId: req.id },
+          { orderId, cfPaymentId, paymentPurpose, routed, requestId: req.id },
           'Cashfree webhook handled payment success',
         );
       } else {
@@ -177,60 +181,110 @@ export class PaymentsWebhookController {
       eventType === 'SUBSCRIPTION_PAYMENT_CANCELLED'
     ) {
       const subscriptionData = (data?.['subscription'] ?? payload['subscription'] ?? {}) as Record<string, unknown>;
+      const tags = (subscriptionData['subscription_tags'] ?? {}) as Record<string, unknown>;
+      const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
+      const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
+      const subscriptionStatus = String(subscriptionData['subscription_status'] ?? '');
+      const subscriptionPaymentId = String(tags['subscriptionPaymentId'] ?? '') || undefined;
       const eventId = String(
-        payload['event_time'] ?? cfPaymentId ?? subscriptionData['cf_subscription_id'] ?? eventType,
+        payload['event_time'] ?? cfPaymentId ?? cfSubscriptionId ?? eventType,
+      );
+      this.logger.log(
+        {
+          eventType,
+          requestId: req.id,
+          merchantSubscriptionId: merchantSubscriptionId || null,
+          cfSubscriptionId: cfSubscriptionId || null,
+          subscriptionStatus: subscriptionStatus || null,
+          subscriptionPaymentId: subscriptionPaymentId ?? null,
+          cfPaymentId: cfPaymentId ? String(cfPaymentId) : null,
+          paymentStatus: paymentData?.['payment_status'] ?? null,
+        },
+        'Cashfree subscription webhook received',
       );
       const fresh = await this.subscriptionWebhookEvents.tryRecord({
         provider: 'CASHFREE',
         eventId: `${eventType}:${eventId}`,
         eventType,
       });
-      if (fresh) {
-        if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
-          const tags = (subscriptionData['subscription_tags'] ?? {}) as Record<string, unknown>;
-          const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
-          const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
-          if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
-            await this.productSubscriptionsService.handlePaymentFailed({
-              gatewayOrderId: String(
-                paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
-              ),
-              reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
-              actor: 'cashfree-subscription-webhook',
-            });
+      if (!fresh) {
+        this.logger.warn(
+          { eventType, eventId, requestId: req.id },
+          'Cashfree subscription webhook was a duplicate, so the subscription and order were left unchanged',
+        );
+      } else if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+        if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+          await this.productSubscriptionsService.handlePaymentFailed({
+            gatewayOrderId: String(
+              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
+            ),
+            reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
+            actor: 'cashfree-subscription-webhook',
+          });
+          this.logger.warn(
+            { eventType, merchantSubscriptionId, cfSubscriptionId, requestId: req.id },
+            'Cashfree subscription payment failed, so no order was created',
+          );
+        } else {
+          const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+            paymentId: subscriptionPaymentId,
+            gatewayOrderId: String(
+              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
+            ),
+            gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+            actor: 'cashfree-subscription-webhook',
+          });
+          this.logger.log(
+            { settled, subscriptionPaymentId: subscriptionPaymentId ?? null, cfSubscriptionId, requestId: req.id },
+            settled
+              ? 'Cashfree subscription payment settled'
+              : 'Cashfree subscription payment was not settled, so no order was created',
+          );
+        }
+      } else {
+        const mandateMatched = await this.subscriptionMandateService.handleProviderWebhook({
+          provider: SubscriptionMandateProvider.CASHFREE,
+          gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+          authorizationOrderId: merchantSubscriptionId || undefined,
+          status: mapCashfreeSubscriptionStatus(subscriptionStatus),
+          actor: 'cashfree-webhook',
+          raw: payload,
+        });
+        this.logger.log(
+          {
+            eventType,
+            mandateMatched,
+            subscriptionStatus: subscriptionStatus || null,
+            merchantSubscriptionId: merchantSubscriptionId || null,
+            cfSubscriptionId: cfSubscriptionId || null,
+            requestId: req.id,
+          },
+          mandateMatched
+            ? 'Cashfree mandate status applied'
+            : 'Cashfree mandate webhook did not match a subscription',
+        );
+        if (subscriptionStatus.toUpperCase() === 'ACTIVE') {
+          const paymentId = await this.subscriptionMandateService.firstChargePaymentIdIfReady(
+            merchantSubscriptionId || cfSubscriptionId,
+          );
+          if (!paymentId) {
+            this.logger.warn(
+              { merchantSubscriptionId, cfSubscriptionId, requestId: req.id },
+              'Cashfree subscription is active, but the product payment is not ready, so no order was created',
+            );
           } else {
-            await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
-              paymentId: String(tags['subscriptionPaymentId'] ?? '') || undefined,
-              gatewayOrderId: String(
-                paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
-              ),
-              gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+            const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+              paymentId,
               gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
               actor: 'cashfree-subscription-webhook',
             });
-          }
-        } else {
-          const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
-          const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
-          await this.subscriptionMandateService.handleProviderWebhook({
-            provider: SubscriptionMandateProvider.CASHFREE,
-            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
-            authorizationOrderId: merchantSubscriptionId || undefined,
-            status: mapCashfreeSubscriptionStatus(String(subscriptionData['subscription_status'] ?? '')),
-            actor: 'cashfree-webhook',
-            raw: payload,
-          });
-          if (String(subscriptionData['subscription_status'] ?? '').toUpperCase() === 'ACTIVE') {
-            const paymentId = await this.subscriptionMandateService.firstChargePaymentIdIfReady(
-              merchantSubscriptionId || cfSubscriptionId,
+            this.logger.log(
+              { settled, paymentId, cfSubscriptionId, requestId: req.id },
+              settled
+                ? 'Cashfree active subscription settled the product payment'
+                : 'Cashfree subscription is active, but the product payment did not settle, so no order was created',
             );
-            if (paymentId) {
-              await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
-                paymentId,
-                gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
-                actor: 'cashfree-subscription-webhook',
-              });
-            }
           }
         }
       }
