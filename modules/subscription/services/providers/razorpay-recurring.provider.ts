@@ -367,6 +367,31 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
     }
   }
 
+  /**
+   * Deletes the Razorpay recurring token. A missing token id means nothing was registered yet.
+   * An already-deleted token is treated as cancelled.
+   */
+  async cancelMandate(params: {
+    gatewayCustomerId?: string | null;
+    gatewayMandateId?: string | null;
+  }): Promise<MandateCancelResult> {
+    this.assertConfigured();
+    const customerId = params.gatewayCustomerId?.trim();
+    const tokenId = params.gatewayMandateId?.trim();
+    if (!customerId || !tokenId) return { cancelled: true };
+    try {
+      await this.request(
+        'DELETE',
+        `/customers/${encodeURIComponent(customerId)}/tokens/${encodeURIComponent(tokenId)}`,
+      );
+      return { cancelled: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/already|does not exist|not found/i.test(message)) return { cancelled: true };
+      return { cancelled: false, failureReason: message };
+    }
+  }
+
   private isDuplicateReceipt(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return /receipt/i.test(message) && /already/i.test(message);
@@ -402,7 +427,7 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
   }
 
   private async request(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
