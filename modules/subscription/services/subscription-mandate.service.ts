@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PaymentGatewayResolverService } from '@modules/payment-requests/services/payment-gateway-resolver.service';
 import { generateUniqueRefId } from '@packages/common';
 import { SUBSCRIPTION_ERROR } from '../constants/subscription.constants';
 import { SubscriptionMandateEntity } from '../entities/subscription-mandate.entity';
@@ -38,6 +39,8 @@ export class SubscriptionMandateService {
     private readonly razorpay: RazorpayRecurringProvider,
     private readonly cashfree: CashfreeSubscriptionProvider,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => PaymentGatewayResolverService))
+    private readonly gatewayResolver: PaymentGatewayResolverService,
   ) {}
 
   isAutopayFeatureEnabled(): boolean {
@@ -83,7 +86,7 @@ export class SubscriptionMandateService {
       });
     }
 
-    const provider = this.resolveNewMandateProvider();
+    const provider = await this.resolveNewMandateProvider();
     const adapter = this.adapter(provider);
     if (!adapter.isConfigured()) {
       throw new BadRequestException({
@@ -369,7 +372,7 @@ export class SubscriptionMandateService {
       throw new BadRequestException({
         code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
         message:
-          'AutoPay could not be started, so this subscription was not charged. Check the Razorpay recurring setup and try again.',
+          'AutoPay could not be started, so this subscription was not charged. Check the selected payment gateway and try again.',
       });
     }
   }
@@ -563,39 +566,38 @@ export class SubscriptionMandateService {
   }
 
   private configuredMandateProvider(): SubscriptionMandateProvider | null {
-    const pinned = this.pinnedProviderIfConfigured();
-    if (pinned) return pinned;
-    if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
     if (this.cashfree.isConfigured()) return SubscriptionMandateProvider.CASHFREE;
+    if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
     return null;
   }
 
-  private resolveNewMandateProvider(): SubscriptionMandateProvider {
-    const pinned = this.pinnedProviderIfConfigured();
-    if (pinned) return pinned;
-    const configured = this.configService.get<string>('subscriptions.autopayProvider');
-    if (configured === SubscriptionMandateProvider.CASHFREE && this.razorpay.isConfigured()) {
-      return SubscriptionMandateProvider.RAZORPAY;
-    }
-    if (configured === SubscriptionMandateProvider.RAZORPAY && this.cashfree.isConfigured()) {
+  /**
+   * A new mandate uses the gateway enabled in admin. An existing mandate keeps
+   * the provider stored on that subscription.
+   */
+  private async resolveNewMandateProvider(): Promise<SubscriptionMandateProvider> {
+    const active = await this.gatewayResolver.getActiveGateway();
+    if (active === 'cashfree') {
+      if (!this.cashfree.isConfigured()) {
+        throw new BadRequestException({
+          code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+          message: 'Cashfree is selected in admin, but Cashfree credentials are missing',
+        });
+      }
       return SubscriptionMandateProvider.CASHFREE;
     }
-    if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
-    if (this.cashfree.isConfigured()) return SubscriptionMandateProvider.CASHFREE;
+    if (active === 'razorpay') {
+      if (!this.razorpay.isConfigured()) {
+        throw new BadRequestException({
+          code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+          message: 'Razorpay is selected in admin, but Razorpay credentials are missing',
+        });
+      }
+      return SubscriptionMandateProvider.RAZORPAY;
+    }
     throw new BadRequestException({
       code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
-      message: 'No AutoPay provider is configured',
+      message: 'The payment method selected in admin does not support subscription AutoPay',
     });
-  }
-
-  private pinnedProviderIfConfigured(): SubscriptionMandateProvider | null {
-    const configured = this.configService.get<string>('subscriptions.autopayProvider');
-    if (configured === SubscriptionMandateProvider.CASHFREE && this.cashfree.isConfigured()) {
-      return SubscriptionMandateProvider.CASHFREE;
-    }
-    if (configured === SubscriptionMandateProvider.RAZORPAY && this.razorpay.isConfigured()) {
-      return SubscriptionMandateProvider.RAZORPAY;
-    }
-    return null;
   }
 }
