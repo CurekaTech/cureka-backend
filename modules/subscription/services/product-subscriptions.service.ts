@@ -44,7 +44,9 @@ import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.
 import { SUBSCRIPTION_ERROR, describeProductFrequency } from '../constants/subscription.constants';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '../constants/subscription-payment-purpose.constants';
 import { mapUserProductSubscriptionToResponse } from '../mappers/product-subscription.mapper';
-import { checkoutExtrasFromLink } from '../utils/checkout-extras.util';
+import { checkoutExtrasFromLink, paymentSessionIdFromLink } from '../utils/checkout-extras.util';
+import { cashfreeSubscriptionReturnUrl } from '../utils/cashfree-subscription-return-url.util';
+import { nextCashfreeUpiScheduleDate } from '../utils/cashfree-schedule-date.util';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { SubscriptionStatusHistoryRepository } from '../repositories/subscription-status-history.repository';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
@@ -229,9 +231,11 @@ export class ProductSubscriptionsService {
       throw new BadRequestException('You already have a subscription for this product option');
     }
     for (const row of sameVariant) {
-      if (row.status === ProductSubscriptionStatus.PENDING_PAYMENT) {
-        await this.abandonUnpaid(userId, row.id);
+      if (row.status !== ProductSubscriptionStatus.PENDING_PAYMENT) continue;
+      if (await this.cashfreeAuthorizationInProgress(row.id)) {
+        return this.reuseCashfreeCheckout(userId, row.id);
       }
+      await this.abandonUnpaid(userId, row.id);
     }
 
     const memberDiscount = await this.membershipBenefits.getMemberDiscount(userId);
@@ -330,6 +334,10 @@ export class ProductSubscriptionsService {
         productMandateMaxAmount: configEntity.mandateMaxAmount,
         notes,
         method: dto.autopayMethod,
+        returnUrl: cashfreeSubscriptionReturnUrl(
+          this.nestConfig.get<string>('STOREFRONT_URL'),
+          subscription.id,
+        ),
       });
     } catch (error) {
       await this.abandonUnpaid(userId, subscription.id);
@@ -669,6 +677,9 @@ export class ProductSubscriptionsService {
           payment.status === SubscriptionPaymentStatus.RECONCILING,
       )
     ) {
+      return { abandoned: false };
+    }
+    if (await this.cashfreeAuthorizationInProgress(id)) {
       return { abandoned: false };
     }
 
@@ -1095,7 +1106,6 @@ export class ProductSubscriptionsService {
   async authorizeMandate(userId: string, id: string) {
     const sub = await this.requireOwnedActiveLike(userId, id);
     const user = await this.usersRepository.findById(userId);
-    const storefront = this.nestConfig.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '');
     const { mandate, session } = await this.mandateService.startAuthorization({
       subscription: sub,
       customer: {
@@ -1104,7 +1114,7 @@ export class ProductSubscriptionsService {
         phone: user?.mobileNumber ?? '',
       },
       actor: userId,
-      returnUrl: storefront ? `${storefront}/account/subscriptions/${sub.id}/mandate` : undefined,
+      returnUrl: cashfreeSubscriptionReturnUrl(this.nestConfig.get<string>('STOREFRONT_URL'), sub.id),
     });
     return {
       mandateId: mandate.id,
@@ -1578,7 +1588,7 @@ export class ProductSubscriptionsService {
         payment.gatewayOrderId?.startsWith('order_') &&
         payment.status !== SubscriptionPaymentStatus.PAID &&
         payment.status !== SubscriptionPaymentStatus.FAILED &&
-        (payment.paymentGateway ?? 'RAZORPAY').toUpperCase() === 'RAZORPAY',
+        (payment.paymentGateway ?? '').toUpperCase() === 'RAZORPAY',
     );
     if (!open?.gatewayOrderId) return 'clear';
     if (mandate?.authorizationOrderId && open.gatewayOrderId === mandate.authorizationOrderId) return 'clear';
@@ -1689,43 +1699,83 @@ export class ProductSubscriptionsService {
       );
       return false;
     }
-    const gatewaySubscriptionId =
-      params.gatewaySubscriptionId ?? mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId;
+    const gatewaySubscriptionId = cashfreeMerchantSubscriptionId(
+      mandate?.authorizationOrderId,
+      params.gatewaySubscriptionId,
+      mandate?.gatewaySubscriptionId,
+    );
     const snapshot = await adapter.fetchChargeStatus({
       gatewayOrderId: chargeOrderId,
       gatewayPaymentId: params.gatewayPaymentId ?? payment.gatewayPaymentId,
       gatewaySubscriptionId,
     });
-    if (!snapshot.amount || !this.snapshotPaysProductAmount(payment.amount, snapshot)) {
+    if (!this.cashfreeCapturedPaymentMatches(payment, snapshot)) {
       this.logger.warn(
         {
           paymentId: payment.id,
           subscriptionId: payment.subscriptionId,
           expectedAmount: payment.amount,
+          expectedCurrency: payment.currency ?? null,
           snapshotState: snapshot.state,
           snapshotAmount: snapshot.amount ?? null,
+          snapshotCurrency: snapshot.currency ?? null,
           gatewaySubscriptionId: gatewaySubscriptionId ?? null,
           chargeOrderId,
         },
-        'Cashfree settlement skipped because the captured amount does not match the subscription',
+        'Cashfree settlement skipped because the captured payment does not match the subscription',
       );
       return false;
     }
-    this.logger.log(
-      {
-        paymentId: payment.id,
-        subscriptionId: payment.subscriptionId,
-        snapshotAmount: snapshot.amount,
-        snapshotState: snapshot.state,
-      },
-      'Cashfree product payment matched the subscription amount',
-    );
-    await this.handlePaymentSuccess({
-      paymentId: payment.id,
-      gatewayPaymentId: snapshot.gatewayPaymentId ?? params.gatewayPaymentId ?? undefined,
-      actor: params.actor,
+    return this.lockService.withDbLock(`settle:${payment.id}`, async () => {
+      const current = await this.paymentsService.findById(payment.id);
+      if (!current) return false;
+      if (current.status === SubscriptionPaymentStatus.PAID) {
+        this.logger.log(
+          { paymentId: current.id, subscriptionId: current.subscriptionId },
+          'Cashfree settlement found the payment already paid, so a second order was not created',
+        );
+        return true;
+      }
+      if (!this.cashfreeCapturedPaymentMatches(current, snapshot)) return false;
+      this.logger.log(
+        {
+          paymentId: current.id,
+          subscriptionId: current.subscriptionId,
+          snapshotAmount: snapshot.amount,
+          snapshotCurrency: snapshot.currency ?? null,
+          snapshotState: snapshot.state,
+        },
+        'Cashfree product payment matched the subscription amount and currency',
+      );
+      await this.handlePaymentSuccess({
+        paymentId: current.id,
+        gatewayPaymentId: snapshot.gatewayPaymentId ?? params.gatewayPaymentId ?? undefined,
+        actor: params.actor,
+      });
+      const after = await this.paymentsService.findById(current.id);
+      return after?.status === SubscriptionPaymentStatus.PAID;
     });
-    return true;
+  }
+
+  /**
+   * A Cashfree capture settles only when amount and payment_currency are both present and match.
+   * A missing currency is not treated as INR.
+   */
+  private cashfreeCapturedPaymentMatches(
+    payment: { amount?: string | null; currency?: string | null },
+    snapshot: { state: string; amount?: string | null; currency?: string | null },
+  ): boolean {
+    if (snapshot.state !== 'captured') return false;
+    if (payment.amount == null || payment.amount === '' || snapshot.amount == null || snapshot.amount === '') {
+      return false;
+    }
+    const expectedCurrency = payment.currency?.trim();
+    const actualCurrency = snapshot.currency?.trim();
+    if (!expectedCurrency || !actualCurrency) return false;
+    if (expectedCurrency.toUpperCase() !== actualCurrency.toUpperCase()) return false;
+    const expected = Number(payment.amount);
+    const actual = Number(snapshot.amount);
+    return Number.isFinite(expected) && Number.isFinite(actual) && Math.abs(expected - actual) < 0.009;
   }
 
   async isRazorpayChargeCaptured(params: {
@@ -2053,7 +2103,33 @@ export class ProductSubscriptionsService {
   private async settleReconcilingPayments(subscriptionId?: string): Promise<void> {
     const payments = await this.paymentsService.listReconciling(subscriptionId);
     for (const payment of payments) {
-      if ((payment.paymentGateway ?? 'RAZORPAY').toUpperCase() !== 'RAZORPAY') continue;
+      const gateway = (payment.paymentGateway ?? '').trim().toUpperCase();
+      if (!gateway || (gateway !== 'RAZORPAY' && gateway !== 'CASHFREE')) {
+        this.logger.warn(
+          { paymentId: payment.id, paymentGateway: payment.paymentGateway ?? null },
+          'Reconciling payment has no known gateway, so it was left unchanged',
+        );
+        continue;
+      }
+      if (gateway === 'CASHFREE') {
+        try {
+          await this.settleCashfreeSubscriptionPayment({
+            paymentId: payment.id,
+            gatewayOrderId: payment.gatewayOrderId ?? undefined,
+            gatewayPaymentId: payment.gatewayPaymentId ?? undefined,
+            actor: 'payment-reconcile',
+          });
+        } catch (error) {
+          this.logger.warn(
+            {
+              paymentId: payment.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Reconciling Cashfree payment could not be settled',
+          );
+        }
+        continue;
+      }
       try {
         const subscription = await this.subscriptionsRepository.findById(payment.subscriptionId);
         if (
@@ -2624,6 +2700,13 @@ export class ProductSubscriptionsService {
       );
       return;
     }
+    if (provider !== SubscriptionMandateProvider.RAZORPAY) {
+      this.logger.warn(
+        { subscriptionId: sub.id, cycleId: cycle.id, state: snapshot.state, provider },
+        'Debit outcome is still unknown, so no new charge was created',
+      );
+      return;
+    }
     if (debitIsDue && payment.gatewayOrderId && !payment.gatewayPaymentId && !snapshot.gatewayPaymentId) {
       await this.recoverUnchargedUpiOrder(sub, cycle, payment.gatewayOrderId);
       return;
@@ -3059,6 +3142,15 @@ export class ProductSubscriptionsService {
       actor: 'scheduler',
     });
     const mandateMethod = String(mandate.consentEvidence?.method ?? '');
+    const cashfreeCard =
+      provider === SubscriptionMandateProvider.CASHFREE &&
+      (mandateMethod === 'card' || mandateMethod === 'emandate');
+    const cashfreeUpi = provider === SubscriptionMandateProvider.CASHFREE && !cashfreeCard;
+    const scheduleDate = cashfreeCard
+      ? new Date()
+      : cashfreeUpi
+        ? nextCashfreeUpiScheduleDate()
+        : undefined;
     const upiRenewal =
       provider === SubscriptionMandateProvider.RAZORPAY &&
       mandateMethod !== 'card' &&
@@ -3090,11 +3182,18 @@ export class ProductSubscriptionsService {
         this.mandateService.adapter(provider).charge({
         gatewayCustomerId: mandate.gatewayCustomerId ?? '',
         gatewayMandateId: mandate.gatewayMandateId ?? '',
-        gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+        gatewaySubscriptionId:
+          provider === SubscriptionMandateProvider.CASHFREE
+            ? cashfreeMerchantSubscriptionId(
+                mandate.authorizationOrderId,
+                mandate.gatewaySubscriptionId,
+              )
+            : mandate.gatewaySubscriptionId,
         amount,
         receipt: payment.refId,
         idempotencyKey,
         debitAt,
+        scheduleDate,
         customer: { email: user?.email, phone: user?.mobileNumber ?? '' },
         notes: buildSubscriptionGatewayNotes({
           paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
@@ -3137,7 +3236,7 @@ export class ProductSubscriptionsService {
     if (result.pending) {
       const debitEarliestAt =
         provider === SubscriptionMandateProvider.CASHFREE
-          ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+          ? scheduleDate ?? nextCashfreeUpiScheduleDate()
           : debitAt ?? null;
       if (debitEarliestAt) {
         await this.billingCycleService.updateById(cycle.id, {
@@ -3224,6 +3323,34 @@ export class ProductSubscriptionsService {
     return { product, variant, config };
   }
 
+  private async cashfreeAuthorizationInProgress(subscriptionId: string): Promise<boolean> {
+    const sub = await this.subscriptionsRepository.findById(subscriptionId);
+    if ((sub?.paymentGateway ?? '').toUpperCase() !== 'CASHFREE') return false;
+    const payments = await this.paymentsService.findBySubscriptionId(subscriptionId);
+    return payments.some(
+      (payment) =>
+        payment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
+        (payment.paymentGateway ?? '').toUpperCase() === 'CASHFREE',
+    );
+  }
+
+  private async reuseCashfreeCheckout(userId: string, subscriptionId: string) {
+    const sub = await this.subscriptionsRepository.findByIdAndUserId(subscriptionId, userId);
+    if (!sub) throw new NotFoundException('Subscription not found');
+    const payments = await this.paymentsService.findBySubscriptionId(subscriptionId);
+    const open = payments.find(
+      (payment) => payment.status === SubscriptionPaymentStatus.LINK_GENERATED,
+    );
+    const paymentLink = open?.paymentLink ?? null;
+    return this.mapOwned(sub, {
+      paymentLink,
+      paymentSessionId: paymentSessionIdFromLink(paymentLink),
+      subscriptionCheckout: Boolean(paymentLink?.includes('subscription_session_id')),
+      currency: open?.currency ?? null,
+      environment: paymentLink?.includes('sandbox') ? 'sandbox' : 'production',
+    });
+  }
+
   private async mapOwned(
     entity: UserProductSubscriptionEntity,
     extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1],
@@ -3231,4 +3358,11 @@ export class ProductSubscriptionsService {
     const [mapped] = await this.mapSubscriptionsWithRelations([entity], { extras });
     return mapped;
   }
+}
+
+function cashfreeMerchantSubscriptionId(
+  ...ids: Array<string | null | undefined>
+): string | undefined {
+  const values = ids.filter((id): id is string => Boolean(id));
+  return values.find((id) => id.startsWith('sub_')) ?? values[0];
 }

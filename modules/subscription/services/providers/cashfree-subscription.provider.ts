@@ -11,6 +11,10 @@ import {
   MandateCancelResult,
   MandateStatusSnapshot,
 } from '../../interfaces/subscription-mandate-provider.interface';
+import {
+  formatCashfreeScheduleDate,
+  nextCashfreeUpiScheduleDate,
+} from '../../utils/cashfree-schedule-date.util';
 import { mapCashfreeSubscriptionStatus } from '../../utils/subscription-mandate-status.util';
 
 /**
@@ -120,16 +124,25 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
   async charge(input: ChargeMandateInput): Promise<AutopayChargeResult> {
     this.assertConfigured();
     const subscriptionId = input.gatewaySubscriptionId || input.gatewayMandateId;
-    const scheduleDate = input.scheduleDate ?? this.defaultUpiScheduleDate();
+    const scheduleDate = input.scheduleDate ?? nextCashfreeUpiScheduleDate();
     try {
       const payment = await this.request('POST', '/subscriptions/pay', {
         subscription_id: subscriptionId,
         payment_id: input.idempotencyKey.slice(0, 50),
         payment_amount: Number(input.amount),
         payment_type: 'CHARGE',
-        payment_schedule_date: scheduleDate.toISOString(),
+        payment_schedule_date: formatCashfreeScheduleDate(scheduleDate),
       });
       const status = String(payment['payment_status'] ?? payment['status'] ?? '').toUpperCase();
+      if (!status) {
+        return {
+          accepted: true,
+          pending: true,
+          gatewayOrderId: String(payment['payment_id'] ?? '') || null,
+          gatewayPaymentId: String(payment['cf_payment_id'] ?? '') || null,
+          raw: payment,
+        };
+      }
       if (['SUCCESS', 'PAID'].includes(status)) {
         return {
           accepted: true,
@@ -157,7 +170,7 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/timeout|ECONNRESET|fetch failed|network/i.test(message)) {
+      if (/timeout|ECONNRESET|fetch failed|network|aborted|failed \(5\d\d\)/i.test(message)) {
         return { accepted: true, pending: true, failureReason: message };
       }
       return { accepted: false, pending: false, failureReason: message };
@@ -185,13 +198,18 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       const wanted = [params.gatewayOrderId, params.gatewayPaymentId].filter(
         (value): value is string => Boolean(value),
       );
-      const match = wanted.length
-        ? rows.find((row) => {
-            const paymentId = String(row['payment_id'] ?? '');
-            const cfPaymentId = String(row['cf_payment_id'] ?? '');
-            return wanted.includes(paymentId) || wanted.includes(cfPaymentId);
-          })
-        : singleCashfreePayment(rows);
+      if (!wanted.length) {
+        return {
+          state: 'unknown',
+          gatewayOrderId: params.gatewayOrderId,
+          gatewayPaymentId: params.gatewayPaymentId,
+        };
+      }
+      const match = rows.find((row) => {
+        const paymentId = String(row['payment_id'] ?? '');
+        const cfPaymentId = String(row['cf_payment_id'] ?? '');
+        return wanted.includes(paymentId) || wanted.includes(cfPaymentId);
+      });
       if (!match) {
         return {
           state: 'unknown',
@@ -238,12 +256,6 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     }
   }
 
-  private defaultUpiScheduleDate(): Date {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() + 1);
-    return date;
-  }
-
   private assertConfigured(): void {
     if (!this.isConfigured()) {
       throw new BadRequestException('Cashfree Subscriptions is not configured');
@@ -280,20 +292,6 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
   }
 }
 
-function singleCashfreePayment(rows: Record<string, unknown>[]): Record<string, unknown> | undefined {
-  const successes = rows.filter((row) =>
-    ['SUCCESS', 'PAID'].includes(String(row['payment_status'] ?? row['status'] ?? '').toUpperCase()),
-  );
-  if (successes.length === 1) return successes[0];
-  const pending = rows.filter((row) =>
-    ['INITIALIZED', 'PENDING', 'ACTIVE'].includes(
-      String(row['payment_status'] ?? row['status'] ?? '').toUpperCase(),
-    ),
-  );
-  if (successes.length === 0 && pending.length === 1) return pending[0];
-  return undefined;
-}
-
 function cashfreePaymentRows(payload: Record<string, unknown>): Record<string, unknown>[] {
   const payments = payload['payments'] ?? payload['data'];
   if (Array.isArray(payments)) return payments as Record<string, unknown>[];
@@ -304,10 +302,12 @@ function cashfreePaymentRows(payload: Record<string, unknown>): Record<string, u
 function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayChargeSnapshot {
   const status = String(payment['payment_status'] ?? payment['status'] ?? '').toUpperCase();
   const amount = Number(payment['payment_amount']);
+  const currency = cashfreePaymentCurrency(payment);
   const snapshot = {
     gatewayOrderId: String(payment['payment_id'] ?? '') || null,
     gatewayPaymentId: String(payment['cf_payment_id'] ?? '') || null,
     amount: Number.isFinite(amount) ? amount.toFixed(2) : null,
+    ...(currency ? { currency } : {}),
   };
   if (['SUCCESS', 'PAID'].includes(status)) return { ...snapshot, state: 'captured' };
   if (['FAILED', 'CANCELLED', 'USER_DROPPED'].includes(status)) {
@@ -319,4 +319,11 @@ function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayCharg
   }
   if (['INITIALIZED', 'PENDING', 'ACTIVE'].includes(status)) return { ...snapshot, state: 'pending' };
   return { ...snapshot, state: 'unknown' };
+}
+
+function cashfreePaymentCurrency(payment: Record<string, unknown>): string | null {
+  const value = payment['payment_currency'];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }

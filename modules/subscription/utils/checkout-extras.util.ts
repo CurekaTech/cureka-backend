@@ -42,7 +42,9 @@ export function paymentSessionIdFromLink(paymentLink: string | null): string | n
   try {
     const url = new URL(paymentLink);
     const fromQuery =
-      url.searchParams.get('payment_session_id') || url.searchParams.get('session_id');
+      url.searchParams.get('subscription_session_id') ||
+      url.searchParams.get('payment_session_id') ||
+      url.searchParams.get('session_id');
     if (fromQuery) return fromQuery;
     const parts = url.pathname.split('/').filter(Boolean);
     const orderIndex = parts.indexOf('order');

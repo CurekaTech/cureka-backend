@@ -129,7 +129,9 @@ export class SubscriptionMandateService {
         subscriptionPaymentId: params.notes?.subscriptionPaymentId ?? null,
         method:
           params.method === 'card' ? 'card' : params.method === 'emandate' ? 'emandate' : 'upi',
-        cardAuthOnly: params.method === 'card' || params.method === 'emandate',
+        cardAuthOnly:
+          provider === SubscriptionMandateProvider.RAZORPAY &&
+          (params.method === 'card' || params.method === 'emandate'),
       },
       createdBy: params.actor,
       updatedBy: params.actor,
@@ -354,6 +356,7 @@ export class SubscriptionMandateService {
     productMandateMaxAmount?: string | null;
     notes: Record<string, string>;
     method?: 'upi' | 'card' | 'emandate';
+    returnUrl?: string;
   }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession } | null> {
     if (
       !params.customer.phone ||
@@ -372,6 +375,7 @@ export class SubscriptionMandateService {
         authorizationAmount: params.amount,
         method: params.method,
         notes: params.notes,
+        returnUrl: params.returnUrl,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -418,15 +422,23 @@ export class SubscriptionMandateService {
     });
   }
 
+  async recordedFirstChargePaymentId(gatewaySubscriptionId: string): Promise<string | null> {
+    if (!gatewaySubscriptionId) return null;
+    const mandate =
+      (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
+      (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
+    if (!mandate || mandate.consentEvidence?.firstCharge !== true) return null;
+    const paymentId = mandate.consentEvidence.subscriptionPaymentId;
+    return typeof paymentId === 'string' && paymentId ? paymentId : null;
+  }
+
   async firstChargePaymentIdIfReady(gatewaySubscriptionId: string): Promise<string | null> {
     if (!gatewaySubscriptionId) return null;
     const mandate =
       (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
       (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
     if (!mandate || !isMandateAutopayReady(mandate.status)) return null;
-    if (mandate.consentEvidence?.firstCharge !== true) return null;
-    const paymentId = mandate.consentEvidence.subscriptionPaymentId;
-    return typeof paymentId === 'string' && paymentId ? paymentId : null;
+    return this.recordedFirstChargePaymentId(gatewaySubscriptionId);
   }
 
   /**
