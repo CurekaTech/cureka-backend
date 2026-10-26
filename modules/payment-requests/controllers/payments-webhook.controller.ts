@@ -346,6 +346,10 @@ export class PaymentsWebhookController {
       eventType: event,
     });
     if (!fresh && event.startsWith('token.')) {
+      if (event === 'token.confirmed') {
+        const duplicateToken = payloadData?.['token'] as { entity?: { id?: string } } | undefined;
+        await this.productSubscriptionsService.resumeCardProductCharge(duplicateToken?.entity?.id);
+      }
       return { received: true, event, requestId: req.id, duplicate: true };
     }
 

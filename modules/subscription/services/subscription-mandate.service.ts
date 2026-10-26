@@ -474,6 +474,7 @@ export class SubscriptionMandateService {
           ...(mandate.consentEvidence ?? {}),
           productChargeStartedAt: new Date().toISOString(),
           productChargeOrderId: result.gatewayOrderId,
+          ...(result.debitAttempted ? { productDebitSubmittedAt: new Date().toISOString() } : {}),
         },
         updatedBy: params.actor,
       });
@@ -491,6 +492,19 @@ export class SubscriptionMandateService {
     }
     await this.releaseCardChargeClaim(mandate);
     return result;
+  }
+
+  /** Records that create/recurring was already attempted for this card product order. */
+  async markCardDebitSubmitted(mandateId: string, actor: string): Promise<void> {
+    const mandate = await this.mandatesRepository.findById(mandateId);
+    if (!mandate || mandate.consentEvidence?.productDebitSubmittedAt) return;
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: {
+        ...(mandate.consentEvidence ?? {}),
+        productDebitSubmittedAt: new Date().toISOString(),
+      },
+      updatedBy: actor,
+    });
   }
 
   private async releaseCardChargeClaim(mandate: SubscriptionMandateEntity | null): Promise<void> {

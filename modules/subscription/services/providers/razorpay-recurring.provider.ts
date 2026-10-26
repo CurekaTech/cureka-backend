@@ -258,15 +258,24 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
         recurring: true,
         notes: input.notes,
       });
-      return snapshotToCharge(paymentSnapshot([payment], orderId) ?? {
-        state: 'unknown',
-        gatewayOrderId: orderId,
-        gatewayPaymentId: String(payment['id'] ?? '') || null,
-      }, orderId);
+      return {
+        ...snapshotToCharge(paymentSnapshot([payment], orderId) ?? {
+          state: 'unknown',
+          gatewayOrderId: orderId,
+          gatewayPaymentId: String(payment['id'] ?? '') || null,
+        }, orderId),
+        debitAttempted: true,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn({ orderId, error: message }, 'Razorpay recurring charge did not complete');
-      return { accepted: true, pending: true, gatewayOrderId: orderId, failureReason: message };
+      return {
+        accepted: true,
+        pending: true,
+        gatewayOrderId: orderId,
+        failureReason: message,
+        debitAttempted: true,
+      };
     }
   }
 
@@ -487,6 +496,7 @@ function paymentSnapshot(
     gatewayOrderId: orderId || String(chosen.item['order_id'] ?? chosen.item['razorpay_order_id'] ?? '') || null,
     gatewayPaymentId: String(chosen.item['id'] ?? chosen.item['razorpay_payment_id'] ?? '') || null,
     amount: rupeesFromPaise(chosen.item['amount']),
+    currency: typeof chosen.item['currency'] === 'string' ? chosen.item['currency'] : null,
     failureReason:
       chosen.state === 'failed'
         ? String(chosen.item['error_description'] ?? chosen.item['status'] ?? 'Razorpay recurring payment failed')
