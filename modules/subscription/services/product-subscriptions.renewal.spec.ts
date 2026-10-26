@@ -51,7 +51,17 @@ describe('Product subscription Razorpay UPI renewal', () => {
   const charge = jest.fn();
   const submitRecurringDebit = jest.fn();
   const fetchChargeStatus = jest.fn();
-  const listOrderCharge = jest.fn(async (): Promise<{ outcome: string; snapshot?: { state: string; gatewayPaymentId?: string } }> => ({
+  const listOrderCharge = jest.fn(async (): Promise<{
+    outcome: string;
+    snapshot?: {
+      state: string;
+      gatewayPaymentId?: string | null;
+      gatewayOrderId?: string | null;
+      amount?: string | null;
+      currency?: string | null;
+      failureReason?: string | null;
+    };
+  }> => ({
     outcome: 'unknown',
   }));
   const mandateService = {
@@ -71,6 +81,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     confirmFromAuthorizationPayment: jest.fn(),
     chargeCardProduct: jest.fn(),
     findByGatewayMandateId: jest.fn(),
+    markCardDebitSubmitted: jest.fn(),
     revokeForSubscription: jest.fn(),
   };
   const usersRepository = { findById: jest.fn() };
@@ -116,6 +127,12 @@ describe('Product subscription Razorpay UPI renewal', () => {
     {} as never,
     ordersService as never,
   );
+
+  function settle(subscriptionId?: string) {
+    return (service as unknown as {
+      settleReconcilingPayments: (id?: string) => Promise<void>;
+    }).settleReconcilingPayments(subscriptionId);
+  }
 
   function renew(subscriptionId: string, asOf = new Date()) {
     return (service as unknown as {
@@ -821,6 +838,398 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
   });
 
+  it('creates one product charge and one order when the ₹2 card payment is captured', async () => {
+    mandateService.findByGatewayMandateId.mockResolvedValue(cardMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    paymentsService.findById.mockResolvedValue({
+      ...openCardPayment(),
+      billingCycleId: 'cycle-1',
+      paymentGateway: 'RAZORPAY',
+    });
+    mandateService.chargeCardProduct.mockResolvedValue({
+      accepted: true,
+      pending: false,
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_product',
+    });
+    paymentsService.markPaidIdempotent.mockResolvedValue({
+      payment: {
+        ...openCardPayment(),
+        status: SubscriptionPaymentStatus.PAID,
+        paymentGateway: 'RAZORPAY',
+        billingCycleId: 'cycle-1',
+        gatewayOrderId: 'order_product',
+        gatewayPaymentId: 'pay_product',
+      },
+      newlyPaid: true,
+    });
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+
+    await service.collectCardProductAfterTokenConfirmed('token_1');
+
+    expect(mandateService.chargeCardProduct).toHaveBeenCalledTimes(1);
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).toHaveBeenCalledTimes(1);
+    expect(subscriptionsRepository.updateById).toHaveBeenCalledWith(
+      'sub-1',
+      expect.objectContaining({ status: ProductSubscriptionStatus.ACTIVE }),
+    );
+  });
+
+  it('debits an existing card product order once when Razorpay confirms it has no payment', async () => {
+    const payment = {
+      ...openCardPayment(),
+      status: SubscriptionPaymentStatus.RECONCILING,
+      gatewayOrderId: 'order_product',
+      paymentGateway: 'RAZORPAY',
+      currency: 'INR',
+    };
+    paymentsService.listReconciling.mockResolvedValue([payment]);
+    mandateService.getForSubscription.mockResolvedValue({
+      ...cardMandate(),
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+    });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    listOrderCharge
+      .mockResolvedValueOnce({ outcome: 'absent' })
+      .mockResolvedValueOnce({ outcome: 'absent' })
+      .mockResolvedValue({
+        outcome: 'found',
+        snapshot: {
+          state: 'pending',
+          amount: '2.00',
+          currency: 'INR',
+          gatewayOrderId: 'order_product',
+          gatewayPaymentId: 'pay_product',
+        },
+      });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_product',
+    });
+
+    await settle('sub-1');
+    await settle('sub-1');
+
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
+    expect(submitRecurringDebit).toHaveBeenCalledWith(
+      expect.objectContaining({ gatewayOrderId: 'order_product', amount: '2.00', currency: 'INR' }),
+    );
+    expect(mandateService.chargeCardProduct).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('does not debit or fail a card product order when its payment list cannot be read', async () => {
+    paymentsService.listReconciling.mockResolvedValue([
+      {
+        ...openCardPayment(),
+        status: SubscriptionPaymentStatus.RECONCILING,
+        gatewayOrderId: 'order_product',
+        paymentGateway: 'RAZORPAY',
+      },
+    ]);
+    mandateService.getForSubscription.mockResolvedValue(cardMandate());
+    listOrderCharge.mockResolvedValue({ outcome: 'unknown' });
+
+    await settle('sub-1');
+    await settle('sub-1');
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('does not debit again when the existing ₹2 card payment is still pending', async () => {
+    paymentsService.listReconciling.mockResolvedValue([
+      {
+        ...openCardPayment(),
+        status: SubscriptionPaymentStatus.RECONCILING,
+        gatewayOrderId: 'order_product',
+        gatewayPaymentId: 'pay_product',
+        paymentGateway: 'RAZORPAY',
+      },
+    ]);
+    mandateService.getForSubscription.mockResolvedValue(cardMandate());
+    listOrderCharge.mockResolvedValue({
+      outcome: 'found',
+      snapshot: {
+        state: 'pending',
+        amount: '2.00',
+        currency: 'INR',
+        gatewayOrderId: 'order_product',
+        gatewayPaymentId: 'pay_product',
+      },
+    });
+
+    await settle('sub-1');
+    await settle('sub-1');
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(paymentsService.markPaidIdempotent).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('creates one order from a captured ₹2 card payment and does not charge on a second pass', async () => {
+    const payment = {
+      ...openCardPayment(),
+      status: SubscriptionPaymentStatus.RECONCILING,
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_product',
+      paymentGateway: 'RAZORPAY',
+      billingCycleId: 'cycle-1',
+      currency: 'INR',
+    };
+    let calls = 0;
+    paymentsService.listReconciling.mockImplementation(async () => (calls === 0 ? [payment] : []));
+    paymentsService.findById.mockResolvedValue(payment);
+    mandateService.getForSubscription.mockResolvedValue(cardMandate());
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+    listOrderCharge.mockResolvedValue({
+      outcome: 'found',
+      snapshot: {
+        state: 'captured',
+        amount: '2.00',
+        currency: 'INR',
+        gatewayOrderId: 'order_product',
+        gatewayPaymentId: 'pay_product',
+      },
+    });
+    paymentsService.markPaidIdempotent.mockImplementation(async () => {
+      calls += 1;
+      payment.status = SubscriptionPaymentStatus.PAID;
+      return { payment, newlyPaid: calls === 1 };
+    });
+
+    await settle('sub-1');
+    await settle('sub-1');
+
+    expect(ordersService.createOrderFromSubscription).toHaveBeenCalledTimes(1);
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(mandateService.chargeCardProduct).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a captured ₹1 registration as the product payment when its amount is missing', async () => {
+    paymentsService.listReconciling.mockResolvedValue([
+      {
+        ...openCardPayment(),
+        status: SubscriptionPaymentStatus.RECONCILING,
+        gatewayOrderId: 'order_auth',
+        gatewayPaymentId: 'pay_auth',
+        paymentGateway: 'RAZORPAY',
+      },
+    ]);
+    mandateService.getForSubscription.mockResolvedValue(cardMandate());
+    fetchChargeStatus.mockResolvedValue({
+      state: 'captured',
+      gatewayOrderId: 'order_auth',
+      gatewayPaymentId: 'pay_auth',
+    });
+    const lookupChargeByReceipt = jest.fn().mockResolvedValue({ outcome: 'unknown' });
+    mandateService.adapter.mockImplementation(() => ({
+      isConfigured: () => true,
+      charge,
+      submitRecurringDebit,
+      fetchChargeStatus,
+      listOrderCharge,
+      lookupChargeByReceipt,
+    }));
+
+    await settle('sub-1');
+
+    expect(paymentsService.markPaidIdempotent).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('does not start a second product charge when token.confirmed is repeated after the claim', async () => {
+    mandateService.findByGatewayMandateId.mockResolvedValue({
+      ...cardMandate(),
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+    });
+    paymentsService.findById.mockResolvedValue({
+      ...openCardPayment(),
+      status: SubscriptionPaymentStatus.RECONCILING,
+      gatewayOrderId: 'order_product',
+      paymentGateway: 'RAZORPAY',
+    });
+    mandateService.getForSubscription.mockResolvedValue({
+      ...cardMandate(),
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+    });
+    listOrderCharge.mockResolvedValue({
+      outcome: 'found',
+      snapshot: {
+        state: 'pending',
+        amount: '2.00',
+        currency: 'INR',
+        gatewayPaymentId: 'pay_product',
+        gatewayOrderId: 'order_product',
+      },
+    });
+
+    await service.resumeCardProductCharge('token_1');
+    await service.resumeCardProductCharge('token_1');
+
+    expect(mandateService.chargeCardProduct).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('debits the saved product order once when the charge was claimed before that order id was stored', async () => {
+    const payment = {
+      ...openCardPayment(),
+      status: SubscriptionPaymentStatus.RECONCILING,
+      gatewayOrderId: 'order_auth',
+      gatewayPaymentId: 'pay_auth',
+      paymentGateway: 'RAZORPAY',
+      currency: 'INR',
+    };
+    paymentsService.listReconciling.mockResolvedValue([payment]);
+    mandateService.getForSubscription.mockResolvedValue({
+      ...cardMandate(),
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+    });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    const lookupChargeByReceipt = jest.fn().mockResolvedValue({
+      outcome: 'found',
+      snapshot: { state: 'unknown', gatewayOrderId: 'order_product' },
+    });
+    mandateService.adapter.mockImplementation(() => ({
+      isConfigured: () => true,
+      charge,
+      submitRecurringDebit,
+      fetchChargeStatus,
+      listOrderCharge,
+      lookupChargeByReceipt,
+    }));
+    listOrderCharge
+      .mockResolvedValueOnce({ outcome: 'absent' })
+      .mockResolvedValueOnce({ outcome: 'absent' });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_product',
+    });
+
+    await settle('sub-1');
+
+    expect(mandateService.chargeCardProduct).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
+    expect(submitRecurringDebit).toHaveBeenCalledWith(
+      expect.objectContaining({ gatewayOrderId: 'order_product' }),
+    );
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('marks a failed ₹2 card payment retryable and does not debit it again', async () => {
+    const payment = {
+      ...openCardPayment(),
+      status: SubscriptionPaymentStatus.RECONCILING,
+      gatewayOrderId: 'order_product',
+      gatewayPaymentId: 'pay_failed',
+      paymentGateway: 'RAZORPAY',
+      refId: 'spay-1',
+      retryCount: 0,
+    };
+    paymentsService.listReconciling.mockResolvedValue([payment]);
+    paymentsService.findBySubscriptionId.mockResolvedValue([
+      { ...payment, status: SubscriptionPaymentStatus.FAILED },
+    ]);
+    mandateService.getForSubscription.mockResolvedValue(cardMandate());
+    listOrderCharge.mockResolvedValue({
+      outcome: 'found',
+      snapshot: {
+        state: 'failed',
+        amount: '2.00',
+        currency: 'INR',
+        gatewayOrderId: 'order_product',
+        gatewayPaymentId: 'pay_failed',
+        failureReason: 'The card was declined',
+      },
+    });
+    subscriptionsRepository.findByIdAndUserId.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT, autopayReady: true }),
+    );
+    paymentLinkService.createPaymentLink.mockResolvedValue({
+      paymentLink: 'https://pay.example/retry',
+      gatewayOrderId: 'order_retry',
+      paymentGateway: 'RAZORPAY',
+      currency: 'INR',
+    });
+
+    await settle('sub-1');
+    await service.retryPayment('user-1', 'sub-1');
+
+    expect(paymentsService.markFailed).toHaveBeenCalledWith(
+      'pay-row-1',
+      'The card was declined',
+      'payment-reconcile',
+    );
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(mandateService.chargeCardProduct).not.toHaveBeenCalled();
+    expect(paymentLinkService.createPaymentLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not debit a cancelled subscription while its first payment is still reconciling', async () => {
+    paymentsService.listReconciling.mockResolvedValue([
+      {
+        ...openCardPayment(),
+        status: SubscriptionPaymentStatus.RECONCILING,
+        gatewayOrderId: 'order_product',
+        paymentGateway: 'RAZORPAY',
+      },
+    ]);
+    subscriptionsRepository.findById.mockResolvedValueOnce(
+      subscription({ status: ProductSubscriptionStatus.CANCELLED, autopayReady: false }),
+    );
+
+    await settle('sub-1');
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(mandateService.chargeCardProduct).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('does not debit a product order again after create/recurring was already attempted', async () => {
+    paymentsService.listReconciling.mockResolvedValue([
+      {
+        ...openCardPayment(),
+        status: SubscriptionPaymentStatus.RECONCILING,
+        gatewayOrderId: 'order_product',
+        paymentGateway: 'RAZORPAY',
+      },
+    ]);
+    mandateService.getForSubscription.mockResolvedValue({
+      ...cardMandate(),
+      consentEvidence: {
+        ...cardMandate().consentEvidence,
+        productChargeOrderId: 'order_product',
+        productDebitSubmittedAt: '2026-10-26T07:15:00.000Z',
+      },
+    });
+    listOrderCharge.mockResolvedValue({ outcome: 'absent' });
+
+    await settle('sub-1');
+    await settle('sub-1');
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
   it('recovers when Razorpay confirms no product order exists, and creates one retry link', async () => {
     const payment = {
       ...openCardPayment(),
@@ -1462,6 +1871,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
       expect.objectContaining({
         status: ProductSubscriptionStatus.CANCELLED,
         autopayReady: false,
+        nextBillingDate: null,
+        nextDeliveryDate: null,
         cancellationReason: 'No longer need the product',
       }),
     );

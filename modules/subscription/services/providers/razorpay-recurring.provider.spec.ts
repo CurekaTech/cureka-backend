@@ -143,6 +143,7 @@ describe('RazorpayRecurringProvider UPI renewal', () => {
       accepted: true,
       pending: true,
       gatewayOrderId: 'order_due',
+      debitAttempted: true,
     });
 
     jest.spyOn(global, 'fetch')

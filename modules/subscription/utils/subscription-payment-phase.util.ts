@@ -35,6 +35,12 @@ export function resolveSubscriptionPaymentPhase(input: {
   }>;
 }): SubscriptionPaymentPhaseResult {
   const payments = input.payments ?? [];
+  if (
+    input.status === ProductSubscriptionStatus.CANCELLED ||
+    input.status === ProductSubscriptionStatus.EXPIRED
+  ) {
+    return { phase: 'AWAITING_AUTHORIZATION', orderId: null, retryAllowed: false };
+  }
   const pendingSubscription = PENDING_SUBSCRIPTION.has(input.status);
   if (payments.some((payment) => payment.status === SubscriptionPaymentStatus.RECONCILING)) {
     return { phase: 'RECONCILING', orderId: null, retryAllowed: false };

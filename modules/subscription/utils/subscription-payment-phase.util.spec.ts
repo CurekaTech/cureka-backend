@@ -35,6 +35,16 @@ describe('subscription payment phase', () => {
     ).toBe(false);
   });
 
+  it('does not keep a cancelled subscription in payment processing', () => {
+    expect(
+      resolveSubscriptionPaymentPhase({
+        status: ProductSubscriptionStatus.CANCELLED,
+        autopayReady: true,
+        payments: [{ status: SubscriptionPaymentStatus.RECONCILING, gatewayPaymentId: 'pay_product' }],
+      }),
+    ).toEqual({ phase: 'AWAITING_AUTHORIZATION', orderId: null, retryAllowed: false });
+  });
+
   it('allows retry only after the product payment has failed', () => {
     expect(
       resolveSubscriptionPaymentPhase({

@@ -29,6 +29,11 @@ export type AutopayChargeResult = {
   gatewayOrderId?: string | null;
   gatewayPaymentId?: string | null;
   failureReason?: string | null;
+  /**
+   * True only after this call attempted POST /payments/create/recurring.
+   * An unreadable payment list is not an attempt. A later empty list may debit once.
+   */
+  debitAttempted?: boolean;
   raw?: Record<string, unknown>;
 };
 
@@ -46,6 +51,8 @@ export type GatewayChargeSnapshot = {
   gatewayPaymentId?: string | null;
   /** Rupees, when the gateway included an amount. A mismatch must not be treated as the product payment. */
   amount?: string | null;
+  /** Present when Razorpay included it. A different currency is not the product payment. */
+  currency?: string | null;
   failureReason?: string | null;
 };
 
