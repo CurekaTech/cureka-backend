@@ -61,6 +61,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
       submitRecurringDebit,
       fetchChargeStatus,
       listOrderCharge,
+    })),
     resolveChargeProvider: jest.fn(() => SubscriptionMandateProvider.RAZORPAY),
     canPresentAsAutopay: jest.fn(() => true),
     getForSubscription: jest.fn(),
@@ -70,7 +71,6 @@ describe('Product subscription Razorpay UPI renewal', () => {
     confirmFromAuthorizationPayment: jest.fn(),
     chargeCardProduct: jest.fn(),
     findByGatewayMandateId: jest.fn(),
-  };
     revokeForSubscription: jest.fn(),
   };
   const usersRepository = { findById: jest.fn() };
@@ -82,6 +82,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     notifyActivated: jest.fn(),
     notifyPaymentLinkCreated: jest.fn(),
     notifyCancelled: jest.fn(),
+  };
   const historyRepository = { append: jest.fn() };
   const relationLoader = {
     loadUsersByIds: jest.fn().mockResolvedValue(new Map()),
@@ -122,7 +123,6 @@ describe('Product subscription Razorpay UPI renewal', () => {
     }).processSingleRenewal(subscriptionId, asOf);
   }
 
-  beforeEach(() => {
   function cycleUpdates(id: string): string[] {
     return billingCycleService.updateById.mock.calls
       .filter((call: [string, { status?: string }]) => call[0] === id)
@@ -1359,11 +1359,60 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(submitRecurringDebit).not.toHaveBeenCalled();
     expect(charge).not.toHaveBeenCalled();
     expect(listOrderCharge).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(paymentsService.markReconciling).toHaveBeenCalledWith('pay-row-1', 'scheduler-reconcile');
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-27h',
+      expect.objectContaining({
+        status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+        debitEarliestAt: nextDebit,
+        failureReason: null,
+      }),
+    );
+    expect(subscriptionsRepository.updateById).not.toHaveBeenCalled();
+  });
+
+  it('keeps a failed debit failed once its scheduled time has passed', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.FAILED,
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        frequency: ProductSubscriptionFrequency.HOURS_27,
+        nextBillingDate: nextDebit,
+        status: ProductSubscriptionStatus.ACTIVE,
+      }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    billingCycleService.getOrCreate.mockResolvedValue(cycle);
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    paymentsService.findById.mockResolvedValue({
+      ...notifiedPayment(),
+      gatewayPaymentId: 'pay_failed',
+      status: SubscriptionPaymentStatus.FAILED,
+      attemptKind: SubscriptionPaymentAttemptKind.AUTOPAY,
+    });
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    fetchChargeStatus.mockResolvedValue({
+      state: 'failed',
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_failed',
+      failureReason: 'Declined by the bank',
+    });
+
+    await renew('sub-1', new Date(nextDebit.getTime() + 60_000));
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
     expect(paymentsService.markFailed).toHaveBeenCalledWith(
       'pay-row-1',
       'Declined by the bank',
       'scheduler-reconcile',
     );
+    expect(paymentsService.markReconciling).not.toHaveBeenCalled();
   });
 
   it('leaves a failed cycle unchanged when Razorpay cannot list the order', async () => {
@@ -1491,6 +1540,7 @@ function retryRow(state: {
   };
 }
 
+function subscription(overrides: Record<string, unknown> = {}) {
   return {
     id: 'sub-1',
     userId: 'user-1',

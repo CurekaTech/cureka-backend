@@ -2022,7 +2022,7 @@ export class ProductSubscriptionsService {
       }
       const paymentId = current.paymentId ?? cycle.paymentId ?? null;
       const payment = paymentId ? await this.paymentsService.findById(paymentId) : null;
-      if (!payment?.gatewayOrderId || payment.gatewayPaymentId) return;
+      if (!payment?.gatewayOrderId) return;
       const mandate = await this.mandateService.getForSubscription(sub.id);
       if (!mandate?.gatewayCustomerId || !mandate.gatewayMandateId) return;
       const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
@@ -2036,6 +2036,7 @@ export class ProductSubscriptionsService {
         amount: payment.amount,
         receipt: payment.refId,
         idempotencyKey: payment.refId,
+        retryFailedPayments: true,
         customer: { email: user?.email ?? null, phone: user?.mobileNumber ?? '' },
         notes: buildSubscriptionGatewayNotes({
           paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
@@ -2089,7 +2090,7 @@ export class ProductSubscriptionsService {
     if (listed.outcome === 'unknown') return;
     if (listed.outcome === 'found') {
       const payment = cycle.paymentId ? await this.paymentsService.findById(cycle.paymentId) : null;
-      if (payment) await this.applyReconciledUpiCharge(sub, cycle, payment, listed.snapshot);
+      if (payment) await this.applyReconciledUpiCharge(sub, cycle, payment, listed.snapshot, new Date());
       return;
     }
     await this.collectNotifiedUpiDebit(sub, cycle);
@@ -2122,7 +2123,7 @@ export class ProductSubscriptionsService {
         gatewayPaymentId: payment.gatewayPaymentId,
       });
       if (snapshot.state === 'unknown' && !snapshot.gatewayPaymentId) return 'stop';
-      await this.applyReconciledUpiCharge(sub, cycle, payment, snapshot);
+      await this.applyReconciledUpiCharge(sub, cycle, payment, snapshot, asOfDate);
       return 'stop';
     }
     if (payment?.gatewayOrderId) {
@@ -2131,7 +2132,7 @@ export class ProductSubscriptionsService {
       const listed = await adapter.listOrderCharge(payment.gatewayOrderId);
       if (listed.outcome === 'unknown') return 'stop';
       if (listed.outcome === 'found') {
-        await this.applyReconciledUpiCharge(sub, cycle, payment, listed.snapshot);
+        await this.applyReconciledUpiCharge(sub, cycle, payment, listed.snapshot, asOfDate);
         return 'stop';
       }
       const dueAt = cycle.debitEarliestAt ?? cycle.chargeDate ?? null;
@@ -2166,7 +2167,19 @@ export class ProductSubscriptionsService {
       amount?: string | null;
       failureReason?: string | null;
     },
+    asOfDate: Date,
   ): Promise<void> {
+    const dueAt = cycle.debitEarliestAt ?? cycle.chargeDate ?? null;
+    if (snapshot.state === 'failed' && dueAt && dueAt.getTime() > asOfDate.getTime()) {
+      await this.paymentsService.markReconciling(payment.id, 'scheduler-reconcile');
+      await this.billingCycleService.updateById(cycle.id, {
+        status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+        failureReason: null,
+        debitEarliestAt: dueAt,
+        updatedBy: 'scheduler-reconcile',
+      });
+      return;
+    }
     if (snapshot.gatewayPaymentId) {
       await this.paymentsService.recordProviderCharge(payment.id, {
         gatewayOrderId: snapshot.gatewayOrderId ?? payment.gatewayOrderId ?? '',

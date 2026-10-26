@@ -242,6 +242,43 @@ describe('RazorpayRecurringProvider UPI renewal', () => {
     expect(String(fetchMock.mock.calls[1][0])).toContain('/orders/order_product/payments');
   });
 
+  it('retries one recurring debit when the only payment failed before the scheduled time', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: 'pay_old', status: 'failed', amount: 200 }] }) as never)
+      .mockResolvedValueOnce(jsonResponse({ id: 'pay_new', status: 'created', amount: 200 }) as never);
+
+    const result = await provider.submitRecurringDebit({
+      gatewayOrderId: 'order_27h',
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+      amount: '2.00',
+      receipt: 'spay-27h',
+      idempotencyKey: 'local-key-not-sent',
+      retryFailedPayments: true,
+      customer: { email: 'a@example.com', phone: '9000000000' },
+      notes: { paymentPurpose: 'PRODUCT_SUBSCRIPTION' },
+    });
+
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes('/payments/create/recurring'))).toHaveLength(1);
+    expect(result).toMatchObject({ gatewayOrderId: 'order_27h', gatewayPaymentId: 'pay_new', pending: true });
+
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({ items: [{ id: 'pay_old', status: 'failed', amount: 200 }] }) as never,
+    );
+    const kept = await provider.submitRecurringDebit({
+      gatewayOrderId: 'order_27h',
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+      amount: '2.00',
+      receipt: 'spay-27h',
+      idempotencyKey: 'local-key-not-sent',
+      customer: { email: 'a@example.com', phone: '9000000000' },
+      notes: { paymentPurpose: 'PRODUCT_SUBSCRIPTION' },
+    });
+    expect(kept).toMatchObject({ accepted: false, gatewayPaymentId: 'pay_old' });
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes('/payments/create/recurring'))).toHaveLength(1);
+  });
+
   it('distinguishes an empty order from an unreadable order without debiting', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValueOnce(
       jsonResponse({ items: [] }) as never,

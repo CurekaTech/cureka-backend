@@ -230,7 +230,7 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
    * A payment already on the order is returned instead of creating another one.
    */
   async submitRecurringDebit(
-    input: ChargeMandateInput & { gatewayOrderId: string },
+    input: ChargeMandateInput & { gatewayOrderId: string; retryFailedPayments?: boolean },
   ): Promise<AutopayChargeResult> {
     this.assertConfigured();
     const orderId = input.gatewayOrderId;
@@ -244,7 +244,8 @@ export class RazorpayRecurringProvider implements ISubscriptionMandateProvider {
       };
     }
     const open = paymentSnapshot(existing, orderId);
-    if (open) return snapshotToCharge(open, orderId);
+    const prematureFailure = Boolean(input.retryFailedPayments && open?.state === 'failed');
+    if (open && !prematureFailure) return snapshotToCharge(open, orderId);
     try {
       const payment = await this.request('POST', '/payments/create/recurring', {
         email: input.customer.email || undefined,
