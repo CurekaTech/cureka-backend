@@ -9,6 +9,7 @@ import { MembershipsService } from '@modules/subscription/services/memberships.s
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { SubscriptionMandateService } from '@modules/subscription/services/subscription-mandate.service';
 import { SubscriptionWebhookEventsRepository } from '@modules/subscription/repositories/subscription-webhook-events.repository';
+import { readCashfreeSubscriptionWebhook } from '@modules/subscription/utils/cashfree-subscription-webhook.util';
 import { mapCashfreeSubscriptionStatus, mapRazorpayTokenStatus } from '@modules/subscription/utils/subscription-mandate-status.util';
 import { razorpaySubscriptionEventSettlesPayment } from '@modules/subscription/utils/razorpay-upi-debit.util';
 import { PaymentRequestsService } from '../services/payment-requests.service';
@@ -190,14 +191,19 @@ export class PaymentsWebhookController {
       eventType === 'SUBSCRIPTION_PAYMENT_FAILED' ||
       eventType === 'SUBSCRIPTION_PAYMENT_CANCELLED'
     ) {
-      const subscriptionData = (data?.['subscription'] ?? payload['subscription'] ?? {}) as Record<string, unknown>;
-      const tags = (subscriptionData['subscription_tags'] ?? {}) as Record<string, unknown>;
-      const merchantSubscriptionId = String(subscriptionData['subscription_id'] ?? '');
-      const cfSubscriptionId = String(subscriptionData['cf_subscription_id'] ?? '');
-      const subscriptionStatus = String(subscriptionData['subscription_status'] ?? '');
-      const subscriptionPaymentId = String(tags['subscriptionPaymentId'] ?? '') || undefined;
+      const subscription = readCashfreeSubscriptionWebhook(payload);
+      const merchantSubscriptionId = subscription.merchantSubscriptionId;
+      const cfSubscriptionId = subscription.cfSubscriptionId;
+      const subscriptionStatus = subscription.subscriptionStatus;
+      const subscriptionPaymentId = subscription.subscriptionPaymentId;
+      const subscriptionCfPaymentId = subscription.cfPaymentId || (cfPaymentId ? String(cfPaymentId) : '');
       const eventId = String(
-        payload['event_time'] ?? cfPaymentId ?? cfSubscriptionId ?? eventType,
+        subscriptionCfPaymentId ||
+          subscription.paymentId ||
+          cfSubscriptionId ||
+          merchantSubscriptionId ||
+          payload['event_time'] ||
+          eventType,
       );
       this.logger.log(
         {
@@ -207,8 +213,11 @@ export class PaymentsWebhookController {
           cfSubscriptionId: cfSubscriptionId || null,
           subscriptionStatus: subscriptionStatus || null,
           subscriptionPaymentId: subscriptionPaymentId ?? null,
-          cfPaymentId: cfPaymentId ? String(cfPaymentId) : null,
-          paymentStatus: paymentData?.['payment_status'] ?? null,
+          cfPaymentId: subscriptionCfPaymentId || null,
+          paymentId: subscription.paymentId || null,
+          paymentStatus: subscription.paymentStatus || paymentData?.['payment_status'] || null,
+          paymentType: subscription.paymentType || null,
+          paymentAmount: subscription.paymentAmount,
         },
         'Cashfree subscription webhook received',
       );
@@ -225,9 +234,7 @@ export class PaymentsWebhookController {
       } else if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
         if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
           await this.productSubscriptionsService.handlePaymentFailed({
-            gatewayOrderId: String(
-              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
-            ),
+            gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
             reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
             actor: 'cashfree-subscription-webhook',
           });
@@ -236,12 +243,27 @@ export class PaymentsWebhookController {
             'Cashfree subscription payment failed, so no order was created',
           );
         } else {
+          if (subscriptionStatus) {
+            await this.subscriptionMandateService.handleProviderWebhook({
+              provider: SubscriptionMandateProvider.CASHFREE,
+              gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+              authorizationOrderId: merchantSubscriptionId || undefined,
+              gatewayPaymentId: subscriptionCfPaymentId || undefined,
+              status: mapCashfreeSubscriptionStatus(subscriptionStatus),
+              actor: 'cashfree-webhook',
+              raw: payload,
+            });
+          }
+          const paymentId =
+            subscriptionPaymentId ||
+            (await this.subscriptionMandateService.firstChargePaymentIdIfReady(
+              merchantSubscriptionId || cfSubscriptionId,
+            )) ||
+            undefined;
           const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
-            paymentId: subscriptionPaymentId,
-            gatewayOrderId: String(
-              paymentData?.['payment_id'] ?? subscriptionData['subscription_id'] ?? orderId ?? '',
-            ),
-            gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+            paymentId,
+            gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
+            gatewayPaymentId: subscriptionCfPaymentId || undefined,
             gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
             actor: 'cashfree-subscription-webhook',
           });
