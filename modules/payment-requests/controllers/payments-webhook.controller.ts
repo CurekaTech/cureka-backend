@@ -197,14 +197,15 @@ export class PaymentsWebhookController {
       const subscriptionStatus = subscription.subscriptionStatus;
       const subscriptionPaymentId = subscription.subscriptionPaymentId;
       const subscriptionCfPaymentId = subscription.cfPaymentId || (cfPaymentId ? String(cfPaymentId) : '');
-      const eventId = String(
+      const eventId = [
+        subscription.subscriptionStatus || subscription.paymentStatus || 'event',
         subscriptionCfPaymentId ||
           subscription.paymentId ||
           cfSubscriptionId ||
           merchantSubscriptionId ||
-          payload['event_time'] ||
-          eventType,
-      );
+          'none',
+        String(payload['event_time'] ?? ''),
+      ].join(':');
       this.logger.log(
         {
           eventType,
@@ -256,7 +257,7 @@ export class PaymentsWebhookController {
           }
           const paymentId =
             subscriptionPaymentId ||
-            (await this.subscriptionMandateService.firstChargePaymentIdIfReady(
+            (await this.subscriptionMandateService.recordedFirstChargePaymentId(
               merchantSubscriptionId || cfSubscriptionId,
             )) ||
             undefined;
@@ -274,6 +275,62 @@ export class PaymentsWebhookController {
               : 'Cashfree subscription payment was not settled, so no order was created',
           );
         }
+      } else if (
+        eventType === 'SUBSCRIPTION_AUTH_STATUS' &&
+        subscription.paymentStatus.toUpperCase() === 'SUCCESS'
+      ) {
+        if (subscriptionStatus) {
+          await this.subscriptionMandateService.handleProviderWebhook({
+            provider: SubscriptionMandateProvider.CASHFREE,
+            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+            authorizationOrderId: merchantSubscriptionId || undefined,
+            gatewayPaymentId: subscriptionCfPaymentId || undefined,
+            status: mapCashfreeSubscriptionStatus(subscriptionStatus),
+            actor: 'cashfree-webhook',
+            raw: payload,
+          });
+        } else {
+          this.logger.log(
+            {
+              eventType,
+              merchantSubscriptionId: merchantSubscriptionId || null,
+              cfSubscriptionId: cfSubscriptionId || null,
+              paymentStatus: subscription.paymentStatus,
+              requestId: req.id,
+            },
+            'Cashfree authorization succeeded without a subscription status, so the mandate status was left unchanged',
+          );
+        }
+        const paymentId =
+          subscriptionPaymentId ||
+          (await this.subscriptionMandateService.recordedFirstChargePaymentId(
+            merchantSubscriptionId || cfSubscriptionId,
+          )) ||
+          undefined;
+        const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+          paymentId,
+          gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
+          gatewayPaymentId: subscriptionCfPaymentId || undefined,
+          gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+          actor: 'cashfree-subscription-webhook',
+        });
+        this.logger.log(
+          { settled, subscriptionPaymentId: paymentId ?? null, cfSubscriptionId, requestId: req.id },
+          settled
+            ? 'Cashfree authorization payment settled'
+            : 'Cashfree authorization payment was not settled, so no order was created',
+        );
+      } else if (!subscriptionStatus) {
+        this.logger.log(
+          {
+            eventType,
+            merchantSubscriptionId: merchantSubscriptionId || null,
+            cfSubscriptionId: cfSubscriptionId || null,
+            paymentStatus: subscription.paymentStatus || null,
+            requestId: req.id,
+          },
+          'Cashfree subscription webhook had no status, so the mandate was left unchanged',
+        );
       } else {
         const mandateMatched = await this.subscriptionMandateService.handleProviderWebhook({
           provider: SubscriptionMandateProvider.CASHFREE,
