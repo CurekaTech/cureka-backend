@@ -60,7 +60,7 @@ import {
   isCycleInFlight,
 } from '../utils/subscription-cycle-guard.util';
 import { assertProductFrequenciesAllowed, isSubscriptionTestTenuresEnabled, TEST_PRODUCT_FREQUENCIES } from '../utils/subscription-test-tenures.util';
-import { razorpayUpiDebitAt } from '../utils/razorpay-upi-debit.util';
+import { razorpayUpiDebitAt, UPI_DEBIT_ABSENT_RETRY_MS } from '../utils/razorpay-upi-debit.util';
 import { resolveSubscriptionPaymentPhase } from '../utils/subscription-payment-phase.util';
 import { IUserProductSubscription } from '../interfaces/product-subscription.interface';
 import { MembershipBenefitsApplicationService } from './membership-benefits-application.service';
@@ -686,6 +686,7 @@ export class ProductSubscriptionsService {
     ) {
       throw new BadRequestException('Subscription is already ended');
     }
+    await this.mandateService.revokeForSubscription(id, userId);
     await this.subscriptionsRepository.updateById(id, {
       status: ProductSubscriptionStatus.CANCELLED,
       cancellationDate: new Date(),
@@ -1293,13 +1294,23 @@ export class ProductSubscriptionsService {
         payments: bySubscription.get(item.id) ?? [],
       }),
     );
+    const missingOrderIds = items
+      .filter((item, index) => phases[index].phase === 'PRODUCT_CONFIRMED' && !phases[index].orderId)
+      .map((item) => item.id);
+    const cycleOrders = missingOrderIds.length
+      ? await this.billingCycleService.latestOrderIdsBySubscription(missingOrderIds)
+      : new Map<string, string>();
+    const orderIds = items.map(
+      (item, index) => phases[index].orderId ?? cycleOrders.get(item.id) ?? null,
+    );
     const orderNumbers = await this.ordersService.orderNumbersByIds(
-      phases.map((phase) => phase.orderId).filter((id): id is string => Boolean(id)),
+      orderIds.filter((id): id is string => Boolean(id)),
     );
     items.forEach((item, index) => {
       const phase = phases[index];
+      const orderId = orderIds[index];
       item.paymentPhase = phase.phase;
-      item.confirmedOrderNumber = phase.orderId ? orderNumbers.get(phase.orderId) ?? null : null;
+      item.confirmedOrderNumber = orderId ? orderNumbers.get(orderId) ?? null : null;
       if (item.allowedActions) {
         item.allowedActions.retryPayment = item.allowedActions.retryPayment && phase.retryAllowed;
       }
@@ -1585,12 +1596,21 @@ export class ProductSubscriptionsService {
     });
 
     const order = await this.tryCreateOrderForPaidCycle(sub, paidPayment, params.actor);
-    if (order && paidPayment.billingCycleId) {
-      await this.billingCycleService.updateById(paidPayment.billingCycleId, {
-        status: SubscriptionBillingCycleStatus.PAID,
-        orderId: order.id,
-        updatedBy: params.actor ?? 'webhook',
-      });
+    if (order) {
+      if (!sub.firstOrderId) {
+        await this.subscriptionsRepository.updateById(sub.id, {
+          firstOrderId: order.id,
+          updatedBy: params.actor ?? 'webhook',
+        });
+      }
+      await this.paymentsService.attachOrderId(paidPayment.id, order.id, params.actor ?? 'webhook');
+      if (paidPayment.billingCycleId) {
+        await this.billingCycleService.updateById(paidPayment.billingCycleId, {
+          status: SubscriptionBillingCycleStatus.PAID,
+          orderId: order.id,
+          updatedBy: params.actor ?? 'webhook',
+        });
+      }
     }
 
     this.notificationsService.notifyActivated({
@@ -1833,18 +1853,18 @@ export class ProductSubscriptionsService {
     if (sub.nextBillingDate.getTime() <= asOfDate.getTime()) return;
 
     const openCycles = await this.billingCycleService.findBySubscriptionId(sub.id);
-    if (openCycles.some((cycle) => cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING)) return;
+    if (
+      openCycles.some(
+        (cycle) =>
+          cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING ||
+          cycle.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+      )
+    ) {
+      return;
+    }
 
     const billingCycleRef = buildBillingCycleRef(sub.nextBillingDate, sub.frequency);
     const existing = openCycles.find((cycle) => cycle.billingCycleRef === billingCycleRef);
-    if (existing && existing.status !== SubscriptionBillingCycleStatus.SCHEDULED) return;
-
-    const mandate = await this.mandateService.getForSubscription(sub.id);
-    if (!mandate || !this.mandateService.canPresentAsAutopay(sub, mandate)) return;
-    const mandateMethod = String(mandate.consentEvidence?.method ?? '');
-    if (mandateMethod === 'card' || mandateMethod === 'emandate') return;
-    if (this.mandateService.resolveChargeProvider(sub) !== SubscriptionMandateProvider.RAZORPAY) return;
-
     const debitAt = razorpayUpiDebitAt({
       now: asOfDate,
       keyId: this.nestConfig.get<string>('RAZORPAY_KEY_ID') ?? '',
@@ -1852,7 +1872,20 @@ export class ProductSubscriptionsService {
         isSubscriptionTestTenuresEnabled(this.nestConfig) && TEST_PRODUCT_FREQUENCIES.has(sub.frequency),
       scheduledAt: sub.nextBillingDate,
     });
-    if (debitAt.getTime() !== sub.nextBillingDate.getTime()) return;
+    const canNotifyAtSchedule = debitAt.getTime() === sub.nextBillingDate.getTime();
+    if (existing?.status === SubscriptionBillingCycleStatus.FAILED) {
+      const restored = await this.recoverFailedUpiCycle(sub, existing, asOfDate, canNotifyAtSchedule);
+      if (restored !== 'schedule') return;
+    } else if (existing && existing.status !== SubscriptionBillingCycleStatus.SCHEDULED) {
+      return;
+    }
+
+    const mandate = await this.mandateService.getForSubscription(sub.id);
+    if (!mandate || !this.mandateService.canPresentAsAutopay(sub, mandate)) return;
+    const mandateMethod = String(mandate.consentEvidence?.method ?? '');
+    if (mandateMethod === 'card' || mandateMethod === 'emandate') return;
+    if (this.mandateService.resolveChargeProvider(sub) !== SubscriptionMandateProvider.RAZORPAY) return;
+    if (!canNotifyAtSchedule) return;
 
     let amount: string;
     try {
@@ -1962,9 +1995,225 @@ export class ProductSubscriptionsService {
     return sent;
   }
 
+  private async collectNotifiedUpiDebit(
+    sub: UserProductSubscriptionEntity,
+    cycle: { id: string; paymentId?: string | null },
+  ): Promise<void> {
+    await this.lockService.withDbLock(`upi-debit:${cycle.id}`, async () => {
+      const current = await this.billingCycleService.findById(cycle.id);
+      if (!current) return;
+      if (current.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT) {
+        const claimed = await this.billingCycleService.claimStatus(
+          current.id,
+          [SubscriptionBillingCycleStatus.NOTIFICATION_SENT],
+          SubscriptionBillingCycleStatus.DEBIT_PENDING,
+          'scheduler',
+        );
+        if (!claimed) return;
+      } else if (current.status === SubscriptionBillingCycleStatus.DEBIT_PENDING) {
+        const claimed = await this.billingCycleService.claimDebitRetry(
+          current.id,
+          new Date(Date.now() - UPI_DEBIT_ABSENT_RETRY_MS),
+          'scheduler',
+        );
+        if (!claimed) return;
+      } else {
+        return;
+      }
+      const paymentId = current.paymentId ?? cycle.paymentId ?? null;
+      const payment = paymentId ? await this.paymentsService.findById(paymentId) : null;
+      if (!payment?.gatewayOrderId || payment.gatewayPaymentId) return;
+      const mandate = await this.mandateService.getForSubscription(sub.id);
+      if (!mandate?.gatewayCustomerId || !mandate.gatewayMandateId) return;
+      const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+      if (!('submitRecurringDebit' in adapter)) return;
+      const user = await this.usersRepository.findById(sub.userId);
+      const result = await adapter.submitRecurringDebit({
+        gatewayOrderId: payment.gatewayOrderId,
+        gatewayCustomerId: mandate.gatewayCustomerId,
+        gatewayMandateId: mandate.gatewayMandateId,
+        gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+        amount: payment.amount,
+        receipt: payment.refId,
+        idempotencyKey: payment.refId,
+        customer: { email: user?.email ?? null, phone: user?.mobileNumber ?? '' },
+        notes: buildSubscriptionGatewayNotes({
+          paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+          billingCycleRef: payment.billingCycleRef,
+          subscriptionId: sub.id,
+          subscriptionPaymentId: payment.id,
+          userId: sub.userId,
+          productId: sub.productId,
+        }),
+      });
+      if (result.gatewayOrderId) {
+        await this.paymentsService.recordProviderCharge(payment.id, {
+          gatewayOrderId: result.gatewayOrderId,
+          gatewayPaymentId: result.gatewayPaymentId,
+          paymentGateway: SubscriptionMandateProvider.RAZORPAY,
+          pending: Boolean(result.pending || !result.gatewayPaymentId),
+          actor: 'scheduler',
+        });
+      }
+      if (result.pending || !result.gatewayPaymentId) return;
+      if (!result.accepted) {
+        await this.paymentsService.markFailed(
+          payment.id,
+          result.failureReason ?? 'AutoPay declined',
+          'scheduler',
+        );
+        await this.billingCycleService.updateById(current.id, {
+          status: SubscriptionBillingCycleStatus.FAILED,
+          failureReason: result.failureReason ?? 'AutoPay declined',
+          updatedBy: 'scheduler',
+        });
+        return;
+      }
+      await this.handlePaymentSuccess({
+        paymentId: payment.id,
+        gatewayOrderId: result.gatewayOrderId ?? payment.gatewayOrderId,
+        gatewayPaymentId: result.gatewayPaymentId ?? undefined,
+        actor: 'scheduler-autopay',
+      });
+    });
+  }
+
+  private async recoverUnchargedUpiOrder(
+    sub: UserProductSubscriptionEntity,
+    cycle: { id: string; paymentId?: string | null },
+    orderId: string,
+  ): Promise<void> {
+    const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+    if (!('listOrderCharge' in adapter) || typeof adapter.listOrderCharge !== 'function') return;
+    const listed = await adapter.listOrderCharge(orderId);
+    if (listed.outcome === 'unknown') return;
+    if (listed.outcome === 'found') {
+      const payment = cycle.paymentId ? await this.paymentsService.findById(cycle.paymentId) : null;
+      if (payment) await this.applyReconciledUpiCharge(sub, cycle, payment, listed.snapshot);
+      return;
+    }
+    await this.collectNotifiedUpiDebit(sub, cycle);
+  }
+
+  /**
+   * A failed UPI cycle is restored only when Razorpay confirms the order has no payment.
+   * A listed payment is reconciled. An unreadable order is left unchanged.
+   * Returns `schedule` when no Razorpay order exists, so the caller can register the original debit time.
+   */
+  private async recoverFailedUpiCycle(
+    sub: UserProductSubscriptionEntity,
+    cycle: {
+      id: string;
+      paymentId?: string | null;
+      chargeDate?: Date | null;
+      debitEarliestAt?: Date | null;
+    },
+    asOfDate: Date,
+    allowNewNotification = false,
+  ): Promise<'schedule' | 'stop'> {
+    if (this.mandateService.resolveChargeProvider(sub) !== SubscriptionMandateProvider.RAZORPAY) return 'stop';
+    const mandate = await this.mandateService.getForSubscription(sub.id);
+    const method = String(mandate?.consentEvidence?.method ?? '');
+    if (!mandate || method === 'card' || method === 'emandate') return 'stop';
+    const payment = cycle.paymentId ? await this.paymentsService.findById(cycle.paymentId) : null;
+    if (payment?.gatewayPaymentId) {
+      const snapshot = await this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY).fetchChargeStatus({
+        gatewayOrderId: payment.gatewayOrderId,
+        gatewayPaymentId: payment.gatewayPaymentId,
+      });
+      if (snapshot.state === 'unknown' && !snapshot.gatewayPaymentId) return 'stop';
+      await this.applyReconciledUpiCharge(sub, cycle, payment, snapshot);
+      return 'stop';
+    }
+    if (payment?.gatewayOrderId) {
+      const adapter = this.mandateService.adapter(SubscriptionMandateProvider.RAZORPAY);
+      if (!('listOrderCharge' in adapter) || typeof adapter.listOrderCharge !== 'function') return 'stop';
+      const listed = await adapter.listOrderCharge(payment.gatewayOrderId);
+      if (listed.outcome === 'unknown') return 'stop';
+      if (listed.outcome === 'found') {
+        await this.applyReconciledUpiCharge(sub, cycle, payment, listed.snapshot);
+        return 'stop';
+      }
+      const dueAt = cycle.debitEarliestAt ?? cycle.chargeDate ?? null;
+      await this.billingCycleService.updateById(cycle.id, {
+        status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+        failureReason: null,
+        ...(dueAt ? { debitEarliestAt: dueAt } : {}),
+        updatedBy: 'scheduler-reconcile',
+      });
+      if (dueAt && dueAt.getTime() <= asOfDate.getTime()) {
+        await this.collectNotifiedUpiDebit(sub, { id: cycle.id, paymentId: payment.id });
+      }
+      return 'stop';
+    }
+    if (!allowNewNotification) return 'stop';
+    await this.billingCycleService.updateById(cycle.id, {
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+      failureReason: null,
+      updatedBy: 'scheduler-reconcile',
+    });
+    return 'schedule';
+  }
+
+  private async applyReconciledUpiCharge(
+    sub: UserProductSubscriptionEntity,
+    cycle: { id: string; chargeDate?: Date | null; debitEarliestAt?: Date | null },
+    payment: { id: string; amount: string; gatewayOrderId?: string | null },
+    snapshot: {
+      state: string;
+      gatewayOrderId?: string | null;
+      gatewayPaymentId?: string | null;
+      amount?: string | null;
+      failureReason?: string | null;
+    },
+  ): Promise<void> {
+    if (snapshot.gatewayPaymentId) {
+      await this.paymentsService.recordProviderCharge(payment.id, {
+        gatewayOrderId: snapshot.gatewayOrderId ?? payment.gatewayOrderId ?? '',
+        gatewayPaymentId: snapshot.gatewayPaymentId,
+        paymentGateway: SubscriptionMandateProvider.RAZORPAY,
+        pending: snapshot.state !== 'failed',
+        actor: 'scheduler-reconcile',
+      });
+    }
+    if (this.snapshotPaysProductAmount(payment.amount, snapshot)) {
+      await this.handlePaymentSuccess({
+        paymentId: payment.id,
+        gatewayOrderId: snapshot.gatewayOrderId ?? payment.gatewayOrderId ?? undefined,
+        gatewayPaymentId: snapshot.gatewayPaymentId ?? undefined,
+        actor: 'scheduler-reconcile',
+      });
+      return;
+    }
+    if (snapshot.state === 'failed' && snapshot.gatewayPaymentId) {
+      const reason = snapshot.failureReason ?? 'Recurring payment failed';
+      await this.paymentsService.markFailed(payment.id, reason, 'scheduler-reconcile');
+      await this.billingCycleService.updateById(cycle.id, {
+        status: SubscriptionBillingCycleStatus.FAILED,
+        failureReason: reason,
+        updatedBy: 'scheduler-reconcile',
+      });
+      return;
+    }
+    if (snapshot.gatewayPaymentId && snapshot.state !== 'failed') {
+      await this.billingCycleService.updateById(cycle.id, {
+        status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+        failureReason: null,
+        updatedBy: 'scheduler-reconcile',
+      });
+    }
+  }
+
   private async reconcileInFlightDebit(
     sub: UserProductSubscriptionEntity,
-    cycle: { id: string; paymentId: string | null; orderId?: string | null },
+    cycle: {
+      id: string;
+      paymentId: string | null;
+      orderId?: string | null;
+      debitEarliestAt?: Date | null;
+      chargeDate?: Date | null;
+    },
+    asOfDate = new Date(),
   ): Promise<void> {
     const payment = cycle.paymentId ? await this.paymentsService.findById(cycle.paymentId) : null;
     if (!payment) {
@@ -2025,7 +2274,18 @@ export class ProductSubscriptionsService {
       );
       return;
     }
-    if (snapshot.state === 'failed') {
+    const dueAt = cycle.debitEarliestAt ?? cycle.chargeDate ?? null;
+    const debitIsDue = !dueAt || dueAt.getTime() <= asOfDate.getTime();
+    if (snapshot.gatewayPaymentId && snapshot.gatewayPaymentId !== payment.gatewayPaymentId) {
+      await this.paymentsService.recordProviderCharge(payment.id, {
+        gatewayOrderId: snapshot.gatewayOrderId ?? payment.gatewayOrderId ?? '',
+        gatewayPaymentId: snapshot.gatewayPaymentId,
+        paymentGateway: provider,
+        pending: snapshot.state !== 'failed',
+        actor: 'scheduler-reconcile',
+      });
+    }
+    if (snapshot.state === 'failed' && debitIsDue && snapshot.gatewayPaymentId) {
       const reason = snapshot.failureReason ?? 'Recurring payment failed';
       await this.paymentsService.markFailed(payment.id, reason, 'scheduler-reconcile');
       await this.billingCycleService.updateById(cycle.id, {
@@ -2033,6 +2293,17 @@ export class ProductSubscriptionsService {
         failureReason: reason,
         updatedBy: 'scheduler-reconcile',
       });
+      return;
+    }
+    if (snapshot.state === 'pending' || snapshot.gatewayPaymentId) {
+      this.logger.warn(
+        { subscriptionId: sub.id, cycleId: cycle.id, state: snapshot.state, provider },
+        'Debit is not captured, so no new charge was created',
+      );
+      return;
+    }
+    if (debitIsDue && payment.gatewayOrderId && !payment.gatewayPaymentId && !snapshot.gatewayPaymentId) {
+      await this.recoverUnchargedUpiOrder(sub, cycle, payment.gatewayOrderId);
       return;
     }
     this.logger.warn(
@@ -2048,7 +2319,14 @@ export class ProductSubscriptionsService {
     const openCycles = await this.billingCycleService.findBySubscriptionId(sub.id);
     const debitInFlight = openCycles.find((cycle) => cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING);
     if (debitInFlight) {
-      await this.reconcileInFlightDebit(sub, debitInFlight);
+      await this.reconcileInFlightDebit(sub, debitInFlight, asOfDate);
+      return;
+    }
+    const notified = openCycles.find((cycle) => cycle.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT);
+    if (notified) {
+      const dueAt = notified.debitEarliestAt ?? notified.chargeDate;
+      if (dueAt.getTime() > asOfDate.getTime()) return;
+      await this.collectNotifiedUpiDebit(sub, notified);
       return;
     }
     if (sub.status === ProductSubscriptionStatus.PAUSED || sub.status === ProductSubscriptionStatus.CANCELLED) {
@@ -2118,6 +2396,7 @@ export class ProductSubscriptionsService {
         existingPayment?.attemptKind === SubscriptionPaymentAttemptKind.AUTOPAY &&
         (existingPayment.gatewayOrderId || existingPayment.gatewayPaymentId)
       ) {
+        await this.recoverFailedUpiCycle(sub, cycle, asOfDate);
         return;
       }
     }
@@ -2268,13 +2547,30 @@ export class ProductSubscriptionsService {
     const payment = await this.paymentsService.findByGatewayOrderId(params.gatewayOrderId);
     if (!payment) return false;
     if (payment.status === SubscriptionPaymentStatus.PAID) return true;
-    await this.paymentsService.markFailed(
-      payment.id,
-      params.reason ?? 'Provider reported failure',
-      params.actor ?? 'webhook',
-    );
-    if (payment.billingCycleId) {
-      await this.billingCycleService.updateById(payment.billingCycleId, {
+    const cycle = payment.billingCycleId
+      ? await this.billingCycleService.findById(payment.billingCycleId)
+      : null;
+    const dueAt = cycle?.debitEarliestAt ?? cycle?.chargeDate ?? null;
+    const stillScheduled =
+      cycle?.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT ||
+      cycle?.status === SubscriptionBillingCycleStatus.SCHEDULED ||
+      (dueAt != null &&
+        dueAt.getTime() > Date.now() &&
+        cycle?.status !== SubscriptionBillingCycleStatus.DEBIT_PENDING);
+    if (stillScheduled) return false;
+    const alreadyFailed =
+      payment.status === SubscriptionPaymentStatus.FAILED &&
+      (!cycle || cycle.status === SubscriptionBillingCycleStatus.FAILED);
+    if (alreadyFailed) return true;
+    if (payment.status !== SubscriptionPaymentStatus.FAILED) {
+      await this.paymentsService.markFailed(
+        payment.id,
+        params.reason ?? 'Provider reported failure',
+        params.actor ?? 'webhook',
+      );
+    }
+    if (cycle && cycle.status !== SubscriptionBillingCycleStatus.FAILED) {
+      await this.billingCycleService.updateById(cycle.id, {
         status: SubscriptionBillingCycleStatus.FAILED,
         failureReason: params.reason ?? 'Provider reported failure',
         updatedBy: params.actor ?? 'webhook',
@@ -2436,30 +2732,36 @@ export class ProductSubscriptionsService {
       idempotencyKey,
       actor: 'scheduler',
     });
-    await this.billingCycleService.updateById(cycle.id, {
-      status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
-      paymentId: payment.id,
-      processingStartedAt: new Date(),
-      updatedBy: 'scheduler',
-    });
     const mandateMethod = String(mandate.consentEvidence?.method ?? '');
     const upiRenewal =
       provider === SubscriptionMandateProvider.RAZORPAY &&
       mandateMethod !== 'card' &&
       mandateMethod !== 'emandate';
     const debitAt = upiRenewal
-      ? razorpayUpiDebitAt({
+      ? scheduledDebitAt ??
+        razorpayUpiDebitAt({
           now: new Date(),
           keyId: this.nestConfig.get<string>('RAZORPAY_KEY_ID') ?? '',
           allowShortWindow:
             isSubscriptionTestTenuresEnabled(this.nestConfig) &&
             TEST_PRODUCT_FREQUENCIES.has(sub.frequency),
-          scheduledAt: scheduledDebitAt,
         })
       : undefined;
+    const notifyOnly = Boolean(debitAt && debitAt.getTime() > Date.now());
+    await this.billingCycleService.updateById(cycle.id, {
+      ...(notifyOnly
+        ? {}
+        : {
+            status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+            processingStartedAt: new Date(),
+          }),
+      paymentId: payment.id,
+      updatedBy: 'scheduler',
+    });
     let result: Awaited<ReturnType<ReturnType<SubscriptionMandateService['adapter']>['charge']>>;
     try {
-      result = await this.mandateService.adapter(provider).charge({
+      result = await this.lockService.withDbLock(`upi-debit:${sub.id}:${billingCycleRef}`, () =>
+        this.mandateService.adapter(provider).charge({
         gatewayCustomerId: mandate.gatewayCustomerId ?? '',
         gatewayMandateId: mandate.gatewayMandateId ?? '',
         gatewaySubscriptionId: mandate.gatewaySubscriptionId,
@@ -2476,7 +2778,8 @@ export class ProductSubscriptionsService {
           userId: sub.userId,
           productId: sub.productId,
         }),
-      });
+      }),
+      );
     } catch (error) {
       this.logger.warn(
         { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
@@ -2489,9 +2792,21 @@ export class ProductSubscriptionsService {
         gatewayOrderId: result.gatewayOrderId,
         gatewayPaymentId: result.gatewayPaymentId,
         paymentGateway: provider,
-        pending: result.pending,
+        pending: Boolean(result.pending || notifyOnly),
         actor: 'scheduler',
       });
+    }
+    if (notifyOnly) {
+      if (result.pending && result.gatewayOrderId) {
+        await this.billingCycleService.updateById(cycle.id, {
+          status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+          paymentId: payment.id,
+          notificationSentAt: new Date(),
+          debitEarliestAt: debitAt,
+          updatedBy: 'scheduler',
+        });
+      }
+      return true;
     }
     if (result.pending) {
       const debitEarliestAt =

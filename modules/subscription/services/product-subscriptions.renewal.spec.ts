@@ -4,11 +4,15 @@ import { SubscriptionBillingCycleStatus } from '../enums/subscription-billing-cy
 import { SubscriptionMandateProvider } from '../enums/subscription-mandate-provider.enum';
 import { SubscriptionPaymentAttemptKind } from '../enums/subscription-payment-attempt-kind.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
+import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
 import { RAZORPAY_UPI_LIVE_PREDEBIT_MS, RAZORPAY_UPI_TEST_PREDEBIT_MS } from '../utils/razorpay-upi-debit.util';
 import { ProductSubscriptionsService } from './product-subscriptions.service';
 
 describe('Product subscription Razorpay UPI renewal', () => {
-  const ordersService = { createOrderFromSubscription: jest.fn() };
+  const ordersService = {
+    createOrderFromSubscription: jest.fn(),
+    orderNumbersByIds: jest.fn(async () => new Map<string, string>()),
+  };
   const subscriptionsRepository = {
     findById: jest.fn(),
     findByIdAndUserId: jest.fn(),
@@ -30,6 +34,9 @@ describe('Product subscription Razorpay UPI renewal', () => {
     claimChargeInitiation: jest.fn(),
     claimRetry: jest.fn(),
     releaseChargeInitiation: jest.fn(),
+    attachOrderId: jest.fn(),
+    listStatusBySubscriptionIds: jest.fn(async () => []),
+    findByGatewayOrderId: jest.fn(),
   };
   const paymentLinkService = { createPaymentLink: jest.fn() };
   const billingCycleService = {
@@ -37,15 +44,23 @@ describe('Product subscription Razorpay UPI renewal', () => {
     findById: jest.fn(),
     updateById: jest.fn(),
     getOrCreate: jest.fn(),
+    claimStatus: jest.fn(async () => true),
+    claimDebitRetry: jest.fn(async () => false),
+    latestOrderIdsBySubscription: jest.fn(async () => new Map<string, string>()),
   };
   const charge = jest.fn();
+  const submitRecurringDebit = jest.fn();
   const fetchChargeStatus = jest.fn();
+  const listOrderCharge = jest.fn(async (): Promise<{ outcome: string; snapshot?: { state: string; gatewayPaymentId?: string } }> => ({
+    outcome: 'unknown',
+  }));
   const mandateService = {
     adapter: jest.fn((_provider: SubscriptionMandateProvider) => ({
       isConfigured: () => true,
       charge,
+      submitRecurringDebit,
       fetchChargeStatus,
-    })),
+      listOrderCharge,
     resolveChargeProvider: jest.fn(() => SubscriptionMandateProvider.RAZORPAY),
     canPresentAsAutopay: jest.fn(() => true),
     getForSubscription: jest.fn(),
@@ -56,6 +71,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
     chargeCardProduct: jest.fn(),
     findByGatewayMandateId: jest.fn(),
   };
+    revokeForSubscription: jest.fn(),
+  };
   const usersRepository = { findById: jest.fn() };
   const variantsRepository = { findById: jest.fn() };
   const membershipBenefits = { getMemberDiscount: jest.fn() };
@@ -64,7 +81,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
   const notificationsService = {
     notifyActivated: jest.fn(),
     notifyPaymentLinkCreated: jest.fn(),
-  };
+    notifyCancelled: jest.fn(),
   const historyRepository = { append: jest.fn() };
   const relationLoader = {
     loadUsersByIds: jest.fn().mockResolvedValue(new Map()),
@@ -106,13 +123,66 @@ describe('Product subscription Razorpay UPI renewal', () => {
   }
 
   beforeEach(() => {
+  function cycleUpdates(id: string): string[] {
+    return billingCycleService.updateById.mock.calls
+      .filter((call: [string, { status?: string }]) => call[0] === id)
+      .map((call: [string, { status?: string }]) => call[1]?.status)
+      .filter((status: string | undefined): status is string => Boolean(status));
+  }
+
+  function upiMandate() {
+    return {
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.RAZORPAY,
+      gatewayCustomerId: 'cust_1',
+      gatewayMandateId: 'token_1',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'upi' },
+    };
+  }
+
+  function notifiedCycle(debitAt: Date) {
+    return {
+      id: 'cycle-27h',
+      status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+      paymentId: 'pay-row-1',
+      chargeDate: debitAt,
+      debitEarliestAt: debitAt,
+      billingCycleRef: '2026-10-26T2205Z',
+    };
+  }
+
+  function notifiedPayment() {
+    return {
+      id: 'pay-row-1',
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: null,
+      amount: '2.00',
+      refId: 'spay-27h',
+      billingCycleRef: '2026-10-26T2205Z',
+      status: SubscriptionPaymentStatus.RECONCILING,
+      subscriptionId: 'sub-1',
+    };
+  }
+
+  beforeEach(() => {
     jest.clearAllMocks();
     mandateService.adapter.mockImplementation(() => ({
       isConfigured: () => true,
       charge,
+      submitRecurringDebit,
       fetchChargeStatus,
+      listOrderCharge,
     }));
     lockService.withLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => fn());
+    lockService.withDbLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => fn());
+    billingCycleService.claimStatus.mockResolvedValue(true);
+    billingCycleService.claimDebitRetry.mockResolvedValue(false);
+    fetchChargeStatus.mockReset();
+    fetchChargeStatus.mockResolvedValue({ state: 'unknown' });
+    listOrderCharge.mockReset();
+    listOrderCharge.mockResolvedValue({ outcome: 'unknown' });
+    submitRecurringDebit.mockReset();
     paymentsService.listReconciling.mockResolvedValue([]);
     paymentsService.claimChargeInitiation.mockResolvedValue(true);
     paymentsService.claimRetry.mockResolvedValue(true);
@@ -498,8 +568,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
     const cashfreeFetch = jest.fn().mockResolvedValue({ state: 'unknown' });
     mandateService.adapter.mockImplementation((provider: SubscriptionMandateProvider) =>
       provider === SubscriptionMandateProvider.CASHFREE
-        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge }
-        : { isConfigured: () => true, charge, fetchChargeStatus },
+        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge, submitRecurringDebit, listOrderCharge }
+        : { isConfigured: () => true, charge, submitRecurringDebit, fetchChargeStatus, listOrderCharge },
     );
     paymentsService.findById.mockResolvedValue({
       id: 'pay-row-1',
@@ -532,8 +602,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
     });
     mandateService.adapter.mockImplementation((provider: SubscriptionMandateProvider) =>
       provider === SubscriptionMandateProvider.CASHFREE
-        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge }
-        : { isConfigured: () => true, charge, fetchChargeStatus },
+        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge, submitRecurringDebit, listOrderCharge }
+        : { isConfigured: () => true, charge, submitRecurringDebit, fetchChargeStatus, listOrderCharge },
     );
     const payment = {
       id: 'pay-row-1',
@@ -786,7 +856,9 @@ describe('Product subscription Razorpay UPI renewal', () => {
     mandateService.adapter.mockImplementation(() => ({
       isConfigured: () => true,
       charge,
+      submitRecurringDebit,
       fetchChargeStatus,
+      listOrderCharge,
       lookupChargeByReceipt,
     }));
     paymentLinkService.createPaymentLink.mockResolvedValue({
@@ -807,6 +879,561 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(paymentLinkService.createPaymentLink).toHaveBeenCalledTimes(1);
     expect(paymentsService.markPaidIdempotent).not.toHaveBeenCalled();
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('keeps a 27-hour UPI renewal pending until 27 Oct 2026, 3:35 AM IST', async () => {
+    const firstCharge = new Date('2026-10-25T19:05:00.000Z');
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const ist = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(nextDebit);
+    expect(ist).toContain('27 October 2026');
+    expect(ist).toContain('03:35');
+    expect(buildBillingCycleRef(nextDebit, ProductSubscriptionFrequency.HOURS_27)).toBe('2026-10-26T2205Z');
+    expect(nextDebit.getTime() - firstCharge.getTime()).toBe(27 * 60 * 60 * 1000);
+
+    const cycle = {
+      id: 'cycle-27h',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+      paymentId: null,
+      chargeDate: nextDebit,
+      billingCycleRef: '2026-10-26T2205Z',
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        frequency: ProductSubscriptionFrequency.HOURS_27,
+        nextBillingDate: nextDebit,
+        status: ProductSubscriptionStatus.ACTIVE,
+      }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue(cycle);
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({ id: 'pay-row-1', refId: 'spay-27h', amount: '2.00' });
+    charge.mockResolvedValue({ accepted: true, pending: true, gatewayOrderId: 'order_27h' });
+
+    await (
+      service as unknown as {
+        presentUpcomingUpiDebit: (id: string, asOf: Date) => Promise<void>;
+      }
+    ).presentUpcomingUpiDebit('sub-1', firstCharge);
+
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].debitAt).toEqual(nextDebit);
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-27h',
+      expect.objectContaining({
+        status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+        debitEarliestAt: nextDebit,
+        paymentId: 'pay-row-1',
+      }),
+    );
+    expect(cycleUpdates('cycle-27h')).not.toContain(SubscriptionBillingCycleStatus.FAILED);
+    expect(subscriptionsRepository.updateById).not.toHaveBeenCalled();
+  });
+
+  it('does not fail the future cycle when the pre-debit order is rejected', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        frequency: ProductSubscriptionFrequency.HOURS_27,
+        nextBillingDate: nextDebit,
+        status: ProductSubscriptionStatus.ACTIVE,
+      }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-27h',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+      chargeDate: nextDebit,
+    });
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({ id: 'pay-row-1', refId: 'spay-27h', amount: '2.00' });
+    charge.mockResolvedValue({
+      accepted: false,
+      pending: false,
+      failureReason: 'payment_after is invalid',
+    });
+
+    await (
+      service as unknown as {
+        presentUpcomingUpiDebit: (id: string, asOf: Date) => Promise<void>;
+      }
+    ).presentUpcomingUpiDebit('sub-1', new Date('2026-10-25T19:05:00.000Z'));
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(cycleUpdates('cycle-27h')).not.toContain(SubscriptionBillingCycleStatus.FAILED);
+  });
+
+  it('debits a notified UPI cycle once when the scheduled time arrives', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = notifiedCycle(nextDebit);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle, { ...cycle, id: 'cycle-other', status: SubscriptionBillingCycleStatus.SCHEDULED }]);
+    billingCycleService.findById.mockResolvedValue(cycle);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    let claims = 0;
+    billingCycleService.claimStatus.mockImplementation(async () => {
+      claims += 1;
+      return claims === 1;
+    });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_27h',
+    });
+
+    await renew('sub-1', new Date('2026-10-25T19:05:00.000Z'));
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+
+    await renew('sub-1', nextDebit);
+    await renew('sub-1', nextDebit);
+
+    expect(charge).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(billingCycleService.claimStatus).toHaveBeenCalledWith(
+      'cycle-27h',
+      [SubscriptionBillingCycleStatus.NOTIFICATION_SENT],
+      SubscriptionBillingCycleStatus.DEBIT_PENDING,
+      'scheduler',
+    );
+  });
+
+  it('fails only the due cycle when the scheduled debit is declined', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = notifiedCycle(nextDebit);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    billingCycleService.findById.mockResolvedValue(cycle);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: false,
+      pending: false,
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_declined',
+      failureReason: 'Declined by the bank',
+    });
+
+    await renew('sub-1', nextDebit);
+
+    expect(paymentsService.markFailed).toHaveBeenCalledWith('pay-row-1', 'Declined by the bank', 'scheduler');
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-27h',
+      expect.objectContaining({ status: SubscriptionBillingCycleStatus.FAILED }),
+    );
+  });
+
+  it('does not debit again when the scheduled debit times out or its status is unknown', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = notifiedCycle(nextDebit);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    billingCycleService.findById.mockResolvedValue(cycle);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    let claims = 0;
+    billingCycleService.claimStatus.mockImplementation(async () => {
+      claims += 1;
+      return claims === 1;
+    });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_27h',
+      failureReason: 'timeout talking to Razorpay',
+    });
+
+    await renew('sub-1', nextDebit);
+    await renew('sub-1', nextDebit);
+
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(cycleUpdates('cycle-27h')).not.toContain(SubscriptionBillingCycleStatus.FAILED);
+    expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('correlates payment.failed with one cycle and ignores an early or duplicate webhook', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const future = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+    };
+    paymentsService.findByGatewayOrderId.mockResolvedValue(null);
+    await expect(
+      service.handlePaymentFailed({ gatewayOrderId: 'order_other', reason: 'wrong cycle', actor: 'razorpay-webhook' }),
+    ).resolves.toBe(false);
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+
+    const payment = {
+      ...notifiedPayment(),
+      status: SubscriptionPaymentStatus.RECONCILING,
+      billingCycleId: 'cycle-27h',
+      subscriptionId: 'sub-1',
+    };
+    paymentsService.findByGatewayOrderId.mockResolvedValue(payment);
+    billingCycleService.findById.mockResolvedValue(future);
+    await expect(
+      service.handlePaymentFailed({
+        gatewayOrderId: 'order_27h',
+        reason: 'premature failure',
+        actor: 'razorpay-webhook',
+      }),
+    ).resolves.toBe(false);
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+
+    const due = {
+      ...future,
+      status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+      debitEarliestAt: new Date('2026-10-26T22:05:00.000Z'),
+    };
+    billingCycleService.findById.mockResolvedValue(due);
+    await expect(
+      service.handlePaymentFailed({ gatewayOrderId: 'order_27h', reason: 'Declined by the bank', actor: 'razorpay-webhook' }),
+    ).resolves.toBe(true);
+    expect(paymentsService.markFailed).toHaveBeenCalledTimes(1);
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-27h',
+      expect.objectContaining({ status: SubscriptionBillingCycleStatus.FAILED }),
+    );
+
+    paymentsService.findByGatewayOrderId.mockResolvedValue({
+      ...payment,
+      status: SubscriptionPaymentStatus.FAILED,
+    });
+    billingCycleService.findById.mockResolvedValue({
+      ...due,
+      status: SubscriptionBillingCycleStatus.FAILED,
+    });
+    await service.handlePaymentFailed({
+      gatewayOrderId: 'order_27h',
+      reason: 'Declined by the bank',
+      actor: 'razorpay-webhook',
+    });
+    expect(paymentsService.markFailed).toHaveBeenCalledTimes(1);
+    expect(historyRepository.append).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets only one of two concurrent renewal workers submit the UPI debit', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = notifiedCycle(nextDebit);
+    lockService.withDbLock.mockImplementation(serializedLock());
+    billingCycleService.findById.mockResolvedValue(cycle);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    let claimed = false;
+    billingCycleService.claimStatus.mockImplementation(async () => {
+      if (claimed) return false;
+      claimed = true;
+      return true;
+    });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_27h',
+    });
+    const collect = (
+      service as unknown as {
+        collectNotifiedUpiDebit: (
+          sub: ReturnType<typeof subscription>,
+          row: typeof cycle,
+        ) => Promise<void>;
+      }
+    ).collectNotifiedUpiDebit.bind(service);
+
+    await Promise.all([
+      collect(subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }), cycle),
+      collect(subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }), cycle),
+    ]);
+
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('does not submit a debit that crashed before Razorpay accepted it until the order is confirmed empty', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+      processingStartedAt: new Date(nextDebit.getTime() - 60_000),
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    billingCycleService.findById.mockResolvedValue(cycle);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    listOrderCharge.mockResolvedValue({ outcome: 'absent' });
+    billingCycleService.claimDebitRetry.mockResolvedValue(false);
+
+    await renew('sub-1', new Date(nextDebit.getTime() + 60_000));
+
+    expect(listOrderCharge).toHaveBeenCalledWith('order_27h');
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(charge).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(cycle.status).toBe(SubscriptionBillingCycleStatus.DEBIT_PENDING);
+  });
+
+  it('submits one debit after a crashed attempt and a confirmed-empty Razorpay order', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+      processingStartedAt: new Date(nextDebit.getTime() - 16 * 60 * 1000),
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    billingCycleService.findById.mockResolvedValue(cycle);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9000000000' });
+    listOrderCharge.mockResolvedValue({ outcome: 'absent' });
+    let retries = 0;
+    billingCycleService.claimDebitRetry.mockImplementation(async () => {
+      retries += 1;
+      return retries === 1;
+    });
+    submitRecurringDebit.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_recovered',
+    });
+
+    const asOf = new Date(nextDebit.getTime() + 60_000);
+    await renew('sub-1', asOf);
+    await renew('sub-1', asOf);
+
+    expect(submitRecurringDebit).toHaveBeenCalledTimes(1);
+    expect(charge).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('leaves a pending Razorpay debit in progress when no webhook arrives', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ frequency: ProductSubscriptionFrequency.HOURS_27, nextBillingDate: nextDebit }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    paymentsService.findById.mockResolvedValue(notifiedPayment());
+    fetchChargeStatus.mockResolvedValue({
+      state: 'pending',
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_pending',
+      amount: '2.00',
+    });
+
+    const asOf = new Date(nextDebit.getTime() + 60_000);
+    await renew('sub-1', asOf);
+    await renew('sub-1', asOf);
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(charge).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).not.toHaveBeenCalled();
+    expect(paymentsService.markPaidIdempotent).not.toHaveBeenCalled();
+    expect(paymentsService.recordProviderCharge).toHaveBeenCalledWith(
+      'pay-row-1',
+      expect.objectContaining({ gatewayPaymentId: 'pay_pending', pending: true }),
+    );
+    expect(cycle.status).toBe(SubscriptionBillingCycleStatus.DEBIT_PENDING);
+  });
+
+  it('restores an uncharged failed cycle to the original 27 Oct 2026, 3:35 AM IST debit', async () => {
+    const firstCharge = new Date('2026-10-25T19:05:00.000Z');
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.FAILED,
+      failureReason: 'payment_after is invalid',
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        frequency: ProductSubscriptionFrequency.HOURS_27,
+        nextBillingDate: nextDebit,
+        status: ProductSubscriptionStatus.ACTIVE,
+      }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    paymentsService.findById.mockResolvedValue({
+      ...notifiedPayment(),
+      status: SubscriptionPaymentStatus.FAILED,
+      attemptKind: SubscriptionPaymentAttemptKind.AUTOPAY,
+    });
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    listOrderCharge.mockResolvedValue({ outcome: 'absent' });
+
+    await (
+      service as unknown as {
+        presentUpcomingUpiDebit: (id: string, asOf: Date) => Promise<void>;
+      }
+    ).presentUpcomingUpiDebit('sub-1', firstCharge);
+
+    expect(listOrderCharge).toHaveBeenCalledWith('order_27h');
+    expect(charge).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-27h',
+      expect.objectContaining({
+        status: SubscriptionBillingCycleStatus.NOTIFICATION_SENT,
+        debitEarliestAt: nextDebit,
+        failureReason: null,
+      }),
+    );
+    expect(subscriptionsRepository.updateById).not.toHaveBeenCalled();
+    expect(buildBillingCycleRef(nextDebit, ProductSubscriptionFrequency.HOURS_27)).toBe('2026-10-26T2205Z');
+  });
+
+  it('does not open another debit when the failed cycle already has a Razorpay payment', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const cycle = {
+      ...notifiedCycle(nextDebit),
+      status: SubscriptionBillingCycleStatus.FAILED,
+    };
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        frequency: ProductSubscriptionFrequency.HOURS_27,
+        nextBillingDate: nextDebit,
+        status: ProductSubscriptionStatus.ACTIVE,
+      }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([cycle]);
+    paymentsService.findById.mockResolvedValue({
+      ...notifiedPayment(),
+      gatewayPaymentId: 'pay_failed',
+      status: SubscriptionPaymentStatus.FAILED,
+      attemptKind: SubscriptionPaymentAttemptKind.AUTOPAY,
+    });
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    fetchChargeStatus.mockResolvedValue({
+      state: 'failed',
+      gatewayOrderId: 'order_27h',
+      gatewayPaymentId: 'pay_failed',
+      failureReason: 'Declined by the bank',
+    });
+
+    await (
+      service as unknown as {
+        presentUpcomingUpiDebit: (id: string, asOf: Date) => Promise<void>;
+      }
+    ).presentUpcomingUpiDebit('sub-1', new Date('2026-10-25T19:05:00.000Z'));
+
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(charge).not.toHaveBeenCalled();
+    expect(listOrderCharge).not.toHaveBeenCalled();
+    expect(paymentsService.markFailed).toHaveBeenCalledWith(
+      'pay-row-1',
+      'Declined by the bank',
+      'scheduler-reconcile',
+    );
+  });
+
+  it('leaves a failed cycle unchanged when Razorpay cannot list the order', async () => {
+    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        frequency: ProductSubscriptionFrequency.HOURS_27,
+        nextBillingDate: nextDebit,
+        status: ProductSubscriptionStatus.ACTIVE,
+      }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([
+      { ...notifiedCycle(nextDebit), status: SubscriptionBillingCycleStatus.FAILED },
+    ]);
+    paymentsService.findById.mockResolvedValue({
+      ...notifiedPayment(),
+      status: SubscriptionPaymentStatus.FAILED,
+    });
+    mandateService.getForSubscription.mockResolvedValue(upiMandate());
+    listOrderCharge.mockResolvedValue({ outcome: 'unknown' });
+
+    await (
+      service as unknown as {
+        presentUpcomingUpiDebit: (id: string, asOf: Date) => Promise<void>;
+      }
+    ).presentUpcomingUpiDebit('sub-1', new Date('2026-10-25T19:05:00.000Z'));
+
+    expect(billingCycleService.updateById).not.toHaveBeenCalled();
+    expect(submitRecurringDebit).not.toHaveBeenCalled();
+    expect(charge).not.toHaveBeenCalled();
+  });
+
+  it('cancels the AutoPay mandate before the subscription is cancelled', async () => {
+    subscriptionsRepository.findByIdAndUserId.mockResolvedValue(
+      subscription({
+        autopayReady: true,
+        config: { deliveryLeadDays: 2, cancellationAllowed: true },
+      }),
+    );
+    mandateService.revokeForSubscription.mockResolvedValue(undefined);
+
+    await service.cancel('user-1', 'sub-1', 'No longer need the product');
+
+    expect(mandateService.revokeForSubscription).toHaveBeenCalledWith('sub-1', 'user-1');
+    expect(subscriptionsRepository.updateById).toHaveBeenCalledWith(
+      'sub-1',
+      expect.objectContaining({
+        status: ProductSubscriptionStatus.CANCELLED,
+        autopayReady: false,
+        cancellationReason: 'No longer need the product',
+      }),
+    );
+    const revokeOrder = mandateService.revokeForSubscription.mock.invocationCallOrder[0];
+    const updateOrder = subscriptionsRepository.updateById.mock.invocationCallOrder[0];
+    expect(revokeOrder).toBeLessThan(updateOrder);
+  });
+
+  it('leaves the subscription active when the AutoPay mandate cannot be cancelled', async () => {
+    subscriptionsRepository.findByIdAndUserId.mockResolvedValue(
+      subscription({
+        autopayReady: true,
+        config: { deliveryLeadDays: 2, cancellationAllowed: true },
+      }),
+    );
+    mandateService.revokeForSubscription.mockRejectedValue(new Error('Razorpay token delete failed'));
+
+    await expect(service.cancel('user-1', 'sub-1', 'No longer need the product')).rejects.toThrow(
+      /token delete failed/,
+    );
+    expect(subscriptionsRepository.updateById).not.toHaveBeenCalled();
   });
 });
 
@@ -864,7 +1491,6 @@ function retryRow(state: {
   };
 }
 
-function subscription(overrides: Record<string, unknown> = {}) {
   return {
     id: 'sub-1',
     userId: 'user-1',

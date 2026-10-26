@@ -8,6 +8,7 @@ import {
   GatewayChargeSnapshot,
   ISubscriptionMandateProvider,
   MandateAuthSession,
+  MandateCancelResult,
   MandateStatusSnapshot,
 } from '../../interfaces/subscription-mandate-provider.interface';
 import { mapCashfreeSubscriptionStatus } from '../../utils/subscription-mandate-status.util';
@@ -212,6 +213,28 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         gatewayOrderId: params.gatewayOrderId,
         gatewayPaymentId: params.gatewayPaymentId,
       };
+    }
+  }
+
+  /**
+   * Cancels the Cashfree subscription so no further on-demand charges are raised.
+   * A missing subscription id means the mandate was never created at Cashfree.
+   */
+  async cancelMandate(params: {
+    gatewaySubscriptionId?: string | null;
+  }): Promise<MandateCancelResult> {
+    this.assertConfigured();
+    const subscriptionId = params.gatewaySubscriptionId?.trim();
+    if (!subscriptionId) return { cancelled: true };
+    try {
+      await this.request('POST', `/subscriptions/${encodeURIComponent(subscriptionId)}/manage`, {
+        action: 'CANCEL',
+      });
+      return { cancelled: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/already|cancelled|canceled|does not exist|not found/i.test(message)) return { cancelled: true };
+      return { cancelled: false, failureReason: message };
     }
   }
 

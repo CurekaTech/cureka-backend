@@ -6,6 +6,12 @@ export const RAZORPAY_UPI_LIVE_PREDEBIT_MS = (25 * 60 + 5) * 60 * 1000;
 /** Test-key window only. Live keys never use this, including 5-minute tenures. */
 export const RAZORPAY_UPI_TEST_PREDEBIT_MS = 2 * 60 * 1000;
 
+/**
+ * After a debit attempt starts, a successful empty Razorpay payment list can still be
+ * indexing. Wait this long before submitting that order. A failed or timed-out list is never a reason to debit.
+ */
+export const UPI_DEBIT_ABSENT_RETRY_MS = 15 * 60 * 1000;
+
 export type RazorpaySettlementDecision = 'paid' | 'ignore' | 'verify';
 
 /**
