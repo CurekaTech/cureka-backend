@@ -80,7 +80,7 @@ describe('RazorpayRecurringProvider UPI renewal', () => {
     );
     expect(recurringCalls).toHaveLength(1);
     const recurringBody = JSON.parse(String((recurringCalls[0]?.[1] as { body?: string } | undefined)?.body ?? '{}'));
-    expect(recurringBody.recurring).toBe('1');
+    expect(recurringBody.recurring).toBe(true);
     expect(result).toMatchObject({
       accepted: true,
       pending: true,
