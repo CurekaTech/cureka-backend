@@ -96,7 +96,7 @@ Auth: `x-guest-id`. Responses are **raw** (no Cureka `{ success, data }` envelop
 |---|---|---|
 | `GET` | `/bob/categories` | Category list |
 | `GET` | `/bob/categories/:categoryId/products` | Products in a category (UUID or refId) |
-| `GET` | `/bob/products` | All published products. `?ids=id1,id2` optional |
+| `GET` | `/bob/products` | Published products and variants. No query returns the full catalogue. Optional `?search=` (or `?q=`), `?page=&limit=` (limit max 100), `?ids=id1,id2` |
 | `GET` | `/bob/products/:productId` | One product + variants/options (UUID or refId) |
 | `GET` | `/bob/variants/:variantId` | One variant |
 | `PUT` | `/bob/products/:productId` | Replace product tags `{ "tags": ["..."] }` |
