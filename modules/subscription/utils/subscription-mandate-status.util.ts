@@ -56,6 +56,8 @@ export function mapCashfreeSubscriptionStatus(
       return SubscriptionMandateStatus.PAUSED;
     case 'CANCELLED':
     case 'CANCELED':
+    case 'CUSTOMER_CANCELLED':
+    case 'CUSTOMER_CANCELED':
       return SubscriptionMandateStatus.CANCELLED;
     case 'EXPIRED':
     case 'COMPLETED':

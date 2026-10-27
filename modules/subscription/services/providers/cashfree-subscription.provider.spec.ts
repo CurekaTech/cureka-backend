@@ -202,10 +202,14 @@ describe('CashfreeSubscriptionProvider payment status', () => {
       notes: {},
       scheduleDate: when,
     });
-    const payBody = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
+    const payCall = fetchMock.mock.calls.at(-1);
+    const payBody = JSON.parse(String(payCall?.[1]?.body));
+    const payHeaders = payCall?.[1]?.headers as Record<string, string>;
     expect(payBody.payment_schedule_date).toBe(formatCashfreeScheduleDate(when));
     expect(payBody.payment_schedule_date.endsWith('+05:30')).toBe(true);
     expect(payBody.payment_schedule_date.endsWith('Z')).toBe(false);
+    expect(payHeaders['x-idempotency-key']).toBe('sub:1:cycle:1:autopay');
+    expect(payHeaders['x-api-version']).toBe('2023-08-01');
   });
 
   it('keeps a Cashfree charge timeout pending', async () => {

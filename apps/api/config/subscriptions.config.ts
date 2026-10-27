@@ -34,9 +34,15 @@ export const subscriptionsConfig = registerAs('subscriptions', () => ({
   moduleEnabled: asBool(process.env['SUBSCRIPTIONS_MODULE_ENABLED'], false),
   /**
    * 2-minute, 5-minute, 30-minute, 1-hour, and 1-day tenures for TechBV renewal tests.
-   * Leave false in production so monthly, 2-month, and quarterly stay unchanged.
+   * Leave false in production so monthly, 2-month, quarterly, and yearly stay unchanged.
+   * These timers test the scheduler only — they are not a live UPI/card AutoPay SLA.
    */
   testTenuresEnabled: asBool(process.env['SUBSCRIPTION_TEST_TENURES_ENABLED'], false),
+  /**
+   * Raise Cashfree ON_DEMAND CHARGE before the intended Kolkata billing date.
+   * Default on. Set false only to roll back to charge-on-due + T+1-from-now.
+   */
+  cashfreeAdvanceCharge: asBool(process.env['SUBSCRIPTION_CASHFREE_ADVANCE_CHARGE'], true),
   timezone: process.env['SUBSCRIPTION_TIMEZONE']?.trim() || 'Asia/Kolkata',
   deliveryLeadDays: asInt(process.env['SUBSCRIPTION_DELIVERY_LEAD_DAYS'], 2),
   maxRetries: asInt(process.env['SUBSCRIPTION_MAX_RETRIES'], 3),

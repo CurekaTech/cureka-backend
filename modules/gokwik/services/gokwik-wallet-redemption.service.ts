@@ -33,11 +33,16 @@ import {
   gokwikWalletApplyIdempotencyKeyWithFingerprint,
   gokwikWalletRemoveIdempotencyKey,
   isMaterialGokwikWalletCartChange,
+  parseGokwikWalletApplyAllocation,
 } from '../utils/gokwik-wallet-allocation.util';
 import {
   paiseToGokwikWalletRupees,
   remainingPayableRupeesForGokwik,
 } from '../utils/gokwik-wallet-money.util';
+import {
+  capGokwikWalletEligibleRupees,
+  resolveGokwikWalletCheckoutQuote,
+} from '../utils/gokwik-wallet-quote.util';
 
 /**
  * Provisional apply plan. Does not mutate the ledger.
@@ -288,13 +293,35 @@ export class GokwikWalletRedemptionService {
    * Flag off, or no pending hold, returns 0 and does not touch the ledger.
    */
   async readAppliedWalletCreditRupees(cartId: string): Promise<number> {
-    if (!this.isEnabled() || !this.walletService || !cartId.trim()) return 0;
+    const applied = await this.readAppliedWalletAllocation(cartId);
+    return applied.walletCreditUsed;
+  }
+
+  /**
+   * Reserved GoKwik wallet credit and the payable it was sized against.
+   * Payable override keeps get-cart from recapping credit to stale Cureka shipping.
+   */
+  async readAppliedWalletAllocation(cartId: string): Promise<{
+    walletCreditUsed: number;
+    payableTotalOverride?: number;
+  }> {
+    if (!this.isEnabled() || !this.walletService || !cartId.trim()) {
+      return { walletCreditUsed: 0 };
+    }
     const pending = await this.walletService.listPendingByIdempotencyPrefix(
       gokwikWalletApplyIdempotencyKey(cartId),
     );
     const paise = pending.reduce((sum, row) => sum + Number(row.amountPaise), 0);
-    if (paise <= 0) return 0;
-    return this.formatUsableBalanceForWire(paise, 0);
+    if (paise <= 0) return { walletCreditUsed: 0 };
+    const allocation = pending
+      .map((row) => parseGokwikWalletApplyAllocation(row.idempotencyKey))
+      .find((parsed) => parsed && parsed.eligibleCartTotalPaise > 0);
+    return {
+      walletCreditUsed: this.formatUsableBalanceForWire(paise, 0),
+      ...(allocation
+        ? { payableTotalOverride: paiseToGokwikWalletRupees(allocation.eligibleCartTotalPaise) }
+        : {}),
+    };
   }
 
   /**
@@ -321,7 +348,26 @@ export class GokwikWalletRedemptionService {
     }
 
     const prefix = gokwikWalletApplyIdempotencyKey(cartId);
-    const eligibleCartTotalPaise = mapCartToGokwikCart(priced).total * 100;
+    const quote = resolveGokwikWalletCheckoutQuote(input);
+    const mapped = mapCartToGokwikCart(priced);
+    const curekaFeeRupees = Math.max(
+      0,
+      mapped.total +
+        mapped.wallet_credit_used -
+        mapped.subtotal +
+        mapped.discount_total -
+        mapped.shipping_total,
+    );
+    const eligibleRupees = quote
+      ? capGokwikWalletEligibleRupees({
+          quotePayableRupees: quote.finalCartTotal,
+          curekaSubtotalRupees: mapped.subtotal,
+          curekaFeeRupees,
+          gokwikShippingRupees: quote.shippingAmount,
+          gokwikDiscountRupees: quote.discountAmount,
+        })
+      : mapped.total;
+    const eligibleCartTotalPaise = eligibleRupees * 100;
     await this.dataSource!.transaction(async (manager) => {
       const pending = await this.walletService!.listPendingByIdempotencyPrefix(prefix, manager);
       const ownHoldPaise = pending.reduce((sum, row) => sum + Number(row.amountPaise), 0);
@@ -353,7 +399,20 @@ export class GokwikWalletRedemptionService {
       );
     });
 
-    return this.gokwikCartService!.getCart(cartId);
+    const response = await this.gokwikCartService!.getCart(cartId);
+    if (!quote) return response;
+    return {
+      data: {
+        cart: {
+          ...response.data.cart,
+          subtotal: quote.subtotal,
+          shipping_total: quote.shippingAmount,
+          discount_total: quote.discountAmount,
+          wallet_credit_used: response.data.cart.wallet_credit_used,
+          total: Math.max(0, quote.finalCartTotal - response.data.cart.wallet_credit_used),
+        },
+      },
+    };
   }
 
   /**

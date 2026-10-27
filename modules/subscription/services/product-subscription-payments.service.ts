@@ -127,11 +127,12 @@ export class ProductSubscriptionPaymentsService {
   async recordProviderCharge(
     paymentId: string,
     data: {
-      gatewayOrderId: string;
+      gatewayOrderId?: string | null;
       gatewayPaymentId?: string | null;
       paymentGateway: string;
       pending: boolean;
       actor: string;
+      metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
     const existing = await this.paymentsRepository.findById(paymentId);
@@ -140,14 +141,21 @@ export class ProductSubscriptionPaymentsService {
       existing.gatewayOrderId && data.gatewayOrderId && existing.gatewayOrderId !== data.gatewayOrderId,
     );
     await this.paymentsRepository.updateById(paymentId, {
-      gatewayOrderId: data.gatewayOrderId,
-      gatewayPaymentId: data.gatewayPaymentId
-        ? data.gatewayPaymentId
-        : orderChanged
-          ? null
-          : existing.gatewayPaymentId,
+      ...(data.gatewayOrderId
+        ? {
+            gatewayOrderId: data.gatewayOrderId,
+            gatewayPaymentId: data.gatewayPaymentId
+              ? data.gatewayPaymentId
+              : orderChanged
+                ? null
+                : existing.gatewayPaymentId,
+          }
+        : {}),
       paymentGateway: data.paymentGateway,
       status: data.pending ? SubscriptionPaymentStatus.RECONCILING : existing.status,
+      ...(data.metadata
+        ? { metadata: { ...(existing.metadata ?? {}), ...data.metadata } }
+        : {}),
       updatedBy: data.actor,
     });
   }

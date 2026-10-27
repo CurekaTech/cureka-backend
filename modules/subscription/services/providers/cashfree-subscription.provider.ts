@@ -126,13 +126,18 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     const subscriptionId = input.gatewaySubscriptionId || input.gatewayMandateId;
     const scheduleDate = input.scheduleDate ?? nextCashfreeUpiScheduleDate();
     try {
-      const payment = await this.request('POST', '/subscriptions/pay', {
-        subscription_id: subscriptionId,
-        payment_id: input.idempotencyKey.slice(0, 50),
-        payment_amount: Number(input.amount),
-        payment_type: 'CHARGE',
-        payment_schedule_date: formatCashfreeScheduleDate(scheduleDate),
-      });
+      const payment = await this.request(
+        'POST',
+        '/subscriptions/pay',
+        {
+          subscription_id: subscriptionId,
+          payment_id: input.idempotencyKey.slice(0, 50),
+          payment_amount: Number(input.amount),
+          payment_type: 'CHARGE',
+          payment_schedule_date: formatCashfreeScheduleDate(scheduleDate),
+        },
+        { 'x-idempotency-key': input.idempotencyKey.slice(0, 64) },
+      );
       const status = String(payment['payment_status'] ?? payment['status'] ?? '').toUpperCase();
       if (!status) {
         return {
@@ -270,6 +275,7 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     method: 'GET' | 'POST',
     path: string,
     body?: Record<string, unknown>,
+    extraHeaders?: Record<string, string>,
   ): Promise<Record<string, unknown>> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
@@ -278,6 +284,7 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         'x-client-secret': this.secretKey,
         'x-api-version': this.apiVersion,
         'Content-Type': 'application/json',
+        ...extraHeaders,
       },
       body: body ? JSON.stringify(body) : undefined,
     });

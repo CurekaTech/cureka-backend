@@ -143,6 +143,99 @@ describe('GokwikWalletRedemptionService', () => {
     expect(service.canEnableLiveSettlement()).toBe(false);
   });
 
+  it('sizes wallet credit from GoKwik shipping and final total, not Cureka ₹20 shipping', async () => {
+    configService.get.mockImplementation((key: string) => {
+      if (key === 'wallet.gokwikRedemptionEnabled') return true;
+      if (key === 'wallet.reservationTtlMinutes') return 60;
+      return undefined;
+    });
+    const walletService = {
+      getOverview: jest.fn(async () => ({
+        balance: '300.00',
+        reserved: '0.00',
+        available: '300.00',
+        currency: 'INR',
+        status: 'ACTIVE',
+      })),
+      listPendingByIdempotencyPrefix: jest.fn(async () => []),
+      releaseReservation: jest.fn(),
+      reserve: jest.fn(async () => ({ id: 'res-1' })),
+    };
+    const ordersCartService = {
+      findActiveCartById: jest.fn(async () => ({ id: 'cart-1', userId: 'user-1' })),
+      getCartById: jest.fn(async () => ({
+        cartId: 'cart-1',
+        totalItems: 1,
+        subtotal: 158,
+        discountAmount: 0,
+        shippingAmount: 20,
+        handlingAmount: 0,
+        platformFee: 0,
+        codCharge: 0,
+        prepaidDiscount: 0,
+        grandTotal: 178,
+        coupon: null,
+        items: [
+          {
+            id: 'line-1',
+            productId: 'product-1',
+            variantId: 'variant-1',
+            productName: 'Serum',
+            sku: 'SKU-1',
+            quantity: 1,
+            unitPrice: 158,
+            totalPrice: 158,
+            stock: 2,
+            isAvailable: true,
+            categoryId: 'category-1',
+          },
+        ],
+        checkoutRules: {},
+        cod: { available: false },
+      })),
+    };
+    const gokwikCartService = {
+      getCart: jest.fn(async () => ({
+        data: { cart: { total: 0, wallet_credit_used: 233, shipping_total: 20, subtotal: 158 } },
+      })),
+    };
+    const dataSource = { transaction: jest.fn(async (work: (manager: object) => Promise<void>) => work({})) };
+    const service = new GokwikWalletRedemptionService(
+      configService as never,
+      walletService as never,
+      gokwikCartService as never,
+      dataSource as never,
+      ordersCartService as never,
+    );
+
+    await expect(
+      service.applyWalletCredit({
+        cart_id: 'cart-1',
+        subtotal: 158,
+        shipping_amount: 75,
+        discount_amount: 0,
+        final_cart_total: 233,
+      }),
+    ).resolves.toEqual({
+      data: {
+        cart: {
+          total: 0,
+          wallet_credit_used: 233,
+          shipping_total: 75,
+          subtotal: 158,
+          discount_total: 0,
+        },
+      },
+    });
+    expect(walletService.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'user-1',
+        amountPaise: 23300,
+      }),
+      expect.anything(),
+    );
+  });
+
   it('releases the cart hold when remove runs with the flag true', async () => {
     configService.get.mockImplementation((key: string) => key === 'wallet.gokwikRedemptionEnabled');
     const walletService = {

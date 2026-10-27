@@ -5,6 +5,7 @@ export const PRODUCT_FREQUENCY_MONTHS = {
   MONTHLY: 1,
   BI_MONTHLY: 2,
   QUARTERLY: 3,
+  YEARLY: 12,
 } as const;
 
 export const PRODUCT_FREQUENCY_DAYS = { DAILY: 1 } as const;
@@ -28,6 +29,7 @@ export const PRODUCT_FREQUENCY_LABELS = {
   MONTHLY: 'Every month',
   BI_MONTHLY: 'Every 2 months',
   QUARTERLY: 'Every 3 months',
+  YEARLY: 'Every year',
 } as const;
 
 export function describeProductFrequency(frequency: string): {
@@ -59,6 +61,9 @@ export function describeProductFrequency(frequency: string): {
   }
   if (frequency === 'QUARTERLY') {
     return { intervalMonths: 3, label: PRODUCT_FREQUENCY_LABELS.QUARTERLY };
+  }
+  if (frequency === 'YEARLY') {
+    return { intervalMonths: 12, label: PRODUCT_FREQUENCY_LABELS.YEARLY };
   }
   return { intervalMonths: 1, label: PRODUCT_FREQUENCY_LABELS.MONTHLY };
 }

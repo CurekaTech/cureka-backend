@@ -4,7 +4,8 @@ const TEST_TENURE_JOB = 'test-tenure-renewal';
 
 /**
  * Production keeps the daily 03:00 renewal. TechBV adds a one-minute pass so
- * 2-minute, 5-minute, 30-minute, 1-hour, and 1-day tenures can be observed without waiting overnight.
+ * 2-minute, 5-minute, 30-minute, 1-hour, and 1-day tenures can exercise the
+ * internal scheduler. Those timers are not a live UPI/card AutoPay debit.
  */
 export async function syncTestTenureRenewalJob(
   queue: Queue,

@@ -22,6 +22,7 @@ describe('next-billing-date.util', () => {
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.MONTHLY, 'UTC').getUTCMonth()).toBe(1);
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.BI_MONTHLY, 'UTC').getUTCMonth()).toBe(2);
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.QUARTERLY, 'UTC').getUTCMonth()).toBe(3);
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.YEARLY, 'UTC').getUTCFullYear()).toBe(2027);
   });
 
   it('adds TechBV test tenures without changing calendar-month schedules', () => {

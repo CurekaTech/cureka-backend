@@ -265,6 +265,7 @@ export const envValidationSchema = Joi.object({
   SUBSCRIPTION_CHANGE_CUTOFF_HOURS: Joi.number().integer().min(0).max(168).default(12),
   SUBSCRIPTION_PREDEBIT_HOURS: Joi.number().integer().min(0).max(72).default(24),
   SUBSCRIPTION_AUTOPAY_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  SUBSCRIPTION_CASHFREE_ADVANCE_CHARGE: Joi.string().valid('true', 'false').default('true'),
   SUBSCRIPTION_AUTOPAY_PROVIDER: Joi.string().valid('RAZORPAY', 'CASHFREE', '').optional(),
   SUBSCRIPTION_MANDATE_MAX_AMOUNT: Joi.number().positive().allow('').optional(),
   SUBSCRIPTION_PAYMENT_LINK_EXPIRY_HOURS: Joi.number().integer().min(1).max(720).default(72),

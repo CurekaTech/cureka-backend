@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, In, LessThanOrEqual, MoreThan, Repository } from 'typeorm';
+import { And, EntityManager, In, LessThanOrEqual, MoreThan, Repository } from 'typeorm';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
 import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
@@ -102,6 +102,24 @@ export class UserProductSubscriptionsRepository {
       relations: { config: true },
       order: { nextBillingDate: 'ASC' },
       take: 50,
+    });
+  }
+
+  findUpcomingWithinWindow(
+    statuses: ProductSubscriptionStatus[],
+    after: Date,
+    until: Date,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity[]> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    return repository.find({
+      where: {
+        status: In(statuses),
+        nextBillingDate: And(MoreThan(after), LessThanOrEqual(until)),
+      },
+      relations: { config: true },
+      order: { nextBillingDate: 'ASC' },
+      take: 200,
     });
   }
 

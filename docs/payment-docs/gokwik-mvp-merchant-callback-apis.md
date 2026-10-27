@@ -463,6 +463,34 @@ Same structure as **Get Cart** — `data.cart` with remaining in-stock items and
 
 ---
 
+## 6. Apply Wallet Credit
+
+`POST /api/v1/gokwik/apply-wallet-credit`
+
+GoKwik owns discount + shipping on checkout. Send those totals so Cureka does not size wallet credit against stale cart shipping.
+
+### Request
+
+```json
+{
+  "cart_id": "<cart UUID>",
+  "subtotal": 158,
+  "shipping_amount": 75,
+  "discount_amount": 0,
+  "final_cart_total": 233
+}
+```
+
+`cart_id` remains required. The four quote fields are optional for backward compatibility; when present, `wallet_credit_used = min(wallet_balance, final_cart_total)`.
+
+Aliases accepted: `shipping_total` / `shipping`, `discount_total` / `discount`, `final_total` / `cart_total`.
+
+### Success `200`
+
+Same `data.cart` shape as Get Cart. `wallet_credit_used` and remaining `total` are computed from the GoKwik quote. This call reserves credit; it does not debit.
+
+---
+
 ## Contact / config checklist for GoKwik
 
 Provide GoKwik:

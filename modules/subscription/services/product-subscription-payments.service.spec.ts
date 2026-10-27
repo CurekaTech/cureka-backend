@@ -98,4 +98,27 @@ describe('ProductSubscriptionPaymentsService idempotency', () => {
       }),
     );
   });
+
+  it('merges Cashfree CHARGE metadata without requiring a new gateway order id', async () => {
+    paymentsRepository.findById.mockResolvedValue({
+      id: 'pay-1',
+      status: SubscriptionPaymentStatus.PENDING,
+      metadata: { existing: true },
+    });
+
+    await service.recordProviderCharge('pay-1', {
+      paymentGateway: 'CASHFREE',
+      pending: true,
+      actor: 'scheduler',
+      metadata: { cashfreeCharge: { paymentStatus: 'INITIALIZED' } },
+    });
+
+    expect(paymentsRepository.updateById).toHaveBeenCalledWith(
+      'pay-1',
+      expect.objectContaining({
+        metadata: { existing: true, cashfreeCharge: { paymentStatus: 'INITIALIZED' } },
+        status: SubscriptionPaymentStatus.RECONCILING,
+      }),
+    );
+  });
 });

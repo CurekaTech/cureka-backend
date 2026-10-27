@@ -240,14 +240,15 @@ export class GokwikCartService {
   }
 
   private async getCartMappingOptions(cart: CartResponse) {
-    const [availablePaymentMethods, walletCreditUsed] = await Promise.all([
+    const [availablePaymentMethods, appliedWallet] = await Promise.all([
       this.resolveAvailablePaymentMethods(cart),
-      this.walletRedemption.readAppliedWalletCreditRupees(cart.cartId),
+      this.walletRedemption.readAppliedWalletAllocation(cart.cartId),
     ]);
     return {
       availablePaymentMethods,
       availableShippingMethods: this.resolveAvailableShippingMethods(cart.shippingAmount),
-      walletCreditUsed,
+      walletCreditUsed: appliedWallet.walletCreditUsed,
+      payableTotalOverride: appliedWallet.payableTotalOverride,
     };
   }
 

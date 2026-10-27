@@ -230,9 +230,10 @@ export class PaymentsWebhookController {
       if (!fresh) {
         this.logger.warn(
           { eventType, eventId, requestId: req.id },
-          'Cashfree subscription webhook was a duplicate, so the subscription and order were left unchanged',
+          'Cashfree subscription webhook was a duplicate; settlement still runs',
         );
-      } else if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+      }
+      if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
         if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
           await this.productSubscriptionsService.handlePaymentFailed({
             gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),

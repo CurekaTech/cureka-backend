@@ -19,6 +19,9 @@ describe('Product subscription Razorpay UPI renewal', () => {
     findByIdIncludingDeleted: jest.fn(),
     updateById: jest.fn(),
     restoreById: jest.fn(),
+    findUpcomingWithinWindow: jest.fn(),
+    findUpcomingByFrequency: jest.fn(),
+    findDueForRenewal: jest.fn(),
   };
   const paymentsService = {
     findById: jest.fn(),
@@ -95,6 +98,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     notifyActivated: jest.fn(),
     notifyPaymentLinkCreated: jest.fn(),
     notifyCancelled: jest.fn(),
+    notifyRenewalDue: jest.fn(),
   };
   const historyRepository = { append: jest.fn() };
   const relationLoader = {
@@ -140,6 +144,12 @@ describe('Product subscription Razorpay UPI renewal', () => {
     return (service as unknown as {
       processSingleRenewal: (id: string, asOfDate: Date) => Promise<void>;
     }).processSingleRenewal(subscriptionId, asOf);
+  }
+
+  function presentCashfree(subscriptionId: string, asOf: Date) {
+    return (service as unknown as {
+      presentUpcomingCashfreeDebit: (id: string, asOfDate: Date) => Promise<void>;
+    }).presentUpcomingCashfreeDebit(subscriptionId, asOf);
   }
 
   function cycleUpdates(id: string): string[] {
@@ -807,7 +817,58 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
   });
 
-  it('schedules a due Cashfree card now and a Cashfree UPI debit on the next day', async () => {
+  it('does not same-day CHARGE a due Cashfree cycle; it records MISSED_SCHEDULE and opens a payment link', async () => {
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '2.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    paymentLinkService.createPaymentLink.mockResolvedValue({
+      paymentLink: 'https://pay.example/missed',
+      gatewayOrderId: 'link_missed',
+      paymentGateway: 'CASHFREE',
+      currency: 'INR',
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-new',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ paymentGateway: 'CASHFREE', autopayReady: true }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
+      gatewaySubscriptionId: '391162116',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'upi' },
+    });
+
+    await renew('sub-1');
+
+    expect(charge).not.toHaveBeenCalled();
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-new',
+      expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
+    );
+    expect(paymentLinkService.createPaymentLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the legacy due-date Cashfree schedule when advance charging is rolled back', async () => {
+    nestConfig.get.mockImplementation((key: string) => {
+      if (key === 'RAZORPAY_KEY_ID') return 'rzp_live_example';
+      if (key === 'subscriptions.testTenuresEnabled') return true;
+      if (key === 'subscriptions.cashfreeAdvanceCharge') return false;
+      return undefined;
+    });
     variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
     membershipBenefits.getMemberDiscount.mockResolvedValue(null);
     pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
@@ -869,6 +930,12 @@ describe('Product subscription Razorpay UPI renewal', () => {
   });
 
   it('leaves a Cashfree charge timeout pending and does not send another pay', async () => {
+    nestConfig.get.mockImplementation((key: string) => {
+      if (key === 'RAZORPAY_KEY_ID') return 'rzp_live_example';
+      if (key === 'subscriptions.testTenuresEnabled') return true;
+      if (key === 'subscriptions.cashfreeAdvanceCharge') return false;
+      return undefined;
+    });
     variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
     membershipBenefits.getMemberDiscount.mockResolvedValue(null);
     pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
@@ -941,6 +1008,162 @@ describe('Product subscription Razorpay UPI renewal', () => {
     );
 
     await renew('sub-1');
+
+    expect(charge).not.toHaveBeenCalled();
+  });
+
+  it('raises a Cashfree UPI CHARGE on D-1 before 21:00 IST for the intended billing date', async () => {
+    const intended = new Date('2026-11-25T18:30:00.000Z'); // 26 Nov 00:00 IST
+    const asOf = new Date('2026-11-24T21:30:00.000Z'); // 25 Nov 03:00 IST
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '2.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-new',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    charge.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'pay_cf',
+      raw: { payment_id: 'pay_cf', payment_status: 'INITIALIZED' },
+    });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        nextBillingDate: intended,
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
+      gatewaySubscriptionId: '391227474',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'upi' },
+    });
+
+    await presentCashfree('sub-1', asOf);
+
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].scheduleDate).toEqual(intended);
+    expect(paymentsService.recordProviderCharge).toHaveBeenCalledWith(
+      'pay-row-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          cashfreeCharge: expect.objectContaining({ paymentId: 'pay_cf' }),
+        }),
+      }),
+    );
+  });
+
+  it('does not raise a Cashfree UPI CHARGE after the 21:00 IST cutoff on D-1', async () => {
+    const intended = new Date('2026-11-25T18:30:00.000Z');
+    const asOf = new Date('2026-11-25T16:00:00.000Z'); // 25 Nov 21:30 IST
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-new',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        nextBillingDate: intended,
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'upi' },
+    });
+
+    await presentCashfree('sub-1', asOf);
+
+    expect(charge).not.toHaveBeenCalled();
+    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+      'cycle-new',
+      expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
+    );
+  });
+
+  it('raises a Cashfree card CHARGE on D-2 so the 03:00 IST job can still hit the intended date', async () => {
+    const intended = new Date('2026-11-25T18:30:00.000Z');
+    const asOf = new Date('2026-11-23T21:30:00.000Z'); // 24 Nov 03:00 IST
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '2.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-new',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    charge.mockResolvedValue({ accepted: true, pending: true, gatewayOrderId: 'pay_cf' });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        nextBillingDate: intended,
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'card' },
+    });
+
+    await presentCashfree('sub-1', asOf);
+
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].scheduleDate).toEqual(intended);
+  });
+
+  it('does not raise a Cashfree CHARGE when the customer cancelled the mandate', async () => {
+    const intended = new Date('2026-11-25T18:30:00.000Z');
+    const asOf = new Date('2026-11-24T21:30:00.000Z');
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    mandateService.canPresentAsAutopay.mockReturnValueOnce(false);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        nextBillingDate: intended,
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      status: 'CANCELLED',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'card' },
+    });
+
+    await presentCashfree('sub-1', asOf);
 
     expect(charge).not.toHaveBeenCalled();
   });
@@ -1586,10 +1809,9 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
   });
 
-  it('keeps a 27-hour UPI renewal pending until 27 Oct 2026, 3:35 AM IST', async () => {
-    const firstCharge = new Date('2026-10-25T19:05:00.000Z');
-    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
-    const ist = new Intl.DateTimeFormat('en-GB', {
+  it('keeps a 27-hour UPI renewal pending until the scheduled debit', async () => {
+    const documentedDebit = new Date('2026-10-26T22:05:00.000Z');
+    const documentedIst = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Kolkata',
       day: 'numeric',
       month: 'long',
@@ -1597,10 +1819,15 @@ describe('Product subscription Razorpay UPI renewal', () => {
       hour: '2-digit',
       minute: '2-digit',
       hourCycle: 'h23',
-    }).format(nextDebit);
-    expect(ist).toContain('27 October 2026');
-    expect(ist).toContain('03:35');
-    expect(buildBillingCycleRef(nextDebit, ProductSubscriptionFrequency.HOURS_27)).toBe('2026-10-26T2205Z');
+    }).format(documentedDebit);
+    expect(documentedIst).toContain('27 October 2026');
+    expect(documentedIst).toContain('03:35');
+    expect(buildBillingCycleRef(documentedDebit, ProductSubscriptionFrequency.HOURS_27)).toBe(
+      '2026-10-26T2205Z',
+    );
+
+    const firstCharge = new Date(Date.now() + 60 * 60 * 1000);
+    const nextDebit = new Date(firstCharge.getTime() + 27 * 60 * 60 * 1000);
     expect(nextDebit.getTime() - firstCharge.getTime()).toBe(27 * 60 * 60 * 1000);
 
     const cycle = {
@@ -1608,7 +1835,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
       status: SubscriptionBillingCycleStatus.SCHEDULED,
       paymentId: null,
       chargeDate: nextDebit,
-      billingCycleRef: '2026-10-26T2205Z',
+      billingCycleRef: buildBillingCycleRef(nextDebit, ProductSubscriptionFrequency.HOURS_27),
     };
     subscriptionsRepository.findById.mockResolvedValue(
       subscription({
@@ -1650,7 +1877,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
   });
 
   it('does not fail the future cycle when the pre-debit order is rejected', async () => {
-    const nextDebit = new Date('2026-10-26T22:05:00.000Z');
+    const firstCharge = new Date(Date.now() + 60 * 60 * 1000);
+    const nextDebit = new Date(firstCharge.getTime() + 27 * 60 * 60 * 1000);
     subscriptionsRepository.findById.mockResolvedValue(
       subscription({
         frequency: ProductSubscriptionFrequency.HOURS_27,
@@ -1680,7 +1908,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
       service as unknown as {
         presentUpcomingUpiDebit: (id: string, asOf: Date) => Promise<void>;
       }
-    ).presentUpcomingUpiDebit('sub-1', new Date('2026-10-25T19:05:00.000Z'));
+    ).presentUpcomingUpiDebit('sub-1', firstCharge);
 
     expect(submitRecurringDebit).not.toHaveBeenCalled();
     expect(paymentsService.markFailed).not.toHaveBeenCalled();

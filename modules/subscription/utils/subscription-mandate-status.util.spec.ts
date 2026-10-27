@@ -22,5 +22,8 @@ describe('subscription-mandate-status.util', () => {
     expect(mapCashfreeSubscriptionStatus('ACTIVE')).toBe(SubscriptionMandateStatus.CONFIRMED);
     expect(mapCashfreeSubscriptionStatus('INITIALIZED')).toBe(SubscriptionMandateStatus.PENDING);
     expect(mapCashfreeSubscriptionStatus('CANCELLED')).toBe(SubscriptionMandateStatus.CANCELLED);
+    expect(mapCashfreeSubscriptionStatus('CUSTOMER_CANCELLED')).toBe(
+      SubscriptionMandateStatus.CANCELLED,
+    );
   });
 });
