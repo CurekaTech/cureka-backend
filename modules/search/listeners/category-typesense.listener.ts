@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { CategoryUpdatedEvent, EVENTS } from '@packages/events';
 import { TypesenseIndexerService } from '../services/typesense-indexer.service';
+import { TypesenseQueueService } from '../services/typesense-queue.service';
 
 @Injectable()
 export class CategoryTypesenseListener {
   private readonly logger = new Logger(CategoryTypesenseListener.name);
 
-  constructor(private readonly indexer: TypesenseIndexerService) {}
+  constructor(
+    private readonly indexer: TypesenseIndexerService,
+    private readonly queue: TypesenseQueueService,
+  ) {}
 
   @OnEvent(EVENTS.CATEGORY_UPDATED)
   async handleCategoryUpdated(event: CategoryUpdatedEvent): Promise<void> {
@@ -17,7 +21,7 @@ export class CategoryTypesenseListener {
         return;
       }
 
-      await this.indexer.reindexByCategoryRefId(event.refId);
+      await this.queue.enqueueCategoryReindex(event.refId);
     } catch (error) {
       this.logger.error(
         `Typesense category reindex failed refId=${event.refId}: ${
