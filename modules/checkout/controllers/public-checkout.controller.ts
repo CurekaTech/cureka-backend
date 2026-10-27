@@ -16,16 +16,20 @@ export class PublicCheckoutController {
   @ApiOperation({
     summary: 'Resolve active checkout provider by admin priority',
     description:
-      'Priority: gokwik > shiprocket > legacy. Returns the current provider based on active admin settings.',
+      'Cart priority: gokwik > shiprocket > legacy. `nativeGateway` is the admin Cashfree/Razorpay fallback used when GoKwik is off, and the only gateway for product subscriptions.',
   })
   @ResponseMessage('Checkout provider resolved successfully')
   @Get('provider')
   @HttpCode(HttpStatus.OK)
   async getProvider() {
-    const checkoutProvider = await this.checkoutResolver.resolveProvider();
+    const [checkoutProvider, nativeGateway] = await Promise.all([
+      this.checkoutResolver.resolveProvider(),
+      this.checkoutResolver.resolveNativeGateway(),
+    ]);
     return {
       checkoutProvider,
       gateway: checkoutProvider,
+      nativeGateway,
       /** UI-only hint for native useWallet; server still enforces WALLET_CHECKOUT_ENABLED. */
       walletCheckoutEnabled:
         this.configService.get<boolean>('wallet.checkoutEnabled') === true,

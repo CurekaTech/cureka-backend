@@ -11,8 +11,9 @@ export class CheckoutResolverService {
   constructor(private readonly adminSettingsRepository: AdminSettingsRepository) {}
 
   /**
-   * Priority: gokwik → shiprocket → legacy (Razorpay/Cashfree).
-   * Driven by admin settings — both `status=active` AND a truthy `value` are required.
+   * Cart priority: gokwik → shiprocket → legacy (Cashfree/Razorpay).
+   * Enabled when admin status is active or the value is truthy.
+   * Subscription carts skip this and use the native gateway only.
    */
   async resolveProvider(): Promise<CheckoutProviderName> {
     if (await this.isGokwikCheckoutEnabled()) {
@@ -33,8 +34,24 @@ export class CheckoutResolverService {
   }
 
   /**
-   * Enabled only when status is active AND value is truthy (`true`/`1`/`yes`/`on`).
-   * Disabling either field turns the provider off (matches admin toggle + value sync).
+   * Native prepaid gateway for cart fallback and product subscriptions.
+   * Cashfree wins when both native gateways are on, matching payment resolution.
+   * GoKwik is not a native gateway.
+   */
+  async resolveNativeGateway(): Promise<'cashfree' | 'razorpay' | null> {
+    if (await this.isBooleanSettingEnabled('cash_free')) {
+      return 'cashfree';
+    }
+    if (await this.isBooleanSettingEnabled('razor_pay')) {
+      return 'razorpay';
+    }
+    return null;
+  }
+
+  /**
+   * Admin toggles often update only status, and older rows kept value "false"
+   * while status was active. Either an active status or a truthy value enables
+   * the flag. A real disable sets both inactive and a false value together.
    */
   private async isBooleanSettingEnabled(key: string): Promise<boolean> {
     const setting = await this.adminSettingsRepository.findByKey(key);
@@ -45,13 +62,11 @@ export class CheckoutResolverService {
     const status = String(setting.status ?? '')
       .toLowerCase()
       .trim();
-    if (status !== AdminSettingStatus.ACTIVE && status !== 'active') {
-      return false;
-    }
-
+    const statusEnabled = status === AdminSettingStatus.ACTIVE || status === 'active';
     const normalized = String(setting.value ?? '')
       .toLowerCase()
       .trim();
-    return ['1', 'true', 'yes', 'on'].includes(normalized);
+    const valueEnabled = ['1', 'true', 'yes', 'on'].includes(normalized);
+    return statusEnabled || valueEnabled;
   }
 }
