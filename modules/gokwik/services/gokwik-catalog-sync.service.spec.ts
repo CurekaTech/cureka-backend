@@ -9,7 +9,9 @@ import { DataSource } from 'typeorm';
 import { GokwikRepository } from '../repositories/gokwik.repository';
 import { GokwikApiService } from './gokwik-api.service';
 import { GokwikCatalogSyncService } from './gokwik-catalog-sync.service';
+import { GokwikCollectionLockService } from './gokwik-collection-lock.service';
 import { GokwikQueueService } from './gokwik-queue.service';
+import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '@modules/product/utils/product-category-hierarchies.util';
 
 const product = {
   id: 'product-id',
@@ -53,8 +55,24 @@ function queryBuilder(rows: { promotionType: PromotionalPageType }[]) {
   return builder;
 }
 
+function collectionQueryBuilder() {
+  const builder = {
+    select: jest.fn(),
+    where: jest.fn(),
+    setParameter: jest.fn(),
+    andWhere: jest.fn(),
+    getRawMany: jest.fn(async () => [{ id: 'product-id' }]),
+  };
+  builder.select.mockReturnValue(builder);
+  builder.where.mockReturnValue(builder);
+  builder.setParameter.mockReturnValue(builder);
+  builder.andWhere.mockReturnValue(builder);
+  return builder;
+}
+
 function createService(promotionRows: { promotionType: PromotionalPageType }[]) {
   const promotionQuery = queryBuilder(promotionRows);
+  const collectionQuery = collectionQueryBuilder();
   const dataSource = {
     getRepository: jest.fn((entity: unknown) => {
       if (entity === PromotionalPageEntity) {
@@ -74,12 +92,7 @@ function createService(promotionRows: { promotionType: PromotionalPageType }[]) 
       }
       return {
         findOne: jest.fn(async () => product),
-        createQueryBuilder: jest.fn(() => ({
-          select: jest.fn().mockReturnThis(),
-          where: jest.fn().mockReturnThis(),
-          andWhere: jest.fn().mockReturnThis(),
-          getRawMany: jest.fn(async () => [{ id: 'product-id' }]),
-        })),
+        createQueryBuilder: jest.fn(() => collectionQuery),
       };
     }),
   };
@@ -103,8 +116,13 @@ function createService(promotionRows: { promotionType: PromotionalPageType }[]) 
     { markSyncState: jest.fn(async () => undefined) } as unknown as GokwikRepository,
     {} as GokwikQueueService,
     { toReference: jest.fn(async () => ({ url: 'https://cdn.test/cream.png' })) } as unknown as StorageUrlEnricher,
+    {
+      runExclusive: async (
+        work: (assertOwned: () => Promise<void>) => Promise<unknown>,
+      ) => work(async () => undefined),
+    } as unknown as GokwikCollectionLockService,
   );
-  return { service, apiService, promotionQuery };
+  return { service, apiService, promotionQuery, collectionQuery };
 }
 
 const existingProductFields = [
@@ -170,12 +188,14 @@ describe('GokwikCatalogSyncService promotion type', () => {
   });
 
   it('does not add promotionType to the collection sync payload', async () => {
-    const { service, apiService } = createService([
+    const { service, apiService, collectionQuery } = createService([
       { promotionType: PromotionalPageType.MONTH_END },
     ]);
 
     await service.syncCollection('category-id');
 
+    expect(collectionQuery.where).toHaveBeenCalledWith(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL);
+    expect(collectionQuery.setParameter).toHaveBeenCalledWith('categoryId', 'category-id');
     expect(apiService.syncCollections).toHaveBeenCalledWith({
       id: 'category-id',
       handle: 'skin-care',

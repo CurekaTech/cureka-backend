@@ -7,8 +7,13 @@ import { PromotionalPageType } from '@modules/promotional-pages/enums/promotiona
 import { PromotionalTargetType } from '@modules/promotional-pages/enums/promotional-target-type.enum';
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
+import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '@modules/product/utils/product-category-hierarchies.util';
 import { Brackets, DataSource, IsNull } from 'typeorm';
 import { GokwikRepository } from '../repositories/gokwik.repository';
+import {
+  GokwikCollectionLockBusyError,
+  GokwikCollectionLockService,
+} from './gokwik-collection-lock.service';
 import {
   GOKWIK_PRODUCT_PROMOTION_TYPE_FIELD,
   resolveGokwikPromotionType,
@@ -27,6 +32,7 @@ export class GokwikCatalogSyncService {
     private readonly repository: GokwikRepository,
     private readonly queueService: GokwikQueueService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly collectionLock: GokwikCollectionLockService,
   ) {}
 
   async syncProduct(productId: string): Promise<void> {
@@ -141,61 +147,58 @@ export class GokwikCatalogSyncService {
 
   async syncCollection(categoryId: string): Promise<void> {
     this.assertConfiguredEnabled();
-    await this.repository.markSyncState('collection', categoryId, 'syncing');
-    try {
-      const category = await this.dataSource.getRepository(CategoryEntity).findOne({
-        where: { id: categoryId },
-        withDeleted: true,
-      });
-      if (!category) throw new NotFoundException('Category not found');
+    await this.collectionLock.runExclusive(async (assertOwned) => {
+      await this.repository.markSyncState('collection', categoryId, 'syncing');
+      try {
+        const category = await this.dataSource.getRepository(CategoryEntity).findOne({
+          where: { id: categoryId },
+          withDeleted: true,
+        });
+        if (!category) throw new NotFoundException('Category not found');
 
-      const products = await this.dataSource
-        .getRepository(ProductEntity)
-        .createQueryBuilder('product')
-        .select('product.id', 'id')
-        .where(
-          new Brackets((query) => {
-            query
-              .where('product.categoryId = :categoryId', { categoryId })
-              .orWhere('product.subCategoryId = :categoryId', { categoryId })
-              .orWhere('product.subSubCategoryId = :categoryId', { categoryId })
-              .orWhere('product.subSubSubCategoryId = :categoryId', { categoryId });
-          }),
-        )
-        .andWhere('product.deletedAt IS NULL')
-        .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
-        .getRawMany<{ id: string }>();
+        const products = await this.dataSource
+          .getRepository(ProductEntity)
+          .createQueryBuilder('product')
+          .select('product.id', 'id')
+          .where(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL)
+          .setParameter('categoryId', categoryId)
+          .andWhere('product.deletedAt IS NULL')
+          .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
+          .getRawMany<{ id: string }>();
 
-      const payload = {
-        id: category.id,
-        handle: category.slug,
-        title: category.name,
-        product_ids: products.map((product) => product.id),
-        updated_at: (category.updatedAt ?? new Date()).toISOString(),
-      };
+        const payload = {
+          id: category.id,
+          handle: category.slug,
+          title: category.name,
+          product_ids: products.map((product) => product.id),
+          updated_at: (category.updatedAt ?? new Date()).toISOString(),
+        };
 
-      this.logger.log(
-        {
-          categoryId: category.id,
-          refId: category.refId,
-          productCount: payload.product_ids.length,
-          deleted: Boolean(category.deletedAt),
-        },
-        'Syncing collection to GoKwik',
-      );
+        this.logger.log(
+          {
+            categoryId: category.id,
+            refId: category.refId,
+            productCount: payload.product_ids.length,
+            deleted: Boolean(category.deletedAt),
+          },
+          'Syncing collection to GoKwik',
+        );
 
-      await this.apiService.syncCollections(payload);
-      await this.repository.markSyncState('collection', categoryId, 'synced', {
-        remoteId: category.id,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown collection sync error';
-      this.logger.error({ categoryId, error: message }, 'GoKwik collection sync failed');
-      await this.repository.markSyncState('collection', categoryId, 'failed', {
-        lastError: message,
-      });
-      throw error;
-    }
+        await assertOwned();
+        await this.apiService.syncCollections(payload);
+        await this.repository.markSyncState('collection', categoryId, 'synced', {
+          remoteId: category.id,
+        });
+      } catch (error) {
+        if (error instanceof GokwikCollectionLockBusyError) throw error;
+        const message = error instanceof Error ? error.message : 'Unknown collection sync error';
+        this.logger.error({ categoryId, error: message }, 'GoKwik collection sync failed');
+        await this.repository.markSyncState('collection', categoryId, 'failed', {
+          lastError: message,
+        });
+        throw error;
+      }
+    });
   }
 
   async enqueueBackfill(): Promise<{ products: number; collections: number }> {
