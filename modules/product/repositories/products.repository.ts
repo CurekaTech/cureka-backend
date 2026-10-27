@@ -1612,6 +1612,23 @@ export class ProductsRepository {
     });
   }
 
+  /** Name and slug only. Category, brand, SKU, and attributes stay in recall, not rank. */
+  private publicVariantNameMatchSql(pattern: string): string {
+    return `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR variant.display_name ILIKE ${pattern} ESCAPE '!' OR variant.slug ILIKE ${pattern} ESCAPE '!')`;
+  }
+
+  private publicProductNameMatchSql(pattern: string): string {
+    return `(product.name ILIKE ${pattern} ESCAPE '!' OR product.slug ILIKE ${pattern} ESCAPE '!' OR EXISTS (
+      SELECT 1 FROM product_variants search_name_variant
+      WHERE search_name_variant.product_id = product.id
+        AND search_name_variant.deleted_at IS NULL
+        AND (
+          search_name_variant.display_name ILIKE ${pattern} ESCAPE '!'
+          OR search_name_variant.slug ILIKE ${pattern} ESCAPE '!'
+        )
+    ))`;
+  }
+
   private applyPublicVariantSearchFilters(
     qb: ReturnType<Repository<ProductVariantEntity>['createQueryBuilder']>,
     options: PublicProductListOptions,
@@ -1633,6 +1650,7 @@ export class ProductsRepository {
             AND search_category.name ILIKE ${pattern} ESCAPE '!'
         ))`,
         'publicVariantSearch',
+        (pattern) => this.publicVariantNameMatchSql(pattern),
       );
       qb.andWhere(plan.whereSql, plan.parameters);
       qb.addSelect(plan.rankSql, 'search_rank');
@@ -2374,6 +2392,7 @@ export class ProductsRepository {
             AND search_hierarchy_category.name ILIKE ${pattern} ESCAPE '!'
         ))`,
         'publicListSearch',
+        (pattern) => this.publicProductNameMatchSql(pattern),
       );
       qb.andWhere(plan.whereSql, plan.parameters);
       qb.addSelect(plan.rankSql, 'search_rank');
@@ -2898,6 +2917,7 @@ export class ProductsRepository {
         WHERE search_attr.variant_id = variant.id AND search_attr.value ILIKE ${pattern} ESCAPE '!'
       ))`,
       'dropdownSearch',
+      (pattern) => this.publicVariantNameMatchSql(pattern),
     );
 
     const primary = await this.repo.manager
