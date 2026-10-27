@@ -24,7 +24,7 @@ import { OrdersService } from '@modules/orders/services/orders.service';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
-import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
+import { isCodPaymentMethod, isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
 import { roundMoney, toMoneyString } from '@modules/orders/utils/money.util';
 import { resolveStorefrontOrderSource } from '@modules/orders/utils/storefront-order-source.util';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
@@ -305,7 +305,7 @@ export class PaymentRequestsService {
     // storefront checkout provider is enabled for one-time purchases.
     const checkoutProvider = hasSubscriptionItems ? 'legacy' : configuredProvider;
     this.logger.log(
-      { userId, checkoutProvider },
+      { userId, configuredProvider, hasSubscriptionItems, checkoutProvider },
       '[CHECKOUT-MODAL] checkout provider resolved (gokwik/shiprocket/legacy)',
     );
 
@@ -2482,11 +2482,19 @@ export class PaymentRequestsService {
     return OrderPaymentMethod.RAZORPAY;
   }
 
+  /**
+   * Cart and subscription prepaid sessions follow the admin native gateway.
+   * A storefront request that still says RAZORPAY must not keep Razorpay when
+   * admin has turned it off and left Cashfree on.
+   */
   private resolveStorefrontPrepaidMethod(
     activeGateway: 'cashfree' | 'razorpay' | 'payu',
     requested?: OrderPaymentMethod,
   ): OrderPaymentMethod {
-    if (requested && isPrepaidPaymentMethod(requested)) {
+    if (requested && isCodPaymentMethod(requested)) {
+      return requested;
+    }
+    if (requested === OrderPaymentMethod.WALLET) {
       return requested;
     }
     if (activeGateway === 'cashfree') {
