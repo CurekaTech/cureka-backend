@@ -69,6 +69,18 @@ export class ProductEntity extends BaseEntity {
   @Column({ name: 'category_id', type: 'uuid' })
   categoryId!: string;
 
+  /**
+   * Category ids whose GoKwik collection must be refreshed on the next checker approval.
+   * Accumulates adds and removals across edits while the product is not yet approved.
+   */
+  @Column({
+    name: 'gokwik_pending_collection_ids',
+    type: 'uuid',
+    array: true,
+    default: () => "'{}'",
+  })
+  gokwikPendingCollectionIds!: string[];
+
   @Index()
   @Column({ name: 'sub_category_id', type: 'uuid', nullable: true })
   subCategoryId!: string | null;

@@ -50,15 +50,38 @@ export class GokwikQueueService {
     });
   }
 
+  /**
+   * One deterministic job per category. Waiting and delayed jobs already read the
+   * database at execution time, so they are left in place. An active job cannot
+   * be replaced; a single follow-up job covers a newer membership change.
+   */
   async enqueueCollectionSync(resourceId: string): Promise<void> {
-    const data: SyncGokwikResourceJobData = { resourceId };
-    const jobId = `gokwik-collection-${resourceId}`;
-    const shouldEnqueue = await this.prepareReusableJobId(jobId);
-    if (!shouldEnqueue) return;
-    await this.queue.add(GOKWIK_JOB_NAMES.SYNC_COLLECTION, data, {
-      ...SYNC_OPTIONS,
-      jobId,
-    });
+    const canonicalId = `gokwik-collection-${resourceId}`;
+    const followUpId = `${canonicalId}-after`;
+    const canonical = await this.queue.getJob(canonicalId);
+
+    if (!canonical) {
+      await this.addCollectionJob(canonicalId, resourceId);
+      return;
+    }
+
+    const state = await canonical.getState();
+    if (state === 'waiting' || state === 'delayed') {
+      return;
+    }
+
+    if (state === 'active') {
+      await this.ensureCollectionFollowUp(followUpId, resourceId);
+      return;
+    }
+
+    await this.removeJobQuietly(canonical);
+    const followUp = await this.queue.getJob(followUpId);
+    if (followUp && (await followUp.getState()) === 'active') {
+      await this.addCollectionJob(canonicalId, resourceId);
+      return;
+    }
+    await this.addCollectionJob(canonicalId, resourceId);
   }
 
   enqueueFulfillment(orderId: string) {
@@ -92,6 +115,43 @@ export class GokwikQueueService {
       { orderId, orderStatus, delayMs, jobId },
       '[GoKwik] Enqueued delayed Update Order status push',
     );
+  }
+
+  private async addCollectionJob(jobId: string, resourceId: string): Promise<void> {
+    const data: SyncGokwikResourceJobData = { resourceId };
+    try {
+      await this.queue.add(GOKWIK_JOB_NAMES.SYNC_COLLECTION, data, {
+        ...SYNC_OPTIONS,
+        jobId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/already exists/i.test(message)) return;
+      throw error;
+    }
+  }
+
+  private async ensureCollectionFollowUp(followUpId: string, resourceId: string): Promise<void> {
+    const existing = await this.queue.getJob(followUpId);
+    if (!existing) {
+      await this.addCollectionJob(followUpId, resourceId);
+      return;
+    }
+    const state = await existing.getState();
+    if (state === 'waiting' || state === 'delayed' || state === 'active') {
+      return;
+    }
+    await this.removeJobQuietly(existing);
+    await this.addCollectionJob(followUpId, resourceId);
+  }
+
+  private async removeJobQuietly(job: { remove: () => Promise<void> }): Promise<void> {
+    await job.remove().catch((error: unknown) => {
+      this.logger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to remove existing GoKwik collection job before re-enqueue',
+      );
+    });
   }
 
   /**

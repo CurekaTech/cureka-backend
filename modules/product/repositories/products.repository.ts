@@ -1232,6 +1232,28 @@ export class ProductsRepository {
     return this.findByRefId(refId, manager);
   }
 
+  async findGokwikPendingCollectionIds(refId: string): Promise<string[]> {
+    const row = await this.repo.findOne({
+      where: { refId },
+      select: { id: true, gokwikPendingCollectionIds: true },
+    });
+    return row?.gokwikPendingCollectionIds ?? [];
+  }
+
+  async subtractGokwikPendingCollectionIds(refId: string, ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    await this.repo.query(
+      `UPDATE products
+       SET gokwik_pending_collection_ids = COALESCE((
+         SELECT array_agg(pending_id)
+         FROM unnest(COALESCE(gokwik_pending_collection_ids, '{}'::uuid[])) AS pending_id
+         WHERE NOT (pending_id = ANY($1::uuid[]))
+       ), '{}'::uuid[])
+       WHERE ref_id = $2`,
+      [ids, refId],
+    );
+  }
+
   async softDeleteByRefId(refId: string): Promise<void> {
     await this.repo.softDelete({ refId });
   }

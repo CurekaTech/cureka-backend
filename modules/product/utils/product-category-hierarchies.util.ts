@@ -140,6 +140,52 @@ export const toCategoryHierarchyDtos = (
     subSubSubCategoryRefId: item.subSubSubCategoryRefId,
   }));
 
+export interface CategoryHierarchyIds {
+  categoryId?: string | null;
+  subCategoryId?: string | null;
+  subSubCategoryId?: string | null;
+  subSubSubCategoryId?: string | null;
+}
+
+/** Distinct category ids from every level of every hierarchy row, sorted for stable enqueue order. */
+export const categoryIdsFromHierarchies = (rows: readonly CategoryHierarchyIds[]): string[] => {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    for (const id of [
+      row.categoryId,
+      row.subCategoryId,
+      row.subSubCategoryId,
+      row.subSubSubCategoryId,
+    ]) {
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids].sort();
+};
+
+/** Category ids added or removed between two full hierarchy assignments. */
+export const diffCategoryIds = (
+  previous: readonly CategoryHierarchyIds[],
+  next: readonly CategoryHierarchyIds[],
+): string[] => {
+  const before = new Set(categoryIdsFromHierarchies(previous));
+  const after = new Set(categoryIdsFromHierarchies(next));
+  const changed = new Set<string>();
+  for (const id of before) {
+    if (!after.has(id)) changed.add(id);
+  }
+  for (const id of after) {
+    if (!before.has(id)) changed.add(id);
+  }
+  return [...changed].sort();
+};
+
+/** Keep earlier pending ids and add this edit's delta. Duplicates collapse. */
+export const unionCategoryIds = (
+  current: readonly string[] | null | undefined,
+  delta: readonly string[],
+): string[] => [...new Set([...(current ?? []), ...delta])].sort();
+
 /** SQL fragment: product matches categoryId via primary FKs or any hierarchy row. */
 export const PRODUCT_MATCHES_CATEGORY_SQL = `(
   product.category_id = :categoryId

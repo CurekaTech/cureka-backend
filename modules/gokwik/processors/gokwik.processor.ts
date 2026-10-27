@@ -3,7 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { createJobLogger } from '@packages/logger';
 import { QUEUE_NAMES } from '@packages/queue/queue.constants';
-import { Job } from 'bullmq';
+import { DelayedError, Job } from 'bullmq';
+import { GokwikCollectionLockBusyError } from '../services/gokwik-collection-lock.service';
 import {
   GOKWIK_JOB_NAMES,
   ProcessGokwikWebhookJobData,
@@ -28,7 +29,7 @@ export class GokwikProcessor extends WorkerHost {
     this.pinoLogger.setContext(GokwikProcessor.name);
   }
 
-  async process(job: Job): Promise<void> {
+  async process(job: Job, token?: string): Promise<void> {
     const data = job.data as Record<string, string | undefined>;
     const logger = createJobLogger(this.pinoLogger, {
       jobId: job.id,
@@ -83,6 +84,10 @@ export class GokwikProcessor extends WorkerHost {
       }
       logger.log('GoKwik job completed');
     } catch (error) {
+      if (error instanceof GokwikCollectionLockBusyError) {
+        await job.moveToDelayed(Date.now() + 1_000, token);
+        throw new DelayedError();
+      }
       logger.error(
         {
           attempt: job.attemptsMade + 1,
