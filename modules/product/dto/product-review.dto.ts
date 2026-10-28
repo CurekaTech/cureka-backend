@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -23,6 +24,41 @@ export class CreateProductReviewDto {
   @IsNotEmpty()
   @MaxLength(2000)
   review!: string;
+
+  @IsOptional()
+  @IsUUID()
+  variantId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  variantSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  reviewDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  customerAge?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  customerLocation?: string;
+}
+
+export class PublicProductReviewQueryDto {
+  @IsOptional()
+  @IsUUID()
+  variantId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  variantSlug?: string;
 }
 
 export class UpdateProductReviewStatusDto {

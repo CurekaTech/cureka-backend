@@ -53,6 +53,13 @@ export class ProductReviewsRepository {
     });
   }
 
+  async findApprovedByVariantId(variantId: string): Promise<ProductReviewEntity[]> {
+    return this.repo.find({
+      where: { variantId, status: ProductReviewStatus.APPROVED },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async findAllPaginated(
     options: ProductReviewFindOptions,
   ): Promise<{ data: ProductReviewEntity[]; total: number }> {
@@ -78,7 +85,7 @@ export class ProductReviewsRepository {
 
     if (options.search) {
       qb.andWhere(
-        '(review.customer_name ILIKE :search OR review.review ILIKE :search OR product.name ILIKE :search)',
+        '(review.customer_name ILIKE :search OR review.review ILIKE :search OR review.review_description ILIKE :search OR review.variant_sku ILIKE :search OR product.name ILIKE :search)',
         { search: `%${options.search}%` },
       );
     }

@@ -2,6 +2,8 @@ import { ConfigService } from '@nestjs/config';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
+import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -57,16 +59,27 @@ function queryBuilder(rows: { promotionType: PromotionalPageType }[]) {
 
 function collectionQueryBuilder() {
   const builder = {
+    innerJoin: jest.fn(),
     select: jest.fn(),
+    distinct: jest.fn(),
     where: jest.fn(),
     setParameter: jest.fn(),
     andWhere: jest.fn(),
-    getRawMany: jest.fn(async () => [{ id: 'product-id' }]),
+    orderBy: jest.fn(),
+    getRawMany: jest.fn(async () => [
+      { id: 'simple-variant-id' },
+      { id: 'variable-variant-a' },
+      { id: 'variable-variant-a' },
+      { id: 'variable-variant-b' },
+    ]),
   };
+  builder.innerJoin.mockReturnValue(builder);
   builder.select.mockReturnValue(builder);
+  builder.distinct.mockReturnValue(builder);
   builder.where.mockReturnValue(builder);
   builder.setParameter.mockReturnValue(builder);
   builder.andWhere.mockReturnValue(builder);
+  builder.orderBy.mockReturnValue(builder);
   return builder;
 }
 
@@ -194,13 +207,29 @@ describe('GokwikCatalogSyncService promotion type', () => {
 
     await service.syncCollection('category-id');
 
+    expect(collectionQuery.innerJoin).toHaveBeenCalledWith('product.variants', 'variant');
+    expect(collectionQuery.distinct).toHaveBeenCalledWith(true);
     expect(collectionQuery.where).toHaveBeenCalledWith(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL);
     expect(collectionQuery.setParameter).toHaveBeenCalledWith('categoryId', 'category-id');
+    expect(collectionQuery.andWhere).toHaveBeenCalledWith('product.status = :published', {
+      published: ProductStatus.PUBLISHED,
+    });
+    expect(collectionQuery.andWhere).toHaveBeenCalledWith(
+      'product.productType IN (:...catalogProductTypes)',
+      {
+        catalogProductTypes: [ProductType.SIMPLE, ProductType.VARIABLE, ProductType.BUNDLE],
+      },
+    );
+    expect(collectionQuery.andWhere).toHaveBeenCalledWith('variant.deletedAt IS NULL');
+    expect(collectionQuery.andWhere).toHaveBeenCalledWith('variant.status = :variantStatus', {
+      variantStatus: VariantStatus.ACTIVE,
+    });
+    expect(collectionQuery.orderBy).toHaveBeenCalledWith('variant.id', 'ASC');
     expect(apiService.syncCollections).toHaveBeenCalledWith({
       id: 'category-id',
       handle: 'skin-care',
       title: 'Skin Care',
-      product_ids: ['product-id'],
+      product_ids: ['simple-variant-id', 'variable-variant-a', 'variable-variant-b'],
       updated_at: '2026-06-01T00:00:00.000Z',
     });
   });

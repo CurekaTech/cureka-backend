@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
+import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
 import { PromotionalTargetType } from '@modules/promotional-pages/enums/promotional-target-type.enum';
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
@@ -156,21 +158,36 @@ export class GokwikCatalogSyncService {
         });
         if (!category) throw new NotFoundException('Category not found');
 
-        const products = await this.dataSource
+        // GoKwik collection product_ids are variant ids, matching variants[].id on
+        // update-product-details. A simple or bundle product has one variant, so it
+        // contributes that id. A variable product contributes each active variant.
+        const variants = await this.dataSource
           .getRepository(ProductEntity)
           .createQueryBuilder('product')
-          .select('product.id', 'id')
+          .innerJoin('product.variants', 'variant')
+          .select('variant.id', 'id')
+          .distinct(true)
           .where(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL)
           .setParameter('categoryId', categoryId)
           .andWhere('product.deletedAt IS NULL')
           .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
+          .andWhere('product.productType IN (:...catalogProductTypes)', {
+            catalogProductTypes: [ProductType.SIMPLE, ProductType.VARIABLE, ProductType.BUNDLE],
+          })
+          .andWhere('variant.deletedAt IS NULL')
+          .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
+          .orderBy('variant.id', 'ASC')
           .getRawMany<{ id: string }>();
+
+        const productIds = [
+          ...new Set(variants.map((variant) => variant.id).filter((id) => Boolean(id))),
+        ];
 
         const payload = {
           id: category.id,
           handle: category.slug,
           title: category.name,
-          product_ids: products.map((product) => product.id),
+          product_ids: productIds,
           updated_at: (category.updatedAt ?? new Date()).toISOString(),
         };
 
@@ -178,7 +195,7 @@ export class GokwikCatalogSyncService {
           {
             categoryId: category.id,
             refId: category.refId,
-            productCount: payload.product_ids.length,
+            variantCount: payload.product_ids.length,
             deleted: Boolean(category.deletedAt),
           },
           'Syncing collection to GoKwik',

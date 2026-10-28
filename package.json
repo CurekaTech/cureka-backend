@@ -72,6 +72,8 @@
     "product:dedupe-media": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-media-dedupe.runner.ts",
     "bulk-upload:diagnose": "ts-node -r tsconfig-paths/register apps/api/database/scripts/bulk-upload-diagnose.runner.ts",
     "blog:import": "ts-node -r tsconfig-paths/register apps/api/database/scripts/blog-import.runner.ts",
+    "review:import:test": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-review-import.test.runner.ts",
+    "review:import:live": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-review-import.live.runner.ts",
     "blog:apply": "ts-node -r tsconfig-paths/register apps/api/database/scripts/blog-import.runner.ts --file=\"docs/BlogDetailsFinal.xlsx\" --apply",
     "blog:update": "ts-node -r tsconfig-paths/register apps/api/database/scripts/blog-import.runner.ts --file=\"docs/BlogDetailsFinal.xlsx\" --update --apply",
     "typesense:reindex": "npm run build && node dist/apps/api/database/scripts/typesense-reindex.runner.js",

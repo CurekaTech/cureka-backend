@@ -202,7 +202,7 @@ export class AdminAuthService {
     return [
       ...expandScopedPermissionCodes(
         (entity.roleRecord?.permissions ?? [])
-          .filter((permission) => permission.status === MasterStatus.ACTIVE)
+      .filter((permission) => permission.status === MasterStatus.ACTIVE)
           .map((permission) => permission.code),
       ),
     ];

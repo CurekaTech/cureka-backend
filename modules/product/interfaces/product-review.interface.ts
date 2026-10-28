@@ -8,10 +8,15 @@ export interface IProductReview {
   productRefId: string;
   productName: string | null;
   productImage: IStorageFileReference | IStorageFileReferenceResponse | string | null;
-  userId: string;
+  userId: string | null;
+  variantId: string | null;
+  variantSku: string | null;
   customerName: string;
   rating: number;
-  review: string;
+  review: string | null;
+  reviewDescription: string | null;
+  customerAge: string | null;
+  customerLocation: string | null;
   status: ProductReviewStatus;
   moderatedBy: string | null;
   moderatedAt: Date | null;
@@ -23,9 +28,15 @@ export interface IPublicProductReviewItem {
   refId: string;
   customerName: string;
   rating: number;
-  review: string;
+  review: string | null;
+  reviewDescription: string | null;
+  customerAge: string | null;
+  customerLocation: string | null;
+  variantId: string | null;
   createdAt: Date;
 }
+
+export type PublicProductReviewScope = 'variant' | 'product';
 
 export interface IProductReviewRatingBreakdown {
   rating: number;
@@ -42,4 +53,8 @@ export interface IPublicProductReviewSummary {
 export interface IPublicProductReviewsResponse {
   summary: IPublicProductReviewSummary;
   reviews: IPublicProductReviewItem[];
+  /** `variant` when the summary and list are that variant's approved reviews. */
+  scope: PublicProductReviewScope;
+  /** Set only when `scope` is `variant`. */
+  variantId: string | null;
 }
