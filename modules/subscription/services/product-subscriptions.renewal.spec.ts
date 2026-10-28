@@ -859,7 +859,9 @@ describe('Product subscription Razorpay UPI renewal', () => {
       'cycle-new',
       expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
     );
-    expect(paymentLinkService.createPaymentLink).toHaveBeenCalledTimes(1);
+    expect(paymentLinkService.createPaymentLink).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredGateway: 'CASHFREE' }),
+    );
   });
 
   it('keeps the legacy due-date Cashfree schedule when advance charging is rolled back', async () => {
@@ -904,8 +906,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
     await renew('sub-1');
     const cardCall = charge.mock.calls[0][0];
     expect(cardCall.gatewaySubscriptionId).toBe('sub_sub-1');
-    expect(cardCall.scheduleDate.getTime()).toBeGreaterThanOrEqual(beforeCard - 1000);
-    expect(cardCall.scheduleDate.getTime()).toBeLessThan(beforeCard + 5000);
+    // Legacy advance-off card path must use T+2, never same-day.
+    expect(cardCall.scheduleDate.getTime() - beforeCard).toBeGreaterThan(23 * 60 * 60 * 1000);
 
     charge.mockClear();
     mandateService.getForSubscription.mockResolvedValue({

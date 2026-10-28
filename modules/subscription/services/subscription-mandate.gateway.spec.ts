@@ -15,6 +15,7 @@ describe('Subscription mandate gateway selection', () => {
       provider: SubscriptionMandateProvider.CASHFREE,
       authorizationOrderId: 'sub_1',
       gatewaySubscriptionId: 'cf_1',
+      gatewayCustomerId: null,
       currency: 'INR',
       checkoutPayload: {},
     })),
@@ -45,12 +46,21 @@ describe('Subscription mandate gateway selection', () => {
     expect(gatewayResolver.getActiveGateway).not.toHaveBeenCalled();
   });
 
+  it('keeps a stored Cashfree subscription on Cashfree when admin selected Razorpay', () => {
+    gatewayResolver.getActiveGateway.mockResolvedValue('razorpay');
+    expect(
+      service.resolveChargeProvider({ paymentGateway: 'CASHFREE' } as never),
+    ).toBe(SubscriptionMandateProvider.CASHFREE);
+    expect(gatewayResolver.getActiveGateway).not.toHaveBeenCalled();
+  });
+
   it('does not treat a missing gateway as Razorpay', () => {
     expect(service.resolveChargeProvider({ paymentGateway: null } as never)).toBeNull();
     expect(service.resolveChargeProvider({ paymentGateway: 'PAYU' } as never)).toBeNull();
   });
 
   it('does not mark a Cashfree card checkout as card-auth only', async () => {
+    gatewayResolver.getActiveGateway.mockResolvedValue('cashfree');
     mandatesRepository.create.mockImplementation(async (row: { consentEvidence: { cardAuthOnly: boolean } }) => ({
       id: 'man-1',
       ...row,

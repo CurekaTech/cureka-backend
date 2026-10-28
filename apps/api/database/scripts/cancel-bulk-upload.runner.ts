@@ -2,7 +2,7 @@
  * Cancel a stuck bulk upload job (DB + Redis lock + BullMQ queue).
  *
  * Usage:
- *   npm run bulk-upload:cancel -- BUP2026006360
+ *   npm run bulk-upload:cancel -- BUP2026404445
  *   npm run bulk-upload:cancel -- --ref-id=BUP2026006360
  */
 import 'reflect-metadata';

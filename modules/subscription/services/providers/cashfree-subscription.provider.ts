@@ -73,7 +73,9 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       },
       subscription_tags: input.notes,
     };
-    const created = await this.request('POST', '/subscriptions', body);
+    const created = await this.request('POST', '/subscriptions', body, {
+      'x-idempotency-key': `cf-sub-create:${input.subscriptionId}`.slice(0, 64),
+    });
     const sessionId = String(created['subscription_session_id'] ?? '');
     const cfId = String(created['cf_subscription_id'] ?? '');
     if (!sessionId && !String(created['subscription_id'] ?? '')) {

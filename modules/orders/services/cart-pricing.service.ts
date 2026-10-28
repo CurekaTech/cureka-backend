@@ -147,6 +147,11 @@ export class CartPricingService {
             variantLabel: item.variantLabel,
             isSubscription: item.isSubscription,
             productType: null,
+            brandId: item.brandId,
+            categoryId: item.categoryId,
+            subCategoryId: item.subCategoryId,
+            subSubCategoryId: item.subSubCategoryId,
+            subSubSubCategoryId: item.subSubSubCategoryId,
           })),
         });
         const applied = (promotion.promotions?.length ?? 0) > 0 || (promotion.rewardLines?.length ?? 0) > 0 || (promotion.bmsmDiscount ?? 0) > 0;

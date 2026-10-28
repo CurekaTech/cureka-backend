@@ -51,6 +51,7 @@ import {
   CASHFREE_MISSED_SCHEDULE_REASON,
   cashfreeChargeAttemptMetadata,
   nextCashfreeUpiScheduleDate,
+  nextCashfreeCardScheduleDate,
   resolveCashfreeChargeSchedule,
 } from '../utils/cashfree-schedule-date.util';
 import { isCashfreeAdvanceChargeEnabled } from '../utils/subscriptions-module.util';
@@ -895,9 +896,14 @@ export class ProductSubscriptionsService {
     const billingCycleRef = failed.billingCycleRef || buildBillingCycleRef(billingDate, sub.frequency);
     const amount = failed.amount || (await this.recalculateAmount(sub));
     const user = await this.usersRepository.findById(userId);
+    const persistedGateway = (sub.paymentGateway ?? '').toUpperCase();
     const link = await this.paymentLinkService.createPaymentLink({
       amount,
       referenceId: `${failed.refId ?? failed.id}-R${(failed.retryCount ?? 0) + 1}`.slice(0, 40),
+      preferredGateway:
+        persistedGateway === 'RAZORPAY' || persistedGateway === 'CASHFREE'
+          ? persistedGateway
+          : null,
       customer: {
         id: userId,
         name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
@@ -3053,10 +3059,14 @@ export class ProductSubscriptionsService {
     }
 
     const user = await this.usersRepository.findById(sub.userId);
-    const persistedGateway = (sub.paymentGateway ?? '').toLowerCase();
+    const persistedGateway = (sub.paymentGateway ?? '').toUpperCase();
     const link = await this.paymentLinkService.createPaymentLink({
       amount,
       referenceId: payment.refId,
+      preferredGateway:
+        persistedGateway === 'RAZORPAY' || persistedGateway === 'CASHFREE'
+          ? persistedGateway
+          : null,
       customer: {
         id: sub.userId,
         name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
@@ -3076,9 +3086,7 @@ export class ProductSubscriptionsService {
     await this.paymentsService.attachPaymentLink(payment.id, {
       paymentLink: link.paymentLink ?? '',
       gatewayOrderId: link.gatewayOrderId,
-      paymentGateway: persistedGateway === 'razorpay' || persistedGateway === 'cashfree'
-        ? sub.paymentGateway!
-        : link.paymentGateway,
+      paymentGateway: link.paymentGateway,
       actor: 'scheduler',
     });
     await this.billingCycleService.updateById(cycle.id, {
@@ -3365,7 +3373,8 @@ export class ProductSubscriptionsService {
           scheduleDate = decision.scheduleDate;
         }
       } else if (cashfreeCard) {
-        scheduleDate = new Date();
+        // Same-day / T+1 card SI is not allowed; use earliest safe T+2 IST slot.
+        scheduleDate = nextCashfreeCardScheduleDate();
       } else if (cashfreeUpi) {
         scheduleDate = nextCashfreeUpiScheduleDate();
       }

@@ -33,6 +33,18 @@ export class ProductSubscriptionRenewalProcessor extends WorkerHost implements O
         removeOnFail: 50,
       },
     );
+    // Daytime passes so Cashfree card (T+2…T+14) and UPI T+1 CHARGE windows are
+    // not only attempted at 03:00 — processRenewals also runs scheduleUpcomingCashfreeDebits.
+    await this.queue.add(
+      'cashfree-advance-pass',
+      {},
+      {
+        repeat: { pattern: '0 8,12,16 * * *' },
+        jobId: 'product-subscription-cashfree-advance',
+        removeOnComplete: true,
+        removeOnFail: 50,
+      },
+    );
     await syncTestTenureRenewalJob(
       this.queue,
       isSubscriptionTestTenuresEnabled(this.configService),

@@ -2,6 +2,7 @@ import {
   CASHFREE_MISSED_SCHEDULE_REASON,
   formatCashfreeScheduleDate,
   kolkataCalendarDaysBetween,
+  nextCashfreeCardScheduleDate,
   nextCashfreeUpiScheduleDate,
   resolveCashfreeChargeSchedule,
 } from './cashfree-schedule-date.util';
@@ -45,13 +46,28 @@ describe('cashfree-schedule-date.util', () => {
     expect(decision.reason).toContain('21:00 IST');
   });
 
-  it('waits for Indian card T+1 before 07:00 IST and schedules T+2 instead', () => {
+  it('never schedules card/eNACH at T+1; waits until T+2…T+14', () => {
     const nov25_0300Ist = new Date('2026-11-24T21:30:00.000Z');
+    const nov25_1000Ist = new Date('2026-11-25T04:30:00.000Z');
     expect(
       resolveCashfreeChargeSchedule({
         intended: intendedNov26,
         now: nov25_0300Ist,
         method: 'card',
+      }).outcome,
+    ).toBe('wait');
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: intendedNov26,
+        now: nov25_1000Ist,
+        method: 'card',
+      }).outcome,
+    ).toBe('wait');
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: intendedNov26,
+        now: nov25_1000Ist,
+        method: 'enach',
       }).outcome,
     ).toBe('wait');
 
@@ -89,5 +105,18 @@ describe('cashfree-schedule-date.util', () => {
     const now = new Date('2026-11-25T10:00:00.000Z');
     expect(nextCashfreeUpiScheduleDate(now).getTime() - now.getTime()).toBe(24 * 60 * 60 * 1000);
     expect(CASHFREE_MISSED_SCHEDULE_REASON).toBe('MISSED_SCHEDULE');
+  });
+
+  it('computes a T+2 Kolkata midnight for legacy card rollback scheduling', () => {
+    const nov25_1000Ist = new Date('2026-11-25T04:30:00.000Z');
+    const scheduled = nextCashfreeCardScheduleDate(nov25_1000Ist);
+    expect(formatCashfreeScheduleDate(scheduled)).toBe('2026-11-27T00:00:00+05:30');
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: scheduled,
+        now: nov25_1000Ist,
+        method: 'card',
+      }).outcome,
+    ).toBe('schedule');
   });
 });

@@ -184,8 +184,13 @@ describe('CashfreeSubscriptionProvider payment status', () => {
       returnUrl: 'https://cureka.example/account/subscriptions/cashfree-return?subscriptionId=11111111-1111-4111-8111-111111111111',
     });
     const createBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    const createHeaders = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
     expect(createBody.subscription_meta.return_url).toContain('/account/subscriptions/cashfree-return');
     expect(createBody.subscription_meta.return_url).not.toContain('{order_id}');
+    expect(createBody.plan_details.plan_type).toBe('ON_DEMAND');
+    expect(createBody.plan_details.plan_id).toBeUndefined();
+    expect(createBody.plan_id).toBeUndefined();
+    expect(createHeaders['x-idempotency-key']).toContain('cf-sub-create:');
 
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ payment_id: 'pay_cf', payment_status: 'INITIALIZED', cf_payment_id: 'cf_2' }) as never,
