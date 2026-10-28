@@ -30,6 +30,7 @@ import { SavedForLaterItemsRepository } from '../repositories/saved-for-later-it
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
+import { lineMatchesOfferScope, readOfferScope } from '@modules/promotional-offers/utils/offer-scope.util';
 import { normalizeCheckoutCode } from '@modules/promotional-offers/utils/checkout-code-namespace.util';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { CartPricingService } from './cart-pricing.service';
@@ -367,6 +368,11 @@ export class CartService {
             variantLabel: item.variantLabel,
             isSubscription: item.isSubscription,
             productType: null,
+            brandId: item.brandId,
+            categoryId: item.categoryId,
+            subCategoryId: item.subCategoryId,
+            subSubCategoryId: item.subSubCategoryId,
+            subSubSubCategoryId: item.subSubSubCategoryId,
           })),
         });
         const applied = preview.promotions.length > 0 || preview.rewardLines.length > 0 || preview.bmsmDiscount > 0;
@@ -472,6 +478,11 @@ export class CartService {
             variantLabel: item.variantLabel,
             isSubscription: item.isSubscription,
             productType: null,
+            brandId: item.brandId,
+            categoryId: item.categoryId,
+            subCategoryId: item.subCategoryId,
+            subSubCategoryId: item.subSubCategoryId,
+            subSubSubCategoryId: item.subSubSubCategoryId,
           })),
         });
         const benefit = preview.promotionDiscount || preview.bmsmDiscount || preview.promotions[0]?.discountAmount || 0;
@@ -479,13 +490,28 @@ export class CartService {
         const cartHasTarget = (offer.targets ?? []).some((target) =>
           lineItems.some((item) => item.variantId === target.variantId && !item.isSubscription),
         );
+        const scope = readOfferScope(offer.config);
+        const cartHasScope = lineItems.some(
+          (item) =>
+            !item.isSubscription &&
+            lineMatchesOfferScope(
+              {
+                brandId: item.brandId,
+                categoryId: item.categoryId,
+                subCategoryId: item.subCategoryId,
+                subSubCategoryId: item.subSubCategoryId,
+                subSubSubCategoryId: item.subSubSubCategoryId,
+              },
+              scope,
+            ),
+        );
         const selected =
           cart.promotionalOfferId === offer.id ||
           (!!cart.selectedCode &&
             !!offer.code &&
             normalizeCheckoutCode(cart.selectedCode) === normalizeCheckoutCode(offer.code));
         const warning = preview.warnings[0];
-        if (!applied && !cartHasTarget && !selected) continue;
+        if (!applied && !cartHasTarget && !cartHasScope && !selected) continue;
         rows.push({
           code: offer.code,
           sourceType: 'promotional_offer',

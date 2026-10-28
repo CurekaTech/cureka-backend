@@ -62,6 +62,11 @@ export function kolkataCalendarDaysBetween(from: Date, to: Date): number {
  *
  * The Charge API sends the pre-debit notification. We never request same-day.
  * A missed window is not shifted to a later debit date.
+ *
+ * Card / eNACH: Cashfree FAQ cut-off table lists SI on cards as Not Allowed for
+ * T+1; only T+2…T+14. Prefer that conservative table over the Charge page row
+ * that allows Indian-card T+1, so renewals do not raise a rejected CHARGE.
+ * UPI: T+1 remains allowed before 21:00 IST.
  */
 export function resolveCashfreeChargeSchedule(params: {
   intended: Date;
@@ -72,6 +77,7 @@ export function resolveCashfreeChargeSchedule(params: {
   const method = normalizeCashfreeChargeMethod(params.method);
   const deltaDays = kolkataCalendarDaysBetween(now, params.intended);
   const hour = getZonedParts(now, KOLKATA).hour;
+  const cardLike = method === 'card' || method === 'enach';
 
   if (deltaDays > CASHFREE_CHARGE_MAX_LEAD_DAYS) {
     return {
@@ -85,33 +91,31 @@ export function resolveCashfreeChargeSchedule(params: {
       reason: `Same-day or past Cashfree ${method} CHARGE is not supported`,
     };
   }
-  if (deltaDays === 1) {
-    if (method === 'upi') {
-      if (hour >= CASHFREE_UPI_T1_CUTOFF_HOUR_IST) {
-        return { outcome: 'missed', reason: 'UPI T+1 cutoff is 21:00 IST' };
-      }
-      return { outcome: 'schedule', scheduleDate: params.intended, reason: 'UPI T+1 before 21:00 IST' };
-    }
-    if (hour < CASHFREE_CARD_T1_OPEN_HOUR_IST) {
-      return {
-        outcome: 'wait',
-        reason: 'Indian card/eNACH T+1 is only accepted from 07:00 IST; raise on T+2 or after 07:00',
-      };
-    }
-    if (hour >= CASHFREE_CARD_T1_CUTOFF_HOUR_IST) {
-      return { outcome: 'missed', reason: 'Indian card/eNACH T+1 cutoff is 21:00 IST' };
-    }
+  if (cardLike && deltaDays < 2) {
     return {
-      outcome: 'schedule',
-      scheduleDate: params.intended,
-      reason: 'Card/eNACH T+1 inside 07:00-20:59 IST',
+      outcome: 'wait',
+      reason: 'Card/eNACH CHARGE requires at least T+2 (Cashfree FAQ: SI on cards T+1 not allowed)',
     };
+  }
+  if (deltaDays === 1) {
+    if (hour >= CASHFREE_UPI_T1_CUTOFF_HOUR_IST) {
+      return { outcome: 'missed', reason: 'UPI T+1 cutoff is 21:00 IST' };
+    }
+    return { outcome: 'schedule', scheduleDate: params.intended, reason: 'UPI T+1 before 21:00 IST' };
   }
   return {
     outcome: 'schedule',
     scheduleDate: params.intended,
     reason: `T+${deltaDays} is inside the Cashfree Charge window`,
   };
+}
+
+/** Earliest safe Cashfree card/eNACH schedule when advance scheduling is off. */
+export function nextCashfreeCardScheduleDate(now = new Date()): Date {
+  const parts = getZonedParts(now, KOLKATA);
+  const startOfTodayUtc = Date.UTC(parts.year, parts.month - 1, parts.day);
+  // T+2 at 00:00 Asia/Kolkata (= previous calendar day 18:30Z while IST has no DST).
+  return new Date(startOfTodayUtc + 2 * 86_400_000 - (5 * 60 + 30) * 60 * 1000);
 }
 
 /**
