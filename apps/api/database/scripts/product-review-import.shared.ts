@@ -7,6 +7,11 @@
  * Rows are inserted as approved. moderated_by is review-import.
  * user_id is left null. Dry-run is the default; writes require --apply.
  * Inserts use ON CONFLICT (import_key) DO NOTHING and count those rows as skipped duplicates.
+ *
+ * Large sheets are processed in batches:
+ *   --batch-size=N   rows prepared/inserted per batch (default 200)
+ * SKU lookups are prefetched once per batch (WHERE sku = ANY(...)).
+ * This script never invalidates Redis product caches.
  */
 import 'reflect-metadata';
 import * as ExcelJS from 'exceljs';
@@ -24,13 +29,15 @@ import {
 } from '../../../../modules/product/utils/product-review-import.util';
 
 const CREATED_BY = 'review-import';
-const BATCH_SIZE = 50;
+const DEFAULT_BATCH_SIZE = 200;
+const INSERT_CHUNK_SIZE = 50;
 
 export interface ProductReviewImportCli {
   mode: 'test' | 'live';
   file: string;
   apply: boolean;
   confirmLive: boolean;
+  batchSize: number;
 }
 
 const HEADER_ALIASES: Record<string, string> = {
@@ -41,6 +48,17 @@ const HEADER_ALIASES: Record<string, string> = {
   'review rating': 'rating',
   'review title': 'title',
   'review text': 'text',
+};
+
+type SheetReviewRow = {
+  rowNumber: number;
+  sku: string;
+  name: string;
+  age: string;
+  location: string;
+  rating: string;
+  title: string;
+  text: string;
 };
 
 const cellText = (cell: ExcelJS.Cell): string => {
@@ -62,12 +80,23 @@ const cellText = (cell: ExcelJS.Cell): string => {
 const headerKey = (value: string): string =>
   value.trim().toLowerCase().replace(/\s+/g, ' ');
 
+function parseBatchSize(argv: string[]): number {
+  const flag = argv.find((arg) => arg.startsWith('--batch-size='));
+  if (!flag) return DEFAULT_BATCH_SIZE;
+  const value = Number(flag.slice('--batch-size='.length));
+  if (!Number.isFinite(value) || value < 1 || value > 5000) {
+    throw new Error('--batch-size must be an integer between 1 and 5000');
+  }
+  return Math.floor(value);
+}
+
 export function parseReviewImportArgs(argv: string[], mode: 'test' | 'live', file: string): ProductReviewImportCli {
   return {
     mode,
     file,
     apply: argv.includes('--apply'),
     confirmLive: argv.includes('--confirm-live'),
+    batchSize: parseBatchSize(argv),
   };
 }
 
@@ -79,6 +108,7 @@ export async function runProductReviewImport(options: ProductReviewImportCli): P
 
   const target = describeDatabaseTarget(databaseUrl);
   console.log(`Review import database=${target.database} host=${target.host}`);
+  console.log(`batchSize=${options.batchSize} insertChunk=${INSERT_CHUNK_SIZE} cacheInvalidation=off`);
 
   assertReviewImportWriteAllowed({
     mode: options.mode,
@@ -110,9 +140,59 @@ export async function runProductReviewImport(options: ProductReviewImportCli): P
     await AppDataSource.initialize();
   }
 
-  const totals = { rows: 0, created: 0, duplicates: 0, skipped: 0 };
+  const totals = { rows: 0, created: 0, duplicates: 0, skipped: 0, ready: 0, batches: 0 };
   const failures: Array<{ row: number; reason: string }> = [];
-  const ready: ReadyReviewImportRow[] = [];
+  let pending: SheetReviewRow[] = [];
+
+  const flushBatch = async (batch: SheetReviewRow[]): Promise<void> => {
+    if (!batch.length) return;
+    totals.batches += 1;
+    const skuList = [...new Set(batch.map((row) => row.sku.trim()).filter(Boolean))];
+    const matchesBySku = await findActiveVariantsBySkus(skuList);
+    const ready: ReadyReviewImportRow[] = [];
+
+    for (const sheetRow of batch) {
+      totals.rows += 1;
+      const prepared = prepareReviewImportRow({
+        sku: sheetRow.sku,
+        customerName: sheetRow.name,
+        age: sheetRow.age,
+        location: sheetRow.location,
+        rating: sheetRow.rating,
+        title: sheetRow.title,
+        text: sheetRow.text,
+        matches: matchesBySku.get(sheetRow.sku.trim()) ?? [],
+      });
+      if (prepared.status === 'skipped') {
+        totals.skipped += 1;
+        failures.push({ row: sheetRow.rowNumber, reason: prepared.reason });
+        continue;
+      }
+      ready.push(prepared.row);
+    }
+
+    totals.ready += ready.length;
+
+    if (options.apply && ready.length) {
+      for (let index = 0; index < ready.length; index += INSERT_CHUNK_SIZE) {
+        const chunk = ready.slice(index, index + INSERT_CHUNK_SIZE);
+        const outcome = await insertReviewBatch(chunk);
+        totals.created += outcome.created;
+        totals.duplicates += outcome.duplicates;
+      }
+    }
+
+    console.log(
+      [
+        `batch=${totals.batches}`,
+        `rowsSoFar=${totals.rows}`,
+        `readySoFar=${totals.ready}`,
+        `createdSoFar=${options.apply ? totals.created : 0}`,
+        `duplicatesSoFar=${options.apply ? totals.duplicates : 0}`,
+        `skippedSoFar=${totals.skipped}`,
+      ].join(' '),
+    );
+  };
 
   for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
@@ -124,46 +204,42 @@ export async function runProductReviewImport(options: ProductReviewImportCli): P
     const name = read('name');
     if (!sku && !name && !read('rating') && !read('title') && !read('text')) continue;
 
-    totals.rows += 1;
-    const matches = await findActiveVariantsBySku(sku);
-    const prepared = prepareReviewImportRow({
+    pending.push({
+      rowNumber,
       sku,
-      customerName: name,
+      name,
       age: read('age'),
       location: read('location'),
       rating: read('rating'),
       title: read('title'),
       text: read('text'),
-      matches,
     });
-    if (prepared.status === 'skipped') {
-      totals.skipped += 1;
-      failures.push({ row: rowNumber, reason: prepared.reason });
-      continue;
+
+    if (pending.length >= options.batchSize) {
+      await flushBatch(pending);
+      pending = [];
     }
-    ready.push(prepared.row);
   }
 
-  if (options.apply) {
-    for (let index = 0; index < ready.length; index += BATCH_SIZE) {
-      const batch = ready.slice(index, index + BATCH_SIZE);
-      const outcome = await insertReviewBatch(batch);
-      totals.created += outcome.created;
-      totals.duplicates += outcome.duplicates;
-    }
+  if (pending.length) {
+    await flushBatch(pending);
+    pending = [];
   }
 
   console.log(
     [
       `mode=${options.mode}`,
       `apply=${options.apply}`,
+      `batches=${totals.batches}`,
       `rows=${totals.rows}`,
       `created=${options.apply ? totals.created : 0}`,
       `duplicates=${options.apply ? totals.duplicates : 0}`,
       `skipped=${totals.skipped}`,
-      `ready=${ready.length}`,
+      `ready=${totals.ready}`,
+      `cacheInvalidation=skipped`,
     ].join(' '),
   );
+  console.log('Product Redis cache was not cleared. Reviews appear after cache TTL or a manual cache:invalidate-products if needed.');
   for (const failure of failures) {
     console.log(`skipped row=${failure.row} reason=${failure.reason}`);
   }
@@ -173,9 +249,11 @@ export async function runProductReviewImport(options: ProductReviewImportCli): P
   }
 }
 
-async function findActiveVariantsBySku(sku: string): Promise<ActiveVariantSkuMatch[]> {
-  const trimmed = sku.trim();
-  if (!trimmed) return [];
+async function findActiveVariantsBySkus(
+  skus: string[],
+): Promise<Map<string, ActiveVariantSkuMatch[]>> {
+  const map = new Map<string, ActiveVariantSkuMatch[]>();
+  if (!skus.length) return map;
   const rows = (await AppDataSource.query(
     `
     SELECT v.id, v.sku, v.product_id AS "productId", p.ref_id AS "productRefId"
@@ -183,11 +261,16 @@ async function findActiveVariantsBySku(sku: string): Promise<ActiveVariantSkuMat
     INNER JOIN products p ON p.id = v.product_id
     WHERE v.deleted_at IS NULL
       AND v.status = 'active'
-      AND v.sku = $1
+      AND v.sku = ANY($1::text[])
     `,
-    [trimmed],
+    [skus],
   )) as ActiveVariantSkuMatch[];
-  return rows;
+  for (const row of rows) {
+    const list = map.get(row.sku) ?? [];
+    list.push(row);
+    map.set(row.sku, list);
+  }
+  return map;
 }
 
 async function insertReviewBatch(
