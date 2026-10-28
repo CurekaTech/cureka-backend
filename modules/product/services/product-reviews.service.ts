@@ -129,7 +129,12 @@ export class ProductReviewsService {
 
     const reviewText = dto.review?.trim();
     if (!reviewText) {
-      throw new BadRequestException('Review text is required');
+      throw new BadRequestException('Review title is required');
+    }
+
+    const reviewDescription = dto.reviewDescription?.trim();
+    if (!reviewDescription) {
+      throw new BadRequestException('Review description is required');
     }
 
     const customer = await this.usersRepository.findById(user.sub);
@@ -154,7 +159,7 @@ export class ProductReviewsService {
       customerName,
       rating,
       review: reviewText,
-      reviewDescription: blankToNull(dto.reviewDescription),
+      reviewDescription,
       customerAge: blankToNull(dto.customerAge),
       customerLocation: blankToNull(dto.customerLocation),
       status: ProductReviewStatus.PENDING,
